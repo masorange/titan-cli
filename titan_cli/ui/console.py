@@ -20,7 +20,7 @@ def get_console() -> Console:
         Shared Console instance
 
     Examples:
-        >>> from titan_cli.ui.components.console import get_console
+        >>> from titan_cli.ui.console import get_console
         >>> console = get_console()
         >>> console.print("Hello", style="success") # Now uses theme style
     """

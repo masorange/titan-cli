@@ -108,7 +108,7 @@ class PanelRenderer:
         self.default_padding = default_padding
         self.default_expand = default_expand
 
-    def _get_border_style(self, border_style):
+    def _get_border_style(self, border_style: BorderStyleOrBox) -> Optional[rich_box.Box]:
         """
         Get border style with fallback to default
 

@@ -40,6 +40,8 @@ def render_ascii_banner(
     banner = Text()
 
     for line in lines:
+        if not line.strip(): # Skip empty or whitespace-only lines
+            continue
         colored_line = Text()
         chars_per_color = len(line) // len(colors)
 
@@ -50,21 +52,21 @@ def render_ascii_banner(
         banner.append(colored_line)
         banner.append("\n")
 
-    print()
+    console.print()
     console.print(banner, justify=justify)
 
     if subtitle:
         console.print(Text(subtitle, style="dim italic"), justify=justify)
 
-    print()
+    console.print()
 
 
-def render_titan_banner(subtitle: str = None) -> None:
+def render_titan_banner(subtitle: Optional[str] = None) -> None:
     """
     Render TITAN CLI banner with default styling
 
     Args:
-        subtitle: Subtitle text (default from messages.py)
+        subtitle: Subtitle text. If None (default), uses the default from messages.py (msg.UI.BANNER_DEFAULT)
 
     Examples:
         >>> render_titan_banner()

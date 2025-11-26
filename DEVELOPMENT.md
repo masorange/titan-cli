@@ -4,26 +4,31 @@
 
 The UI components are organized to ensure consistency, reusability, and maintainability.
 
-### 📦 Component Structure (`titan_cli/ui/`)
+### 📦 Component Structure (`titan_cli/`)
 
-The `ui/` directory is structured as follows:
+The `titan_cli/` package is structured as follows:
 
 ```
-titan-cli/titan_cli/ui/
+titan-cli/titan_cli/
 ├── __init__.py
-│
-├── console.py          # Singleton Rich Console instance
+├── cli.py              # Main CLI application definition
+├── preview.py          # Preview commands for UI components
 ├── messages.py         # Centralized user-facing strings
 │
-├── components/         # Basic, reusable UI wrappers (e.g., Panel, Table)
+├── ui/                 # UI components and views
 │   ├── __init__.py
-│   ├── panel.py        # Wrapper for rich.panel.Panel
-│   └── ... (other atomic components)
-│
-└── views/              # Composite UI elements (e.g., Banner, Menus)
-    ├── __init__.py
-    ├── banner.py       # The application's main banner
-    └── ... (other complex views)
+│   ├── console.py          # Singleton Rich Console instance
+│   ├── theme.py            # Centralized theming configuration
+│   │
+│   ├── components/         # Basic, reusable UI wrappers (e.g., Panel, Table)
+│   │   ├── __init__.py
+│   │   ├── panel.py        # Wrapper for rich.panel.Panel
+│   │   └── ... (other atomic components)
+│   │
+│   └── views/              # Composite UI elements (e.g., Banner, Menus)
+│       ├── __init__.py
+│       ├── banner.py       # The application's main banner
+│       └── ... (other complex views)
 ```
 
 -   **`components/`**: Contains simple, atomic wrappers around single `rich` elements (e.g., a styled Panel, a custom Table). These are the "building blocks" of your UI.
@@ -58,10 +63,11 @@ To efficiently develop and debug UI components, you can preview them in isolatio
 3.  Write code to instantiate and render your component in various states or with different arguments.
 
 **How to run a preview:**
-To run a preview script, always execute it as a Python module from the project root using `poetry run python -m ...` (if using poetry) or `python -m ...`:
+To run a preview script, use the built-in `titan preview` command:
 
 ```bash
-# Example for panel_preview.py
-poetry run python -m titan_cli.ui.components.__previews__.panel_preview
+# Example for the Panel component
+titan preview panel
 ```
-This command ensures that Python correctly resolves internal package imports.
+
+This command is more user-friendly and discoverable. The `preview` subcommand and its associated commands are defined in `titan_cli/preview.py`. To add new preview commands, simply edit that file.

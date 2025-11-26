@@ -3,7 +3,7 @@
 Panel Component Preview
 
 Run this script to preview all panel variations:
-    python titan_cli/ui/components/__previews__/panel_preview.py
+    python3 -m titan_cli.ui.components.__previews__.panel_preview
 
 This is the equivalent of @Preview in Compose - shows components
 in isolation without running the full app.
