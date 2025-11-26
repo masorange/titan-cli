@@ -34,3 +34,15 @@ def preview_typography():
     except ModuleNotFoundError:
         typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
         raise typer.Exit(1)
+
+
+@preview_app.command("table")
+def preview_table():
+    """
+    Shows a preview of the Table component with all its variations.
+    """
+    try:
+        runpy.run_module("titan_cli.ui.components.__previews__.table_preview", run_name="__main__")
+    except ModuleNotFoundError:
+        typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
+        raise typer.Exit(1)

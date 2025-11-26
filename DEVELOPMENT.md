@@ -25,6 +25,7 @@ titan-cli/titan_cli/
 │   ├── components/         # Basic, reusable UI wrappers (e.g., Panel, Table)
 │   │   ├── __init__.py
 │   │   ├── panel.py        # Wrapper for rich.panel.Panel
+│   │   ├── table.py        # Wrapper for rich.table.Table
 │   │   └── ... (other atomic components)
 │   │
 │   └── views/              # Composite UI elements (e.g., Banner, Menus)
