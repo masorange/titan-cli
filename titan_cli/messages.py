@@ -56,6 +56,13 @@ class Messages:
         # Generic UI messages
         PRESS_ENTER = "Press Enter to continue..."
         INVALID_CHOICE = "❌ Invalid choice. Please try again."
+    
+    class EMOJI:
+        """Centralized emoji characters for consistent UI"""
+        SUCCESS = "✅"
+        ERROR = "❌"
+        INFO = "ℹ️"
+        WARNING = "⚠️"
 
     # ═══════════════════════════════════════════════════════════════
     # Workflow Engine
