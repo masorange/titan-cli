@@ -64,6 +64,13 @@ class Messages:
         INFO = "ℹ️"
         WARNING = "⚠️"
 
+    class SYMBOL:
+        """ASCII symbols for consistent alignment (alternative to emojis)"""
+        SUCCESS = "✓"  # Checkmark
+        ERROR = "✗"    # Cross
+        INFO = "i"     # Info
+        WARNING = "!"  # Exclamation
+
     # ═══════════════════════════════════════════════════════════════
     # Workflow Engine
     # ═══════════════════════════════════════════════════════════════

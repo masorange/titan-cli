@@ -7,65 +7,64 @@ Run this script to preview all typography variations:
 This demonstrates the centralized text styling.
 """
 
-from titan_cli.ui.components import typography
-from titan_cli.ui.console import get_console
+from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.messages import msg
 
 
 def preview_all():
     """Preview all typography variations"""
-    console = get_console()
+    text = TextRenderer() # Instantiate the class
 
-    typography.title("Typography Component Preview")
-    typography.subtitle("Showcasing all text styles from the typography module.")
-    typography.line(2)
+    text.title("Typography Component Preview")
+    text.subtitle("Showcasing all text styles from the typography module.")
+    text.line(2)
 
     # Title and Subtitle
-    typography.title("1. Titles & Subtitles")
-    typography.body("Using typography.title() and typography.subtitle():")
-    typography.line()
-    typography.title("Main Application Title", centered=True)
-    typography.subtitle("A centered subtitle for context.", centered=True)
-    typography.line()
+    text.title("1. Titles & Subtitles")
+    text.body("Using text.title() and text.subtitle():")
+    text.line()
+    text.title("Main Application Title", justify="center")
+    text.subtitle("A centered subtitle for context.", justify="center")
+    text.line()
 
     # Body Text
-    typography.title("2. Body Text")
-    typography.body("Standard body text using typography.body():")
-    typography.line()
-    typography.body("This is a piece of standard body text. It should appear without any special styling unless inherited from the console's default.")
-    typography.body(f"You can also include variables like the current version: {msg.CLI.VERSION.format(version='0.1.0')}")
-    typography.line()
+    text.title("2. Body Text")
+    text.body("Standard body text using text.body():")
+    text.line()
+    text.body("This is a piece of standard body text. It should appear without any special styling unless inherited from the console's default.")
+    text.body(f"You can also include variables like the current version: {msg.CLI.VERSION.format(version='0.1.0')}")
+    text.line()
 
     # Semantic Messages with Emojis
-    typography.title("3. Semantic Messages (with Emojis)")
-    typography.body("Messages with default emojis using typography.success(), error(), etc.:")
-    typography.line()
-    typography.success("Operation completed successfully.")
-    typography.info("This is an important piece of information.")
-    typography.warning("Something might be wrong here, proceed with caution.")
-    typography.error("An unrecoverable error has occurred.")
-    typography.line()
+    text.title("3. Semantic Messages (with Emojis)")
+    text.body("Messages with default emojis using text.success(), error(), etc.:")
+    text.line()
+    text.success("Operation completed successfully.")
+    text.info("This is an important piece of information.")
+    text.warning("Something might be wrong here, proceed with caution.")
+    text.error("An unrecoverable error has occurred.")
+    text.line()
 
     # Semantic Messages without Emojis
-    typography.title("4. Semantic Messages (without Emojis)")
-    typography.body("Messages with emojis disabled using show_emoji=False:")
-    typography.line()
-    typography.success("Configuration loaded", show_emoji=False)
-    typography.info("Checking dependencies", show_emoji=False)
-    typography.warning("Disk space low", show_emoji=False)
-    typography.error("Build failed", show_emoji=False)
-    typography.line()
+    text.title("4. Semantic Messages (without Emojis)")
+    text.body("Messages with emojis disabled using show_emoji=False:")
+    text.line()
+    text.success("Configuration loaded", show_emoji=False)
+    text.info("Checking dependencies", show_emoji=False)
+    text.warning("Disk space low", show_emoji=False)
+    text.error("Build failed", show_emoji=False)
+    text.line()
 
     # Line breaks
-    typography.title("5. Line Breaks")
-    typography.body("Using typography.line(count):")
-    typography.body("Line above this.")
-    typography.line(3)
-    typography.body("Line below this (after 3 blank lines).")
-    typography.line()
+    text.title("5. Line Breaks")
+    text.body("Using text.line(count):")
+    text.body("Line above this.")
+    text.line(3)
+    text.body("Line below this (after 3 blank lines).")
+    text.line()
 
-    typography.success("Typography Preview Complete")
-    typography.line()
+    text.success("Typography Preview Complete")
+    text.line()
 
 
 if __name__ == "__main__":

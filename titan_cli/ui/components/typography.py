@@ -24,6 +24,7 @@ Examples:
 
 from typing import Optional, Literal
 from rich.console import Console
+from rich.text import Text
 from ..console import get_console
 from ...messages import msg
 
@@ -71,29 +72,61 @@ class TextRenderer:
         """Print a success message with green styling"""
         if show_emoji is None:
             show_emoji = self.default_show_emoji
-        prefix = f"{msg.EMOJI.SUCCESS} " if show_emoji else ""
-        self.console.print(f"{prefix}{text}", style="success", justify=justify)
+
+        if show_emoji:
+            icon = msg.EMOJI.SUCCESS
+            message = Text.assemble(
+                (f"{icon} ", ""),  # Space inside f-string, empty style
+                (text, "success")
+            )
+            self.console.print(message, justify=justify)
+        else:
+            self.console.print(text, style="success", justify=justify)
 
     def error(self, text: str, show_emoji: Optional[bool] = None, justify: Literal["left", "center", "right"] = "left") -> None:
         """Print an error message with red styling"""
         if show_emoji is None:
             show_emoji = self.default_show_emoji
-        prefix = f"{msg.EMOJI.ERROR} " if show_emoji else ""
-        self.console.print(f"{prefix}{text}", style="error", justify=justify)
+
+        if show_emoji:
+            icon = msg.EMOJI.ERROR
+            message = Text.assemble(
+                (f"{icon} ", ""),
+                (text, "error")
+            )
+            self.console.print(message, justify=justify)
+        else:
+            self.console.print(text, style="error", justify=justify)
 
     def warning(self, text: str, show_emoji: Optional[bool] = None, justify: Literal["left", "center", "right"] = "left") -> None:
         """Print a warning message with yellow styling"""
         if show_emoji is None:
             show_emoji = self.default_show_emoji
-        prefix = f"{msg.EMOJI.WARNING} " if show_emoji else ""
-        self.console.print(f"{prefix}{text}", style="warning", justify=justify)
+
+        if show_emoji:
+            icon = msg.EMOJI.WARNING
+            message = Text.assemble(
+                (f"{icon} ", ""),
+                (text, "warning")
+            )
+            self.console.print(message, justify=justify)
+        else:
+            self.console.print(text, style="warning", justify=justify)
 
     def info(self, text: str, show_emoji: Optional[bool] = None, justify: Literal["left", "center", "right"] = "left") -> None:
         """Print an informational message with cyan styling"""
         if show_emoji is None:
             show_emoji = self.default_show_emoji
-        prefix = f"{msg.EMOJI.INFO} " if show_emoji else ""
-        self.console.print(f"{prefix}{text}", style="info", justify=justify)
+
+        if show_emoji:
+            icon = msg.EMOJI.INFO
+            message = Text.assemble(
+                (f"{icon} ", ""),
+                (text, "info")
+            )
+            self.console.print(message, justify=justify)
+        else:
+            self.console.print(text, style="info", justify=justify)
 
     def line(self, count: int = 1) -> None:
         """Print blank lines for spacing"""
