@@ -1,0 +1,36 @@
+# Test Environment Configuration
+#
+# Optimized for testing with mocks and simpler models
+
+adapters:
+  # Use cheaper/faster models for testing
+  - name: anthropic
+    module: titan_cli.tap.anthropic.AnthropicAdapter
+    metadata:
+      provider: Anthropic
+      version: 1.0.0
+      environment: test
+    config:
+      model: claude-3-5-sonnet-20241022  # Smaller model for tests
+      max_tokens: 1024
+      temperature: 0.0  # Deterministic for testing
+  
+  - name: openai
+    module: titan_cli.tap.openai.OpenAIAdapter
+    metadata:
+      provider: OpenAI
+      version: 1.0.0
+      environment: test
+    config:
+      model: gpt-3.5-turbo  # Cheaper for tests
+      temperature: 0.0
+      max_tokens: 1024
+  
+  - name: langraph
+    module: titan_cli.tap.langraph.LangGraphAdapter
+    metadata:
+      provider: LangChain
+      version: 1.0.0
+      environment: test
+    config:
+      system_prompt: You are a test assistant. Be brief.

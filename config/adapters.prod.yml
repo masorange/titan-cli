@@ -1,0 +1,42 @@
+# Production Environment Configuration
+#
+# Optimized for production with performance and reliability
+
+adapters:
+  # Primary: Anthropic (high quality, reliable)
+  - name: anthropic
+    module: titan_cli.tap.anthropic.AnthropicAdapter
+    metadata:
+      provider: Anthropic
+      version: 1.0.0
+      environment: production
+      priority: 1
+    config:
+      model: claude-sonnet-4-20250514
+      max_tokens: 4096
+      temperature: 0.5  # Lower for more consistent output
+      top_p: 0.9
+  
+  # Fallback: OpenAI
+  - name: openai
+    module: titan_cli.tap.openai.OpenAIAdapter
+    metadata:
+      provider: OpenAI
+      version: 1.0.0
+      environment: production
+      priority: 2
+    config:
+      model: gpt-4
+      temperature: 0.5
+      max_tokens: 2048
+  
+  # LangGraph for complex workflows
+  - name: langraph
+    module: titan_cli.tap.langraph.LangGraphAdapter
+    metadata:
+      provider: LangChain
+      version: 1.0.0
+      environment: production
+      priority: 3
+    config:
+      system_prompt: You are a production assistant. Be concise and accurate.
