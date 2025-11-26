@@ -1,77 +1,69 @@
 # commands/init.py
 import typer
+import tomli
+import tomli_w
 from pathlib import Path
 from rich.prompt import Prompt
-from ..core.plugin_registry import PluginRegistry
+from ..core.config import TitanConfig
 from ..ui.components.typography import TextRenderer
 
 # Create a new Typer app for the 'init' command to live in
-# This isn't strictly necessary for one command, but it's a good pattern
-# if you plan to add more commands to this module.
-init_app = typer.Typer(name="init", help="Initialize a new Titan project.")
-
-def generate_config_template(project_name: str, installed_plugins: list[str]) -> str:
-    """Generates the content for a default .titan/config.toml file."""
-    
-    config_lines = [
-        '[project]',
-        f'name = "{project_name}" ',
-        'type = "generic"',
-        '',
-        '# --- AI Configuration (Optional) ---',
-        '# [ai]',
-        '# provider = "anthropic"  # anthropic, openai, gemini',
-        '# model = "claude-3-haiku-20240307"',
-        '',
-        '# --- Plugin Configuration ---',
-        '# Enable and configure plugins here.',
-        '[plugins]',
-    ]
-
-    # Add discovered plugins, commented out by default
-    for plugin in installed_plugins:
-        config_lines.append(f'# [plugins.{plugin}]')
-        config_lines.append(f'# enabled = true')
-        config_lines.append('')
-    
-    return "\n".join(config_lines)
-
+init_app = typer.Typer(name="init", help="Initialize Titan's global configuration.")
 
 @init_app.callback(invoke_without_command=True)
 def init():
     """
-    Initialize Titan project in the current directory.
+    Initialize Titan's global configuration.
     
-    This creates a .titan/config.toml file with a basic configuration
-    and lists all discovered plugins for you to enable.
+    This command helps you set up the global configuration, including the
+    root directory where your projects are located.
     """
     text = TextRenderer()
-    
-    text.title("🎛️ Titan CLI - Project Initialization")
+    text.title("🎛️ Titan CLI - Global Setup")
     text.line()
 
-    # Discover installed plugins
-    registry = PluginRegistry()
-    installed = registry.list_installed()
+    global_config_path = TitanConfig.GLOBAL_CONFIG
+    global_config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Ask for project name
+    # Load existing global config, if any
+    config = {}
+    if global_config_path.exists():
+        with open(global_config_path, "rb") as f:
+            try:
+                config = tomli.load(f)
+            except tomli.TOMLDecodeError:
+                text.error(f"Could not parse existing global config at {global_config_path}. A new one will be created.")
+                config = {}
+
+    # Get current project root or prompt for it
+    current_project_root = config.get("core", {}).get("project_root")
+    
+    text.info(f"The project root is the main folder where you store all your git repositories (e.g., ~/git, ~/Projects).")
+    
+    prompt_default = str(Path.home())
+    if current_project_root:
+        text.body(f"Current project root is: [primary]{current_project_root}[/primary]")
+        prompt_default = current_project_root
+
     try:
-        project_name = Prompt.ask("Enter a name for this project")
+        project_root_str = Prompt.ask(
+            "Enter the path to your projects root directory",
+            default=prompt_default
+        )
+        # Expand user path (e.g., ~) and resolve to an absolute path
+        project_root = str(Path(project_root_str).expanduser().resolve())
+
+        # Update the config dictionary
+        config.setdefault("core", {})["project_root"] = project_root
+
+        # Write the updated config back to the global file
+        with open(global_config_path, "wb") as f:
+            tomli_w.dump(config, f)
+
+        text.success(f"Global configuration updated. Project root set to: {project_root}")
+
     except Exception:
-        # In non-interactive environments, default to the current directory name
-        project_name = Path.cwd().name
-
-    # Create .titan directory
-    titan_dir = Path.cwd() / ".titan"
-    titan_dir.mkdir(exist_ok=True)
-
-    # Generate config with installed plugins commented
-    config_content = generate_config_template(
-        project_name=project_name,
-        installed_plugins=installed
-    )
-
-    config_path = titan_dir / "config.toml"
-    config_path.write_text(config_content)
-
-    text.success(f"Project initialized! Edit your configuration at: {config_path.relative_to(Path.cwd())}")
+        # In non-interactive environments, this will likely fail.
+        # We'll just inform the user and not set the value.
+        text.warning("Could not set project root in non-interactive environment.", show_emoji=False)
+        text.info("You can set it manually in ~/.titan/config.toml", show_emoji=False)
