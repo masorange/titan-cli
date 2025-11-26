@@ -1,57 +1,73 @@
-# Titan CLI - Development Guide (Initial Setup)
 
-This guide covers the initial development setup for `titan-cli`, starting from its minimal "Hello World" implementation.
 
-## 🚀 Quick Start
+## 🎨 UI Architecture and Theming
 
-This section explains how to set up the project for development.
+The UI components are organized to ensure consistency, reusability, and maintainability.
 
-### Prerequisites
-- Python 3.10+
-- `pipx` (recommended for installation)
+### 📦 Component Structure (`titan_cli/`)
 
-### Clone and Install
+The `titan_cli/` package is structured as follows:
+
+```
+titan-cli/titan_cli/
+├── __init__.py
+├── cli.py              # Main CLI application definition
+├── preview.py          # Preview commands for UI components
+├── messages.py         # Centralized user-facing strings
+│
+├── ui/                 # UI components and views
+│   ├── __init__.py
+│   ├── console.py          # Singleton Rich Console instance
+│   ├── theme.py            # Centralized theming configuration
+│   │
+│   ├── components/         # Basic, reusable UI wrappers (e.g., Panel, Table)
+│   │   ├── __init__.py
+│   │   ├── panel.py        # Wrapper for rich.panel.Panel
+│   │   └── ... (other atomic components)
+│   │
+│   └── views/              # Composite UI elements (e.g., Banner, Menus)
+│       ├── __init__.py
+│       ├── banner.py       # The application's main banner
+│       └── ... (other complex views)
+```
+
+-   **`components/`**: Contains simple, atomic wrappers around single `rich` elements (e.g., a styled Panel, a custom Table). These are the "building blocks" of your UI.
+-   **`views/`**: Contains more complex, composite UI elements that typically use multiple components. These represent larger portions of the UI that users interact with (e.g., the application banner, interactive menus, status displays).
+
+### 🎨 Centralized Theming (`titan_cli/ui/theme.py`)
+
+All styling throughout the CLI should be driven from a single source of truth: `titan_cli/ui/theme.py`.
+
+This file defines:
+-   **`TITAN_THEME`**: A `rich.theme.Theme` object that centralizes custom styles (e.g., `success`, `error`, `info`, `primary`) used by `rich.Console` and components like `PanelRenderer`.
+-   **`BANNER_GRADIENT_COLORS`**: A list of hex codes for the application's banner gradient.
+-   **`SyntaxTheme` & `ThemeManager`**: Your original implementation for managing syntax highlighting themes (e.g., "dracula", "nord").
+
+**How to use:**
+-   **For console output and components:** Ensure your `Console` instance is initialized with `TITAN_THEME` (this is handled by `titan_cli/ui/console.py`). Then, simply use style names (e.g., `console.print("Success!", style="success")`).
+-   **For banner:** The `render_ascii_banner` function automatically pulls colors from `BANNER_GRADIENT_COLORS`.
+-   **For syntax highlighting:** Use `ThemeManager.get_syntax_theme()` when creating `rich.syntax.Syntax` objects.
+
+### 👁️ Previewing UI Components (`__previews__/` directory)
+
+To efficiently develop and debug UI components, you can preview them in isolation without running the entire CLI application. This is achieved using scripts placed in a `__previews__/` subdirectory alongside the components.
+
+**Structure:**
+-   Each component or view (`panel.py`, `banner.py`) that you want to preview will have a corresponding preview script (e.g., `panel_preview.py`) in:
+    `titan_cli/ui/components/__previews__/`
+    `titan_cli/ui/views/__previews__/`
+
+**How to create a preview:**
+1.  Create a file like `panel_preview.py` in the `__previews__/` directory.
+2.  Inside this file, import the component you want to test (e.g., `from titan_cli.ui.components.panel import PanelRenderer`).
+3.  Write code to instantiate and render your component in various states or with different arguments.
+
+**How to run a preview:**
+To run a preview script, use the built-in `titan preview` command:
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd titan-cli
-
-# Install in editable mode using pipx
-# (This makes the 'titan' command available globally)
-pipx install -e .
-
-# Verify installation
-titan
-```
-You should see the output: `Hola Mundo`
-
-## 📦 Project Structure (Current)
-
-The project currently has a minimal structure:
-
-```
-titan-cli/
-├── titan_cli/              # Main package source
-│   └── __main__.py         # CLI entry point ("Hola Mundo")
-├── pyproject.toml          # Package configuration and dependencies
-├── DEVELOPMENT.md          # This development guide
-└── ... (other documentation files)
+# Example for the Panel component
+titan preview panel
 ```
 
-## 🛠️ Development Workflow
-
-Because the project is installed in "editable" mode (`-e`), any changes you make to the Python source files will be reflected immediately when you run the `titan` command.
-
-1.  **Edit the code:**
-    ```bash
-    # Open the entry point file in your editor
-    vim titan_cli/__main__.py
-    ```
-2.  **Run the command:**
-    ```bash
-    # The changes are reflected instantly
-    titan
-    ```
-
-This simple setup is the foundation. As we migrate more components (like the engine, UI, and plugins), this document will be updated.
+This command is more user-friendly and discoverable. The `preview` subcommand and its associated commands are defined in `titan_cli/preview.py`. To add new preview commands, simply edit that file.

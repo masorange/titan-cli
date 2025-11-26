@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-titan = "titan_cli.__main__:app"
+titan = "titan_cli.cli:app"
 
 [tool.setuptools]
 packages = ["titan_cli"]
