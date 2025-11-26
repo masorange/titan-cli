@@ -19,7 +19,7 @@ from rich import box as rich_box
 def preview_all():
     """Preview all panel variations"""
     renderer = PanelRenderer()
-    text = TextRenderer()  # ✅ Usa clase en vez de módulo
+    text = TextRenderer()  # ✅ Use class instead of module
 
     text.title("Panel Component Preview")
     text.subtitle("Preview of all panel variations")
