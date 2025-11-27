@@ -70,3 +70,15 @@ def preview_config():
     except ModuleNotFoundError:
         typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
         raise typer.Exit(1)
+
+
+@preview_app.command("prompts")
+def preview_prompts():
+    """
+    Shows an interactive preview of the Prompts component.
+    """
+    try:
+        runpy.run_module("titan_cli.ui.views.__previews__.prompts_preview", run_name="__main__")
+    except ModuleNotFoundError:
+        typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
+        raise typer.Exit(1)
