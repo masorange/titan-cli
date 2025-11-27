@@ -1,6 +1,5 @@
 # tests/ui/views/test_prompts.py
 import pytest
-from unittest.mock import MagicMock
 from rich.prompt import Prompt, Confirm, IntPrompt
 from titan_cli.ui.views.prompts import PromptsRenderer
 from titan_cli.ui.components.typography import TextRenderer

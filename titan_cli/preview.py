@@ -75,7 +75,7 @@ def preview_config():
 @preview_app.command("prompts")
 def preview_prompts():
     """
-    Shows an interactive preview of the Prompts component.
+    Shows a non interactive preview of the Prompts component.
     """
     try:
         runpy.run_module("titan_cli.ui.views.__previews__.prompts_preview", run_name="__main__")
