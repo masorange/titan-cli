@@ -19,8 +19,8 @@ def test_init_creates_global_config(mocker, monkeypatch, tmp_path):
     # Patch TitanConfig.GLOBAL_CONFIG to point to our mock file
     monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", mock_global_config_path)
     
-    # Patch Prompt.ask to return a specific path without user interaction
-    mocker.patch("rich.prompt.Prompt.ask", return_value=str(mock_project_root_path))
+    # Patch the ask_text method on the PromptsRenderer class used within the command
+    mocker.patch("titan_cli.commands.init.PromptsRenderer.ask_text", return_value=str(mock_project_root_path))
 
     # 2. Run the 'init' command
     result = runner.invoke(app, ["init"])
@@ -46,8 +46,8 @@ def test_init_handles_non_interactive_env(mocker, monkeypatch, tmp_path):
     mock_global_config_path = tmp_path / "global_config.toml"
     monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", mock_global_config_path)
     
-    # 2. Patch Prompt.ask to simulate a non-interactive environment by raising EOFError
-    mocker.patch("rich.prompt.Prompt.ask", side_effect=EOFError())
+    # 2. Patch ask_text to simulate a non-interactive environment by raising EOFError
+    mocker.patch("titan_cli.commands.init.PromptsRenderer.ask_text", side_effect=EOFError())
 
     # 3. Run the 'init' command
     result = runner.invoke(app, ["init"])

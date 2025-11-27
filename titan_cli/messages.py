@@ -284,6 +284,13 @@ class Messages:
     class Prompts:
         """User input prompts"""
 
+        # General
+        INVALID_INPUT = "Invalid input, please try again."
+        NOT_A_NUMBER = "Please enter a number."
+        VALUE_TOO_LOW = "Value must be at least {min}."
+        VALUE_TOO_HIGH = "Value must be at most {max}."
+        MISSING_VALUE = "A value is required."
+
         # Confirmations
         CONFIRM_DELETE = "Are you sure you want to delete '{item}'?"
         CONFIRM_OVERWRITE = "'{path}' already exists. Overwrite?"
