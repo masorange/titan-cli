@@ -3,9 +3,9 @@ import typer
 import tomli
 import tomli_w
 from pathlib import Path
-from rich.prompt import Prompt
 from ..core.config import TitanConfig
 from ..ui.components.typography import TextRenderer
+from ..ui.views.prompts import PromptsRenderer # Import the new component
 from ..core.errors import ConfigWriteError
 from ..messages import msg
 
@@ -21,6 +21,7 @@ def init():
     root directory where your projects are located.
     """
     text = TextRenderer()
+    prompts = PromptsRenderer(text_renderer=text) # Instantiate the prompts renderer
     text.title("🎛️ Titan CLI - Global Setup")
     text.line()
 
@@ -48,7 +49,7 @@ def init():
         prompt_default = current_project_root
 
     try:
-        project_root_str = Prompt.ask(
+        project_root_str = prompts.ask_text(
             "Enter the path to your projects root directory",
             default=prompt_default
         )
