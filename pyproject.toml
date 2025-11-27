@@ -18,8 +18,38 @@ dependencies = [
     "tomli>=2.0.0,<3.0.0",        # TOML reading
     "pydantic>=2.0.0,<3.0.0",     # Validation
     "tomli-w>=1.0.0,<2.0.0",      # TOML writing
+    # TitanAgents Integration
+    "typing-extensions>=4.0.0",   # Type hints support
+    "pyyaml>=6.0.0,<7.0.0",       # YAML config loading
 ]
 
+[project.optional-dependencies]
+# AI Provider Adapters
+anthropic = [
+    "anthropic>=0.18.0,<1.0.0",
+]
+
+openai = [
+    "openai>=1.0.0,<2.0.0",
+]
+
+langraph = [
+    "langgraph>=0.2.0,<1.0.0",
+    "langchain>=0.3.0,<1.0.0",
+    "langchain-core>=0.3.0,<1.0.0",
+]
+
+# Development dependencies
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+# Install everything
+all = [
+    "titan-cli[anthropic,openai,langraph,dev]",
+]
 
 [project.scripts]
 titan = "titan_cli.cli:app"

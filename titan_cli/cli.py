@@ -11,6 +11,7 @@ from titan_cli.messages import msg
 from titan_cli.preview import preview_app # Import the preview subcommand
 from titan_cli.commands.init import init_app # Import the init subcommand
 from titan_cli.commands.projects import projects_app # Import the projects subcommand
+from titan_cli.commands.tools import tools_app # Import the tools subcommand (TitanAgents)
 
 # Main Typer Application
 app = typer.Typer(
@@ -24,6 +25,7 @@ app = typer.Typer(
 app.add_typer(preview_app)
 app.add_typer(init_app)
 app.add_typer(projects_app)
+app.add_typer(tools_app)  # TitanAgents integration
 
 
 # --- Helper function for version retrieval ---
