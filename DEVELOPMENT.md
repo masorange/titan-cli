@@ -46,7 +46,13 @@ titan-cli/titan_cli/
 │       ├── __init__.py
 │       ├── banner.py       # The application's main banner
 │       ├── prompts.py      # Wrapper for interactive prompts
-│       └── ... (other complex views)
+│       └── menu_components/ # Components for interactive menus
+│           ├── __init__.py
+│           ├── menu_models.py    # Pydantic models for menu structure (Menu, MenuItem, etc.)
+│           ├── menu.py      # MenuRenderer class (renders the menu visually)
+│           ├── dynamic_menu.py # Helper to build Menu objects programmatically
+│           └── __previews__/
+│               └── menu_preview.py # Non-interactive preview of the menu
 ```
 
 -   **`core/`**: Contains the core business logic and foundational services of the Titan CLI, such as configuration management, plugin discovery, and project scanning.
