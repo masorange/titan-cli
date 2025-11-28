@@ -17,7 +17,8 @@ class AIConfig(BaseModel):
     """
     provider: str = Field("anthropic", description="AI provider to use (e.g., 'anthropic', 'openai', 'gemini').")
     model: Optional[str] = Field(None, description="Specific AI model to use (e.g., 'claude-3-haiku-20240307').")
-    api_key: Optional[str] = Field(None, description="API key for the AI provider (typically loaded from secrets).")
+    max_tokens: int = Field(4096, description="Maximum number of tokens to generate.")
+    temperature: float = Field(0.7, description="Controls randomness. 0.0 for deterministic, 2.0 for very creative.")
 
 class PluginConfig(BaseModel):
     """

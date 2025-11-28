@@ -15,7 +15,9 @@ from titan_cli.messages import msg
 from titan_cli.preview import preview_app
 from titan_cli.commands.init import init_app
 from titan_cli.commands.projects import projects_app, list_projects
+from titan_cli.commands.ai import ai_app
 from titan_cli.core.config import TitanConfig
+from titan_cli.core.secrets import SecretManager
 from titan_cli.core.errors import ConfigWriteError
 from titan_cli.core.discovery import discover_projects
 from titan_cli.ui.components.typography import TextRenderer
@@ -37,6 +39,7 @@ app = typer.Typer(
 app.add_typer(preview_app)
 app.add_typer(init_app)
 app.add_typer(projects_app)
+app.add_typer(ai_app)
 
 
 # --- Helper function for version retrieval ---
@@ -112,8 +115,8 @@ def show_interactive_menu():
     cli_version = get_version()
     subtitle = f"Development Tools Orchestrator v{cli_version}"
 
-    # Initial Welcome Banner
-    render_titan_banner(subtitle=subtitle)
+    # Initial Welcome Banner - removed as banner is rendered in the loop
+    # render_titan_banner(subtitle=subtitle)
 
     # Check for project_root and prompt if not set (only runs once)
     config = TitanConfig()
@@ -135,6 +138,10 @@ def show_interactive_menu():
         menu_builder.add_category("Project Management", emoji="📂") \
             .add_item(msg.Projects.LIST_TITLE, "Scan the project root and show all configured Titan projects.", "list") \
             .add_item(msg.Projects.CONFIGURE_TITLE, "Select an unconfigured project to initialize with Titan.", "configure")
+
+        menu_builder.add_category("AI Configuration", emoji="🤖") \
+            .add_item("Configure AI Provider", "Set up Anthropic, OpenAI, or Gemini", "ai_configure") \
+            .add_item("Test AI Connection", "Verify AI provider is working", "ai_test")
 
         menu_builder.add_category("Exit", emoji="🚪") \
             .add_item("Exit", "Exit the application.", "exit")
@@ -192,6 +199,25 @@ def show_interactive_menu():
                 if chosen_project_item and chosen_project_item.action != "cancel":
                     initialize_project(Path(chosen_project_item.action))
 
+            spacer.line()
+            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+
+        elif choice_action == "ai_configure":
+            from titan_cli.commands.ai import configure_ai_interactive
+            configure_ai_interactive()
+            spacer.line()
+            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+
+        elif choice_action == "ai_test":
+            from titan_cli.commands.ai import _test_ai_connection
+            # We need to reload config and secrets in case they were just changed
+            config.load() 
+            secrets = SecretManager()
+            provider = config.config.ai.provider if config.config.ai else None
+            if provider:
+                _test_ai_connection(provider, secrets)
+            else:
+                text.error("No AI provider configured. Please run 'Configure AI Provider' first.")
             spacer.line()
             prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
 
