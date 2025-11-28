@@ -22,6 +22,7 @@ from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.spacer import SpacerRenderer
 from titan_cli.ui.components.table import TableRenderer
 from titan_cli.ui.views.prompts import PromptsRenderer
+from titan_cli.core.project_init import initialize_project
 from titan_cli.ui.views.menu_components.dynamic_menu import DynamicMenu
 
 
@@ -113,17 +114,18 @@ def show_interactive_menu():
             raise typer.Exit(0)
         # Reload config after setting it
         config.load()
+        project_root = config.get_project_root() # Re-fetch project root
         render_titan_banner(subtitle=subtitle)
 
     # Build and show the main menu
     menu_builder = DynamicMenu(title="What would you like to do?", emoji="🚀")
     menu_builder.add_category("Project Management", emoji="📂") \
         .add_item("List Configured Projects", "Scan the project root and show all configured Titan projects.", "list") \
-        .add_item("Configure a New Project", "See unconfigured projects and learn how to initialize them.", "configure")
-    
+        .add_item("Configure a New Project", "Select an unconfigured project to initialize with Titan.", "configure")
+
     menu_builder.add_category("Exit", emoji="🚪") \
         .add_item("Exit", "Exit the application.", "exit")
-    
+
     menu = menu_builder.to_menu()
 
     try:
@@ -142,31 +144,41 @@ def show_interactive_menu():
     if choice_action == "list":
         list_projects()
     elif choice_action == "configure":
-        # Temporary logic as discussed
         text.title("Configure a New Project")
         spacer.line()
-        project_root = config.get_project_root()
         if not project_root:
             text.error("Project root not set. Cannot discover projects.")
             raise typer.Exit(1)
-            
+
         _conf, unconfigured = discover_projects(str(project_root))
-        if unconfigured:
-            text.warning("Found these unconfigured Git projects:")
-            table_renderer = TableRenderer()
-            headers = ["Project Name", "Path"]
-            rows = []
-            for p in unconfigured:
-                try:
-                    rel_path = str(p.relative_to(project_root))
-                except ValueError:
-                    rel_path = str(p) # Fallback to absolute path
-                rows.append([p.name, rel_path])
-            table_renderer.print_table(headers=headers, rows=rows)
-            spacer.line()
-            text.info("To initialize a project, navigate to its directory and run: [primary]titan init[/primary]")
-        else:
-            text.success("No unconfigured Git projects found in your project root.")
+        if not unconfigured:
+            text.success("No unconfigured Git projects found to initialize.")
+            raise typer.Exit(0)
+
+        # Build a menu of unconfigured projects
+        project_menu_builder = DynamicMenu(title="Select a project to initialize", emoji="✨")
+        cat_idx = project_menu_builder.add_category("Unconfigured Projects")
+        for p in unconfigured:
+            try:
+                rel_path = str(p.relative_to(project_root))
+            except ValueError:
+                rel_path = str(p)
+            cat_idx.add_item(p.name, rel_path, str(p.resolve()))
+
+        project_menu_builder.add_category("Cancel").add_item("Back to Main Menu", "Return without initializing.", "cancel")
+        
+        project_menu = project_menu_builder.to_menu() # Convert builder to model
+
+        try:
+            chosen_project_item = prompts.ask_menu(project_menu, allow_quit=False)
+        except (KeyboardInterrupt, EOFError):
+            chosen_project_item = None
+        
+        spacer.line()
+
+        if chosen_project_item and chosen_project_item.action != "cancel":
+            initialize_project(Path(chosen_project_item.action))
+
     elif choice_action == "exit":
         text.body("Goodbye!")
         raise typer.Exit()
