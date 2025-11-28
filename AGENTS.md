@@ -73,6 +73,27 @@ poetry run black titan_cli/
 
 ---
 
+## ✨ Interactive Mode
+
+When `titan` is run without any subcommands, it enters an interactive mode designed to guide the user.
+
+### First-Time Setup
+
+If no global `project_root` is configured (`~/.titan/config.toml`), the CLI will prompt the user to set it. This is the root directory where Titan will look for your projects.
+
+### Main Menu
+
+Once the setup is complete, a main menu is displayed, which loops after each action. It provides the following options:
+
+- **List Configured Projects:** Scans the `project_root` and lists all projects that have a `.titan/config.toml` file, as well as other Git repositories that are candidates for initialization.
+- **Configure a New Project:**
+  1.  Displays a sub-menu listing all unconfigured Git repositories.
+  2.  After selecting a project, it starts an interactive prompt to define the project `name` and `type`.
+  3.  Creates a `.titan/config.toml` file in the project's root directory.
+- **Exit:** Exits the interactive session.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -629,7 +650,7 @@ refactor: Move menu components to views/
 - [ ] Uses theme.py styles (no hardcoded colors)
 - [ ] Added tests
 - [ ] Added preview if UI component
-- [ ] Updated AGENTS.md if patterns changed
+- [ ] Documentation has been updated to reflect the changes.
 
 ---
 
