@@ -118,12 +118,12 @@ def _test_ai_connection(provider: str, secrets: SecretManager, model: str = None
         )
         response = provider_instance.generate(test_request)
 
-        text.success("✅ Connection successful!")
+        text.success(msg.AI.CONNECTION_SUCCESS)
         text.body(f"Model: {response.model}", style="dim")
         text.body(f"Response: {response.content}", style="dim")
 
     except Exception as e:
-        text.error(f"❌ Connection failed: {e}")
+        text.error(msg.AI.CONNECTION_FAILED.format(error=e))
         return False
 
     return True

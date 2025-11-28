@@ -47,9 +47,9 @@ class Messages:
         """Project related messages"""
         LIST_TITLE = "List Configured Projects"
         CONFIGURE_TITLE = "Configure a New Project"
-        INIT_SUCCESS = "✅ Project '{project_name}' initialized successfully at: {config_path}"
+        INIT_SUCCESS = "Project '{project_name}' initialized successfully at: {config_path}"
         INIT_CANCELLED = "Project initialization cancelled."
-        SECRET_SAVED = "✅ {key} saved securely ({scope} scope)"
+        SECRET_SAVED = "{key} saved securely ({scope} scope)"
 
     # ═══════════════════════════════════════════════════════════════
     # UI Components
@@ -66,14 +66,14 @@ class Messages:
         BANNER_JIRA = "Jira Integration"
 
         # Status messages
-        LOADING = "⏳ Loading..."
-        PROCESSING = "⚙️  Processing..."
-        DONE = "✅ Done"
-        CANCELLED = "🚫 Cancelled by user"
+        LOADING = "Loading..."
+        PROCESSING = "Processing..."
+        DONE = "Done"
+        CANCELLED = "Cancelled by user"
 
         # Generic UI messages
         PRESS_ENTER = "Press Enter to continue..."
-        INVALID_CHOICE = "❌ Invalid choice. Please try again."
+        INVALID_CHOICE = "Invalid choice. Please try again."
     
     class EMOJI:
         """Centralized emoji characters for consistent UI"""
@@ -97,16 +97,16 @@ class Messages:
         """Workflow execution messages"""
 
         # Workflow lifecycle
-        STARTING = "▶️  Starting workflow: {name}"
-        EXECUTING = "⚙️  Executing workflow: {name}"
-        COMPLETED = "✅ Workflow completed successfully"
-        FAILED = "❌ Workflow failed: {error}"
+        STARTING = "Starting workflow: {name}"
+        EXECUTING = "Executing workflow: {name}"
+        COMPLETED = "Workflow completed successfully"
+        FAILED = "Workflow failed: {error}"
 
         # Step execution
-        STEP_STARTING = "   ▶️  {step}"
-        STEP_COMPLETED = "   ✅ {step}"
-        STEP_FAILED = "   ❌ {step}: {error}"
-        STEP_SKIPPED = "   ⏭️  Skipped: {step}"
+        STEP_STARTING = "   {step}"
+        STEP_COMPLETED = "   {step}"
+        STEP_FAILED = "   {step}: {error}"
+        STEP_SKIPPED = "   Skipped: {step}"
 
         # Workflow listing
         LIST_TITLE = "Available Workflows"
@@ -114,9 +114,9 @@ class Messages:
         LIST_LOADED = "Loaded {count} workflow(s)"
 
         # Workflow errors
-        NOT_FOUND = "❌ Workflow not found: {name}"
-        INVALID_CONFIG = "❌ Invalid workflow configuration: {error}"
-        EXECUTION_ERROR = "❌ Error executing workflow: {error}"
+        NOT_FOUND = "Workflow not found: {name}"
+        INVALID_CONFIG = "Invalid workflow configuration: {error}"
+        EXECUTION_ERROR = "Error executing workflow: {error}"
 
     # ═══════════════════════════════════════════════════════════════
     # GitHub Integration
@@ -127,30 +127,30 @@ class Messages:
 
         # Pull Requests
         PR_CREATING = "Creating pull request..."
-        PR_CREATED = "✅ PR #{number} created: {url}"
-        PR_UPDATED = "✅ PR #{number} updated"
-        PR_MERGED = "✅ PR #{number} merged"
-        PR_CLOSED = "✅ PR #{number} closed"
-        PR_FAILED = "❌ Failed to create PR: {error}"
-        PR_NOT_FOUND = "❌ PR not found: #{number}"
+        PR_CREATED = "PR #{number} created: {url}"
+        PR_UPDATED = "PR #{number} updated"
+        PR_MERGED = "PR #{number} merged"
+        PR_CLOSED = "PR #{number} closed"
+        PR_FAILED = "Failed to create PR: {error}"
+        PR_NOT_FOUND = "PR not found: #{number}"
 
         # Reviews
         REVIEW_CREATING = "Creating review..."
-        REVIEW_CREATED = "✅ Review submitted"
-        REVIEW_FAILED = "❌ Failed to submit review: {error}"
+        REVIEW_CREATED = "Review submitted"
+        REVIEW_FAILED = "Failed to submit review: {error}"
 
         # Comments
         COMMENT_CREATING = "Adding comment..."
-        COMMENT_CREATED = "✅ Comment added"
-        COMMENT_FAILED = "❌ Failed to add comment: {error}"
+        COMMENT_CREATED = "Comment added"
+        COMMENT_FAILED = "Failed to add comment: {error}"
 
         # Repository
-        REPO_NOT_FOUND = "❌ Repository not found"
-        REPO_ACCESS_DENIED = "❌ Access denied to repository"
+        REPO_NOT_FOUND = "Repository not found"
+        REPO_ACCESS_DENIED = "Access denied to repository"
 
         # Authentication
-        AUTH_MISSING = "❌ GitHub token not found. Set GITHUB_TOKEN environment variable."
-        AUTH_INVALID = "❌ Invalid GitHub token"
+        AUTH_MISSING = "GitHub token not found. Set GITHUB_TOKEN environment variable."
+        AUTH_INVALID = "Invalid GitHub token"
 
     # ═══════════════════════════════════════════════════════════════
     # Git Operations
@@ -161,37 +161,37 @@ class Messages:
 
         # Commits
         COMMITTING = "Committing changes..."
-        COMMIT_SUCCESS = "✅ Committed: {sha}"
-        COMMIT_FAILED = "❌ Commit failed: {error}"
-        NO_CHANGES = "⚠️  No changes to commit"
+        COMMIT_SUCCESS = "Committed: {sha}"
+        COMMIT_FAILED = "Commit failed: {error}"
+        NO_CHANGES = "No changes to commit"
 
         # Branches
         BRANCH_CREATING = "Creating branch: {name}"
-        BRANCH_CREATED = "✅ Branch created: {name}"
+        BRANCH_CREATED = "Branch created: {name}"
         BRANCH_SWITCHING = "Switching to branch: {name}"
-        BRANCH_SWITCHED = "✅ Switched to branch: {name}"
+        BRANCH_SWITCHED = "Switched to branch: {name}"
         BRANCH_DELETING = "Deleting branch: {name}"
-        BRANCH_DELETED = "✅ Branch deleted: {name}"
-        BRANCH_EXISTS = "⚠️  Branch already exists: {name}"
-        BRANCH_NOT_FOUND = "❌ Branch not found: {name}"
-        BRANCH_INVALID_NAME = "❌ Invalid branch name: {name}"
+        BRANCH_DELETED = "Branch deleted: {name}"
+        BRANCH_EXISTS = "Branch already exists: {name}"
+        BRANCH_NOT_FOUND = "Branch not found: {name}"
+        BRANCH_INVALID_NAME = "Invalid branch name: {name}"
 
         # Push/Pull
         PUSHING = "Pushing to remote..."
-        PUSH_SUCCESS = "✅ Pushed to {remote}/{branch}"
-        PUSH_FAILED = "❌ Push failed: {error}"
+        PUSH_SUCCESS = "Pushed to {remote}/{branch}"
+        PUSH_FAILED = "Push failed: {error}"
         PULLING = "Pulling from remote..."
-        PULL_SUCCESS = "✅ Pulled from {remote}/{branch}"
-        PULL_FAILED = "❌ Pull failed: {error}"
+        PULL_SUCCESS = "Pulled from {remote}/{branch}"
+        PULL_FAILED = "Pull failed: {error}"
 
         # Status
-        STATUS_CLEAN = "✅ Working directory clean"
-        STATUS_DIRTY = "⚠️  Uncommitted changes detected"
+        STATUS_CLEAN = "Working directory clean"
+        STATUS_DIRTY = "Uncommitted changes detected"
 
         # Repository
-        NOT_A_REPO = "❌ Not a git repository"
+        NOT_A_REPO = "Not a git repository"
         REPO_INIT = "Initializing git repository..."
-        REPO_INITIALIZED = "✅ Git repository initialized"
+        REPO_INITIALIZED = "Git repository initialized"
 
     # ═══════════════════════════════════════════════════════════════
     # Jira Integration
@@ -202,19 +202,19 @@ class Messages:
 
         # Issues
         ISSUE_CREATING = "Creating Jira issue..."
-        ISSUE_CREATED = "✅ Issue created: {key}"
-        ISSUE_UPDATED = "✅ Issue updated: {key}"
-        ISSUE_FAILED = "❌ Failed to create issue: {error}"
-        ISSUE_NOT_FOUND = "❌ Issue not found: {key}"
+        ISSUE_CREATED = "Issue created: {key}"
+        ISSUE_UPDATED = "Issue updated: {key}"
+        ISSUE_FAILED = "Failed to create issue: {error}"
+        ISSUE_NOT_FOUND = "Issue not found: {key}"
 
         # Transitions
         TRANSITION_EXECUTING = "Transitioning issue to: {status}"
-        TRANSITION_SUCCESS = "✅ Issue transitioned to: {status}"
-        TRANSITION_FAILED = "❌ Failed to transition issue: {error}"
+        TRANSITION_SUCCESS = "Issue transitioned to: {status}"
+        TRANSITION_FAILED = "Failed to transition issue: {error}"
 
         # Authentication
-        AUTH_MISSING = "❌ Jira credentials not found"
-        AUTH_INVALID = "❌ Invalid Jira credentials"
+        AUTH_MISSING = "Jira credentials not found"
+        AUTH_INVALID = "Invalid Jira credentials"
 
     # ═══════════════════════════════════════════════════════════════
     # AI Integration
@@ -224,22 +224,22 @@ class Messages:
         """AI operations messages"""
 
         # General
-        PROCESSING = "🤖 AI processing..."
-        COMPLETED = "✅ AI processing completed"
-        FAILED = "❌ AI processing failed: {error}"
+        PROCESSING = "AI processing..."
+        COMPLETED = "AI processing completed"
+        FAILED = "AI processing failed: {error}"
 
         # Reviews
-        REVIEW_GENERATING = "🤖 Generating AI review..."
-        REVIEW_GENERATED = "✅ AI review generated"
+        REVIEW_GENERATING = "Generating AI review..."
+        REVIEW_GENERATED = "AI review generated"
 
         # Code generation
-        CODE_GENERATING = "🤖 Generating code..."
-        CODE_GENERATED = "✅ Code generated"
+        CODE_GENERATING = "Generating code..."
+        CODE_GENERATED = "Code generated"
 
         # Configuration
-        PROVIDER_NOT_CONFIGURED = "❌ AI provider not configured"
-        PROVIDER_INVALID = "❌ Invalid AI provider: {provider}"
-        API_KEY_MISSING = "❌ API key not found for provider: {provider}"
+        PROVIDER_NOT_CONFIGURED = "AI provider not configured"
+        PROVIDER_INVALID = "Invalid AI provider: {provider}"
+        API_KEY_MISSING = "API key not found for provider: {provider}"
 
         # Provider Labels and Descriptions
         ANTHROPIC_LABEL = "Anthropic (Claude)"
@@ -250,8 +250,10 @@ class Messages:
         GEMINI_DESCRIPTION_MODEL = "Model: {model}"
 
         # Models
-        MODEL_NOT_AVAILABLE = "❌ Model not available: {model}"
-        RATE_LIMIT = "⚠️  Rate limit reached. Please try again later."
+        MODEL_NOT_AVAILABLE = "Model not available: {model}"
+        RATE_LIMIT = "Rate limit reached. Please try again later."
+        CONNECTION_SUCCESS = "Connection successful!"
+        CONNECTION_FAILED = "Connection failed: {error}"
 
     # ═══════════════════════════════════════════════════════════════
     # Plugin System
@@ -262,10 +264,10 @@ class Messages:
 
         # Discovery
         DISCOVERING = "Discovering plugins..."
-        DISCOVERED = "✅ Discovered {count} plugin(s)"
+        DISCOVERED = "Discovered {count} plugin(s)"
         LOADING = "Loading plugin: {name}"
-        LOADED = "✅ Plugin loaded: {name}"
-        LOAD_FAILED = "❌ Failed to load plugin: {name} - {error}"
+        LOADED = "Plugin loaded: {name}"
+        LOAD_FAILED = "Failed to load plugin: {name} - {error}"
 
         # Listing
         LIST_TITLE = "Available Plugins"
@@ -273,9 +275,9 @@ class Messages:
         LIST_ITEM = "  • {name} - {description}"
 
         # Errors
-        NOT_FOUND = "❌ Plugin not found: {name}"
-        INVALID_PLUGIN = "❌ Invalid plugin: {name}"
-        DEPENDENCY_MISSING = "❌ Missing dependency for plugin {name}: {dependency}"
+        NOT_FOUND = "Plugin not found: {name}"
+        INVALID_PLUGIN = "Invalid plugin: {name}"
+        DEPENDENCY_MISSING = "Missing dependency for plugin {name}: {dependency}"
 
     # ═══════════════════════════════════════════════════════════════
     # Configuration
@@ -286,22 +288,22 @@ class Messages:
 
         # Loading
         LOADING = "Loading configuration..."
-        LOADED = "✅ Configuration loaded"
-        LOAD_FAILED = "❌ Failed to load configuration: {error}"
+        LOADED = "Configuration loaded"
+        LOAD_FAILED = "Failed to load configuration: {error}"
 
         # File operations
-        FILE_NOT_FOUND = "❌ Configuration file not found: {path}"
-        FILE_INVALID = "❌ Invalid configuration file: {error}"
-        FILE_CREATED = "✅ Configuration file created: {path}"
+        FILE_NOT_FOUND = "Configuration file not found: {path}"
+        FILE_INVALID = "Invalid configuration file: {error}"
+        FILE_CREATED = "Configuration file created: {path}"
 
         # Validation
         VALIDATING = "Validating configuration..."
-        VALID = "✅ Configuration is valid"
-        INVALID = "❌ Invalid configuration: {error}"
+        VALID = "Configuration is valid"
+        INVALID = "Invalid configuration: {error}"
 
         # Settings
-        SETTING_UPDATED = "✅ Setting updated: {key} = {value}"
-        SETTING_INVALID = "❌ Invalid setting: {key}"
+        SETTING_UPDATED = "Setting updated: {key} = {value}"
+        SETTING_INVALID = "Invalid setting: {key}"
 
     # ═══════════════════════════════════════════════════════════════
     # User Prompts
@@ -351,25 +353,25 @@ class Messages:
         CONFIG_PARSE_ERROR = "Failed to parse configuration file at {file_path}: {error}"
 
         # File system
-        FILE_NOT_FOUND = "❌ File not found: {path}"
-        FILE_READ_ERROR = "❌ Cannot read file: {path}"
-        FILE_WRITE_ERROR = "❌ Cannot write file: {path}"
-        DIRECTORY_NOT_FOUND = "❌ Directory not found: {path}"
-        PERMISSION_DENIED = "❌ Permission denied: {path}"
+        FILE_NOT_FOUND = "File not found: {path}"
+        FILE_READ_ERROR = "Cannot read file: {path}"
+        FILE_WRITE_ERROR = "Cannot write file: {path}"
+        DIRECTORY_NOT_FOUND = "Directory not found: {path}"
+        PERMISSION_DENIED = "Permission denied: {path}"
 
         # Input validation
-        INVALID_INPUT = "❌ Invalid input: {value}"
-        MISSING_REQUIRED = "❌ Missing required field: {field}"
-        INVALID_FORMAT = "❌ Invalid format: {value}"
+        INVALID_INPUT = "Invalid input: {value}"
+        MISSING_REQUIRED = "Missing required field: {field}"
+        INVALID_FORMAT = "Invalid format: {value}"
 
         # Network
-        NETWORK_ERROR = "❌ Network error: {error}"
-        TIMEOUT = "❌ Operation timed out"
-        CONNECTION_FAILED = "❌ Connection failed: {error}"
+        NETWORK_ERROR = "Network error: {error}"
+        TIMEOUT = "Operation timed out"
+        CONNECTION_FAILED = "Connection failed: {error}"
 
         # General
-        UNKNOWN_ERROR = "❌ An unknown error occurred: {error}"
-        NOT_IMPLEMENTED = "❌ Feature not implemented yet"
+        UNKNOWN_ERROR = "An unknown error occurred: {error}"
+        NOT_IMPLEMENTED = "Feature not implemented yet"
         OPERATION_CANCELLED = "Operation cancelled"
         OPERATION_CANCELLED_NO_CHANGES = "Operation cancelled. No changes were made."
 

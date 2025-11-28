@@ -166,7 +166,7 @@ def test_prompt_and_set_success(mock_ui_components, mock_keyring):
     assert value == "my-secret-value"
     mock_prompts.ask_text.assert_called_once_with("Enter secret:", password=True)
     mock_keyring[1].assert_called_once_with("titan", "test_key", "my-secret-value")
-    mock_text.success.assert_called_once_with("✅ test_key saved securely (user scope)")
+    mock_text.success.assert_called_once_with(msg.Projects.SECRET_SAVED.format(key="test_key", scope="user"))
 
 def test_prompt_and_set_cancelled(mock_ui_components, mock_keyring):
     mock_text, mock_prompts = mock_ui_components

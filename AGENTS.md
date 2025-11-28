@@ -459,6 +459,85 @@ plugins/titan-plugin-github/
 
 ---
 
+## 🤖 AI Integration
+
+Titan CLI includes a modular AI integration layer that allows for interaction with multiple AI providers (Anthropic, OpenAI, Gemini).
+
+### File Structure (`ai/`)
+
+The `ai` layer is organized as follows:
+
+```
+titan_cli/ai/
+├── __init__.py
+├── client.py               # AIClient facade
+├── constants.py            # Default models and provider metadata
+├── exceptions.py           # Custom AI-related exceptions
+├── models.py               # Data models (AIRequest, AIResponse)
+├── oauth_helper.py         # Helper for Google Cloud OAuth
+└── providers/
+    ├── __init__.py
+    ├── base.py             # AIProvider abstract base class
+    ├── anthropic.py
+    ├── gemini.py
+    └── openai.py           # Stub for future implementation
+```
+
+### Core Components
+
+-   **`AIClient` (`ai/client.py`):** This is the main entry point for using AI functionality. It acts as a facade that reads the user's configuration, retrieves the necessary secrets via `SecretManager`, and instantiates the correct provider.
+-   **`AIProvider` (`ai/providers/base.py`):** This is an abstract base class that defines the interface for all AI providers. Each provider implements the `generate()` method to interact with its specific API.
+
+### Configuration
+
+AI configuration is handled via the interactive `titan ai configure` command or by selecting "Configure AI Provider" from the main menu. This command allows the user to:
+1.  Select a default provider (Anthropic, OpenAI, or Gemini).
+2.  Provide authentication credentials (API Key or OAuth for Gemini), which are stored securely using the `SecretManager`.
+3.  Select a default model for the chosen provider, with suggestions for popular models.
+4.  Optionally set a custom API endpoint for enterprise use.
+5.  Test the connection to ensure everything is set up correctly.
+
+Configuration is stored in the global `~/.titan/config.toml` file:
+
+```toml
+[ai]
+provider = "anthropic"
+model = "claude-3-5-sonnet-20241022"
+base_url = "https://custom.endpoint.com" # Optional
+```
+
+### Usage
+
+To use the AI client in a command or other part of the application:
+
+```python
+from titan_cli.core.config import TitanConfig
+from titan_cli.core.secrets import SecretManager
+from titan_cli.ai.client import AIClient
+from titan_cli.ai.models import AIMessage
+from titan_cli.ai.exceptions import AIConfigurationError
+
+# 1. Initialize config and secrets
+config = TitanConfig()
+secrets = SecretManager()
+
+# 2. Create the AI client
+try:
+    ai_client = AIClient(config, secrets)
+except AIConfigurationError as e:
+    # Handle cases where AI is not configured
+    print(f"AI not available: {e}")
+    return
+
+# 3. Make a request
+if ai_client.is_available():
+    messages = [AIMessage(role="user", content="Explain the meaning of life.")]
+    response = ai_client.generate(messages)
+    print(response.content)
+```
+
+---
+
 ## 📋 Code Style & Conventions
 
 ### Python Style

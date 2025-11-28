@@ -213,11 +213,21 @@ def show_interactive_menu():
             # We need to reload config and secrets in case they were just changed
             config.load() 
             secrets = SecretManager()
-            provider = config.config.ai.provider if config.config.ai else None
-            if provider:
-                _test_ai_connection(provider, secrets)
-            else:
+            if not config.config.ai:
                 text.error("No AI provider configured. Please run 'Configure AI Provider' first.")
+            else:
+                provider = config.config.ai.provider
+                model = config.config.ai.model
+                
+                # Get base_url from global config file, as done in `commands/ai.py`
+                base_url = None
+                global_config_path = TitanConfig.GLOBAL_CONFIG
+                if global_config_path.exists():
+                    with open(global_config_path, "rb") as f:
+                        global_config = tomli.load(f)
+                        base_url = global_config.get("ai", {}).get("base_url")
+                
+                _test_ai_connection(provider, secrets, model, base_url)
             spacer.line()
             prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
 
