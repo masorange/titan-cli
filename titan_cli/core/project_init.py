@@ -5,6 +5,7 @@ import tomli_w
 from ..ui.components.typography import TextRenderer
 from ..ui.views.prompts import PromptsRenderer
 from ..core.errors import ConfigWriteError
+from ..messages import msg
 
 def initialize_project(project_path: Path) -> bool:
     """
@@ -21,26 +22,28 @@ def initialize_project(project_path: Path) -> bool:
     """
     text = TextRenderer()
     prompts = PromptsRenderer(text_renderer=text)
+    titan_dir = project_path / ".titan"
+    config_path = titan_dir / "config.toml"
 
-    text.title(f"Initializing Titan Project: [primary]{project_path.name}[/primary]")
+    text.title(msg.Interactive.INIT_PROJECT_TITLE.format(project_name=project_path.name))
     text.line()
 
     try:
         # Prompt for Project Name
         project_name = prompts.ask_text(
-            "Enter a name for the project",
+            msg.Prompts.ENTER_NAME,
             default=project_path.name
         )
 
         # Prompt for Project Type
         project_type_choices = ["frontend", "backend", "fullstack", "library", "generic", "other"]
         project_type = prompts.ask_choice(
-            "Select a project type",
+            msg.Prompts.SELECT_PROJECT_TYPE,
             choices=project_type_choices,
             default="generic"
         )
         if project_type == "other":
-            project_type = prompts.ask_text("Enter custom project type")
+            project_type = prompts.ask_text(msg.Prompts.ENTER_CUSTOM_PROJECT_TYPE)
 
         # Prepare config structure
         config_data = {
@@ -51,18 +54,16 @@ def initialize_project(project_path: Path) -> bool:
         }
 
         # Create .titan directory and config file
-        titan_dir = project_path / ".titan"
         titan_dir.mkdir(exist_ok=True)
-        config_path = titan_dir / "config.toml"
 
         with open(config_path, "wb") as f:
             tomli_w.dump(config_data, f)
 
-        text.success(f"Project '{project_name}' initialized successfully at: {config_path}")
+        text.success(msg.Projects.INIT_SUCCESS.format(project_name=project_name, config_path=config_path))
         return True
 
     except (EOFError, KeyboardInterrupt):
-        text.warning("Project initialization cancelled.")
+        text.warning(msg.Projects.INIT_CANCELLED)
         return False
     except (OSError, PermissionError) as e:
         error = ConfigWriteError(file_path=str(config_path), original_exception=e)

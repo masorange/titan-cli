@@ -48,10 +48,17 @@ def get_version() -> str:
 
 def _prompt_for_project_root(text: TextRenderer, prompts: PromptsRenderer) -> bool:
     """Asks the user for the project root and saves it to the global config."""
-    text.title("👋 Welcome to Titan CLI! Let's get you set up.")
+    # TODO: Move these strings to messages.py
+    welcome_title = "👋 Welcome to Titan CLI! Let's get you set up."
+    info_msg = "To get started, Titan needs to know where you store your projects."
+    body_msg = "This is the main folder where you keep all your git repositories (e.g., ~/git, ~/Projects)."
+    prompt_msg = "Enter the absolute path to your projects root directory"
+    success_msg = "Configuration saved. Project root set to: {project_root}"
+
+    text.title(welcome_title)
     text.line()
-    text.info("To get started, Titan needs to know where you store your projects.")
-    text.body("This is the main folder where you keep all your git repositories (e.g., ~/git, ~/Projects).")
+    text.info(info_msg)
+    text.body(body_msg)
     text.line()
 
     global_config_path = TitanConfig.GLOBAL_CONFIG
@@ -67,10 +74,7 @@ def _prompt_for_project_root(text: TextRenderer, prompts: PromptsRenderer) -> bo
                 config = {}
 
     try:
-        project_root_str = prompts.ask_text(
-            "Enter the absolute path to your projects root directory",
-            default=str(Path.home())
-        )
+        project_root_str = prompts.ask_text(prompt_msg, default=str(Path.home()))
         if not project_root_str:
             return False
 
@@ -80,7 +84,7 @@ def _prompt_for_project_root(text: TextRenderer, prompts: PromptsRenderer) -> bo
         with open(global_config_path, "wb") as f:
             tomli_w.dump(config, f)
 
-        text.success(f"Configuration saved. Project root set to: {project_root}")
+        text.success(success_msg.format(project_root=project_root))
         text.line()
         return True
 
@@ -93,7 +97,14 @@ def _prompt_for_project_root(text: TextRenderer, prompts: PromptsRenderer) -> bo
 
 
 def show_interactive_menu():
-    """Display interactive menu system."""
+    """
+    Displays the main interactive menu for the Titan CLI.
+    
+    This function serves as the primary user interface when the CLI is run
+    without any subcommands. It handles the initial setup, displays a persistent
+    menu of actions, and routes the user to the correct functionality.
+    The menu loops after each action until the user chooses to exit.
+    """
     text = TextRenderer()
     prompts = PromptsRenderer(text_renderer=text)
     spacer = SpacerRenderer()
@@ -121,10 +132,10 @@ def show_interactive_menu():
         render_titan_banner(subtitle=subtitle)
         
         # Build and show the main menu
-        menu_builder = DynamicMenu(title="What would you like to do?", emoji="🚀")
+        menu_builder = DynamicMenu(title=msg.Interactive.MAIN_MENU_TITLE, emoji="🚀")
         menu_builder.add_category("Project Management", emoji="📂") \
-            .add_item("List Configured Projects", "Scan the project root and show all configured Titan projects.", "list") \
-            .add_item("Configure a New Project", "Select an unconfigured project to initialize with Titan.", "configure")
+            .add_item(msg.Projects.LIST_TITLE, "Scan the project root and show all configured Titan projects.", "list") \
+            .add_item(msg.Projects.CONFIGURE_TITLE, "Select an unconfigured project to initialize with Titan.", "configure")
 
         menu_builder.add_category("Exit", emoji="🚪") \
             .add_item("Exit", "Exit the application.", "exit")
@@ -145,10 +156,10 @@ def show_interactive_menu():
         if choice_action == "list":
             list_projects()
             spacer.line()
-            prompts.ask_text("Press Enter to return to the main menu", default="")
+            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
         
         elif choice_action == "configure":
-            text.title("Configure a New Project")
+            text.title(msg.Projects.CONFIGURE_TITLE)
             spacer.line()
             project_root = config.get_project_root() # Re-fetch in case it was just set
             if not project_root:
@@ -159,7 +170,7 @@ def show_interactive_menu():
             if not unconfigured:
                 text.success("No unconfigured Git projects found to initialize.")
             else:
-                project_menu_builder = DynamicMenu(title="Select a project to initialize", emoji="✨")
+                project_menu_builder = DynamicMenu(title=msg.Interactive.SELECT_PROJECT_TITLE, emoji="✨")
                 cat_idx = project_menu_builder.add_category("Unconfigured Projects")
                 for p in unconfigured:
                     try:
@@ -183,10 +194,10 @@ def show_interactive_menu():
                     initialize_project(Path(chosen_project_item.action))
 
             spacer.line()
-            prompts.ask_text("Press Enter to return to the main menu", default="")
+            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
 
         elif choice_action == "exit":
-            text.body("Goodbye!")
+            text.body(msg.Interactive.GOODBYE)
             break
 
 
