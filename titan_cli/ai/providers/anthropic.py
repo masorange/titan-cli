@@ -11,6 +11,9 @@ from ..exceptions import (
 )
 
 
+from ..constants import get_default_model
+
+
 class AnthropicProvider(AIProvider):
     """
     Provider for Claude API (Anthropic).
@@ -20,7 +23,7 @@ class AnthropicProvider(AIProvider):
     - API key from https://console.anthropic.com/
     """
 
-    def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-20241022", base_url: str = None):
+    def __init__(self, api_key: str, model: str = get_default_model("anthropic"), base_url: str = None):
         super().__init__(api_key, model)
         try:
             from anthropic import Anthropic

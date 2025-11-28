@@ -7,6 +7,8 @@ from .base import AIProvider
 from ..models import AIRequest, AIResponse, AIMessage
 from ..exceptions import AIProviderAPIError
 
+from ..constants import get_default_model
+
 try:
     import google.generativeai as genai
     import google.auth
@@ -36,7 +38,7 @@ class GeminiProvider(AIProvider):
         provider = GeminiProvider("GCLOUD_OAUTH", model="gemini-1.5-pro")
     """
 
-    def __init__(self, api_key: str, model: str = "gemini-1.5-pro"):
+    def __init__(self, api_key: str, model: str = get_default_model("gemini")):
         if not GEMINI_AVAILABLE:
             raise AIProviderAPIError(
                 "google-generativeai not installed.\n"
@@ -93,12 +95,20 @@ class GeminiProvider(AIProvider):
 
             # Extract text
             text = response.text
+            
+            # Extract usage data if available
+            usage_data = {}
+            if hasattr(response, 'usage_metadata'):
+                usage_data = {
+                    "input_tokens": response.usage_metadata.prompt_token_count,
+                    "output_tokens": response.usage_metadata.candidates_token_count,
+                }
 
             return AIResponse(
                 content=text,
                 model=self.model,
-                usage={}, # Not easily available in v1
-                finish_reason="stop" # Gemini API v1 doesn't provide this easily
+                usage=usage_data,
+                finish_reason="stop" # Not easily available in all cases
             )
 
         except Exception as e:

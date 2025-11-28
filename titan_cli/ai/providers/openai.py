@@ -9,6 +9,9 @@ from ..models import AIRequest, AIResponse
 from ..exceptions import AIProviderAPIError
 
 
+from ..constants import get_default_model
+
+
 class OpenAIProvider(AIProvider):
     """
     Provider for OpenAI API (ChatGPT).
@@ -20,7 +23,7 @@ class OpenAIProvider(AIProvider):
     Status: NOT IMPLEMENTED YET
     """
 
-    def __init__(self, api_key: str, model: str = "gpt-4"):
+    def __init__(self, api_key: str, model: str = get_default_model("openai")):
         super().__init__(api_key, model)
         # TODO: Initialize OpenAI client
         try:
