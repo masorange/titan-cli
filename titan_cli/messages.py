@@ -32,10 +32,27 @@ class Messages:
         MENU_SELECT_OPTION = "Select an option:"
         MENU_EXIT = "Exit"
 
+    class Interactive:
+        """Interactive Mode Messages"""
+        MAIN_MENU_TITLE = "What would you like to do?"
+        SELECT_PROJECT_TITLE = "Select a project to initialize"
+        RETURN_TO_MENU_PROMPT = "Press Enter to return to the main menu"
+        GOODBYE = "Goodbye!"
+        INIT_PROJECT_TITLE = "Initializing Titan Project: [primary]{project_name}[/primary]"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Projects
+    # ═══════════════════════════════════════════════════════════════
+    class Projects:
+        """Project related messages"""
+        LIST_TITLE = "List Configured Projects"
+        CONFIGURE_TITLE = "Configure a New Project"
+        INIT_SUCCESS = "✅ Project '{project_name}' initialized successfully at: {config_path}"
+        INIT_CANCELLED = "Project initialization cancelled."
+
     # ═══════════════════════════════════════════════════════════════
     # UI Components
     # ═══════════════════════════════════════════════════════════════
-
     class UI:
         """UI component messages"""
 
@@ -299,11 +316,13 @@ class Messages:
         CONFIRM_ABORT = "Abort operation?"
 
         # Input requests
-        ENTER_NAME = "Enter name:"
+        ENTER_NAME = "Enter a name for the project"
         ENTER_TITLE = "Enter title:"
         ENTER_DESCRIPTION = "Enter description:"
         ENTER_BRANCH = "Enter branch name:"
         ENTER_MESSAGE = "Enter message:"
+        SELECT_PROJECT_TYPE = "Select a project type"
+        ENTER_CUSTOM_PROJECT_TYPE = "Enter custom project type"
 
         # Selections
         SELECT_OPTION = "Select an option:"
@@ -347,6 +366,7 @@ class Messages:
 
         # Config specific
         CONFIG_WRITE_FAILED = "Failed to write configuration file: {error}"
+        PROJECT_ROOT_NOT_SET = "Project root not set. Cannot discover projects."
 
 
 # Singleton instance for easy access
