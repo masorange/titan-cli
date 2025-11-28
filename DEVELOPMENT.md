@@ -1,10 +1,16 @@
+# DEVELOPMENT.md
 
+> High-Level Architecture Overview for Titan CLI
+
+**For detailed technical documentation, development guides, and best practices, see [AGENTS.md](AGENTS.md).**
+
+---
 
 ## 🎨 UI Architecture and Theming
 
 The UI components are organized to ensure consistency, reusability, and maintainability.
 
-For a detailed guide on creating new components that follow these patterns, see [Guide: Creating a New Visual Component](docs/guides/creating-visual-components.md).
+**For a complete guide on creating new components, theming, and styling patterns, see [AGENTS.md § UI Architecture](AGENTS.md#-ui-architecture).**
 
 ### 📦 Component Structure (`titan_cli/`)
 
@@ -55,48 +61,43 @@ titan-cli/titan_cli/
 │               └── menu_preview.py # Non-interactive preview of the menu
 ```
 
+**Key architectural principles:**
 -   **`core/`**: Contains the core business logic and foundational services of the Titan CLI, such as configuration management, plugin discovery, and project scanning.
 -   **`commands/`**: Houses the implementations for individual CLI commands (e.g., `titan init`, `titan projects`). Each command or group of commands is typically in its own module.
 -   **`ui/`**: Contains all user interface related components, abstracting Rich functionalities for consistent visual output.
-    -   **`components/`**: Simple, atomic wrappers around single `rich` elements (e.g., `PanelRenderer`, `TextRenderer`). These are the "building blocks" of your UI.
-    -   **`views/`**: More complex, composite UI elements that typically use multiple components. These represent larger portions of the UI (e.g., the application banner, interactive menus).
+    -   **`components/`**: Pure wrappers around Rich library (no composition of other project components). These are the "building blocks" of your UI.
+    -   **`views/`**: Composite components that USE other components, can have business logic. These represent larger portions of the UI (e.g., the application banner, interactive menus).
+
+For detailed structure and layer descriptions, see [AGENTS.md § Project Structure](AGENTS.md#-project-structure).
 
 ### 🎨 Centralized Theming (`titan_cli/ui/theme.py`)
 
-All styling throughout the CLI should be driven from a single source of truth: `titan_cli/ui/theme.py`.
+All styling is driven from `titan_cli/ui/theme.py`:
+-   **`TITAN_THEME`**: Rich theme with semantic styles (`success`, `error`, `info`, `primary`)
+-   **`BANNER_GRADIENT_COLORS`**: Banner gradient colors
+-   **`ThemeManager`**: Syntax highlighting themes
 
-This file defines:
--   **`TITAN_THEME`**: A `rich.theme.Theme` object that centralizes custom styles (e.g., `success`, `error`, `info`, `primary`) used by `rich.Console` and components like `PanelRenderer`.
--   **`BANNER_GRADIENT_COLORS`**: A list of hex codes for the application's banner gradient.
--   **`SyntaxTheme` & `ThemeManager`**: Your original implementation for managing syntax highlighting themes (e.g., "dracula", "nord").
+**Usage:**
+- Use semantic style names: `console.print("Success!", style="success")`
+- For multi-styled text: Use `TextRenderer.styled_text()`
+- Never hardcode colors or styles
 
-**How to use:**
--   **For console output and components:** Ensure your `Console` instance is initialized with `TITAN_THEME` (this is handled by `titan_cli/ui/console.py`). Then, simply use style names (e.g., `console.print("Success!", style="success")`).
--   **For multi-styled text:** Use `TextRenderer.styled_text` when you need different styles within a single line (e.g., numbered menu items with bold labels).
--   **For banner:** The `render_ascii_banner` function automatically pulls colors from `BANNER_GRADIENT_COLORS`.
--   **For syntax highlighting:** Use `ThemeManager.get_syntax_theme()` when creating `rich.syntax.Syntax` objects.
+For complete theming guide, see [AGENTS.md § Theming & Styling](AGENTS.md#-theming--styling).
 
-### 👁️ Previewing UI Components (`__previews__/` directory)
+### 👁️ Previewing UI Components
 
-To efficiently develop and debug UI components, you can preview them in isolation without running the entire CLI application. This is achieved using scripts placed in a `__previews__/` subdirectory alongside the components or views.
-
-**Structure:**
--   Each component or view (`panel.py`, `banner.py`, `menu.py`) that you want to preview will have a corresponding preview script (e.g., `panel_preview.py`) in:
-    `titan_cli/ui/components/__previews__/`
-    `titan_cli/ui/views/__previews__/` (for top-level views)
-    `titan_cli/ui/views/your_view_subdir/__previews__/` (for nested views like `menu_components`)
-
-**How to create a preview:**
-1.  Create a file like `panel_preview.py` in the `__previews__/` directory.
-2.  Inside this file, import the component you want to test (e.g., `from titan_cli.ui.components.panel import PanelRenderer`).
-3.  Write code to instantiate and render your component in various states or with different arguments.
-
-**How to run a preview:**
-To run a preview script, use the built-in `titan preview` command:
+Preview components in isolation using `__previews__/` directories:
 
 ```bash
-# Example for the Panel component
+# Preview components
 titan preview panel
+titan preview menu
+titan preview typography
 ```
 
-This command is more user-friendly and discoverable. The `preview` subcommand and its associated commands are defined in `titan_cli/preview.py`. To add new preview commands, simply edit that file.
+**Structure:**
+- Preview scripts in `__previews__/` subdirectories
+- One preview file per component (e.g., `panel_preview.py`)
+- Preview commands defined in `titan_cli/preview.py`
+
+For complete preview guide, see [AGENTS.md § Creating a New Component](AGENTS.md#-ui-architecture).

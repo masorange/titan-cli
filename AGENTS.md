@@ -1,0 +1,720 @@
+# AGENTS.md
+
+Documentation for AI coding agents working on Titan CLI.
+
+---
+
+## 📋 Project Overview
+
+**Titan CLI** is a modular development tools orchestrator that streamlines workflows through plugins, configuration management, and an intuitive terminal UI.
+
+**Tech Stack:**
+- **CLI Framework:** Typer
+- **Terminal UI:** Rich
+- **Data Validation:** Pydantic
+- **Package Manager:** Poetry
+- **Testing:** pytest
+- **Plugin System:** Python entry points
+
+**Core Capabilities:**
+- Centralized project configuration (`.titan/config.toml`)
+- Plugin-based extensibility (GitHub, Git, Jira, AI)
+- Rich terminal UI with theme-aware components
+- Workflow engine for composing atomic steps
+- Optional AI integration for code reviews and automation
+
+**Architecture Layers:**
+1. **Core:** Configuration, plugin discovery, project scanning
+2. **Commands:** CLI command implementations
+3. **UI:** Theme-aware components and composite views
+4. **Engine:** Workflow orchestration (future)
+5. **AI:** Multi-provider AI integration (future)
+
+For high-level architecture overview, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
+---
+
+## 🚀 Quick Start
+
+### Setup
+```bash
+# Clone and install
+git clone <repo>
+cd titan-cli
+poetry install
+
+# Install with development dependencies
+poetry install --with dev,ai-all
+
+# Alternative: pipx for isolated install
+pipx install -e .
+```
+
+### Development Commands
+```bash
+# Run CLI locally
+poetry run titan
+
+# Run tests
+poetry run pytest
+
+# Run specific test file
+poetry run pytest tests/ui/components/test_typography.py
+
+# Preview UI components
+poetry run titan preview panel
+poetry run titan preview typography
+poetry run titan preview menu
+
+# Linting and formatting
+poetry run ruff check titan_cli/
+poetry run black titan_cli/
+```
+
+---
+
+## 📁 Project Structure
+
+```
+titan_cli/
+├── core/               # Core logic (config, plugins, discovery)
+├── commands/           # CLI commands (init, projects, etc.)
+├── ui/
+│   ├── components/     # Atomic UI wrappers (Panel, Typography, Table, Spacer)
+│   └── views/          # Composite UI (Banner, Prompts, Menus)
+├── engine/             # Workflow engine (future)
+└── ai/                 # AI integration (future)
+```
+
+**Key files:**
+- `cli.py` - Main Typer app
+- `messages.py` - Centralized user-facing strings
+- `ui/theme.py` - Centralized theming (TITAN_THEME)
+- `ui/console.py` - Singleton Rich Console
+
+---
+
+## 🎨 UI Architecture
+
+### Components vs Views
+
+**Components** (`ui/components/`):
+- Pure wrappers around Rich library
+- DO NOT compose other project components
+- Examples: `PanelRenderer`, `TextRenderer`, `TableRenderer`, `SpacerRenderer`
+
+**Views** (`ui/views/`):
+- Composite components that USE other components
+- Can have business logic
+- Examples: `PromptsRenderer` (uses TextRenderer), `MenuRenderer` (uses TextRenderer + Spacer)
+
+### Creating a New Component
+
+1. **File location:**
+   - Pure component → `ui/components/my_component.py`
+   - Composite view → `ui/views/my_view.py`
+
+2. **Component structure:**
+```python
+# ui/components/my_component.py
+from typing import Optional
+from rich.console import Console
+from ..console import get_console
+
+class MyComponentRenderer:
+    """Description of component"""
+
+    def __init__(self, console: Optional[Console] = None):
+        self.console = console or get_console()  # Theme-aware console
+
+    def render(self, data):
+        # Use theme styles: "success", "error", "info", "warning", "primary"
+        self.console.print("[success]Success message[/success]")
+```
+
+3. **Create preview:**
+```python
+# ui/components/__previews__/my_component_preview.py
+from titan_cli.ui.components.my_component import MyComponentRenderer
+
+def preview_all():
+    renderer = MyComponentRenderer()
+    renderer.render("test data")
+
+if __name__ == "__main__":
+    preview_all()
+```
+
+4. **Add preview command:**
+```python
+# preview.py
+@preview_app.command("my_component")
+def preview_my_component():
+    """Shows preview of MyComponent."""
+    runpy.run_module("titan_cli.ui.components.__previews__.my_component_preview", run_name="__main__")
+```
+
+5. **Test it:**
+```bash
+poetry run titan preview my_component
+```
+
+---
+
+## 🎨 Theming & Styling
+
+### Theme Configuration (`ui/theme.py`)
+
+All colors and styles are centralized in `TITAN_THEME`:
+
+```python
+TITAN_THEME = Theme({
+    "success": "bold green",
+    "error": "bold red",
+    "warning": "bold yellow",
+    "info": "bold cyan",
+    "primary": "bold blue",
+    "dim": "dim",
+})
+```
+
+### Using Styles
+
+**Single-style text:**
+```python
+text = TextRenderer()
+text.success("Operation completed!")  # Uses "success" style
+text.error("Something failed!")       # Uses "error" style
+text.body("Normal text", style="dim") # Custom style
+```
+
+**Multi-style text (inline):**
+```python
+text.styled_text(
+    ("  1. ", "primary"),      # Number in primary color
+    ("Item label", "bold"),    # Label in bold
+    (" - ", "dim"),            # Separator dimmed
+    ("description", "dim")     # Description dimmed
+)
+```
+
+**Console direct (when needed in Views):**
+```python
+from rich.text import Text
+
+# Multi-styled line (allowed in Views for complex cases)
+line = Text()
+line.append("Number: ", style="primary")
+line.append("Value", style="bold")
+self.console.print(line)
+```
+
+---
+
+## 📝 Messages & i18n
+
+**All user-facing strings go in `messages.py`:**
+
+```python
+# messages.py
+class Messages:
+    class UI:
+        LOADING = "⏳ Loading..."
+        DONE = "✅ Done"
+
+    class Prompts:
+        INVALID_INPUT = "❌ Invalid input. Please try again."
+
+msg = Messages()
+
+# Usage
+from titan_cli.messages import msg
+text.error(msg.Prompts.INVALID_INPUT)
+```
+
+**Why:**
+- Centralized maintenance
+- Easy to find all strings
+- Future i18n support
+- Consistency across app
+
+---
+
+## 🧪 Testing
+
+### Test Structure
+
+```
+tests/
+├── commands/           # CLI command tests
+├── core/               # Core logic tests
+└── ui/
+    ├── components/     # Component tests
+    └── views/          # View tests
+```
+
+### Testing Components
+
+Use fixtures and mocks for isolation:
+
+```python
+import pytest
+from unittest.mock import MagicMock
+
+@pytest.fixture
+def mock_console():
+    return MagicMock()
+
+def test_my_component(mock_console):
+    from titan_cli.ui.components.my_component import MyComponentRenderer
+
+    renderer = MyComponentRenderer(console=mock_console)
+    renderer.render("test")
+
+    # Assert console.print was called
+    assert mock_console.print.called
+```
+
+### Running Tests
+
+```bash
+# All tests
+poetry run pytest
+
+# With coverage
+poetry run pytest --cov=titan_cli
+
+# Specific test
+poetry run pytest tests/ui/components/test_typography.py::test_styled_text
+
+# Watch mode (useful during development)
+poetry run pytest-watch
+```
+
+---
+
+## 🔧 Configuration System
+
+### Config Files
+
+```
+~/.titan/config.toml              # Global config (AI keys, project root)
+/project/.titan/config.toml       # Project config (plugins, workflows)
+```
+
+### Config Structure (TOML)
+
+```toml
+# Global config (~/.titan/config.toml)
+[core]
+project_root = "/home/user/projects"
+
+[ai]
+provider = "anthropic"
+model = "claude-sonnet-4"
+
+# Project config (.titan/config.toml)
+[project]
+name = "my-app"
+type = "fullstack"
+
+[plugins.github]
+enabled = true
+org = "myorg"
+
+[plugins.git]
+enabled = true
+```
+
+### Config Models (Pydantic)
+
+All config is validated using Pydantic models in `core/models.py`:
+
+```python
+from pydantic import BaseModel, Field
+
+class ProjectConfig(BaseModel):
+    name: str = Field(..., description="Name of the project.")
+    type: Optional[str] = Field("generic", description="Type of project.")
+
+class AIConfig(BaseModel):
+    provider: str = Field("anthropic", description="AI provider.")
+    model: Optional[str] = Field(None, description="AI model.")
+
+class TitanConfigModel(BaseModel):
+    project: Optional[ProjectConfig] = None
+    ai: Optional[AIConfig] = None
+    plugins: Dict[str, PluginConfig] = Field(default_factory=dict)
+```
+
+### Using Config
+
+```python
+from titan_cli.core.config import TitanConfig
+
+config = TitanConfig()  # Loads and merges global + project
+print(config.config.project.name)
+print(config.config.ai.provider)
+
+# Check enabled plugins
+if config.is_plugin_enabled("github"):
+    # ... use github plugin
+```
+
+---
+
+## 🔌 Plugin System
+
+### Plugin Discovery
+
+Plugins are discovered via **entry points** (not file system):
+
+```toml
+# Plugin's pyproject.toml
+[project.entry-points."titan.plugins"]
+github = "titan_plugin_github:GitHubPlugin"
+```
+
+### Installing Plugins
+
+```bash
+# Core
+pipx install titan-cli
+
+# Add plugin
+pipx inject titan-cli titan-plugin-github
+```
+
+### Plugin Structure (3-Layer Architecture)
+
+```
+plugins/titan-plugin-github/
+├── steps/       # LAYER 1: Workflow steps (orchestration)
+│   ├── create_pr_step.py
+│   └── validate_branch_step.py
+├── services/    # LAYER 2: Business logic (wrappers)
+│   ├── pr_service.py
+│   └── branch_service.py
+└── clients/     # LAYER 3: External API (GitHub CLI, API clients)
+    └── github_client.py
+```
+
+**Layer separation:**
+- **Steps**: Orchestration, use WorkflowContext, return WorkflowResult
+- **Services**: Business logic, validation, no UI, no workflows
+- **Clients**: External API wrappers (gh CLI, HTTP requests)
+
+---
+
+## 📋 Code Style & Conventions
+
+### Python Style
+- **Black** for formatting (line length: 88)
+- **Ruff** for linting
+- **Type hints** required for all function signatures
+- **Docstrings** for all public classes and methods (Google style)
+
+### Naming Conventions
+- **snake_case** for files, functions, variables
+- **PascalCase** for classes
+- **UPPER_CASE** for constants
+
+### Import Order
+```python
+# 1. Standard library
+from typing import Optional
+from pathlib import Path
+
+# 2. Third-party
+from rich.console import Console
+from pydantic import BaseModel
+
+# 3. Local
+from titan_cli.ui.console import get_console
+from titan_cli.messages import msg
+```
+
+### Dependency Injection
+All renderers/components accept optional dependencies:
+
+```python
+class MyRenderer:
+    def __init__(
+        self,
+        console: Optional[Console] = None,
+        text_renderer: Optional[TextRenderer] = None
+    ):
+        self.console = console or get_console()
+        self.text = text_renderer or TextRenderer(console=self.console)
+```
+
+**Why:** Enables testing with mocks
+
+---
+
+## 🚫 Common Mistakes to Avoid
+
+### ❌ DON'T: Use print() or console directly in components
+```python
+# Bad
+print("Success!")
+console = Console()
+console.print("[green]Success![/green]")
+```
+
+### ✅ DO: Use TextRenderer
+```python
+# Good
+text = TextRenderer()
+text.success("Success!")
+```
+
+### ❌ DON'T: Hardcode colors or styles
+```python
+# Bad
+console.print("[bold green]Success![/bold green]")
+```
+
+### ✅ DO: Use theme styles
+```python
+# Good
+console.print("[success]Success![/success]")  # "success" defined in theme
+```
+
+### ❌ DON'T: Hardcode user-facing strings
+```python
+# Bad
+text.error("Invalid input. Try again.")
+```
+
+### ✅ DO: Use messages.py
+```python
+# Good
+from titan_cli.messages import msg
+text.error(msg.Prompts.INVALID_INPUT)
+```
+
+### ❌ DON'T: Put pure wrappers in views/
+```python
+# Bad - PanelRenderer is pure wrapper, should be in components/
+titan_cli/ui/views/panel.py
+```
+
+### ✅ DO: Follow component/view separation
+```python
+# Good
+titan_cli/ui/components/panel.py      # Pure wrapper (no composition)
+titan_cli/ui/views/prompts.py         # Composite (uses TextRenderer + MenuRenderer)
+```
+
+### ❌ DON'T: Compose other components in components/
+```python
+# Bad - TextRenderer in components/ shouldn't use PanelRenderer
+class TextRenderer:
+    def __init__(self, panel_renderer: PanelRenderer):  # ❌ NO!
+        self.panel = panel_renderer
+```
+
+### ✅ DO: Keep components pure
+```python
+# Good - Components only wrap Rich
+class TextRenderer:
+    def __init__(self, console: Optional[Console] = None):
+        self.console = console or get_console()  # ✅ Only Rich/console
+```
+
+---
+
+## 🎯 Workflow Patterns (Future)
+
+### Atomic Steps Pattern
+
+Workflows are composed of small, reusable steps:
+
+```python
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+
+def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Create PR on GitHub
+
+    Requires:
+        ctx.github: GitHubClient
+        ctx.data['pr_title']
+        ctx.data['pr_body']
+
+    Sets:
+        ctx.data['pr_url']
+    """
+    if not ctx.github:
+        return Error("GitHub client not available")
+
+    pr = ctx.github.create_pr(
+        title=ctx.data['pr_title'],
+        body=ctx.data['pr_body']
+    )
+    ctx.data['pr_url'] = pr.url
+
+    return Success(f"PR created: {pr.url}")
+```
+
+### Workflow Results
+
+All steps return one of:
+- `Success(message)` - Step completed successfully
+- `Error(message)` - Step failed, halt workflow
+- `Skip(message)` - Step skipped (not applicable)
+
+### Context Builder
+
+```python
+from titan_cli.engine import WorkflowContextBuilder
+
+ctx = WorkflowContextBuilder() \
+    .with_ui() \
+    .with_github() \
+    .build()
+```
+
+---
+
+## 🔐 Security
+
+- **NEVER commit** `.titan/credentials.toml`
+- **API keys** go in global config (`~/.titan/config.toml`), gitignored
+- **Secrets** use environment variables when possible
+- **Validate all user input** in PromptsRenderer with validators
+
+---
+
+## 📦 Building & Release
+
+### Build package
+```bash
+poetry build
+```
+
+### Publish (maintainers only)
+```bash
+poetry publish
+```
+
+### Version bumping
+```bash
+poetry version patch  # 0.1.0 → 0.1.1
+poetry version minor  # 0.1.1 → 0.2.0
+poetry version major  # 0.2.0 → 1.0.0
+```
+
+---
+
+## 🤝 Contributing
+
+### Commit Messages
+Follow Conventional Commits:
+```
+feat: Add MenuRenderer component
+fix: Fix emoji alignment in TextRenderer
+docs: Update AGENTS.md with theming guide
+test: Add tests for PromptsRenderer
+refactor: Move menu components to views/
+```
+
+### Pull Request Checklist
+- [ ] Tests pass (`poetry run pytest`)
+- [ ] Preview works if UI component (`titan preview <component>`)
+- [ ] Follows code style (black, ruff)
+- [ ] Uses TextRenderer (no direct print/console in components)
+- [ ] Uses messages.py (no hardcoded strings)
+- [ ] Uses theme.py styles (no hardcoded colors)
+- [ ] Added tests
+- [ ] Added preview if UI component
+- [ ] Updated AGENTS.md if patterns changed
+
+---
+
+## 🎨 UI Component Reference
+
+### TextRenderer (`ui/components/typography.py`)
+```python
+text = TextRenderer()
+text.title("Main Title")
+text.subtitle("Subtitle")
+text.body("Normal text", style="dim")
+text.success("Success message")
+text.error("Error message")
+text.warning("Warning message")
+text.info("Info message")
+text.styled_text(("Part 1", "primary"), ("Part 2", "bold"))
+text.line()  # Blank line
+text.divider()  # Horizontal line
+```
+
+### PanelRenderer (`ui/components/panel.py`)
+```python
+panel = PanelRenderer()
+panel.print("Content", panel_type="success")
+panel.print("Content", panel_type="error")
+panel.print("Content", panel_type="warning")
+panel.print("Content", panel_type="info")
+panel.print("Content", title="Custom", style="primary")
+```
+
+### TableRenderer (`ui/components/table.py`)
+```python
+table = TableRenderer()
+table.print_table(
+    headers=["Name", "Value"],
+    rows=[["Item 1", "100"], ["Item 2", "200"]],
+    show_lines=True
+)
+```
+
+### SpacerRenderer (`ui/components/spacer.py`)
+```python
+spacer = SpacerRenderer()
+spacer.line()     # Single line
+spacer.small()    # Small gap
+spacer.medium()   # Medium gap
+spacer.large()    # Large gap
+```
+
+### PromptsRenderer (`ui/views/prompts.py`)
+```python
+prompts = PromptsRenderer()
+name = prompts.ask_text("Enter name:", default="John")
+confirmed = prompts.ask_confirm("Continue?", default=True)
+choice = prompts.ask_choice("Select:", choices=["A", "B", "C"])
+number = prompts.ask_int("Enter number:", min_value=1, max_value=10)
+item = prompts.ask_menu(menu)  # Returns MenuItem or None
+```
+
+### MenuRenderer (`ui/views/menu_components/menu.py`)
+```python
+from titan_cli.ui.views.menu_components import DynamicMenu, MenuRenderer
+
+# Build menu
+menu_builder = DynamicMenu(title="Main Menu", emoji="🚀")
+cat_idx = menu_builder.add_category("Actions", emoji="⚡")
+menu_builder.add_item(cat_idx, "Action 1", "Description", "action1")
+menu = menu_builder.to_menu()
+
+# Render
+renderer = MenuRenderer()
+renderer.render(menu)
+```
+
+---
+
+## 📚 Additional Resources
+
+- **Titan CLI Documentation**: See `DEVELOPMENT.md` for architecture overview
+- **Rich Library**: https://rich.readthedocs.io/
+- **Typer**: https://typer.tiangolo.com/
+- **Pydantic**: https://docs.pydantic.dev/
+- **Poetry**: https://python-poetry.org/docs/
+
+---
+
+**Last Updated**: 2025-11-27
+**Maintainers**: @finxeto, @raulpedrazaleon
