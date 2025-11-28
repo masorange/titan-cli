@@ -64,6 +64,7 @@ def configure_ai_interactive():
     text.line()
 
     # Step 2: Authentication
+    auth_successful = False
     if provider == "gemini":
         text.info("Gemini can use OAuth via Google Cloud SDK.")
         use_oauth = prompts.ask_confirm("Use OAuth for Gemini authentication?", default=True)
@@ -77,30 +78,40 @@ def configure_ai_interactive():
             if not status.authenticated:
                 text.warning("You are not authenticated with gcloud.")
                 if prompts.ask_confirm("Run 'gcloud auth application-default login' now?"):
-                    # This is tricky in a non-interactive script. For now, just show instructions.
                     text.body(helper.get_auth_instructions())
-                return
+                return # Exit if user doesn't want to authenticate now
             
             secrets.set("gemini_oauth_enabled", "true", scope="user")
             text.success("✅ Gemini configured to use Google Cloud OAuth.")
-        else:
-             secrets.prompt_and_set(
+            auth_successful = True
+        else: # User chose not to use OAuth, prompt for API key
+             api_key = secrets.prompt_and_set(
                 key="gemini_api_key",
                 prompt_text="Enter your Gemini API key",
                 scope="user"
             )
-             secrets.delete("gemini_oauth_enabled", scope="user")
-    else:
+             if api_key:
+                 secrets.delete("gemini_oauth_enabled", scope="user") # Ensure OAuth is not enabled
+                 auth_successful = True
+    else: # API Key flow for Anthropic/OpenAI
         key_name = f"{provider}_api_key"
         if secrets.get(key_name):
             text.info(f"API key already configured for {provider}.")
             if not prompts.ask_confirm("Do you want to replace the existing key?"):
+                text.warning(msg.Errors.OPERATION_CANCELLED)
                 return
-        secrets.prompt_and_set(key=key_name, prompt_text=f"Enter your {provider.title()} API Key", scope="user")
+        
+        api_key = secrets.prompt_and_set(key=key_name, prompt_text=f"Enter your {provider.title()} API Key", scope="user")
+        if api_key:
+            auth_successful = True
+    
+    if not auth_successful:
+        text.warning(msg.Errors.OPERATION_CANCELLED)
+        return
 
     text.line()
 
-    # Step 3: Save to global config
+    # Step 3: Save to global config (only if auth_successful is True)
     global_config_path = TitanConfig.GLOBAL_CONFIG
     global_config = {}
     if global_config_path.exists():
@@ -117,7 +128,7 @@ def configure_ai_interactive():
     text.success(f"✅ Default AI provider set to: {provider}")
     text.line()
 
-    # Step 4: Test connection
+    # Step 4: Test connection (only if auth_successful is True)
     if prompts.ask_confirm("Test AI connection now?"):
         _test_ai_connection(provider, secrets)
 

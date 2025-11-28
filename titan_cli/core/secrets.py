@@ -6,6 +6,7 @@ from typing import Optional, Literal
 from dotenv import load_dotenv
 from ..ui.components.typography import TextRenderer
 from ..ui.views.prompts import PromptsRenderer
+from ..messages import msg
 
 ScopeType = Literal["env", "project", "user"]
 
@@ -161,5 +162,5 @@ class SecretManager:
                 return value
             return None
         except (EOFError, KeyboardInterrupt):
-            text.warning("Cancelled") # TODO: Use msg.secrets.OPERATION_CANCELLED
+            text.warning(msg.Errors.OPERATION_CANCELLED) # TODO: Use msg.secrets.OPERATION_CANCELLED
             return None

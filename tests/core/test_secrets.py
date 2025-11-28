@@ -153,6 +153,8 @@ def test_delete_project_scope_secret_not_found(tmp_project_path):
         content = f.read()
     assert "OTHER_KEY='other_value'" in content # Content should be unchanged
 
+from titan_cli.messages import msg
+
 # --- Test prompt_and_set method ---
 def test_prompt_and_set_success(mock_ui_components, mock_keyring):
     mock_text, mock_prompts = mock_ui_components
@@ -175,4 +177,4 @@ def test_prompt_and_set_cancelled(mock_ui_components, mock_keyring):
     
     assert value is None
     mock_keyring[1].assert_not_called()
-    mock_text.warning.assert_called_once_with("Cancelled")
+    mock_text.warning.assert_called_once_with(msg.Errors.OPERATION_CANCELLED)
