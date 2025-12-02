@@ -13,8 +13,8 @@ from titan_cli.engine import (
     Skip,
     is_success,
     is_error,
-    UIComponents, # New import
-    UIViews # New import
+    UIComponents,
+    UIViews
 )
 
 @pytest.fixture

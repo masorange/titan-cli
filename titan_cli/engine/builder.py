@@ -72,10 +72,10 @@ class WorkflowContextBuilder:
             ai_client: Optional AIClient instance (auto-created if None)
         """
         if ai_client:
-            # DI puro - usar el cliente inyectado
+            # DI pure
             self._ai = ai_client
         else:
-            # Conveniencia - auto-crear desde config
+            # Convenience - auto-create from config
             try:
                 from titan_cli.ai.client import AIClient
                 from titan_cli.ai.exceptions import AIConfigurationError
