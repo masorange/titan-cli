@@ -1,58 +1,97 @@
-# titan_cli/core/plugin_base.py
+"""
+Base interface for Titan plugins.
+"""
+
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Optional, Dict, Any, Callable
+
 
 class TitanPlugin(ABC):
     """
-    Abstract Base Class for all Titan CLI plugins.
+    Base class for all Titan plugins.
+    
+    Plugins extend Titan CLI with:
+    - Service clients (Git, GitHub, Jira, etc.)
+    - Workflow steps (atomic operations)
+    
+    Example:
+        class GitPlugin(TitanPlugin):
+            @property
+            def name(self) -> str:
+                return "git"
+            
+            def get_client(self):
+                return GitClient()
     """
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """The name of the plugin, used for registration and dependencies."""
+        """
+        Plugin unique identifier.
+        
+        Returns:
+            Plugin name (e.g., "git", "github", "jira")
+        """
         pass
 
     @property
-    @abstractmethod
+    def version(self) -> str:
+        """Plugin version (default: "0.0.0")"""
+        return "0.0.0"
+
+    @property
     def description(self) -> str:
-        """A short description of what the plugin does."""
-        pass
+        """Plugin description (default: empty)"""
+        return ""
 
     @property
-    def dependencies(self) -> List[str]:
+    def dependencies(self) -> list[str]:
         """
         Other plugins this plugin depends on.
         
-        The PluginRegistry will ensure dependencies are loaded first.
-        
         Returns:
-            List of plugin names (e.g., ["git"])
+            List of plugin names (e.g., ["git"] for GitHub plugin)
         """
         return []
 
-    def initialize(self, config, secrets) -> None:
+    def initialize(self, config: Any, secrets: Any) -> None:
         """
-        Initialize the plugin. This is where clients or services
-        can be set up. This method is called by the PluginRegistry after
-        all plugins have been discovered and dependencies resolved.
+        Initialize plugin with configuration and secrets.
+        
+        Called once when plugin is loaded by PluginRegistry.
         
         Args:
-            config: The fully loaded TitanConfig object.
-            secrets: The SecretManager instance.
-        
-        Note: This is not abstract, as simple plugins may not need initialization.
+            config: TitanConfig instance
+            secrets: SecretManager instance
         """
         pass
 
-    def is_available(self) -> bool:
+    def get_client(self) -> Optional[Any]:
         """
-        Check if the plugin's external dependencies are met.
+        Get the main client instance for this plugin.
         
-        For example, a plugin wrapping a CLI tool would check if that
-        tool is installed and on the system's PATH.
+        This client will be injected into WorkflowContext.
         
         Returns:
-            True if the plugin is available to be used, False otherwise.
+            Client instance or None
+        """
+        return None
+
+    def get_steps(self) -> Dict[str, Callable]:
+        """
+        Get workflow steps provided by this plugin.
+        
+        Returns:
+            Dict mapping step name to step function
+        """
+        return {}
+
+    def is_available(self) -> bool:
+        """
+        Check if plugin is available/configured.
+        
+        Returns:
+            True if plugin can be used
         """
         return True

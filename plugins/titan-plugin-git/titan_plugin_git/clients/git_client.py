@@ -8,11 +8,12 @@ from datetime import datetime
 from ..models import GitBranch, GitStatus, GitCommit
 from ..exceptions import (
     GitError,
+    GitClientError,
     GitCommandError,
     GitBranchNotFoundError,
     GitDirtyWorkingTreeError,
     GitNotRepositoryError,
-    GitMergeConflictError # Added
+    GitMergeConflictError
 )
 
 
@@ -603,12 +604,12 @@ class GitClient:
             Diff output as string
         """
         try:
-            result = self._run_command(
+            # git diff can return a non-zero exit code if there are differences,
+            # so we use check=False and handle the output.
+            return self._run_command(
                 ["git", "diff", f"{base_ref}...{head_ref}"],
-                check=False, # git diff returns 1 if there are differences
-                encoding='utf-8',
-                errors='replace'
+                check=False
             )
-            return result.stdout.strip()
         except GitCommandError:
+            # This might be raised for other reasons, returning empty is safe.
             return ""

@@ -15,6 +15,11 @@ class GitCommandError(GitError):
     pass
 
 
+class GitClientError(GitError):
+    """Git client initialization or configuration error"""
+    pass
+
+
 class GitBranchNotFoundError(GitError):
     """Branch not found"""
     pass
