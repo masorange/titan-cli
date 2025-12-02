@@ -5,7 +5,6 @@ Base AI provider interface
 from abc import ABC, abstractmethod
 
 from ..models import AIRequest, AIResponse
-from ..exceptions import AIProviderError
 
 
 class AIProvider(ABC):

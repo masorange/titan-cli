@@ -237,9 +237,48 @@ class Messages:
         CODE_GENERATED = "Code generated"
 
         # Configuration
-        PROVIDER_NOT_CONFIGURED = "AI provider not configured"
+        CONFIG_TITLE = "Configure AI Provider"
+        PROVIDER_SELECT_TITLE = "Select AI Provider"
+        PROVIDER_SELECT_CATEGORY = "Providers"
+        PROVIDER_NOT_CONFIGURED = "No AI provider configured. Run: titan ai configure"
         PROVIDER_INVALID = "Invalid AI provider: {provider}"
         API_KEY_MISSING = "API key not found for provider: {provider}"
+        API_KEY_PROMPT = "Enter your {provider.title()} API Key"
+        API_KEY_ALREADY_CONFIGURED = "API key already configured for {provider}."
+        API_KEY_REPLACE_PROMPT = "Do you want to replace the existing key?"
+        GEMINI_OAUTH_PROMPT = "Use OAuth for Gemini authentication?"
+        GEMINI_OAUTH_INFO = "Gemini can use OAuth via Google Cloud SDK."
+        GEMINI_OAUTH_NOT_AVAILABLE = "Google Cloud SDK not found or not working: {error}"
+        GEMINI_OAUTH_NOT_AUTHENTICATED = "You are not authenticated with gcloud."
+        GEMINI_OAUTH_RUN_LOGIN_PROMPT = "Run 'gcloud auth application-default login' now?"
+        GEMINI_OAUTH_CONFIGURED_SUCCESS = "Successfully configured Gemini to use OAuth."
+
+        CUSTOM_ENDPOINT_PROMPT = "Do you use a custom API endpoint? (e.g., corporate proxy, AWS Bedrock)"
+        CUSTOM_ENDPOINT_INFO_TITLE = "Custom endpoints are used for:"
+        CUSTOM_ENDPOINT_INFO_PROXY = "  • Corporate/enterprise proxies"
+        CUSTOM_ENDPOINT_INFO_BEDROCK = "  • AWS Bedrock"
+        CUSTOM_ENDPOINT_INFO_AZURE = "  • Azure OpenAI"
+        CUSTOM_ENDPOINT_INFO_SELF_HOSTED = "  • Self-hosted deployments"
+        CUSTOM_ENDPOINT_EXAMPLE_ANTHROPIC = "Example: https://bedrock-runtime.us-east-1.amazonaws.com"
+        CUSTOM_ENDPOINT_EXAMPLE_OPENAI = "Example: https://your-instance.openai.azure.com"
+        CUSTOM_ENDPOINT_URL_PROMPT = "Enter custom API endpoint URL"
+        CUSTOM_ENDPOINT_SUCCESS = "Will use custom endpoint: {base_url}"
+        CUSTOM_ENDPOINT_USING_STANDARD = "Using standard endpoint"
+
+        CONFIG_SUCCESS_TITLE = "AI provider configured:"
+        CONFIG_SUCCESS_PROVIDER = "  Provider: {provider}"
+        CONFIG_SUCCESS_MODEL = "  Model: {model}"
+        CONFIG_SUCCESS_ENDPOINT = "  Endpoint: {base_url}"
+        CONFIG_SUCCESS_TEMPERATURE = "  Temperature: {temperature}"
+        CONFIG_SUCCESS_MAX_TOKENS = "  Max Tokens: {max_tokens}"
+
+        RECONFIGURE_PROMPT = "Reconfigure now?"
+
+        # Advanced Options
+        ADVANCED_OPTIONS_PROMPT = "Set advanced options (temperature, max_tokens)?"
+        TEMPERATURE_PROMPT = "Enter default temperature (0.0 to 2.0, affects creativity)"
+        MAX_TOKENS_PROMPT = "Enter default max tokens (e.g., 4096, max output length)"
+        
 
         # Provider Labels and Descriptions
         ANTHROPIC_LABEL = "Anthropic (Claude)"
@@ -249,11 +288,48 @@ class Messages:
         OPENAI_DESCRIPTION_MODEL = "Model: {model}"
         GEMINI_DESCRIPTION_MODEL = "Model: {model}"
 
-        # Models
-        MODEL_NOT_AVAILABLE = "Model not available: {model}"
-        RATE_LIMIT = "Rate limit reached. Please try again later."
+        # Model Selection
+        MODEL_SELECTION_TITLE = "Model Selection for {provider}"
+        MODEL_SELECTION_TIP = "Tip: You can enter any model name, including custom/enterprise models"
+        MODEL_PROMPT = "Enter model name (or press Enter for default)"
+        
+        # Popular Models - Anthropic
+        POPULAR_CLAUDE_MODELS_TITLE = "Popular Claude models:"
+        POPULAR_CLAUDE_SONNET_3_5 = "  • claude-3-5-sonnet-20241022 - Latest, balanced performance"
+        POPULAR_CLAUDE_OPUS = "  • claude-3-opus-20240229 - Most capable, best for complex tasks"
+        POPULAR_CLAUDE_HAIKU = "  • claude-3-haiku-20240307 - Fastest, cost-effective"
+        POPULAR_CLAUDE_HAIKU_3_5 = "  • claude-3-5-haiku-20241022 - New fast model"
+
+        # Popular Models - OpenAI
+        POPULAR_OPENAI_MODELS_TITLE = "Popular OpenAI models:"
+        POPULAR_OPENAI_GPT4_TURBO = "  • gpt-4-turbo - Latest GPT-4, best performance"
+        POPULAR_OPENAI_GPT4 = "  • gpt-4 - Stable GPT-4"
+        POPULAR_OPENAI_GPT3_5_TURBO = "  • gpt-3.5-turbo - Fast and cost-effective"
+
+        # Popular Models - Gemini
+        POPULAR_GEMINI_MODELS_TITLE = "Popular Gemini models:"
+        POPULAR_GEMINI_1_5_PRO = "  • gemini-1.5-pro - Latest pro model"
+        POPULAR_GEMINI_1_5_FLASH = "  • gemini-1.5-flash - Fast and efficient"
+        POPULAR_GEMINI_PRO = "  • gemini-pro - Standard model"
+
+        # Connection Test
+        TESTING_CONNECTION = "Testing {provider} connection{model_info}{endpoint_info}..."
+        TEST_CONNECTION_PROMPT = "Test AI connection now?"
+        TEST_MODEL_INFO = "Model: {model}"
+        TEST_RESPONSE_INFO = "Response: {content}"
         CONNECTION_SUCCESS = "Connection successful!"
         CONNECTION_FAILED = "Connection failed: {error}"
+        CONNECTION_TEST_FAILED_PROMPT = "Connection test failed. You may want to reconfigure."
+        MODEL_NOT_AVAILABLE = "Model not available: {model}"
+        RATE_LIMIT = "Rate limit reached. Please try again later."
+
+    # ═══════════════════════════════════════════════════════════════
+    # Secrets Management
+    # ═══════════════════════════════════════════════════════════════
+    
+    class Secrets:
+        """Secrets management messages"""
+        AI_SETUP_CANCELLED = "AI provider setup cancelled. No changes were made."
 
     # ═══════════════════════════════════════════════════════════════
     # Plugin System
@@ -304,6 +380,14 @@ class Messages:
         # Settings
         SETTING_UPDATED = "Setting updated: {key} = {value}"
         SETTING_INVALID = "Invalid setting: {key}"
+        PROJECT_ROOT_SETUP_CANCELLED = "Project root setup cancelled. Titan CLI may not function fully."
+
+        # Project Root Setup
+        PROJECT_ROOT_WELCOME_TITLE = "Welcome to Titan CLI! Let's get you set up."
+        PROJECT_ROOT_INFO_MSG = "To get started, Titan needs to know where you store your projects."
+        PROJECT_ROOT_BODY_MSG = "This is the main folder where you keep all your git repositories (e.g., ~/git, ~/Projects)."
+        PROJECT_ROOT_PROMPT_MSG = "Enter the absolute path to your projects root directory"
+        PROJECT_ROOT_SUCCESS_MSG = "Configuration saved. Project root set to: {project_root}"
 
     # ═══════════════════════════════════════════════════════════════
     # User Prompts

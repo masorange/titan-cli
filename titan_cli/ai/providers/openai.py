@@ -1,7 +1,7 @@
 """
 OpenAI provider (ChatGPT) - STUB
 
-TODO: Implement in Day 3
+TODO: Implement it. Now it's not working
 """
 
 from .base import AIProvider

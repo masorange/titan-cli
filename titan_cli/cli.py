@@ -50,12 +50,11 @@ def get_version() -> str:
 
 def _prompt_for_project_root(text: TextRenderer, prompts: PromptsRenderer) -> bool:
     """Asks the user for the project root and saves it to the global config."""
-    # TODO: Move these strings to messages.py
-    welcome_title = "👋 Welcome to Titan CLI! Let's get you set up."
-    info_msg = "To get started, Titan needs to know where you store your projects."
-    body_msg = "This is the main folder where you keep all your git repositories (e.g., ~/git, ~/Projects)."
-    prompt_msg = "Enter the absolute path to your projects root directory"
-    success_msg = "Configuration saved. Project root set to: {project_root}"
+    welcome_title = msg.Config.PROJECT_ROOT_WELCOME_TITLE
+    info_msg = msg.Config.PROJECT_ROOT_INFO_MSG
+    body_msg = msg.Config.PROJECT_ROOT_BODY_MSG
+    prompt_msg = msg.Config.PROJECT_ROOT_PROMPT_MSG
+    success_msg = msg.Config.PROJECT_ROOT_SUCCESS_MSG
 
     text.title(welcome_title)
     text.line()
@@ -123,7 +122,7 @@ def show_interactive_menu():
     project_root = config.get_project_root()
     if not project_root or not Path(project_root).is_dir():
         if not _prompt_for_project_root(text, prompts):
-            text.warning(msg.Errors.OPERATION_CANCELLED_NO_CHANGES)
+            text.warning(msg.Config.PROJECT_ROOT_SETUP_CANCELLED)
             raise typer.Exit(0)
         # Reload config after setting it
         config.load()
@@ -219,13 +218,7 @@ def show_interactive_menu():
                 provider = config.config.ai.provider
                 model = config.config.ai.model
                 
-                # Get base_url from global config file, as done in `commands/ai.py`
-                base_url = None
-                global_config_path = TitanConfig.GLOBAL_CONFIG
-                if global_config_path.exists():
-                    with open(global_config_path, "rb") as f:
-                        global_config = tomli.load(f)
-                        base_url = global_config.get("ai", {}).get("base_url")
+                base_url = config.config.ai.base_url
                 
                 _test_ai_connection(provider, secrets, model, base_url)
             spacer.line()

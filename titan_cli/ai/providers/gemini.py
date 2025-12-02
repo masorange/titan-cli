@@ -2,7 +2,6 @@
 
 Supports both API key and OAuth authentication via gcloud."""
 
-from typing import Optional
 from .base import AIProvider
 from ..models import AIRequest, AIResponse, AIMessage
 from ..exceptions import AIProviderAPIError
@@ -53,7 +52,7 @@ class GeminiProvider(AIProvider):
         if self.use_oauth:
             # Use Application Default Credentials
             try:
-                credentials, project = google.auth.default()
+                google.auth.default()
                 # Gemini will use ADC automatically
             except Exception as e:
                 raise AIProviderAPIError(

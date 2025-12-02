@@ -2,7 +2,6 @@
 import typer
 import tomli
 import tomli_w
-from pathlib import Path
 
 from ..core.config import TitanConfig
 from ..core.secrets import SecretManager
@@ -10,7 +9,7 @@ from ..ui.components.typography import TextRenderer
 from ..ui.components.spacer import SpacerRenderer
 from ..ui.views.prompts import PromptsRenderer
 from ..ui.views.menu_components.dynamic_menu import DynamicMenu
-from ..ai.client import AIClient, PROVIDER_CLASSES
+from ..ai.client import PROVIDER_CLASSES
 from ..ai.oauth_helper import OAuthHelper
 from ..ai.constants import get_default_model, get_provider_name
 from ..ai.models import AIRequest, AIMessage
@@ -34,37 +33,37 @@ def _select_model(provider: str, prompts: PromptsRenderer, text: TextRenderer) -
     """
     spacer = SpacerRenderer()
 
-    text.subtitle(f"Model Selection for {get_provider_name(provider)}")
+    text.subtitle(msg.AI.MODEL_SELECTION_TITLE.format(provider=get_provider_name(provider)))
     spacer.line()
 
     # Show popular models as reference (not exhaustive list)
     if provider == "anthropic":
-        text.body("Popular Claude models:", style="dim")
-        text.body("  • claude-3-5-sonnet-20241022 - Latest, balanced performance", style="dim")
-        text.body("  • claude-3-opus-20240229 - Most capable, best for complex tasks", style="dim")
-        text.body("  • claude-3-haiku-20240307 - Fastest, cost-effective", style="dim")
-        text.body("  • claude-3-5-haiku-20241022 - New fast model", style="dim")
+        text.body(msg.AI.POPULAR_CLAUDE_MODELS_TITLE, style="dim")
+        text.body(msg.AI.POPULAR_CLAUDE_SONNET_3_5, style="dim")
+        text.body(msg.AI.POPULAR_CLAUDE_OPUS, style="dim")
+        text.body(msg.AI.POPULAR_CLAUDE_HAIKU, style="dim")
+        text.body(msg.AI.POPULAR_CLAUDE_HAIKU_3_5, style="dim")
 
     elif provider == "openai":
-        text.body("Popular OpenAI models:", style="dim")
-        text.body("  • gpt-4-turbo - Latest GPT-4, best performance", style="dim")
-        text.body("  • gpt-4 - Stable GPT-4", style="dim")
-        text.body("  • gpt-3.5-turbo - Fast and cost-effective", style="dim")
+        text.body(msg.AI.POPULAR_OPENAI_MODELS_TITLE, style="dim")
+        text.body(msg.AI.POPULAR_OPENAI_GPT4_TURBO, style="dim")
+        text.body(msg.AI.POPULAR_OPENAI_GPT4, style="dim")
+        text.body(msg.AI.POPULAR_OPENAI_GPT3_5_TURBO, style="dim")
 
     elif provider == "gemini":
-        text.body("Popular Gemini models:", style="dim")
-        text.body("  • gemini-1.5-pro - Latest pro model", style="dim")
-        text.body("  • gemini-1.5-flash - Fast and efficient", style="dim")
-        text.body("  • gemini-pro - Standard model", style="dim")
+        text.body(msg.AI.POPULAR_GEMINI_MODELS_TITLE, style="dim")
+        text.body(msg.AI.POPULAR_GEMINI_1_5_PRO, style="dim")
+        text.body(msg.AI.POPULAR_GEMINI_1_5_FLASH, style="dim")
+        text.body(msg.AI.POPULAR_GEMINI_PRO, style="dim")
 
     spacer.line()
-    text.body("💡 Tip: You can enter any model name, including custom/enterprise models", style="dim")
+    text.body(msg.AI.MODEL_SELECTION_TIP, style="dim")
     spacer.line()
 
     # Free text input with sensible default
     default_model = get_default_model(provider)
     model = prompts.ask_text(
-        "Enter model name (or press Enter for default)",
+        msg.AI.MODEL_PROMPT,
         default=default_model
     )
 
@@ -85,7 +84,7 @@ def _test_ai_connection(provider: str, secrets: SecretManager, model: str = None
 
     model_info = f" with model '{model}'" if model else ""
     endpoint_info = f" (custom endpoint)" if base_url else ""
-    text.info(f"Testing {provider} connection{model_info}{endpoint_info}...")
+    text.info(msg.AI.TESTING_CONNECTION.format(provider=provider, model_info=model_info, endpoint_info=endpoint_info))
 
     try:
         provider_class = PROVIDER_CLASSES.get(provider)
@@ -119,8 +118,8 @@ def _test_ai_connection(provider: str, secrets: SecretManager, model: str = None
         response = provider_instance.generate(test_request)
 
         text.success(msg.AI.CONNECTION_SUCCESS)
-        text.body(f"Model: {response.model}", style="dim")
-        text.body(f"Response: {response.content}", style="dim")
+        text.body(msg.AI.TEST_MODEL_INFO.format(model=response.model), style="dim")
+        text.body(msg.AI.TEST_RESPONSE_INFO.format(content=response.content), style="dim")
 
     except Exception as e:
         text.error(msg.AI.CONNECTION_FAILED.format(error=e))
@@ -133,21 +132,20 @@ def configure_ai_interactive():
     text = TextRenderer()
     prompts = PromptsRenderer(text_renderer=text)
     secrets = SecretManager()
-    config = TitanConfig() # To read existing global config
 
-    text.title("🤖 Configure AI Provider")
+    text.title(msg.AI.CONFIG_TITLE)
     text.line()
 
     # Step 1: Select Provider
-    provider_menu = DynamicMenu(title="Select AI Provider", emoji="🤖")
-    cat = provider_menu.add_category("Providers")
+    provider_menu = DynamicMenu(title=msg.AI.PROVIDER_SELECT_TITLE, emoji=msg.EMOJI.INFO) # Changed emoji to INFO
+    cat = provider_menu.add_category(msg.AI.PROVIDER_SELECT_CATEGORY)
     cat.add_item(msg.AI.ANTHROPIC_LABEL, msg.AI.ANTHROPIC_DESCRIPTION_MODEL.format(model="claude-3-opus-20240229"), "anthropic")
     cat.add_item(msg.AI.OPENAI_LABEL, msg.AI.OPENAI_DESCRIPTION_MODEL.format(model="gpt-4-turbo"), "openai")
     cat.add_item(msg.AI.GEMINI_LABEL, msg.AI.GEMINI_DESCRIPTION_MODEL.format(model="gemini-1.5-pro"), "gemini")
 
     provider_choice = prompts.ask_menu(provider_menu.to_menu())
     if not provider_choice:
-        text.warning(msg.Errors.OPERATION_CANCELLED)
+        text.warning(msg.Secrets.AI_SETUP_CANCELLED)
         return
 
     provider = provider_choice.action
@@ -156,28 +154,28 @@ def configure_ai_interactive():
     # Step 2: Authentication
     auth_successful = False
     if provider == "gemini":
-        text.info("Gemini can use OAuth via Google Cloud SDK.")
-        use_oauth = prompts.ask_confirm("Use OAuth for Gemini authentication?", default=True)
+        text.info(msg.AI.GEMINI_OAUTH_INFO)
+        use_oauth = prompts.ask_confirm(msg.AI.GEMINI_OAUTH_PROMPT, default=True)
         if use_oauth:
             helper = OAuthHelper()
             status = helper.check_gcloud_auth()
             if not status.available:
-                text.error(f"Google Cloud SDK not found or not working: {status.error}")
+                text.error(msg.AI.GEMINI_OAUTH_NOT_AVAILABLE.format(error=status.error))
                 text.body(helper.get_install_instructions())
                 return
             if not status.authenticated:
-                text.warning("You are not authenticated with gcloud.")
-                if prompts.ask_confirm("Run 'gcloud auth application-default login' now?"):
+                text.warning(msg.AI.GEMINI_OAUTH_NOT_AUTHENTICATED)
+                if prompts.ask_confirm(msg.AI.GEMINI_OAUTH_RUN_LOGIN_PROMPT):
                     text.body(helper.get_auth_instructions())
                 return # Exit if user doesn't want to authenticate now
             
             secrets.set("gemini_oauth_enabled", "true", scope="user")
-            text.success("✅ Gemini configured to use Google Cloud OAuth.")
+            text.success(msg.AI.GEMINI_OAUTH_CONFIGURED_SUCCESS)
             auth_successful = True
         else: # User chose not to use OAuth, prompt for API key
              api_key = secrets.prompt_and_set(
                 key="gemini_api_key",
-                prompt_text="Enter your Gemini API key",
+                prompt_text=msg.AI.API_KEY_PROMPT.format(provider="Gemini"), # Gemini title is hardcoded here, need to check if provider.title() is what we want
                 scope="user"
             )
              if api_key:
@@ -186,17 +184,17 @@ def configure_ai_interactive():
     else: # API Key flow for Anthropic/OpenAI
         key_name = f"{provider}_api_key"
         if secrets.get(key_name):
-            text.info(f"API key already configured for {provider}.")
-            if not prompts.ask_confirm("Do you want to replace the existing key?"):
-                text.warning(msg.Errors.OPERATION_CANCELLED)
+            text.info(msg.AI.API_KEY_ALREADY_CONFIGURED.format(provider=provider))
+            if not prompts.ask_confirm(msg.AI.API_KEY_REPLACE_PROMPT):
+                text.warning(msg.Secrets.AI_SETUP_CANCELLED)
                 return
         
-        api_key = secrets.prompt_and_set(key=key_name, prompt_text=f"Enter your {provider.title()} API Key", scope="user")
+        api_key = secrets.prompt_and_set(key=key_name, prompt_text=msg.AI.API_KEY_PROMPT.format(provider=provider.title()), scope="user")
         if api_key:
             auth_successful = True
     
     if not auth_successful:
-        text.warning(msg.Errors.OPERATION_CANCELLED)
+        text.warning(msg.Secrets.AI_SETUP_CANCELLED)
         return
 
     text.line()
@@ -204,33 +202,33 @@ def configure_ai_interactive():
     # Step 3: Custom Endpoint (Optional - for enterprise/corporate deployments)
     base_url = None
     if prompts.ask_confirm(
-        "Do you use a custom API endpoint? (e.g., corporate proxy, AWS Bedrock)",
+        msg.AI.CUSTOM_ENDPOINT_PROMPT,
         default=False
     ):
         spacer = SpacerRenderer()
         spacer.line()
-        text.info("Custom endpoints are used for:")
-        text.body("  • Corporate/enterprise proxies", style="dim")
-        text.body("  • AWS Bedrock", style="dim")
-        text.body("  • Azure OpenAI", style="dim")
-        text.body("  • Self-hosted deployments", style="dim")
+        text.info(msg.AI.CUSTOM_ENDPOINT_INFO_TITLE)
+        text.body(msg.AI.CUSTOM_ENDPOINT_INFO_PROXY, style="dim")
+        text.body(msg.AI.CUSTOM_ENDPOINT_INFO_BEDROCK, style="dim")
+        text.body(msg.AI.CUSTOM_ENDPOINT_INFO_AZURE, style="dim")
+        text.body(msg.AI.CUSTOM_ENDPOINT_INFO_SELF_HOSTED, style="dim")
         spacer.line()
 
         if provider == "anthropic":
-            text.body("Example: https://bedrock-runtime.us-east-1.amazonaws.com", style="dim")
+            text.body(msg.AI.CUSTOM_ENDPOINT_EXAMPLE_ANTHROPIC, style="dim")
         elif provider == "openai":
-            text.body("Example: https://your-instance.openai.azure.com", style="dim")
+            text.body(msg.AI.CUSTOM_ENDPOINT_EXAMPLE_OPENAI, style="dim")
 
         spacer.line()
         base_url = prompts.ask_text(
-            "Enter custom API endpoint URL",
+            msg.AI.CUSTOM_ENDPOINT_URL_PROMPT,
             default=""
         )
 
         if base_url:
-            text.success(f"✅ Will use custom endpoint: {base_url}")
+            text.success(msg.AI.CUSTOM_ENDPOINT_SUCCESS.format(base_url=base_url))
         else:
-            text.info("Using standard endpoint")
+            text.info(msg.AI.CUSTOM_ENDPOINT_USING_STANDARD)
 
         text.line()
 
@@ -238,7 +236,25 @@ def configure_ai_interactive():
     model = _select_model(provider, prompts, text)
     text.line()
 
-    # Step 5: Save to global config
+    # Step 5: Advanced Options
+    temperature = None
+    max_tokens = None
+    if prompts.ask_confirm(msg.AI.ADVANCED_OPTIONS_PROMPT, default=False):
+        text.line()
+        temperature = prompts.ask_float(
+            msg.AI.TEMPERATURE_PROMPT,
+            default=0.7,
+            min_value=0.0,
+            max_value=2.0
+        )
+        max_tokens = prompts.ask_int(
+            msg.AI.MAX_TOKENS_PROMPT,
+            default=4096,
+            min_value=1
+        )
+        text.line()
+
+    # Step 6: Save to global config
     global_config_path = TitanConfig.GLOBAL_CONFIG
     global_config = {}
     if global_config_path.exists():
@@ -250,6 +266,12 @@ def configure_ai_interactive():
     global_config["ai"]["provider"] = provider
     global_config["ai"]["model"] = model
 
+    # Save advanced options if provided
+    if temperature is not None:
+        global_config["ai"]["temperature"] = temperature
+    if max_tokens is not None:
+        global_config["ai"]["max_tokens"] = max_tokens
+
     # Save base_url if provided
     if base_url:
         global_config["ai"]["base_url"] = base_url
@@ -260,20 +282,24 @@ def configure_ai_interactive():
     with open(global_config_path, "wb") as f:
         tomli_w.dump(global_config, f)
 
-    text.success(f"✅ AI provider configured:")
-    text.body(f"  Provider: {get_provider_name(provider)}", style="dim")
-    text.body(f"  Model: {model}", style="dim")
+    text.success(msg.AI.CONFIG_SUCCESS_TITLE)
+    text.body(msg.AI.CONFIG_SUCCESS_PROVIDER.format(provider=get_provider_name(provider)), style="dim")
+    text.body(msg.AI.CONFIG_SUCCESS_MODEL.format(model=model), style="dim")
     if base_url:
-        text.body(f"  Endpoint: {base_url}", style="dim")
+        text.body(msg.AI.CONFIG_SUCCESS_ENDPOINT.format(base_url=base_url), style="dim")
+    if temperature is not None:
+        text.body(msg.AI.CONFIG_SUCCESS_TEMPERATURE.format(temperature=temperature), style="dim")
+    if max_tokens is not None:
+        text.body(msg.AI.CONFIG_SUCCESS_MAX_TOKENS.format(max_tokens=max_tokens), style="dim")
     text.line()
 
-    # Step 6: Test connection (optional)
-    if prompts.ask_confirm("Test AI connection now?", default=True):
+    # Step 7: Test connection (optional)
+    if prompts.ask_confirm(msg.AI.TEST_CONNECTION_PROMPT, default=True):
         test_success = _test_ai_connection(provider, secrets, model, base_url)
         if not test_success:
             text.line()
-            text.warning("⚠️  Connection test failed. You may want to reconfigure.")
-            if prompts.ask_confirm("Reconfigure now?", default=False):
+            text.warning(msg.AI.CONNECTION_TEST_FAILED_PROMPT)
+            if prompts.ask_confirm(msg.AI.RECONFIGURE_PROMPT, default=False):
                 configure_ai_interactive()  # Recursive call to reconfigure
 
 @ai_app.command("configure")
@@ -288,18 +314,12 @@ def test():
     secrets = SecretManager()
 
     if not config.config.ai:
-        typer.echo("❌ No AI provider configured. Run: titan ai configure")
+        typer.echo(msg.AI.PROVIDER_NOT_CONFIGURED)
         raise typer.Exit(1)
 
     provider = config.config.ai.provider
     model = config.config.ai.model if config.config.ai.model else None
 
-    # Get base_url from config if exists
-    base_url = None
-    global_config_path = TitanConfig.GLOBAL_CONFIG
-    if global_config_path.exists():
-        with open(global_config_path, "rb") as f:
-            global_config = tomli.load(f)
-            base_url = global_config.get("ai", {}).get("base_url")
+    base_url = config.config.ai.base_url
 
     _test_ai_connection(provider, secrets, model, base_url)

@@ -82,12 +82,19 @@ class AIClient:
         self._provider = provider_class(**kwargs)
         return self._provider
 
-    def generate(self, messages: List[AIMessage]) -> AIResponse:
+    def generate(
+        self,
+        messages: List[AIMessage],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> AIResponse:
         """
         Generate response using configured AI provider.
 
         Args:
             messages: List of conversation messages.
+            max_tokens: Optional override for the maximum number of tokens.
+            temperature: Optional override for the temperature.
 
         Returns:
             AI response with generated content.
@@ -98,18 +105,26 @@ class AIClient:
 
         request = AIRequest(
             messages=messages,
-            max_tokens=ai_config.max_tokens,
-            temperature=ai_config.temperature,
+            max_tokens=max_tokens if max_tokens is not None else ai_config.max_tokens,
+            temperature=temperature if temperature is not None else ai_config.temperature,
         )
         return self.provider.generate(request)
 
-    def chat(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def chat(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> str:
         """
         Simple chat interface for single-turn conversations.
 
         Args:
             prompt: User prompt/question.
             system_prompt: Optional system prompt to set context.
+            max_tokens: Optional override for the maximum number of tokens.
+            temperature: Optional override for the temperature.
 
         Returns:
             AI response text.
@@ -119,7 +134,9 @@ class AIClient:
             messages.append(AIMessage(role="system", content=system_prompt))
         messages.append(AIMessage(role="user", content=prompt))
 
-        response = self.generate(messages)
+        response = self.generate(
+            messages, max_tokens=max_tokens, temperature=temperature
+        )
         return response.content
 
     def is_available(self) -> bool:

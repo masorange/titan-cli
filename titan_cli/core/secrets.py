@@ -120,7 +120,7 @@ class SecretManager:
             try:
                 keyring.delete_password(namespace, key)
             except Exception:
-                pass
+                pass # Keyring might not be available
 
         elif scope == "project":
             secrets_file = self.project_path / ".titan" / "secrets.env"
