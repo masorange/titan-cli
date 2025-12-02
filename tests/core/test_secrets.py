@@ -174,4 +174,4 @@ def test_prompt_and_set_cancelled(mock_ui_components, mock_keyring):
     
     assert value is None
     mock_keyring[1].assert_not_called()
-    mock_text.warning.assert_called_once_with(msg.Errors.OPERATION_CANCELLED)
+    mock_text.warning.assert_called_once_with(msg.Secrets.AI_SETUP_CANCELLED)
