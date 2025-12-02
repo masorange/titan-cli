@@ -8,6 +8,8 @@ from titan_cli.engine import (
     Success,
     Error,
     Skip,
+    is_success,
+    is_error
 )
 
 
@@ -27,7 +29,7 @@ def test_workflow_success():
 
     result = workflow.run(ctx)
 
-    assert result.is_success()
+    assert is_success(result)
     assert ctx.get("step1_done") is True
 
 
@@ -49,7 +51,7 @@ def test_workflow_halt_on_error():
 
     result = workflow.run(ctx)
 
-    assert result.is_error()
+    assert is_error(result)
     assert "Step 2 failed" in result.message
     assert ctx.get("step3_ran") is None  # Step 3 didn't run
 
@@ -68,7 +70,29 @@ def test_workflow_skip():
 
     result = workflow.run(ctx)
 
-    assert result.is_success()  # Skip doesn't stop workflow
+    assert is_success(result)  # Skip doesn't stop workflow
+
+
+def test_workflow_metadata_auto_merging():
+    """Test that metadata from results is auto-merged into context."""
+
+    def step1(ctx: WorkflowContext):
+        return Success("Step 1 with metadata", metadata={"step1_data": "foo"})
+
+    def step2(ctx: WorkflowContext):
+        return Skip("Step 2 with metadata", metadata={"step2_data": "bar"})
+
+    def step3(ctx: WorkflowContext):
+        assert ctx.get("step1_data") == "foo"
+        assert ctx.get("step2_data") == "bar"
+        return Success("Step 3 verified data")
+
+    ctx = WorkflowContextBuilder().build()
+    workflow = BaseWorkflow(name="Metadata Test", steps=[step1, step2, step3])
+    workflow.run(ctx)
+
+    # Final check on context data
+    assert ctx.data == {"step1_data": "foo", "step2_data": "bar"}
 
 
 def test_context_builder_with_ui():

@@ -2,9 +2,9 @@
 BaseWorkflow - Orchestrator for executing atomic steps.
 """
 
-from typing import List, Callable, Optional
+from typing import List, Callable
 from .context import WorkflowContext
-from .results import WorkflowResult, Success, Error, Skip
+from .results import WorkflowResult, Success, Error, Skip, is_error, is_skip, is_success
 
 
 # Type alias for a step function
@@ -70,6 +70,8 @@ class BaseWorkflow:
             ctx.text.title(f"🚀 {self.name}")
             ctx.text.line()
 
+        final_result: WorkflowResult = Success(f"{self.name} completed")
+
         for i, step in enumerate(self.steps, start=1):
             step_name = step.__name__
 
@@ -78,12 +80,17 @@ class BaseWorkflow:
 
             try:
                 result = step(ctx)
+                final_result = result
+
+                # Auto-merge metadata into context
+                if isinstance(result, (Success, Skip)) and result.metadata:
+                    ctx.data.update(result.metadata)
 
                 # Log result
                 self._log_result(ctx, result)
 
                 # Handle errors
-                if result.is_error() and self.halt_on_error:
+                if is_error(result) and self.halt_on_error:
                     if ctx.text:
                         ctx.text.line()
                         ctx.text.error(f"❌ Workflow halted: {result.message}")
@@ -94,26 +101,27 @@ class BaseWorkflow:
                 if ctx.text:
                     ctx.text.error(error_msg)
 
+                final_result = Error(error_msg, exception=e)
                 if self.halt_on_error:
-                    return Error(error_msg)
+                    return final_result
 
             if ctx.text:
                 ctx.text.line()
 
-        # All steps completed
-        if ctx.text:
-            ctx.text.success(f"✅ {self.name} completed successfully")
+        if is_success(final_result):
+            if ctx.text:
+                ctx.text.success(f"✅ {self.name} completed successfully")
 
-        return Success(f"{self.name} completed")
+        return final_result
 
     def _log_result(self, ctx: WorkflowContext, result: WorkflowResult) -> None:
         """Log step result with appropriate styling."""
         if not ctx.text:
             return
 
-        if result.is_success() and not result.is_skip():
+        if is_success(result):
             ctx.text.success(f"  ✓ {result.message}")
-        elif result.is_skip():
+        elif is_skip(result):
             ctx.text.warning(f"  ⊝ {result.message}")
-        elif result.is_error():
+        elif is_error(result):
             ctx.text.error(f"  ✗ {result.message}")
