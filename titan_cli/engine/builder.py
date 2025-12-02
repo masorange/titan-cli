@@ -40,6 +40,7 @@ class WorkflowContextBuilder:
 
         # Service clients
         self._ai = None
+        self._git = None
 
     def with_ui(
         self,
@@ -85,6 +86,24 @@ class WorkflowContextBuilder:
                 self._ai = None
         return self
 
+    def with_git(self, git_client: Optional[Any] = None) -> "WorkflowContextBuilder":
+        """
+        Add Git client.
+        
+        Args:
+            git_client: Optional GitClient instance (auto-created if None)
+        """
+        if git_client:
+            self._git = git_client
+        else:
+            # Auto-create from plugin registry
+            git_plugin = self._config.registry.get_plugin("git")
+            if git_plugin and git_plugin.is_available():
+                self._git = git_plugin.get_client()
+            else:
+                self._git = None
+        return self
+
     def build(self) -> WorkflowContext:
         """Build the WorkflowContext."""
         return WorkflowContext(
@@ -93,4 +112,5 @@ class WorkflowContextBuilder:
             ui=self._ui,
             views=self._views,
             ai=self._ai,
+            git=self._git,
         )

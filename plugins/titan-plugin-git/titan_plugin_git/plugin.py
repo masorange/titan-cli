@@ -55,3 +55,12 @@ class GitPlugin(TitanPlugin):
         if not hasattr(self, '_client') or self._client is None:
             raise GitClientError("GitPlugin not initialized or Git CLI not available.")
         return self._client
+
+    def get_steps(self) -> dict:
+        """
+        Returns a dictionary of available workflow steps.
+        """
+        from .steps.status_step import get_git_status_step
+        return {
+            "get_status": get_git_status_step,
+        }
