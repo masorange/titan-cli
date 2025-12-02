@@ -16,11 +16,13 @@ class PluginLoadError(PluginError):
     def __init__(self, plugin_name: str, original_exception: Exception):
         self.plugin_name = plugin_name
         self.original_exception = original_exception
-        message = msg.Errors.PLUGIN_LOAD_FAILED.format(
-            plugin_name=plugin_name, 
-            error=original_exception
+        # Do not call super().__init__ with message here, as it's formatted by __str__
+
+    def __str__(self) -> str:
+        return msg.Errors.PLUGIN_LOAD_FAILED.format(
+            plugin_name=self.plugin_name, 
+            error=str(self.original_exception)
         )
-        super().__init__(message)
 
 class ConfigError(TitanError):
     """Base exception for configuration-related errors."""

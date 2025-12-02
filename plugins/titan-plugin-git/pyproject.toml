@@ -2,12 +2,23 @@
 name = "titan-plugin-git"
 version = "0.1.0"
 description = "Git plugin for Titan CLI"
-authors = ["Your Name <you@example.com>"]
+authors = ["Alex alejandro.lopezr@masmovil.com"]
 
 [tool.poetry.dependencies]
 python = ">=3.10"
-titan-cli = ">=0.1.0"
+titan-cli = { path = "../../", develop = true } # Local path dependency for development
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "titan-plugin-git"
+version = "0.1.0"
+description = "Git plugin for Titan CLI"
+authors = [
+    {name = "Alex", email = "alejandro.lopezr@masmovil.com"}
+]
+# Entry points are typically under [project.entry-points] for PEP 621
+[project.entry-points."titan.plugins"]
+git = "titan_plugin_git.plugin:GitPlugin"

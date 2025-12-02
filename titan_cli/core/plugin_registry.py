@@ -23,8 +23,12 @@ class PluginRegistry:
                         ep.name, 
                         TypeError("Plugin class must inherit from TitanPlugin")
                     )
-                self._plugins[ep.name] = plugin_class()
+                self._plugins[ep.name] = plugin_class(name=ep.name)
+            except PluginLoadError as e:
+                # This is already a formatted error, just print it
+                print(f"Warning: {e}")
             except Exception as e:
+                # Wrap other exceptions in PluginLoadError
                 error = PluginLoadError(plugin_name=ep.name, original_exception=e)
                 print(f"Warning: {error}")
 
