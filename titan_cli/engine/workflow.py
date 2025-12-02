@@ -5,6 +5,7 @@ BaseWorkflow - Orchestrator for executing atomic steps.
 from typing import List, Callable
 from .context import WorkflowContext
 from .results import WorkflowResult, Success, Error, Skip, is_error, is_skip, is_success
+from ..messages import msg # Import messages
 
 
 # Type alias for a step function
@@ -67,16 +68,24 @@ class BaseWorkflow:
             Final workflow result (Success or Error)
         """
         if ctx.ui.text:
-            ctx.ui.text.title(f"🚀 {self.name}")
+            # Using an emoji from a potential new EMOJI category in messages
+            # Assuming "ROCKET" is a key like "🚀"
+            title = msg.Workflow.TITLE.format(emoji=msg.EMOJI.ROCKET, name=self.name)
+            ctx.ui.text.title(title)
             ctx.ui.text.line()
 
-        final_result: WorkflowResult = Success(f"{self.name} completed")
+        final_result: WorkflowResult = Success(msg.Workflow.COMPLETED_SUCCESS.format(name=self.name))
 
         for i, step in enumerate(self.steps, start=1):
             step_name = step.__name__
 
             if ctx.ui.text:
-                ctx.ui.text.info(f"[{i}/{len(self.steps)}] {step_name}")
+                step_info = msg.Workflow.STEP_INFO.format(
+                    current_step=i,
+                    total_steps=len(self.steps),
+                    step_name=step_name
+                )
+                ctx.ui.text.info(step_info)
 
             try:
                 result = step(ctx)
@@ -93,11 +102,12 @@ class BaseWorkflow:
                 if is_error(result) and self.halt_on_error:
                     if ctx.ui.text:
                         ctx.ui.text.line()
-                        ctx.ui.text.error(f"❌ Workflow halted: {result.message}")
+                        halt_message = msg.Workflow.HALTED.format(message=result.message)
+                        ctx.ui.text.error(f"{msg.EMOJI.ERROR} {halt_message}")
                     return result
 
             except Exception as e:
-                error_msg = f"Step '{step_name}' raised exception: {e}"
+                error_msg = msg.Workflow.STEP_EXCEPTION.format(step_name=step_name, error=e)
                 if ctx.ui.text:
                     ctx.ui.text.error(error_msg)
 
@@ -110,7 +120,8 @@ class BaseWorkflow:
 
         if is_success(final_result):
             if ctx.ui.text:
-                ctx.ui.text.success(f"✅ {self.name} completed successfully")
+                success_message = msg.Workflow.COMPLETED_SUCCESS.format(name=self.name)
+                ctx.ui.text.success(f"{msg.EMOJI.SUCCESS} {success_message}")
 
         return final_result
 
@@ -120,8 +131,12 @@ class BaseWorkflow:
             return
 
         if is_success(result):
-            ctx.ui.text.success(f"  ✓ {result.message}")
+            log_msg = msg.Workflow.STEP_SUCCESS.format(symbol=msg.SYMBOL.SUCCESS, message=result.message)
+            ctx.ui.text.success(log_msg)
         elif is_skip(result):
-            ctx.ui.text.warning(f"  ⊝ {result.message}")
+            # Assuming a new symbol for skip
+            log_msg = msg.Workflow.STEP_SKIPPED.format(symbol=msg.SYMBOL.SKIPPED, message=result.message)
+            ctx.ui.text.warning(log_msg)
         elif is_error(result):
-            ctx.ui.text.error(f"  ✗ {result.message}")
+            log_msg = msg.Workflow.STEP_ERROR.format(symbol=msg.SYMBOL.ERROR, message=result.message)
+            ctx.ui.text.error(log_msg)

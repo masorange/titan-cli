@@ -81,6 +81,7 @@ class Messages:
         ERROR = "❌"
         INFO = "ℹ️"
         WARNING = "⚠️"
+        ROCKET = "🚀"
 
     class SYMBOL:
         """ASCII symbols for consistent alignment (alternative to emojis)"""
@@ -88,6 +89,7 @@ class Messages:
         ERROR = "✗"    # Cross
         INFO = "i"     # Info
         WARNING = "!"  # Exclamation
+        SKIPPED = "⊝" # Circled minus
 
     # ═══════════════════════════════════════════════════════════════
     # Workflow Engine
@@ -97,26 +99,16 @@ class Messages:
         """Workflow execution messages"""
 
         # Workflow lifecycle
-        STARTING = "Starting workflow: {name}"
-        EXECUTING = "Executing workflow: {name}"
-        COMPLETED = "Workflow completed successfully"
-        FAILED = "Workflow failed: {error}"
-
-        # Step execution
-        STEP_STARTING = "   {step}"
-        STEP_COMPLETED = "   {step}"
-        STEP_FAILED = "   {step}: {error}"
-        STEP_SKIPPED = "   Skipped: {step}"
-
-        # Workflow listing
-        LIST_TITLE = "Available Workflows"
-        LIST_EMPTY = "No workflows found"
-        LIST_LOADED = "Loaded {count} workflow(s)"
-
-        # Workflow errors
-        NOT_FOUND = "Workflow not found: {name}"
-        INVALID_CONFIG = "Invalid workflow configuration: {error}"
-        EXECUTION_ERROR = "Error executing workflow: {error}"
+        TITLE = "{emoji} {name}"
+        STEP_INFO = "[{current_step}/{total_steps}] {step_name}"
+        STEP_EXCEPTION = "Step '{step_name}' raised an exception: {error}"
+        HALTED = "Workflow halted: {message}"
+        COMPLETED_SUCCESS = "{name} completed successfully"
+        
+        # Step result logging
+        STEP_SUCCESS = "  {symbol} {message}"
+        STEP_SKIPPED = "  {symbol} {message}"
+        STEP_ERROR = "  {symbol} {message}"
 
     # ═══════════════════════════════════════════════════════════════
     # GitHub Integration
