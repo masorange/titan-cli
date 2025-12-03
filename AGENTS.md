@@ -445,16 +445,18 @@ For local development where plugins are in subdirectories, add them to the main 
 
 ### Plugin Anatomy
 
-A plugin is a standard Python package that typically follows this structure:
+A plugin is a standard Python package that typically follows this structure. For a concrete example, refer to `plugins/titan-plugin-git/`:
 
 ```
 plugins/my-cool-plugin/
 ├── pyproject.toml             # Defines the plugin and its entry point
 └── my_cool_plugin/
+    ├── __init__.py
     ├── plugin.py              # Contains the main TitanPlugin class
     ├── clients/               # Wrappers for external APIs or CLIs
-    ├── models.py              # Data models
-    ├── exceptions.py          # Custom exceptions
+    ├── models.py              # Data models for plugin-specific entities
+    ├── exceptions.py          # Custom exceptions for the plugin
+    ├── messages.py            # **Centralized user-facing strings for the plugin**
     └── steps/                 # Workflow steps provided by the plugin
 ```
 
@@ -470,37 +472,55 @@ my-plugin-name = "my_cool_plugin.plugin:MyCoolPlugin"
 
 #### `plugin.py`
 
-This file defines the main plugin class that inherits from `TitanPlugin`.
+This file defines the main plugin class that inherits from `TitanPlugin`. It acts as the entry point for the plugin, responsible for its initialization and exposing its capabilities.
 
 ```python
 from titan_cli.core import TitanPlugin
+# Import plugin-specific client, models, and messages
+from .clients.my_client import MyClient
+from .messages import msg
 
 class MyCoolPlugin(TitanPlugin):
     @property
     def name(self) -> str:
+        # The unique name of the plugin (e.g., "git", "github")
         return "my-plugin-name"
 
     @property
     def dependencies(self) -> list[str]:
-        # Example: this plugin depends on the 'git' plugin
-        return ["git"]
+        # Declare any other Titan plugins this plugin depends on.
+        # Example: if this plugin uses Git operations, it might depend on "git".
+        return ["git"] # Example dependency
 
     def initialize(self, config, secrets):
-        # Initialize clients here
-        self.client = MyCoolClient(config, secrets)
+        # Initialize clients, services, or any resources needed by the plugin.
+        # This is where you would instantiate your MyClient, for example.
+        self.client = MyClient(config, secrets)
+        # You can also use the config and secrets to set up plugin-specific settings.
+        # print(msg.Plugin.initialized_message.format(name=self.name)) # Example using messages
 
     def get_client(self):
-        # Return the client to be injected into WorkflowContext
+        # Returns the main client instance of this plugin, which can be injected
+        # into the WorkflowContext for use by steps or other plugins.
         return self.client
     
     def get_steps(self) -> dict:
-        # Expose workflow steps
+        # Expose workflow steps provided by this plugin.
+        # Steps are typically functions in the 'steps/' directory.
         from .steps import step_one, step_two
         return {
             "step_one": step_one,
             "step_two": step_two,
         }
 ```
+
+#### Other Key Directories/Files:
+
+-   **`clients/`**: Contains Python classes that wrap external APIs, CLI tools (like `GitClient` for `git`), or internal services. These clients should encapsulate the logic for interacting with external systems.
+-   **`models.py`**: Defines Pydantic models for data structures specific to the plugin (e.g., `GitStatus`, `GitBranch` in `titan-plugin-git`).
+-   **`exceptions.py`**: Custom exceptions specific to the plugin's operations.
+-   **`messages.py`**: As highlighted in the "Messages & i18n" section, this file centralizes all user-facing strings for the plugin, making them easy to manage and prepare for internationalization.
+-   **`steps/`**: Contains individual `StepFunction` implementations that can be used within the Workflow Engine. These steps should be atomic and focused on a single logical operation (e.g., `status_step.py`, `commit_step.py` in `titan-plugin-git`).
 
 ---
 
