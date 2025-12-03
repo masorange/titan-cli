@@ -236,6 +236,9 @@ self.console.print(line)
 
 **All user-facing strings go in `messages.py`:**
 
+For the core `titan_cli`, messages are located in `titan_cli/messages.py`.
+**Plugins must maintain their own `messages.py` file** within their respective plugin directory (e.g., `plugins/my-plugin/my_plugin/messages.py`) to centralize their user-facing strings.
+
 ```python
 # messages.py
 class Messages:
@@ -418,44 +421,106 @@ if config.is_plugin_enabled("github"):
 
 ## 🔌 Plugin System
 
-### Plugin Discovery
+Titan CLI features a modular plugin system that allows its functionality to be extended with new clients, workflow steps, and commands.
 
-Plugins are discovered via **entry points** (not file system):
+### Core Concepts
 
-```toml
-# Plugin's pyproject.toml
-[project.entry-points."titan.plugins"]
-github = "titan_plugin_github:GitHubPlugin"
-```
+- **Discovery**: Plugins are packaged as separate Python packages and discovered at runtime using `importlib.metadata` to look for the `titan.plugins` entry point group.
+- **Base Class**: Every plugin must inherit from the `TitanPlugin` abstract base class (`titan_cli/core/plugin_base.py`), which defines the contract for all plugins.
+- **Dependency Resolution**: The `PluginRegistry` automatically resolves dependencies between plugins. A plugin can declare its dependencies by overriding the `dependencies` property. The registry ensures that dependencies are initialized before the plugins that need them.
 
 ### Installing Plugins
 
-```bash
-# Core
-pipx install titan-cli
+Plugins are installed into `titan-cli`'s isolated environment using `pipx inject`.
 
-# Add plugin
+```bash
+# First, install the core CLI if you haven't
+pipx install . -e
+
+# Then, inject plugins
+pipx inject titan-cli titan-plugin-git
 pipx inject titan-cli titan-plugin-github
 ```
+For local development where plugins are in subdirectories, add them to the main `pyproject.toml` as a path dependency.
 
-### Plugin Structure (3-Layer Architecture)
+### Plugin Anatomy
+
+A plugin is a standard Python package that typically follows this structure. For a concrete example, refer to `plugins/titan-plugin-git/`:
 
 ```
-plugins/titan-plugin-github/
-├── steps/       # LAYER 1: Workflow steps (orchestration)
-│   ├── create_pr_step.py
-│   └── validate_branch_step.py
-├── services/    # LAYER 2: Business logic (wrappers)
-│   ├── pr_service.py
-│   └── branch_service.py
-└── clients/     # LAYER 3: External API (GitHub CLI, API clients)
-    └── github_client.py
+plugins/my-cool-plugin/
+├── pyproject.toml             # Defines the plugin and its entry point
+└── my_cool_plugin/
+    ├── __init__.py
+    ├── plugin.py              # Contains the main TitanPlugin class
+    ├── clients/               # Wrappers for external APIs or CLIs
+    ├── models.py              # Data models for plugin-specific entities
+    ├── exceptions.py          # Custom exceptions for the plugin
+    ├── messages.py            # **Centralized user-facing strings for the plugin**
+    └── steps/                 # Workflow steps provided by the plugin
 ```
 
-**Layer separation:**
-- **Steps**: Orchestration, use WorkflowContext, return WorkflowResult
-- **Services**: Business logic, validation, no UI, no workflows
-- **Clients**: External API wrappers (gh CLI, HTTP requests)
+#### `pyproject.toml`
+
+The plugin must declare itself in the `[project.entry-points."titan.plugins"]` section.
+
+```toml
+# plugins/my-cool-plugin/pyproject.toml
+[project.entry-points."titan.plugins"]
+my-plugin-name = "my_cool_plugin.plugin:MyCoolPlugin"
+```
+
+#### `plugin.py`
+
+This file defines the main plugin class that inherits from `TitanPlugin`. It acts as the entry point for the plugin, responsible for its initialization and exposing its capabilities.
+
+```python
+from titan_cli.core import TitanPlugin
+# Import plugin-specific client, models, and messages
+from .clients.my_client import MyClient
+from .messages import msg
+
+class MyCoolPlugin(TitanPlugin):
+    @property
+    def name(self) -> str:
+        # The unique name of the plugin (e.g., "git", "github")
+        return "my-plugin-name"
+
+    @property
+    def dependencies(self) -> list[str]:
+        # Declare any other Titan plugins this plugin depends on.
+        # Example: if this plugin uses Git operations, it might depend on "git".
+        return ["git"] # Example dependency
+
+    def initialize(self, config, secrets):
+        # Initialize clients, services, or any resources needed by the plugin.
+        # This is where you would instantiate your MyClient, for example.
+        self.client = MyClient(config, secrets)
+        # You can also use the config and secrets to set up plugin-specific settings.
+        # print(msg.Plugin.initialized_message.format(name=self.name)) # Example using messages
+
+    def get_client(self):
+        # Returns the main client instance of this plugin, which can be injected
+        # into the WorkflowContext for use by steps or other plugins.
+        return self.client
+    
+    def get_steps(self) -> dict:
+        # Expose workflow steps provided by this plugin.
+        # Steps are typically functions in the 'steps/' directory.
+        from .steps import step_one, step_two
+        return {
+            "step_one": step_one,
+            "step_two": step_two,
+        }
+```
+
+#### Other Key Directories/Files:
+
+-   **`clients/`**: Contains Python classes that wrap external APIs, CLI tools (like `GitClient` for `git`), or internal services. These clients should encapsulate the logic for interacting with external systems.
+-   **`models.py`**: Defines Pydantic models for data structures specific to the plugin (e.g., `GitStatus`, `GitBranch` in `titan-plugin-git`).
+-   **`exceptions.py`**: Custom exceptions specific to the plugin's operations.
+-   **`messages.py`**: As highlighted in the "Messages & i18n" section, this file centralizes all user-facing strings for the plugin, making them easy to manage and prepare for internationalization.
+-   **`steps/`**: Contains individual `StepFunction` implementations that can be used within the Workflow Engine. These steps should be atomic and focused on a single logical operation (e.g., `status_step.py`, `commit_step.py` in `titan-plugin-git`).
 
 ---
 
@@ -737,11 +802,12 @@ secrets = SecretManager()
 
 # 2. Build context with a fluent API
 # Use convenience auto-creation
-ctx = WorkflowContextBuilder(config, secrets).with_ui().with_ai().build()
+ctx = WorkflowContextBuilder(config, secrets).with_ui().with_ai().with_git().build()
 
 # Use pure DI for testing
 mock_ai = MagicMock()
-test_ctx = WorkflowContextBuilder(config, secrets).with_ai(ai_client=mock_ai).build()
+mock_git = MagicMock()
+test_ctx = WorkflowContextBuilder(config, secrets).with_ai(ai_client=mock_ai).with_git(git_client=mock_git).build()
 ```
 
 #### 4. UI Architecture in Context

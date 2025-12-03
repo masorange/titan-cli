@@ -45,6 +45,7 @@ class WorkflowContext:
 
     # Service clients (populated by builder)
     ai: Optional["AIClient"] = None
+    git: Optional[Any] = None  # Use Any to avoid circular dependency on plugins
 
     # Shared data storage between steps
     data: Dict[str, Any] = field(default_factory=dict)

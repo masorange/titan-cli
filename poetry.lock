@@ -1787,6 +1787,23 @@ files = [
 ]
 
 [[package]]
+name = "titan-plugin-git"
+version = "0.1.0"
+description = "Git plugin for Titan CLI"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+titan-cli = {path = "../..", develop = true}
+
+[package.source]
+type = "directory"
+url = "plugins/titan-plugin-git"
+
+[[package]]
 name = "tomli"
 version = "2.3.0"
 description = "A lil' TOML parser"
@@ -1973,4 +1990,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "0ff722ff0c94accecea0635df3b494e983f98d2189f95aaa6303e2a9c09c13fd"
+content-hash = "c744da7781072423f43bb1149998bf1acfa8311afb1d772b36f0e98990105fcd"
