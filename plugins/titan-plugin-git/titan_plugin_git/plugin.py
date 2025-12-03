@@ -1,6 +1,6 @@
 # plugins/titan-plugin-git/titan_plugin_git/plugin.py
 import shutil
-from titan_cli.core.plugin_base import TitanPlugin
+from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig # Needed for type hinting
 from titan_cli.core.secrets import SecretManager # Needed for type hinting
 from .clients.git_client import GitClient, GitClientError

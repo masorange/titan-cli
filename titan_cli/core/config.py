@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional, List
 import tomli
 from .models import TitanConfigModel
-from .plugin_registry import PluginRegistry
+from .plugins.plugin_registry import PluginRegistry
 from .secrets import SecretManager # New import
 from .errors import ConfigParseError # Import the custom exception
 

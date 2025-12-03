@@ -443,7 +443,7 @@ Titan CLI features a modular plugin system that allows its functionality to be e
 ### Core Concepts
 
 - **Discovery**: Plugins are packaged as separate Python packages and discovered at runtime using `importlib.metadata` to look for the `titan.plugins` entry point group.
-- **Base Class**: Every plugin must inherit from the `TitanPlugin` abstract base class (`titan_cli/core/plugin_base.py`), which defines the contract for all plugins.
+- **Base Class**: Every plugin must inherit from the `TitanPlugin` abstract base class (`titan_cli/core/plugins/plugin_base.py`), which defines the contract for all plugins.
 - **Dependency Resolution**: The `PluginRegistry` automatically resolves dependencies between plugins. A plugin can declare its dependencies by overriding the `dependencies` property. The registry ensures that dependencies are initialized before the plugins that need them.
 - **Error Handling**: Plugins should not handle their own initialization errors with `try...except` blocks. Instead, they should raise specific exceptions (e.g., `MyClientError`). The `PluginRegistry` will catch these exceptions, disable the failing plugin, and report the error to the user through the CLI.
 
