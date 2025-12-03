@@ -2,9 +2,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from typing import List, Optional
-from titan_cli.core.plugin_registry import PluginRegistry
+from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.errors import PluginLoadError, PluginError
-from titan_cli.core.plugin_base import TitanPlugin
+from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 
@@ -61,7 +61,7 @@ def test_plugin_registry_discovery_success(mocker):
     mock_ep2.load.return_value = PluginTwo
 
     mocker.patch(
-        "titan_cli.core.plugin_registry.entry_points",
+        "titan_cli.core.plugins.plugin_registry.entry_points",
         return_value=[mock_ep1, mock_ep2]
     )
 
@@ -99,7 +99,7 @@ def test_plugin_registry_handles_load_failure(mocker, capsys):
     mock_ep_bad_type.load.return_value = InvalidPlugin
 
     mocker.patch(
-        "titan_cli.core.plugin_registry.entry_points",
+        "titan_cli.core.plugins.plugin_registry.entry_points",
         return_value=[mock_ep1, mock_ep_bad_import, mock_ep_bad_type]
     )
 
@@ -137,7 +137,7 @@ def test_plugin_registry_dependency_resolution(mocker):
     mock_ep_p2.load.return_value = PluginTwo
 
     mocker.patch(
-        "titan_cli.core.plugin_registry.entry_points",
+        "titan_cli.core.plugins.plugin_registry.entry_points",
         return_value=[mock_ep_p2, mock_ep_p1] # Load dependent first to test sorting
     )
 
@@ -166,7 +166,7 @@ def test_plugin_registry_unresolved_dependency(mocker):
     mock_ep_dep.load.return_value = DependentPlugin
 
     mocker.patch(
-        "titan_cli.core.plugin_registry.entry_points",
+        "titan_cli.core.plugins.plugin_registry.entry_points",
         return_value=[mock_ep_dep]
     )
 
@@ -193,7 +193,7 @@ def test_plugin_registry_plugin_initialization_context(mocker):
     mock_ep.load.return_value = TestPlugin
 
     mocker.patch(
-        "titan_cli.core.plugin_registry.entry_points",
+        "titan_cli.core.plugins.plugin_registry.entry_points",
         return_value=[mock_ep]
     )
 

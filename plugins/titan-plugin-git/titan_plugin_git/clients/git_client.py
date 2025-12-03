@@ -31,14 +31,26 @@ class GitClient:
         'develop'
     """
 
-    def __init__(self, repo_path: str = "."):
+    def __init__(
+        self, 
+        repo_path: str = ".",
+        main_branch: str = "main",
+        default_remote: str = "origin",
+        protected_branches: list[str] = None
+    ):
         """
         Initialize Git client
 
         Args:
             repo_path: Path to git repository (default: current directory)
+            main_branch: Main branch name (from config)
+            default_remote: Default remote name (from config)
+            protected_branches: List of protected branches (from config)
         """
         self.repo_path = repo_path
+        self.main_branch = main_branch
+        self.default_remote = default_remote
+        self.protected_branches = protected_branches or [main_branch]
         self._original_branch: Optional[str] = None
         self._stash_message: Optional[str] = None
         self._stashed: bool = False
@@ -189,14 +201,15 @@ class GitClient:
                 )
             raise
 
-    def update_branch(self, branch: str = "develop", remote: str = "origin") -> None:
+    def update_branch(self, branch: str, remote: Optional[str] = None) -> None:
         """
         Update branch from remote (fetch + merge --ff-only)
 
         Args:
-            branch: Branch to update (default: develop)
-            remote: Remote name (default: "origin")
+            branch: Branch to update
+            remote: Remote name (defaults to configured default_remote)
         """
+        remote = remote or self.default_remote
         current = self.get_current_branch()
 
         if current != branch:
@@ -291,19 +304,16 @@ class GitClient:
 
         return self._run_command(["git", "rev-parse", "HEAD"])
 
-    def get_commits_vs_base(self, base_branch: str = "develop") -> List[str]:
+    def get_commits_vs_base(self) -> List[str]:
         """
         Get commit messages from base branch to HEAD
-
-        Args:
-            base_branch: Base branch to compare against (default: develop)
 
         Returns:
             List of commit messages
         """
         result = self._run_command([
             "git", "log", "--oneline",
-            f"{base_branch}..HEAD",
+            f"{self.main_branch}..HEAD",
             "--pretty=format:%s"
         ])
 
@@ -311,6 +321,45 @@ class GitClient:
             return []
 
         return [line.strip() for line in result.split('\n') if line.strip()]
+
+    def update_from_main(self) -> None:
+        """
+        Update current branch from the configured main branch.
+        """
+        self.update_branch(self.main_branch, self.default_remote)
+
+    def is_protected_branch(self, branch: str) -> bool:
+        """
+        Check if branch is protected.
+        
+        Args:
+            branch: Branch name
+        
+        Returns:
+            True if branch is in protected list
+        """
+        return branch in self.protected_branches
+
+    def safe_delete_branch(self, branch: str, force: bool = False) -> bool:
+        """
+        Delete branch if not protected.
+        
+        Args:
+            branch: Branch name to delete
+            force: Force deletion (git branch -D)
+        
+        Returns:
+            True if deleted, False if protected
+        
+        Raises:
+            GitError: if branch is protected
+        """
+        if self.is_protected_branch(branch):
+            raise GitError(f"Cannot delete protected branch: {branch}")
+
+        delete_arg = "-D" if force else "-d"
+        self._run_command(["git", "branch", delete_arg, branch])
+        return True
 
     def push(self, remote: str = "origin", branch: Optional[str] = None, set_upstream: bool = False) -> None:
         """

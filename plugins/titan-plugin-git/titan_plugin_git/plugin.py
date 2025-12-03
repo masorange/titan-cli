@@ -1,6 +1,6 @@
 # plugins/titan-plugin-git/titan_plugin_git/plugin.py
 import shutil
-from titan_cli.core.plugin_base import TitanPlugin
+from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig # Needed for type hinting
 from titan_cli.core.secrets import SecretManager # Needed for type hinting
 from .clients.git_client import GitClient, GitClientError
@@ -26,9 +26,51 @@ class GitPlugin(TitanPlugin):
 
     def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
         """
-        Initializes the GitClient.
+        Initialize with configuration.
+        
+        Reads config from:
+            config.config.plugins["git"].config
         """
-        self._client = GitClient()
+        # Get plugin-specific configuration
+        plugin_config = self._get_plugin_config(config)
+
+        # Extract values with defaults
+        main_branch = plugin_config.get("main_branch", "main")
+        default_remote = plugin_config.get("default_remote", "origin")
+        protected_branches = plugin_config.get("protected_branches", ["main"])
+
+        # Initialize client with configuration
+        self._client = GitClient(
+            main_branch=main_branch,
+            default_remote=default_remote,
+            protected_branches=protected_branches
+        )
+
+    def _get_plugin_config(self, config: TitanConfig) -> dict:
+        """
+        Extract plugin-specific configuration.
+        
+        Args:
+            config: TitanConfig instance
+        
+        Returns:
+            Plugin config dict (empty if not configured)
+        """
+        if "git" not in config.config.plugins:
+            return {}
+
+        plugin_entry = config.config.plugins["git"]
+        return plugin_entry.config if hasattr(plugin_entry, 'config') else {}
+
+    def get_config_schema(self) -> dict:
+        """
+        Return JSON schema for plugin configuration.
+        
+        Returns:
+            JSON schema dict
+        """
+        from titan_cli.core.plugins.models import GitPluginConfig
+        return GitPluginConfig.model_json_schema()
 
 
     def is_available(self) -> bool:

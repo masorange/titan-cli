@@ -69,6 +69,8 @@ poetry run titan preview menu
 # Check plugin status
 poetry run titan plugins list
 poetry run titan plugins doctor
+poetry run titan plugins info git
+poetry run titan plugins configure git
 
 # Linting and formatting
 poetry run ruff check titan_cli/
@@ -341,33 +343,44 @@ project_root = "/home/user/projects"
 provider = "anthropic"
 model = "claude-sonnet-4"
 
+# Global plugin configuration
+[plugins.git]
+enabled = true
+config.main_branch = "develop" # All projects will use 'develop' by default
+config.default_remote = "origin"
+config.protected_branches = ["develop", "main"]
+
 # Project config (.titan/config.toml)
 [project]
 name = "my-app"
 type = "fullstack"
 
-[plugins.github]
-enabled = true
-org = "myorg"
-
+# Project-specific plugin overrides
 [plugins.git]
-enabled = true
+config.main_branch = "main" # This specific project uses 'main'
 ```
 
 ### Config Models (Pydantic)
 
-All config is validated using Pydantic models in `core/models.py`:
+All config is validated using Pydantic models. Core models are in `core/models.py`. Plugin-specific configuration models are in `core/plugins/models.py`.
 
 ```python
+# titan_cli/core/plugins/models.py
 from pydantic import BaseModel, Field
+from typing import Dict, Any, List
 
-class ProjectConfig(BaseModel):
-    name: str = Field(..., description="Name of the project.")
-    type: Optional[str] = Field("generic", description="Type of project.")
+class PluginConfig(BaseModel):
+    enabled: bool = Field(True, description="Whether the plugin is enabled.")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Plugin-specific configuration options.")
 
-class AIConfig(BaseModel):
-    provider: str = Field("anthropic", description="AI provider.")
-    model: Optional[str] = Field(None, description="AI model.")
+class GitPluginConfig(BaseModel):
+    main_branch: str = Field("main", description="Main/default branch name")
+    default_remote: str = Field("origin", description="Default remote name")
+    protected_branches: List[str] = Field(default_factory=lambda: ["main"], description="Protected branches")
+
+# titan_cli/core/models.py
+from pydantic import BaseModel, Field
+from .plugins.models import PluginConfig # Import from new location
 
 class TitanConfigModel(BaseModel):
     project: Optional[ProjectConfig] = None
@@ -430,7 +443,7 @@ Titan CLI features a modular plugin system that allows its functionality to be e
 ### Core Concepts
 
 - **Discovery**: Plugins are packaged as separate Python packages and discovered at runtime using `importlib.metadata` to look for the `titan.plugins` entry point group.
-- **Base Class**: Every plugin must inherit from the `TitanPlugin` abstract base class (`titan_cli/core/plugin_base.py`), which defines the contract for all plugins.
+- **Base Class**: Every plugin must inherit from the `TitanPlugin` abstract base class (`titan_cli/core/plugins/plugin_base.py`), which defines the contract for all plugins.
 - **Dependency Resolution**: The `PluginRegistry` automatically resolves dependencies between plugins. A plugin can declare its dependencies by overriding the `dependencies` property. The registry ensures that dependencies are initialized before the plugins that need them.
 - **Error Handling**: Plugins should not handle their own initialization errors with `try...except` blocks. Instead, they should raise specific exceptions (e.g., `MyClientError`). The `PluginRegistry` will catch these exceptions, disable the failing plugin, and report the error to the user through the CLI.
 
@@ -497,22 +510,28 @@ class MyCoolPlugin(TitanPlugin):
         # Example: if this plugin uses Git operations, it might depend on "git".
         return ["git"] # Example dependency
 
-    def initialize(self, config, secrets):
+    def initialize(self, config: 'TitanConfig', secrets: 'SecretManager'):
         """
-        Initialize clients, services, or any resources needed by the plugin.
-        This method should raise a specific exception if initialization fails.
-        For example, `raise MyClientError("Could not connect")`.
+        Initialize the plugin with its specific configuration.
         """
-        # The PluginRegistry will catch exceptions and display them to the user.
-        # Do not use try/except here unless you can handle the error gracefully.
-        self.client = MyClient(config, secrets)
+        # Extract and validate the plugin's configuration
+        plugin_config_data = config.config.plugins.get(self.name, {}).config
+        validated_config = GitPluginConfig(**plugin_config_data)
 
-    def get_client(self):
-        # Returns the main client instance of this plugin, which can be injected
-        # into the WorkflowContext for use by steps or other plugins.
+        # Initialize the client with the validated configuration
+        self.client = MyClient(
+            main_branch=validated_config.main_branch,
+            default_remote=validated_config.default_remote
+        )
+
+    def get_client(self) -> MyClient:
         if not hasattr(self, 'client') or self.client is None:
             raise MyClientError("Plugin not initialized. The client is not available.")
         return self.client
+
+    def get_config_schema(self) -> dict:
+        """Returns the JSON schema for the plugin's configuration."""
+        return GitPluginConfig.model_json_schema()
     
     def get_steps(self) -> dict:
         # Expose workflow steps provided by this plugin.
