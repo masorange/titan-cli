@@ -1,10 +1,14 @@
 # plugins/titan-plugin-git/titan_plugin_git/plugin.py
+import logging # Import the logging module
 import shutil
 from titan_cli.core.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig # Needed for type hinting
 from titan_cli.core.secrets import SecretManager # Needed for type hinting
 from .clients.git_client import GitClient, GitClientError
+from .messages import msg # Import the messages module
 
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 class GitPlugin(TitanPlugin):
     """
@@ -38,7 +42,7 @@ class GitPlugin(TitanPlugin):
             # We don't re-raise, as initialize() should ideally not fail the whole app startup.
             # is_available() will handle user feedback for missing CLI.
             self._client = None
-            print(f"Warning: GitPlugin could not initialize GitClient: {e}")
+            logger.warning(msg.Plugin.git_client_init_warning.format(e=e))
 
 
     def is_available(self) -> bool:
@@ -53,7 +57,7 @@ class GitPlugin(TitanPlugin):
         Returns the initialized GitClient instance.
         """
         if not hasattr(self, '_client') or self._client is None:
-            raise GitClientError("GitPlugin not initialized or Git CLI not available.")
+            raise GitClientError(msg.Plugin.git_client_not_available)
         return self._client
 
     def get_steps(self) -> dict:

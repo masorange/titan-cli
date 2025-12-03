@@ -24,11 +24,15 @@ class Messages:
             failed_to_get_status: str = "Failed to get git status: {e}"
 
         class Commit:
-            git_client_not_available: str = "Git client is not available in the workflow context." # Reusing for consistency
+            git_client_not_available: str = "Git client is not available in the workflow context."
             commit_message_required: str = "Commit message is required in ctx.data['commit_message']."
             commit_success: str = "Commit created successfully: {commit_hash}"
             client_error_during_commit: str = "Git client error during commit: {e}"
             command_failed_during_commit: str = "Git command failed during commit: {e}"
             unexpected_error_during_commit: str = "An unexpected error occurred during commit: {e}"
+
+    class Plugin:
+        git_client_init_warning: str = "Warning: GitPlugin could not initialize GitClient: {e}"
+        git_client_not_available: str = "GitPlugin not initialized or Git CLI not available."
 
 msg = Messages()
