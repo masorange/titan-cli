@@ -374,6 +374,23 @@ class Messages:
         DOCTOR_ISSUES_FOUND = "Some plugins have issues. See details above."
         STATUS_AVAILABLE = "Available"
         STATUS_UNAVAILABLE = "Not available"
+        TABLE_HEADER_ENABLED = "Enabled"
+        TABLE_HEADER_CONFIGURATION = "Configuration"
+        NO_CONFIG = "No config"
+        PLUGIN_NOT_FOUND = "Plugin '{name}' not found"
+        PLUGIN_INFO_TITLE = "Plugin: {name}"
+        PLUGIN_INFO_VERSION = "Version: {version}"
+        PLUGIN_INFO_DESCRIPTION = "Description: {description}"
+        PLUGIN_INFO_AVAILABLE = "Available: {status}"
+        PLUGIN_INFO_DEPENDENCIES = "Dependencies: {dependencies}"
+        PLUGIN_INFO_SCHEMA_TITLE = "\nConfiguration Schema:"
+        PLUGIN_INFO_SCHEMA_PROPERTY = "  • {prop_name}: {description}"
+        PLUGIN_INFO_SCHEMA_DEFAULT = "    Default: {default}"
+        PLUGIN_INFO_STEPS_TITLE = "\nAvailable Steps: {count}"
+        PLUGIN_INFO_STEP = "  • {step_name}"
+        CONFIGURE_TITLE = "Configuring {name}..."
+        CONFIGURE_SOON = "Feature coming soon!"
+
 
 
 

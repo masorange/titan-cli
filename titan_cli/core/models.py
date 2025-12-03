@@ -1,6 +1,7 @@
 # core/models.py
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
+from .plugins.models import PluginConfig
 
 class ProjectConfig(BaseModel):
     """
@@ -21,12 +22,7 @@ class AIConfig(BaseModel):
     max_tokens: int = Field(4096, description="Maximum number of tokens to generate.")
     temperature: float = Field(0.7, description="Controls randomness. 0.0 for deterministic, 2.0 for very creative.")
 
-class PluginConfig(BaseModel):
-    """
-    Represents the configuration for an individual plugin.
-    """
-    enabled: bool = Field(True, description="Whether the plugin is enabled.")
-    config: Dict[str, Any] = Field(default_factory=dict, description="Plugin-specific configuration options.")
+from .plugins.models import PluginConfig
 
 class CoreConfig(BaseModel):
     """

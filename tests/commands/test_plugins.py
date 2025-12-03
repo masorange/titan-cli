@@ -60,14 +60,16 @@ def mock_registry(mocker, mock_titan_plugin, mock_failed_plugin):
 @pytest.fixture(autouse=True)
 def mock_titan_config(mocker, mock_registry):
     """Mocks TitanConfig to return our mock registry."""
-    # Patch the class in the module where it's instantiated
     mock_config_class = mocker.patch('titan_cli.commands.plugins.TitanConfig', autospec=True)
-    
-    # Get the instance that will be created when TitanConfig() is called
     mock_instance = mock_config_class.return_value
     
-    # Configure the instance's registry property
+    # Configure the 'registry' property
     type(mock_instance).registry = PropertyMock(return_value=mock_registry)
+    
+    # Configure the 'config' property
+    mock_config_model = MagicMock()
+    mock_config_model.plugins = {}
+    type(mock_instance).config = PropertyMock(return_value=mock_config_model)
     
     return mock_instance
 
@@ -91,14 +93,19 @@ def test_list_plugins_with_successful_plugins(mock_titan_config, mock_titan_plug
     mock_titan_config.registry.list_installed.return_value = ['success-plugin-1']
     mock_titan_config.registry.get_plugin.return_value = mock_titan_plugin
     mock_titan_config.registry.list_failed.return_value = {}
+    
+    # Configure the mock plugin config
+    mock_plugin_config = MagicMock()
+    mock_plugin_config.enabled = True
+    mock_plugin_config.config = {"key": "value"}
+    mock_titan_config.config.plugins = {'success-plugin-1': mock_plugin_config}
 
     result = runner.invoke(app, ["plugins", "list"])
 
     assert result.exit_code == 0
     assert "Installed Plugins" in result.stdout
     assert "success-plugin-1" in result.stdout
-    assert "1.0.0" in result.stdout
-    assert "Available" in result.stdout
+    assert "key: value" in result.stdout
     assert "failed to load or initialize" not in result.stdout
 
 
