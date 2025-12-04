@@ -7,6 +7,14 @@ from .plugins.plugin_registry import PluginRegistry
 from .secrets import SecretManager # New import
 from .errors import ConfigParseError # Import the custom exception
 
+from titan_cli.engine.workflow_registry import WorkflowRegistry
+from titan_cli.engine.workflow_sources import (
+    ProjectWorkflowSource, 
+    UserWorkflowSource, 
+    SystemWorkflowSource, 
+    PluginWorkflowSource
+) # New imports
+
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
 
@@ -21,10 +29,12 @@ class TitanConfig:
         # Core dependencies
         self.registry = registry or PluginRegistry()
         self.secrets = SecretManager(project_path=project_path)
+        self._project_root = project_path if project_path else Path.cwd() # Store project_root here
+
 
         # Load configs
         self.global_config = self._load_toml(self.GLOBAL_CONFIG)
-        self.project_config_path = self._find_project_config(project_path)
+        self.project_config_path = self._find_project_config(self._project_root)
         self.project_config = self._load_toml(self.project_config_path)
 
         # Merge
@@ -38,6 +48,16 @@ class TitanConfig:
         
         # Store failed plugins for later display by CLI commands
         self._plugin_warnings = self.registry.list_failed()
+
+        # Initialize WorkflowRegistry (NEW)
+        self._workflow_registry = WorkflowRegistry(config=self) # Pass self to WorkflowRegistry
+        # Dynamically add sources to the workflow registry based on config
+        self._workflow_registry._sources = [
+            ProjectWorkflowSource(self._project_root / ".titan" / "workflows"),
+            UserWorkflowSource(Path.home() / ".titan" / "workflows"),
+            SystemWorkflowSource(Path(__file__).parent.parent.parent / "workflows"), # Assuming workflows dir is at project root
+            PluginWorkflowSource(self.registry)
+        ]
 
 
     def _find_project_config(self, start_path: Optional[Path] = None) -> Optional[Path]:
@@ -101,6 +121,16 @@ class TitanConfig:
         merged = self._merge_configs(self.global_config, self.project_config)
         self.config = TitanConfigModel(**merged)
 
+    @property
+    def project_root(self) -> Path:
+        """Return the resolved project root path."""
+        return self._project_root
+
+    @property
+    def workflows(self) -> WorkflowRegistry:
+        """Access to workflow registry."""
+        return self._workflow_registry
+
     def get_project_root(self) -> Optional[str]:
         """Returns the configured project root, or None if not set."""
         if self.config and self.config.core and self.config.core.project_root:
@@ -122,3 +152,4 @@ class TitanConfig:
             return False
         plugin_cfg = self.config.plugins.get(plugin_name)
         return plugin_cfg.enabled if plugin_cfg else False
+

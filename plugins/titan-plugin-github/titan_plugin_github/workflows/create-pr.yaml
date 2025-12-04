@@ -1,0 +1,45 @@
+name: "Create Pull Request"
+description: "Generic PR creation workflow"
+source: "plugin:github"
+
+params:
+  base_branch: "main"
+  draft: false
+
+hooks:
+  - before_commit
+  - before_push
+  - after_pr
+
+steps:
+  - id: git_status
+    name: "Check Git Status"
+    plugin: git
+    step: get_status
+
+  - hook: before_commit
+
+  - id: create_commit
+    name: "Create Commit"
+    plugin: git
+    step: create_commit
+    params:
+      message: "${commit_message}"
+
+  - hook: before_push
+
+  - id: push
+    name: "Push to Remote"
+    plugin: git
+    step: push
+
+  - id: create_pr
+    name: "Create Pull Request"
+    plugin: github
+    step: create_pr
+    params:
+      title: "${pr_title}"
+      base: "${base_branch}"
+      draft: "${draft}"
+
+  - hook: after_pr

@@ -95,3 +95,13 @@ class TitanPlugin(ABC):
             True if plugin can be used
         """
         return True
+
+    @property
+    def workflows_path(self) -> Optional[Path]:
+        """
+        Optional path to the directory containing workflow definitions for this plugin.
+        
+        Returns:
+            Path to workflows directory or None if the plugin doesn't provide any.
+        """
+        return None

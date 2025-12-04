@@ -93,6 +93,13 @@ class GitHubPlugin(TitanPlugin):
         import shutil
         return shutil.which("gh") is not None and hasattr(self, '_client') and self._client is not None
 
+    @property
+    def workflows_path(self) -> Optional[Path]:
+        """
+        Returns the path to the workflows directory for this plugin.
+        """
+        return Path(__file__).parent / "workflows"
+
     def get_client(self) -> GitHubClient:
         """
         Returns the initialized GitHubClient instance.
