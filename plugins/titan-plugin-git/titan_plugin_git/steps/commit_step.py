@@ -6,7 +6,7 @@ from titan_cli.engine import (
     Error
 )
 from titan_plugin_git.exceptions import GitClientError, GitCommandError
-from ..messages import msg
+from titan_plugin_git.messages import msg
 
 def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -31,7 +31,7 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     if not commit_message:
         return Error(msg.Steps.Commit.COMMIT_MESSAGE_REQUIRED)
         
-    all_files = ctx.get('all_files', False)
+    all_files = ctx.get('all_files', True)
 
     try:
         commit_hash = ctx.git.commit(message=commit_message, all=all_files)

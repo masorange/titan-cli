@@ -32,7 +32,7 @@ class GitClient:
     """
 
     def __init__(
-        self, 
+        self,
         repo_path: str = ".",
         main_branch: str = "main",
         default_remote: str = "origin",
@@ -60,14 +60,14 @@ class GitClient:
     def _check_git_installed(self) -> None:
         """Check if git CLI is installed."""
         if not shutil.which("git"):
-            raise GitClientError(msg.GitClient.cli_not_found)
+            raise GitClientError(msg.Git.CLI_NOT_FOUND)
 
     def _check_repository(self) -> None:
         """Check if current directory is a git repository"""
         try:
             self._run_command(["git", "rev-parse", "--is-inside-work-tree"], check=False) # More robust check
         except GitCommandError:
-            raise GitNotRepositoryError(msg.GitClient.not_a_repository.format(repo_path=self.repo_path))
+            raise GitNotRepositoryError(msg.Git.NOT_A_REPOSITORY.format(repo_path=self.repo_path))
 
     def _run_command(self, args: List[str], check: bool = True) -> str:
         """
@@ -96,12 +96,12 @@ class GitClient:
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr.strip() if e.stderr else str(e)
             if "not a git repository" in error_msg:
-                raise GitNotRepositoryError(msg.GitClient.not_a_repository.format(repo_path=self.repo_path))
-            raise GitCommandError(msg.GitClient.command_failed.format(error_msg=error_msg)) from e
+                raise GitNotRepositoryError(msg.Git.NOT_A_REPOSITORY.format(repo_path=self.repo_path))
+            raise GitCommandError(msg.Git.COMMAND_FAILED.format(error_msg=error_msg)) from e
         except FileNotFoundError:
-            raise GitClientError(msg.GitClient.cli_not_found) # Should be caught by _check_git_installed, but safety
+            raise GitClientError(msg.Git.CLI_NOT_FOUND) # Should be caught by _check_git_installed, but safety
         except Exception as e:
-            raise GitError(msg.GitClient.unexpected_error.format(e=e)) from e
+            raise GitError(msg.Git.UNEXPECTED_ERROR.format(e=e)) from e
 
     def get_current_branch(self) -> str:
         """
@@ -189,15 +189,15 @@ class GitClient:
             self._run_command(["git", "show-ref", "--verify", f"refs/heads/{branch}"], check=False)
             self._run_command(["git", "show-ref", "--verify", f"refs/remotes/origin/{branch}"], check=False)
         except GitCommandError: # if both fail, it means it doesn't exist
-            raise GitBranchNotFoundError(msg.GitClient.branch_not_found.format(branch=branch))
+            raise GitBranchNotFoundError(msg.Git.BRANCH_NOT_FOUND.format(branch=branch))
 
         # Checkout
         try:
             self._run_command(["git", "checkout", branch])
         except GitCommandError as e:
-            if msg.GitClient.uncommitted_changes_overwrite_keyword in e.stderr: # Access stderr from raised exception
+            if msg.Git.UNCOMMITTED_CHANGES_OVERWRITE_KEYWORD in e.stderr: # Access stderr from raised exception
                 raise GitDirtyWorkingTreeError(
-                    msg.GitClient.cannot_checkout_uncommitted_changes
+                    msg.Git.CANNOT_CHECKOUT_UNCOMMITTED_CHANGES
                 )
             raise
 
@@ -220,8 +220,8 @@ class GitClient:
         try:
             self._run_command(["git", "merge", "--ff-only", f"{remote}/{branch}"])
         except GitCommandError as e:
-            if msg.GitClient.merge_conflict_keyword in e.stderr:
-                raise GitMergeConflictError(msg.GitClient.merge_conflict_while_updating.format(branch=branch))
+            if msg.Git.MERGE_CONFLICT_KEYWORD in e.stderr:
+                raise GitMergeConflictError(msg.Git.MERGE_CONFLICT_WHILE_UPDATING.format(branch=branch))
             raise
 
         if current != branch:
@@ -438,7 +438,7 @@ class GitClient:
         from datetime import datetime # Import here to avoid circular dependency if datetime is also used in models
 
         if not message:
-            message = msg.GitClient.auto_stash_message.format(timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            message = msg.Git.AUTO_STASH_MESSAGE.format(timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         try:
             self._run_command(["git", "stash", "push", "-m", message])
@@ -537,13 +537,13 @@ class GitClient:
         if self.has_uncommitted_changes():
             if not auto_stash:
                 raise GitDirtyWorkingTreeError(
-                    msg.GitClient.cannot_checkout_uncommitted_changes_exist.format(branch=branch)
+                    msg.Git.CANNOT_CHECKOUT_UNCOMMITTED_CHANGES_EXIST.format(branch=branch)
                 )
 
-            message = msg.GitClient.safe_switch_stash_message.format(current=current, branch=branch)
+            message = msg.Git.SAFE_SWITCH_STASH_MESSAGE.format(current=current, branch=branch)
             if not self.stash_push(message):
                 raise GitDirtyWorkingTreeError(
-                    msg.GitClient.stash_failed_before_checkout
+                    msg.Git.STASH_FAILED_BEFORE_CHECKOUT
                 )
 
         try:

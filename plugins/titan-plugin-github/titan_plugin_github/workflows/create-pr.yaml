@@ -19,12 +19,15 @@ steps:
 
   - hook: before_commit
 
+  - id: prompt_for_commit
+    name: "Prompt for Commit Message"
+    plugin: git
+    step: prompt_for_commit_message
+
   - id: create_commit
     name: "Create Commit"
     plugin: git
     step: create_commit
-    params:
-      message: "${commit_message}"
 
   - hook: before_push
 
