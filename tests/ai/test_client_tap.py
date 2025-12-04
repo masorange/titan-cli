@@ -201,7 +201,7 @@ class TestAIClientTAPInitialization:
 class TestGenerateWithTools:
     """Tests for generate_with_tools method."""
 
-    @patch('titan_cli.ai.client.anthropic.Anthropic')
+    @patch('anthropic.Anthropic')
     def test_generate_with_tools_basic(self, mock_anthropic_class, temp_config, mock_secrets, sample_tools):
         """Test basic tool calling workflow."""
         config_file, tap_config = temp_config
@@ -232,7 +232,7 @@ class TestGenerateWithTools:
             assert result["tool_calls"] == []
             assert result["iterations"] == 1
 
-    @patch('titan_cli.ai.client.anthropic.Anthropic')
+    @patch('anthropic.Anthropic')
     def test_generate_with_tools_single_tool_call(self, mock_anthropic_class, temp_config, mock_secrets, sample_tools):
         """Test workflow with single tool call."""
         config_file, tap_config = temp_config
@@ -276,7 +276,7 @@ class TestGenerateWithTools:
             assert "Result: 4" in result["tool_calls"][0]["output"]
             assert result["iterations"] == 2
 
-    @patch('titan_cli.ai.client.anthropic.Anthropic')
+    @patch('anthropic.Anthropic')
     def test_generate_with_tools_multiple_iterations(self, mock_anthropic_class, temp_config, mock_secrets, sample_tools):
         """Test workflow with multiple tool calls."""
         config_file, tap_config = temp_config
@@ -327,7 +327,7 @@ class TestGenerateWithTools:
             assert result["tool_calls"][1]["tool"] == "calculator"
             assert result["iterations"] == 3
 
-    @patch('titan_cli.ai.client.anthropic.Anthropic')
+    @patch('anthropic.Anthropic')
     def test_generate_with_tools_max_iterations(self, mock_anthropic_class, temp_config, mock_secrets, sample_tools):
         """Test that max iterations limit is enforced."""
         config_file, tap_config = temp_config
@@ -385,7 +385,7 @@ temperature = 0.7
                     tools=sample_tools
                 )
 
-    @patch('titan_cli.ai.client.anthropic.Anthropic')
+    @patch('anthropic.Anthropic')
     def test_generate_with_tools_with_system_prompt(self, mock_anthropic_class, temp_config, mock_secrets, sample_tools):
         """Test that system prompt is included."""
         config_file, tap_config = temp_config
@@ -416,7 +416,7 @@ temperature = 0.7
             messages = call_kwargs["messages"]
             assert any(msg.get("role") == "system" for msg in messages)
 
-    @patch('titan_cli.ai.client.anthropic.Anthropic')
+    @patch('anthropic.Anthropic')
     def test_generate_with_tools_parameters_override(self, mock_anthropic_class, temp_config, mock_secrets, sample_tools):
         """Test that max_tokens and temperature can be overridden."""
         config_file, tap_config = temp_config

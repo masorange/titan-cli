@@ -246,7 +246,12 @@ class AIClient:
         provider_name = ai_config.provider
 
         # Get TAP adapter for provider
-        adapter = self.tap.get(provider_name)
+        try:
+            adapter = self.tap.get(provider_name)
+        except KeyError:
+            raise AIConfigurationError(
+                f"Tool calling not supported for provider: {provider_name}"
+            )
 
         # Convert tools to provider format using TAP
         converted_tools = adapter.convert_tools(tools)
