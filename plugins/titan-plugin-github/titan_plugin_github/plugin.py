@@ -114,6 +114,10 @@ class GitHubPlugin(TitanPlugin):
         """
         Returns a dictionary of available workflow steps.
         """
+        from .steps.create_pr_step import create_pr_step
+        from .steps.prompt_steps import prompt_for_pr_title_step, prompt_for_pr_body_step
         return {
             "create_pr": create_pr_step,
+            "prompt_for_pr_title": prompt_for_pr_title_step,
+            "prompt_for_pr_body": prompt_for_pr_body_step,
         }

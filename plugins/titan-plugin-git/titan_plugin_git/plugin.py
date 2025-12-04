@@ -6,7 +6,12 @@ from titan_cli.core.config import TitanConfig # Needed for type hinting
 from titan_cli.core.secrets import SecretManager # Needed for type hinting
 from .clients.git_client import GitClient
 from .exceptions import GitClientError
-from .messages import msg # Import the messages module
+from .messages import msg
+from .steps.status_step import get_git_status_step
+from .steps.commit_step import create_git_commit_step
+from .steps.prompt_step import prompt_for_commit_message_step
+from .steps.push_step import create_git_push_step
+
 
 class GitPlugin(TitanPlugin):
     """
@@ -97,9 +102,13 @@ class GitPlugin(TitanPlugin):
         from .steps.commit_step import create_git_commit_step
         from .steps.prompt_step import prompt_for_commit_message_step
         from .steps.push_step import create_git_push_step
+        from .steps.branch_steps import get_current_branch_step, get_base_branch_step
+        
         return {
             "get_status": get_git_status_step,
             "create_commit": create_git_commit_step,
             "prompt_for_commit_message": prompt_for_commit_message_step,
             "push": create_git_push_step,
+            "get_current_branch": get_current_branch_step,
+            "get_base_branch": get_base_branch_step,
         }
