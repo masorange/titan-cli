@@ -14,7 +14,34 @@ Titan CLI is a modular development tools orchestrator that streamlines your work
 
 ## 🚀 Quick Start
 
-### Installation
+### For Development (Contributors)
+
+**Automated setup** (handles Poetry installation automatically):
+```bash
+git clone <repo>
+cd titan-cli
+make bootstrap          # Simplest - auto-installs everything
+# OR
+./bootstrap.sh         # Interactive bash setup
+# OR
+python3 setup.py       # Advanced Python setup
+```
+
+**Manual setup** (if you already have Poetry):
+```bash
+git clone <repo>
+cd titan-cli
+poetry install --with dev
+poetry run titan
+```
+
+**Verify installation**:
+```bash
+make doctor            # Check system health
+poetry run titan       # Run the CLI
+```
+
+### For End Users (Coming Soon)
 
 ```bash
 # Install with pipx (recommended)
