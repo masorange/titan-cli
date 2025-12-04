@@ -4,6 +4,7 @@ Base interface for Titan plugins.
 
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, Callable
+from pathlib import Path
 
 
 class TitanPlugin(ABC):

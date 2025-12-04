@@ -11,3 +11,7 @@ class WorkflowNotFoundError(WorkflowError):
 class WorkflowValidationError(WorkflowError):
     """Raised when a workflow configuration fails Pydantic validation."""
     pass
+
+class WorkflowExecutionError(WorkflowError):
+    """Raised when a workflow execution fails."""
+    pass

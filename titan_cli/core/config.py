@@ -4,16 +4,9 @@ from typing import Optional, List
 import tomli
 from .models import TitanConfigModel
 from .plugins.plugin_registry import PluginRegistry
-from .secrets import SecretManager # New import
-from .errors import ConfigParseError # Import the custom exception
-
-from titan_cli.engine.workflow_registry import WorkflowRegistry
-from titan_cli.engine.workflow_sources import (
-    ProjectWorkflowSource, 
-    UserWorkflowSource, 
-    SystemWorkflowSource, 
-    PluginWorkflowSource
-) # New imports
+from .workflows import WorkflowRegistry
+from .secrets import SecretManager
+from .errors import ConfigParseError
 
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
@@ -49,15 +42,8 @@ class TitanConfig:
         # Store failed plugins for later display by CLI commands
         self._plugin_warnings = self.registry.list_failed()
 
-        # Initialize WorkflowRegistry (NEW)
-        self._workflow_registry = WorkflowRegistry(config=self) # Pass self to WorkflowRegistry
-        # Dynamically add sources to the workflow registry based on config
-        self._workflow_registry._sources = [
-            ProjectWorkflowSource(self._project_root / ".titan" / "workflows"),
-            UserWorkflowSource(Path.home() / ".titan" / "workflows"),
-            SystemWorkflowSource(Path(__file__).parent.parent.parent / "workflows"), # Assuming workflows dir is at project root
-            PluginWorkflowSource(self.registry)
-        ]
+        # Initialize WorkflowRegistry
+        self._workflow_registry = WorkflowRegistry(config=self)
 
 
     def _find_project_config(self, start_path: Optional[Path] = None) -> Optional[Path]:

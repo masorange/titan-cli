@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 import yaml
 from dataclasses import dataclass
 from copy import deepcopy
 
-from titan_cli.engine.workflow_sources import WorkflowSource, ProjectWorkflowSource, WorkflowInfo
-from titan_cli.engine.workflow_exceptions import WorkflowNotFoundError
-
 if TYPE_CHECKING:
     from titan_cli.core.config import TitanConfig
+
+from .workflow_sources import WorkflowSource, ProjectWorkflowSource, WorkflowInfo
+from .workflow_exceptions import WorkflowNotFoundError
 
 @dataclass
 class ParsedWorkflow:

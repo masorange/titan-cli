@@ -4,7 +4,8 @@ from titan_cli.core.plugins.models import GitPluginConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig # Needed for type hinting
 from titan_cli.core.secrets import SecretManager # Needed for type hinting
-from .clients.git_client import GitClient, GitClientError
+from .clients.git_client import GitClient
+from .exceptions import GitClientError
 from .messages import msg # Import the messages module
 
 class GitPlugin(TitanPlugin):

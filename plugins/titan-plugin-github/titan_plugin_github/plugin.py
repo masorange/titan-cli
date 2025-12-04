@@ -1,5 +1,6 @@
 # plugins/titan-plugin-github/titan_plugin_github/plugin.py
-from typing import Type
+from typing import Type, Optional
+from pathlib import Path
 from pydantic import BaseModel
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig

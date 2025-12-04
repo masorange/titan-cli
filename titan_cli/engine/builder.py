@@ -1,6 +1,8 @@
 """
 WorkflowContextBuilder - Fluent API for building WorkflowContext.
 """
+from __future__ import annotations
+
 from typing import Optional, Any
 
 from titan_cli.core.config import TitanConfig
