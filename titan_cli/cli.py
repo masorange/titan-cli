@@ -167,7 +167,7 @@ def show_interactive_menu():
         if choice_action == "list":
             list_projects()
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
         
         elif choice_action == "configure":
             text.title(msg.Projects.CONFIGURE_TITLE)
@@ -211,7 +211,8 @@ def show_interactive_menu():
             text.title("Run a Workflow")
             spacer.line()
             
-            # Use the already instantiated config object
+            # Reload config to ensure latest changes (e.g., GitHub repo settings) are picked up
+            config.load() 
             available_workflows = config.workflows.discover()
             if not available_workflows:
                 text.info("No workflows found.")
