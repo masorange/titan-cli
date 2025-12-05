@@ -2,7 +2,7 @@
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_plugin_git.messages import msg
 
-def prompt_for_commit_message_step(ctx: WorkflowContext, **kwargs) -> WorkflowResult:
+def prompt_for_commit_message_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Prompts the user for a commit message and saves it to the context.
     Skips if the working directory is clean.
