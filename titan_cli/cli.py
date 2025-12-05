@@ -8,6 +8,7 @@ import tomli
 import tomli_w
 import importlib.metadata
 from pathlib import Path
+from typing import Optional
 
 from titan_cli.ui.views.banner import render_titan_banner
 from titan_cli.messages import msg
@@ -16,6 +17,8 @@ from titan_cli.commands.init import init_app
 from titan_cli.commands.projects import projects_app, list_projects
 from titan_cli.commands.ai import ai_app
 from titan_cli.commands.plugins import plugins_app
+from titan_cli.commands.code import code_app, launch_code
+from titan_cli.utils.claude_integration import ClaudeCodeLauncher
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.errors import ConfigWriteError
@@ -46,6 +49,7 @@ app.add_typer(init_app)
 app.add_typer(projects_app)
 app.add_typer(ai_app)
 app.add_typer(plugins_app)
+app.add_typer(code_app)
 
 
 # --- Helper function for version retrieval ---
@@ -105,7 +109,7 @@ def _prompt_for_project_root(text: TextRenderer, prompts: PromptsRenderer) -> bo
 
 def show_interactive_menu():
     """
-    Displays the main interactive menu for the Titan CLI.
+    Displays the main interactive menu for the Titan CLI. 
     
     This function serves as the primary user interface when the CLI is run
     without any subcommands. It handles the initial setup, displays a persistent
@@ -144,7 +148,10 @@ def show_interactive_menu():
         menu_builder.add_category("Workflows", emoji="⚡") \
             .add_item("Run a Workflow", "Execute a predefined or custom workflow.", "run_workflow")
 
-        menu_builder.add_category("AI Configuration", emoji="🤖") \
+        menu_builder.add_category("AI Assistants", emoji="🤖") \
+            .add_item("Launch Claude Code", "Open an interactive session with Claude Code CLI.", "code")
+
+        menu_builder.add_category("AI Configuration", emoji="⚙️") \
             .add_item("Configure AI Provider", "Set up Anthropic, OpenAI, or Gemini", "ai_configure") \
             .add_item("Test AI Connection", "Verify AI provider is working", "ai_test")
 
@@ -294,6 +301,11 @@ def show_interactive_menu():
             spacer.line()
             prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
 
+        elif choice_action == "code":
+            launch_code(prompt=None)
+            spacer.line()
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+
         elif choice_action == "ai_test":
             from titan_cli.commands.ai import _test_ai_connection
             # We need to reload config and secrets in case they were just changed
@@ -316,6 +328,7 @@ def show_interactive_menu():
             break
 
 
+
 @app.callback()
 def main(ctx: typer.Context):
     """Titan CLI - Main entry point"""
@@ -328,3 +341,34 @@ def version():
     """Show Titan CLI version."""
     cli_version = get_version()
     typer.echo(msg.CLI.VERSION.format(version=cli_version))
+
+@app.command("code")
+def launch_code(
+    prompt: Optional[str] = typer.Argument(None, help="Initial prompt for Claude")
+):
+    """
+    Launch Claude Code CLI from anywhere in Titan.
+    
+    Examples:
+        titan code
+        titan code "help me debug this workflow"
+    """
+    text = TextRenderer()
+
+    if not ClaudeCodeLauncher.is_available():
+        text.error("Claude Code not installed")
+        text.body("Install: npm install -g @anthropic/claude-code")
+        raise typer.Exit(1)
+
+    text.info("🤖 Launching Claude Code...")
+    if prompt:
+        text.body(f"Initial prompt: {prompt}")
+    text.line()
+
+    try:
+        ClaudeCodeLauncher.launch(prompt=prompt)
+    except KeyboardInterrupt:
+        text.warning("\nClaude Code interrupted")
+
+    text.line()
+    text.success("✓ Back in Titan CLI")
