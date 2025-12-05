@@ -1,4 +1,5 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/prompt_step.py
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_plugin_git.messages import msg
 
 def prompt_for_commit_message_step(ctx: WorkflowContext, **kwargs) -> WorkflowResult:
