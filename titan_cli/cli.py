@@ -205,7 +205,7 @@ def show_interactive_menu():
                     initialize_project(Path(chosen_project_item.action))
 
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
         
         elif choice_action == "run_workflow":
             text.title("Run a Workflow")
@@ -217,7 +217,7 @@ def show_interactive_menu():
             if not available_workflows:
                 text.info("No workflows found.")
                 spacer.line()
-                prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+                prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
                 continue
 
             workflow_menu_builder = DynamicMenu(title="Select a workflow to run", emoji="⚡")
@@ -286,13 +286,13 @@ def show_interactive_menu():
                     text.error(f"An unexpected error occurred: {type(e).__name__} - {e}")
 
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
 
         elif choice_action == "ai_configure":
             from titan_cli.commands.ai import configure_ai_interactive
             configure_ai_interactive()
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
 
         elif choice_action == "ai_test":
             from titan_cli.commands.ai import _test_ai_connection
@@ -309,7 +309,7 @@ def show_interactive_menu():
                 
                 _test_ai_connection(provider, secrets, model, base_url)
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
 
         elif choice_action == "exit":
             text.body(msg.Interactive.GOODBYE)
