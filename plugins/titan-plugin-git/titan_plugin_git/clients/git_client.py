@@ -291,15 +291,16 @@ class GitClient:
 
         Args:
             message: Commit message
-            all: Stage all modified files
+            all: Stage all modified and new files (`git add --all`)
 
         Returns:
             Commit hash
         """
-        args = ["git", "commit", "-m", message]
         if all:
-            args.insert(2, "-a")
+            # Stage all changes, including new files.
+            self._run_command(["git", "add", "--all"])
 
+        args = ["git", "commit", "-m", message]
         self._run_command(args)
 
         return self._run_command(["git", "rev-parse", "HEAD"])

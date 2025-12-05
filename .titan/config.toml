@@ -1,0 +1,2 @@
+[plugins.git.config]
+main_branch = "master"
