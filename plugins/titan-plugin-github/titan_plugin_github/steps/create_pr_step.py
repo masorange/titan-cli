@@ -4,37 +4,40 @@ from ..exceptions import GitHubAPIError
 
 def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Creates a GitHub pull request.
+    Creates a GitHub pull request using data from the workflow context.
 
-    This step retrieves the title, body, base branch, and head branch from the
-    workflow context's data dictionary and uses the GitHub client to create a
-    new pull request.
+    Requires:
+        ctx.github: An initialized GitHubClient.
 
-    Context Args:
+    Inputs (from ctx.data):
         pr_title (str): The title of the pull request.
-        pr_body (str): The body/description of the pull request.
-        pr_base_branch (str): The branch to merge into (e.g., 'main', 'develop').
+        pr_body (str, optional): The body/description of the pull request.
         pr_head_branch (str): The branch with the new changes.
         pr_is_draft (bool, optional): Whether to create the PR as a draft. Defaults to False.
 
+    Outputs (saved to ctx.data):
+        pr_number (int): The number of the created pull request.
+        pr_url (str): The URL of the created pull request.
+
     Returns:
-        WorkflowResult:
-            - Success: If the PR is created successfully, with 'pr_number' and 'pr_url' in metadata.
-            - Error: If any required context arguments are missing or if the API call fails.
+        Success: If the PR is created successfully.
+        Error: If any required context arguments are missing or if the API call fails.
     """
     # 1. Get GitHub client from context
     if not ctx.github:
         return Error("GitHub client is not available in the workflow context.")
+    if not ctx.git:
+        return Error("Git client is not available in the workflow context.")
 
-    # 2. Get required data from context
+    # 2. Get required data from context and client config
     title = ctx.get("pr_title")
     body = ctx.get("pr_body")
-    base = ctx.get("pr_base_branch")
+    base = ctx.git.main_branch # Get base branch from git client config
     head = ctx.get("pr_head_branch")
     is_draft = ctx.get("pr_is_draft", False) # Default to not a draft
 
-    if not all([title, body, base, head]):
-        return Error("Missing required context for creating a pull request: pr_title, pr_body, pr_base_branch, pr_head_branch.")
+    if not all([title, base, head]):
+        return Error("Missing required context for creating a pull request: pr_title, pr_head_branch.")
 
     # 3. Call the client method
     try:

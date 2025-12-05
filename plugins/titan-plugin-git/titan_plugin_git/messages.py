@@ -1,6 +1,9 @@
 from typing import Any
 
 class Messages:
+    class Prompts:
+        ENTER_COMMIT_MESSAGE: str = "Enter commit message:"
+
     class Git:
         """Git operations messages"""
         CLI_NOT_FOUND: str = "Git CLI not found. Please install Git."
@@ -59,11 +62,15 @@ class Messages:
 
         class Commit:
             GIT_CLIENT_NOT_AVAILABLE: str = "Git client is not available in the workflow context."
-            COMMIT_MESSAGE_REQUIRED: str = "Commit message is required in ctx.data['commit_message']."
+            COMMIT_MESSAGE_REQUIRED: str = "Commit message cannot be empty."
             COMMIT_SUCCESS: str = "Commit created successfully: {commit_hash}"
             CLIENT_ERROR_DURING_COMMIT: str = "Git client error during commit: {e}"
             COMMAND_FAILED_DURING_COMMIT: str = "Git command failed during commit: {e}"
             UNEXPECTED_ERROR_DURING_COMMIT: str = "An unexpected error occurred during commit: {e}"
+
+        class Push:
+            GIT_CLIENT_NOT_AVAILABLE: str = "Git client is not available in the workflow context."
+            PUSH_FAILED: str = "Git push failed: {e}"
 
     class Plugin:
         GIT_CLIENT_INIT_WARNING: str = "Warning: GitPlugin could not initialize GitClient: {e}"

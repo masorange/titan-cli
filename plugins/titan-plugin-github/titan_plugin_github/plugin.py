@@ -1,5 +1,6 @@
 # plugins/titan-plugin-github/titan_plugin_github/plugin.py
-from typing import Type
+from typing import Type, Optional
+from pathlib import Path
 from pydantic import BaseModel
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
@@ -93,6 +94,13 @@ class GitHubPlugin(TitanPlugin):
         import shutil
         return shutil.which("gh") is not None and hasattr(self, '_client') and self._client is not None
 
+    @property
+    def workflows_path(self) -> Optional[Path]:
+        """
+        Returns the path to the workflows directory for this plugin.
+        """
+        return Path(__file__).parent / "workflows"
+
     def get_client(self) -> GitHubClient:
         """
         Returns the initialized GitHubClient instance.
@@ -106,6 +114,10 @@ class GitHubPlugin(TitanPlugin):
         """
         Returns a dictionary of available workflow steps.
         """
+        from .steps.create_pr_step import create_pr_step
+        from .steps.prompt_steps import prompt_for_pr_title_step, prompt_for_pr_body_step
         return {
             "create_pr": create_pr_step,
+            "prompt_for_pr_title": prompt_for_pr_title_step,
+            "prompt_for_pr_body": prompt_for_pr_body_step,
         }

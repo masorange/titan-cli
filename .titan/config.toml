@@ -1,0 +1,6 @@
+[plugins.git.config]
+main_branch = "master"
+
+[plugins.github.config]
+repo_owner = "masmovil"
+repo_name = "titan-cli"

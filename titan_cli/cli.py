@@ -26,6 +26,11 @@ from titan_cli.ui.views.prompts import PromptsRenderer
 from titan_cli.core.project_init import initialize_project
 from titan_cli.ui.views.menu_components.dynamic_menu import DynamicMenu
 
+# New Workflow-related imports
+from titan_cli.engine.workflow_executor import WorkflowExecutor
+from titan_cli.engine.builder import WorkflowContextBuilder
+from titan_cli.core.workflows.workflow_exceptions import WorkflowNotFoundError, WorkflowExecutionError
+
 
 # Main Typer Application
 app = typer.Typer(
@@ -115,9 +120,6 @@ def show_interactive_menu():
     cli_version = get_version()
     subtitle = f"Development Tools Orchestrator v{cli_version}"
 
-    # Initial Welcome Banner - removed as banner is rendered in the loop
-    # render_titan_banner(subtitle=subtitle)
-
     # Check for project_root and prompt if not set (only runs once)
     config = TitanConfig()
     project_root = config.get_project_root()
@@ -138,6 +140,9 @@ def show_interactive_menu():
         menu_builder.add_category("Project Management", emoji="📂") \
             .add_item(msg.Projects.LIST_TITLE, "Scan the project root and show all configured Titan projects.", "list") \
             .add_item(msg.Projects.CONFIGURE_TITLE, "Select an unconfigured project to initialize with Titan.", "configure")
+
+        menu_builder.add_category("Workflows", emoji="⚡") \
+            .add_item("Run a Workflow", "Execute a predefined or custom workflow.", "run_workflow")
 
         menu_builder.add_category("AI Configuration", emoji="🤖") \
             .add_item("Configure AI Provider", "Set up Anthropic, OpenAI, or Gemini", "ai_configure") \
@@ -162,7 +167,7 @@ def show_interactive_menu():
         if choice_action == "list":
             list_projects()
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
         
         elif choice_action == "configure":
             text.title(msg.Projects.CONFIGURE_TITLE)
@@ -200,13 +205,94 @@ def show_interactive_menu():
                     initialize_project(Path(chosen_project_item.action))
 
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+        
+        elif choice_action == "run_workflow":
+            text.title("Run a Workflow")
+            spacer.line()
+            
+            # Reload config to ensure latest changes (e.g., GitHub repo settings) are picked up
+            config.load() 
+            available_workflows = config.workflows.discover()
+            if not available_workflows:
+                text.info("No workflows found.")
+                spacer.line()
+                prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+                continue
+
+            workflow_menu_builder = DynamicMenu(title="Select a workflow to run", emoji="⚡")
+            workflow_cat_idx = workflow_menu_builder.add_category("Available Workflows")
+            for wf_info in available_workflows:
+                workflow_cat_idx.add_item(wf_info.name, f"({wf_info.source}) {wf_info.description}", wf_info.name)
+            workflow_menu_builder.add_category("Cancel").add_item("Back to Main Menu", "Return without running a workflow.", "cancel")
+            
+            workflow_menu = workflow_menu_builder.to_menu()
+
+            try:
+                chosen_workflow_item = prompts.ask_menu(workflow_menu, allow_quit=False)
+            except (KeyboardInterrupt, EOFError):
+                chosen_workflow_item = None
+            
+            spacer.line()
+
+            if chosen_workflow_item and chosen_workflow_item.action != "cancel":
+                selected_workflow_name = chosen_workflow_item.action
+                text.info(f"Preparing to run workflow: {selected_workflow_name}")
+                spacer.small()
+
+                try:
+                    parsed_workflow = config.workflows.get_workflow(selected_workflow_name)
+                    if parsed_workflow:
+                        secrets = SecretManager(project_path=config.project_root)
+
+                        # Build execution context with dependency injection
+                        from titan_cli.engine.ui_container import UIComponents
+                        from titan_cli.ui.components.panel import PanelRenderer
+                        from titan_cli.ui.components.table import TableRenderer
+
+                        ui = UIComponents(
+                            text=text,
+                            panel=PanelRenderer(),
+                            table=TableRenderer(),
+                            spacer=spacer
+                        )
+
+                        ctx_builder = WorkflowContextBuilder(
+                            plugin_registry=config.registry,
+                            secrets=secrets,
+                            ai_config=config.config.ai
+                        )
+                        ctx_builder.with_ui(ui=ui)
+
+                        # Add registered plugins to context
+                        for plugin_name in config.registry.list_installed():
+                            plugin = config.registry.get_plugin(plugin_name)
+                            if plugin:
+                                client = plugin.get_client()
+                                # Add client to context using a generic method if possible,
+                                # or specific methods like with_git(), with_github()
+                                if hasattr(ctx_builder, f"with_{plugin_name}"):
+                                    getattr(ctx_builder, f"with_{plugin_name}")(client)
+
+                        execution_context = ctx_builder.build()
+                        executor = WorkflowExecutor(config.registry)
+                        executor.execute(parsed_workflow, execution_context)
+                    else:
+                        text.error(f"Failed to load workflow '{selected_workflow_name}'.")
+
+                except (WorkflowNotFoundError, WorkflowExecutionError) as e:
+                    text.error(str(e))
+                except Exception as e:
+                    text.error(f"An unexpected error occurred: {type(e).__name__} - {e}")
+
+            spacer.line()
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
 
         elif choice_action == "ai_configure":
             from titan_cli.commands.ai import configure_ai_interactive
             configure_ai_interactive()
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
 
         elif choice_action == "ai_test":
             from titan_cli.commands.ai import _test_ai_connection
@@ -223,7 +309,7 @@ def show_interactive_menu():
                 
                 _test_ai_connection(provider, secrets, model, base_url)
             spacer.line()
-            prompts.ask_text(msg.Interactive.RETURN_TO_MENU_PROMPT, default="")
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
 
         elif choice_action == "exit":
             text.body(msg.Interactive.GOODBYE)

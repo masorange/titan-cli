@@ -8,7 +8,7 @@ Core components:
 - WorkflowResult types (Success, Error, Skip)
 - WorkflowContext for dependency injection
 - WorkflowContextBuilder for fluent API
-- BaseWorkflow for orchestration
+- WorkflowExecutor for executing YAML workflows (see workflow_executor.py)
 """
 
 from .results import (
@@ -22,9 +22,9 @@ from .results import (
 )
 from .context import WorkflowContext
 from .builder import WorkflowContextBuilder
-from .workflow import BaseWorkflow, StepFunction
-from .ui_container import UIComponents 
-from .views_container import UIViews 
+from .workflow_executor import WorkflowExecutor
+from .ui_container import UIComponents
+from .views_container import UIViews
 
 __all__ = [
     # Result types
@@ -39,10 +39,9 @@ __all__ = [
     # Context & builder
     "WorkflowContext",
     "WorkflowContextBuilder",
+    # Executor
+    "WorkflowExecutor",
     # UI containers
     "UIComponents",
     "UIViews",
-    # Workflow
-    "BaseWorkflow",
-    "StepFunction",
 ]

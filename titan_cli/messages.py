@@ -37,6 +37,7 @@ class Messages:
         MAIN_MENU_TITLE = "What would you like to do?"
         SELECT_PROJECT_TITLE = "Select a project to initialize"
         RETURN_TO_MENU_PROMPT = "Press Enter to return to the main menu"
+        RETURN_TO_MENU_PROMPT_CONFIRM = "Return to the main menu?"
         GOODBYE = "Goodbye!"
         INIT_PROJECT_TITLE = "Initializing Titan Project: [primary]{project_name}[/primary]"
 
