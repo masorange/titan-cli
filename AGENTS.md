@@ -930,15 +930,15 @@ steps:
 
 #### 1. Plugin Steps
 
-Execute functions provided by plugins:
+Execute functions provided by plugins. The `requires` key is a list of variables that the `WorkflowExecutor` will validate exist in the context before running the step.
 
 ```yaml
-- id: commit
+- id: create_commit
   name: "Create Commit"
   plugin: git           # Plugin name
   step: create_commit   # Step function from plugin.get_steps()
-  params:               # Parameters passed to the step function
-    message: "${msg}"
+  requires:
+    - commit_message
   on_error: fail        # fail (default) | continue | skip
 ```
 
@@ -1113,6 +1113,8 @@ return Skip(
 
 ### Creating Plugin Steps
 
+All workflow steps are functions that accept a single `WorkflowContext` argument and return a `WorkflowResult` (`Success`, `Error`, or `Skip`). They should be defined in their own modules inside the `steps/` directory of a plugin.
+
 Plugins can provide workflow steps by implementing `get_steps()`:
 
 ```python
@@ -1128,27 +1130,39 @@ class MyPlugin(TitanPlugin):
 # plugins/my-plugin/my_plugin/steps/my_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 
-def my_step(ctx: WorkflowContext, **params) -> WorkflowResult:
+def my_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Example plugin step.
 
-    Context Args (from workflow YAML params):
-        message (str): Message to display
+    Requires:
+        ctx.git: An initialized GitClient.
+
+    Inputs (from ctx.data):
+        my_input_variable (str): A variable needed for this step.
+
+    Outputs (saved to ctx.data):
+        my_output_variable (str): A result to be used by later steps.
 
     Returns:
-        Success with metadata or Error
+        Success: If the step completes successfully.
+        Error: If an error occurs.
     """
-    message = params.get("message", "Hello")
+    # Get data from the context
+    my_input = ctx.get("my_input_variable")
+    if not my_input:
+        return Error("Missing my_input_variable in context.")
 
-    ctx.ui.text.info(f"Running my step: {message}")
+    ctx.ui.text.info(f"Running my step with: {my_input}")
 
-    # Access other services
+    # Access other services, like the git client
     if ctx.git:
         status = ctx.git.get_status()
+        ctx.ui.text.info(f"Current branch is: {status.branch}")
 
+    # Return a success result with metadata to be added to the context
     return Success(
-        "Step completed",
-        metadata={"output": "some value"}
+        message="Step completed",
+        metadata={"my_output_variable": "some value"}
     )
 ```
 
