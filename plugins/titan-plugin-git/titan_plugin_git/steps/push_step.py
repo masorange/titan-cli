@@ -8,7 +8,7 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Pushes changes to a remote repository.
 
-    Inputs (from ctx.data):
+    Requires (from ctx.data):
         remote (str, optional): The name of the remote to push to. Defaults to the client's default remote.
         branch (str, optional): The name of the branch to push. Defaults to the current branch.
         set_upstream (bool, optional): Whether to set the upstream tracking branch. Defaults to False.

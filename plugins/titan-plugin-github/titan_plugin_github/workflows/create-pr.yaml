@@ -22,6 +22,8 @@ steps:
     name: "Create Commit"
     plugin: git
     step: create_commit
+    requires:
+      - commit_message
 
   - hook: before_push
 
@@ -54,5 +56,9 @@ steps:
     name: "Create Pull Request"
     plugin: github
     step: create_pr
+    requires:
+      - pr_title
+      - pr_base_branch
+      - pr_head_branch
 
   - hook: after_pr

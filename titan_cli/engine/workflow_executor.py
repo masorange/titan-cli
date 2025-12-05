@@ -88,6 +88,12 @@ class WorkflowExecutor:
         step_func_name = step_config["step"]
         step_params = step_config.get("params", {})
 
+        # Validate required context variables
+        required_vars = step_config.get("requires", [])
+        for var in required_vars:
+            if var not in ctx.data and var not in workflow_params:
+                return Error(f"Step '{step_func_name}' is missing required context variable: '{var}'")
+
         plugin_instance = self._plugin_registry.get_plugin(plugin_name)
         if not plugin_instance:
             return Error(f"Plugin '{plugin_name}' not found or not initialized.", WorkflowExecutionError(f"Plugin '{plugin_name}' not found"))
@@ -100,18 +106,22 @@ class WorkflowExecutor:
         # Prepare parameters for the step function
         resolved_params = self._resolve_parameters(step_params, ctx, workflow_params)
         
-        # Execute the step function. Assuming step functions take ctx and **kwargs
+        # Execute the step function.
         try:
             return step_func(ctx=ctx, **resolved_params)
         except Exception as e:
-            # Need to get the actual function name for the error message
-            # step_func_name is the key, but we need the actual func's name for consistency if it's different.
-            # However, step_func_name should suffice for logging where it came from.
             return Error(f"Error executing plugin step '{step_func_name}' from plugin '{plugin_name}': {e}", e)
 
 
     def _execute_command_step(self, step_config: Dict[str, Any], ctx: WorkflowContext, workflow_params: Dict[str, Any]) -> WorkflowResult:
         command_template = step_config["command"]
+
+        # Validate required context variables
+        required_vars = step_config.get("requires", [])
+        for var in required_vars:
+            if var not in ctx.data and var not in workflow_params:
+                return Error(f"Command step '{step_config.get('id', 'anonymous_command')}' is missing required context variable: '{var}'")
+
         # Resolve command parameters first
         resolved_command = self._resolve_parameters_in_string(command_template, ctx, workflow_params)
 

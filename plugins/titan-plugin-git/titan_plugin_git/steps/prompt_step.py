@@ -10,7 +10,7 @@ def prompt_for_commit_message_step(ctx: WorkflowContext) -> WorkflowResult:
     Requires:
         ctx.views.prompts: A PromptsRenderer instance.
 
-    Inputs (from ctx.data):
+    Requires (from ctx.data):
         git_status (GitStatus): The git status object, used to check if the working directory is clean.
 
     Outputs (saved to ctx.data):
