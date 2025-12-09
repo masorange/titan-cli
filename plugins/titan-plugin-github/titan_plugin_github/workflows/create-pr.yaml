@@ -48,7 +48,6 @@ steps:
     step: create_pr
     requires:
       - pr_title
-      - pr_base_branch
       - pr_head_branch
 
   - hook: after_pr
