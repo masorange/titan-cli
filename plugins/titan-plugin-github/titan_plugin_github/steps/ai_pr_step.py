@@ -151,21 +151,35 @@ DESCRIPTION:
         # Show preview to user
         if ctx.ui:
             ctx.ui.spacer.small()
-            ctx.ui.text.subtitle("📝 AI Generated PR:")
-            ctx.ui.text.body(f"  Title: {title}", style="bold cyan")
-            ctx.ui.spacer.small()
-            ctx.ui.panel.render(description, title="Description", border_style="cyan")
+
+            # Show and confirm title
+            ctx.ui.text.subtitle("📝 AI Generated PR Title:")
+            ctx.ui.text.body(f"  {title}", style="bold cyan")
             ctx.ui.spacer.small()
 
-            # Ask user if they want to use it or modify
-            use_ai = ctx.views.prompts.ask_confirm(
-                "Use this AI-generated PR description?",
+            use_title = ctx.views.prompts.ask_confirm(
+                "Use this title?",
                 default=True
             )
 
-            if not use_ai:
-                ctx.ui.text.warning("AI suggestion skipped. Will prompt for manual input.")
-                return Skip("User chose to skip AI suggestion")
+            if not use_title:
+                ctx.ui.text.warning("AI title rejected. Will prompt for manual input.")
+                return Skip("User rejected AI-generated title")
+
+            # Show and confirm description
+            ctx.ui.spacer.small()
+            ctx.ui.text.subtitle("📝 AI Generated PR Description:")
+            ctx.ui.panel.render(description, title="Description", border_style="cyan")
+            ctx.ui.spacer.small()
+
+            use_description = ctx.views.prompts.ask_confirm(
+                "Use this description?",
+                default=True
+            )
+
+            if not use_description:
+                ctx.ui.text.warning("AI description rejected. Will prompt for manual input.")
+                return Skip("User rejected AI-generated description")
 
         # Success - save to context
         return Success(

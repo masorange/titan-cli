@@ -41,6 +41,17 @@ steps:
     plugin: github
     step: ai_suggest_pr_description
 
+  # Fallback to manual prompts if AI was rejected
+  - id: prompt_pr_title
+    name: "Prompt for PR Title"
+    plugin: github
+    step: prompt_for_pr_title
+
+  - id: prompt_pr_body
+    name: "Prompt for PR Body"
+    plugin: github
+    step: prompt_for_pr_body
+
   - id: create_pr
     name: "Create Pull Request"
     plugin: github

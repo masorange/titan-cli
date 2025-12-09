@@ -44,20 +44,16 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         if ctx.ui:
             ctx.ui.text.info("📊 Analyzing uncommitted changes...")
 
-        # Get all uncommitted changes (staged + unstaged)
-        all_files = git_status.modified_files + git_status.untracked_files
-
-        if not all_files:
-            return Skip("No files to analyze")
-
         # Get diff of all uncommitted changes
         diff_text = ctx.git.get_uncommitted_diff()
 
         if not diff_text or diff_text.strip() == "":
-            return Error("No diffs available for analysis")
+            return Skip("No uncommitted changes to analyze")
 
         # Build AI prompt
-        files_summary = "\n".join([f"  - {f}" for f in all_files])
+        # Get list of modified files for the summary
+        all_files = git_status.modified_files + git_status.untracked_files + git_status.staged_files
+        files_summary = "\n".join([f"  - {f}" for f in all_files]) if all_files else "(checking diff)"
 
         # Limit diff size to avoid token overflow (keep first 4000 chars)
         diff_preview = diff_text[:4000] if len(diff_text) > 4000 else diff_text
