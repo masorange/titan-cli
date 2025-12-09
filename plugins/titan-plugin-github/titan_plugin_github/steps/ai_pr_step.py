@@ -144,12 +144,19 @@ DESCRIPTION:
         # Clean up title (remove quotes if present)
         title = title.strip('"').strip("'")
 
-        # Debug: Check if description is empty
-        if not description or description == "":
+        # Debug: Show what we got from AI
+        if ctx.ui:
+            ctx.ui.text.info(f"Debug - AI response length: {len(ai_response)} chars")
+            ctx.ui.text.info(f"Debug - Title extracted: '{title}' ({len(title)} chars)")
+            ctx.ui.text.info(f"Debug - Description extracted: '{description[:100]}...' ({len(description)} chars)")
+
+        # Validate description has real content (not just whitespace)
+        if not description or len(description.strip()) < 10:
             if ctx.ui:
-                ctx.ui.text.warning(f"⚠️  AI generated an empty description. Full response was:")
-                ctx.ui.text.body(ai_response[:500])
-            return Error("AI generated an empty PR description")
+                ctx.ui.text.warning(f"⚠️  AI generated an empty or very short description.")
+                ctx.ui.text.body("Full AI response:")
+                ctx.ui.text.body(ai_response[:1000])
+            return Error("AI generated an empty or incomplete PR description")
 
         # Show preview to user
         if ctx.ui:
