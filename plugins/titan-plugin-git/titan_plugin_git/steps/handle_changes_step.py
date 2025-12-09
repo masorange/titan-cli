@@ -33,10 +33,10 @@ def handle_uncommitted_changes_step(ctx: WorkflowContext) -> WorkflowResult:
     # Skip if working directory is clean
     git_status = ctx.data.get("git_status")
     if not git_status or git_status.is_clean:
-        return Skip("No uncommitted changes to handle.", silent=True)
+        return Skip(msg.Steps.HandleChanges.NO_UNCOMMITTED_CHANGES, silent=True)
 
     if not ctx.git:
-        return Error(msg.Steps.Commit.GIT_CLIENT_NOT_AVAILABLE)
+        return Error(msg.Steps.HandleChanges.GIT_CLIENT_NOT_AVAILABLE)
 
     # Show uncommitted changes summary
     changes_summary = []
@@ -47,43 +47,45 @@ def handle_uncommitted_changes_step(ctx: WorkflowContext) -> WorkflowResult:
     if git_status.untracked_files:
         changes_summary.append(f"Untracked files: {len(git_status.untracked_files)}")
 
-    ctx.ui.text.warning(f"⚠️  You have uncommitted changes: {', '.join(changes_summary)}")
+    ctx.ui.text.warning(msg.Steps.HandleChanges.UNCOMMITTED_CHANGES_WARNING.format(
+        summary=', '.join(changes_summary)
+    ))
 
     # Prompt user for action
     try:
         choices = [
-            ("commit", "Commit changes (you'll be prompted for a message)"),
-            ("stash", "Stash changes (temporarily save them)"),
-            ("cancel", "Cancel PR creation")
+            ("commit", msg.Steps.HandleChanges.CHOICE_MANUAL_COMMIT),
+            ("stash", msg.Steps.HandleChanges.CHOICE_STASH),
+            ("cancel", msg.Steps.HandleChanges.CHOICE_CANCEL)
         ]
 
         # If AI is available, offer AI commit message option
         if ctx.ai:
-            choices.insert(0, ("ai_commit", "Commit with AI-generated message"))
+            choices.insert(0, ("ai_commit", msg.Steps.HandleChanges.CHOICE_AI_COMMIT))
 
         action = ctx.views.prompts.ask_choice(
-            "How do you want to handle uncommitted changes?",
+            msg.Steps.HandleChanges.PROMPT_HOW_TO_HANDLE,
             choices
         )
 
         if action == "cancel":
-            return Error("User cancelled PR creation due to uncommitted changes.")
+            return Error(msg.Steps.HandleChanges.USER_CANCELLED)
 
         elif action == "stash":
             # Stash changes
             try:
-                stash_message = f"Titan CLI: Auto-stash before PR creation"
+                stash_message = msg.Steps.HandleChanges.STASH_MESSAGE_TEMPLATE
                 success = ctx.git.stash_push(message=stash_message)
                 if success:
-                    ctx.ui.text.success(f"✅ Changes stashed successfully")
+                    ctx.ui.text.success(msg.Steps.HandleChanges.STASH_SUCCESS)
                     return Success(
-                        "Changes stashed successfully",
+                        msg.Steps.HandleChanges.STASH_RESULT_SUCCESS,
                         metadata={"stashed_changes": True, "stash_message": stash_message}
                     )
                 else:
-                    return Error("Failed to stash changes")
+                    return Error(msg.Steps.HandleChanges.STASH_FAILED)
             except (GitClientError, GitCommandError) as e:
-                return Error(f"Failed to stash changes: {e}")
+                return Error(msg.Steps.HandleChanges.STASH_ERROR.format(e=e))
 
         elif action == "ai_commit":
             # Generate AI commit message and commit
@@ -91,7 +93,7 @@ def handle_uncommitted_changes_step(ctx: WorkflowContext) -> WorkflowResult:
                 # Get uncommitted diff
                 diff = ctx.git.get_uncommitted_diff()
                 if not diff:
-                    return Error("No changes to commit")
+                    return Error(msg.Steps.HandleChanges.NO_CHANGES_TO_COMMIT)
 
                 # Build AI prompt
                 all_files = git_status.modified_files + git_status.untracked_files + git_status.staged_files
@@ -126,7 +128,7 @@ Examples:
 
 Return ONLY the commit message, nothing else."""
 
-                ctx.ui.text.info("🤖 Generating commit message with AI...")
+                ctx.ui.text.info(msg.Steps.HandleChanges.AI_GENERATING)
 
                 # Call AI
                 from titan_cli.ai.models import AIMessage
@@ -136,48 +138,55 @@ Return ONLY the commit message, nothing else."""
                 commit_message = response.content.strip().strip('"').strip("'").strip()
 
                 # Show the message and ask for confirmation
-                ctx.ui.text.info("\n📝 AI-generated commit message:")
+                ctx.ui.text.info(msg.Steps.HandleChanges.AI_GENERATED_MESSAGE)
                 ctx.ui.text.info(f"\n{commit_message}\n")
 
-                confirm = ctx.views.prompts.ask_yes_no("Use this commit message?", default=True)
+                confirm = ctx.views.prompts.ask_yes_no(
+                    msg.Steps.HandleChanges.AI_CONFIRM_PROMPT,
+                    default=True
+                )
                 if not confirm:
                     # Fall through to manual commit
                     action = "commit"
                 else:
                     # Commit with AI message
                     commit_hash = ctx.git.commit(message=commit_message, all=True)
-                    ctx.ui.text.success(f"✅ Changes committed: {commit_hash[:8]}")
+                    ctx.ui.text.success(msg.Steps.HandleChanges.COMMIT_SUCCESS.format(
+                        commit_hash_short=commit_hash[:8]
+                    ))
                     return Success(
-                        f"Changes committed with AI message: {commit_hash}",
+                        msg.Steps.HandleChanges.COMMIT_SUCCESS_AI.format(commit_hash=commit_hash),
                         metadata={"commit_hash": commit_hash, "commit_message": commit_message}
                     )
             except Exception as e:
-                ctx.ui.text.warning(f"⚠️  AI commit failed: {e}")
-                ctx.ui.text.info("Falling back to manual commit message...")
+                ctx.ui.text.warning(msg.Steps.HandleChanges.AI_FAILED_WARNING.format(e=e))
+                ctx.ui.text.info(msg.Steps.HandleChanges.AI_FALLBACK)
                 action = "commit"
 
         if action == "commit":
             # Prompt for manual commit message
             try:
                 commit_message = ctx.views.prompts.ask_multiline(
-                    "Enter commit message:",
-                    default_text="# Enter your commit message above this line"
+                    msg.Steps.HandleChanges.COMMIT_PROMPT,
+                    default_text=msg.Steps.HandleChanges.COMMIT_PROMPT_DEFAULT
                 )
 
                 if not commit_message or commit_message.strip().startswith("#"):
-                    return Error("Commit message cannot be empty")
+                    return Error(msg.Steps.HandleChanges.COMMIT_MESSAGE_EMPTY)
 
                 # Commit changes
                 commit_hash = ctx.git.commit(message=commit_message, all=True)
-                ctx.ui.text.success(f"✅ Changes committed: {commit_hash[:8]}")
+                ctx.ui.text.success(msg.Steps.HandleChanges.COMMIT_SUCCESS.format(
+                    commit_hash_short=commit_hash[:8]
+                ))
                 return Success(
-                    f"Changes committed: {commit_hash}",
+                    msg.Steps.HandleChanges.COMMIT_SUCCESS_FULL.format(commit_hash=commit_hash),
                     metadata={"commit_hash": commit_hash, "commit_message": commit_message}
                 )
             except (GitClientError, GitCommandError) as e:
-                return Error(f"Failed to commit changes: {e}")
+                return Error(msg.Steps.HandleChanges.COMMIT_FAILED.format(e=e))
 
     except (KeyboardInterrupt, EOFError):
-        return Error("User cancelled.")
+        return Error(msg.Steps.HandleChanges.USER_CANCELLED_OPERATION)
     except Exception as e:
-        return Error(f"Failed to handle uncommitted changes: {e}")
+        return Error(msg.Steps.HandleChanges.HANDLE_CHANGES_FAILED.format(e=e))

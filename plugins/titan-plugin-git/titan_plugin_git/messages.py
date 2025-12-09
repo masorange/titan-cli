@@ -72,6 +72,50 @@ class Messages:
             GIT_CLIENT_NOT_AVAILABLE: str = "Git client is not available in the workflow context."
             PUSH_FAILED: str = "Git push failed: {e}"
 
+        class HandleChanges:
+            GIT_CLIENT_NOT_AVAILABLE: str = "Git client is not available in the workflow context."
+            NO_UNCOMMITTED_CHANGES: str = "No uncommitted changes to handle."
+            UNCOMMITTED_CHANGES_WARNING: str = "⚠️  You have uncommitted changes: {summary}"
+
+            # Prompts
+            PROMPT_HOW_TO_HANDLE: str = "How do you want to handle uncommitted changes?"
+            CHOICE_AI_COMMIT: str = "Commit with AI-generated message"
+            CHOICE_MANUAL_COMMIT: str = "Commit changes (you'll be prompted for a message)"
+            CHOICE_STASH: str = "Stash changes (temporarily save them)"
+            CHOICE_CANCEL: str = "Cancel PR creation"
+
+            # Messages
+            USER_CANCELLED: str = "User cancelled PR creation due to uncommitted changes."
+            STASH_SUCCESS: str = "✅ Changes stashed successfully"
+            STASH_FAILED: str = "Failed to stash changes"
+            STASH_ERROR: str = "Failed to stash changes: {e}"
+
+            # AI Commit
+            AI_GENERATING: str = "🤖 Generating commit message with AI..."
+            AI_GENERATED_MESSAGE: str = "\n📝 AI-generated commit message:"
+            AI_CONFIRM_PROMPT: str = "Use this commit message?"
+            AI_FAILED_WARNING: str = "⚠️  AI commit failed: {e}"
+            AI_FALLBACK: str = "Falling back to manual commit message..."
+
+            # Manual Commit
+            COMMIT_PROMPT: str = "Enter commit message:"
+            COMMIT_PROMPT_DEFAULT: str = "# Enter your commit message above this line"
+            COMMIT_MESSAGE_EMPTY: str = "Commit message cannot be empty"
+            COMMIT_SUCCESS: str = "✅ Changes committed: {commit_hash_short}"
+            COMMIT_SUCCESS_FULL: str = "Changes committed: {commit_hash}"
+            COMMIT_SUCCESS_AI: str = "Changes committed with AI message: {commit_hash}"
+            COMMIT_FAILED: str = "Failed to commit changes: {e}"
+
+            # Errors
+            NO_CHANGES_TO_COMMIT: str = "No changes to commit"
+            AI_MESSAGE_GENERATION_FAILED: str = "Failed to generate AI commit message"
+            USER_CANCELLED_OPERATION: str = "User cancelled."
+            HANDLE_CHANGES_FAILED: str = "Failed to handle uncommitted changes: {e}"
+
+            # Stash
+            STASH_MESSAGE_TEMPLATE: str = "Titan CLI: Auto-stash before PR creation"
+            STASH_RESULT_SUCCESS: str = "Changes stashed successfully"
+
     class Plugin:
         GIT_CLIENT_INIT_WARNING: str = "Warning: GitPlugin could not initialize GitClient: {e}"
         GIT_CLIENT_NOT_AVAILABLE: str = "GitPlugin not initialized or Git CLI not available."
