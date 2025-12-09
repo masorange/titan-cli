@@ -22,8 +22,6 @@ steps:
     name: "Create Commit"
     plugin: git
     step: create_commit
-    requires:
-      - commit_message
 
   - hook: before_push
 
