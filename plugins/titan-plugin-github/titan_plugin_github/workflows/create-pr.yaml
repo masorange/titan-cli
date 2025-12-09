@@ -50,8 +50,5 @@ steps:
     step: create_pr
     # Dependency: This step automatically skips if no new commit (commit_hash)
     # was created, as there would be nothing to push or create a PR for.
-    requires:
-      - pr_title
-      - pr_head_branch
 
   - hook: after_pr
