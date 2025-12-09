@@ -102,14 +102,10 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
 
             ctx.ui.spacer.small()
 
-            # PR Description (preview - first 10 lines)
+            # PR Description (full)
             ctx.ui.text.body("PR Description:", style="bold")
-            preview_lines = analysis.pr_body.split('\n')[:10]
-            for line in preview_lines:
+            for line in analysis.pr_body.split('\n'):
                 ctx.ui.text.body(f"  {line}", style="dim")
-
-            if len(analysis.pr_body.split('\n')) > 10:
-                ctx.ui.text.body("  ... (truncated)", style="dim")
 
             ctx.ui.spacer.small()
 
