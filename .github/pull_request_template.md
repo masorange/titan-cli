@@ -26,13 +26,6 @@
 - [ ] Manual testing performed
 - [ ] All tests passing
 
-**Test Configuration:**
-- Python version:
-- OS:
-
-## 📸 Screenshots (if applicable)
-<!-- Add screenshots for UI changes -->
-
 ## ✅ Checklist
 - [ ] My code follows the project's style guidelines
 - [ ] I have performed a self-review of my own code
@@ -42,9 +35,3 @@
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
 - [ ] Any dependent changes have been merged and published
-
-## 🔗 Related Issues
-<!-- Link to related issues: Closes #123, Fixes #456 -->
-
-## 📎 Additional Context
-<!-- Add any other context about the PR here -->
