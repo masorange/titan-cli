@@ -65,18 +65,21 @@ class BaseAIAgent(ABC):
         """
         from titan_cli.ai.models import AIMessage
 
-        # Build messages
-        messages = [AIMessage(role="user", content=request.context)]
+        # Build messages with system prompt
+        messages = []
 
         # Use agent's system prompt if not overridden
         system_prompt = request.system_prompt or self.get_system_prompt()
+        if system_prompt:
+            messages.append(AIMessage(role="system", content=system_prompt))
+
+        messages.append(AIMessage(role="user", content=request.context))
 
         # Call underlying AIClient (which delegates to provider)
         response = self.ai_client.generate(
             messages=messages,
             max_tokens=request.max_tokens,
-            temperature=request.temperature,
-            system_prompt=system_prompt
+            temperature=request.temperature
         )
 
         # Convert to AgentResponse
