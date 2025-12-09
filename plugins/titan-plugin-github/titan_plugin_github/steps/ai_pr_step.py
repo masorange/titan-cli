@@ -6,6 +6,7 @@ Uses AIClient to analyze git changes and suggest PR title and body.
 """
 
 from pathlib import Path
+from rich.markdown import Markdown
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from ..utils import get_pr_size_estimation
 from ..messages import msg
@@ -251,12 +252,10 @@ DESCRIPTION:
 
             ctx.ui.spacer.small()
 
-            # Show description (max 500 chars already enforced)
+            # Show description
             ctx.ui.text.body(msg.GitHub.AI.DESCRIPTION_LABEL, style="bold")
+            ctx.ui.panel.print(Markdown(description), title=None, panel_type="default")
 
-            # Print line by line for better formatting
-            for line in description.split('\n'):
-                ctx.ui.text.body(f"  {line}", style="dim")
 
             ctx.ui.spacer.small()
 
