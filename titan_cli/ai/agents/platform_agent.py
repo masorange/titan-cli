@@ -135,11 +135,11 @@ conventional commits, best practices, and can make decisions about repository st
         if needs_commit:
             # Get unstaged/staged changes
             if auto_stage:
-                # Analyze working directory changes
-                diff = self.git.get_diff(staged=False)
+                # Analyze working directory changes (unstaged)
+                diff = self.git.get_unstaged_diff()
             else:
                 # Analyze only staged changes
-                diff = self.git.get_diff(staged=True)
+                diff = self.git.get_staged_diff()
 
             if diff:
                 # Generate commit message
