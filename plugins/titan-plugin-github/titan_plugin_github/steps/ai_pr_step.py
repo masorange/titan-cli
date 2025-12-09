@@ -35,45 +35,45 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
     """
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        return Skip("AI not configured. Run 'titan ai configure' to enable AI features.")
+        return Skip(msg.GitHub.AI.AI_NOT_CONFIGURED)
 
     # Get GitHub and Git clients
     if not ctx.github:
-        return Error("GitHub client is not available in the workflow context.")
+        return Error(msg.GitHub.AI.GITHUB_CLIENT_NOT_AVAILABLE)
     if not ctx.git:
-        return Error("Git client is not available in the workflow context.")
+        return Error(msg.GitHub.AI.GIT_CLIENT_NOT_AVAILABLE)
 
     # Get branch info
     head_branch = ctx.get("pr_head_branch")
     if not head_branch:
-        return Error("Missing pr_head_branch in context")
+        return Error(msg.GitHub.AI.MISSING_PR_HEAD_BRANCH)
 
     base_branch = ctx.git.main_branch
 
     try:
         # Get full branch diff (this is the key for AI analysis)
         if ctx.ui:
-            ctx.ui.text.info(f"📊 Analyzing branch diff: {head_branch} vs {base_branch}...")
+            ctx.ui.text.info(msg.GitHub.AI.ANALYZING_BRANCH_DIFF.format(head_branch=head_branch, base_branch=base_branch))
 
         # Get commits in the branch
         try:
             commits = ctx.git.get_branch_commits(base_branch, head_branch)
             branch_diff = ctx.git.get_branch_diff(base_branch, head_branch)
         except Exception as e:
-            return Error(f"Failed to get branch diff: {e}")
+            return Error(msg.GitHub.AI.FAILED_TO_GET_BRANCH_DIFF.format(e=e))
 
         if not branch_diff or not commits:
-            return Skip("No changes found between branches")
+            return Skip(msg.GitHub.AI.NO_CHANGES_FOUND)
 
         # Build context for AI
         commits_text = "\n".join([f"  - {c}" for c in commits[:15]])
         if len(commits) > 15:
-            commits_text += f"\n  ... and {len(commits) - 15} more commits"
+            commits_text += msg.GitHub.AI.COMMITS_TRUNCATED.format(count=len(commits) - 15)
 
         # Limit diff size to avoid token overflow
-        diff_preview = branch_diff[:8000] if branch_diff else "No diff available"
+        diff_preview = branch_diff[:8000] if branch_diff else msg.GitHub.AI.NO_DIFF_AVAILABLE
         if len(branch_diff) > 8000:
-            diff_preview += "\n\n... (diff truncated for brevity)"
+            diff_preview += msg.GitHub.AI.DIFF_TRUNCATED
 
         # Calculate PR size metrics for dynamic char limit
         diff_lines = len(branch_diff.split('\n'))
@@ -102,7 +102,7 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
             pr_size = "very large"
 
         if ctx.ui:
-            ctx.ui.text.info(f"📏 PR Size: {pr_size} ({files_changed} files, {diff_lines} lines) → Max description: {max_chars} chars")
+            ctx.ui.text.info(msg.GitHub.AI.PR_SIZE_INFO.format(pr_size=pr_size, files_changed=files_changed, diff_lines=diff_lines, max_chars=max_chars))
 
         # Read PR template (REQUIRED - must follow template if exists)
         template_path = Path(".github/pull_request_template.md")
@@ -115,7 +115,7 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
                     template = f.read()
             except Exception as e:
                 if ctx.ui:
-                    ctx.ui.text.warning(f"Failed to read PR template: {e}")
+                    ctx.ui.text.warning(msg.GitHub.AI.FAILED_TO_READ_PR_TEMPLATE.format(e=e))
                 has_template = False
 
         # Build prompt - MUST follow template if available
@@ -194,7 +194,7 @@ DESCRIPTION:
 
         # Show progress
         if ctx.ui:
-            ctx.ui.text.info("🤖 Generating PR description with AI...")
+            ctx.ui.text.info(msg.GitHub.AI.GENERATING_PR_DESCRIPTION)
 
         # Calculate max_tokens based on PR size (chars to tokens ratio ~0.75)
         # Add buffer for formatting
@@ -211,8 +211,7 @@ DESCRIPTION:
 
         if "TITLE:" not in ai_response or "DESCRIPTION:" not in ai_response:
             return Error(
-                f"AI response format incorrect. Expected 'TITLE:' and 'DESCRIPTION:' sections.\n"
-                f"Got: {ai_response[:200]}..."
+                msg.GitHub.AI.AI_RESPONSE_FORMAT_INCORRECT.format(response_preview=ai_response[:200])
             )
 
         # Extract title and description
@@ -230,35 +229,35 @@ DESCRIPTION:
         # Truncate description to max_chars if needed
         if len(description) > max_chars:
             if ctx.ui:
-                ctx.ui.text.warning(f"⚠️  AI generated {len(description)} chars, truncating to {max_chars}")
+                ctx.ui.text.warning(msg.GitHub.AI.AI_GENERATED_TRUNCATING.format(actual_len=len(description), max_chars=max_chars))
             description = description[:max_chars - 3] + "..."
 
         # Validate description has real content (not just whitespace)
         if not description or len(description.strip()) < 10:
             if ctx.ui:
-                ctx.ui.text.warning(f"⚠️  AI generated an empty or very short description.")
-                ctx.ui.text.body("Full AI response:")
+                ctx.ui.text.warning(msg.GitHub.AI.AI_GENERATED_EMPTY_SHORT)
+                ctx.ui.text.body(msg.GitHub.AI.FULL_AI_RESPONSE)
                 ctx.ui.text.body(ai_response[:1000])
-            return Error("AI generated an empty or incomplete PR description")
+            return Error(msg.GitHub.AI.AI_GENERATED_INCOMPLETE)
 
         # Show preview to user
         if ctx.ui:
             ctx.ui.spacer.small()
-            ctx.ui.text.subtitle("📝 AI Generated PR:")
+            ctx.ui.text.subtitle(msg.GitHub.AI.AI_GENERATED_PR_TITLE)
             ctx.ui.spacer.small()
 
             # Show title
-            ctx.ui.text.body("Title:", style="bold")
+            ctx.ui.text.body(msg.GitHub.AI.TITLE_LABEL, style="bold")
             ctx.ui.text.body(f"  {title}", style="cyan")
 
             # Warn if title is too long
             if len(title) > 72:
-                ctx.ui.text.warning(f"  ⚠️  Title is {len(title)} chars (recommended: ≤72)")
+                ctx.ui.text.warning(msg.GitHub.AI.TITLE_TOO_LONG_WARNING.format(length=len(title)))
 
             ctx.ui.spacer.small()
 
             # Show description (max 500 chars already enforced)
-            ctx.ui.text.body("Description:", style="bold")
+            ctx.ui.text.body(msg.GitHub.AI.DESCRIPTION_LABEL, style="bold")
 
             # Print line by line for better formatting
             for line in description.split('\n'):
@@ -268,17 +267,17 @@ DESCRIPTION:
 
             # Single confirmation for both title and description
             use_ai_pr = ctx.views.prompts.ask_confirm(
-                "Use this AI-generated PR?",
+                msg.GitHub.AI.CONFIRM_USE_AI_PR,
                 default=True
             )
 
             if not use_ai_pr:
-                ctx.ui.text.warning("AI suggestion rejected. Will prompt for manual input.")
+                ctx.ui.text.warning(msg.GitHub.AI.AI_SUGGESTION_REJECTED)
                 return Skip("User rejected AI-generated PR")
 
         # Success - save to context
         return Success(
-            "AI generated PR description",
+            msg.GitHub.AI.AI_GENERATED_PR_DESCRIPTION_SUCCESS,
             metadata={
                 "pr_title": title,
                 "pr_body": description,
@@ -289,10 +288,10 @@ DESCRIPTION:
     except Exception as e:
         # Don't fail the workflow, just skip AI and use manual prompts
         if ctx.ui:
-            ctx.ui.text.warning(f"AI generation failed: {e}")
-            ctx.ui.text.info("Falling back to manual PR creation...")
+            ctx.ui.text.warning(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
+            ctx.ui.text.info(msg.GitHub.AI.FALLBACK_TO_MANUAL)
 
-        return Skip(f"AI generation failed: {e}")
+        return Skip(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
 
 
 # Export for plugin registration

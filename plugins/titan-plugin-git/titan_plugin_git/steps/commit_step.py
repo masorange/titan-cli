@@ -29,14 +29,14 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     # Skip if there's nothing to commit
     git_status = ctx.data.get("git_status")
     if git_status and git_status.is_clean:
-        return Skip("Working directory is clean, skipping commit.")
+        return Skip(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
 
     if not ctx.git:
         return Error(msg.Steps.Commit.GIT_CLIENT_NOT_AVAILABLE)
 
     commit_message = ctx.get('commit_message')
     if not commit_message:
-        return Skip("No commit message provided, skipping commit.")
+        return Skip(msg.Steps.Commit.NO_COMMIT_MESSAGE)
         
     all_files = ctx.get('all_files', True)
 
