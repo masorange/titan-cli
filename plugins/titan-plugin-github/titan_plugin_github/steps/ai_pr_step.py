@@ -7,7 +7,8 @@ Uses AIClient to analyze git changes and suggest PR title and body.
 
 from pathlib import Path
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
-
+from ..utils import get_pr_size_estimation
+from ..messages import msg
 
 def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -76,33 +77,17 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
             diff_preview += msg.GitHub.AI.DIFF_TRUNCATED
 
         # Calculate PR size metrics for dynamic char limit
-        diff_lines = len(branch_diff.split('\n'))
-
-        # Estimate files changed (count file headers in diff)
-        import re
-        file_pattern = r'^diff --git'
-        files_changed = len(re.findall(file_pattern, branch_diff, re.MULTILINE))
-
-        # Dynamic character limit based on PR size
-        if files_changed <= 3 and diff_lines < 100:
-            # Small PR: bug fix, doc update, small feature
-            max_chars = 500
-            pr_size = "small"
-        elif files_changed <= 10 and diff_lines < 500:
-            # Medium PR: feature, moderate refactor
-            max_chars = 1200
-            pr_size = "medium"
-        elif files_changed <= 30 and diff_lines < 2000:
-            # Large PR: architectural changes, new modules
-            max_chars = 2000
-            pr_size = "large"
-        else:
-            # Very large PR: major refactor, breaking changes
-            max_chars = 3000
-            pr_size = "very large"
+        size_estimation = get_pr_size_estimation(branch_diff)
+        pr_size = size_estimation.pr_size
+        max_chars = size_estimation.max_chars
 
         if ctx.ui:
-            ctx.ui.text.info(msg.GitHub.AI.PR_SIZE_INFO.format(pr_size=pr_size, files_changed=files_changed, diff_lines=diff_lines, max_chars=max_chars))
+            ctx.ui.text.info(msg.GitHub.AI.PR_SIZE_INFO.format(
+                pr_size=pr_size,
+                files_changed=size_estimation.files_changed,
+                diff_lines=size_estimation.diff_lines,
+                max_chars=max_chars
+            ))
 
         # Read PR template (REQUIRED - must follow template if exists)
         template_path = Path(".github/pull_request_template.md")
