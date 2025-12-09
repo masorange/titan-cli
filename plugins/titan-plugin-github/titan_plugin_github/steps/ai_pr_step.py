@@ -75,15 +75,23 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
         if len(branch_diff) > 8000:
             diff_preview += "\n\n... (diff truncated for brevity)"
 
-        # Read PR template
+        # Read PR template (REQUIRED - must follow template if exists)
         template_path = Path(".github/pull_request_template.md")
         template = ""
-        if template_path.exists():
-            with open(template_path, "r") as f:
-                template = f.read()
+        has_template = template_path.exists()
 
-        # Build comprehensive prompt with template
-        prompt = f"""Analyze this branch and generate a professional pull request.
+        if has_template:
+            try:
+                with open(template_path, "r") as f:
+                    template = f.read()
+            except Exception as e:
+                if ctx.ui:
+                    ctx.ui.text.warning(f"Failed to read PR template: {e}")
+                has_template = False
+
+        # Build prompt - MUST follow template if available
+        if has_template and template:
+            prompt = f"""Analyze this branch and generate a professional pull request following the EXACT template structure.
 
 ## Branch Information
 - Head branch: {head_branch}
@@ -98,7 +106,44 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
 {diff_preview}
 ```
 
-## Instructions
+## PR Template (MUST FOLLOW THIS STRUCTURE)
+```markdown
+{template}
+```
+
+## CRITICAL Instructions
+1. **Title**: Follow conventional commits (type(scope): description), max 72 chars
+   - Examples: "feat(auth): add OAuth2 integration", "fix(api): resolve race condition in cache"
+
+2. **Description**: MUST follow the template structure above but keep it under 500 characters total
+   - Fill in the template sections (Summary, Type of Change, Changes Made, etc.)
+   - Mark checkboxes appropriately with [x]
+   - Keep each section brief (1-2 lines max)
+   - Total description length MUST be ≤500 chars
+
+Format your response EXACTLY like this:
+TITLE: <conventional commit title>
+
+DESCRIPTION:
+<template-based description - MAX 500 chars total>"""
+        else:
+            # Fallback when no template exists
+            prompt = f"""Analyze this branch and generate a professional pull request.
+
+## Branch Information
+- Head branch: {head_branch}
+- Base branch: {base_branch}
+- Total commits: {len(commits)}
+
+## Commits in Branch
+{commits_text}
+
+## Branch Diff Preview
+```diff
+{diff_preview}
+```
+
+## Instructions (No template available - use standard format)
 Generate a concise Pull Request that:
 1. **Title**: Follow conventional commits (type(scope): description), max 72 chars
    - Examples: "feat(auth): add OAuth2 integration", "fix(api): resolve race condition in cache"
