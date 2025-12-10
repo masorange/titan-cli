@@ -16,17 +16,11 @@ steps:
     plugin: git
     step: get_current_branch
 
-  # Handle uncommitted changes (commit or stash)
-  - id: handle_changes
-    name: "Handle Uncommitted Changes"
-    plugin: git
-    step: handle_uncommitted_changes
-
   - hook: before_commit
 
   # Platform Agent analyzes everything upfront
   - id: platform_agent_analyze
-    name: "🤖 Platform Agent Analysis"
+    name: "Platform Agent Analysis"
     plugin: github
     step: ai_suggest_pr_description
 

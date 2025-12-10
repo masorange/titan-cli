@@ -287,21 +287,6 @@ DESCRIPTION:
             ctx.ui.spacer.small()
 
         # Success - save to context
-        metadata = {
-            "pr_title": analysis.pr_title,
-            "pr_body": analysis.pr_body,
-            "pr_size": analysis.pr_size,
-            "tokens_used": analysis.total_tokens_used,
-            "files_changed": analysis.files_changed,
-            "lines_changed": analysis.lines_changed,
-            "ai_generated": True
-        }
-
-        # Add commit info if available
-        if analysis.needs_commit and analysis.commit_message:
-            metadata["needs_commit"] = True
-            metadata["commit_message"] = analysis.commit_message
-
         return Success(
             msg.GitHub.AI.AI_GENERATED_PR_DESCRIPTION_SUCCESS,
             metadata={
