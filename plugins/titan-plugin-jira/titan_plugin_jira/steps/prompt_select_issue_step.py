@@ -3,6 +3,7 @@ Prompt user to select an issue from search results
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from ..messages import msg
 
 
 def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -22,10 +23,10 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     # Get issues from previous search
     issues = ctx.get("jira_issues")
     if not issues:
-        return Error("No issues found. Run a search first.")
+        return Error(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
 
     if len(issues) == 0:
-        return Error("Issue list is empty")
+        return Error(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
 
     # Build choices list
     choices = []
@@ -42,28 +43,34 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
             ctx.ui.spacer.small()
 
         selected_index = ctx.views.prompts.ask_int(
-            "Enter issue number to analyze",
+            msg.Steps.PromptSelectIssue.ASK_ISSUE_NUMBER,
             min_value=1,
             max_value=len(choices)
         )
 
         if selected_index is None:
-            return Error("No issue selected")
+            return Error(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED)
 
         # Convert to 0-based index
         selected_issue = issues[selected_index - 1]
 
         if ctx.ui:
             ctx.ui.spacer.small()
-            ctx.ui.text.success(f"Selected: {selected_issue.key} - {selected_issue.summary}")
+            ctx.ui.text.success(msg.Steps.PromptSelectIssue.ISSUE_SELECTED.format(
+                key=selected_issue.key,
+                summary=selected_issue.summary
+            ))
             ctx.ui.spacer.small()
 
         return Success(
-            f"Selected issue: {selected_issue.key}",
+            msg.Steps.PromptSelectIssue.SELECT_SUCCESS.format(key=selected_issue.key),
             metadata={
                 "jira_issue_key": selected_issue.key,
                 "selected_issue": selected_issue
             }
         )
     else:
-        return Error("UI not available for prompting")
+        return Error(msg.Steps.PromptSelectIssue.UI_NOT_AVAILABLE)
+
+
+__all__ = ["prompt_select_issue_step"]
