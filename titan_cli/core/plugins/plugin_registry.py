@@ -112,3 +112,9 @@ class PluginRegistry:
     def get_plugin(self, name: str) -> Optional[TitanPlugin]:
         """Get plugin instance by name."""
         return self._plugins.get(name)
+
+    def reset(self):
+        """Resets the registry, clearing all loaded plugins and re-discovering."""
+        self._plugins.clear()
+        self._failed_plugins.clear()
+        self.discover()

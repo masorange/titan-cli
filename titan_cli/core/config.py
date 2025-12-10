@@ -15,36 +15,74 @@ class TitanConfig:
 
     def __init__(
         self,
-        project_path: Optional[Path] = None,
-        registry: Optional[PluginRegistry] = None,
-        show_warnings: bool = True # New parameter
+        registry: Optional[PluginRegistry] = None
     ):
         # Core dependencies
         self.registry = registry or PluginRegistry()
-        self.secrets = SecretManager(project_path=project_path)
-        self._project_root = project_path if project_path else Path.cwd() # Store project_root here
+        self.secrets = SecretManager() # Updated after load
+        self._project_root = None # Set by load()
+        self._active_project_path = None # Set by load()
+        self._workflow_registry = None # Set by load()
+        self._plugin_warnings = []
 
+        # Initial load
+        self.load()
 
-        # Load configs
+    def load(self):
+        """
+        Reloads the entire configuration from disk, including global config
+        and the config for the currently active project.
+        """
+        # Load global config first to find project_root and active_project
         self.global_config = self._load_toml(self.GLOBAL_CONFIG)
-        self.project_config_path = self._find_project_config(self._project_root)
+        
+        # Temporarily validate global to access core settings
+        temp_global_model = TitanConfigModel(**self.global_config)
+        
+        active_project_name = None
+        project_root_str = None
+        
+        if temp_global_model.core:
+            project_root_str = temp_global_model.core.project_root
+            active_project_name = temp_global_model.core.active_project
+
+        # Set project_root
+        if project_root_str:
+            self._project_root = Path(project_root_str)
+        else:
+            self._project_root = Path.cwd()
+
+        # Determine the project config path
+        self.project_config_path = None
+        if active_project_name:
+            active_project_path = self._project_root / active_project_name
+            self.project_config_path = self._find_project_config(active_project_path)
+            self._active_project_path = active_project_path
+        else:
+            self._active_project_path = None
+
+        # Load project config
         self.project_config = self._load_toml(self.project_config_path)
 
-        # Merge
+        # Merge and validate final config
         merged = self._merge_configs(self.global_config, self.project_config)
-
-        # Validate with Pydantic
         self.config = TitanConfigModel(**merged)
 
-        # Initialize plugins now that config is ready
+        # Re-initialize dependencies that depend on the final config
+        # Use active_project_path for secrets if available, otherwise project_root
+        secrets_path = self._active_project_path if self._active_project_path and self._active_project_path.is_dir() else self._project_root
+        self.secrets = SecretManager(project_path=secrets_path if secrets_path and secrets_path.is_dir() else None)
+        
+        # Reset and re-initialize plugins
+        self.registry.reset()
         self.registry.initialize_plugins(config=self, secrets=self.secrets)
-
-        # Store failed plugins for later display by CLI commands
         self._plugin_warnings = self.registry.list_failed()
 
-        # Initialize WorkflowRegistry with dependency injection
+        # Re-initialize WorkflowRegistry
+        # Use active_project_path for workflows if available, otherwise project_root
+        workflow_path = self._active_project_path if self._active_project_path else self._project_root
         self._workflow_registry = WorkflowRegistry(
-            project_root=self._project_root,
+            project_root=workflow_path,
             plugin_registry=self.registry
         )
 
@@ -103,17 +141,15 @@ class TitanConfig:
 
         return merged
 
-    def load(self):
-        """Reloads the configuration from disk."""
-        self.global_config = self._load_toml(self.GLOBAL_CONFIG)
-        self.project_config = self._load_toml(self.project_config_path)
-        merged = self._merge_configs(self.global_config, self.project_config)
-        self.config = TitanConfigModel(**merged)
-
     @property
     def project_root(self) -> Path:
         """Return the resolved project root path."""
         return self._project_root
+
+    @property
+    def active_project_path(self) -> Optional[Path]:
+        """Return the path to the currently active project."""
+        return self._active_project_path
 
     @property
     def workflows(self) -> WorkflowRegistry:
@@ -134,6 +170,60 @@ class TitanConfig:
             name for name, plugin_cfg in self.config.plugins.items()
             if plugin_cfg.enabled
         ]
+
+    def get_plugin_warnings(self) -> List[str]:
+        """Get list of failed or misconfigured plugins."""
+        return self._plugin_warnings
+
+    def get_active_project(self) -> Optional[str]:
+        """Get currently active project name from global config."""
+        if self.config and self.config.core and self.config.core.active_project:
+            return self.config.core.active_project
+        return None
+
+    def set_active_project(self, project_name: str):
+        """Set active project and save to global config."""
+        if self.config.core:
+            self.config.core.active_project = project_name
+            self._save_global_config()
+        # If core config doesn't exist, we might need to create it
+        # For now, we assume it exists if we are setting an active project.
+
+    def get_active_project_path(self) -> Optional[Path]:
+        """Get path to active project."""
+        active_project_name = self.get_active_project()
+        project_root_str = self.get_project_root()
+
+        if not active_project_name or not project_root_str:
+            return None
+
+        return Path(project_root_str) / active_project_name
+
+    def _save_global_config(self):
+        """Saves the current state of the global config to disk."""
+        if not self.GLOBAL_CONFIG.parent.exists():
+            self.GLOBAL_CONFIG.parent.mkdir(parents=True)
+
+        # We need to reconstruct the dictionary to write back to TOML
+        config_to_save = self.config.model_dump(exclude_none=True)
+
+        # We only want to save the 'core' section to the global config
+        global_config_data = {}
+        if 'core' in config_to_save:
+            global_config_data['core'] = config_to_save['core']
+
+        try:
+            with open(self.GLOBAL_CONFIG, "wb") as f:
+                import tomli_w
+                tomli_w.dump(global_config_data, f)
+        except ImportError:
+            # Handle case where tomli_w is not installed
+            # For now, we can print a warning or log it.
+            # In a real scenario, this should be a proper dependency.
+            print("Warning: tomli_w is not installed. Cannot save global config.")
+        except Exception as e:
+            # Handle other potential errors during file write
+            print(f"Error saving global config: {e}")
 
     def is_plugin_enabled(self, plugin_name: str) -> bool:
         """Check if plugin is enabled"""

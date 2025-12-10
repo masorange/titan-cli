@@ -31,6 +31,7 @@ from titan_cli.ui.components.spacer import SpacerRenderer
 from titan_cli.ui.views.prompts import PromptsRenderer
 from titan_cli.core.project_init import initialize_project
 from titan_cli.ui.views.menu_components.dynamic_menu import DynamicMenu
+from titan_cli.core.plugins.plugin_registry import PluginRegistry
 
 # New Workflow-related imports
 from titan_cli.engine.workflow_executor import WorkflowExecutor
@@ -135,6 +136,47 @@ def _show_submenu(
             actions["handlers"][choice_item.action]()
 
         prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+
+
+def _show_switch_project_menu(prompts: PromptsRenderer, text: TextRenderer, config: TitanConfig):
+    """Shows submenu to switch active project."""
+    project_root = config.get_project_root()
+    if not project_root:
+        text.error(msg.Errors.PROJECT_ROOT_NOT_SET)
+        return
+
+    configured_projects, _ = discover_projects(project_root)
+
+    if not configured_projects:
+        text.info("No configured projects found in project root.")
+        return
+
+    menu_builder = DynamicMenu(title="Select Active Project", emoji="📂")
+    projects_cat = menu_builder.add_category("Projects")
+
+    current_active_project = config.get_active_project()
+
+    for project_path in configured_projects:
+        project_name = project_path.name
+        description = str(project_path.relative_to(project_root))
+        if project_name == current_active_project:
+            description = f"[bold green] (active)[/bold green] {description}"
+        projects_cat.add_item(
+            project_name,
+            description,
+            project_name
+        )
+
+    menu_builder.add_category("Cancel").add_item("Back to Main Menu", "", "cancel")
+    menu = menu_builder.to_menu()
+
+    choice = prompts.ask_menu(menu, allow_quit=False)
+
+    if choice and choice.action and choice.action != "cancel":
+        config.set_active_project(choice.action)
+        text.success(f"Active project set to: {choice.action}")
+        # Reload config to ensure new active project's settings are loaded
+        config.load()
 
 def _show_projects_submenu(prompts: PromptsRenderer, text: TextRenderer, config: TitanConfig):
     """Shows the submenu for project management."""
@@ -367,12 +409,15 @@ def show_interactive_menu():
     prompts = PromptsRenderer(text_renderer=text)
     spacer = SpacerRenderer()
 
-    # Get version for subtitle
-    cli_version = get_version()
-    subtitle = f"Development Tools Orchestrator v{cli_version}"
+    # This is the entry point for interactive mode.
+    # We create a single PluginRegistry that will be passed to the config.
+    # The config object will be reloaded, but the registry will persist.
+    plugin_registry = PluginRegistry()
+
+    # Initial config load
+    config = TitanConfig(registry=plugin_registry)
 
     # Check for project_root and prompt if not set (only runs once)
-    config = TitanConfig()
     project_root = config.get_project_root()
     if not project_root or not Path(project_root).is_dir():
         if not _prompt_for_project_root(text, prompts):
@@ -383,6 +428,16 @@ def show_interactive_menu():
         project_root = config.get_project_root() # Re-fetch project root
 
     while True:
+        # Before showing the menu, reload the config to get the latest state
+        config.load()
+        cli_version = get_version()
+
+        # Get active project and append to subtitle if available
+        active_project = config.get_active_project()
+        subtitle = f"Development Tools Orchestrator v{cli_version}"
+        if active_project:
+            subtitle += f" | 📂 {active_project}"
+
         # Re-render banner and menu in each loop iteration
         render_titan_banner(subtitle=subtitle)
         
@@ -392,6 +447,7 @@ def show_interactive_menu():
         menu_builder.add_top_level_item("Project Management", "List, configure, or initialize projects.", "projects")
         menu_builder.add_top_level_item("Workflows", "Execute a predefined or custom workflow.", "run_workflow")
         menu_builder.add_top_level_item("AI Configuration", "Configure AI providers and test connections.", "ai_config")
+        menu_builder.add_top_level_item("Switch Project", "Change the currently active project.", "switch_project")
         menu_builder.add_top_level_item("Exit", "Exit the application.", "exit")
 
         menu = menu_builder.to_menu()
@@ -420,7 +476,11 @@ def show_interactive_menu():
 
         elif choice_action == "ai_config":
             _show_ai_config_submenu(prompts, text, config)
-
+            
+        elif choice_action == "switch_project":
+            _show_switch_project_menu(prompts, text, config)
+            # We don't ask for "return to menu" here, as the menu will just redisplay
+            
         elif choice_action == "exit":
             text.body(msg.Interactive.GOODBYE)
             break
