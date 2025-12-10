@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 from pathlib import Path
 import tomli
 import tomli_w
@@ -128,8 +128,12 @@ def test_toggle_plugin_flow(mock_config, mock_ui, tmp_path, mocker):
     mock_config.registry.list_discovered.return_value = ["git"]
     mocker.patch.object(mock_config, 'is_plugin_enabled', side_effect=[False, True]) # First call disabled, second enabled
 
-    # Mock project_config_path to exist
-    mocker.patch.object(mock_config.project_config_path, 'exists', return_value=True)
+    # Create a MagicMock for project_config_path
+    mock_path_obj = MagicMock(spec=Path)
+    type(mock_path_obj).exists = PropertyMock(return_value=True) # Patch the property on the mock
+    mock_config.project_config_path = mock_path_obj # Assign the mock to the config instance
+    mock_config.project_config_path.__str__.return_value = str(tmp_path / "test-project" / ".titan" / "config.toml")
+
 
     # Simulate user interaction to toggle plugin
     mock_toggle_choice = MagicMock(action="toggle")

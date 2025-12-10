@@ -692,8 +692,15 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
             text.info("✨ Executing workflow...")
             spacer.small()
 
+            # Change to active project directory for workflow execution
+            original_cwd = os.getcwd()
+            if config.active_project_path:
+                os.chdir(config.active_project_path)
+                text.body(f"Working directory: {config.active_project_path}", style="dim")
+                spacer.small()
+
             # Build execution context
-            secrets = SecretManager(project_path=config.project_root)
+            secrets = SecretManager(project_path=config.active_project_path or config.project_root)
 
             ui = UIComponents(
                 text=text,
@@ -721,13 +728,23 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
             execution_context = ctx_builder.build()
             executor = WorkflowExecutor(config.registry)
 
-            # Execute workflow (steps handle their own UI)
-            executor.execute(parsed_workflow, execution_context)
+            try:
+                # Execute workflow (steps handle their own UI)
+                executor.execute(parsed_workflow, execution_context)
+            finally:
+                # Always restore original working directory
+                os.chdir(original_cwd)
 
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
             text.error(str(e))
+            # Restore directory on error too
+            if config.active_project_path:
+                os.chdir(original_cwd)
         except Exception as e:
             text.error(f"An unexpected error occurred: {type(e).__name__} - {e}")
+            # Restore directory on error too
+            if config.active_project_path:
+                os.chdir(original_cwd)
 
     spacer.line()
     prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
