@@ -126,13 +126,14 @@ def test_toggle_plugin_flow(mock_config, mock_ui, tmp_path, mocker):
     # Make the mock_config reflect the initial state for is_plugin_enabled
     # and list_discovered
     mock_config.registry.list_discovered.return_value = ["git"]
-    mocker.patch.object(mock_config, 'is_plugin_enabled', side_effect=[False, True]) # First call disabled, second enabled
+    mocker.patch.object(mock_config, 'is_plugin_enabled', side_effect=[False, False, True]) # Updated side_effect
 
     # Create a MagicMock for project_config_path
     mock_path_obj = MagicMock(spec=Path)
     type(mock_path_obj).exists = PropertyMock(return_value=True) # Patch the property on the mock
     mock_config.project_config_path = mock_path_obj # Assign the mock to the config instance
     mock_config.project_config_path.__str__.return_value = str(tmp_path / "test-project" / ".titan" / "config.toml")
+    
 
 
     # Simulate user interaction to toggle plugin

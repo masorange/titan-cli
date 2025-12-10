@@ -37,7 +37,7 @@ class GeminiProvider(AIProvider):
         provider = GeminiProvider("GCLOUD_OAUTH", model="gemini-1.5-pro")
     """
 
-    def __init__(self, api_key: str, model: str = get_default_model("gemini")):
+    def __init__(self, api_key: str, model: str = get_default_model("gemini"), base_url: str = None):
         if not GEMINI_AVAILABLE:
             raise AIProviderAPIError(
                 "google-generativeai not installed.\n"
@@ -45,6 +45,17 @@ class GeminiProvider(AIProvider):
             )
 
         super().__init__(api_key, model)
+
+        # Note: base_url is accepted for API compatibility but not currently used
+        # The google-generativeai library doesn't support custom endpoints in the same way
+        # as other providers. This parameter is ignored.
+        if base_url:
+            import warnings
+            warnings.warn(
+                "Custom base_url is not supported by the Gemini provider. "
+                "The parameter will be ignored.",
+                UserWarning
+            )
 
         # Check if using OAuth or API key
         self.use_oauth = (api_key == "GCLOUD_OAUTH")
