@@ -281,8 +281,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
 
                 # Use subprocess.run to execute the command with the absolute path
                 result = subprocess.run(
-                    f"pipx inject titan-cli '{plugin_path}'",
-                    shell=True,
+                    ["pipx", "inject", "titan-cli", str(plugin_path)],
                     capture_output=True,
                     text=True,
                     check=False

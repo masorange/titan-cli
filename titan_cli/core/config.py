@@ -33,6 +33,7 @@ class TitanConfig:
         Reloads the entire configuration from disk, including global config
         and the config for the currently active project.
         """
+        had_invalid_active_project = False
         # Load global config first to find project_root and active_project
         self.global_config = self._load_toml(self.GLOBAL_CONFIG)
         
@@ -56,8 +57,21 @@ class TitanConfig:
         self.project_config_path = None
         if active_project_name:
             active_project_path = self._project_root / active_project_name
-            self.project_config_path = self._find_project_config(active_project_path)
-            self._active_project_path = active_project_path
+            # An active project must have its config file directly within its path.
+            # We don't search up the tree, because that could incorrectly find a parent
+            # project's config or the global config.
+            expected_config_path = active_project_path / ".titan" / "config.toml"
+
+            if expected_config_path.is_file():
+                self.project_config_path = expected_config_path
+                self._active_project_path = active_project_path
+            else:
+                # The configured active project is invalid. Unset it.
+                if 'core' in self.global_config and 'active_project' in self.global_config['core']:
+                    del self.global_config['core']['active_project']
+                active_project_name = None
+                self._active_project_path = None
+                had_invalid_active_project = True
         else:
             self._active_project_path = None
 
@@ -85,6 +99,16 @@ class TitanConfig:
             project_root=workflow_path,
             plugin_registry=self.registry
         )
+
+        if had_invalid_active_project:
+            self._save_global_config()
+            # Store warning to show later
+            import warnings
+            warnings.warn(
+                f"Active project '{active_project_name}' was invalid or not configured. "
+                "It has been unset. Use 'Switch Project' to select a valid project.",
+                RuntimeWarning
+            )
 
 
     def _find_project_config(self, start_path: Optional[Path] = None) -> Optional[Path]:

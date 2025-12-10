@@ -11,17 +11,20 @@ class KnownPlugin(TypedDict):
     name: str
     description: str
     package_name: str
+    dependencies: List[str]  # Plugin names that must be installed first
 
 # This list should be updated when new official plugins are published.
 KNOWN_PLUGINS: List[KnownPlugin] = [
     {
         "name": "git",
         "description": "Provides core Git functionalities for workflows.",
-        "package_name": "titan-plugin-git"
+        "package_name": "titan-plugin-git",
+        "dependencies": []
     },
     {
         "name": "github",
         "description": "Adds GitHub integration for pull requests and more.",
-        "package_name": "titan-plugin-github"
+        "package_name": "titan-plugin-github",
+        "dependencies": ["git"]  # Requires git plugin
     },
 ]
