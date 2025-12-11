@@ -133,10 +133,17 @@ class BaseAIAgent(ABC):
         else:
             tokens_used = 0
 
+        # Get provider name safely
+        try:
+            provider_obj = getattr(self.generator, '_provider', self.generator)
+            provider_name = provider_obj.__class__.__name__ if provider_obj else "Unknown"
+        except AttributeError:
+            provider_name = "Unknown"
+
         return AgentResponse(
             content=response.content,
             tokens_used=tokens_used,
-            provider=getattr(self.generator, '_provider', self.generator).__class__.__name__,
+            provider=provider_name,
             cached=False
         )
 

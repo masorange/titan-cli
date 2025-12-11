@@ -92,8 +92,17 @@ def load_agent_config(
         raise FileNotFoundError(f"Agent config not found: {config_path}")
 
     # Load TOML
-    with open(config_path, "rb") as f:
-        data = tomli.load(f)
+    try:
+        with open(config_path, "rb") as f:
+            data = tomli.load(f)
+    except tomli.TOMLDecodeError as e:
+        raise ValueError(f"Invalid TOML in {config_path}: {e}")
+    except Exception as e:
+        raise ValueError(f"Failed to read config {config_path}: {e}")
+
+    # Validate config structure
+    if "agent" not in data:
+        raise ValueError(f"Missing [agent] section in {config_path}")
 
     # Extract sections
     agent_meta = data.get("agent", {})
