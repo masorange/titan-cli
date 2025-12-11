@@ -18,6 +18,10 @@ def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the user cancels or the title is empty.
         Skip: If pr_title already exists.
     """
+    # Show step header
+    if ctx.views:
+        ctx.views.step_header("prompt_pr_title", ctx.current_step, ctx.total_steps)
+
     # Skip if title already exists (e.g., from AI generation)
     if ctx.get("pr_title"):
         if ctx.ui:
