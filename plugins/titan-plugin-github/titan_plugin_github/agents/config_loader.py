@@ -4,7 +4,7 @@
 import tomli
 from pathlib import Path
 from typing import Optional, Dict, Any
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
 
 try:
     # Python 3.9+
@@ -21,33 +21,36 @@ from ..utils import (
 )
 
 
-@dataclass
-class PRAgentConfig:
+class PRAgentConfig(BaseModel):
     """PR Agent configuration loaded from TOML."""
 
-    name: str
-    description: str
-    version: str
+    name: str = Field(..., description="Agent name")
+    description: str = Field("", description="Agent description")
+    version: str = Field("1.0.0", description="Agent version")
 
     # Prompts
-    pr_system_prompt: str
-    commit_system_prompt: str
-    architecture_system_prompt: str
+    pr_system_prompt: str = Field("", description="System prompt for PR generation")
+    commit_system_prompt: str = Field("", description="System prompt for commit messages")
+    architecture_system_prompt: str = Field("", description="System prompt for architecture review")
 
     # Diff analysis limits
-    max_diff_size: int
-    max_files_in_diff: int
-    max_commits_to_analyze: int
+    max_diff_size: int = Field(DEFAULT_MAX_DIFF_SIZE, ge=0, description="Maximum diff size to analyze")
+    max_files_in_diff: int = Field(DEFAULT_MAX_FILES_IN_DIFF, ge=1, description="Maximum files in diff")
+    max_commits_to_analyze: int = Field(DEFAULT_MAX_COMMITS_TO_ANALYZE, ge=1, description="Maximum commits to analyze")
 
     # Features
-    enable_template_detection: bool
-    enable_dynamic_sizing: bool
-    enable_user_confirmation: bool
-    enable_fallback_prompts: bool
-    enable_debug_output: bool
+    enable_template_detection: bool = Field(True, description="Enable PR template detection")
+    enable_dynamic_sizing: bool = Field(True, description="Enable dynamic PR sizing")
+    enable_user_confirmation: bool = Field(True, description="Enable user confirmation")
+    enable_fallback_prompts: bool = Field(True, description="Enable fallback prompts")
+    enable_debug_output: bool = Field(False, description="Enable debug output")
 
     # Raw config for custom access
-    raw: Dict[str, Any]
+    raw: Dict[str, Any] = Field(default_factory=dict, description="Raw TOML data")
+
+    class Config:
+        """Pydantic config."""
+        frozen = False  # Allow mutation for caching
 
 
 def load_agent_config(
