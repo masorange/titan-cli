@@ -5,17 +5,18 @@ Also supports custom endpoints with Anthropic-compatible API format."""
 
 from .base import AIProvider
 from ..models import AIRequest, AIResponse, AIMessage
-from ..exceptions import AIProviderAPIError
+from ..exceptions import AIProviderAPIError, AIProviderAuthenticationError, AIProviderRateLimitError
 
 from ..constants import get_default_model
 
 try:
     import google.generativeai as genai
     import google.auth
+    from google.generativeai.types import GenerationConfig # Import GenerationConfig
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-
+    
 # For custom endpoint support
 import requests
 import json
@@ -36,10 +37,10 @@ class GeminiProvider(AIProvider):
 
     Usage:
         # With API key
-        provider = GeminiProvider("AIza...", model="gemini-1.5-pro")
+        provider = GeminiProvider("AIza...", model="gemini-pro")
 
         # With OAuth (gcloud)
-        provider = GeminiProvider("GCLOUD_OAUTH", model="gemini-1.5-pro")
+        provider = GeminiProvider("GCLOUD_OAUTH", model="gemini-pro")
     """
 
     def __init__(self, api_key: str, model: str = get_default_model("gemini"), base_url: str = None):
@@ -191,14 +192,26 @@ class GeminiProvider(AIProvider):
             # Get model
             model = genai.GenerativeModel(self.model)
 
+            # Prepare generation config
+            generation_config = GenerationConfig(
+                temperature=request.temperature,
+                max_output_tokens=request.max_tokens
+            )
+
             # Generate response
             if len(gemini_messages) == 1 and gemini_messages[0].get("role") == "user":
                 # Single message - use generate_content
-                response = model.generate_content(gemini_messages[0]["parts"])
+                response = model.generate_content(
+                    gemini_messages[0]["parts"],
+                    generation_config=generation_config
+                )
             else:
                 # Multiple messages - use chat
                 chat = model.start_chat(history=gemini_messages[:-1] if len(gemini_messages) > 1 else [])
-                response = chat.send_message(gemini_messages[-1]["parts"])
+                response = chat.send_message(
+                    gemini_messages[-1]["parts"],
+                    generation_config=generation_config
+                )
 
             # Extract text
             text = response.text

@@ -1,5 +1,5 @@
 # core/models.py
-from pydantic import BaseModel, Field, root_validator, ValidationError
+from pydantic import BaseModel, Field, model_validator, ValidationError
 from typing import Optional, Dict
 from .plugins.models import PluginConfig
 
@@ -29,7 +29,7 @@ class AIConfig(BaseModel):
     default: str = Field("default", description="ID del provider por defecto")
     providers: Dict[str, AIProviderConfig] = Field(default_factory=dict)
 
-    @root_validator(pre=True)
+    @model_validator(mode='before')
     def validate_default_provider(cls, values):
         default_provider = values.get('default')
         providers = values.get('providers')
