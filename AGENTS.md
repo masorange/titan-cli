@@ -566,7 +566,7 @@ class MyCoolPlugin(TitanPlugin):
 
 ## 🤖 AI Integration
 
-Titan CLI includes a modular AI integration layer that allows for interaction with multiple AI providers (Anthropic, OpenAI, Gemini).
+Titan CLI includes a modular AI integration layer that allows for interaction with multiple AI providers (Anthropic, Gemini).
 
 ### File Structure (`ai/`)
 
@@ -585,7 +585,6 @@ titan_cli/ai/
     ├── base.py             # AIProvider abstract base class
     ├── anthropic.py
     ├── gemini.py
-    └── openai.py           # Stub for future implementation
 ```
 
 ### Core Components

@@ -41,7 +41,7 @@ def test_config_loads_global_config(tmp_path: Path, monkeypatch, mocker):
     global_config_path = global_config_dir / "config.toml"
     global_config_data = {
         "core": {"project_root": str(tmp_path)},
-        "ai": {"provider": "openai", "model": "gpt-4"}
+        "ai": {"default": "gemini", "providers": {"gemini": {"provider": "gemini", "model": "gemini-1.5-pro", "temperature": 0.7}}}
     }
     with open(global_config_path, "wb") as f:
         tomli_w.dump(global_config_data, f)
@@ -55,8 +55,9 @@ def test_config_loads_global_config(tmp_path: Path, monkeypatch, mocker):
 
     assert config_instance.global_config["core"]["project_root"] == str(tmp_path)
     assert config_instance.config.core.project_root == str(tmp_path)
-    assert config_instance.config.ai.provider == "openai"
-    assert config_instance.config.ai.model == "gpt-4"
+    assert config_instance.config.ai.default == "gemini"
+    assert config_instance.config.ai.providers["gemini"].model == "gemini-1.5-pro"
+    assert config_instance.config.ai.providers["gemini"].temperature == 0.7
     
 def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     """
@@ -69,9 +70,13 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     global_config_dir = tmp_path / "global" / ".titan"
     global_config_dir.mkdir(parents=True)
     global_config_path = global_config_dir / "config.toml"
+    # 1. Create a mock global config
+    global_config_dir = tmp_path / "global" / ".titan"
+    global_config_dir.mkdir(parents=True)
+    global_config_path = global_config_dir / "config.toml"
     global_config_data = {
         "project": {"name": "Global Project"}, # This will be ignored due to project config
-        "ai": {"provider": "anthropic"},
+        "ai": {"default": "anthropic", "providers": {"anthropic": {"provider": "anthropic", "model": "claude-3-5-sonnet"}}},
         "plugins": {
             "github": {"enabled": True, "config": {"org": "global-org"}},
             "jira": {"enabled": False}
@@ -87,7 +92,7 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     project_config_path = project_titan_dir / "config.toml"
     project_config_data = {
         "project": {"name": "My Specific Project"},
-        "ai": {"provider": "openai"}, # Override provider
+        "ai": {"default": "gemini", "providers": {"gemini": {"provider": "gemini", "model": "gemini-1.5-pro"}}}, # Override provider
         "plugins": {
             "github": {"config": {"org": "project-org"}}, # Override nested value
             "git": {"enabled": True} # Add a new plugin
@@ -105,8 +110,8 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     # Project name is from project config
     assert config_instance.config.project.name == "My Specific Project"
     # AI provider is overridden by project config
-    assert config_instance.config.ai.provider == "openai"
-    # Plugin configs are merged correctly
+    assert config_instance.config.ai.default == "gemini"
+    assert config_instance.config.ai.providers["gemini"].model == "gemini-1.5-pro"    # Plugin configs are merged correctly
     assert config_instance.config.plugins["github"].enabled is True # from global
     assert config_instance.config.plugins["github"].config["org"] == "project-org" # from project
     assert config_instance.config.plugins["jira"].enabled is False # from global

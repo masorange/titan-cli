@@ -185,10 +185,10 @@ class Messages:
         CUSTOM_ENDPOINT_INFO_TITLE = "Custom endpoints are used for:"
         CUSTOM_ENDPOINT_INFO_PROXY = "  • Corporate/enterprise proxies"
         CUSTOM_ENDPOINT_INFO_BEDROCK = "  • AWS Bedrock"
-        CUSTOM_ENDPOINT_INFO_AZURE = "  • Azure OpenAI"
+
         CUSTOM_ENDPOINT_INFO_SELF_HOSTED = "  • Self-hosted deployments"
         CUSTOM_ENDPOINT_EXAMPLE_ANTHROPIC = "Example: https://bedrock-runtime.us-east-1.amazonaws.com"
-        CUSTOM_ENDPOINT_EXAMPLE_OPENAI = "Example: https://your-instance.openai.azure.com"
+
         CUSTOM_ENDPOINT_URL_PROMPT = "Enter custom API endpoint URL"
         CUSTOM_ENDPOINT_SUCCESS = "Will use custom endpoint: {base_url}"
         CUSTOM_ENDPOINT_USING_STANDARD = "Using standard endpoint"
@@ -210,10 +210,8 @@ class Messages:
 
         # Provider Labels and Descriptions
         ANTHROPIC_LABEL = "Anthropic (Claude)"
-        OPENAI_LABEL = "OpenAI (GPT-4)"
         GEMINI_LABEL = "Google (Gemini)"
         ANTHROPIC_DESCRIPTION_MODEL = "Model: {model}"
-        OPENAI_DESCRIPTION_MODEL = "Model: {model}"
         GEMINI_DESCRIPTION_MODEL = "Model: {model}"
 
         # Model Selection
@@ -228,11 +226,7 @@ class Messages:
         POPULAR_CLAUDE_HAIKU = "  • claude-3-haiku-20240307 - Fastest, cost-effective"
         POPULAR_CLAUDE_HAIKU_3_5 = "  • claude-3-5-haiku-20241022 - New fast model"
 
-        # Popular Models - OpenAI
-        POPULAR_OPENAI_MODELS_TITLE = "Popular OpenAI models:"
-        POPULAR_OPENAI_GPT4_TURBO = "  • gpt-4-turbo - Latest GPT-4, best performance"
-        POPULAR_OPENAI_GPT4 = "  • gpt-4 - Stable GPT-4"
-        POPULAR_OPENAI_GPT3_5_TURBO = "  • gpt-3.5-turbo - Fast and cost-effective"
+
 
         # Popular Models - Gemini
         POPULAR_GEMINI_MODELS_TITLE = "Popular Gemini models:"
@@ -270,8 +264,7 @@ class Messages:
         AI_PROVIDER_SELECT_CATEGORY = "Available Providers"
         AI_ANTHROPIC_LABEL = "Anthropic (Claude)"
         AI_ANTHROPIC_DESCRIPTION = "claude-3-5-sonnet, opus, etc."
-        AI_OPENAI_LABEL = "OpenAI (GPT)"
-        AI_OPENAI_DESCRIPTION = "gpt-4, gpt-3.5-turbo, etc."
+
         AI_GEMINI_LABEL = "Google Gemini"
         AI_GEMINI_DESCRIPTION = "gemini-1.5-pro, gemini-flash, etc."
 

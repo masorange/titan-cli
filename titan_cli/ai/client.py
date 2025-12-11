@@ -7,14 +7,13 @@ from typing import Optional, List
 from titan_cli.core.models import AIConfig
 from titan_cli.core.secrets import SecretManager
 from .models import AIMessage, AIRequest, AIResponse
-from .providers import AIProvider, AnthropicProvider, GeminiProvider, OpenAIProvider
+from .providers import AIProvider, AnthropicProvider, GeminiProvider
 from .exceptions import AIConfigurationError
 
 # A mapping from provider names to classes
 PROVIDER_CLASSES = {
     "anthropic": AnthropicProvider,
     "gemini": GeminiProvider,
-    "openai": OpenAIProvider,
 }
 
 class AIClient:
