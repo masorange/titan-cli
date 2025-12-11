@@ -43,6 +43,51 @@ class PRAnalysis:
     lines_changed: int = 0
 
 
+
+@dataclass
+class BranchAnalysis:
+    """The result of analyzing a branch's commits and diff."""
+    commits: list[str]
+    diff: str
+    template: Optional[str]
+    head_branch: str
+    base_branch: str
+    # PR Size estimation
+    pr_size: str
+    files_changed: int
+    lines_changed: int
+    max_chars: int
+
+
+@dataclass
+class PRContent:
+    """The AI-generated content for a PR."""
+    title: str
+    body: str
+    tokens_used: int
+
+
+@dataclass
+class PRAnalysis:
+    """Complete analysis result from PRAgent."""
+
+    # Commit analysis
+    needs_commit: bool
+    commit_message: Optional[str] = None
+    staged_files: list[str] = None
+
+    # PR analysis
+    pr_title: Optional[str] = None
+    pr_body: Optional[str] = None
+    pr_size: Optional[str] = None
+
+    # Metadata
+    total_tokens_used: int = 0
+    branch_commits: list[str] = None
+    files_changed: int = 0
+    lines_changed: int = 0
+
+
 class PRAgent(BaseAIAgent):
     """
     Platform-level agent for intelligent git workflow automation.
@@ -97,125 +142,77 @@ class PRAgent(BaseAIAgent):
         # Use commit system prompt from config (Pydantic provides defaults)
         return self.config.commit_system_prompt
 
-    def analyze_and_plan(
+    def analyze_branch(
         self,
         head_branch: str,
-        base_branch: Optional[str] = None,
-        auto_stage: bool = False
-    ) -> PRAnalysis:
+        base_branch: Optional[str] = None
+    ) -> Optional[BranchAnalysis]:
         """
-        Analyze the complete branch context and create an execution plan.
-
-        This is the main entry point. It:
-        1. Checks repository status
-        2. Determines if commit is needed
-        3. Generates commit message if needed
-        4. Analyzes branch for PR creation
-        5. Generates PR title and description
-
-        Args:
-            head_branch: The branch to analyze
-            base_branch: Base branch for comparison (defaults to main branch)
-            auto_stage: Whether to analyze unstaged changes
-
-        Returns:
-            PRAnalysis with complete plan (gracefully handles errors)
+        Analyzes a branch by getting its commits and diff, but does not call AI.
         """
         base_branch = base_branch or self.git.main_branch
-        total_tokens = 0
-
-        # Initialize with safe defaults
-        needs_commit = False
-        commit_message = None
-        staged_files = []
-        pr_title = None
-        pr_body = None
-        pr_size = None
-        files_changed = 0
-        lines_changed = 0
-        commits = []
-
-        # 1. Check if we need to commit (with error handling)
-        try:
-            status = self.git.get_status()
-            needs_commit = not status.is_clean
-
-            if needs_commit:
-                # Get unstaged/staged changes
-                try:
-                    if auto_stage:
-                        diff = self.git.get_unstaged_diff()
-                    else:
-                        diff = self.git.get_staged_diff()
-
-                    if diff:
-                        # Generate commit message (with AI error handling)
-                        try:
-                            commit_result = self._generate_commit_message(diff)
-                            commit_message = commit_result.message
-                            total_tokens += commit_result.tokens_used
-                        except Exception as e:
-                            logger.warning(f"Failed to generate commit message: {e}")
-                            commit_message = None
-
-                        # Get staged files
-                        if status.staged_files:
-                            staged_files = status.staged_files
-
-                except Exception as e:
-                    logger.error(f"Failed to get git diff: {e}")
-                    # Continue with PR analysis even if commit analysis failed
-
-        except Exception as e:
-            logger.error(f"Failed to get git status: {e}")
-            # Continue with graceful fallback
-
-        # 2. Analyze branch for PR (with error handling)
         try:
             commits = self.git.get_branch_commits(base_branch, head_branch)
             branch_diff = self.git.get_branch_diff(base_branch, head_branch)
 
-            if branch_diff and commits:
-                # Read PR template (safe - returns None on error)
-                template = self._read_pr_template()
+            if not branch_diff or not commits:
+                return None
 
-                # Generate PR description (with AI error handling)
-                try:
-                    pr_result = self._generate_pr_description(
-                        commits=commits,
-                        diff=branch_diff,
-                        head_branch=head_branch,
-                        base_branch=base_branch,
-                        template=template
-                    )
+            template = self._read_pr_template()
+            estimation = calculate_pr_size(branch_diff)
 
-                    pr_title = pr_result["title"]
-                    pr_body = pr_result["body"]
-                    pr_size = pr_result["pr_size"]
-                    files_changed = pr_result["files_changed"]
-                    lines_changed = pr_result["lines_changed"]
-                    total_tokens += pr_result["tokens_used"]
-
-                except Exception as e:
-                    logger.error(f"Failed to generate PR description: {e}")
-                    # Return analysis without PR data
-
+            return BranchAnalysis(
+                commits=commits,
+                diff=branch_diff,
+                template=template,
+                head_branch=head_branch,
+                base_branch=base_branch,
+                pr_size=estimation.pr_size,
+                files_changed=estimation.files_changed,
+                lines_changed=estimation.diff_lines,
+                max_chars=estimation.max_chars
+            )
         except Exception as e:
             logger.error(f"Failed to analyze branch for PR: {e}")
-            # Return analysis without PR data
+            return None
 
-        return PRAnalysis(
-            needs_commit=needs_commit,
-            commit_message=commit_message,
-            staged_files=staged_files,
-            pr_title=pr_title,
-            pr_body=pr_body,
-            pr_size=pr_size,
-            total_tokens_used=total_tokens,
-            branch_commits=commits,
-            files_changed=files_changed,
-            lines_changed=lines_changed
-        )
+    def generate_pr_content(
+        self,
+        analysis: BranchAnalysis
+    ) -> Optional[PRContent]:
+        """
+        Generates PR title and body using AI from pre-analyzed branch data.
+        """
+        if not analysis:
+            return None
+        try:
+            # This logic is extracted from _generate_pr_description
+            prompt = self._build_pr_prompt(
+                commits=analysis.commits,
+                diff=analysis.diff,
+                head_branch=analysis.head_branch,
+                base_branch=analysis.base_branch,
+                template=analysis.template,
+                pr_size=analysis.pr_size,
+                max_chars=analysis.max_chars
+            )
+            estimated_tokens = int(analysis.max_chars * 0.75) + 200
+            max_tokens = min(estimated_tokens, 4000)
+            request = AgentRequest(
+                context=prompt,
+                max_tokens=max_tokens,
+                system_prompt=self.config.pr_system_prompt
+            )
+            response = self.generate(request)
+            title, body = self._parse_pr_response(response.content, analysis.max_chars)
+            return PRContent(
+                title=title,
+                body=body,
+                tokens_used=response.tokens_used
+            )
+        except Exception as e:
+            logger.error(f"Failed to generate PR description: {e}")
+            return None
 
     def _generate_commit_message(self, diff: str) -> "CommitMessageResult":
         """
@@ -277,85 +274,6 @@ COMMIT_MESSAGE: <conventional commit message>"""
             message=message,
             tokens_used=response.tokens_used
         )
-
-    def _generate_pr_description(
-        self,
-        commits: list[str],
-        diff: str,
-        head_branch: str,
-        base_branch: str,
-        template: Optional[str]
-    ) -> dict:
-        """
-        Generate PR title and description using AI.
-
-        Args:
-            commits: List of commit messages
-            diff: Full branch diff
-            head_branch: Head branch name
-            base_branch: Base branch name
-            template: Optional PR template
-
-        Returns:
-            Dict with keys: title, body, pr_size, files_changed, lines_changed, tokens_used
-
-        Raises:
-            ValueError: If commits/diff are empty or AI response is invalid
-            Exception: If AI generation fails
-        """
-        # Validate inputs
-        if not commits:
-            raise ValueError("Cannot generate PR description without commits")
-        if not diff or not diff.strip():
-            raise ValueError("Cannot generate PR description from empty diff")
-
-        # Calculate PR size
-        estimation = calculate_pr_size(diff)
-        pr_size = estimation.pr_size
-        max_chars = estimation.max_chars
-        files_changed = estimation.files_changed
-        lines_changed = estimation.diff_lines
-
-        # Build prompt
-        prompt = self._build_pr_prompt(
-            commits=commits,
-            diff=diff,
-            head_branch=head_branch,
-            base_branch=base_branch,
-            template=template,
-            pr_size=pr_size,
-            max_chars=max_chars
-        )
-
-        # Calculate tokens
-        estimated_tokens = int(max_chars * 0.75) + 200
-        max_tokens = min(estimated_tokens, 4000)  # Cap at 4000 tokens
-
-        # Generate with AI
-        request = AgentRequest(
-            context=prompt,
-            max_tokens=max_tokens,
-            system_prompt=self.config.pr_system_prompt
-        )
-
-        try:
-            response = self.generate(request)
-        except Exception as e:
-            logger.error(f"AI generation failed for PR description: {e}")
-            raise
-
-        # Parse response
-        title, body = self._parse_pr_response(response.content, max_chars)
-
-        return {
-            "title": title,
-            "body": body,
-            "pr_size": pr_size,
-            "files_changed": files_changed,
-            "lines_changed": lines_changed,
-            "tokens_used": response.tokens_used
-        }
-
 
     def _build_pr_prompt(
         self,

@@ -84,18 +84,27 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
 ```
 
 ## Instructions
-Generate a single conventional commit message following this format:
-- type(scope): description
-- Types: feat, fix, refactor, docs, test, chore, style, perf
-- Scope: area affected (e.g., auth, api, ui)
-- Description: brief summary in imperative mood (max 72 chars)
+Generate a SINGLE LINE conventional commit message following this EXACT format:
+type(scope): description
 
-Examples:
+STRICT RULES:
+- MUST be a single line (NO newlines, NO bullet points, NO explanations)
+- MUST be ≤72 characters total
+- MUST use imperative mood (e.g., "add", not "adds" or "added")
+- Types: feat, fix, refactor, docs, test, chore, style, perf
+- Scope: area affected (e.g., auth, api, ui, cli, config)
+
+Good examples (short and focused):
 - feat(auth): add OAuth2 integration
 - fix(api): resolve race condition in cache
-- refactor(ui): simplify menu component structure
+- refactor(ui): simplify menu structure
+- docs(readme): update installation steps
 
-Return ONLY the commit message, nothing else."""
+Bad examples (too long or multiline):
+- refactor(pr-agent): split branch analysis and content generation logic - Introduce `BranchAnalysis`...
+- feat: add new feature that does X, Y, and Z
+
+Return ONLY the single-line commit message. NO additional text, NO explanations, NO formatting."""
 
         # Determine AI provider for loader
         provider_type = "ai"  # default
@@ -116,8 +125,16 @@ Return ONLY the commit message, nothing else."""
 
         commit_message = response.content.strip()
 
-        # Clean up the message (remove quotes if present)
+        # Clean up the message
+        # 1. Remove quotes if present
         commit_message = commit_message.strip('"').strip("'").strip()
+
+        # 2. Force single line (take only first line if multiline)
+        if '\n' in commit_message:
+            commit_message = commit_message.split('\n')[0].strip()
+
+        # 3. Remove any markdown formatting that might slip through
+        commit_message = commit_message.replace('`', '').strip()
 
         # Show preview to user
         if ctx.ui:

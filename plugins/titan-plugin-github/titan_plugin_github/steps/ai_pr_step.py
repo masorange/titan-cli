@@ -66,19 +66,32 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
     base_branch = ctx.git.main_branch
 
     try:
-        # Show progress
-        if ctx.ui:
-            ctx.ui.text.info(msg.GitHub.AI.ANALYZING_BRANCH_DIFF.format(
-                head_branch=head_branch,
-                base_branch=base_branch
-            ))
-
         # Create PRAgent instance
         pr_agent = PRAgent(
             ai_client=ctx.ai,
             git_client=ctx.git,
             github_client=ctx.github
         )
+
+        # 1. Analyze branch (git operations)
+        with ctx.ui.loader.spin(msg.GitHub.AI.ANALYZING_BRANCH_DIFF.format(head_branch=head_branch, base_branch=base_branch)):
+            branch_analysis = pr_agent.analyze_branch(
+                head_branch=head_branch,
+                base_branch=base_branch
+            )
+
+        if not branch_analysis:
+            return Skip(msg.GitHub.AI.NO_CHANGES_FOUND)
+
+        # Show PR size info
+        if ctx.ui:
+            ctx.ui.text.info(msg.GitHub.AI.PR_SIZE_INFO.format(
+                pr_size=branch_analysis.pr_size,
+                files_changed=branch_analysis.files_changed,
+                diff_lines=branch_analysis.lines_changed,
+                max_chars=branch_analysis.max_chars
+            ))
+            ctx.ui.spacer.small()
 
         # Determine AI provider for loader
         provider_type = "ai"  # default
@@ -90,25 +103,14 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
                 elif provider_config.provider == "gemini":
                     provider_type = "gemini"
 
-        # Use PRAgent to analyze and generate PR content
+        # 2. Generate PR content (AI call)
         with ctx.ui.loader.spin(msg.GitHub.AI.GENERATING_PR_DESCRIPTION, provider=provider_type):
-            analysis = pr_agent.analyze_and_plan(
-                head_branch=head_branch,
-                base_branch=base_branch
-            )
+            pr_content = pr_agent.generate_pr_content(branch_analysis)
 
-        # Check if PR content was generated
-        if not analysis.pr_title or not analysis.pr_body:
-            return Skip(msg.GitHub.AI.NO_CHANGES_FOUND)
-
-        # Show PR size info
-        if ctx.ui and analysis.pr_size:
-            ctx.ui.text.info(msg.GitHub.AI.PR_SIZE_INFO.format(
-                pr_size=analysis.pr_size,
-                files_changed=analysis.files_changed,
-                diff_lines=analysis.lines_changed,
-                max_chars="varies by size"
-            ))
+        if not pr_content:
+            if ctx.ui:
+                ctx.ui.text.warning("AI failed to generate PR content.")
+            return Skip("AI generation failed or produced empty content.")
 
         # Show preview to user
         if ctx.ui:
@@ -118,12 +120,12 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
 
             # Show title
             ctx.ui.text.body(msg.GitHub.AI.TITLE_LABEL, style="bold")
-            ctx.ui.text.body(f"  {analysis.pr_title}", style="cyan")
+            ctx.ui.text.body(f"  {pr_content.title}", style="cyan")
 
             # Warn if title is too long
-            if len(analysis.pr_title) > 72:
+            if len(pr_content.title) > 72:
                 ctx.ui.text.warning(msg.GitHub.AI.TITLE_TOO_LONG_WARNING.format(
-                    length=len(analysis.pr_title)
+                    length=len(pr_content.title)
                 ))
 
             ctx.ui.spacer.small()
@@ -131,7 +133,7 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
             # Show description
             ctx.ui.text.body(msg.GitHub.AI.DESCRIPTION_LABEL, style="bold")
             ctx.ui.panel.print(
-                Markdown(analysis.pr_body),
+                Markdown(pr_content.body),
                 title=None,
                 panel_type="default"
             )
@@ -160,9 +162,9 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
         return Success(
             msg.GitHub.AI.AI_GENERATED_PR_DESCRIPTION_SUCCESS,
             metadata={
-                "pr_title": analysis.pr_title,
-                "pr_body": analysis.pr_body,
-                "pr_size": analysis.pr_size,
+                "pr_title": pr_content.title,
+                "pr_body": pr_content.body,
+                "pr_size": branch_analysis.pr_size,
                 "ai_generated": True
             }
         )
