@@ -48,10 +48,6 @@ class PRAgentConfig(BaseModel):
     # Raw config for custom access
     raw: Dict[str, Any] = Field(default_factory=dict, description="Raw TOML data")
 
-    class Config:
-        """Pydantic config."""
-        frozen = False  # Allow mutation for caching
-
 
 def load_agent_config(
     agent_name: str = "pr_agent",
@@ -132,23 +128,3 @@ def load_agent_config(
         # Raw for custom access
         raw=data
     )
-
-
-# Singleton cache to avoid reloading config
-_config_cache: Dict[str, PRAgentConfig] = {}
-
-
-def get_agent_config(agent_name: str = "pr_agent") -> PRAgentConfig:
-    """
-    Get agent configuration (cached).
-
-    Args:
-        agent_name: Name of the agent
-
-    Returns:
-        PRAgentConfig instance (cached)
-    """
-    if agent_name not in _config_cache:
-        _config_cache[agent_name] = load_agent_config(agent_name)
-
-    return _config_cache[agent_name]

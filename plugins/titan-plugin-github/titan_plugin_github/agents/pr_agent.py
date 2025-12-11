@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
-from .config_loader import get_agent_config
+from .config_loader import load_agent_config
 from ..utils import calculate_pr_size
 
 # Set up logger
@@ -89,13 +89,13 @@ class PRAgent(BaseAIAgent):
         self.git = git_client
         self.github = github_client
 
-        # Load configuration from TOML
-        self.config_loader = get_agent_config("pr_agent")
+        # Load configuration from TOML (once per agent instance)
+        self.config = load_agent_config("pr_agent")
 
     def get_system_prompt(self) -> str:
         """System prompt for platform-level orchestration (from config)."""
         # Use commit system prompt from config (Pydantic provides defaults)
-        return self.config_loader.commit_system_prompt
+        return self.config.commit_system_prompt
 
     def analyze_and_plan(
         self,
@@ -235,7 +235,7 @@ class PRAgent(BaseAIAgent):
             raise ValueError("Cannot generate commit message from empty diff")
 
         # Truncate diff if too large (from config)
-        max_diff = self.config_loader.max_diff_size
+        max_diff = self.config.max_diff_size
         diff_preview = diff[:max_diff]
         if len(diff) > max_diff:
             diff_preview += "\n\n... (diff truncated)"
@@ -252,7 +252,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
         request = AgentRequest(
             context=prompt,
             max_tokens=200,
-            system_prompt=self.config_loader.commit_system_prompt  # Use specific commit prompt
+            system_prompt=self.config.commit_system_prompt  # Use specific commit prompt
         )
 
         try:
@@ -335,7 +335,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
         request = AgentRequest(
             context=prompt,
             max_tokens=max_tokens,
-            system_prompt=self.config_loader.pr_system_prompt
+            system_prompt=self.config.pr_system_prompt
         )
 
         try:
@@ -369,12 +369,12 @@ COMMIT_MESSAGE: <conventional commit message>"""
     ) -> str:
         """Build the prompt for PR generation."""
         # Prepare commits text
-        commits_text = "\n".join([f"  - {c}" for c in commits[:self.config_loader.max_commits_to_analyze]])
-        if len(commits) > self.config_loader.max_commits_to_analyze:
-            commits_text += f"\n  ... and {len(commits) - self.config_loader.max_commits_to_analyze} more commits"
+        commits_text = "\n".join([f"  - {c}" for c in commits[:self.config.max_commits_to_analyze]])
+        if len(commits) > self.config.max_commits_to_analyze:
+            commits_text += f"\n  ... and {len(commits) - self.config.max_commits_to_analyze} more commits"
 
         # Limit diff size
-        max_diff = self.config_loader.max_diff_size
+        max_diff = self.config.max_diff_size
         diff_preview = diff[:max_diff] if diff else "No diff available"
         if len(diff) > max_diff:
             diff_preview += "\n\n... (diff truncated for brevity)"
