@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from rich.console import Console
+from titan_cli.ui.components.loader import LoaderRenderer
 from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.panel import PanelRenderer
 from titan_cli.ui.components.table import TableRenderer
@@ -25,11 +26,13 @@ class UIComponents:
         panel: Panel rendering with borders
         table: Table rendering
         spacer: Spacing utilities (line, small, medium, large)
+        loader: Renders an animated loading spinner.
     """
     text: TextRenderer
     panel: PanelRenderer
     table: TableRenderer
     spacer: SpacerRenderer
+    loader: LoaderRenderer
 
     @classmethod
     def create(cls, console: Optional[Console] = None) -> "UIComponents":
@@ -49,4 +52,5 @@ class UIComponents:
             panel=PanelRenderer(console=console),
             table=TableRenderer(console=console),
             spacer=SpacerRenderer(console=console),
+            loader=LoaderRenderer(console=console),
         )

@@ -80,14 +80,22 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
             github_client=ctx.github
         )
 
-        # Use PRAgent to analyze and generate PR content
-        if ctx.ui:
-            ctx.ui.text.info(msg.GitHub.AI.GENERATING_PR_DESCRIPTION)
+        # Determine AI provider for loader
+        provider_type = "ai"  # default
+        if ctx.ai and ctx.ai.provider_id:
+            provider_config = ctx.ai.ai_config.providers.get(ctx.ai.provider_id)
+            if provider_config:
+                if provider_config.provider == "anthropic":
+                    provider_type = "claude"
+                elif provider_config.provider == "gemini":
+                    provider_type = "gemini"
 
-        analysis = pr_agent.analyze_and_plan(
-            head_branch=head_branch,
-            base_branch=base_branch
-        )
+        # Use PRAgent to analyze and generate PR content
+        with ctx.ui.loader.spin(msg.GitHub.AI.GENERATING_PR_DESCRIPTION, provider=provider_type):
+            analysis = pr_agent.analyze_and_plan(
+                head_branch=head_branch,
+                base_branch=base_branch
+            )
 
         # Check if PR content was generated
         if not analysis.pr_title or not analysis.pr_body:

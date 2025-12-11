@@ -100,14 +100,22 @@ Examples:
 
 Return ONLY the commit message, nothing else."""
 
-        if ctx.ui:
-            ctx.ui.text.info(msg.Steps.AICommitMessage.GENERATING_MESSAGE)
+        # Determine AI provider for loader
+        provider_type = "ai"  # default
+        if ctx.ai and ctx.ai.provider_id:
+            provider_config = ctx.ai.ai_config.providers.get(ctx.ai.provider_id)
+            if provider_config:
+                if provider_config.provider == "anthropic":
+                    provider_type = "claude"
+                elif provider_config.provider == "gemini":
+                    provider_type = "gemini"
 
         # Call AI
         from titan_cli.ai.models import AIMessage
 
         messages = [AIMessage(role="user", content=prompt)]
-        response = ctx.ai.generate(messages, max_tokens=400, temperature=0.7)
+        with ctx.ui.loader.spin(msg.Steps.AICommitMessage.GENERATING_MESSAGE, provider=provider_type):
+            response = ctx.ai.generate(messages, max_tokens=400, temperature=0.7)
 
         commit_message = response.content.strip()
 

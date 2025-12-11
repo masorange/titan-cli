@@ -729,12 +729,14 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
 
             # Build execution context
             secrets = SecretManager(project_path=config.active_project_path or config.project_root)
+            from titan_cli.ui.components.loader import LoaderRenderer
 
             ui = UIComponents(
                 text=text,
                 panel=panel,
-                table=TableRenderer(),
-                spacer=spacer
+                table=TableRenderer(console=text.console),
+                spacer=spacer,
+                loader=LoaderRenderer(console=text.console)
             )
 
             ctx_builder = WorkflowContextBuilder(
