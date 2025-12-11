@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
+try:
+    # Python 3.9+
+    from importlib.resources import files
+except ImportError:
+    # Python 3.7-3.8 fallback
+    from importlib_resources import files
+
 
 @dataclass
 class AgentConfig:
@@ -71,9 +78,18 @@ def load_agent_config(
     if config_dir:
         config_path = config_dir / f"{agent_name}.toml"
     else:
-        # Default to project config/agents directory
-        project_root = Path(__file__).parent.parent.parent.parent
-        config_path = project_root / "config" / "agents" / f"{agent_name}.toml"
+        # Use importlib.resources for robust path resolution
+        # Works with both development and installed (pip/pipx) environments
+        config_files = files("titan_cli.config.agents")
+        config_file = config_files.joinpath(f"{agent_name}.toml")
+
+        # Convert Traversable to Path
+        # In Python 3.9+, this handles both filesystem and zip-based resources
+        if hasattr(config_file, "__fspath__"):
+            config_path = Path(config_file.__fspath__())
+        else:
+            # Fallback for older Python or non-filesystem resources
+            config_path = Path(str(config_file))
 
     if not config_path.exists():
         raise FileNotFoundError(f"Agent config not found: {config_path}")
