@@ -83,6 +83,9 @@ class Messages:
         INFO = "ℹ️"
         WARNING = "⚠️"
         ROCKET = "🚀"
+        CLAUDE = "🤖"  # Claude AI (Anthropic)
+        GEMINI = "✨"  # Gemini AI (Google)
+        AI = "🧠"      # Generic AI
 
     class SYMBOL:
         """ASCII symbols for consistent alignment (alternative to emojis)"""

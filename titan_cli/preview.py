@@ -96,6 +96,18 @@ def preview_menu():
         raise typer.Exit(1)
 
 
+@preview_app.command("loader")
+def preview_loader():
+    """
+    Shows a preview of the Loader component with different AI providers.
+    """
+    try:
+        runpy.run_module("titan_cli.ui.components.__previews__.loader_preview", run_name="__main__")
+    except ModuleNotFoundError:
+        typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
 @preview_app.command("workflow")
 def preview_workflow(name: str):
     """
