@@ -94,10 +94,8 @@ class PRAgent(BaseAIAgent):
 
     def get_system_prompt(self) -> str:
         """System prompt for platform-level orchestration (from config)."""
-        # Default to commit system prompt for platform-level operations
-        return self.config_loader.commit_system_prompt or """You are a platform automation expert. You analyze git repositories
-and provide intelligent suggestions for commits and pull requests. You understand
-conventional commits, best practices, and can make decisions about repository state."""
+        # Use commit system prompt from config (Pydantic provides defaults)
+        return self.config_loader.commit_system_prompt
 
     def analyze_and_plan(
         self,
