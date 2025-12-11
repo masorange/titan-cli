@@ -125,7 +125,8 @@ def test_test_ai_connection_by_id(mock_ai_client, mock_titan_config, capsys):
 @patch('tomli_w.dump')
 @patch('tomli.load')
 @patch('titan_cli.commands.ai.PromptsRenderer')
-def test_configure_ai_interactive_duplicate_provider(mock_prompts_class, mock_load, mock_dump, mock_open, mock_secrets, mock_text_class, capsys):
+@patch('titan_cli.core.config.TitanConfig')
+def test_configure_ai_interactive_duplicate_provider(mock_config_class, mock_prompts_class, mock_load, mock_dump, mock_open, mock_secrets, mock_text_class, capsys):
     """Test configure_ai_interactive with a duplicate provider name."""
 
     # Setup mocks
@@ -134,6 +135,11 @@ def test_configure_ai_interactive_duplicate_provider(mock_prompts_class, mock_lo
 
     mock_text = MagicMock()
     mock_text_class.return_value = mock_text
+
+    # Mock TitanConfig.GLOBAL_CONFIG to be a Path that exists
+    mock_config_path = MagicMock()
+    mock_config_path.exists.return_value = True
+    mock_config_class.GLOBAL_CONFIG = mock_config_path
 
     # Mock existing config with a provider
     mock_load.return_value = {
@@ -166,9 +172,13 @@ def test_configure_ai_interactive_duplicate_provider(mock_prompts_class, mock_lo
     configure_ai_interactive()
 
     # THEN an error about the duplicate ID should be shown via TextRenderer
-    # Check that text.error was called with a message containing the provider ID
-    error_calls = [str(call) for call in mock_text.error.call_args_list]
-    assert any("personal-claude" in str(call) and "exists" in str(call) for call in error_calls)
+    # Check that text.error was called
+    assert mock_text.error.called, "text.error should have been called for duplicate provider"
+
+    # Check the error message contains information about the duplicate
+    error_message = mock_text.error.call_args[0][0]
+    assert "personal-claude" in error_message and "exists" in error_message.lower(), \
+        f"Expected error message about 'personal-claude' existing, got: {error_message}"
 
     # AND no configuration should be saved (dump should not be called)
     mock_dump.assert_not_called()
