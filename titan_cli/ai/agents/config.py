@@ -41,10 +41,6 @@ class AgentConfig:
     max_files_in_diff: int
     max_commits_to_analyze: int
 
-    # Behavior
-    temperature: float
-    max_tokens: int
-
     # Features
     enable_template_detection: bool
     enable_dynamic_sizing: bool
@@ -102,7 +98,6 @@ def load_agent_config(
     agent_meta = data.get("agent", {})
     prompts = data.get("agent", {}).get("prompts", {})
     limits = data.get("agent", {}).get("limits", {})
-    behavior = data.get("agent", {}).get("behavior", {})
     features = data.get("agent", {}).get("features", {})
 
     # Build AgentConfig
@@ -126,9 +121,6 @@ def load_agent_config(
         max_diff_size=limits.get("max_diff_size", 8000),
         max_files_in_diff=limits.get("max_files_in_diff", 50),
         max_commits_to_analyze=limits.get("max_commits_to_analyze", 15),
-        # Behavior
-        temperature=behavior.get("temperature", 0.7),
-        max_tokens=behavior.get("max_tokens", 4000),
         # Features
         enable_template_detection=features.get("enable_template_detection", True),
         enable_dynamic_sizing=features.get("enable_dynamic_sizing", True),

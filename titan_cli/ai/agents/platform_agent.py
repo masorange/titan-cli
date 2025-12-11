@@ -253,7 +253,6 @@ COMMIT_MESSAGE: <conventional commit message>"""
         request = AgentRequest(
             context=prompt,
             max_tokens=200,
-            temperature=self.config.temperature,
             system_prompt=self.config.commit_system_prompt  # Use specific commit prompt
         )
 
@@ -327,13 +326,12 @@ COMMIT_MESSAGE: <conventional commit message>"""
 
         # Calculate tokens
         estimated_tokens = int(max_chars * 0.75) + 200
-        max_tokens = min(estimated_tokens, self.config.max_tokens)
+        max_tokens = min(estimated_tokens, 4000)  # Cap at 4000 tokens
 
         # Generate with AI
         request = AgentRequest(
             context=prompt,
             max_tokens=max_tokens,
-            temperature=self.config.temperature,
             system_prompt=self.config.pr_system_prompt
         )
 

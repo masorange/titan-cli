@@ -6,17 +6,6 @@ name = "PlatformAgent"
 description = "AI agent specialized in code analysis and PR generation"
 version = "1.0.0"
 
-[agent.provider]
-# Provider configuration (uses Titan's AI configuration)
-type = "anthropic"  # or "openai", "gemini"
-model = "claude-3-5-sonnet-20241022"  # Latest Sonnet model
-
-[agent.behavior]
-# Agent behavior settings
-mode = "analysis"  # Default mode: analysis (non-interactive)
-temperature = 0.7  # Creativity level (0.0 = deterministic, 1.0 = creative)
-max_tokens = 4000  # Maximum tokens per response (will be overridden dynamically)
-
 [agent.capabilities]
 # What this agent can do
 code_analysis = true
