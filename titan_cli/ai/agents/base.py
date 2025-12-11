@@ -124,9 +124,22 @@ class BaseAIAgent(ABC):
         )
 
         # Convert to AgentResponse
+        # Calculate tokens used - handle both patterns
+        if response.usage:
+            # Try total_tokens first (some providers)
+            tokens_used = response.usage.get("total_tokens", 0)
+
+            # If not available, try input_tokens + output_tokens (Anthropic, etc.)
+            if tokens_used == 0:
+                input_tokens = response.usage.get("input_tokens", 0)
+                output_tokens = response.usage.get("output_tokens", 0)
+                tokens_used = input_tokens + output_tokens
+        else:
+            tokens_used = 0
+
         return AgentResponse(
             content=response.content,
-            tokens_used=response.usage.get("total_tokens", 0) if response.usage else 0,
+            tokens_used=tokens_used,
             provider=getattr(self.generator, '_provider', self.generator).__class__.__name__,
             cached=False
         )
