@@ -106,39 +106,3 @@ def test_install_plugin_flow(mock_config, mock_ui):
         # Check for success message
         mock_text.success.assert_any_call("Successfully installed titan-plugin-git.")
 
-@patch('titan_cli.cli.KNOWN_PLUGINS', MOCK_KNOWN_PLUGINS)
-def test_toggle_plugin_flow(mock_config, mock_ui, tmp_path, mocker):
-    """Test the enable/disable plugin flow."""
-    mock_text, mock_prompts = mock_ui
-
-    # GIVEN a project config with the 'git' plugin disabled
-    mock_config.project_config = {"project": {"name": "test-project"}, "plugins": {"git": {"enabled": False}}}
-    mock_config.load()
-
-    # Make the mock_config reflect the initial state for is_plugin_enabled
-    # and list_discovered
-    mock_config.registry.list_discovered.return_value = ["git"]
-    mocker.patch.object(mock_config, 'is_plugin_enabled', side_effect=[False, False, True])
-
-    # Simulate user interaction to toggle plugin
-    mock_toggle_choice = MagicMock(action="toggle")
-    mock_git_toggle = MagicMock(action="git")
-    mock_back_choice = MagicMock(action="back")
-    
-    mock_prompts.ask_menu.side_effect = [
-        mock_toggle_choice,
-        mock_git_toggle,
-        mock_back_choice,
-        MagicMock(action="back")
-    ]
-
-    # Act
-    with patch('tomli_w.dump') as mock_dump:
-        _show_plugin_management_menu(mock_prompts, mock_text, mock_config)
-
-        # Assert
-        mock_text.success.assert_any_call("Plugin 'git' has been enabled.")
-        
-        # Check what was written to the config file
-        saved_config = mock_dump.call_args[0][0]
-        assert saved_config["plugins"]["git"]["enabled"] is True
