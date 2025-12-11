@@ -310,7 +310,11 @@ COMMIT_MESSAGE: <conventional commit message>"""
             raise ValueError("Cannot generate PR description from empty diff")
 
         # Calculate PR size
-        pr_size, max_chars, files_changed, lines_changed = self._calculate_pr_size(diff)
+        estimation = calculate_pr_size(diff)
+        pr_size = estimation.pr_size
+        max_chars = estimation.max_chars
+        files_changed = estimation.files_changed
+        lines_changed = estimation.diff_lines
 
         # Build prompt
         prompt = self._build_pr_prompt(
