@@ -190,14 +190,14 @@ def _show_projects_submenu(prompts: PromptsRenderer, text: TextRenderer, config:
 
 def _show_ai_config_submenu(prompts: PromptsRenderer, text: TextRenderer, config: TitanConfig):
     """Shows the submenu for AI configuration."""
-    from titan_cli.commands.ai import configure_ai_interactive, _test_ai_connection_by_id, list_providers
+    from titan_cli.commands.ai import configure_ai_interactive, _test_ai_connection_by_id, list_providers, set_default_provider
     
     def configure_ai_handler():
         configure_ai_interactive()
 
     def test_ai_handler():
         # Reload config to get latest (e.g., if configured via `ai_configure` in same session)
-        config.load() 
+        config.load()
         secrets = SecretManager() # Re-init to load any new secrets
 
         if not config.config.ai or not config.config.ai.providers:
@@ -216,8 +216,11 @@ def _show_ai_config_submenu(prompts: PromptsRenderer, text: TextRenderer, config
             text.error(msg.AI.AI_PROVIDER_NOT_FOUND_IN_CONFIG.format(provider_id=provider_id))
             text.body(msg.AI.AI_SEE_AVAILABLE_PROVIDERS)
             return
-            
+
         _test_ai_connection_by_id(provider_id, secrets, config.config.ai, provider_cfg)
+
+    def set_default_handler():
+        set_default_provider(provider_id=None)
 
     _show_submenu(
         prompts,
@@ -229,12 +232,14 @@ def _show_ai_config_submenu(prompts: PromptsRenderer, text: TextRenderer, config
             "actions": [
                 ("Configure AI Provider", "Set up Anthropic, OpenAI, or Gemini", "ai_configure"),
                 ("Test AI Connection", "Verify AI provider is working", "ai_test"),
-                ("List AI Providers", "List all configured AI providers.", "ai_list") # Added new action
+                ("List AI Providers", "List all configured AI providers.", "ai_list"),
+                ("Set Default Provider", "Change which AI provider is used by default", "ai_set_default")
             ],
             "handlers": {
                 "ai_configure": configure_ai_handler,
                 "ai_test": test_ai_handler,
-                "ai_list": list_providers, # Call the list command directly
+                "ai_list": list_providers,
+                "ai_set_default": set_default_handler,
             }
         }
     )

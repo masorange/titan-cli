@@ -71,6 +71,75 @@ def list_providers():
         text.line()
 
 
+@ai_app.command("set-default")
+def set_default_provider(provider_id: Optional[str] = typer.Argument(None, help="Provider ID to set as default")):
+    """Set the default AI provider."""
+    config = TitanConfig()
+    text = TextRenderer()
+    prompts = PromptsRenderer(text_renderer=text)
+
+    if not config.config.ai or not config.config.ai.providers:
+        text.warning(msg.AI.PROVIDER_NOT_CONFIGURED)
+        text.body(msg.AI.AI_SEE_AVAILABLE_PROVIDERS)
+        raise typer.Exit(1)
+
+    providers = config.config.ai.providers
+    current_default = config.config.ai.default
+
+    # If provider_id is provided, validate and set it
+    if provider_id:
+        if provider_id not in providers:
+            text.error(f"Provider '{provider_id}' not found")
+            text.body("Available providers:", style="dim")
+            for pid in providers.keys():
+                text.body(f"  • {pid}", style="dim")
+            raise typer.Exit(1)
+
+        selected_id = provider_id
+    else:
+        # Interactive selection
+        text.title("Select Default AI Provider")
+        text.line()
+
+        menu = DynamicMenu(title="Available Providers")
+        cat = menu.add_category("Select a provider")
+
+        for pid, pcfg in providers.items():
+            is_current = " (current default)" if pid == current_default else ""
+            cat.add_item(
+                f"{pcfg.name}{is_current}",
+                f"{get_provider_name(pcfg.provider)} - {pcfg.model}",
+                pid
+            )
+
+        choice = prompts.ask_menu(menu.to_menu())
+        if not choice:
+            text.warning("Cancelled")
+            raise typer.Exit(0)
+
+        selected_id = choice.action
+
+    # If already default, nothing to do
+    if selected_id == current_default:
+        text.info(f"'{providers[selected_id].name}' is already the default provider")
+        return
+
+    # Update config file
+    global_config_path = TitanConfig.GLOBAL_CONFIG
+    with open(global_config_path, "rb") as f:
+        global_config = tomli.load(f)
+
+    global_config["ai"]["default"] = selected_id
+
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(global_config, f)
+
+    text.success(f"Default provider set to: {providers[selected_id].name}")
+    text.body(f"ID: {selected_id}", style="dim")
+    text.body(f"Provider: {get_provider_name(providers[selected_id].provider)}", style="dim")
+    text.body(f"Model: {providers[selected_id].model}", style="dim")
+
+
 def _select_model(provider: str, prompts: PromptsRenderer, text: TextRenderer) -> str:
     """
     Interactive model selection with free input and visual suggestions.
