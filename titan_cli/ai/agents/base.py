@@ -3,10 +3,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from titan_cli.ai.client import AIClient
+from typing import Optional
 
 
 @dataclass
@@ -35,7 +32,7 @@ class BaseAIAgent(ABC):
     They receive AIClient as dependency and use it for generation.
     """
 
-    def __init__(self, ai_client: "AIClient"):
+    def __init__(self, ai_client):
         """
         Initialize agent with AIClient.
 
