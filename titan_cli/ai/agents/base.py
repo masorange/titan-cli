@@ -3,11 +3,9 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Protocol, List, TYPE_CHECKING
+from typing import Optional, Protocol, List
 
-# Use TYPE_CHECKING for forward references only (not for runtime)
-if TYPE_CHECKING:
-    from titan_cli.ai.models import AIMessage, AIResponse
+from titan_cli.ai.models import AIMessage, AIResponse
 
 
 @dataclass
@@ -40,10 +38,10 @@ class AIGenerator(Protocol):
 
     def generate(
         self,
-        messages: "List[AIMessage]",
+        messages: List[AIMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None
-    ) -> "AIResponse":
+    ) -> AIResponse:
         """
         Generate AI response from messages.
 
@@ -104,8 +102,6 @@ class BaseAIAgent(ABC):
         Returns:
             AgentResponse with generated content
         """
-        from titan_cli.ai.models import AIMessage
-
         # Build messages with system prompt
         messages = []
 
