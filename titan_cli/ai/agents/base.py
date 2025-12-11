@@ -3,7 +3,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Protocol, List, Any
 
 
 @dataclass
@@ -24,22 +24,62 @@ class AgentResponse:
     cached: bool = False
 
 
+class AIGenerator(Protocol):
+    """
+    Protocol defining the interface for AI generation.
+
+    This allows BaseAIAgent to depend on an abstraction rather than
+    concrete implementations like AIClient or AIProvider.
+
+    Any class implementing these methods can be used with agents.
+    """
+
+    def generate(
+        self,
+        messages: List[Any],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> Any:
+        """
+        Generate AI response from messages.
+
+        Args:
+            messages: List of conversation messages
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+
+        Returns:
+            AI response object with content and metadata
+        """
+        ...
+
+    def is_available(self) -> bool:
+        """
+        Check if AI generation is available.
+
+        Returns:
+            True if AI can be used
+        """
+        ...
+
+
 class BaseAIAgent(ABC):
     """
     Abstract base class for all AI agents.
 
-    Agents wrap AIClient with specialized domain logic.
-    They receive AIClient as dependency and use it for generation.
+    Agents wrap AI generation with specialized domain logic.
+    They depend on AIGenerator protocol for loose coupling.
     """
 
-    def __init__(self, ai_client):
+    def __init__(self, generator: AIGenerator):
         """
-        Initialize agent with AIClient.
+        Initialize agent with AI generator.
 
         Args:
-            ai_client: The AIClient instance (manages providers)
+            generator: Any object implementing AIGenerator protocol
+                      (e.g., AIClient, AIProvider, or mock for testing)
         """
-        self.ai_client = ai_client
+        self.generator = generator
 
     @abstractmethod
     def get_system_prompt(self) -> str:
@@ -52,7 +92,7 @@ class BaseAIAgent(ABC):
 
     def generate(self, request: AgentRequest) -> AgentResponse:
         """
-        Generate AI response using the underlying AIClient.
+        Generate AI response using the underlying generator.
 
         Args:
             request: AgentRequest with context and parameters
@@ -72,8 +112,8 @@ class BaseAIAgent(ABC):
 
         messages.append(AIMessage(role="user", content=request.context))
 
-        # Call underlying AIClient (which delegates to provider)
-        response = self.ai_client.generate(
+        # Call underlying generator (AIClient, AIProvider, etc.)
+        response = self.generator.generate(
             messages=messages,
             max_tokens=request.max_tokens,
             temperature=request.temperature
@@ -83,10 +123,10 @@ class BaseAIAgent(ABC):
         return AgentResponse(
             content=response.content,
             tokens_used=response.usage.get("total_tokens", 0) if response.usage else 0,
-            provider=self.ai_client._provider.__class__.__name__,
+            provider=getattr(self.generator, '_provider', self.generator).__class__.__name__,
             cached=False
         )
 
     def is_available(self) -> bool:
         """Check if AI is available."""
-        return self.ai_client and self.ai_client.is_available()
+        return self.generator and self.generator.is_available()

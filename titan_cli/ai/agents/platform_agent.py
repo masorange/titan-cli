@@ -11,15 +11,10 @@ This agent analyzes the complete context of a branch and automatically:
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from .base import BaseAIAgent, AgentRequest
 from .config import get_agent_config
-
-if TYPE_CHECKING:
-    from titan_cli.ai.client import AIClient
-    from titan_cli.clients.git_client import GitClient
-    from titan_cli.clients.github_client import GitHubClient
 
 
 @dataclass
@@ -73,9 +68,9 @@ class PlatformAgent(BaseAIAgent):
 
     def __init__(
         self,
-        ai_client: "AIClient",
-        git_client: "GitClient",
-        github_client: Optional["GitHubClient"] = None
+        ai_client,
+        git_client,
+        github_client=None
     ):
         """
         Initialize PlatformAgent.
