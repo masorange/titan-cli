@@ -38,7 +38,19 @@ class AIClient:
         """
         self.ai_config = ai_config
         self.secrets = secrets
-        self.provider_id = provider_id or ai_config.default
+
+        # Determine provider_id with fallback
+        requested_id = provider_id or ai_config.default
+
+        # Validate that the provider exists, fallback to first available if default is invalid
+        if requested_id and requested_id in ai_config.providers:
+            self.provider_id = requested_id
+        elif ai_config.providers:
+            # Fallback to first available provider
+            self.provider_id = list(ai_config.providers.keys())[0]
+        else:
+            raise AIConfigurationError("No AI providers configured.")
+
         self._provider: Optional[AIProvider] = None
 
     @property

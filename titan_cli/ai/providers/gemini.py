@@ -45,7 +45,8 @@ class GeminiProvider(AIProvider):
     def __init__(self, api_key: str, model: str = get_default_model("gemini"), base_url: str = None):
         super().__init__(api_key, model)
 
-        self.base_url = base_url
+        # Normalize base_url by removing trailing slash
+        self.base_url = base_url.rstrip('/') if base_url else None
         self.use_custom_endpoint = bool(base_url)
 
         # Check if using OAuth or API key

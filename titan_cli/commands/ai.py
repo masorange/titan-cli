@@ -197,19 +197,14 @@ def _test_ai_connection_by_id(provider_id: str, secrets: SecretManager, ai_confi
     Args:
         provider_id: ID of the provider to test.
         secrets: SecretManager instance.
-        ai_config: The full AIConfig object, potentially containing other providers.
-        provider_cfg: The specific AIProviderConfig object for this provider.
+        ai_config: The full AIConfig object containing all providers.
+        provider_cfg: The specific AIProviderConfig object for this provider (for display info).
     """
     text = TextRenderer()
 
-    # Create a temporary AIConfig to use for the AIClient, ensuring it has the full context
-    # but with the specific provider_cfg potentially just configured.
-    test_ai_config = AIConfig(default=ai_config.default, providers={pid: pcfg for pid, pcfg in ai_config.providers.items()})
-    test_ai_config.providers[provider_id] = provider_cfg # Ensure the specific provider_cfg is the one being tested.
-
     try:
-        # Initialize AIClient with the potentially modified test_ai_config and the specific provider_id
-        ai_client = AIClient(test_ai_config, secrets, provider_id=provider_id)
+        # Initialize AIClient with the specific provider_id
+        ai_client = AIClient(ai_config, secrets, provider_id=provider_id)
 
         model_info = f" with model '{provider_cfg.model}'" if provider_cfg.model else ""
         endpoint_info = f" (custom endpoint)" if provider_cfg.base_url else ""
@@ -271,8 +266,7 @@ def configure_ai_interactive():
     # Paso 3: Seleccionar provider
     provider_menu = DynamicMenu(title=msg.AI.AI_PROVIDER_SELECT_TITLE)
     cat = provider_menu.add_category(msg.AI.AI_PROVIDER_SELECT_CATEGORY)
-    cat.add_item(msg.AI.ANTHROPIC_LABEL, msg.AI.AI_ANTHROPIC_DESCRIPTION, "anthropic")
-    cat.add_item(msg.AI.OPENAI_LABEL, msg.AI.AI_OPENAI_DESCRIPTION, "openai")
+    cat.add_item(msg.AI.AI_ANTHROPIC_LABEL, msg.AI.AI_ANTHROPIC_DESCRIPTION, "anthropic")
     cat.add_item(msg.AI.AI_GEMINI_LABEL, msg.AI.AI_GEMINI_DESCRIPTION, "gemini")
 
     provider_choice = prompts.ask_menu(provider_menu.to_menu())
@@ -299,6 +293,32 @@ def configure_ai_interactive():
     default_name = f"{msg.AI.AI_CONFIG_TYPE_CORPORATE_LABEL if config_type == 'corporate' else msg.AI.AI_CONFIG_TYPE_INDIVIDUAL_LABEL} {get_provider_name(provider)}"
     provider_name = prompts.ask_text(msg.AI.AI_PROVIDER_NAME_PROMPT, default=default_name)
     provider_id = provider_name.lower().replace(" ", "-")
+
+    # Load global config data for validation and later saving
+    global_config_path = TitanConfig.GLOBAL_CONFIG
+    global_config_data = {}
+    if global_config_path.exists():
+        with open(global_config_path, "rb") as f:
+            global_config_data = tomli.load(f)
+
+    # Validate provider_id is unique
+    if "ai" in global_config_data and "providers" in global_config_data["ai"]:
+        if provider_id in global_config_data["ai"]["providers"]:
+            text.error(f"Provider ID '{provider_id}' already exists.")
+            text.body("Please choose a different name or remove the existing provider first.", style="dim")
+            text.body(f"Run 'titan ai list' to see all configured providers.", style="dim")
+            return
+
+    # Initialize structure if not exists
+    if "ai" not in global_config_data:
+        global_config_data["ai"] = {}
+    if "providers" not in global_config_data["ai"]:
+        global_config_data["ai"]["providers"] = {}
+
+    if provider_id in global_config_data["ai"]["providers"]:
+        text.warning(msg.AI.PROVIDER_ID_EXISTS.format(provider_id=provider_id))
+        text.line()
+        return
     text.line()
 
     # Paso 7: Opciones avanzadas (opcional)
@@ -310,18 +330,8 @@ def configure_ai_interactive():
         text.line()
 
     # Paso 8: Guardar configuración
-    global_config_path = TitanConfig.GLOBAL_CONFIG
-    global_config_data = {}
-    if global_config_path.exists():
-        with open(global_config_path, "rb") as f:
-            global_config_data = tomli.load(f)
-
-    # Inicializar estructura si no existe
-    if "ai" not in global_config_data:
-        global_config_data["ai"] = {}
-    if "providers" not in global_config_data["ai"]:
-        global_config_data["ai"]["providers"] = {}
-
+    # global_config_data is already loaded and initialized above
+    
     # Guardar provider
     provider_cfg_to_save = {
         "name": provider_name,

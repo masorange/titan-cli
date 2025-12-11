@@ -208,12 +208,6 @@ class Messages:
         MAX_TOKENS_PROMPT = "Enter default max tokens (e.g., 4096, max output length)"
         
 
-        # Provider Labels and Descriptions
-        ANTHROPIC_LABEL = "Anthropic (Claude)"
-        GEMINI_LABEL = "Google (Gemini)"
-        ANTHROPIC_DESCRIPTION_MODEL = "Model: {model}"
-        GEMINI_DESCRIPTION_MODEL = "Model: {model}"
-
         # Model Selection
         MODEL_SELECTION_TITLE = "Model Selection for {provider}"
         MODEL_SELECTION_TIP = "Tip: You can enter any model name, including custom/enterprise models"
@@ -273,6 +267,7 @@ class Messages:
 
         AI_PROVIDER_NAME_PROMPT = "Name for this provider:"
         AI_PROVIDER_MARK_DEFAULT_PROMPT = "Mark as default provider?"
+        PROVIDER_ID_EXISTS = "Provider ID '{provider_id}' already exists. Please choose a different name."
 
         AI_PROVIDER_CONFIGURED_SUCCESS = "Provider configured successfully"
         AI_PROVIDER_NAME = "Name: {name}"
