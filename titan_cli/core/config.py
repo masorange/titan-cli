@@ -15,15 +15,21 @@ class TitanConfig:
 
     def __init__(
         self,
-        registry: Optional[PluginRegistry] = None
+        registry: Optional[PluginRegistry] = None,
+        global_config_path: Optional[Path] = None
     ):
         # Core dependencies
         self.registry = registry or PluginRegistry()
-        self.secrets = SecretManager() # Updated after load
-        self._project_root = None # Set by load()
-        self._active_project_path = None # Set by load()
-        self._workflow_registry = None # Set by load()
+
+        # These are initialized in load() after config is read
+        self.secrets = None  # Set by load()
+        self._project_root = None  # Set by load()
+        self._active_project_path = None  # Set by load()
+        self._workflow_registry = None  # Set by load()
         self._plugin_warnings = []
+
+        # Use custom global config path if provided (for testing), otherwise use default
+        self._global_config_path = global_config_path or self.GLOBAL_CONFIG
 
         # Initial load
         self.load()
@@ -35,7 +41,7 @@ class TitanConfig:
         """
         had_invalid_active_project = False
         # Load global config first to find project_root and active_project
-        self.global_config = self._load_toml(self.GLOBAL_CONFIG)
+        self.global_config = self._load_toml(self._global_config_path)
         
         # Temporarily validate global to access core settings
         temp_global_model = TitanConfigModel(**self.global_config)
@@ -241,8 +247,8 @@ class TitanConfig:
         from ..messages import msg
         text = TextRenderer()
 
-        if not self.GLOBAL_CONFIG.parent.exists():
-            self.GLOBAL_CONFIG.parent.mkdir(parents=True)
+        if not self._global_config_path.parent.exists():
+            self._global_config_path.parent.mkdir(parents=True)
 
         # We need to reconstruct the dictionary to write back to TOML
         config_to_save = self.config.model_dump(exclude_none=True)
@@ -253,7 +259,7 @@ class TitanConfig:
             global_config_data['core'] = config_to_save['core']
 
         try:
-            with open(self.GLOBAL_CONFIG, "wb") as f:
+            with open(self._global_config_path, "wb") as f:
                 import tomli_w
                 tomli_w.dump(global_config_data, f)
         except ImportError:
