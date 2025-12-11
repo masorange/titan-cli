@@ -79,7 +79,4 @@ def calculate_pr_size(diff: str) -> PRSizeEstimation:
     )
 
 
-# Alias for backward compatibility
-get_pr_size_estimation = calculate_pr_size
-
-__all__ = ["calculate_pr_size", "get_pr_size_estimation", "PRSizeEstimation"]
+__all__ = ["calculate_pr_size", "PRSizeEstimation"]
