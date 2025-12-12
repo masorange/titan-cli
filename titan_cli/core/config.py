@@ -186,9 +186,14 @@ class TitanConfig:
                 # Merge providers (project providers supplement global providers)
                 if "providers" in value:
                     merged_providers = merged_ai.setdefault("providers", {})
-                    # Add/override project-specific providers
+                    # Deep merge: preserve global fields, override with project fields
                     for provider_id, provider_data in value["providers"].items():
-                        merged_providers[provider_id] = provider_data
+                        if provider_id in merged_providers:
+                            # Provider exists in global: deep merge (extend, not replace)
+                            merged_providers[provider_id] = {**merged_providers[provider_id], **provider_data}
+                        else:
+                            # New provider: just add it
+                            merged_providers[provider_id] = provider_data
 
                 # Project can override default provider, otherwise keep global
                 if "default" in value:
