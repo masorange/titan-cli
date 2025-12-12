@@ -32,7 +32,7 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
     command = _resolve_parameters_in_string(command_template, ctx)
 
     if ctx.ui:
-        ctx.ui.text.info(f"Executing command: [primary]{command}[/primary]")
+        ctx.ui.text.info(f"Executing command: {command}")
 
     try:
         use_venv = step.params.get("use_venv", False)
