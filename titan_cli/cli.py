@@ -754,7 +754,7 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
                         getattr(ctx_builder, f"with_{plugin_name}")(client)
 
             execution_context = ctx_builder.build()
-            executor = WorkflowExecutor(config.registry)
+            executor = WorkflowExecutor(config.registry, config.workflows)
 
             try:
                 # Execute workflow (steps handle their own UI)

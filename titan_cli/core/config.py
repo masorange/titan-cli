@@ -4,7 +4,7 @@ from typing import Optional, List
 import tomli
 from .models import TitanConfigModel
 from .plugins.plugin_registry import PluginRegistry
-from .workflows import WorkflowRegistry
+from .workflows import WorkflowRegistry, ProjectStepSource
 from .secrets import SecretManager
 from .errors import ConfigParseError
 
@@ -101,9 +101,11 @@ class TitanConfig:
         # Re-initialize WorkflowRegistry
         # Use active_project_path for workflows if available, otherwise project_root
         workflow_path = self._active_project_path if self._active_project_path else self._project_root
+        project_step_source = ProjectStepSource(project_root=workflow_path)
         self._workflow_registry = WorkflowRegistry(
             project_root=workflow_path,
-            plugin_registry=self.registry
+            plugin_registry=self.registry,
+            project_step_source=project_step_source
         )
 
         if had_invalid_active_project:

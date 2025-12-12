@@ -144,7 +144,7 @@ def test_create_pr_workflow_e2e(mock_titan_config, create_pr_workflow_yaml):
 
     # 2. Act
     # ----------------
-    executor = WorkflowExecutor(mock_titan_config.registry)
+    executor = WorkflowExecutor(mock_titan_config.registry, mock_titan_config.workflows)
     result = executor.execute(parsed_workflow, ctx)
 
     # 3. Assert

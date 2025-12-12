@@ -5,12 +5,12 @@ from titan_cli.core.workflows import ParsedWorkflow
 from titan_cli.core.workflows.workflow_exceptions import WorkflowExecutionError
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip, is_error, is_skip
+from titan_cli.core.workflows.workflow_registry import WorkflowRegistry
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
+from titan_cli.core.workflows.models import WorkflowStepModel
+from titan_cli.engine.steps.command_step import execute_command_step as execute_external_command_step
 
-# Assuming run_shell_command returns stdout, stderr, exit_code
-# This needs actual implementation/import of run_shell_command or similar utility.
-# For now, let's use subprocess directly.
-from subprocess import run, CalledProcessError, TimeoutExpired
+# ... (the rest of the imports)
 
 class WorkflowExecutor:
     """
@@ -18,8 +18,9 @@ class WorkflowExecutor:
     resolving plugins, and performing parameter substitution.
     """
 
-    def __init__(self, plugin_registry: PluginRegistry):
+    def __init__(self, plugin_registry: PluginRegistry, workflow_registry: WorkflowRegistry):
         self._plugin_registry = plugin_registry
+        self._workflow_registry = workflow_registry
 
     def execute(self, workflow: ParsedWorkflow, ctx: WorkflowContext, params_override: Optional[Dict[str, Any]] = None) -> WorkflowResult:
         """
@@ -43,35 +44,39 @@ class WorkflowExecutor:
 
         # Inject workflow metadata into context
         ctx.workflow_name = workflow.name
-        ctx.total_steps = len([s for s in workflow.steps if not ("hook" in s and len(s) == 1)])
+        # Only count actual steps, not hook placeholders
+        ctx.total_steps = len([s for s in workflow.steps if not (s.get("hook") and len(s) == 1)])
 
         ctx.ui.text.styled_text(("Starting workflow: ", "info"), (workflow.name, "info bold"))
         ctx.ui.text.body(workflow.description, style="dim")
         ctx.ui.spacer.small()
 
         step_index = 0
-        for step_config in workflow.steps:
+        for step_config_dict in workflow.steps: # Renamed step_config to step_config_dict to clarify it's a dict
             # If the step is just a hook placeholder, skip it.
             # The registry has already handled merging.
-            if "hook" in step_config and len(step_config) == 1:
+            if step_config_dict.get("hook") and len(step_config_dict) == 1:
                 continue
 
             # Inject current step number into context
             step_index += 1
             ctx.current_step = step_index
 
-            step_id = step_config.get("id", "anonymous_step")
-            step_name = step_config.get("name", step_id)
-            on_error = step_config.get("on_error", "fail") # Default to fail
+            # Parse the dictionary into a WorkflowStepModel for better type safety
+            step_config = WorkflowStepModel(**step_config_dict)
+
+            step_id = step_config.id if step_config.id else "anonymous_step"
+            step_name = step_config.name if step_config.name else step_id
+            on_error = step_config.on_error # Default is "fail" in model
 
             step_result: WorkflowResult = Success("Step not executed (default)", {}) # Default result
 
             try:
-                if "plugin" in step_config and "step" in step_config:
+                if step_config.plugin and step_config.step:
                     # Execute plugin step
                     step_result = self._execute_plugin_step(step_config, ctx)
-                elif "command" in step_config:
-                    # Execute shell command
+                elif step_config.command:
+                    # Execute shell command using our new function
                     step_result = self._execute_command_step(step_config, ctx)
                 else:
                     step_result = Error(f"Invalid step configuration for '{step_id}': Missing 'plugin/step' or 'command'.", WorkflowExecutionError("Invalid step config"))
@@ -99,25 +104,34 @@ class WorkflowExecutor:
         ctx.ui.text.success(f"Workflow '{workflow.name}' completed successfully.")
         return Success(f"Workflow '{workflow.name}' finished.", {})
 
-    def _execute_plugin_step(self, step_config: Dict[str, Any], ctx: WorkflowContext) -> WorkflowResult:
-        plugin_name = step_config["plugin"]
-        step_func_name = step_config["step"]
-        step_params = step_config.get("params", {})
+    def _execute_plugin_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
+        plugin_name = step_config.plugin
+        step_func_name = step_config.step
+        step_params = step_config.params
 
         # Validate required context variables
-        required_vars = step_config.get("requires", [])
+        # This was part of `command` originally, but it's good practice for plugin steps too.
+        required_vars = step_config.params.get("requires", []) # Assuming 'requires' can be in params
         for var in required_vars:
             if var not in ctx.data:
                 return Error(f"Step '{step_func_name}' is missing required context variable: '{var}'")
 
-        plugin_instance = self._plugin_registry.get_plugin(plugin_name)
-        if not plugin_instance:
-            return Error(f"Plugin '{plugin_name}' not found or not initialized.", WorkflowExecutionError(f"Plugin '{plugin_name}' not found"))
-        
-        step_functions = plugin_instance.get_steps()
-        step_func = step_functions.get(step_func_name)
-        if not step_func:
-            return Error(f"Step '{step_func_name}' not found in plugin '{plugin_name}'.", WorkflowExecutionError(f"Step '{step_func_name}' not found"))
+        step_func = None
+        if plugin_name == "project":
+            # Handle virtual 'project' plugin for project-specific steps
+            step_func = self._workflow_registry.get_project_step(step_func_name)
+            if not step_func:
+                return Error(f"Project step '{step_func_name}' not found in '.titan/steps/'.", WorkflowExecutionError(f"Project step '{step_func_name}' not found"))
+        else:
+            # Handle regular plugins
+            plugin_instance = self._plugin_registry.get_plugin(plugin_name)
+            if not plugin_instance:
+                return Error(f"Plugin '{plugin_name}' not found or not initialized.", WorkflowExecutionError(f"Plugin '{plugin_name}' not found"))
+            
+            step_functions = plugin_instance.get_steps()
+            step_func = step_functions.get(step_func_name)
+            if not step_func:
+                return Error(f"Step '{step_func_name}' not found in plugin '{plugin_name}'.", WorkflowExecutionError(f"Step '{step_func_name}' not found"))
 
         # Prepare parameters for the step function
         resolved_params = self._resolve_parameters(step_params, ctx)
@@ -126,39 +140,16 @@ class WorkflowExecutor:
         try:
             return step_func(ctx=ctx, **resolved_params)
         except Exception as e:
-            return Error(f"Error executing plugin step '{step_func_name}' from plugin '{plugin_name}': {e}", e)
+            error_source = f"plugin '{plugin_name}'" if plugin_name != "project" else "project step"
+            return Error(f"Error executing step '{step_func_name}' from {error_source}: {e}", e)
 
 
-    def _execute_command_step(self, step_config: Dict[str, Any], ctx: WorkflowContext) -> WorkflowResult:
-        command_template = step_config["command"]
-
-        # Validate required context variables
-        required_vars = step_config.get("requires", [])
-        for var in required_vars:
-            if var not in ctx.data:
-                return Error(f"Command step '{step_config.get('id', 'anonymous_command')}' is missing required context variable: '{var}'")
-
-        # Resolve command parameters first
-        resolved_command = self._resolve_parameters_in_string(command_template, ctx)
-
-        ctx.ui.text.body(f"Running command: {resolved_command}", style="dim")
-        
-        try:
-            # shell=True is generally discouraged due to security, but often needed for CLI tools
-            # For a development tool, it's often acceptable.
-            result = run(resolved_command, shell=True, capture_output=True, text=True, check=True)
-            output = result.stdout.strip()
-            if result.stderr:
-                ctx.ui.text.warning(f"Command stderr: {result.stderr.strip()}")
-            return Success("Command executed successfully.", {"command_output": output})
-        except CalledProcessError as e:
-            return Error(f"Command failed with exit code {e.returncode}: {e.stderr.strip()}", e)
-        except TimeoutExpired as e:
-            return Error(f"Command timed out: {e.stdout.strip()} {e.stderr.strip()}", e)
-        except FileNotFoundError as e:
-            return Error(f"Command not found: {e}", e)
-        except Exception as e:
-            return Error(f"Unhandled error during command execution: {e}", e)
+    def _execute_command_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult: # Changed type hint to WorkflowStepModel
+        """
+        Executes a shell command using the dedicated external function.
+        """
+        # Call the external function that handles command execution
+        return execute_external_command_step(step_config, ctx)
 
     def _resolve_parameters(self, params: Dict[str, Any], ctx: WorkflowContext) -> Dict[str, Any]:
         """
@@ -168,30 +159,8 @@ class WorkflowExecutor:
         resolved = {}
         for key, value in params.items():
             if isinstance(value, str):
-                resolved[key] = self._resolve_parameters_in_string(value, ctx)
+                # Use the resolver from command_step.py, now that it's moved
+                resolved[key] = execute_external_command_step._resolve_parameters_in_string(value, ctx)
             else:
                 resolved[key] = value # Keep non-string parameters as is
         return resolved
-
-    def _resolve_parameters_in_string(self, text: str, ctx: WorkflowContext) -> str:
-        """
-        Substitutes ${placeholder} in a string using values from ctx.data.
-        All workflow params are already in ctx.data.
-        """
-        import re
-
-        def replace_placeholder(match):
-            placeholder = match.group(1) # e.g., "commit_message"
-
-            # Check ctx.data (all params including workflow-level are here)
-            if placeholder in ctx.data:
-                return str(ctx.data[placeholder])
-
-            # Check config (e.g., config.git.main_branch) - requires more complex path parsing
-            # For now, we will not implement full config path resolution here, but it's a future enhancement
-
-            # If not found, return original placeholder or raise an error
-            return match.group(0) # Keep placeholder if not resolved
-
-        # Regex to find ${placeholder} patterns
-        return re.sub(r'\$\{(\w+)\}', replace_placeholder, text)
