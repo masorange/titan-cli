@@ -1,6 +1,6 @@
 # ui/views/menu_models.py
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 class MenuItem(BaseModel):
     """Represents an individual menu item."""

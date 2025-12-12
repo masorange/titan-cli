@@ -41,7 +41,7 @@ def init():
     # Get current project root or prompt for it
     current_project_root = config.get("core", {}).get("project_root")
     
-    text.info(f"The project root is the main folder where you store all your git repositories (e.g., ~/git, ~/Projects).")
+    text.info("The project root is the main folder where you store all your git repositories (e.g., ~/git, ~/Projects).")
     
     prompt_default = str(Path.home())
     if current_project_root:

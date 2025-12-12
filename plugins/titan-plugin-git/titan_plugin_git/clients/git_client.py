@@ -5,7 +5,7 @@ import shutil # Added for shutil.which
 from typing import List, Optional, Tuple
 from datetime import datetime
 
-from ..models import GitBranch, GitStatus, GitCommit
+from ..models import GitBranch, GitStatus
 from ..exceptions import (
     GitError,
     GitClientError,
@@ -436,7 +436,6 @@ class GitClient:
         Returns:
             True if stash was created
         """
-        from datetime import datetime # Import here to avoid circular dependency if datetime is also used in models
 
         if not message:
             message = msg.Git.AUTO_STASH_MESSAGE.format(timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))

@@ -4,7 +4,6 @@ OAuth Helper for AI Providers
 Handles OAuth authentication for providers that support it (e.g., Gemini with gcloud).
 """
 
-import subprocess
 from typing import Optional, Tuple
 from dataclasses import dataclass
 

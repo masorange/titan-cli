@@ -7,7 +7,7 @@ by workflow previews to execute real step functions with fake data.
 Each preview should create its own mock context with customized data.
 """
 
-from typing import Any, Optional
+from typing import Optional
 from dataclasses import dataclass
 
 

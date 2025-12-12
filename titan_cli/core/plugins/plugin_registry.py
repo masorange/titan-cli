@@ -1,7 +1,7 @@
 # core/plugin_registry.py
 from importlib.metadata import entry_points
 from typing import Dict, List, Any, Optional
-from ..errors import PluginLoadError, PluginInitializationError, PluginError
+from ..errors import PluginLoadError, PluginInitializationError
 from .plugin_base import TitanPlugin
 
 class PluginRegistry:

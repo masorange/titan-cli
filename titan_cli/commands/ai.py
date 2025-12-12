@@ -9,9 +9,9 @@ from ..ui.components.typography import TextRenderer
 from ..ui.components.spacer import SpacerRenderer
 from ..ui.views.prompts import PromptsRenderer
 from ..ui.views.menu_components.dynamic_menu import DynamicMenu
-from ..ai.client import PROVIDER_CLASSES, AIClient
+from ..ai.client import AIClient
 from ..ai.constants import get_default_model, get_provider_name
-from ..ai.models import AIRequest, AIMessage
+from ..ai.models import AIMessage
 from ..ai.exceptions import AIConfigurationError
 from ..core.models import AIConfig, AIProviderConfig # Added AIProviderConfig import
 from ..messages import msg
@@ -207,7 +207,7 @@ def _test_ai_connection_by_id(provider_id: str, secrets: SecretManager, ai_confi
         ai_client = AIClient(ai_config, secrets, provider_id=provider_id)
 
         model_info = f" with model '{provider_cfg.model}'" if provider_cfg.model else ""
-        endpoint_info = f" (custom endpoint)" if provider_cfg.base_url else ""
+        endpoint_info = " (custom endpoint)" if provider_cfg.base_url else ""
         text.info(msg.AI.TESTING_CONNECTION.format(provider=get_provider_name(provider_cfg.provider), model_info=model_info, endpoint_info=endpoint_info))
 
         # Generate a simple test response
@@ -306,7 +306,7 @@ def configure_ai_interactive():
         if provider_id in global_config_data["ai"]["providers"]:
             text.error(f"Provider ID '{provider_id}' already exists.")
             text.body("Please choose a different name or remove the existing provider first.", style="dim")
-            text.body(f"Run 'titan ai list' to see all configured providers.", style="dim")
+            text.body("Run 'titan ai list' to see all configured providers.", style="dim")
             return
 
     # Initialize structure if not exists

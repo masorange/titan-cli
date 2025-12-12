@@ -1,7 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from pathlib import Path
-import tomli
+from unittest.mock import MagicMock, patch
 import tomli_w
 
 from titan_cli.cli import _show_plugin_management_menu

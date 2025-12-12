@@ -13,7 +13,6 @@ import importlib.metadata
 import subprocess
 import os
 from pathlib import Path
-from typing import Optional
 
 from titan_cli.ui.views.banner import render_titan_banner
 from titan_cli.messages import msg
@@ -23,7 +22,6 @@ from titan_cli.commands.projects import projects_app, list_projects
 from titan_cli.commands.ai import ai_app
 from titan_cli.commands.plugins import plugins_app
 from titan_cli.commands.code import code_app, launch_code
-from titan_cli.utils.claude_integration import ClaudeCodeLauncher
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.errors import ConfigWriteError
@@ -235,7 +233,6 @@ def _show_projects_submenu(prompts: PromptsRenderer, text: TextRenderer, config:
 
 def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, config: TitanConfig):
     """Shows the submenu for plugin management."""
-    from titan_cli.core.plugins.available import KNOWN_PLUGINS
     spacer = SpacerRenderer()
 
     def install_plugin_handler():

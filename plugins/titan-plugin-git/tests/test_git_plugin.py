@@ -1,5 +1,4 @@
 # plugins/titan-plugin-git/tests/test_git_plugin.py
-import pytest
 from unittest.mock import MagicMock
 from titan_cli.engine import WorkflowContext, is_success, is_error, is_skip, Skip
 from titan_plugin_git.steps.status_step import get_git_status_step

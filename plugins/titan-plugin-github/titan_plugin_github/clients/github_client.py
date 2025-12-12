@@ -7,7 +7,6 @@ Python client for GitHub operations using gh CLI.
 
 import json
 import subprocess
-import re
 from typing import List, Optional, Dict, Any
 
 from titan_cli.core.secrets import SecretManager
@@ -235,7 +234,7 @@ class GitHubClient:
             if branch_name:
                 return branch_name
 
-        except Exception as e:
+        except Exception:
             # Log this, but don't re-raise immediately, try final fallback
             pass
 
@@ -1028,7 +1027,7 @@ class GitHubClient:
                 "state": "draft" if draft else "open",
             }
 
-        except ValueError as e:
+        except ValueError:
             raise GitHubAPIError(
                 msg.GitHub.FAILED_TO_PARSE_PR_NUMBER.format(url=pr_url)
             )

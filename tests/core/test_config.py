@@ -1,11 +1,7 @@
 # tests/core/test_config.py
-import pytest
 import tomli_w
 from pathlib import Path
 from titan_cli.core.config import TitanConfig
-from titan_cli.core.models import TitanConfigModel
-from titan_cli.core.plugins.plugin_registry import PluginRegistry # Import PluginRegistry for mocking
-from titan_cli.core.errors import ConfigParseError # Import custom error
 
 def test_config_initialization_no_files(monkeypatch, mocker):
     """

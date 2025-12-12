@@ -1,10 +1,8 @@
-import pytest
 from unittest.mock import patch, MagicMock
 
 # Import the classes to be tested
 from titan_cli.ai.providers import AnthropicProvider, GeminiProvider
 from titan_cli.ai.models import AIRequest, AIMessage
-from titan_cli.ai.exceptions import AIProviderAPIError
 
 # --- Tests for AnthropicProvider ---
 

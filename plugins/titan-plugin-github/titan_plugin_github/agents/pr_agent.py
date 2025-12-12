@@ -8,7 +8,6 @@ This agent analyzes the complete context of a branch and automatically:
 3. Creates PR title and description following templates
 """
 
-import re
 import logging
 from dataclasses import dataclass
 from pathlib import Path

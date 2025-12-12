@@ -1,11 +1,8 @@
 # plugins/titan-plugin-github/titan_plugin_github/models.py
-from pydantic import BaseModel
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 
 # Import PRSizeEstimation from utils
-from .utils import PRSizeEstimation
 
 
 @dataclass

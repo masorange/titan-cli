@@ -6,7 +6,6 @@ Preview the create-pr-ai workflow by executing real steps with mocked data.
 Run: titan preview workflow create-pr-ai
 """
 
-from pathlib import Path
 from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.spacer import SpacerRenderer
 from titan_cli.engine.mock_context import (
@@ -98,7 +97,6 @@ def preview_workflow():
     from titan_plugin_git.steps.push_step import create_git_push_step
     from titan_plugin_github.steps.ai_pr_step import ai_suggest_pr_description
     from titan_plugin_github.steps.prompt_steps import prompt_for_pr_title_step, prompt_for_pr_body_step
-    from titan_cli.engine.results import Success, Error, Skip
 
     # Execute steps in order
     steps = [

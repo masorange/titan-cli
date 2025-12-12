@@ -1,9 +1,9 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 import requests # Import requests
 from titan_cli.ai.models import AIMessage, AIRequest, AIResponse
 from titan_cli.ai.providers import GeminiProvider
-from titan_cli.ai.exceptions import AIProviderError, AIProviderAPIError
+from titan_cli.ai.exceptions import AIProviderAPIError
 
 # Mock for the actual client library (e.g., Google's genai)
 class MockGenerativeModel:

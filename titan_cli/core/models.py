@@ -1,5 +1,5 @@
 # core/models.py
-from pydantic import BaseModel, Field, model_validator, ValidationError
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict
 from .plugins.models import PluginConfig
 
