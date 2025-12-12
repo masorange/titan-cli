@@ -1,5 +1,5 @@
-name: "Analyze JIRA Issues"
-description: "List all open issues ready for development and analyze selected issue with AI"
+name: "Analyze JIRA Open and Ready to Dev Issues"
+description: "List all JIRA issues in Open or Ready to Dev status and analyze selected issue with AI"
 
 params:
   # Can override which saved query to use
