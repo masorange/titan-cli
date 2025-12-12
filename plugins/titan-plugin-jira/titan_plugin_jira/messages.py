@@ -86,6 +86,7 @@ class Messages:
             UI_NOT_AVAILABLE: str = "UI not available for prompting"
             ASK_ISSUE_NUMBER: str = "Enter issue number to analyze"
             ISSUE_SELECTED: str = "Selected: {key} - {summary}"
+            ISSUE_SELECTION_CONFIRM: str = "Selected: {key} - {summary}"
             SELECT_SUCCESS: str = "Selected issue: {key}"
 
     class JIRA:
