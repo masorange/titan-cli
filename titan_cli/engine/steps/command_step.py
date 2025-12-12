@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from subprocess import Popen, PIPE
 import re
 from typing import Any
@@ -33,9 +35,24 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
         ctx.ui.text.info(f"Executing command: [primary]{command}[/primary]")
 
     try:
-        # TODO: Add support for interactive processes
-        
-        process = Popen(command, shell=True, stdout=PIPE, stderr=PIPE, text=True, cwd=ctx.get("cwd"))
+        use_venv = step.params.get("use_venv", False)
+        process_env = os.environ.copy()
+
+        if use_venv:
+            # Get the poetry virtualenv path
+            if ctx.ui:
+                ctx.ui.text.body("Activating poetry virtual environment for step...", style="dim")
+            
+            env_proc = Popen(["poetry", "env", "info", "-p"], stdout=PIPE, stderr=PIPE, text=True, cwd=ctx.get("cwd"))
+            venv_path, err = env_proc.communicate()
+            
+            if env_proc.returncode == 0 and venv_path.strip():
+                bin_path = Path(venv_path.strip()) / "bin"
+                process_env["PATH"] = f"{bin_path}:{process_env['PATH']}"
+            else:
+                return Error(f"Could not determine poetry virtual environment. Error: {err}")
+
+        process = Popen(command, shell=True, stdout=PIPE, stderr=PIPE, text=True, cwd=ctx.get("cwd"), env=process_env)
 
         stdout_lines = []
         if process.stdout:

@@ -14,3 +14,5 @@ hooks:
       name: "Run Ruff Linter"
       command: "ruff check ."
       on_error: fail  # Stop the workflow if linting fails
+      params:
+        use_venv: true
