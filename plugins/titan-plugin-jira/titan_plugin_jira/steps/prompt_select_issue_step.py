@@ -56,10 +56,13 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
         if ctx.ui:
             ctx.ui.spacer.small()
-            ctx.ui.text.success(msg.Steps.PromptSelectIssue.ISSUE_SELECTED.format(
-                key=selected_issue.key,
-                summary=selected_issue.summary
-            ))
+            ctx.ui.panel.print(
+                msg.Steps.PromptSelectIssue.ISSUE_SELECTION_CONFIRM.format(
+                    key=selected_issue.key,
+                    summary=selected_issue.summary
+                ),
+                panel_type="success"
+            )
             ctx.ui.spacer.small()
 
         return Success(

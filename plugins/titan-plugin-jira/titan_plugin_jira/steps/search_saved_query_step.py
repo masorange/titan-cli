@@ -205,6 +205,9 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
                     title=f"Issues (sorted by {sorter.get_sort_description()})"
                 )
                 ctx.ui.spacer.small()
+
+                # Use sorted issues for downstream steps
+                issues = sorted_issues
             except Exception as e:
                 # If table rendering fails, show error but continue with raw issue list
                 ctx.ui.text.error(f"Error rendering table: {e}")
