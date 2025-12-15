@@ -27,6 +27,8 @@ class ProjectStepSource:
         self._step_info_cache: Optional[List[StepInfo]] = None
         self._step_function_cache: Dict[str, StepFunction] = {}
 
+    EXCLUDED_FILES = {"__init__.py", "__pycache__"}
+
     def discover(self) -> List[StepInfo]:
         """
         Discovers all available step files in the project's .titan/steps directory.
@@ -40,7 +42,7 @@ class ProjectStepSource:
 
         discovered = []
         for step_file in self._steps_dir.glob("*.py"):
-            if not step_file.name.startswith("__"):
+            if step_file.name not in self.EXCLUDED_FILES:
                 step_name = step_file.stem
                 discovered.append(StepInfo(name=step_name, path=step_file))
         
