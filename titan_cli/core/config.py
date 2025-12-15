@@ -8,6 +8,7 @@ from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry
 from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
+from ..messages import msg
 
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
@@ -112,13 +113,12 @@ class TitanConfig:
                 self._save_global_config()
             except ConfigWriteError as e:
                 import warnings
-                warnings.warn(f"Failed to save global config after unsetting invalid project: {e}", RuntimeWarning)
+                warnings.warn(msg.Config.SAVE_GLOBAL_CONFIG_FAILED_UNSET.format(e=e), RuntimeWarning)
             
             # Store warning to show later
             import warnings
             warnings.warn(
-                f"Active project '{active_project_name}' was invalid or not configured. "
-                "It has been unset. Use 'Switch Project' to select a valid project.",
+                msg.Config.ACTIVE_PROJECT_INVALID.format(project_name=active_project_name),
                 RuntimeWarning
             )
 
