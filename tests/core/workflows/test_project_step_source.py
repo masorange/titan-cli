@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from titan_cli.core.workflows.project_step_source import ProjectStepSource
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.engine.results import Success, Error
+from titan_cli.engine.results import Success
 
 # --- Fixtures ---
 

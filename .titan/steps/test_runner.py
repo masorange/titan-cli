@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
+from titan_cli.engine.utils import get_poetry_venv_env
 
 # Constants for display limits
 MAX_TEST_NAME_LENGTH = 60
@@ -20,14 +21,20 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     project_root = ctx.get("project_root", ".")
     report_path = Path(project_root) / ".report.json"
 
+    # Get poetry venv environment for consistency with other steps
+    venv_env = get_poetry_venv_env(cwd=project_root)
+    if not venv_env:
+        return Error("Could not determine poetry virtual environment for pytest.")
+
     ctx.ui.text.body("Running tests with pytest...", style="dim")
 
-    # Run pytest with JSON report enabled
+    # Run pytest with JSON report enabled, using the venv environment
     result = subprocess.run(
-        ["poetry", "run", "pytest", "--json-report", f"--json-report-file={report_path}"],
+        ["pytest", "--json-report", f"--json-report-file={report_path}"],
         capture_output=True,
         text=True,
-        cwd=project_root
+        cwd=project_root,
+        env=venv_env
     )
     
     # Read the report

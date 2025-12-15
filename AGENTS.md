@@ -1002,6 +1002,7 @@ Execute shell commands:
 - **Variable substitution:** Use `${variable}` syntax in commands
 - **Poetry venv activation:** Set `use_venv: true` to run command in Poetry's virtualenv
 - **Error handling:** Configure behavior with `on_error: fail|continue|skip`
+- **Shell execution mode:** Control command execution security with `use_shell` flag
 
 ```yaml
 - id: ruff-check
@@ -1011,6 +1012,43 @@ Execute shell commands:
     use_venv: true  # Activates poetry env, then runs ruff
   on_error: fail
 ```
+
+**Security: Shell Execution Mode**
+
+By default, commands are executed **without shell** (`use_shell: false`) for security. The command is split using `shlex.split()` to prevent command injection attacks.
+
+```yaml
+# SAFE (default): Command is split, no shell features
+- id: safe-echo
+  command: "echo ${message}"
+  # use_shell defaults to false - uses shlex.split()
+```
+
+When you need shell features (pipes, redirects, wildcards), set `use_shell: true`:
+
+```yaml
+# REQUIRES SHELL: Uses pipes
+- id: grep-logs
+  command: "cat app.log | grep ERROR | head -10"
+  params:
+    use_shell: true  # ⚠️ Required for pipes, but less secure
+```
+
+**⚠️ Security Warning:** Only use `use_shell: true` when necessary and **never** with untrusted input from `${variables}` that could contain user data.
+
+**When to use `use_shell`:**
+
+| Feature Needed | `use_shell` | Example |
+|----------------|-------------|---------|
+| Simple commands | `false` (default) | `pytest tests/` |
+| Commands with arguments | `false` (default) | `ruff check . --fix` |
+| Variable substitution (trusted) | `false` (default) | `echo ${project_name}` |
+| Pipes (`\|`) | `true` ⚠️ | `cat file \| grep pattern` |
+| Redirects (`>`, `>>`, `<`) | `true` ⚠️ | `echo "test" > output.txt` |
+| Wildcards (`*`, `?`) | `true` ⚠️ | `ls *.py` |
+| Command chaining (`&&`, `\|\|`) | `true` ⚠️ | `make && make test` |
+
+**Best Practice:** Prefer simple commands without `use_shell` when possible. If you need shell features, ensure all `${variables}` come from trusted sources (workflow params, not user input).
 
 #### 3. Project Steps
 

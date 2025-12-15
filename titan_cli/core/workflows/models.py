@@ -12,6 +12,7 @@ class WorkflowStepModel(BaseModel):
     command: Optional[str] = Field(None, description="A shell command to execute.")
     params: Dict[str, Any] = Field(default_factory=dict, description="Parameters to pass to the step or command.")
     on_error: Literal["fail", "continue"] = Field("fail", description="Action to take if the step fails.")
+    use_shell: bool = Field(False, description="If true, execute the command in a shell. WARNING: This can be a security risk if the command uses untrusted input.")
     
     # Used only in base workflow definitions to mark injection points for hooks
     hook: Optional[str] = Field(None, description="Marks this step as a hook point for extension.")

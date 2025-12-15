@@ -1,6 +1,7 @@
 import os
 from subprocess import Popen, PIPE
 import re
+import shlex
 from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
@@ -49,8 +50,22 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
             else:
                 return Error("Could not determine poetry virtual environment.")
 
-        # We capture stdout now instead of streaming to be able to parse it.
-        process = Popen(command, shell=True, stdout=PIPE, stderr=PIPE, text=True, cwd=cwd, env=process_env)
+        # Determine command execution arguments based on security model
+        if step.use_shell:
+            # Insecure method for commands that need shell features (e.g., pipes)
+            popen_args = {"args": command, "shell": True}
+        else:
+            # Secure method: split command into a list to avoid injection
+            popen_args = {"args": shlex.split(command), "shell": False}
+
+        process = Popen(
+            **popen_args,
+            stdout=PIPE,
+            stderr=PIPE,
+            text=True,
+            cwd=cwd,
+            env=process_env
+        )
         
         stdout_output, stderr_output = process.communicate()
 
@@ -71,7 +86,8 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
         )
 
     except FileNotFoundError:
-        return Error(f"Command not found: {command.split()[0]}")
+        command_to_report = command.split()[0] if not step.use_shell else command
+        return Error(f"Command not found: {command_to_report}")
     except Exception as e:
         return Error(f"An unexpected error occurred: {e}", exception=e)
 
