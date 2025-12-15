@@ -7,7 +7,7 @@ from rich.markdown import Markdown
 from ..messages import msg
 
 
-def ai_analyze_issue_requirements(ctx: WorkflowContext) -> WorkflowResult:
+def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Analyze JIRA issue requirements using AI.
 
