@@ -26,8 +26,8 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         Skip: If no changes, AI not configured, or user declined.
     """
     # Show step header
-    if ctx.views:
-        ctx.views.step_header("ai_commit_message", ctx.current_step, ctx.total_steps)
+    # if ctx.views:
+    #     ctx.views.step_header("ai_commit_message", ctx.current_step, ctx.total_steps)
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():

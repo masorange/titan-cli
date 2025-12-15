@@ -26,8 +26,8 @@ def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         # Show step header
-        if ctx.views:
-            ctx.views.step_header("prompt_pr_title", ctx.current_step, ctx.total_steps)
+        # if ctx.views:
+        #     ctx.views.step_header("prompt_pr_title", ctx.current_step, ctx.total_steps)
         title = ctx.views.prompts.ask_text(msg.Prompts.ENTER_PR_TITLE)
         if not title:
             return Error("PR title cannot be empty.")

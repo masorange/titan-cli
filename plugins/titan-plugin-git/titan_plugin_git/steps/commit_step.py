@@ -28,8 +28,8 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
         Skip: If there are no changes to commit or a commit was already created.
     """
     # Show step header
-    if ctx.views:
-        ctx.views.step_header("create_commit", ctx.current_step, ctx.total_steps)
+    # if ctx.views:
+    #     ctx.views.step_header("create_commit", ctx.current_step, ctx.total_steps)
 
     # Skip if there's nothing to commit
     git_status = ctx.data.get("git_status")

@@ -41,8 +41,8 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
         Error: Failed to generate PR description
     """
     # Show step header
-    if ctx.views:
-        ctx.views.step_header("ai_pr_description", ctx.current_step, ctx.total_steps)
+    # if ctx.views:
+    #     ctx.views.step_header("ai_pr_description", ctx.current_step, ctx.total_steps)
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():

@@ -16,9 +16,6 @@ def get_current_branch_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the current branch was retrieved successfully.
         Error: If the GitClient is not available or the git command fails.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header("get_head_branch", ctx.current_step, ctx.total_steps)
 
     if not ctx.git:
         error_msg = msg.Steps.Status.GIT_CLIENT_NOT_AVAILABLE

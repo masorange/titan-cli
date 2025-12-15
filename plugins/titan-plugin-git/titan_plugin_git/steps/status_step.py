@@ -24,8 +24,8 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
         Skip: If user cancels when uncommitted changes are detected.
     """
     # Show step header
-    if ctx.views:
-        ctx.views.step_header("git_status", ctx.current_step, ctx.total_steps)
+    # if ctx.views:
+    #     ctx.views.step_header("git_status", ctx.current_step, ctx.total_steps)
 
     if not ctx.git:
         return Error(msg.Steps.Status.GIT_CLIENT_NOT_AVAILABLE)
