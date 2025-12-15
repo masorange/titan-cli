@@ -2,7 +2,6 @@
 Tests for IssueSorter utility
 """
 
-import pytest
 from titan_plugin_jira.utils import IssueSorter, IssueSortConfig
 
 

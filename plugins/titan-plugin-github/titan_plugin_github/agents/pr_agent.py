@@ -8,7 +8,6 @@ This agent analyzes the complete context of a branch and automatically:
 3. Creates PR title and description following templates
 """
 
-import re
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,7 +149,7 @@ class PRAgent(BaseAIAgent):
                         # Also include untracked files if they exist
                         if status.untracked_files:
                             # Add header for untracked files context
-                            untracked_info = f"\n\n# New untracked files:\n"
+                            untracked_info = "\n\n# New untracked files:\n"
                             for file in status.untracked_files:
                                 untracked_info += f"# - {file}\n"
                             diff = diff + untracked_info if diff else untracked_info

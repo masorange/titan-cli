@@ -5,7 +5,6 @@ Tests for AI configuration merging between global and project configs.
 This ensures that global AI configuration is preserved when switching between
 projects that don't have their own AI configuration.
 """
-import pytest
 import tomli_w
 from pathlib import Path
 from titan_cli.core.config import TitanConfig

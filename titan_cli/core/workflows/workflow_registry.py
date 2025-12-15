@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
+from titan_cli.core.workflows.project_step_source import ProjectStepSource, StepFunction
 
 from .workflow_sources import (
     WorkflowSource,
@@ -42,16 +43,23 @@ class WorkflowRegistry:
     chains, merges configurations, and caches the final, parsed workflows.
     """
 
-    def __init__(self, project_root: Path, plugin_registry: PluginRegistry):
+    def __init__(
+        self,
+        project_root: Path,
+        plugin_registry: PluginRegistry,
+        project_step_source: ProjectStepSource
+    ):
         """
         Initialize the WorkflowRegistry.
 
         Args:
-            project_root: Root path of the current project
-            plugin_registry: Registry of installed plugins
+            project_root: Root path of the current project.
+            plugin_registry: Registry of installed plugins.
+            project_step_source: Source for discovering project-specific steps.
         """
         self.project_root = project_root
         self.plugin_registry = plugin_registry
+        self._project_step_source = project_step_source
 
         # Define the base path for system workflows, assuming it's in the root of the package
         # (e.g., titan_cli/workflows). The path is constructed relative to this file's location.
@@ -174,7 +182,7 @@ class WorkflowRegistry:
     def _resolve_extends(self, extends_ref: str) -> Dict[str, Any]:
         """
         Recursively resolves a base workflow from an 'extends' reference.
-        
+
         Supports:
         - "plugin:github/create-pr"
         - "system/quick-commit"
@@ -192,7 +200,18 @@ class WorkflowRegistry:
                     if base_workflow_path:
                         break
             if not base_workflow_path:
-                 raise WorkflowNotFoundError(f"Base workflow '{extends_ref}' not found in source '{source_type}'.")
+                # Better error message: check if plugin is installed
+                if source_type == "plugin":
+                    plugin_name = ref_path.split("/")[0] if "/" in ref_path else None
+                    if plugin_name:
+                        installed_plugins = self.plugin_registry.list_installed()
+                        if plugin_name not in installed_plugins:
+                            raise WorkflowNotFoundError(
+                                f"Cannot extend '{extends_ref}': Plugin '{plugin_name}' is not installed.\n"
+                                f"Installed plugins: {', '.join(installed_plugins) if installed_plugins else 'none'}\n"
+                                f"Please install it from the Plugin Management menu."
+                            )
+                raise WorkflowNotFoundError(f"Base workflow '{extends_ref}' not found in source '{source_type}'.")
         else:
             # Normal resolution across all sources by precedence
             base_workflow_path = self._find_workflow_file(extends_ref)
@@ -248,6 +267,25 @@ class WorkflowRegistry:
     
     def _merge_steps_with_hooks(self, base_steps: List[Dict], hooks: Dict[str, List[Dict]]) -> List[Dict]:
         """Injects steps from the 'hooks' dictionary into the base step list."""
+
+        # Find all available hook points in base workflow
+        available_hooks = set()
+        for step in base_steps:
+            if "hook" in step and isinstance(step["hook"], str):
+                available_hooks.add(step["hook"])
+
+        # Add implicit 'after' hook (always available)
+        available_hooks.add("after")
+
+        # Validate that all hooks being used exist in base workflow
+        undefined_hooks = set(hooks.keys()) - available_hooks
+        if undefined_hooks:
+            from .workflow_exceptions import WorkflowError
+            raise WorkflowError(
+                f"Workflow defines hooks {sorted(undefined_hooks)} but base workflow only supports: {sorted(available_hooks)}.\n"
+                f"Available hooks in base workflow: {', '.join(sorted(available_hooks))}"
+            )
+
         merged = []
 
         for step in base_steps:
@@ -283,4 +321,11 @@ class WorkflowRegistry:
         """Clears all caches, forcing re-discovery and re-parsing."""
         self._workflows.clear()
         self._discovered = None
+
+    def get_project_step(self, step_name: str) -> Optional[StepFunction]:
+        """
+        Retrieves a loaded project step function by its name from the project step source.
+        """
+        return self._project_step_source.get_step(step_name)
+
 

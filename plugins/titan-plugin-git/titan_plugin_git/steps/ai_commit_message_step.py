@@ -1,6 +1,5 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/ai_commit_message_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
-from titan_plugin_git.exceptions import GitCommandError
 from titan_plugin_git.messages import msg
 
 

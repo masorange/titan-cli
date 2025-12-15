@@ -1,5 +1,4 @@
 # tests/commands/test_projects.py
-import tomli_w
 from pathlib import Path
 from typer.testing import CliRunner
 from unittest.mock import MagicMock # Import MagicMock

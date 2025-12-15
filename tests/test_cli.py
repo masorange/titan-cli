@@ -5,7 +5,6 @@ from pathlib import Path
 
 # The function to test
 from titan_cli.cli import show_interactive_menu
-from titan_cli.messages import msg # Added import for msg
 
 @pytest.fixture
 def mock_dependencies():

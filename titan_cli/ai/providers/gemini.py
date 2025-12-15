@@ -5,7 +5,7 @@ Also supports custom endpoints with Anthropic-compatible API format."""
 
 from .base import AIProvider
 from ..models import AIRequest, AIResponse, AIMessage
-from ..exceptions import AIProviderAPIError, AIProviderAuthenticationError, AIProviderRateLimitError
+from ..exceptions import AIProviderAPIError
 
 from ..constants import get_default_model
 
@@ -19,7 +19,6 @@ except ImportError:
     
 # For custom endpoint support
 import requests
-import json
 
 
 class GeminiProvider(AIProvider):

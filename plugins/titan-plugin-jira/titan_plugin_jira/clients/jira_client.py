@@ -10,12 +10,10 @@ Migrated from: /Users/rpedraza/MultiAgentClaude/src/jira/api_client.py
 
 import json
 from typing import Dict, List, Optional, Any, Union
-from functools import lru_cache
 
 import requests
 
 from ..models import (
-    IssueStatus,
     JiraProject,
     JiraIssueType,
     JiraTransition,
@@ -97,13 +95,13 @@ class JiraClient:
             try:
                 error_detail = e.response.json()
                 error_msg = f"{error_msg}\nDetails: {json.dumps(error_detail, indent=2)}"
-            except:
+            except (ValueError, AttributeError):
                 # If not JSON, show raw text
                 error_msg = f"{error_msg}\nResponse: {e.response.text[:500]}"
 
             try:
                 response_json = e.response.json() if e.response.content else None
-            except:
+            except (ValueError, AttributeError):
                 response_json = None
 
             raise JiraAPIError(error_msg, status_code=e.response.status_code, response=response_json)

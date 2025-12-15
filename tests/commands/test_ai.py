@@ -1,7 +1,7 @@
-
 import pytest
 from unittest.mock import MagicMock, patch
-from titan_cli.commands.ai import list_providers, set_default_provider, _test_ai_connection_by_id, configure_ai_interactive
+from typer.testing import CliRunner
+from titan_cli.commands.ai import list_providers, set_default_provider, _test_ai_connection_by_id
 from titan_cli.core.models import TitanConfigModel, AIConfig, AIProviderConfig
 from titan_cli.core.config import TitanConfig
 from titan_cli.ui.views.prompts import PromptsRenderer
@@ -46,12 +46,6 @@ def test_list_providers(mock_titan_config, capsys):
     assert "Personal Claude" in captured.out
     assert "Corporate Gemini" in captured.out
     assert "⭐" in captured.out
-
-import tomli
-import tomli_w
-from typer.testing import CliRunner
-
-# ... (other imports)
 
 @pytest.fixture
 def runner():

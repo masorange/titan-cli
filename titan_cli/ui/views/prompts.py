@@ -6,12 +6,11 @@ because it is a composite component that uses other components (like TextRendere
 to display its own UI (e.g., error messages).
 """
 import os
-import sys
 import subprocess
 import tempfile
 from pathlib import Path
 import platform
-from typing import Optional, List, Callable, Tuple
+from typing import Optional, List, Callable
 from rich.console import Console
 from rich.prompt import Prompt, Confirm, IntPrompt
 from ..console import get_console

@@ -2,8 +2,7 @@
 Unit tests for Saved Queries
 """
 
-import pytest
-from titan_plugin_jira.utils.saved_queries import SavedQueries, SAVED_QUERIES
+from titan_plugin_jira.utils.saved_queries import SAVED_QUERIES
 
 
 class TestSavedQueries:

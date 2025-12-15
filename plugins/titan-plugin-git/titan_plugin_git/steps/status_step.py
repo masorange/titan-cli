@@ -3,8 +3,7 @@ from titan_cli.engine import (
     WorkflowContext,
     WorkflowResult,
     Success,
-    Error,
-    Skip
+    Error
 )
 from titan_cli.messages import msg as global_msg
 from ..messages import msg

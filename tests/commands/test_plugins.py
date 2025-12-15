@@ -3,7 +3,6 @@ from typer.testing import CliRunner
 from unittest.mock import MagicMock, PropertyMock
 
 from titan_cli.cli import app
-from titan_cli.core.config import TitanConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.errors import PluginLoadError, PluginInitializationError
 

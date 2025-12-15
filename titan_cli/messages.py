@@ -286,7 +286,29 @@ class Messages:
         AI_PROVIDER_NOT_FOUND_IN_CONFIG = "AI provider '{provider_id}' not found in configuration."
         AI_SEE_AVAILABLE_PROVIDERS = "Run 'titan ai configure' or 'titan ai list' to see available providers."
 
+    # ═══════════════════════════════════════════════════════════════
+    # AI Assistant Step
+    # ═══════════════════════════════════════════════════════════════
 
+    class AIAssistant:
+        """Messages for the AI Code Assistant step."""
+        UI_CONTEXT_NOT_AVAILABLE = "UI context is not available for this step."
+        CONTEXT_KEY_REQUIRED = "Parameter 'context_key' is required for ai_code_assistant step"
+        NO_DATA_IN_CONTEXT = "No data found in context key '{context_key}' - skipping AI assistance"
+        INVALID_PROMPT_TEMPLATE = "Invalid prompt_template: missing placeholder {e}"
+        FAILED_TO_BUILD_PROMPT = "Failed to build prompt: {e}"
+        CONFIRM_LAUNCH_ASSISTANT = "Would you like AI assistance to help fix these issues?"
+        DECLINED_ASSISTANCE_STOPPED = "User declined AI assistance - workflow stopped"
+        DECLINED_ASSISTANCE_SKIPPED = "User declined AI assistance"
+        NO_ASSISTANT_CLI_FOUND = "No AI coding assistant CLI found"
+        LAUNCHING_ASSISTANT = "Launching {cli_name}..."
+        PROMPT_PREVIEW = "Prompt: {prompt_preview}"
+        BACK_IN_TITAN = "Back in Titan workflow"
+        ASSISTANT_EXITED_WITH_CODE = "{cli_name} exited with code {exit_code}"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Code
+    # ═══════════════════════════════════════════════════════════════
     class Code:
         """Claude Code CLI integration messages"""
         HELP_TEXT = "Launch Claude Code CLI from anywhere in Titan."

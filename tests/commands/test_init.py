@@ -1,7 +1,5 @@
 # tests/commands/test_init.py
 import tomli
-import tomli_w # Needed to write initial global config for some tests
-from pathlib import Path
 from typer.testing import CliRunner
 from titan_cli.cli import app # Import the main app
 from titan_cli.core.config import TitanConfig # Import TitanConfig to patch GLOBAL_CONFIG

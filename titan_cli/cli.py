@@ -13,7 +13,6 @@ import importlib.metadata
 import subprocess
 import os
 from pathlib import Path
-from typing import Optional
 
 from titan_cli.ui.views.banner import render_titan_banner
 from titan_cli.messages import msg
@@ -23,7 +22,6 @@ from titan_cli.commands.projects import projects_app, list_projects
 from titan_cli.commands.ai import ai_app
 from titan_cli.commands.plugins import plugins_app
 from titan_cli.commands.code import code_app, launch_code
-from titan_cli.utils.claude_integration import ClaudeCodeLauncher
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.errors import ConfigWriteError
@@ -238,7 +236,6 @@ def _show_projects_submenu(prompts: PromptsRenderer, text: TextRenderer, config:
 
 def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, config: TitanConfig):
     """Shows the submenu for plugin management."""
-    from titan_cli.core.plugins.available import KNOWN_PLUGINS
     spacer = SpacerRenderer()
 
     def install_plugin_handler():
@@ -487,7 +484,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     existing_secret = config.secrets.get(keychain_key) or config.secrets.get(secret_key)
 
                     if existing_secret:
-                        text.body(f"(Already configured)", style="dim")
+                        text.body("(Already configured)", style="dim")
                         skip_secret = prompts.ask_confirm("Keep existing value?", default=True)
                         if skip_secret:
                             # Keep the existing secret (will be saved to keychain later)
@@ -766,6 +763,7 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
 
     if chosen_workflow_item and chosen_workflow_item.action != "cancel":
         selected_workflow_name = chosen_workflow_item.action
+        original_cwd = os.getcwd() # Moved assignment before the try block
 
         try:
             parsed_workflow = config.workflows.get_workflow(selected_workflow_name)
@@ -787,7 +785,6 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
             spacer.small()
 
             # Change to active project directory for workflow execution
-            original_cwd = os.getcwd()
             if config.active_project_path:
                 os.chdir(config.active_project_path)
                 text.body(f"Working directory: {config.active_project_path}", style="dim")
@@ -820,7 +817,7 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
                         getattr(ctx_builder, f"with_{plugin_name}")(client)
 
             execution_context = ctx_builder.build()
-            executor = WorkflowExecutor(config.registry)
+            executor = WorkflowExecutor(config.registry, config.workflows)
 
             try:
                 # Execute workflow (steps handle their own UI)

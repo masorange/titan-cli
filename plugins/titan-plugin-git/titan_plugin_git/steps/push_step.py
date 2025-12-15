@@ -1,5 +1,4 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/push_step.py
-from typing import Optional
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_plugin_git.exceptions import GitCommandError
 from titan_plugin_git.messages import msg

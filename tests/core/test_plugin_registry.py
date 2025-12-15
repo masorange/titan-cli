@@ -1,9 +1,7 @@
 # tests/core/test_plugin_registry.py
-import pytest
-from unittest.mock import MagicMock, patch
-from typing import List, Optional
+from unittest.mock import MagicMock
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
-from titan_cli.core.errors import PluginLoadError, PluginError
+from titan_cli.core.errors import PluginLoadError
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
