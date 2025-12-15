@@ -7,9 +7,10 @@ from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
 
 
-def _resolve_parameters_in_string(text: str, ctx: WorkflowContext) -> str:
+def resolve_parameters_in_string(text: str, ctx: WorkflowContext) -> str:
     """
     Substitutes ${placeholder} in a string using values from ctx.data.
+    Public function so it can be used by workflow_executor.
     """
     def replace_placeholder(match):
         placeholder = match.group(1)
@@ -28,7 +29,7 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
     if not command_template:
         return Error("Command step is missing the 'command' attribute.")
 
-    command = _resolve_parameters_in_string(command_template, ctx)
+    command = resolve_parameters_in_string(command_template, ctx)
 
     if ctx.ui:
         ctx.ui.text.info(f"Executing command: {command}")

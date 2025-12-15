@@ -156,11 +156,12 @@ class WorkflowExecutor:
         Resolves parameter values by substituting placeholders from context data.
         All workflow params are already in ctx.data.
         """
+        from titan_cli.engine.steps.command_step import resolve_parameters_in_string
+
         resolved = {}
         for key, value in params.items():
             if isinstance(value, str):
-                # Use the resolver from command_step.py, now that it's moved
-                resolved[key] = execute_external_command_step._resolve_parameters_in_string(value, ctx)
+                resolved[key] = resolve_parameters_in_string(value, ctx)
             else:
                 resolved[key] = value # Keep non-string parameters as is
         return resolved
