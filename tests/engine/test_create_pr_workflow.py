@@ -33,15 +33,15 @@ def create_pr_workflow_yaml():
         "source": "test", # Added source
         "params": {},     # Added params
         "steps": [
-            {"id": "git_status", "plugin": "git", "step": "get_status"},
-            {"id": "prompt_for_commit", "plugin": "git", "step": "prompt_for_commit_message"},
-            {"id": "create_commit", "plugin": "git", "step": "create_commit", "requires": ["commit_message"]},
-            {"id": "push", "plugin": "git", "step": "push"},
-            {"id": "get_base_branch", "plugin": "git", "step": "get_base_branch"},
-            {"id": "get_head_branch", "plugin": "git", "step": "get_current_branch"},
-            {"id": "prompt_pr_title", "plugin": "github", "step": "prompt_for_pr_title"},
-            {"id": "prompt_pr_body", "plugin": "github", "step": "prompt_for_pr_body"},
-            {"id": "create_pr", "plugin": "github", "step": "create_pr", "requires": ["pr_title", "pr_base_branch", "pr_head_branch"]},
+            {"id": "git_status", "name": "Get Git Status", "plugin": "git", "step": "get_status"},
+            {"id": "prompt_for_commit", "name": "Prompt for Commit Message", "plugin": "git", "step": "prompt_for_commit_message"},
+            {"id": "create_commit", "name": "Create Commit", "plugin": "git", "step": "create_commit", "requires": ["commit_message"]},
+            {"id": "push", "name": "Push Changes", "plugin": "git", "step": "push"},
+            {"id": "get_base_branch", "name": "Get Base Branch", "plugin": "git", "step": "get_base_branch"},
+            {"id": "get_head_branch", "name": "Get Head Branch", "plugin": "git", "step": "get_current_branch"},
+            {"id": "prompt_pr_title", "name": "Prompt for PR Title", "plugin": "github", "step": "prompt_for_pr_title"},
+            {"id": "prompt_pr_body", "name": "Prompt for PR Body", "plugin": "github", "step": "prompt_for_pr_body"},
+            {"id": "create_pr", "name": "Create Pull Request", "plugin": "github", "step": "create_pr", "requires": ["pr_title", "pr_base_branch", "pr_head_branch"]},
         ]
     }
 

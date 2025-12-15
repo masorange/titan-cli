@@ -845,19 +845,22 @@ The workflow system follows a similar pattern to the plugin system, with clear s
 
 ```
 titan_cli/
-├── core/workflows/          # Workflow Management (analogous to PluginRegistry)
-│   ├── workflow_registry.py # Central registry for discovering and managing workflows
-│   ├── workflow_sources.py  # Load workflows from multiple sources
+├── core/workflows/            # Workflow Management (analogous to PluginRegistry)
+│   ├── workflow_registry.py   # Central registry for discovering and managing workflows
+│   ├── workflow_sources.py    # Load workflows from multiple sources
+│   ├── project_step_source.py # Discover and load project steps (.titan/steps/)
 │   ├── workflow_exceptions.py # Workflow-specific exceptions
-│   └── models.py            # Workflow data models
+│   └── models.py              # Workflow data models
 │
-└── engine/                  # Workflow Execution
-    ├── workflow_executor.py # Executes ParsedWorkflow by running steps
-    ├── context.py           # WorkflowContext (dependency injection container)
-    ├── builder.py           # WorkflowContextBuilder (fluent API)
-    ├── results.py           # WorkflowResult types (Success, Error, Skip)
-    ├── ui_container.py      # UIComponents container
-    └── views_container.py   # UIViews container
+└── engine/                    # Workflow Execution
+    ├── workflow_executor.py   # Executes ParsedWorkflow by running steps
+    ├── context.py             # WorkflowContext (dependency injection container)
+    ├── builder.py             # WorkflowContextBuilder (fluent API)
+    ├── results.py             # WorkflowResult types (Success, Error, Skip)
+    ├── steps/
+    │   └── command_step.py    # Execute shell commands with venv support
+    ├── ui_container.py        # UIComponents container
+    └── views_container.py     # UIViews container
 ```
 
 ### Workflow Sources & Precedence
@@ -990,7 +993,133 @@ Execute shell commands:
   name: "Run Tests"
   command: "npm test"   # Shell command to execute
   on_error: continue    # Continue even if tests fail
+  params:
+    use_venv: true      # Optional: activate Poetry virtualenv before running
 ```
+
+**Advanced Command Step Features:**
+
+- **Variable substitution:** Use `${variable}` syntax in commands
+- **Poetry venv activation:** Set `use_venv: true` to run command in Poetry's virtualenv
+- **Error handling:** Configure behavior with `on_error: fail|continue|skip`
+
+```yaml
+- id: ruff-check
+  name: "Run Linter"
+  command: "ruff check . --output-format=json"
+  params:
+    use_venv: true  # Activates poetry env, then runs ruff
+  on_error: fail
+```
+
+#### 3. Project Steps
+
+**Execute custom Python functions** defined in `.titan/steps/` directory. This allows projects to define workflow logic without creating a full plugin.
+
+**Convention:**
+- File: `.titan/steps/{step_name}.py`
+- Function: `def {step_name}(ctx: WorkflowContext) -> WorkflowResult`
+- Reference: `plugin: project` in YAML
+
+**Example: Custom linter step**
+
+```python
+# .titan/steps/ruff_linter.py
+import json
+import subprocess
+from titan_cli.engine.context import WorkflowContext
+from titan_cli.engine.results import Success, Error, WorkflowResult
+
+
+def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Run ruff with autofix and show diff between before/after.
+    """
+    if not ctx.ui:
+        return Error("UI context is not available for this step.")
+
+    project_root = ctx.get("project_root", ".")
+
+    # 1. Scan before fix
+    ctx.ui.text.body("Running initial ruff scan...", style="dim")
+    result_before = subprocess.run(
+        ["poetry", "run", "ruff", "check", ".", "--output-format=json"],
+        capture_output=True,
+        text=True,
+        cwd=project_root
+    )
+
+    try:
+        errors_before = json.loads(result_before.stdout) if result_before.stdout else []
+    except json.JSONDecodeError:
+        return Error(f"Failed to parse ruff output as JSON.\n{result_before.stdout}")
+
+    # 2. Auto-fix
+    ctx.ui.text.body("Applying auto-fixes...", style="dim")
+    subprocess.run(
+        ["poetry", "run", "ruff", "check", ".", "--fix", "--quiet"],
+        capture_output=True,
+        cwd=project_root
+    )
+
+    # 3. Scan after fix
+    result_after = subprocess.run(
+        ["poetry", "run", "ruff", "check", ".", "--output-format=json"],
+        capture_output=True,
+        text=True,
+        cwd=project_root
+    )
+    errors_after = json.loads(result_after.stdout) if result_after.stdout else []
+
+    # 4. Show summary with UI components
+    fixed_count = len(errors_before) - len(errors_after)
+
+    if fixed_count > 0:
+        ctx.ui.text.success(f"Auto-fixed {fixed_count} issue(s)")
+
+    if not errors_after:
+        ctx.ui.text.success("All linting issues resolved!")
+        return Success("Linting passed")
+
+    # 5. Show remaining errors
+    ctx.ui.text.warning(f"{len(errors_after)} issue(s) require manual fix:")
+    for error in errors_after:
+        file_path = error.get("filename", "Unknown")
+        location = error.get("location", {})
+        row = location.get("row", "?")
+        code = error.get("code", "")
+        message = error.get("message", "")
+        ctx.ui.text.error(f"  {file_path}:{row} - [{code}] {message}")
+
+    return Error(f"{len(errors_after)} linting issues remain")
+```
+
+**Usage in workflow:**
+
+```yaml
+# .titan/workflows/create-pr-ai.yaml
+extends: "plugin:github/create-pr-ai"
+
+hooks:
+  before_commit:
+    - id: ruff-lint
+      name: "Run Ruff Linter"
+      plugin: project        # Virtual plugin for project steps
+      step: ruff_linter      # Loads .titan/steps/ruff_linter.py
+      on_error: fail
+```
+
+**When to use Project Steps vs Command Steps:**
+
+| Use Case | Command Step | Project Step |
+|----------|-------------|--------------|
+| Run linter with default output | ✅ | ❌ |
+| Run linter with custom formatting | ❌ | ✅ |
+| Execute simple shell command | ✅ | ❌ |
+| Compare before/after results | ❌ | ✅ |
+| Complex logic with conditionals | ❌ | ✅ |
+| Use UIComponents for output | ❌ | ✅ |
+| No Python knowledge required | ✅ | ❌ |
 
 ### Parameter Substitution
 
@@ -1070,12 +1199,47 @@ workflows = config.workflows.list_available()
 # Get a specific workflow (fully resolved and parsed)
 workflow = config.workflows.get_workflow("create-pr")
 # Returns ParsedWorkflow with extends resolved and hooks merged
+
+# Get a project step (for plugin: project)
+step_func = config.workflows.get_project_step("ruff_linter")
+# Returns callable from .titan/steps/ruff_linter.py
 ```
 
 **Key methods:**
 - `discover()` - Discover all workflows from all sources
 - `list_available()` - Get list of workflow names
 - `get_workflow(name)` - Get fully resolved ParsedWorkflow
+- `get_project_step(name)` - Get project step function from `.titan/steps/`
+
+#### 1.5. ProjectStepSource (`core/workflows/project_step_source.py`)
+
+Discovers and loads Python step functions from `.titan/steps/` directory.
+
+```python
+from titan_cli.core.workflows.project_step_source import ProjectStepSource
+from pathlib import Path
+
+# Initialize with project root
+step_source = ProjectStepSource(Path("/path/to/project"))
+
+# Discover all available project steps
+steps = step_source.discover()
+# Returns: [StepInfo(name="ruff_linter", path=Path(".titan/steps/ruff_linter.py")), ...]
+
+# Load a specific step function
+ruff_linter_func = step_source.get_step("ruff_linter")
+# Returns the callable function, dynamically imported
+```
+
+**Discovery Convention:**
+- Files: `.titan/steps/*.py` (excluding `__*.py`)
+- Function name must match filename (e.g., `ruff_linter.py` → `def ruff_linter(...)`)
+- Function signature: `def step_name(ctx: WorkflowContext) -> WorkflowResult`
+
+**Caching:**
+- Discovered steps are cached in memory
+- Loaded functions are cached after first import
+- No re-import on subsequent calls (modify file → restart titan)
 
 #### 2. WorkflowExecutor (`engine/workflow_executor.py`)
 

@@ -64,14 +64,33 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     ctx.ui.text.warning(f"{len(errors_after)} issue(s) require manual fix:")
     ctx.ui.spacer.small()
 
+    # Prepare data for the table
+    table_headers = ["File", "Line", "Col", "Code", "Message"]
+    table_rows = []
+
     for error in errors_after:
-        file_path = error.get("filename", "Unknown")
+        file_path = error.get("filename", "Unknown file")
+        # Make path relative to project_root if possible for cleaner display
+        if project_root != "." and file_path.startswith(project_root):
+            file_path = str(Path(file_path).relative_to(project_root))
+        
         location = error.get("location", {})
-        row = location.get("row", "?")
-        col = location.get("column", "?")
+        row = str(location.get("row", "?"))
+        col = str(location.get("column", "?"))
         code = error.get("code", "")
         message = error.get("message", "")
 
-        ctx.ui.text.error(f"  {file_path}:{row}:{col} - [{code}] {message}")
+        table_rows.append([file_path, row, col, code, message])
+
+    if ctx.ui.table: # Ensure table renderer is available
+        ctx.ui.table.print_table(
+            headers=table_headers,
+            rows=table_rows,
+            show_lines=True,
+            title="Remaining Ruff Issues"
+        )
+    else: # Fallback if table renderer is somehow not available
+        for row_data in table_rows:
+            ctx.ui.text.error(f"{row_data[0]}:{row_data[1]}:{row_data[2]} - [{row_data[3]}] {row_data[4]}")
 
     return Error(f"{len(errors_after)} linting issues remain")
