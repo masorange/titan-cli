@@ -6,6 +6,18 @@ from titan_cli.engine.results import Success, Error, WorkflowResult
 from titan_cli.engine.utils import get_poetry_venv_env
 
 
+def _format_file_path(file_path: str, project_root: str) -> str:
+    """Format file path relative to project root if possible."""
+    try:
+        project_path = Path(project_root).resolve()
+        file_path_obj = Path(file_path).resolve()
+        if file_path_obj.is_relative_to(project_path):
+            return str(file_path_obj.relative_to(project_path))
+    except (ValueError, OSError):
+        pass  # Keep original path if conversion fails
+    return file_path
+
+
 def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     """
     Run ruff with autofix and show diff between before/after.
@@ -78,15 +90,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         table_rows = []
 
         for error in errors_after:
-            file_path = error.get("filename", "Unknown file")
-            # Make path relative to project_root if possible for cleaner display
-            try:
-                project_path = Path(project_root).resolve()
-                file_path_obj = Path(file_path).resolve()
-                if file_path_obj.is_relative_to(project_path):
-                    file_path = str(file_path_obj.relative_to(project_path))
-            except (ValueError, OSError):
-                pass  # Keep original path if conversion fails
+            file_path = _format_file_path(error.get("filename", "Unknown file"), project_root)
 
             location = error.get("location", {})
             row = str(location.get("row", "?"))
@@ -110,14 +114,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         # Build formatted error list for AI assistant
         errors_text = f"{len(errors_after)} linting issues found:\n\n"
         for error in errors_after:
-            file_path = error.get("filename", "Unknown file")
-            try:
-                project_path = Path(project_root).resolve()
-                file_path_obj = Path(file_path).resolve()
-                if file_path_obj.is_relative_to(project_path):
-                    file_path = str(file_path_obj.relative_to(project_path))
-            except (ValueError, OSError):
-                pass  # Keep original path if conversion fails
+            file_path = _format_file_path(error.get("filename", "Unknown file"), project_root)
 
             location = error.get("location", {})
             errors_text += f"• {file_path}:{location.get('row', '?')}:{location.get('column', '?')} - [{error.get('code', '')}] {error.get('message', '')}\n"
