@@ -90,14 +90,13 @@ Generate ONE single-line conventional commit message following this EXACT format
 - type(scope): description
 - Types: feat, fix, refactor, docs, test, chore, style, perf
 - Scope: area affected (e.g., auth, api, ui)
-- Description: brief summary in imperative mood
-- MAXIMUM 72 characters total
+- Description: clear summary in imperative mood (be descriptive but concise)
 - NO line breaks, NO body, NO additional explanation
 
-Examples (notice they are all one line, under 72 chars):
-- feat(auth): add OAuth2 integration
-- fix(api): resolve race condition in cache
-- refactor(ui): simplify menu component
+Examples (notice they are all one line):
+- feat(auth): add OAuth2 integration with Google provider
+- fix(api): resolve race condition in cache invalidation
+- refactor(ui): simplify menu component and remove unused props
 
 Return ONLY the single-line commit message, absolutely nothing else."""
 
@@ -116,9 +115,6 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         commit_message = commit_message.strip('"').strip("'").strip()
         # Take only the first line if AI returned multiple lines
         commit_message = commit_message.split('\n')[0].strip()
-        # Truncate if too long
-        if len(commit_message) > 72:
-            commit_message = commit_message[:69] + "..."
 
         # Show preview to user
         if ctx.ui:
