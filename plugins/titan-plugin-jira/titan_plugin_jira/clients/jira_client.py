@@ -9,7 +9,6 @@ Migrated from: /Users/rpedraza/MultiAgentClaude/src/jira/api_client.py
 """
 
 import json
-import logging
 from typing import Dict, List, Optional, Any, Union
 from functools import lru_cache
 
@@ -24,8 +23,6 @@ from ..models import (
     JiraTicket,
 )
 from ..exceptions import JiraAPIError
-
-logger = logging.getLogger(__name__)
 
 
 class JiraClient:
@@ -81,15 +78,12 @@ class JiraClient:
         # Cache disabled for now (TODO: implement JiraCache)
         self._cache = None
 
-        logger.info(f"Initialized JIRA client for: {self.base_url}")
-
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Union[Dict, List]:
         """Make HTTP request to JIRA API"""
         # JIRA Server uses API v2
         url = f"{self.base_url}/rest/api/2/{endpoint.lstrip('/')}"
 
         try:
-            logger.debug(f"{method.upper()} {url}")
             response = self.session.request(method, url, timeout=self.timeout, **kwargs)
 
             if response.status_code == 204:
@@ -462,7 +456,6 @@ class JiraClient:
         if self._cache:
             cached = self._cache.get(cache_key)
             if cached is not None:
-                logger.debug(f"Returning cached issue types for project: {key}")
                 return cached
 
         # Fetch from API
@@ -497,7 +490,6 @@ class JiraClient:
         if self._cache:
             cached = self._cache.get(cache_key)
             if cached is not None:
-                logger.debug("Returning cached projects list")
                 return cached
 
         # Fetch from API
@@ -537,7 +529,6 @@ class JiraClient:
         if self._cache:
             cached = self._cache.get(cache_key)
             if cached is not None:
-                logger.debug(f"Returning cached project: {project_key}")
                 return cached
 
         # Fetch from API
@@ -581,7 +572,6 @@ class JiraClient:
         if self._cache:
             cached = self._cache.get(cache_key)
             if cached is not None:
-                logger.debug(f"Returning cached statuses for project: {key}")
                 return cached
 
         # Get all statuses for the project
