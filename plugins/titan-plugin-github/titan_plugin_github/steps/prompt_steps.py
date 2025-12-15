@@ -2,6 +2,7 @@
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from ..messages import msg
 
+
 def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Interactively prompts the user for a Pull Request title.
@@ -18,21 +19,15 @@ def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the user cancels or the title is empty.
         Skip: If pr_title already exists.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header("prompt_pr_title", ctx.current_step, ctx.total_steps)
 
     # Skip if title already exists (e.g., from AI generation)
     if ctx.get("pr_title"):
-        if ctx.ui:
-            ctx.ui.panel.print(
-                "PR title already provided, skipping manual prompt.",
-                panel_type="info"
-            )
-            ctx.ui.spacer.small()
         return Skip("PR title already provided, skipping manual prompt.")
 
     try:
+        # Show step header
+        if ctx.views:
+            ctx.views.step_header("prompt_pr_title", ctx.current_step, ctx.total_steps)
         title = ctx.views.prompts.ask_text(msg.Prompts.ENTER_PR_TITLE)
         if not title:
             return Error("PR title cannot be empty.")
@@ -41,6 +36,7 @@ def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("User cancelled.")
     except Exception as e:
         return Error(f"Failed to prompt for PR title: {e}", exception=e)
+
 
 def prompt_for_pr_body_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -58,21 +54,15 @@ def prompt_for_pr_body_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the user cancels.
         Skip: If pr_body already exists.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header("prompt_pr_body", ctx.current_step, ctx.total_steps)
 
     # Skip if body already exists (e.g., from AI generation)
     if ctx.get("pr_body"):
-        if ctx.ui:
-            ctx.ui.panel.print(
-                "PR body already provided, skipping manual prompt.",
-                panel_type="info"
-            )
-            ctx.ui.spacer.small()
         return Skip("PR body already provided, skipping manual prompt.")
 
     try:
+        # Show step header
+        if ctx.views:
+            ctx.views.step_header("prompt_pr_body", ctx.current_step, ctx.total_steps)
         body = ctx.views.prompts.ask_multiline(msg.Prompts.ENTER_PR_BODY)
         # Body can be empty
         return Success("PR body captured", metadata={"pr_body": body})

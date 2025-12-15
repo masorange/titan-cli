@@ -22,6 +22,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         context_key: str - Key in ctx.data to read context from
         prompt_template: str - Template for the prompt (use {context} placeholder)
         ask_confirmation: bool - Whether to ask user before launching (default: True)
+        fail_on_decline: bool - If True, return Error when user declines (default: False)
         cli_preference: str - Which CLI to use: "claude-code", "auto" (default: "auto")
 
     Example workflow usage:
@@ -29,10 +30,11 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
           plugin: core
           step: ai_code_assistant
           params:
-            context_key: "linting_errors"
-            prompt_template: "Help me fix these linting errors:\n{context}"
+            context_key: "test_failures"
+            prompt_template: "Help me fix these test failures:\n{context}"
             ask_confirmation: true
-          on_error: continue
+            fail_on_decline: true
+          on_error: fail
     """
     if not ctx.ui:
         return Error("UI context is not available for this step.")
@@ -41,6 +43,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     context_key = step.params.get("context_key")
     prompt_template = step.params.get("prompt_template", "{context}")
     ask_confirmation = step.params.get("ask_confirmation", True)
+    fail_on_decline = step.params.get("fail_on_decline", False)
     cli_preference = step.params.get("cli_preference", "auto")
 
     # Validate required parameters
@@ -75,6 +78,8 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             default=True
         )
         if not should_launch:
+            if fail_on_decline:
+                return Error("User declined AI assistance - workflow stopped")
             return Skip("User declined AI assistance")
 
     # Determine which CLI to use

@@ -1893,9 +1893,6 @@ groups = ["main"]
 files = []
 develop = true
 
-[package.dependencies]
-titan-cli = {path = "../..", develop = true}
-
 [package.source]
 type = "directory"
 url = "plugins/titan-plugin-github"
