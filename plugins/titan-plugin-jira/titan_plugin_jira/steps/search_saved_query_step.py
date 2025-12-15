@@ -57,11 +57,15 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.views.step_header("search_saved_query", ctx.current_step, ctx.total_steps)
 
     if not ctx.jira:
+        if ctx.ui:
+            ctx.ui.panel.print(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, panel_type="error")
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
 
     # Get query name
     query_name = ctx.get("query_name")
     if not query_name:
+        if ctx.ui:
+            ctx.ui.panel.print(msg.Steps.Search.QUERY_NAME_REQUIRED, panel_type="error")
         return Error(msg.Steps.Search.QUERY_NAME_REQUIRED)
 
     # Get all predefined queries from utils
@@ -99,6 +103,8 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             error_msg += "\n\n" + msg.Steps.Search.ADD_CUSTOM_HINT + "\n"
             error_msg += msg.Steps.Search.CUSTOM_QUERY_EXAMPLE
 
+        if ctx.ui:
+            ctx.ui.panel.print(error_msg, panel_type="error")
         return Error(error_msg)
 
     jql = all_queries[query_name]
@@ -114,7 +120,10 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
                 project = ctx.jira.project_key
 
         if not project:
-            return Error(msg.Steps.Search.PROJECT_REQUIRED.format(query_name=query_name, jql=jql))
+            error_msg = msg.Steps.Search.PROJECT_REQUIRED.format(query_name=query_name, jql=jql)
+            if ctx.ui:
+                ctx.ui.panel.print(error_msg, panel_type="error")
+            return Error(error_msg)
 
         jql = jql.format(project=project)
 
@@ -219,11 +228,17 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
     except JiraAPIError as e:
-        return Error(f"JIRA search failed: {e}")
+        error_msg = f"JIRA search failed: {e}"
+        if ctx.ui:
+            ctx.ui.panel.print(error_msg, panel_type="error")
+        return Error(error_msg)
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()
-        return Error(f"Unexpected error: {e}\n\nTraceback:\n{error_detail}")
+        error_msg = f"Unexpected error: {e}\n\nTraceback:\n{error_detail}"
+        if ctx.ui:
+            ctx.ui.panel.print(error_msg, panel_type="error")
+        return Error(error_msg)
 
 
 __all__ = ["search_saved_query_step"]

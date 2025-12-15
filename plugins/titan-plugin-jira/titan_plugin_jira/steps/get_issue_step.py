@@ -28,11 +28,15 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Check if JIRA client is available
     if not ctx.jira:
+        if ctx.ui:
+            ctx.ui.panel.print(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, panel_type="error")
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
 
     # Get issue key
     issue_key = ctx.get("jira_issue_key")
     if not issue_key:
+        if ctx.ui:
+            ctx.ui.panel.print("JIRA issue key is required", panel_type="error")
         return Error("JIRA issue key is required")
 
     # Get optional expand fields
@@ -68,10 +72,19 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
     except JiraAPIError as e:
         if e.status_code == 404:
-            return Error(msg.Steps.GetIssue.ISSUE_NOT_FOUND.format(issue_key=issue_key))
-        return Error(msg.Steps.GetIssue.GET_FAILED.format(e=e))
+            error_msg = msg.Steps.GetIssue.ISSUE_NOT_FOUND.format(issue_key=issue_key)
+            if ctx.ui:
+                ctx.ui.panel.print(error_msg, panel_type="error")
+            return Error(error_msg)
+        error_msg = msg.Steps.GetIssue.GET_FAILED.format(e=e)
+        if ctx.ui:
+            ctx.ui.panel.print(error_msg, panel_type="error")
+        return Error(error_msg)
     except Exception as e:
-        return Error(f"Unexpected error getting issue: {e}")
+        error_msg = f"Unexpected error getting issue: {e}"
+        if ctx.ui:
+            ctx.ui.panel.print(error_msg, panel_type="error")
+        return Error(error_msg)
 
 
 __all__ = ["get_issue_step"]

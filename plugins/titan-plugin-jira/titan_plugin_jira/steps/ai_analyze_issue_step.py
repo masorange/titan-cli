@@ -39,6 +39,8 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
     # Get issue to analyze
     issue = ctx.get("jira_issue") or ctx.get("selected_issue")
     if not issue:
+        if ctx.ui:
+            ctx.ui.panel.print(msg.Steps.AIIssue.NO_ISSUE_FOUND, panel_type="error")
         return Error(msg.Steps.AIIssue.NO_ISSUE_FOUND)
 
     # Build context for AI
