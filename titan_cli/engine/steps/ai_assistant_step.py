@@ -8,10 +8,13 @@ Can be used after linting, testing, builds, or any step that produces
 errors or context that could benefit from AI assistance.
 """
 
+import json # Moved this import to the top
+
 from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, Skip, WorkflowResult
 from titan_cli.utils.claude_integration import ClaudeCodeLauncher
+from titan_cli.messages import msg # Added msg import
 
 
 def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
@@ -37,7 +40,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
           on_error: fail
     """
     if not ctx.ui:
-        return Error("UI context is not available for this step.")
+        return Error(msg.AIAssistant.UI_CONTEXT_NOT_AVAILABLE)
 
     # Get parameters
     context_key = step.params.get("context_key")
@@ -48,13 +51,13 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
 
     # Validate required parameters
     if not context_key:
-        return Error("Parameter 'context_key' is required for ai_code_assistant step")
+        return Error(msg.AIAssistant.CONTEXT_KEY_REQUIRED)
 
     # Get context data
     context_data = ctx.data.get(context_key)
     if not context_data:
         # No context to work with - skip silently
-        return Skip(f"No data found in context key '{context_key}' - skipping AI assistance")
+        return Skip(msg.AIAssistant.NO_DATA_IN_CONTEXT.format(context_key=context_key))
 
     # Clear the context data immediately to prevent contamination of subsequent steps
     if context_key in ctx.data:
@@ -66,25 +69,24 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             prompt = prompt_template.format(context=context_data)
         else:
             # If it's not a string, convert to string representation
-            import json
             context_str = json.dumps(context_data, indent=2)
             prompt = prompt_template.format(context=context_str)
     except KeyError as e:
-        return Error(f"Invalid prompt_template: missing placeholder {e}")
+        return Error(msg.AIAssistant.INVALID_PROMPT_TEMPLATE.format(e=e))
     except Exception as e:
-        return Error(f"Failed to build prompt: {e}")
+        return Error(msg.AIAssistant.FAILED_TO_BUILD_PROMPT.format(e=e))
 
     # Ask for confirmation if needed
     if ask_confirmation:
         ctx.ui.spacer.small()
         should_launch = ctx.views.prompts.ask_confirm(
-            "Would you like AI assistance to help fix these issues?",
+            msg.AIAssistant.CONFIRM_LAUNCH_ASSISTANT,
             default=True
         )
         if not should_launch:
             if fail_on_decline:
-                return Error("User declined AI assistance - workflow stopped")
-            return Skip("User declined AI assistance")
+                return Error(msg.AIAssistant.DECLINED_ASSISTANCE_STOPPED)
+            return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
     # Determine which CLI to use
     launcher = None
@@ -98,23 +100,27 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     # TODO: Add support for other CLIs (Cursor, Windsurf, etc.) when configured
 
     if not launcher:
-        ctx.ui.text.warning("No AI coding assistant CLI found")
-        ctx.ui.text.body("Install Claude Code: npm install -g @anthropic/claude-code", style="dim")
-        return Skip("No AI assistant available")
+        ctx.ui.text.warning(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND)
+        ctx.ui.text.body(msg.Code.INSTALL_INSTRUCTIONS, style="dim")
+        return Skip(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND)
 
     # Launch the CLI
     ctx.ui.spacer.small()
-    ctx.ui.text.info(f"🤖 Launching {cli_name}...")
-    ctx.ui.text.body(f"Prompt: {prompt[:100]}..." if len(prompt) > 100 else f"Prompt: {prompt}", style="dim")
+    ctx.ui.text.info(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name))
+    # Using msg.AIAssistant.PROMPT_PREVIEW for consistency
+    prompt_preview_text = msg.AIAssistant.PROMPT_PREVIEW.format(
+        prompt_preview=f"{prompt[:100]}..." if len(prompt) > 100 else prompt
+    )
+    ctx.ui.text.body(prompt_preview_text, style="dim")
     ctx.ui.spacer.small()
 
     project_root = ctx.get("project_root", ".")
     exit_code = launcher.launch(prompt=prompt, cwd=project_root)
 
     ctx.ui.spacer.small()
-    ctx.ui.text.success("✓ Back in Titan workflow")
+    ctx.ui.text.success(msg.AIAssistant.BACK_IN_TITAN)
 
     if exit_code != 0:
-        return Error(f"{cli_name} exited with code {exit_code}")
+        return Error(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code))
 
-    return Success(f"{cli_name} session completed", metadata={"ai_exit_code": exit_code})
+    return Success(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code), metadata={"ai_exit_code": exit_code})
