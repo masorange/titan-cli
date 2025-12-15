@@ -5,6 +5,10 @@ from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
 
+# Constants for display limits
+MAX_TEST_NAME_LENGTH = 60
+MAX_ERROR_DISPLAY_LENGTH = 150 # Increased to accommodate error_repr which can be longer
+
 
 def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -82,10 +86,10 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
             error_repr = call.get("longrepr", "No error details")
 
             # Clean up test name and error message
-            if len(test_name) > 60:
-                test_name = "..." + test_name[-57:]
-            if len(error_repr) > 150:
-                error_repr = error_repr[:147] + "..."
+            if len(test_name) > MAX_TEST_NAME_LENGTH:
+                test_name = "..." + test_name[-(MAX_TEST_NAME_LENGTH - 3):]
+            if len(error_repr) > MAX_ERROR_DISPLAY_LENGTH:
+                error_repr = error_repr[:(MAX_ERROR_DISPLAY_LENGTH - 3)] + "..."
             
             failure_rows.append([test_name, error_repr])
         
