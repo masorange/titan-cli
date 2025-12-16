@@ -335,9 +335,9 @@ COMMIT_MESSAGE: <conventional commit message>"""
             max_chars=max_chars
         )
 
-        # Calculate tokens
-        estimated_tokens = int(max_chars * 0.75) + 200
-        max_tokens = min(estimated_tokens, 4000)  # Cap at 4000 tokens
+        # Calculate tokens - allow enough for title + description
+        estimated_tokens = int(max_chars * 0.75) + 500
+        max_tokens = min(estimated_tokens, 8000)  # Cap at 8000 tokens
 
         # Generate with AI
         request = AgentRequest(

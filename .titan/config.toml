@@ -26,5 +26,5 @@ enabled = true
 
 [plugins.jira.config]
 base_url = "https://jiranext.masorange.es"
-email = "raul.pedraza@masmovil.com"
+email = "alejandro.lopezr@masmovil.com"
 default_project = "ECAPP"
