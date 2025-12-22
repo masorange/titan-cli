@@ -319,7 +319,7 @@ class Messages:
         INSTALL_SUGGESTION = "Please install Claude CLI or Gemini CLI and try again."
         NOT_INSTALLED = "{cli_name} not installed"
         INSTALL_INSTRUCTIONS = "See documentation for installation instructions for {cli_name}."
-        LAUNCHING = "🤖 Launching {cli_name}..."
+        LAUNCHING = "Launching {cli_name}..."
         INITIAL_PROMPT = "Initial prompt: {prompt}"
         INTERRUPTED = "\n{cli_name} interrupted"
         RETURNED = "✓ Back in Titan CLI"
