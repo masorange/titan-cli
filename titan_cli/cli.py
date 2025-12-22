@@ -190,11 +190,11 @@ def _show_cli_submenu(prompts: PromptsRenderer, text: TextRenderer):
     """Shows the submenu for launching external CLIs."""
     from titan_cli.utils.cli_configs import CLI_REGISTRY
     from titan_cli.utils.cli_launcher import CLILauncher
-    from titan_cli.commands.cli import launch_cli_tool
+    from titan_cli.utils.launch_helper import launch_cli_tool
 
     while True:
-        submenu_builder = DynamicMenu(title="Launch External CLI", emoji="🚀")
-        action_category = submenu_builder.add_category("Available CLIs")
+        submenu_builder = DynamicMenu(title=msg.ExternalCLI.MENU_TITLE, emoji="🚀")
+        action_category = submenu_builder.add_category(msg.ExternalCLI.AVAILABLE_CLIS_TITLE)
         
         available_clis = []
         for cli_name, config in CLI_REGISTRY.items():
@@ -204,11 +204,11 @@ def _show_cli_submenu(prompts: PromptsRenderer, text: TextRenderer):
                 available_clis.append(cli_name)
 
         if not available_clis:
-            text.warning("No configured CLI tools are available on your system.")
-            text.body("Please install Claude CLI or Gemini CLI and try again.", style="dim")
+            text.warning(msg.ExternalCLI.NO_CLIS_FOUND)
+            text.body(msg.ExternalCLI.INSTALL_SUGGESTION, style="dim")
             return
 
-        submenu_builder.add_category("Back").add_item("Return to Main Menu", "", "back")
+        submenu_builder.add_category(msg.Interactive.MENU_EXIT).add_item(msg.Interactive.RETURN_TO_MENU_PROMPT, "", "back")
 
         choice_item = prompts.ask_menu(submenu_builder.to_menu())
         if not choice_item or choice_item.action == "back":

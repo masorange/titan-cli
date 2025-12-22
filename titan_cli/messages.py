@@ -313,6 +313,10 @@ class Messages:
     class ExternalCLI:
         """Generic messages for launching external CLIs."""
         HELP_TEXT = "Launch an external CLI tool like Claude Code or Gemini CLI."
+        MENU_TITLE = "Launch External CLI"
+        AVAILABLE_CLIS_TITLE = "Available CLIs"
+        NO_CLIS_FOUND = "No configured CLI tools are available on your system."
+        INSTALL_SUGGESTION = "Please install Claude CLI or Gemini CLI and try again."
         NOT_INSTALLED = "{cli_name} not installed"
         INSTALL_INSTRUCTIONS = "See documentation for installation instructions for {cli_name}."
         LAUNCHING = "🤖 Launching {cli_name}..."
