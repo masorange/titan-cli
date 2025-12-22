@@ -7,9 +7,10 @@ from typing import Optional
 class CLILauncher:
     """Generic CLI launcher."""
 
-    def __init__(self, cli_name: str, install_instructions: Optional[str] = None):
+    def __init__(self, cli_name: str, install_instructions: Optional[str] = None, prompt_flag: Optional[str] = None):
         self.cli_name = cli_name
         self.install_instructions = install_instructions
+        self.prompt_flag = prompt_flag
 
     def is_available(self) -> bool:
         """Check if the CLI tool is installed."""
@@ -29,8 +30,8 @@ class CLILauncher:
         cmd = [self.cli_name]
 
         if prompt:
-            if self.cli_name == "gemini":
-                cmd.extend(["-i", prompt])
+            if self.prompt_flag:
+                cmd.extend([self.prompt_flag, prompt])
             else:
                 cmd.append(prompt)
 

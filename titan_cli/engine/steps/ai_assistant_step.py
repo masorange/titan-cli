@@ -122,10 +122,10 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
 
     # Get launcher and cli_name
     if cli_to_launch == "claude":
-        launcher = CLILauncher("claude", "Install: npm install -g @anthropic/claude-code")
+        launcher = CLILauncher("claude", "Install: npm install -g @anthropic/claude-code", prompt_flag=None)
         cli_name = "Claude CLI"
     elif cli_to_launch == "gemini":
-        launcher = CLILauncher("gemini")
+        launcher = CLILauncher("gemini", prompt_flag="-i")
         cli_name = "Gemini CLI"
     else:
         # Should not happen

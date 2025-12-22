@@ -7,10 +7,10 @@ from titan_cli.messages import msg
 
 cli_app = typer.Typer(name="cli", help=msg.ExternalCLI.HELP_TEXT)
 
-def _launch_cli(cli_name: str, prompt: Optional[str] = None, install_instructions: Optional[str] = None):
+def _launch_cli(cli_name: str, prompt: Optional[str] = None, install_instructions: Optional[str] = None, prompt_flag: Optional[str] = None):
     """Generic function to launch a CLI tool."""
     text = TextRenderer()
-    launcher = CLILauncher(cli_name, install_instructions)
+    launcher = CLILauncher(cli_name, install_instructions, prompt_flag=prompt_flag)
 
     if not launcher.is_available():
         text.error(msg.ExternalCLI.NOT_INSTALLED.format(cli_name=cli_name))
@@ -50,7 +50,7 @@ def launch_claude(
     """
     Launch Claude Code CLI.
     """
-    _launch_cli("claude", prompt, "Install: npm install -g @anthropic/claude-code")
+    _launch_cli("claude", prompt, "Install: npm install -g @anthropic/claude-code", prompt_flag=None)
 
 @cli_app.command("gemini")
 def launch_gemini(
@@ -59,4 +59,4 @@ def launch_gemini(
     """
     Launch Gemini CLI.
     """
-    _launch_cli("gemini", prompt)
+    _launch_cli("gemini", prompt, prompt_flag="-i")
