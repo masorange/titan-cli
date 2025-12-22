@@ -1033,3 +1033,44 @@ class GitHubClient:
             )
         except GitHubAPIError as e:
             raise GitHubAPIError(msg.GitHub.PR_CREATION_FAILED.format(error=e))
+
+    def assign_pr(self, pr_number: int, assignees: List[str]) -> None:
+        """
+        Assign users to a pull request
+
+        Args:
+            pr_number: PR number
+            assignees: List of GitHub usernames to assign
+                      Use "@me" to assign to current user
+
+        Raises:
+            GitHubAPIError: If assignment fails
+
+        Examples:
+            >>> # Assign to current user
+            >>> client.assign_pr(123, ["@me"])
+
+            >>> # Assign to specific users
+            >>> client.assign_pr(123, ["user1", "user2"])
+
+            >>> # Assign to current user (resolved)
+            >>> current_user = client.get_current_user()
+            >>> client.assign_pr(123, [current_user])
+        """
+        try:
+            args = ["pr", "edit", str(pr_number)]
+
+            # Add each assignee
+            for assignee in assignees:
+                args.extend(["--add-assignee", assignee])
+
+            args.extend(self._get_repo_arg())
+
+            self._run_gh_command(args)
+
+        except GitHubAPIError as e:
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(
+                    error_msg=f"Failed to assign PR: {e}"
+                )
+            )

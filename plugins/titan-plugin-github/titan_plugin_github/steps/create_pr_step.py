@@ -8,6 +8,9 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Creates a GitHub pull request using data from the workflow context.
 
+    If auto_assign_prs is enabled in plugin configuration, automatically assigns
+    the PR to the current user. Assignment failures are non-blocking.
+
     Requires:
         ctx.github: An initialized GitHubClient.
         ctx.git: An initialized GitClient.
@@ -21,6 +24,10 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     Outputs (saved to ctx.data):
         pr_number (int): The number of the created pull request.
         pr_url (str): The URL of the created pull request.
+
+    Configuration:
+        auto_assign_prs (bool): If True, automatically assigns PR to creator.
+                               Configured in .titan/config.toml under [plugins.github.config]
 
     Returns:
         Success: If the PR is created successfully.
@@ -54,7 +61,17 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
             panel_type="success",
         )
 
-        # 4. Return Success with PR info
+        # 4. Auto-assign PR to creator if configured
+        if ctx.github.config.auto_assign_prs:
+            try:
+                current_user = ctx.github.get_current_user()
+                ctx.github.assign_pr(pr["number"], [current_user])
+                ctx.ui.text.info(f"Assigned PR to {current_user}")
+            except Exception as e:
+                # Don't fail the workflow if assignment fails
+                ctx.ui.text.warning(f"Could not auto-assign PR: {e}")
+
+        # 5. Return Success with PR info
         return Success(
             "Pull request created successfully.",
             metadata={"pr_number": pr["number"], "pr_url": pr["url"]},
