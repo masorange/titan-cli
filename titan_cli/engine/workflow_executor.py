@@ -109,6 +109,8 @@ class WorkflowExecutor:
 
         try:
             sub_workflow = self._workflow_registry.get_workflow(workflow_name)
+            if not sub_workflow:
+                return Error(f"Nested workflow '{workflow_name}' not found.")
         except Exception as e:
             return Error(f"Failed to load workflow '{workflow_name}': {e}", e)
 

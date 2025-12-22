@@ -4,7 +4,7 @@ description: "AI-powered PR creation with linting and testing validation."
 steps:
   - id: commit-changes
     name: "Commit changes with AI, Linter and Tests"
-    workflow: "Commit with AI, Linter and Tests"
+    workflow: "commit-ai"
 
   - id: get_head_branch
     name: "Get Head Branch"
