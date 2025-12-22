@@ -51,6 +51,11 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     fail_on_decline = step.params.get("fail_on_decline", False)
     cli_preference = step.params.get("cli_preference", "auto")
 
+    # Validate cli_preference
+    VALID_CLI_PREFERENCES = {"auto", "claude", "gemini"}
+    if cli_preference not in VALID_CLI_PREFERENCES:
+        return Error(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}")
+
     # Validate required parameters
     if not context_key:
         return Error(msg.AIAssistant.CONTEXT_KEY_REQUIRED)
