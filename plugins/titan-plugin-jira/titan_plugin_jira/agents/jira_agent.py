@@ -181,15 +181,6 @@ class JiraAgent(BaseAIAgent):
                 except Exception as e:
                     logger.warning(f"Failed to suggest subtasks: {e}")
 
-            # 6. Enhance description (DISABLED - formatter handles presentation)
-            # This was generating full-text analysis that wasn't being used
-            # try:
-            #     desc_result = self._enhance_description(issue)
-            #     enhanced_description = desc_result.get("description")
-            #     total_tokens += desc_result.get("tokens_used", 0)
-            # except Exception as e:
-            #     logger.warning(f"Failed to enhance description: {e}")
-
         except Exception as e:
             logger.error(f"Failed to get issue {issue_key}: {e}")
             # Return empty analysis on complete failure
@@ -439,59 +430,6 @@ Description: <brief technical description>"""
             logger.error(f"AI generation failed for subtask suggestion: {e}")
             raise
 
-    def _enhance_description(self, issue) -> Dict[str, Any]:
-        """
-        Enhance issue description with better structure and clarity.
-
-        Args:
-            issue: JiraTicket object
-
-        Returns:
-            Dict with keys: description, tokens_used
-        """
-        description = issue.description or ""
-        if not description.strip():
-            return {"description": None, "tokens_used": 0}
-
-        desc_preview = description[:self.config.max_description_length]
-
-        prompt = f"""Enhance this JIRA issue description for better clarity and structure.
-
-Issue: {issue.key} - {issue.summary}
-Type: {issue.issue_type}
-
-Current Description:
-{desc_preview}
-
-Enhance the description with:
-1. Clear overview section
-2. Technical details
-3. Acceptance criteria (if applicable)
-4. Dependencies (if any)
-5. Proper markdown formatting
-
-Keep it under {self.config.max_description_length} characters.
-Format your response EXACTLY like this:
-
-ENHANCED_DESCRIPTION:
-<enhanced markdown description>"""
-
-        request = AgentRequest(
-            context=prompt,
-            max_tokens=self.config.max_tokens,
-            temperature=self.config.temperature,
-            system_prompt=self.config.description_enhancement_prompt
-        )
-
-        try:
-            response = self.generate(request)
-            result = self._parse_description_response(response.content)
-            result["tokens_used"] = response.tokens_used
-            return result
-        except Exception as e:
-            logger.error(f"AI generation failed for description enhancement: {e}")
-            raise
-
     def generate_comment(self, issue_key: str, comment_context: str) -> Optional[str]:
         """
         Generate a helpful comment for a JIRA issue.
@@ -663,15 +601,5 @@ COMMENT:
         # Add last subtask
         if current_subtask:
             result["subtasks"].append(current_subtask)
-
-        return result
-
-    def _parse_description_response(self, content: str) -> Dict[str, Any]:
-        """Parse description enhancement response."""
-        result = {"description": None}
-
-        if "ENHANCED_DESCRIPTION:" in content:
-            description = content.split("ENHANCED_DESCRIPTION:", 1)[1].strip()
-            result["description"] = description
 
         return result

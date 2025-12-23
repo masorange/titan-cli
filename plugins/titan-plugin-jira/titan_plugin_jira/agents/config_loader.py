@@ -4,7 +4,7 @@
 import tomli
 from pathlib import Path
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 try:
     # Python 3.9+
@@ -56,8 +56,7 @@ class JiraAgentConfig(BaseModel):
     # Raw config for custom access
     raw: Dict[str, Any] = Field(default_factory=dict, description="Raw TOML data")
 
-    class Config:
-        frozen = False  # Allow mutation for caching
+    model_config = ConfigDict(frozen=False)  # Allow mutation for caching
 
 
 def load_agent_config(
