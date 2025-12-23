@@ -21,7 +21,7 @@ from titan_cli.commands.init import init_app
 from titan_cli.commands.projects import projects_app, list_projects
 from titan_cli.commands.ai import ai_app
 from titan_cli.commands.plugins import plugins_app
-from titan_cli.commands.code import code_app, launch_code
+from titan_cli.commands.cli import cli_app
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.errors import ConfigWriteError
@@ -54,7 +54,7 @@ app.add_typer(init_app)
 app.add_typer(projects_app)
 app.add_typer(ai_app)
 app.add_typer(plugins_app)
-app.add_typer(code_app)
+app.add_typer(cli_app)
 
 
 # --- Helper function for version retrieval ---
@@ -181,6 +181,40 @@ def _show_switch_project_menu(prompts: PromptsRenderer, text: TextRenderer, conf
             config.load()
         except ConfigWriteError as e:
             text.error(str(e))
+
+
+def _show_cli_submenu(prompts: PromptsRenderer, text: TextRenderer):
+    """Shows the submenu for launching external CLIs."""
+    from titan_cli.utils.cli_configs import CLI_REGISTRY
+    from titan_cli.utils.cli_launcher import CLILauncher
+    from titan_cli.utils.launch_helper import launch_cli_tool
+
+    while True:
+        submenu_builder = DynamicMenu(title=msg.ExternalCLI.MENU_TITLE, emoji="🚀")
+        action_category = submenu_builder.add_category(msg.ExternalCLI.AVAILABLE_CLIS_TITLE)
+        
+        available_clis = []
+        for cli_name, config in CLI_REGISTRY.items():
+            if CLILauncher(cli_name).is_available():
+                display_name = config.get("display_name", cli_name)
+                action_category.add_item(display_name, f"Launch {display_name}", cli_name)
+                available_clis.append(cli_name)
+
+        if not available_clis:
+            text.warning(msg.ExternalCLI.NO_CLIS_FOUND)
+            text.body(msg.ExternalCLI.INSTALL_SUGGESTION, style="dim")
+            return
+
+        submenu_builder.add_category(msg.Interactive.MENU_EXIT).add_item(msg.Interactive.RETURN_TO_MENU_PROMPT, "", "back")
+
+        choice_item = prompts.ask_menu(submenu_builder.to_menu())
+        if not choice_item or choice_item.action == "back":
+            break
+
+        launch_cli_tool(choice_item.action, prompt=None)
+
+        prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+
 
 def _show_projects_submenu(prompts: PromptsRenderer, text: TextRenderer, config: TitanConfig):
     """Shows the submenu for project management."""
@@ -973,7 +1007,7 @@ def show_interactive_menu():
         
         # Build and show the main menu
         menu_builder = DynamicMenu(title=msg.Interactive.MAIN_MENU_TITLE, emoji="🚀")
-        menu_builder.add_top_level_item("Launch Claude Code", "Open an interactive session with Claude Code CLI.", "code")
+        menu_builder.add_top_level_item("Launch External CLI", "Open an interactive session with an external CLI.", "cli")
         menu_builder.add_top_level_item("Project Management", "List, configure, or initialize projects.", "projects")
 
         # Only show Workflows if there are enabled plugins
@@ -1000,10 +1034,8 @@ def show_interactive_menu():
         if choice_item:
             choice_action = choice_item.action
 
-        if choice_action == "code":
-            launch_code(prompt=None)
-            spacer.line()
-            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+        if choice_action == "cli":
+            _show_cli_submenu(prompts, text)
 
         elif choice_action == "projects":
             _show_projects_submenu(prompts, text, config)
@@ -1039,3 +1071,4 @@ def version():
     """Show Titan CLI version."""
     cli_version = get_version()
     typer.echo(msg.CLI.VERSION.format(version=cli_version))
+    
