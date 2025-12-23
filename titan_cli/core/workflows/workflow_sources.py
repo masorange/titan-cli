@@ -2,9 +2,21 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional, Any, Set
+from typing import List, Optional, Set, Protocol
 import yaml
 from dataclasses import dataclass, field
+
+
+class PluginRegistryProtocol(Protocol):
+    """Protocol defining the interface that PluginRegistry must implement for workflow sources."""
+
+    def list_installed(self) -> List[str]:
+        """List successfully loaded plugins."""
+        ...
+
+    def get_plugin(self, name: str):
+        """Get plugin instance by name."""
+        ...
 
 @dataclass
 class WorkflowInfo:
@@ -16,7 +28,7 @@ class WorkflowInfo:
     category: Optional[str] = None
     required_plugins: Set[str] = field(default_factory=set)
 
-def _parse_workflow_info(file: Path, source_name: str) -> WorkflowInfo:
+def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRegistryProtocol) -> WorkflowInfo:
     """
     Helper to extract metadata and plugin dependencies from a workflow file.
     Does not resolve 'extends' or nested 'workflow' calls to keep discovery fast.
@@ -36,6 +48,15 @@ def _parse_workflow_info(file: Path, source_name: str) -> WorkflowInfo:
             if isinstance(step, dict) and "plugin" in step and step["plugin"] not in ["core", "project"]:
                 required_plugins.add(step["plugin"])
 
+    # Check 'extends' field for plugin dependencies
+    extends_ref = config.get("extends")
+    if extends_ref and isinstance(extends_ref, str):
+        if extends_ref.startswith("plugin:"):
+            # Extract plugin name from "plugin:git/commit-ai" -> "git"
+            plugin_part = extends_ref.split(':', 1)[1]
+            plugin_name = plugin_part.split('/', 1)[0]
+            required_plugins.add(plugin_name)
+
     return WorkflowInfo(
         name=file.stem,
         description=config.get("description", "No description available."),
@@ -52,8 +73,8 @@ class WorkflowSource(ABC):
     This pattern allows discovering workflows from the project, user's home,
     system-wide, or from plugins, in a uniform way.
     """
-    def __init__(self):
-        pass
+    def __init__(self, plugin_registry: PluginRegistryProtocol):
+        self._plugin_registry = plugin_registry
 
     @property
     @abstractmethod
@@ -82,8 +103,8 @@ class ProjectWorkflowSource(WorkflowSource):
     at the conventional '.titan/workflows/' directory.
     """
 
-    def __init__(self, path: Path):
-        super().__init__()
+    def __init__(self, path: Path, plugin_registry: PluginRegistryProtocol):
+        super().__init__(plugin_registry)
         self._path = path.resolve()
 
     @property
@@ -125,7 +146,7 @@ class ProjectWorkflowSource(WorkflowSource):
 
     def _to_workflow_info(self, file: Path) -> WorkflowInfo:
         """Helper to extract metadata from a workflow file."""
-        return _parse_workflow_info(file, self.name)
+        return _parse_workflow_info(file, self.name, self._plugin_registry)
 
 class UserWorkflowSource(WorkflowSource):
     """
@@ -133,8 +154,8 @@ class UserWorkflowSource(WorkflowSource):
     at '~/.titan/workflows/'.
     """
 
-    def __init__(self, path: Path):
-        super().__init__()
+    def __init__(self, path: Path, plugin_registry: PluginRegistryProtocol):
+        super().__init__(plugin_registry)
         self._path = path.expanduser().resolve()
 
     @property
@@ -170,7 +191,7 @@ class UserWorkflowSource(WorkflowSource):
             return False
 
     def _to_workflow_info(self, file: Path) -> WorkflowInfo:
-        return _parse_workflow_info(file, self.name)
+        return _parse_workflow_info(file, self.name, self._plugin_registry)
 
 class SystemWorkflowSource(WorkflowSource):
     """
@@ -178,8 +199,8 @@ class SystemWorkflowSource(WorkflowSource):
     typically found in a 'workflows' directory within the installed package.
     """
 
-    def __init__(self, path: Path):
-        super().__init__()
+    def __init__(self, path: Path, plugin_registry: PluginRegistryProtocol):
+        super().__init__(plugin_registry)
         self._path = path.resolve()
 
     @property
@@ -215,7 +236,7 @@ class SystemWorkflowSource(WorkflowSource):
             return False
 
     def _to_workflow_info(self, file: Path) -> WorkflowInfo:
-        return _parse_workflow_info(file, self.name)
+        return _parse_workflow_info(file, self.name, self._plugin_registry)
 
 class PluginWorkflowSource(WorkflowSource):
     """
@@ -223,8 +244,8 @@ class PluginWorkflowSource(WorkflowSource):
     Discovers workflows via the `workflows_path` property of `TitanPlugin` instances.
     """
 
-    def __init__(self, plugin_registry: Any): # Use Any to avoid circular import
-        super().__init__()
+    def __init__(self, plugin_registry: PluginRegistryProtocol): # Remove registry here
+        super().__init__(plugin_registry)
         self._plugin_registry = plugin_registry
 
     @property
@@ -280,7 +301,7 @@ class PluginWorkflowSource(WorkflowSource):
         return "plugins" in path.parts # Heuristic, might need refinement
 
     def _to_workflow_info(self, file: Path, plugin_name: str) -> WorkflowInfo:
-        info = _parse_workflow_info(file, f"plugin:{plugin_name}")
+        info = _parse_workflow_info(file, f"plugin:{plugin_name}", self._plugin_registry) # Pass plugin_registry
         # For plugin workflows, the name is qualified, e.g., "github/create-pr"
         # but the file.stem is just "create-pr". We'll handle this in the registry.
         return info

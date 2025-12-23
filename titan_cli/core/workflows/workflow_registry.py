@@ -69,10 +69,10 @@ class WorkflowRegistry:
 
         # Workflow sources are listed in order of precedence (highest to lowest).
         self._sources: List[WorkflowSource] = [
-            ProjectWorkflowSource(project_root / ".titan" / "workflows"),
-            UserWorkflowSource(Path.home() / ".titan" / "workflows"),
-            SystemWorkflowSource(system_workflows_path),
-            PluginWorkflowSource(plugin_registry),
+            ProjectWorkflowSource(project_root / ".titan" / "workflows", plugin_registry),
+            UserWorkflowSource(Path.home() / ".titan" / "workflows", plugin_registry),
+            SystemWorkflowSource(system_workflows_path, plugin_registry),
+            PluginWorkflowSource(plugin_registry), # PluginWorkflowSource takes plugin_registry once
         ]
 
         # Cache for fully parsed workflows (similar to PluginRegistry._plugins).
