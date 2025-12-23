@@ -115,8 +115,10 @@ class WorkflowExecutor:
             return Error(f"Failed to load workflow '{workflow_name}': {e}", e)
 
         if ctx.ui:
-            ctx.ui.text.info(f"→ Running nested workflow: {sub_workflow.name}")
-        
+            # Add indentation based on workflow nesting depth
+            indent = "  " * len(ctx._workflow_stack)
+            ctx.ui.text.info(f"{indent}→ Running nested workflow: {sub_workflow.name}")
+
         # We recursively call the main execute method.
         # Pass a copy of the context data to isolate it if needed, but for now, we share it.
         # The `enter_workflow` check will prevent infinite recursion.

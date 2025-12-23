@@ -810,7 +810,11 @@ def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer:
                             client = plugin.get_client()
                             getattr(ctx_builder, f"with_{plugin_name}")(client)
                         except Exception:
-                            # Silently ignore if client fails, executor will handle it
+                            # Plugin client initialization failed (e.g., missing credentials).
+                            # This is acceptable - workflow steps using this plugin will
+                            # fail gracefully with a clear error message when they try to access it.
+                            # We don't stop execution here to allow workflows that don't need
+                            # this plugin to run successfully.
                             pass
 
                 execution_context = ctx_builder.build()
