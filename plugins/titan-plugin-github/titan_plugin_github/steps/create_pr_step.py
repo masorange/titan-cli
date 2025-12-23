@@ -26,6 +26,14 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the PR is created successfully.
         Error: If any required context arguments are missing or if the API call fails.
     """
+    # Show step header
+    if ctx.views:
+        ctx.views.step_header(
+            name="Create Pull Request",
+            step_type="plugin",
+            step_detail="github.create_pr"
+        )
+
     # 1. Get GitHub client from context
     if not ctx.github:
         return Error("GitHub client is not available in the workflow context.")

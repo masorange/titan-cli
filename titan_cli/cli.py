@@ -850,24 +850,76 @@ def _show_workflow_info_panel(workflow, panel: PanelRenderer, spacer: SpacerRend
     Returns:
         bool: True if user wants to execute, False to cancel
     """
-    # Build list of steps
+    # Build visually enhanced list of steps
     steps_list_parts = []
+
     for i, step in enumerate(workflow.steps):
-        step_name = step.get("name") or step.get("id")
-        if not step_name:
-            step_name = f"Hook: {step.get('hook')}" if step.get('hook') else "unnamed"
-        steps_list_parts.append(f"  {i+1}. {step_name}")
+        step_id = step.get("id", "")
+        step_name = step.get("name") or step_id
+
+        # Determine step type and icon
+        if step.get("hook"):
+            # Hook injection point
+            icon = "⚡"
+            step_type = f"[dim]hook:[/dim] {step.get('hook')}"
+            step_display = f"{icon} {step_type}"
+        elif step.get("workflow"):
+            # Nested workflow
+            icon = "🔄"
+            workflow_name = step.get("workflow")
+            step_type = f"[cyan]workflow:[/cyan] {workflow_name}"
+            step_display = f"{icon} {step_name}\n      [dim]{step_type}[/dim]"
+        elif step.get("plugin") and step.get("step"):
+            # Plugin step
+            icon = "🔧"
+            plugin = step.get("plugin")
+            plugin_step = step.get("step")
+            step_type = f"[blue]{plugin}[/blue].[dim]{plugin_step}[/dim]"
+            step_display = f"{icon} {step_name}\n      [dim]{step_type}[/dim]"
+        elif step.get("command"):
+            # Command step
+            icon = "💻"
+            command = step.get("command")
+            # Truncate long commands
+            command_preview = command[:50] + "..." if len(command) > 50 else command
+            step_display = f"{icon} {step_name}\n      [dim]$ {command_preview}[/dim]"
+        else:
+            # Unknown/fallback
+            icon = "❓"
+            step_display = f"{icon} {step_name}"
+
+        # Add step number and content
+        steps_list_parts.append(f"  [bold]{i+1}.[/bold] {step_display}")
+
     steps_list = "\n".join(steps_list_parts)
 
     # Use only the first line of the description
     description = workflow.description.split('\n')[0] if workflow.description else ""
 
-    content = f"{description}\n\nSteps:\n{steps_list}"
+    # Build metadata section
+    metadata_parts = []
+    if workflow.source:
+        metadata_parts.append(f"[dim]Source:[/dim] {workflow.source}")
+    if workflow.params:
+        param_count = len(workflow.params)
+        metadata_parts.append(f"[dim]Parameters:[/dim] {param_count} configured")
+
+    metadata = "\n".join(metadata_parts) if metadata_parts else ""
+
+    # Compose final content
+    content_parts = []
+    if description:
+        content_parts.append(description)
+    if metadata:
+        content_parts.append(f"\n{metadata}")
+    content_parts.append(f"\n[bold]Steps:[/bold]\n{steps_list}")
+
+    content = "\n".join(content_parts)
 
     panel.print(
         content,
         panel_type="info",
-        title=f"Workflow: {workflow.name}"
+        title=f"📋 Workflow: {workflow.name}"
     )
     spacer.small()
 
