@@ -109,8 +109,12 @@ class WorkflowRegistry:
                         if workflow_info.required_plugins.issubset(installed_plugins):
                             workflows.append(workflow_info)
                             seen_names.add(workflow_info.name)
-            except Exception: # Catch all exceptions from source discovery
-                pass # Log internally if a logging system is set up, but do not print or fail discovery
+            except Exception:
+                # Catch all exceptions from source discovery to prevent a single broken source
+                # from breaking the entire discovery process. This allows other sources to continue.
+                # TODO: Add proper logging when logger is available to help with debugging.
+                # For now, we continue silently to maintain graceful degradation.
+                continue
 
         self._discovered = workflows
         return workflows
@@ -164,6 +168,73 @@ class WorkflowRegistry:
                 return path
         return None
 
+    def _ensure_unique_step_ids(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Ensures all step IDs are unique by adding numeric suffixes for duplicates.
+
+        For example, if two steps both have id="git_status", they will become
+        "git_status_1" and "git_status_2".
+
+        Args:
+            steps: List of step dictionaries
+
+        Returns:
+            List of step dictionaries with unique IDs
+        """
+        from titan_cli.core.workflows.models import WorkflowStepModel
+
+        # First, validate all steps to trigger auto-generation of IDs
+        validated_steps = []
+        for step_data in steps:
+            try:
+                step_model = WorkflowStepModel(**step_data)
+                validated_steps.append(step_model)
+            except Exception as e:
+                # If a step fails validation, re-raise with more context
+                raise WorkflowError(f"Invalid step configuration: {e}") from e
+
+        # Track ID counts and assign unique IDs
+        id_counts: Dict[str, int] = {}
+        final_steps = []
+
+        for step in validated_steps:
+            original_id = step.id
+
+            if original_id in id_counts:
+                # This ID has been used before, add a suffix
+                id_counts[original_id] += 1
+                step.id = f"{original_id}_{id_counts[original_id]}"
+            else:
+                # First occurrence of this ID
+                id_counts[original_id] = 1
+                # Check if we need to rename the first occurrence
+                if id_counts[original_id] > 1:
+                    # This shouldn't happen in this logic, but keeping for safety
+                    step.id = f"{original_id}_1"
+
+            final_steps.append(step.model_dump())
+
+        # If any ID appeared more than once, we need to rename all occurrences
+        # to maintain consistency (e.g., git_status_1, git_status_2 instead of git_status, git_status_2)
+        duplicate_ids = {id for id, count in id_counts.items() if count > 1}
+
+        if duplicate_ids:
+            # Re-process to add suffixes to ALL duplicates including first occurrence
+            final_steps = []
+            id_occurrence: Dict[str, int] = {}
+
+            for step_data in steps:
+                step_model = WorkflowStepModel(**step_data)
+                original_id = step_model.id
+
+                if original_id in duplicate_ids:
+                    id_occurrence[original_id] = id_occurrence.get(original_id, 0) + 1
+                    step_model.id = f"{original_id}_{id_occurrence[original_id]}"
+
+                final_steps.append(step_model.model_dump())
+
+        return final_steps
+
     def _load_and_parse(self, name: str, file_path: Path) -> ParsedWorkflow:
         """Loads and parses a single workflow file, resolving its 'extends' chain."""
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -174,12 +245,17 @@ class WorkflowRegistry:
             base_config = self._resolve_extends(config["extends"])
             config = self._merge_configs(base_config, config)
 
+        # Ensure step IDs are unique
+        steps = config.get("steps", [])
+        if steps:
+            steps = self._ensure_unique_step_ids(steps)
+
         # Create the final ParsedWorkflow object
         return ParsedWorkflow(
             name=config.get("name", name),
             description=config.get("description", ""),
             source=self._get_source_name_from_path(file_path),
-            steps=config.get("steps", []),
+            steps=steps,
             params=config.get("params", {}),
         )
 
