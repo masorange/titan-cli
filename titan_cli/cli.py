@@ -515,6 +515,9 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     new_value = [item.strip() for item in new_value_str.split(",")]
                 else:
                     new_value = current_list
+                # If user accepts default and field is optional with a default, skip adding it
+                if not is_required and default_value is not None and new_value == default_value:
+                    continue
             else:  # Default to string
                 default_val = str(current_value) if current_value is not None else ""
                 # For secrets, check if already exists in keychain
@@ -548,6 +551,10 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     if default_value is not None:
                         continue
                     new_value = ""
+
+                # If user enters a value that matches the default for an optional field, skip adding it
+                if not is_required and default_value is not None and new_value == default_value:
+                    continue
 
             # Store secrets separately
             if is_secret and new_value:
