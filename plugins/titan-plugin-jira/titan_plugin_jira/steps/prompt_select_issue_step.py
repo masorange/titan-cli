@@ -18,7 +18,11 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         selected_issue (JiraTicket): Selected issue object
     """
     if ctx.views:
-        ctx.views.step_header("prompt_select_issue", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="Select JIRA Issue",
+            step_type="plugin",
+            step_detail="jira.prompt_select_issue"
+        )
 
     # Get issues from previous search
     issues = ctx.get("jira_issues")

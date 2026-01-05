@@ -24,7 +24,11 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     # Show step header
     if ctx.views:
-        ctx.views.step_header("get_issue", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="Get JIRA Issue",
+            step_type="plugin",
+            step_detail="jira.get_issue"
+        )
 
     # Check if JIRA client is available
     if not ctx.jira:

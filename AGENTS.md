@@ -1486,9 +1486,13 @@ Steps use this metadata to show standardized headers:
 
 ```python
 def my_step(ctx: WorkflowContext) -> WorkflowResult:
-    # Show header: [1/7] my_step
+    # Show header with step type and detail
     if ctx.views:
-        ctx.views.step_header("my_step", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="My Step",
+            step_type="plugin",
+            step_detail="myplugin.my_step"
+        )
 
     # ... rest of step
 ```
@@ -1559,9 +1563,13 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If an error occurs.
         Skip: If step is not applicable.
     """
-    # 1. Show step header (uses metadata injected by executor)
+    # 1. Show step header
     if ctx.views:
-        ctx.views.step_header("my_step", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="My Step",
+            step_type="plugin",
+            step_detail="myplugin.my_step"
+        )
 
     # 2. Validate inputs
     my_input = ctx.get("my_input_variable")
@@ -2024,7 +2032,11 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # ✅ 1. Show step header
     if ctx.views:
-        ctx.views.step_header("my_step", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="My Step",
+            step_type="plugin",
+            step_detail="myplugin.my_step"
+        )
 
     # ✅ 2. Validate requirements
     if not ctx.git:
@@ -2064,7 +2076,11 @@ ctx.ui.spacer.small()
 
 **Views (composition allowed):**
 ```python
-ctx.views.step_header("step_name", ctx.current_step, ctx.total_steps)
+ctx.views.step_header(
+    name="Step Name",
+    step_type="plugin",
+    step_detail="myplugin.step_name"
+)
 ctx.views.prompts.ask_confirm("Continue?", default=True)
 ctx.views.prompts.ask_text("Enter value:")
 ```
