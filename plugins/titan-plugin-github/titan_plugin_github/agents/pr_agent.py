@@ -336,8 +336,11 @@ COMMIT_MESSAGE: <conventional commit message>"""
         )
 
         # Calculate tokens - allow enough for title + description
-        estimated_tokens = int(max_chars * 0.75) + 500
-        max_tokens = min(estimated_tokens, 8000)  # Cap at 8000 tokens
+        # Use a more generous token budget to avoid truncation
+        # The prompt (diff + commits + instructions) can be large, so we need
+        # enough tokens for both input and output
+        estimated_tokens = int(max_chars * 1.5) + 2000  # More generous estimate
+        max_tokens = min(estimated_tokens, 16000)  # Increased cap
 
         # Generate with AI
         request = AgentRequest(
