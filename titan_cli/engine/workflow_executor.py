@@ -60,18 +60,19 @@ class WorkflowExecutor:
         try:
             step_index = 0
             for step_data in workflow.steps:
+                step_config = WorkflowStepModel(**step_data)
+
                 # Hooks are resolved by the registry, so we just skip the placeholder.
-                if step_data.get("hook") and len(step_data) == 1:
+                # Check the parsed model instead of raw dict to handle auto-generated IDs
+                if step_config.hook:
                     continue
 
                 step_index += 1
                 ctx.current_step = step_index
-                
-                step_config = WorkflowStepModel(**step_data)
 
                 step_id = step_config.id
                 step_name = step_config.name or step_id
-                
+
                 try:
                     if step_config.workflow:
                         step_result = self._execute_workflow_step(step_config, ctx)
