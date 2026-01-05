@@ -54,7 +54,11 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
         ```
     """
     if ctx.views:
-        ctx.views.step_header("search_saved_query", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="Search JIRA Issues",
+            step_type="plugin",
+            step_detail="jira.search_saved_query"
+        )
 
     if not ctx.jira:
         if ctx.ui:
