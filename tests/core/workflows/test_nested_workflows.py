@@ -502,3 +502,60 @@ def test_valid_workflow_step_types(create_workflow_file, workflow_registry):
         hook="my_hook"
     )
     assert hook_step.hook == "my_hook"
+
+
+def test_hook_steps_skipped_during_execution(create_workflow_file, workflow_registry, mock_plugin_registry):
+    """
+    Tests that hook placeholder steps are properly skipped during workflow execution.
+
+    This is a regression test for the bug where hook steps with auto-generated IDs
+    were not being skipped, causing "Invalid step configuration" errors.
+    """
+    # Create a workflow with hooks
+    create_workflow_file("workflow_with_hooks", {
+        "name": "workflow_with_hooks",
+        "description": "Workflow with hook placeholders",
+        "hooks": ["before_push", "after_pr"],
+        "steps": [
+            {
+                "id": "step1",
+                "name": "First Step",
+                "command": "echo 'step1'"
+            },
+            {
+                "hook": "before_push"  # This should be skipped
+            },
+            {
+                "id": "step2",
+                "name": "Second Step",
+                "command": "echo 'step2'"
+            },
+            {
+                "hook": "after_pr"  # This should also be skipped
+            }
+        ]
+    })
+
+    workflow = workflow_registry.get_workflow("workflow_with_hooks")
+    assert workflow is not None
+
+    # Verify workflow has 4 steps in definition (including hooks)
+    assert len(workflow.steps) == 4
+
+    # Create executor and context
+    executor = WorkflowExecutor(workflow_registry, mock_plugin_registry)
+    mock_secrets = MagicMock(spec=SecretManager)
+    ctx = WorkflowContext(secrets=mock_secrets, ui=None, views=None, data={}, plugin_manager=None)
+
+    # Execute workflow - this should skip the hook steps
+    # Note: We expect command steps to fail since we're in a test environment,
+    # but the important thing is that hooks don't cause "Invalid step configuration" errors
+    executor.execute(workflow, ctx)
+
+    # Verify that hooks were skipped - check total_steps (only non-hook steps counted)
+    # The workflow has 4 steps total, but 2 are hooks, so total_steps should be 2
+    assert ctx.total_steps == 2, f"Expected 2 non-hook steps, but got {ctx.total_steps}"
+
+    # Verify we got past step 1 without "Invalid step configuration" error
+    # (or at least attempted both steps, even if they failed)
+    assert ctx.current_step >= 1, "No steps were executed"

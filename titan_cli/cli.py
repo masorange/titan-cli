@@ -465,15 +465,9 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
             field_type = field_schema.get("type")
             description = field_schema.get("description", "")
             field_format = field_schema.get("format", "")
-            current_value = current_plugin_config.get(field_name, field_schema.get("default"))
+            default_value = field_schema.get("default")
+            current_value = current_plugin_config.get(field_name, default_value)
             is_required = field_name in schema.get("required", [])
-
-            # Skip fields that have defaults and are not required
-            # (they will use their default values from the model)
-            has_default = "default" in field_schema
-            if not is_required and has_default and field_name not in current_plugin_config:
-                # Use default value, don't prompt
-                continue
 
             # Detect if this is a secret field (by name pattern or format)
             is_secret = (
@@ -489,12 +483,42 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                 prompt_text += f" ({description})"
             if is_required:
                 prompt_text += " [required]"
+            elif default_value is not None:
+                # Show default value for optional fields
+                if field_type == "boolean":
+                    prompt_text += f" [default: {default_value}]"
+                elif field_type == "string" and default_value:
+                    prompt_text += f" [default: {default_value}]"
+                elif field_type == "integer":
+                    prompt_text += f" [default: {default_value}]"
 
             # Simple type handling
             if field_type == "boolean":
-                new_value = prompts.ask_confirm(prompt_text, default=bool(current_value) if current_value is not None else False)
+                # Determine default for prompt (avoid type coercion issues)
+                if current_value is not None:
+                    prompt_default = current_value
+                elif default_value is not None:
+                    prompt_default = default_value
+                else:
+                    prompt_default = False
+
+                new_value = prompts.ask_confirm(prompt_text, default=prompt_default)
+                # If user accepts default and field is optional with a default, skip adding it
+                if not is_required and default_value is not None and new_value == default_value:
+                    continue
             elif field_type == "integer":
-                new_value = prompts.ask_int(prompt_text, default=int(current_value) if current_value is not None else None)
+                # Determine default for prompt
+                if current_value is not None:
+                    prompt_default = int(current_value)
+                elif default_value is not None:
+                    prompt_default = int(default_value)
+                else:
+                    prompt_default = None
+
+                new_value = prompts.ask_int(prompt_text, default=prompt_default)
+                # If user accepts default and field is optional with a default, skip adding it
+                if not is_required and default_value is not None and new_value == default_value:
+                    continue
             elif field_type == "array" and field_schema.get("items", {}).get("type") == "string":
                 current_list = current_value or []
                 text.body(prompt_text)
@@ -505,6 +529,14 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     new_value = [item.strip() for item in new_value_str.split(",")]
                 else:
                     new_value = current_list
+                # If user accepts default and field is optional with a default, skip adding it
+                # For arrays, compare sorted to ignore order
+                if not is_required and default_value is not None:
+                    if isinstance(new_value, list) and isinstance(default_value, list):
+                        if sorted(new_value) == sorted(default_value):
+                            continue
+                    elif new_value == default_value:
+                        continue
             else:  # Default to string
                 default_val = str(current_value) if current_value is not None else ""
                 # For secrets, check if already exists in keychain
@@ -527,11 +559,26 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
 
                 # Ask for value (hidden if secret)
                 new_value = prompts.ask_text(prompt_text, default=default_val if not is_secret else "", password=is_secret)
-                if new_value is None or (not new_value and is_required):
+
+                # Handle empty input
+                if new_value is None or not new_value:
                     if is_required:
                         text.error(f"Field '{field_name}' is required.")
                         return False
+                    # For optional fields, if left blank and there's a default, skip adding it
+                    # (the model will use its default value)
+                    if default_value is not None:
+                        continue
                     new_value = ""
+
+                # If user enters a value that matches the default for an optional field, skip adding it
+                # Normalize strings by stripping whitespace before comparison
+                if not is_required and default_value is not None:
+                    if isinstance(new_value, str) and isinstance(default_value, str):
+                        if new_value.strip() == str(default_value).strip():
+                            continue
+                    elif new_value == default_value:
+                        continue
 
             # Store secrets separately
             if is_secret and new_value:

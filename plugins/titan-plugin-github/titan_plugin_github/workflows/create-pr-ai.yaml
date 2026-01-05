@@ -4,6 +4,10 @@ description: "AI-powered PR creation with intelligent analysis and suggestions"
 params:
   draft: false
 
+hooks:
+  - before_push
+  - after_pr
+
 steps:
   # Use the commit-ai workflow (respects project override for linting/testing)
   - id: commit_changes
