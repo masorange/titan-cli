@@ -54,19 +54,48 @@ def create_issue(ctx: WorkflowContext) -> WorkflowResult:
 
     issue_title = ctx.get("issue_title")
     issue_body = ctx.get("issue_body")
-    assignees = ctx.get("assignees")
-    labels = ctx.get("labels")
+    assignees = ctx.get("assignees", [])
+    labels = ctx.get("labels", [])
 
+    # Safely parse string representations to lists
     if isinstance(assignees, str):
-        assignees = ast.literal_eval(assignees)
+        try:
+            assignees = ast.literal_eval(assignees)
+        except (ValueError, SyntaxError):
+            assignees = []
+
     if isinstance(labels, str):
-        labels = ast.literal_eval(labels)
+        try:
+            labels = ast.literal_eval(labels)
+        except (ValueError, SyntaxError):
+            labels = []
+
+    # Ensure they are lists
+    if not isinstance(assignees, list):
+        assignees = []
+    if not isinstance(labels, list):
+        labels = []
 
     if not issue_title:
         return Error("issue_title not found in context")
 
     if not issue_body:
         return Error("issue_body not found in context")
+
+    # Validate that labels exist in GitHub repository
+    if labels and ctx.github:
+        try:
+            available_labels = ctx.github.list_labels()
+            invalid_labels = [label for label in labels if label not in available_labels]
+
+            if invalid_labels:
+                return Error(
+                    f"Invalid labels: {', '.join(invalid_labels)}. "
+                    f"Available labels: {', '.join(available_labels[:10])}"
+                )
+        except Exception:
+            # If we can't validate labels, continue anyway
+            pass
 
     try:
         issue = ctx.github.create_issue(

@@ -142,12 +142,15 @@ def test_create_issue_step(MockGitHubClient, mock_secret_manager):
         labels=[],
     )
     mock_github_client.create_issue.return_value = mock_issue
+    mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]  # Mock available labels
+
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_title": "Test Title", "issue_body": "Test Body", "assignees": ["testuser"], "labels": ["bug"]})
     ctx.github = mock_github_client
 
     # Act
     result = create_issue(ctx)
-    ctx.data.update(result.metadata)
+    if result.metadata:
+        ctx.data.update(result.metadata)
 
     # Assert
     assert isinstance(result, Success)
@@ -173,6 +176,7 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
             labels=["feature"],
         )
         mock_github_client.create_issue.return_value = mock_issue
+        mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]  # Mock available labels
 
         # Labels auto-assigned by AI categorization
         ctx = WorkflowContext(
@@ -188,7 +192,8 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
 
         # Act
         result = create_issue(ctx)
-        ctx.data.update(result.metadata)
+        if result.metadata:
+            ctx.data.update(result.metadata)
 
         # Assert
         assert isinstance(result, Success)

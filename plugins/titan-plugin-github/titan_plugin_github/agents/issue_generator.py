@@ -1,11 +1,13 @@
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
+import re
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest, AIGenerator
 
 
 class IssueGeneratorAgent(BaseAIAgent):
-    def __init__(self, ai_client: AIGenerator):
+    def __init__(self, ai_client: AIGenerator, template_dir: Optional[Path] = None):
         super().__init__(ai_client)
+        self.template_dir = template_dir or Path(".github/ISSUE_TEMPLATE")
         self.categories = {
             "feature": {
                 "template": "feature.md",
@@ -50,139 +52,107 @@ Your task is to:
 6. Preserve any code snippets exactly as provided, formatted in markdown code blocks
 """
 
-    def _categorize_issue(self, user_description: str) -> str:
-        """
-        Use AI to categorize the issue based on user description.
-        Returns: category name (feature, bug, improvement, refactor, chore, documentation)
-        """
-        prompt = f"""
-Analyze the following issue description and categorize it into ONE of these categories:
-- feature: New functionality or capability
-- improvement: Enhancement to existing functionality
-- bug: Something is broken or not working as expected
-- refactor: Code restructuring without changing behavior
-- chore: Maintenance tasks (dependencies, configs, CI/CD)
-- documentation: Documentation updates or additions
-
-Issue description:
----
-{user_description}
----
-
-Respond with ONLY the category name (one word).
-"""
-
-        request = AgentRequest(context=prompt)
-        response = self.generate(request)
-        category = response.content.strip().lower()
-
-        # Validate category
-        if category not in self.categories:
-            # Default to feature if unknown
-            category = "feature"
-
-        return category
-
     def _load_template(self, template_name: str) -> Optional[str]:
         """
-        Load a template file from .github/ISSUE_TEMPLATE/
+        Load a template file from the template directory.
         Returns None if template doesn't exist or can't be read.
         """
         try:
-            template_path = Path(".github/ISSUE_TEMPLATE") / template_name
+            template_path = self.template_dir / template_name
             if template_path.exists() and template_path.is_file():
                 return template_path.read_text(encoding="utf-8")
-        except Exception:
+        except (IOError, FileNotFoundError, PermissionError, OSError):
             pass
         return None
 
+    def _load_all_templates(self) -> Dict[str, Optional[str]]:
+        """
+        Load all available templates.
+        Returns a dict mapping category name to template content.
+        """
+        templates = {}
+        for category, info in self.categories.items():
+            template_content = self._load_template(info["template"])
+            templates[category] = template_content
+        return templates
+
+    def _parse_ai_response(self, content: str) -> Tuple[str, str, str]:
+        """
+        Parse AI response to extract category, title, and body.
+        Uses regex for robust parsing.
+
+        Returns:
+            Tuple of (category, title, body)
+        """
+        # Extract category
+        category_match = re.search(r'CATEGORY:\s*(\w+)', content, re.IGNORECASE)
+        category = category_match.group(1).strip().lower() if category_match else "feature"
+
+        # Validate category
+        if category not in self.categories:
+            category = "feature"
+
+        # Extract title
+        title_match = re.search(r'TITLE:\s*(.+?)(?=\n|DESCRIPTION:|$)', content, re.IGNORECASE)
+        title = title_match.group(1).strip() if title_match else "Issue"
+
+        # Extract description/body
+        desc_match = re.search(r'DESCRIPTION:\s*(.+)', content, re.IGNORECASE | re.DOTALL)
+        body = desc_match.group(1).strip() if desc_match else content
+
+        return category, title, body
+
     def generate_issue(self, user_description: str) -> Dict[str, any]:
         """
-        Generate a complete issue with auto-categorization.
+        Generate a complete issue with auto-categorization in a single AI call.
 
         Returns:
             dict with keys: title, body, category, labels, template_used
         """
-        # Step 1: Categorize the issue
-        category = self._categorize_issue(user_description)
-        category_info = self.categories[category]
+        # Load all available templates
+        all_templates = self._load_all_templates()
 
-        # Step 2: Try to load the appropriate template
-        template_content = self._load_template(category_info["template"])
-        template_used = template_content is not None
+        # Build prompt that includes all templates and asks AI to categorize + generate
+        templates_section = self._format_templates_for_prompt(all_templates)
 
-        # Step 3: Generate issue using the template (if available)
-        if template_content:
-            prompt = f"""
-Here is a GitHub issue template for a {category}:
----
-{template_content}
----
-
-Here is the user's description:
----
-{user_description}
----
-
-Generate a complete issue following the template structure. Replace all placeholders with actual content based on the user's description.
-- Remove all HTML comments (<!-- -->)
-- Keep all section headers (##)
-- Fill in meaningful content for each section
-- If a section doesn't apply or lacks information, write "N/A" or a brief note
-- Preserve any code snippets exactly as provided in markdown code blocks
-
-The final output should be in the format:
-TITLE: {category_info["prefix"]}(scope): brief description
-DESCRIPTION:
-<complete markdown-formatted description following the template>
-"""
-        else:
-            # No template found - generate based on category type
-            sections_by_category = {
-                "feature": ["Summary", "Description", "Objectives", "Proposed Solution", "Acceptance Criteria"],
-                "improvement": ["Summary", "Current Behavior", "Expected Behavior", "Proposed Solution", "Acceptance Criteria"],
-                "bug": ["Summary", "Current Behavior", "Expected Behavior", "Steps to Reproduce", "Code Snippets / Error Messages"],
-                "refactor": ["Summary", "Current State", "Proposed Solution", "Objectives", "Acceptance Criteria"],
-                "chore": ["Summary", "Description", "Tasks"],
-                "documentation": ["Summary", "Description", "Objectives"]
-            }
-
-            sections = sections_by_category.get(category, ["Summary", "Description"])
-            sections_text = "\n".join([f"## {section}\n[Content for {section}]" for section in sections])
-
-            prompt = f"""
-Generate a GitHub issue for a {category}.
+        prompt = f"""
+Analyze the following issue description and:
+1. Categorize it into ONE category: feature, improvement, bug, refactor, chore, or documentation
+2. Generate a complete GitHub issue following the appropriate template
 
 User description:
 ---
 {user_description}
 ---
 
-The title should follow the conventional commit format: {category_info["prefix"]}(scope): brief description
+{templates_section}
 
-The description should include these sections:
-{sections_text}
+Instructions:
+- Choose the most appropriate category based on the description
+- Follow the template structure for that category (if available)
+- Remove all HTML comments (<!-- -->)
+- Keep all section headers (##)
+- Fill in meaningful content for each section
+- If a section doesn't apply, write "N/A" or a brief note
+- Preserve any code snippets exactly as provided in markdown code blocks
+- Use the correct conventional commit prefix for the title
 
-Fill each section with appropriate content based on the user's description.
-Preserve any code snippets exactly as provided in markdown code blocks.
-
-The final output should be in the format:
-TITLE: <conventional commit title>
+Output format (REQUIRED):
+CATEGORY: <category>
+TITLE: <prefix>(scope): brief description
 DESCRIPTION:
-<markdown-formatted description with the sections above>
+<complete markdown-formatted description>
 """
 
+        # Single AI call for categorization + generation
         request = AgentRequest(context=prompt)
         response = self.generate(request)
 
-        # Parse response
-        if "DESCRIPTION:" in response.content:
-            parts = response.content.split("DESCRIPTION:", 1)
-            title = parts[0].replace("TITLE:", "").strip()
-            body = parts[1].strip()
-        else:
-            title = response.content.splitlines()[0] if response.content else "Issue"
-            body = response.content
+        # Parse response using robust regex parsing
+        category, title, body = self._parse_ai_response(response.content)
+
+        category_info = self.categories[category]
+        template_used = all_templates.get(category) is not None
 
         return {
             "title": title,
@@ -191,3 +161,21 @@ DESCRIPTION:
             "labels": category_info["labels"],
             "template_used": template_used
         }
+
+    def _format_templates_for_prompt(self, templates: Dict[str, Optional[str]]) -> str:
+        """
+        Format all templates into a string for the AI prompt.
+        """
+        if not any(templates.values()):
+            return "No templates available. Generate structured content based on category best practices."
+
+        formatted = "Available templates:\n\n"
+        for category, template_content in templates.items():
+            if template_content:
+                category_info = self.categories[category]
+                formatted += f"### {category.upper()} (prefix: {category_info['prefix']})\n"
+                formatted += f"```\n{template_content}\n```\n\n"
+            else:
+                formatted += f"### {category.upper()} (no template available)\n\n"
+
+        return formatted
