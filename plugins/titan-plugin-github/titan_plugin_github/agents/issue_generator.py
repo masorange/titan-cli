@@ -9,12 +9,12 @@ class IssueGeneratorAgent(BaseAIAgent):
         self.categories = {
             "feature": {
                 "template": "feature.md",
-                "labels": ["feature", "enhancement"],
+                "labels": ["feature"],
                 "prefix": "feat"
             },
             "improvement": {
                 "template": "improvement.md",
-                "labels": ["enhancement", "improvement"],
+                "labels": ["improvement"],
                 "prefix": "improve"
             },
             "bug": {

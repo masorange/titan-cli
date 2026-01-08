@@ -1,6 +1,6 @@
 <!--
 Template Type: Improvement
-Labels: enhancement, improvement
+Labels: improvement
 Title Prefix: improve:
 -->
 

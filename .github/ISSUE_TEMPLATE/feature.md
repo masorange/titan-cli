@@ -1,6 +1,6 @@
 <!--
 Template Type: Feature Request
-Labels: feature, enhancement
+Labels: feature
 Title Prefix: feat:
 -->
 

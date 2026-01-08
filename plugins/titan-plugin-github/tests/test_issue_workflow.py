@@ -3,8 +3,7 @@ from unittest.mock import MagicMock, patch
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success
 from titan_cli.core.secrets import SecretManager
-from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step, prompt_for_labels_step
-from titan_plugin_github.steps.template_steps import find_issue_template_step
+from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step
 from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body, create_issue
 from titan_plugin_github.steps.preview_steps import preview_and_confirm_issue_step
 from titan_plugin_github.models import Issue, User
@@ -27,48 +26,77 @@ def test_prompt_for_issue_body_step(mock_secret_manager):
     assert isinstance(result, Success)
     assert ctx.get("issue_body") == "Test issue body"
 
-def test_find_issue_template_step(tmp_path, mock_secret_manager):
-    # Arrange
-    ctx = WorkflowContext(secrets=mock_secret_manager, data={})
-    github_dir = tmp_path / ".github"
-    github_dir.mkdir()
-    template_file = github_dir / "ISSUE_TEMPLATE.md"
-    template_file.write_text("Test issue template")
-
-    # Change to the tmp_path directory so the template can be found
-    import os
-    original_dir = os.getcwd()
-    try:
-        os.chdir(tmp_path)
-        # Act
-        result = find_issue_template_step(ctx)
-        if result.metadata:
-            ctx.data.update(result.metadata)
-    finally:
-        os.chdir(original_dir)
-
-    # Assert
-    assert isinstance(result, Success)
-    assert ctx.get("issue_template") == "Test issue template"
-
 @patch("titan_plugin_github.steps.issue_steps.IssueGeneratorAgent")
 def test_ai_suggest_issue_title_and_body(MockIssueGeneratorAgent, mock_secret_manager):
     # Arrange
     mock_issue_generator = MockIssueGeneratorAgent.return_value
-    mock_issue_generator.generate_issue.return_value = ("Test Title", "Test Body")
+    mock_issue_generator.generate_issue.return_value = {
+        "title": "feat(plugins): Test Feature",
+        "body": "Test Body",
+        "category": "feature",
+        "labels": ["feature"],
+        "template_used": True
+    }
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
     ctx.ai = MagicMock()
     ctx.ui = MagicMock()
 
     # Act
     result = ai_suggest_issue_title_and_body(ctx)
-    if result.metadata:
-        ctx.data.update(result.metadata)
 
     # Assert
     assert isinstance(result, Success)
-    assert ctx.get("issue_title") == "Test Title"
+    assert ctx.get("issue_title") == "feat(plugins): Test Feature"
     assert ctx.get("issue_body") == "Test Body"
+    assert ctx.get("issue_category") == "feature"
+    assert ctx.get("labels") == ["feature"]
+    assert "feature" in result.message
+
+def test_ai_suggest_issue_title_and_body_bug_category(mock_secret_manager):
+    # Arrange
+    with patch("titan_plugin_github.steps.issue_steps.IssueGeneratorAgent") as MockIssueGeneratorAgent:
+        mock_issue_generator = MockIssueGeneratorAgent.return_value
+        mock_issue_generator.generate_issue.return_value = {
+            "title": "fix(api): Test Bug Fix",
+            "body": "Bug description",
+            "category": "bug",
+            "labels": ["bug"],
+            "template_used": True
+        }
+        ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Something is broken"})
+        ctx.ai = MagicMock()
+        ctx.ui = MagicMock()
+
+        # Act
+        result = ai_suggest_issue_title_and_body(ctx)
+
+        # Assert
+        assert isinstance(result, Success)
+        assert ctx.get("issue_category") == "bug"
+        assert ctx.get("labels") == ["bug"]
+
+def test_ai_suggest_issue_title_and_body_without_template(mock_secret_manager):
+    # Arrange
+    with patch("titan_plugin_github.steps.issue_steps.IssueGeneratorAgent") as MockIssueGeneratorAgent:
+        mock_issue_generator = MockIssueGeneratorAgent.return_value
+        mock_issue_generator.generate_issue.return_value = {
+            "title": "chore: Update dependencies",
+            "body": "Chore description",
+            "category": "chore",
+            "labels": ["chore", "maintenance"],
+            "template_used": False  # No template found
+        }
+        ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Update deps"})
+        ctx.ai = MagicMock()
+        ctx.ui = MagicMock()
+
+        # Act
+        result = ai_suggest_issue_title_and_body(ctx)
+
+        # Assert
+        assert isinstance(result, Success)
+        assert ctx.get("issue_category") == "chore"
+        assert ctx.get("labels") == ["chore", "maintenance"]
 
 def test_preview_and_confirm_issue_step(mock_secret_manager):
     # Arrange
@@ -101,23 +129,6 @@ def test_prompt_for_self_assign_step(mock_secret_manager):
     assert isinstance(result, Success)
     assert ctx.get("assignees") == ["testuser"]
 
-def test_prompt_for_labels_step(mock_secret_manager):
-    # Arrange
-    ctx = WorkflowContext(secrets=mock_secret_manager, data={})
-    ctx.github = MagicMock()
-    ctx.views = MagicMock()
-    ctx.github.list_labels.return_value = ["bug", "feature"]
-    ctx.views.prompts.ask_choices.return_value = ["bug"]
-
-    # Act
-    result = prompt_for_labels_step(ctx)
-    if result.metadata:
-        ctx.data.update(result.metadata)
-
-    # Assert
-    assert isinstance(result, Success)
-    assert ctx.get("labels") == ["bug"]
-
 @patch("titan_plugin_github.clients.github_client.GitHubClient")
 def test_create_issue_step(MockGitHubClient, mock_secret_manager):
     # Arrange
@@ -148,3 +159,42 @@ def test_create_issue_step(MockGitHubClient, mock_secret_manager):
         assignees=["testuser"],
         labels=["bug"],
     )
+
+def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
+    # Arrange
+    with patch("titan_plugin_github.clients.github_client.GitHubClient") as MockGitHubClient:
+        mock_github_client = MockGitHubClient()
+        mock_issue = Issue(
+            number=2,
+            title="feat: New Feature",
+            body="Feature description",
+            state="OPEN",
+            author=User(login="testuser"),
+            labels=["feature"],
+        )
+        mock_github_client.create_issue.return_value = mock_issue
+
+        # Labels auto-assigned by AI categorization
+        ctx = WorkflowContext(
+            secrets=mock_secret_manager,
+            data={
+                "issue_title": "feat: New Feature",
+                "issue_body": "Feature description",
+                "assignees": [],
+                "labels": ["feature"]  # Auto-assigned
+            }
+        )
+        ctx.github = mock_github_client
+
+        # Act
+        result = create_issue(ctx)
+        ctx.data.update(result.metadata)
+
+        # Assert
+        assert isinstance(result, Success)
+        mock_github_client.create_issue.assert_called_once_with(
+            title="feat: New Feature",
+            body="Feature description",
+            assignees=[],
+            labels=["feature"],
+        )
