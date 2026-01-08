@@ -127,7 +127,7 @@ def _show_submenu(
         action_category = submenu_builder.add_category("Actions")
         for action_name, action_desc, action_id in actions["actions"]:
             action_category.add_item(action_name, action_desc, action_id)
-        submenu_builder.add_category("Back").add_item("Return to Main Menu", "", "back")
+        submenu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_MAIN_MENU, "", "back")
 
         choice_item = prompts.ask_menu(submenu_builder.to_menu())
         if not choice_item or choice_item.action == "back":
@@ -185,9 +185,9 @@ def _show_switch_project_menu(prompts: PromptsRenderer, text: TextRenderer, conf
 
 def _show_cli_submenu(prompts: PromptsRenderer, text: TextRenderer):
     """Shows the submenu for launching external CLIs."""
-    from titan_cli.utils.cli_configs import CLI_REGISTRY
-    from titan_cli.utils.cli_launcher import CLILauncher
-    from titan_cli.utils.launch_helper import launch_cli_tool
+    from titan_cli.external_cli.configs import CLI_REGISTRY
+    from titan_cli.external_cli.launcher import CLILauncher
+    from titan_cli.external_cli.helper import launch_cli_tool
 
     while True:
         submenu_builder = DynamicMenu(title=msg.ExternalCLI.MENU_TITLE, emoji="🚀")
@@ -205,7 +205,7 @@ def _show_cli_submenu(prompts: PromptsRenderer, text: TextRenderer):
             text.body(msg.ExternalCLI.INSTALL_SUGGESTION, style="dim")
             return
 
-        submenu_builder.add_category(msg.Interactive.MENU_EXIT).add_item(msg.Interactive.RETURN_TO_MENU_PROMPT, "", "back")
+        submenu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_MAIN_MENU, "", "back")
 
         choice_item = prompts.ask_menu(submenu_builder.to_menu())
         if not choice_item or choice_item.action == "back":
@@ -295,7 +295,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     plugin_data["package_name"] # The action is the package name for pipx
                 )
             
-            menu_builder.add_category("Back").add_item("Return to Previous Menu", "", "back")
+            menu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_PREVIOUS_MENU, "", "back")
 
             choice = prompts.ask_menu(menu_builder.to_menu(), allow_quit=False)
 
@@ -651,7 +651,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     plugin_name
                 )
 
-            menu_builder.add_category("Back").add_item("Return to Previous Menu", "", "back")
+            menu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_PREVIOUS_MENU, "", "back")
             choice = prompts.ask_menu(menu_builder.to_menu(), allow_quit=False)
 
             if not choice or choice.action == "back":
@@ -735,7 +735,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
             project_cat = submenu_builder.add_category(f"Current Project ({active_project_name})")
             project_cat.add_item("Enable/Disable Plugins", "Enable or disable plugins for the current project.", "toggle")
 
-        submenu_builder.add_category("Back").add_item("Return to Main Menu", "", "back")
+        submenu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_MAIN_MENU, "", "back")
 
         choice_item = prompts.ask_menu(submenu_builder.to_menu(), allow_quit=False)
         if not choice_item or choice_item.action == "back":
