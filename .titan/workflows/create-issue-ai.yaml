@@ -9,6 +9,11 @@ steps:
     plugin: github
     step: prompt_for_issue_body_step
 
+  - id: find_issue_template
+    name: "Find Issue Template"
+    plugin: github
+    step: find_issue_template
+
   - id: ai_suggest_issue
     name: "Generate Issue Title and Description"
     plugin: github

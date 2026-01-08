@@ -1056,9 +1056,11 @@ class GitHubClient:
             args = ["issue", "create", "--title", title, "--body", body]
 
             if assignees:
-                args.extend(["--assignee", ",".join(assignees)])
+                for assignee in assignees:
+                    args.extend(["--assignee", assignee])
             if labels:
-                args.extend(["--label", ",".join(labels)])
+                for label in labels:
+                    args.extend(["--label", label])
 
             args.extend(self._get_repo_arg())
             output = self._run_gh_command(args)

@@ -1,6 +1,6 @@
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
-from titan_cli.ai.models import AIMessage
+from ..agents.issue_generator import IssueGeneratorAgent
 
 def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -13,20 +13,15 @@ def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
         return Error("UI components not available")
 
     issue_body_prompt = ctx.get("issue_body")
+    issue_template = ctx.get("issue_template")
     if not issue_body_prompt:
         return Error("issue_body not found in context")
 
     ctx.ui.text.info("Using AI to generate issue title and description...")
 
     try:
-        prompt = f"Generate a GitHub issue title and description for the following content:\n\n{issue_body_prompt}"
-        messages = [AIMessage(role="user", content=prompt)]
-        response = ctx.ai.generate(messages)
-        
-        # Assuming the AI returns a response in the format "TITLE: ...\nDESCRIPTION: ..."
-        parts = response.content.split("DESCRIPTION:", 1)
-        title = parts[0].replace("TITLE:", "").strip()
-        body = parts[1].strip()
+        issue_generator = IssueGeneratorAgent(ctx.ai)
+        title, body = issue_generator.generate_issue(issue_body_prompt, issue_template)
 
         ctx.set("issue_title", title)
         ctx.set("issue_body", body)
