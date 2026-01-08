@@ -1083,3 +1083,20 @@ class GitHubClient:
             raise GitHubAPIError(f"Failed to parse issue data: {e}")
         except GitHubAPIError as e:
             raise GitHubAPIError(f"Failed to create issue: {e}")
+
+    def list_labels(self) -> List[str]:
+        """
+        List all labels in the repository.
+
+        Returns:
+            List of label names.
+        """
+        try:
+            args = ["label", "list", "--json", "name"] + self._get_repo_arg()
+            output = self._run_gh_command(args)
+            labels_data = json.loads(output)
+            return [label["name"] for label in labels_data]
+        except (ValueError, json.JSONDecodeError) as e:
+            raise GitHubAPIError(f"Failed to parse label data: {e}")
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to list labels: {e}")
