@@ -130,7 +130,7 @@ def prompt_for_self_assign_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("UI components not available")
 
     try:
-        if ctx.views.prompts.ask_confirm(msg.Prompts.ASSIGN_TO_SELF, default=False):
+        if ctx.views.prompts.ask_confirm(msg.Prompts.ASSIGN_TO_SELF, default=True):
             current_user = ctx.github.get_current_user()
             assignees = ctx.get("assignees", [])
             if current_user not in assignees:

@@ -1,3 +1,4 @@
+import ast
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
 from ..agents.issue_generator import IssueGeneratorAgent
@@ -41,6 +42,11 @@ def create_issue(ctx: WorkflowContext) -> WorkflowResult:
     issue_body = ctx.get("issue_body")
     assignees = ctx.get("assignees")
     labels = ctx.get("labels")
+
+    if isinstance(assignees, str):
+        assignees = ast.literal_eval(assignees)
+    if isinstance(labels, str):
+        labels = ast.literal_eval(labels)
 
     if not issue_title:
         return Error("issue_title not found in context")

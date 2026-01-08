@@ -5,7 +5,12 @@ class IssueGeneratorAgent(BaseAIAgent):
         super().__init__(ai_client)
 
     def get_system_prompt(self) -> str:
-        return "You are an expert at creating GitHub issues. You can create issues from a description and a template."
+        return """You are an expert at creating highly professional, descriptive, and useful GitHub issues.
+Your task is to generate an issue title and a detailed, markdown-formatted description based on user input and an optional template.
+Ensure the title follows the Conventional Commits specification (e.g., "feat(scope): brief description").
+The language for both title and description must be English.
+Prioritize clarity, conciseness, and actionable detail in the description.
+"""
 
     def generate_issue(self, user_description: str, template: str = None) -> (str, str):
         if template:
@@ -20,20 +25,21 @@ class IssueGeneratorAgent(BaseAIAgent):
             ---
             Please fill out the template with the provided information.
             The final output should be in the format:
-            TITLE: <title>
+            TITLE: <conventional commit title>
             DESCRIPTION:
-            <description>
+            <markdown-formatted description>
             """
         else:
             prompt = f"""
-            Generate a GitHub issue title and description for the following content:
+            Generate a GitHub issue title and a markdown-formatted description for the following content:
             ---
             {user_description}
             ---
+            The title should follow the conventional commit format.
             The final output should be in the format:
-            TITLE: <title>
+            TITLE: <conventional commit title>
             DESCRIPTION:
-            <description>
+            <markdown-formatted description>
             """
         
         request = AgentRequest(context=prompt)
