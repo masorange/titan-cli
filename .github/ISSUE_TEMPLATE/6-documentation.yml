@@ -1,0 +1,112 @@
+name: Documentation
+description: Documentation improvements or additions
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve our documentation!
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A brief summary of the documentation need
+      placeholder: e.g., Add documentation for AI-powered issue creation workflow
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What documentation is needed or needs improvement?
+      placeholder: |
+        What's missing, unclear, or needs to be updated in the documentation?
+    validations:
+      required: true
+
+  - type: textarea
+    id: objectives
+    attributes:
+      label: Objectives
+      description: What are the goals of this documentation?
+      placeholder: |
+        - Help users understand how to use feature X
+        - Provide examples for common use cases
+        - Document API/configuration options
+        - Improve onboarding experience
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Documentation Type
+      description: What type of documentation is this?
+      options:
+        - User guide / Tutorial
+        - API documentation
+        - Architecture / Design docs
+        - Contributing guidelines
+        - README update
+        - Code comments
+        - Examples / Recipes
+        - Other
+    validations:
+      required: false
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Checklist of documentation tasks
+      placeholder: |
+        - [ ] Write/update documentation
+        - [ ] Add code examples
+        - [ ] Add diagrams/screenshots (if applicable)
+        - [ ] Review for accuracy
+        - [ ] Update table of contents
+    validations:
+      required: false
+
+  - type: textarea
+    id: target-audience
+    attributes:
+      label: Target Audience
+      description: Who is this documentation for?
+      placeholder: |
+        - New users
+        - Plugin developers
+        - Contributors
+        - System administrators
+    validations:
+      required: false
+
+  - type: textarea
+    id: code-snippets
+    attributes:
+      label: Examples / Code Snippets (Optional)
+      description: Any examples that should be included in the documentation
+      placeholder: |
+        ```python
+        # Example usage
+        from titan_cli import workflow
+        result = workflow.run("create-issue-ai")
+        ```
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: existing-docs
+    attributes:
+      label: Related Existing Documentation
+      description: Links to related documentation that exists or needs updating
+      placeholder: |
+        - README.md (needs section on X)
+        - docs/workflows.md (needs update)
+        - CONTRIBUTING.md (missing Y)
+    validations:
+      required: false
