@@ -1,4 +1,6 @@
-from titan_cli.engine.workflows import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine.context import WorkflowContext
+from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
+from titan_cli.ai.models import AIMessage
 
 def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -18,7 +20,8 @@ def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         prompt = f"Generate a GitHub issue title and description for the following content:\n\n{issue_body_prompt}"
-        response = ctx.ai.generate(prompt)
+        messages = [AIMessage(role="user", content=prompt)]
+        response = ctx.ai.generate(messages)
         
         # Assuming the AI returns a response in the format "TITLE: ...\nDESCRIPTION: ..."
         parts = response.content.split("DESCRIPTION:", 1)

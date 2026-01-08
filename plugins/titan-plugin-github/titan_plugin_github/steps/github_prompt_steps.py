@@ -1,5 +1,6 @@
 # plugins/titan-plugin-github/titan_plugin_github/steps/prompt_steps.py
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine.context import WorkflowContext
+from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
 from ..messages import msg
 
 
