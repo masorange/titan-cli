@@ -10,6 +10,7 @@ Your task is to generate an issue title and a detailed, markdown-formatted descr
 Ensure the title follows the Conventional Commits specification (e.g., "feat(scope): brief description").
 The language for both title and description must be English.
 Prioritize clarity, conciseness, and actionable detail in the description.
+If the user provides code snippets, you must include them in the description, properly formatted in markdown code blocks.
 """
 
     def generate_issue(self, user_description: str, template: str = None) -> (str, str):
@@ -19,11 +20,11 @@ Prioritize clarity, conciseness, and actionable detail in the description.
             ---
             {template}
             ---
-            Here is a description of the issue:
+            Here is a description of the issue, which may include code snippets:
             ---
             {user_description}
             ---
-            Please fill out the template with the provided information.
+            Please fill out the template with the provided information. If there are code snippets, include them in a "Code Snippets" section, formatted correctly with markdown.
             The final output should be in the format:
             TITLE: <conventional commit title>
             DESCRIPTION:
@@ -31,15 +32,17 @@ Prioritize clarity, conciseness, and actionable detail in the description.
             """
         else:
             prompt = f"""
-            Generate a GitHub issue title and a markdown-formatted description for the following content:
+            Generate a GitHub issue title and a markdown-formatted description for the following content, which may include code snippets:
             ---
             {user_description}
             ---
             The title should follow the conventional commit format.
+            The description should be well-structured, including a summary, a detailed description, and a "Code Snippets" section.
+            CRITICAL: If the user provides code snippets, you MUST include them in the "Code Snippets" section, without any modification, formatted correctly with markdown.
             The final output should be in the format:
             TITLE: <conventional commit title>
             DESCRIPTION:
-            <markdown-formatted description>
+            <markdown-formatted description with a "Code Snippets" asection if code is provided>
             """
         
         request = AgentRequest(context=prompt)
