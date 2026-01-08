@@ -6,6 +6,7 @@ from ..agents.issue_generator import IssueGeneratorAgent
 def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
     """
     Use AI to suggest a title and description for a GitHub issue.
+    Auto-categorizes and selects the appropriate template.
     """
     if not ctx.ai:
         return Skip("AI client not available")
@@ -14,21 +15,34 @@ def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
         return Error("UI components not available")
 
     issue_body_prompt = ctx.get("issue_body")
-    issue_template = ctx.get("issue_template")
     if not issue_body_prompt:
         return Error("issue_body not found in context")
 
-    ctx.ui.text.info("Using AI to generate issue title and description...")
+    ctx.ui.text.info("Using AI to categorize and generate issue...")
 
     try:
         issue_generator = IssueGeneratorAgent(ctx.ai)
-        title, body = issue_generator.generate_issue(issue_body_prompt, issue_template)
+        result = issue_generator.generate_issue(issue_body_prompt)
 
-        ctx.set("issue_title", title)
-        ctx.set("issue_body", body)
-        return Success("AI-generated issue title and description created")
+        # Show category detected
+        category = result["category"]
+        template_used = result.get("template_used", False)
+
+        if ctx.ui:
+            ctx.ui.text.success(f"Category detected: {category}")
+            if template_used:
+                ctx.ui.text.info(f"Using template: {category}.md")
+            else:
+                ctx.ui.text.warning(f"No template found for {category}, using default structure")
+
+        ctx.set("issue_title", result["title"])
+        ctx.set("issue_body", result["body"])
+        ctx.set("issue_category", category)
+        ctx.set("labels", result["labels"])
+
+        return Success(f"AI-generated issue ({category}) created successfully")
     except Exception as e:
-        return Error(f"Failed to generate issue title and description: {e}")
+        return Error(f"Failed to generate issue: {e}")
 
 
 def create_issue(ctx: WorkflowContext) -> WorkflowResult:
