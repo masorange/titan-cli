@@ -19,6 +19,7 @@ from ..models import (
     PRSearchResult,
     PRMergeResult,
     PRComment as GitHubPRComment,
+    Issue,
 )
 from ..exceptions import (
     GitHubError,
@@ -1040,3 +1041,43 @@ class GitHubClient:
             )
         except GitHubAPIError as e:
             raise GitHubAPIError(msg.GitHub.PR_CREATION_FAILED.format(error=e))
+
+    def create_issue(
+        self,
+        title: str,
+        body: str,
+        assignees: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> Issue:
+        """
+        Create a new GitHub issue.
+        """
+        try:
+            args = ["issue", "create", "--title", title, "--body", body]
+
+            if assignees:
+                args.extend(["--assignee", ",".join(assignees)])
+            if labels:
+                args.extend(["--label", ",".join(labels)])
+
+            args.extend(self._get_repo_arg())
+            output = self._run_gh_command(args)
+            issue_url = output.strip()
+            issue_number = int(issue_url.split("/")[-1])
+
+            # Fetch the issue to return the full object
+            issue_args = [
+                "issue",
+                "view",
+                str(issue_number),
+                "--json",
+                "number,title,body,state,author,labels,createdAt,updatedAt",
+            ] + self._get_repo_arg()
+            issue_output = self._run_gh_command(issue_args)
+            issue_data = json.loads(issue_output)
+            return Issue.from_dict(issue_data)
+
+        except (ValueError, json.JSONDecodeError) as e:
+            raise GitHubAPIError(f"Failed to parse issue data: {e}")
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to create issue: {e}")

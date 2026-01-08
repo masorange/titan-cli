@@ -78,3 +78,41 @@ def prompt_for_pr_body_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("User cancelled.")
     except Exception as e:
         return Error(f"Failed to prompt for PR body: {e}", exception=e)
+
+
+def prompt_for_issue_body_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Interactively prompts the user for a GitHub issue body using an external editor.
+    Skips if issue_body already exists.
+
+    Requires:
+        ctx.views.prompts: A PromptsRenderer instance.
+
+    Outputs (saved to ctx.data):
+        issue_body (str): The body/description entered by the user.
+
+    Returns:
+        Success: If the body was captured successfully.
+        Error: If the user cancels.
+        Skip: If issue_body already exists.
+    """
+
+    # Skip if body already exists (e.g., from AI generation)
+    if ctx.get("issue_body"):
+        return Skip("Issue body already provided, skipping manual prompt.")
+
+    try:
+        # Show step header
+        if ctx.views:
+            ctx.views.step_header(
+                name="Prompt for Issue Body",
+                step_type="plugin",
+                step_detail="github.prompt_for_issue_body"
+            )
+        body = ctx.views.prompts.ask_multiline(msg.Prompts.ENTER_ISSUE_BODY)
+        # Body can be empty
+        return Success("Issue body captured", metadata={"issue_body": body})
+    except (KeyboardInterrupt, EOFError):
+        return Error("User cancelled.")
+    except Exception as e:
+        return Error(f"Failed to prompt for issue body: {e}", exception=e)
