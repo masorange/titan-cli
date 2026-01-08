@@ -1065,7 +1065,10 @@ class GitHubClient:
             args.extend(self._get_repo_arg())
             output = self._run_gh_command(args)
             issue_url = output.strip()
-            issue_number = int(issue_url.split("/")[-1])
+            try:
+                issue_number = int(issue_url.strip().split("/")[-1])
+            except (ValueError, IndexError) as e:
+                raise GitHubAPIError(f"Failed to parse issue number from URL '{issue_url}': {e}")
 
             # Fetch the issue to return the full object
             issue_args = [

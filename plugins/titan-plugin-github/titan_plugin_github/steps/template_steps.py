@@ -13,9 +13,11 @@ def find_issue_template_step(ctx: WorkflowContext) -> WorkflowResult:
         template_path = ".github/issue_template.md"
     
     if template_path:
-        with open(template_path, "r") as f:
-            template = f.read()
-        ctx.set("issue_template", template)
-        return Success("Issue template found")
-    
+        try:
+            with open(template_path, "r", encoding="utf-8") as f:
+                template = f.read()
+            ctx.set("issue_template", template)
+            return Success("Issue template found")
+        except (FileNotFoundError, IOError) as e:
+            return Skip(f"Failed to read issue template: {e}")
     return Skip("No issue template found")

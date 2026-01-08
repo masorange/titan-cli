@@ -42,7 +42,7 @@ If the user provides code snippets, you must include them in the description, pr
             The final output should be in the format:
             TITLE: <conventional commit title>
             DESCRIPTION:
-            <markdown-formatted description with a "Code Snippets" asection if code is provided>
+            <markdown-formatted description with a "Code Snippets" section if code is provided>
             """
         
         request = AgentRequest(context=prompt)
