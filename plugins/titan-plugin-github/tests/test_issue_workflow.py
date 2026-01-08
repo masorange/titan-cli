@@ -34,13 +34,18 @@ def test_find_issue_template_step(tmp_path, mock_secret_manager):
     github_dir.mkdir()
     template_file = github_dir / "ISSUE_TEMPLATE.md"
     template_file.write_text("Test issue template")
-    
-    with patch("os.path.exists", return_value=True):
-        with patch("builtins.open", return_value=MagicMock(__enter__=MagicMock(return_value=MagicMock(read=MagicMock(return_value="Test issue template"))))):
-            # Act
-            result = find_issue_template_step(ctx)
-            if result.metadata:
-                ctx.data.update(result.metadata)
+
+    # Change to the tmp_path directory so the template can be found
+    import os
+    original_dir = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        # Act
+        result = find_issue_template_step(ctx)
+        if result.metadata:
+            ctx.data.update(result.metadata)
+    finally:
+        os.chdir(original_dir)
 
     # Assert
     assert isinstance(result, Success)

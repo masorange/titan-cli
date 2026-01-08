@@ -61,7 +61,9 @@ def create_issue(ctx: WorkflowContext) -> WorkflowResult:
             assignees=assignees,
             labels=labels,
         )
-        ctx.set("issue", issue)
-        return Success(f"Successfully created issue #{issue.number}")
+        return Success(
+            f"Successfully created issue #{issue.number}",
+            metadata={"issue": issue}
+        )
     except Exception as e:
         return Error(f"Failed to create issue: {e}")
