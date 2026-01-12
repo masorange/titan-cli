@@ -29,7 +29,7 @@ class MenuRenderer:
         """
         Renders the complete menu to the console with theme-aware styling.
 
-        Displays:
+        Displays:n
         - Menu title with emoji
         - Categories with their emoji and items
         - Numbered items with descriptions

@@ -3,15 +3,13 @@ Titan TUI Application
 
 Main Textual application for Titan CLI with fixed status bar and theme support.
 """
-from textual.app import App, ComposeResult
+from textual.app import App
 from textual.binding import Binding
-from textual.containers import Container
 
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.external_cli.launcher import CLILauncher
 from .theme import TITAN_THEME_CSS
-from .widgets.status_bar import StatusBarWidget
 from .screens import MainMenuScreen
 
 
@@ -30,34 +28,7 @@ class TitanApp(App):
     """
 
     # Combine theme CSS with app-specific CSS
-    CSS = TITAN_THEME_CSS + """
-    Screen {
-        background: $surface;
-    }
-
-    Header {
-        background: $primary;
-        color: $text;
-        dock: top;
-    }
-
-    #main-container {
-        height: 1fr;
-        background: $surface;
-    }
-
-    #status-bar {
-        dock: bottom;
-        height: 3;
-        background: $surface-lighten-1;
-        border-top: solid $primary;
-    }
-
-    Footer {
-        background: $surface-lighten-2;
-        dock: bottom;
-    }
-    """
+    CSS = TITAN_THEME_CSS
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
@@ -83,20 +54,9 @@ class TitanApp(App):
         self.title = "Titan CLI"
         self.sub_title = "Development Tools Orchestrator"
 
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        # yield Header(show_clock=False)
-
-        # Main content area - screens will be pushed here
-        yield Container(id="main-container")
-
-        # Status bar (fixed at bottom, above footer)
-        yield StatusBarWidget(id="status-bar")
-
-        # yield Footer()
-
     def on_mount(self) -> None:
-        """Push the main menu screen when the app mounts."""
+        """Initialize app and show main menu."""
+        # Push main menu screen
         self.push_screen(MainMenuScreen(self.config))
 
     async def launch_external_cli(self, cli_name: str, prompt: str = None) -> int:

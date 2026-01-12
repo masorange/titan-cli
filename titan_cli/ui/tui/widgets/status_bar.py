@@ -30,13 +30,12 @@ class StatusBarWidget(Widget):
     StatusBarWidget {
         background: #334155;
         color: white;
-        height: 3;
+        height: 1;
         width: 100%;
     }
 
     StatusBarWidget Horizontal {
         width: 100%;
-        height: 100%;
     }
 
     StatusBarWidget Static {
@@ -47,30 +46,56 @@ class StatusBarWidget(Widget):
 
     StatusBarWidget #branch-info {
         text-align: left;
+        color: blue;
     }
 
     StatusBarWidget #ai-info {
         text-align: center;
+        color: green;
     }
 
     StatusBarWidget #project-info {
         text-align: right;
+        color: orange;
     }
     """
 
     def compose(self) -> ComposeResult:
         """Compose the status bar with three columns."""
         with Horizontal():
-            yield Static("Branch: N/A", id="branch-info")
-            yield Static("AI: N/A", id="ai-info")
-            yield Static("Project: N/A", id="project-info")
+            yield Static(f"{self.git_branch}", id="branch-info")
+            yield Static(f"{self.ai_info}", id="ai-info")
+            yield Static(f"{self.project_name}", id="project-info")
 
-    # Temporarily disabled for debugging
-    # def on_mount(self) -> None:
-    #     """Initialize the status bar content when mounted."""
-    #     self._update_branch(self.git_branch)
-    #     self._update_ai(self.ai_info)
-    #     self._update_project(self.project_name)
+    def _update_branch(self, value: str) -> None:
+        """Update branch display."""
+        branch_widget = self.query_one("#branch-info", Static)
+        branch_widget.update(value)
+
+    def _update_ai(self, value: str) -> None:
+        """Update AI display."""
+        ai_widget = self.query_one("#ai-info", Static)
+        ai_widget.update(value)
+
+    def _update_project(self, value: str) -> None:
+        """Update project display."""
+        project_widget = self.query_one("#project-info", Static)
+        project_widget.update(value)
+
+    def watch_git_branch(self, new_value: str) -> None:
+        """Update branch display when git_branch changes."""
+        if self.is_mounted:
+            self._update_branch(new_value)
+
+    def watch_ai_info(self, new_value: str) -> None:
+        """Update AI display when ai_info changes."""
+        if self.is_mounted:
+            self._update_ai(new_value)
+
+    def watch_project_name(self, new_value: str) -> None:
+        """Update project display when project_name changes."""
+        if self.is_mounted:
+            self._update_project(new_value)
 
     def update_status(self, git_branch: str = None, ai_info: str = None, project_name: str = None):
         """

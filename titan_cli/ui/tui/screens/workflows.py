@@ -4,16 +4,14 @@ Workflows Screen
 Screen for listing and executing workflows.
 """
 from textual.app import ComposeResult
-from textual.screen import Screen
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 
-from titan_cli.core.config import TitanConfig
-from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
+from .base import BaseScreen
 
 
-class WorkflowsScreen(Screen):
+class WorkflowsScreen(BaseScreen):
     """
     Workflows screen for selecting and executing workflows.
 
@@ -46,10 +44,6 @@ class WorkflowsScreen(Screen):
         margin-bottom: 1;
     }
 
-    #status-bar {
-        dock: bottom;
-    }
-
     OptionList {
         height: auto;
         border: none;
@@ -64,18 +58,8 @@ class WorkflowsScreen(Screen):
     }
     """
 
-    def __init__(self, config: TitanConfig, **kwargs):
-        """
-        Initialize the workflows screen.
-
-        Args:
-            config: TitanConfig instance
-        """
-        super().__init__(**kwargs)
-        self.config = config
-
-    def compose(self) -> ComposeResult:
-        """Compose the workflows screen."""
+    def compose_content(self) -> ComposeResult:
+        """Compose the workflows screen content."""
         with Container(id="workflows-container"):
             yield Static("⚡ Available Workflows", id="workflows-title")
 
@@ -95,9 +79,6 @@ class WorkflowsScreen(Screen):
 
                 options.append(Option("← Back to Main Menu", id="back"))
                 yield OptionList(*options)
-
-        # Status bar outside container so it docks at bottom
-        yield StatusBarWidget(id="status-bar")
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle workflow selection."""

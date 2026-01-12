@@ -4,16 +4,14 @@ Main Menu Screen
 The primary navigation screen for Titan TUI.
 """
 from textual.app import ComposeResult
-from textual.screen import Screen
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 
-from titan_cli.core.config import TitanConfig
-from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
+from .base import BaseScreen
 
 
-class MainMenuScreen(Screen):
+class MainMenuScreen(BaseScreen):
     """
     Main menu screen with navigation options.
 
@@ -34,13 +32,14 @@ class MainMenuScreen(Screen):
 
     CSS = """
     MainMenuScreen {
-        align: center middle;
+        layout: vertical;
     }
 
     #menu-container {
         width: 100%;
-        height: auto;
+        height: 100%;
         background: $surface-lighten-1;
+        layout: vertical;
     }
 
     #menu-title {
@@ -48,10 +47,11 @@ class MainMenuScreen(Screen):
         color: $primary;
         text-style: bold;
         margin-bottom: 1;
+        height: auto;
     }
 
     OptionList {
-        height: auto;
+        height: 1fr;
         border: none;
     }
 
@@ -64,18 +64,8 @@ class MainMenuScreen(Screen):
     }
     """
 
-    def __init__(self, config: TitanConfig, **kwargs):
-        """
-        Initialize the main menu screen.
-
-        Args:
-            config: TitanConfig instance
-        """
-        super().__init__(**kwargs)
-        self.config = config
-
-    def compose(self) -> ComposeResult:
-        """Compose the main menu."""
+    def compose_content(self) -> ComposeResult:
+        """Compose the main menu content."""
         with Container(id="menu-container"):
             yield Static("🚀 TITAN CLI - Main Menu", id="menu-title")
 
@@ -99,7 +89,6 @@ class MainMenuScreen(Screen):
             ])
 
             yield OptionList(*options)
-            yield StatusBarWidget(id="status-bar")
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle menu option selection."""
