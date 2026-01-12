@@ -311,3 +311,36 @@ class TitanConfig:
         plugin_cfg = self.config.plugins.get(plugin_name)
         return plugin_cfg.enabled if plugin_cfg else False
 
+    def get_status_bar_info(self) -> dict:
+        """
+        Get information for the status bar display.
+
+        Returns:
+            A dict with keys: 'ai_info', 'project_name'
+            Values are strings or None if not available.
+        """
+        # Extract AI info
+        ai_info = None
+        if self.config and self.config.ai:
+            ai_config = self.config.ai
+            default_provider_id = ai_config.default
+
+            if default_provider_id and default_provider_id in ai_config.providers:
+                provider_config = ai_config.providers[default_provider_id]
+                provider_name = provider_config.provider
+                model = provider_config.model or "default"
+                ai_info = f"{provider_name}/{model}"
+
+        # Extract project name
+        project_name = None
+        active_project = self.get_active_project()
+        if active_project:
+            project_name = active_project
+        elif self._project_root and self._project_root != Path.cwd():
+            project_name = self._project_root.name
+
+        return {
+            'ai_info': ai_info,
+            'project_name': project_name
+        }
+

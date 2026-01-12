@@ -6,6 +6,7 @@ from .menu_models import Menu
 from ...components.typography import TextRenderer
 from ...components.spacer import SpacerRenderer
 from ...console import get_console
+from ..status_bar import StatusBarRenderer
 
 class MenuRenderer:
     """Renders a Menu object to the console."""
@@ -15,24 +16,29 @@ class MenuRenderer:
         console: Optional[Console] = None,
         text_renderer: Optional[TextRenderer] = None,
         spacer_renderer: Optional[SpacerRenderer] = None,
+        status_bar_renderer: Optional[StatusBarRenderer] = None,
+        show_status_bar: bool = True,
     ):
         self.console = console or get_console()
         self.text = text_renderer or TextRenderer(console=self.console)
         self.spacer = spacer_renderer or SpacerRenderer(console=self.console)
+        self.status_bar = status_bar_renderer
+        self.show_status_bar = show_status_bar
 
     def render(self, menu: Menu) -> None:
         """
         Renders the complete menu to the console with theme-aware styling.
-        
+
         Displays:
         - Menu title with emoji
         - Categories with their emoji and items
         - Numbered items with descriptions
         - Optional tip at the bottom
-        
+        - Status bar at the very bottom (if enabled)
+
         Args:
             menu: The Menu object to render.
-            
+
         Example:
             >>> menu = Menu(title="Main Menu", emoji="🚀", ...)
             >>> renderer = MenuRenderer()
@@ -62,3 +68,14 @@ class MenuRenderer:
         if menu.tip:
             self.text.info(menu.tip, show_emoji=True)
             self.spacer.line()
+
+        # Render status bar at the bottom if enabled
+        if self.show_status_bar:
+            self.text.divider(style="dim")
+            if self.status_bar:
+                self.status_bar.print()
+            else:
+                # Create default status bar if none was provided
+                default_status_bar = StatusBarRenderer(console=self.console)
+                default_status_bar.print()
+            self.text.divider(style="dim")
