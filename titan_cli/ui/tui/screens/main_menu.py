@@ -130,7 +130,8 @@ class MainMenuScreen(Screen):
 
     def handle_workflow_action(self) -> None:
         """Handle Workflows action."""
-        self.app.notify("Workflows - Coming soon!")
+        from .workflows import WorkflowsScreen
+        self.app.push_screen(WorkflowsScreen(self.config))
 
     def handle_plugin_management_action(self) -> None:
         """Handle Plugin Management action."""
