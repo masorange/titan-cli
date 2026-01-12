@@ -32,6 +32,7 @@ class StatusBarWidget(Widget):
         color: white;
         height: 1;
         width: 100%;
+        dock: bottom;
     }
 
     StatusBarWidget Horizontal {

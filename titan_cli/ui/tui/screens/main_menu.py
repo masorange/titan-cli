@@ -32,14 +32,15 @@ class MainMenuScreen(BaseScreen):
 
     CSS = """
     MainMenuScreen {
-        layout: vertical;
+        align: center middle;
     }
 
     #menu-container {
-        width: 100%;
-        height: 100%;
+        width: 80%;
+        height: 1fr;
         background: $surface-lighten-1;
-        layout: vertical;
+        border: solid $primary;
+        padding: 2;
     }
 
     #menu-title {
@@ -47,11 +48,10 @@ class MainMenuScreen(BaseScreen):
         color: $primary;
         text-style: bold;
         margin-bottom: 1;
-        height: auto;
     }
 
     OptionList {
-        height: 1fr;
+        height: auto;
         border: none;
     }
 
