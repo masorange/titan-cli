@@ -16,6 +16,10 @@ from typing import Optional, List, Dict, Any
 
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from .config_loader import load_agent_config
+from .response_parser import JiraAgentParser
+from .validators import IssueValidator, IssueValidationError
+from .token_tracker import TokenTracker, TokenBudget, OperationType
+from .prompts import JiraAgentPrompts
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -92,6 +96,19 @@ class JiraAgent(BaseAIAgent):
         # Load configuration from TOML (once per agent instance)
         self.config = load_agent_config("jira_agent")
 
+        # Initialize robust response parser
+        self.parser = JiraAgentParser(strict=False)
+
+        # Initialize input validator
+        self.validator = IssueValidator(
+            strict=False,
+            min_description_length=10
+        )
+
+        # Initialize token tracker with budget
+        self.token_budget = TokenBudget(base_max_tokens=self.config.max_tokens)
+        self.token_tracker = TokenTracker(self.token_budget)
+
     def get_system_prompt(self) -> str:
         """System prompt for requirements analysis (from config)."""
         return self.config.requirements_system_prompt
@@ -119,7 +136,8 @@ class JiraAgent(BaseAIAgent):
             logger.error("JiraClient not available for issue analysis")
             return IssueAnalysis()
 
-        total_tokens = 0
+        # Reset token tracker for this analysis
+        self.token_tracker.reset()
 
         # Initialize with safe defaults
         functional_reqs = []
@@ -147,9 +165,23 @@ class JiraAgent(BaseAIAgent):
                     non_functional_reqs = requirements_result.get("non_functional", [])
                     acceptance_criteria = requirements_result.get("acceptance_criteria", [])
                     technical_approach = requirements_result.get("technical_approach")
-                    total_tokens += requirements_result.get("tokens_used", 0)
+                    # Track tokens
+                    tokens_used = requirements_result.get("tokens_used", 0)
+                    self.token_tracker.record_usage(
+                        OperationType.REQUIREMENTS_EXTRACTION,
+                        tokens_used,
+                        issue_key=issue_key,
+                        success=True
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to extract requirements: {e}")
+                    self.token_tracker.record_usage(
+                        OperationType.REQUIREMENTS_EXTRACTION,
+                        0,
+                        issue_key=issue_key,
+                        success=False,
+                        error=str(e)
+                    )
 
             # 3. Analyze risks and dependencies (with AI error handling)
             if self.config.enable_risk_analysis:
@@ -159,27 +191,69 @@ class JiraAgent(BaseAIAgent):
                     edge_cases = risk_result.get("edge_cases", [])
                     complexity_score = risk_result.get("complexity")
                     estimated_effort = risk_result.get("effort")
-                    total_tokens += risk_result.get("tokens_used", 0)
+                    # Track tokens
+                    tokens_used = risk_result.get("tokens_used", 0)
+                    self.token_tracker.record_usage(
+                        OperationType.RISK_ANALYSIS,
+                        tokens_used,
+                        issue_key=issue_key,
+                        success=True
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to analyze risks: {e}")
+                    self.token_tracker.record_usage(
+                        OperationType.RISK_ANALYSIS,
+                        0,
+                        issue_key=issue_key,
+                        success=False,
+                        error=str(e)
+                    )
 
             # 4. Detect dependencies (with AI error handling)
             if self.config.enable_dependency_detection:
                 try:
                     dep_result = self._detect_dependencies(issue)
                     dependencies = dep_result.get("dependencies", [])
-                    total_tokens += dep_result.get("tokens_used", 0)
+                    # Track tokens
+                    tokens_used = dep_result.get("tokens_used", 0)
+                    self.token_tracker.record_usage(
+                        OperationType.DEPENDENCY_DETECTION,
+                        tokens_used,
+                        issue_key=issue_key,
+                        success=True
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to detect dependencies: {e}")
+                    self.token_tracker.record_usage(
+                        OperationType.DEPENDENCY_DETECTION,
+                        0,
+                        issue_key=issue_key,
+                        success=False,
+                        error=str(e)
+                    )
 
             # 5. Suggest subtasks (with AI error handling)
             if include_subtasks and self.config.enable_subtask_suggestion:
                 try:
                     subtask_result = self._suggest_subtasks(issue)
                     suggested_subtasks = subtask_result.get("subtasks", [])
-                    total_tokens += subtask_result.get("tokens_used", 0)
+                    # Track tokens
+                    tokens_used = subtask_result.get("tokens_used", 0)
+                    self.token_tracker.record_usage(
+                        OperationType.SUBTASK_SUGGESTION,
+                        tokens_used,
+                        issue_key=issue_key,
+                        success=True
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to suggest subtasks: {e}")
+                    self.token_tracker.record_usage(
+                        OperationType.SUBTASK_SUGGESTION,
+                        0,
+                        issue_key=issue_key,
+                        success=False,
+                        error=str(e)
+                    )
 
         except Exception as e:
             logger.error(f"Failed to get issue {issue_key}: {e}")
@@ -196,7 +270,7 @@ class JiraAgent(BaseAIAgent):
             enhanced_description=enhanced_description,
             suggested_subtasks=suggested_subtasks,
             suggested_comments=suggested_comments,
-            total_tokens_used=total_tokens,
+            total_tokens_used=self.token_tracker.get_total_tokens(),
             complexity_score=complexity_score,
             estimated_effort=estimated_effort
         )
@@ -213,44 +287,29 @@ class JiraAgent(BaseAIAgent):
                            technical_approach, tokens_used
 
         Raises:
-            ValueError: If issue description is empty
+            ValueError: If issue validation fails
             Exception: If AI generation fails
         """
+        # Validate issue data before processing
+        is_valid, errors = self.validator.validate_for_requirements_extraction(issue)
+
+        if not is_valid:
+            error_msg = f"Issue validation failed for {issue.key}:\n" + "\n".join(f"  - {e}" for e in errors)
+            raise ValueError(error_msg)
+
+        # Sanitize and truncate description
         description = issue.description or ""
-        if not description.strip():
-            raise ValueError("Cannot extract requirements from empty description")
-
-        # Truncate description if too large
         max_length = self.config.max_description_length
-        desc_preview = description[:max_length]
-        if len(description) > max_length:
-            desc_preview += "\n\n... (description truncated)"
+        desc_preview = self.validator.sanitize_description(description, max_length)
 
-        prompt = f"""Analyze this JIRA issue and extract technical requirements.
-
-Issue: {issue.key} - {issue.summary}
-Type: {issue.issue_type}
-Priority: {issue.priority}
-
-Description:
-{desc_preview}
-
-Extract and categorize requirements. Format your response EXACTLY like this:
-
-FUNCTIONAL_REQUIREMENTS:
-- <requirement 1>
-- <requirement 2>
-
-NON_FUNCTIONAL_REQUIREMENTS:
-- <requirement 1>
-- <requirement 2>
-
-ACCEPTANCE_CRITERIA:
-- <criterion 1>
-- <criterion 2>
-
-TECHNICAL_APPROACH:
-<brief technical approach suggestion>"""
+        # Use centralized prompt template
+        prompt = JiraAgentPrompts.requirements_extraction(
+            issue_key=issue.key,
+            summary=issue.summary,
+            issue_type=issue.issue_type,
+            priority=issue.priority,
+            description=desc_preview
+        )
 
         request = AgentRequest(
             context=prompt,
@@ -298,29 +357,19 @@ TECHNICAL_APPROACH:
             Dict with keys: risks, edge_cases, complexity, effort, tokens_used
         """
         description = issue.description or ""
-        desc_preview = description[:self.config.max_description_length]
+        desc_preview = self.validator.sanitize_description(
+            description,
+            self.config.max_description_length
+        )
 
-        prompt = f"""Analyze this JIRA issue for risks and complexity.
-
-Issue: {issue.key} - {issue.summary}
-Type: {issue.issue_type}
-Priority: {issue.priority}
-
-Description:
-{desc_preview}
-
-Identify potential risks, edge cases, and estimate complexity. Format your response EXACTLY like this:
-
-RISKS:
-- <risk 1>
-- <risk 2>
-
-EDGE_CASES:
-- <edge case 1>
-- <edge case 2>
-
-COMPLEXITY: <low|medium|high|very high>
-EFFORT_ESTIMATE: <1-2 days|3-5 days|1-2 weeks|2+ weeks>"""
+        # Use centralized prompt template
+        prompt = JiraAgentPrompts.risk_analysis(
+            issue_key=issue.key,
+            summary=issue.summary,
+            issue_type=issue.issue_type,
+            priority=issue.priority,
+            description=desc_preview
+        )
 
         request = AgentRequest(
             context=prompt,
@@ -349,26 +398,22 @@ EFFORT_ESTIMATE: <1-2 days|3-5 days|1-2 weeks|2+ weeks>"""
             Dict with keys: dependencies, tokens_used
         """
         description = issue.description or ""
-        desc_preview = description[:self.config.max_description_length]
+        desc_preview = self.validator.sanitize_description(
+            description,
+            self.config.max_description_length
+        )
 
-        prompt = f"""Analyze this JIRA issue and identify technical dependencies.
-
-Issue: {issue.key} - {issue.summary}
-Type: {issue.issue_type}
-
-Description:
-{desc_preview}
-
-Identify external dependencies (APIs, libraries, services, other systems, etc.).
-Format your response EXACTLY like this:
-
-DEPENDENCIES:
-- <dependency 1>
-- <dependency 2>"""
+        # Use centralized prompt template
+        prompt = JiraAgentPrompts.dependency_detection(
+            issue_key=issue.key,
+            summary=issue.summary,
+            issue_type=issue.issue_type,
+            description=desc_preview
+        )
 
         request = AgentRequest(
             context=prompt,
-            max_tokens=self.config.max_tokens // 4,  # Smaller request
+            max_tokens=self.token_budget.get_budget(OperationType.DEPENDENCY_DETECTION),
             temperature=self.config.temperature,
             system_prompt=self.config.requirements_system_prompt
         )
@@ -393,26 +438,20 @@ DEPENDENCIES:
             Dict with keys: subtasks (list of dicts with summary and description), tokens_used
         """
         description = issue.description or ""
-        desc_preview = description[:self.config.max_description_length]
+        desc_preview = self.validator.sanitize_description(
+            description,
+            self.config.max_description_length
+        )
 
-        prompt = f"""Analyze this JIRA issue and suggest subtasks for work breakdown.
-
-Issue: {issue.key} - {issue.summary}
-Type: {issue.issue_type}
-Priority: {issue.priority}
-
-Description:
-{desc_preview}
-
-Suggest up to {self.config.max_subtasks} subtasks. Format your response EXACTLY like this:
-
-SUBTASK_1:
-Summary: <concise summary>
-Description: <brief technical description>
-
-SUBTASK_2:
-Summary: <concise summary>
-Description: <brief technical description>"""
+        # Use centralized prompt template
+        prompt = JiraAgentPrompts.subtask_suggestion(
+            issue_key=issue.key,
+            summary=issue.summary,
+            issue_type=issue.issue_type,
+            priority=issue.priority,
+            description=desc_preview,
+            max_subtasks=self.config.max_subtasks
+        )
 
         request = AgentRequest(
             context=prompt,
@@ -448,24 +487,20 @@ Description: <brief technical description>"""
         try:
             issue = self.jira.get_ticket(issue_key)
             description = issue.description or ""
-            desc_preview = description[:self.config.max_description_length]
+            desc_preview = self.validator.sanitize_description(
+                description,
+                self.config.max_description_length
+            )
 
-            prompt = f"""Generate a helpful comment for this JIRA issue.
-
-Issue: {issue.key} - {issue.summary}
-Type: {issue.issue_type}
-Status: {issue.status}
-
-Description:
-{desc_preview}
-
-Context: {comment_context}
-
-Generate a professional, helpful comment. Be specific and actionable.
-Format your response EXACTLY like this:
-
-COMMENT:
-<comment text>"""
+            # Use centralized prompt template
+            prompt = JiraAgentPrompts.comment_generation(
+                issue_key=issue.key,
+                summary=issue.summary,
+                issue_type=issue.issue_type,
+                status=issue.status,
+                description=desc_preview,
+                comment_context=comment_context
+            )
 
             request = AgentRequest(
                 context=prompt,
@@ -490,116 +525,29 @@ COMMENT:
     # ==================== RESPONSE PARSING METHODS ====================
 
     def _parse_requirements_response(self, content: str) -> Dict[str, Any]:
-        """Parse requirements extraction response."""
-        result = {
-            "functional": [],
-            "non_functional": [],
-            "acceptance_criteria": [],
-            "technical_approach": None
-        }
-
-        sections = {
-            "FUNCTIONAL_REQUIREMENTS:": "functional",
-            "NON_FUNCTIONAL_REQUIREMENTS:": "non_functional",
-            "ACCEPTANCE_CRITERIA:": "acceptance_criteria",
-            "TECHNICAL_APPROACH:": "technical_approach"
-        }
-
-        current_section = None
-        lines = content.split("\n")
-
-        for line in lines:
-            line = line.strip()
-
-            # Check for section headers
-            for header, section_key in sections.items():
-                if line.startswith(header):
-                    current_section = section_key
-                    break
-
-            # Parse content
-            if current_section and line.startswith("-"):
-                item = line[1:].strip()
-                if current_section in ["functional", "non_functional", "acceptance_criteria"]:
-                    result[current_section].append(item)
-            elif current_section == "technical_approach" and line and not line.endswith(":"):
-                if result["technical_approach"]:
-                    result["technical_approach"] += " " + line
-                else:
-                    result["technical_approach"] = line
-
-        return result
+        """
+        Parse requirements extraction response.
+        Uses robust parser with JSON-first strategy and regex fallback.
+        """
+        return self.parser.parse_requirements(content)
 
     def _parse_risk_response(self, content: str) -> Dict[str, Any]:
-        """Parse risk analysis response."""
-        result = {
-            "risks": [],
-            "edge_cases": [],
-            "complexity": None,
-            "effort": None
-        }
-
-        current_section = None
-        lines = content.split("\n")
-
-        for line in lines:
-            line = line.strip()
-
-            if line.startswith("RISKS:"):
-                current_section = "risks"
-            elif line.startswith("EDGE_CASES:"):
-                current_section = "edge_cases"
-            elif line.startswith("COMPLEXITY:"):
-                result["complexity"] = line.split(":", 1)[1].strip()
-                current_section = None
-            elif line.startswith("EFFORT_ESTIMATE:"):
-                result["effort"] = line.split(":", 1)[1].strip()
-                current_section = None
-            elif current_section and line.startswith("-"):
-                item = line[1:].strip()
-                result[current_section].append(item)
-
-        return result
+        """
+        Parse risk analysis response.
+        Uses robust parser with JSON-first strategy and regex fallback.
+        """
+        return self.parser.parse_risks(content)
 
     def _parse_dependencies_response(self, content: str) -> Dict[str, Any]:
-        """Parse dependencies detection response."""
-        result = {"dependencies": []}
-
-        lines = content.split("\n")
-        in_deps = False
-
-        for line in lines:
-            line = line.strip()
-            if line.startswith("DEPENDENCIES:"):
-                in_deps = True
-            elif in_deps and line.startswith("-"):
-                item = line[1:].strip()
-                result["dependencies"].append(item)
-
-        return result
+        """
+        Parse dependencies detection response.
+        Uses robust parser with JSON-first strategy and regex fallback.
+        """
+        return self.parser.parse_dependencies(content)
 
     def _parse_subtasks_response(self, content: str) -> Dict[str, Any]:
-        """Parse subtasks suggestion response."""
-        result = {"subtasks": []}
-
-        current_subtask = None
-        lines = content.split("\n")
-
-        for line in lines:
-            line = line.strip()
-
-            if line.startswith("SUBTASK_"):
-                if current_subtask:
-                    result["subtasks"].append(current_subtask)
-                current_subtask = {"summary": "", "description": ""}
-            elif current_subtask:
-                if line.startswith("Summary:"):
-                    current_subtask["summary"] = line.split(":", 1)[1].strip()
-                elif line.startswith("Description:"):
-                    current_subtask["description"] = line.split(":", 1)[1].strip()
-
-        # Add last subtask
-        if current_subtask:
-            result["subtasks"].append(current_subtask)
-
-        return result
+        """
+        Parse subtasks suggestion response.
+        Uses robust parser with JSON-first strategy and regex fallback.
+        """
+        return self.parser.parse_subtasks(content)

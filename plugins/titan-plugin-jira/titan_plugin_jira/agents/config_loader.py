@@ -38,17 +38,23 @@ class JiraAgentConfig(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0, description="AI temperature for generation")
     max_tokens: int = Field(2000, ge=1, description="Maximum tokens per AI request")
 
-    # Features
+    # Features (Active)
     enable_requirement_extraction: bool = Field(True, description="Enable requirement extraction")
     enable_subtasks: bool = Field(True, description="Enable subtask suggestion")
-    enable_subtask_suggestion: bool = Field(True, description="Enable subtask suggestion (legacy)")
+    enable_subtask_suggestion: bool = Field(True, description="Enable subtask suggestion (legacy, use enable_subtasks)")
     enable_risk_analysis: bool = Field(True, description="Enable risk analysis")
     enable_dependency_detection: bool = Field(True, description="Enable dependency detection")
     enable_acceptance_criteria: bool = Field(True, description="Enable acceptance criteria generation")
-    enable_gherkin_tests: bool = Field(False, description="Enable Gherkin/BDD test scenario generation")
-    enable_strict_labeling: bool = Field(False, description="Enable strict label classification")
-    enable_token_saving: bool = Field(False, description="Enable token optimization strategies")
-    enable_debug_output: bool = Field(False, description="Enable debug output")
+    enable_debug_output: bool = Field(False, description="Enable debug output (logs AI responses)")
+
+    # Features (Planned - Not Yet Implemented)
+    # These flags are reserved for future functionality
+    # TODO: Implement Gherkin test generation (PR #74 comment: remove unused flags)
+    # enable_gherkin_tests: bool = Field(False, description="Enable Gherkin/BDD test scenario generation")
+    # TODO: Implement strict label classification
+    # enable_strict_labeling: bool = Field(False, description="Enable strict label classification")
+    # TODO: Implement token optimization strategies
+    # enable_token_saving: bool = Field(False, description="Enable token optimization strategies")
 
     # Formatting
     template: str = Field("", description="Optional Jinja2 template filename for formatting output")
@@ -133,17 +139,16 @@ def load_agent_config(
         # AI Parameters
         temperature=limits.get("temperature", agent_meta.get("temperature", 0.7)),
         max_tokens=limits.get("max_tokens", agent_meta.get("max_tokens", 2000)),
-        # Features (support both enable_subtasks and enable_subtask_suggestion)
+        # Features (Active)
         enable_requirement_extraction=features.get("enable_requirement_extraction", True),
         enable_subtasks=features.get("enable_subtasks", features.get("enable_subtask_suggestion", True)),
         enable_subtask_suggestion=features.get("enable_subtask_suggestion", features.get("enable_subtasks", True)),
         enable_risk_analysis=features.get("enable_risk_analysis", True),
         enable_dependency_detection=features.get("enable_dependency_detection", True),
         enable_acceptance_criteria=features.get("enable_acceptance_criteria", True),
-        enable_gherkin_tests=features.get("enable_gherkin_tests", False),
-        enable_strict_labeling=features.get("enable_strict_labeling", False),
-        enable_token_saving=features.get("enable_token_saving", False),
         enable_debug_output=features.get("enable_debug_output", False),
+        # Note: Removed unused flags (enable_gherkin_tests, enable_strict_labeling, enable_token_saving)
+        # These will be added back when functionality is implemented
         # Formatting
         template=formatting.get("template", ""),
         # Raw for custom access
