@@ -1047,6 +1047,7 @@ def show_interactive_menu():
     # Create status bar renderer
     status_bar = StatusBarRenderer(
         table_renderer=table,
+        text_renderer=text,
         git_status=git_status,
         ai_info=status_bar_info.get('ai_info'),
         project_name=status_bar_info.get('project_name'),
@@ -1060,7 +1061,12 @@ def show_interactive_menu():
     )
 
     # Create prompts renderer with the menu renderer
-    prompts = PromptsRenderer(text_renderer=text, menu_renderer=menu_renderer)
+    prompts = PromptsRenderer(
+        text_renderer=text, 
+        menu_renderer=menu_renderer,
+        status_bar_renderer=status_bar,
+        table_renderer=table
+    )
 
     # Check for project_root and prompt if not set (only runs once)
     project_root = config.get_project_root()

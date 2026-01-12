@@ -11,6 +11,7 @@ This is a view component because it composes multiple UI elements.
 
 from typing import Optional
 
+from titan_cli.ui.components.typography import TextRenderer
 from titan_plugin_git.models import GitStatus
 from ..components.table import TableRenderer
 
@@ -26,6 +27,7 @@ class StatusBarRenderer:
     def __init__(
         self,
         table_renderer: TableRenderer,
+        text_renderer: TextRenderer,
         git_status: Optional[GitStatus] = None,
         ai_info: Optional[str] = None,
         project_name: Optional[str] = None,
@@ -40,6 +42,7 @@ class StatusBarRenderer:
             project_name: Project name to display.
         """
         self.table_renderer = table_renderer
+        self.text_renderer = text_renderer
         self.git_status = git_status
         self.ai_info = ai_info or "N/A"
         self.project_name = project_name or "N/A"
@@ -75,5 +78,7 @@ class StatusBarRenderer:
 
         This is a convenience method for quick status bar display.
         """
+        self.text_renderer.divider(style="dim")
         table = self.render()
         self.table_renderer.console.print(table)
+        self.text_renderer.divider(style="dim")

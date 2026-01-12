@@ -21,7 +21,9 @@ class MenuRenderer:
         self.console = console or get_console()
         self.text = text_renderer or TextRenderer(console=self.console)
         self.spacer = spacer_renderer or SpacerRenderer(console=self.console)
-        self.status_bar = status_bar_renderer
+        self.status_bar = status_bar_renderer or StatusBarRenderer(
+            table_renderer=None, text_renderer=self.text
+        )
 
     def render(self, menu: Menu) -> None:
         """
@@ -66,9 +68,3 @@ class MenuRenderer:
         if menu.tip:
             self.text.info(menu.tip, show_emoji=True)
             self.spacer.line()
-
-        # Render status bar at the bottom if enabled
-        if self.status_bar:
-            self.text.divider(style="dim")
-            self.status_bar.print()
-            self.text.divider(style="dim")
