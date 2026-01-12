@@ -15,11 +15,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 from titan_cli.ui.views.status_bar import StatusBarRenderer
 from titan_cli.ui.console import get_console
 from titan_cli.core.config import TitanConfig
+from titan_cli.ui.components.table import TableRenderer
+from titan_plugin_git.clients.git_client import GitClient
+from titan_plugin_git.exceptions import GitNotRepositoryError
 
 
 def preview_status_bar():
     """Preview the status bar with actual config."""
     console = get_console()
+    table_renderer = TableRenderer(console)
+    git_client = None
+    git_status = None
+
+    try:
+        git_client = GitClient()
+        git_status = git_client.get_status()
+    except GitNotRepositoryError:
+        console.print("[yellow]Not a git repository, git information will be omitted.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error initializing GitClient: {e}[/red]")
 
     console.print("\n[bold]Status Bar Preview[/bold]\n")
 
@@ -29,6 +43,8 @@ def preview_status_bar():
         config = TitanConfig()
         info = config.get_status_bar_info()
         renderer = StatusBarRenderer(
+            table_renderer=table_renderer,
+            git_status=git_status,
             ai_info=info['ai_info'],
             project_name=info['project_name']
         )
@@ -36,11 +52,11 @@ def preview_status_bar():
     except Exception as e:
         console.print(f"[red]Error loading config: {e}[/red]")
         console.print("\n[yellow]Showing status bar without config:[/yellow]")
-        renderer = StatusBarRenderer()
+        renderer = StatusBarRenderer(table_renderer=table_renderer, git_status=git_status)
         renderer.print()
 
     console.print("\n[yellow]2. Status Bar without config:[/yellow]")
-    renderer_no_config = StatusBarRenderer()
+    renderer_no_config = StatusBarRenderer(table_renderer=table_renderer, git_status=git_status)
     renderer_no_config.print()
 
     # Show how it looks in a menu context
@@ -55,6 +71,8 @@ def preview_status_bar():
         config = TitanConfig()
         info = config.get_status_bar_info()
         renderer = StatusBarRenderer(
+            table_renderer=table_renderer,
+            git_status=git_status,
             ai_info=info['ai_info'],
             project_name=info['project_name']
         )

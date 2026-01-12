@@ -17,13 +17,11 @@ class MenuRenderer:
         text_renderer: Optional[TextRenderer] = None,
         spacer_renderer: Optional[SpacerRenderer] = None,
         status_bar_renderer: Optional[StatusBarRenderer] = None,
-        show_status_bar: bool = True,
     ):
         self.console = console or get_console()
         self.text = text_renderer or TextRenderer(console=self.console)
         self.spacer = spacer_renderer or SpacerRenderer(console=self.console)
         self.status_bar = status_bar_renderer
-        self.show_status_bar = show_status_bar
 
     def render(self, menu: Menu) -> None:
         """
@@ -70,12 +68,7 @@ class MenuRenderer:
             self.spacer.line()
 
         # Render status bar at the bottom if enabled
-        if self.show_status_bar:
+        if self.status_bar:
             self.text.divider(style="dim")
-            if self.status_bar:
-                self.status_bar.print()
-            else:
-                # Create default status bar if none was provided
-                default_status_bar = StatusBarRenderer(console=self.console)
-                default_status_bar.print()
+            self.status_bar.print()
             self.text.divider(style="dim")
