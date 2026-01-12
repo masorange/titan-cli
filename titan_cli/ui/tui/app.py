@@ -4,15 +4,15 @@ Titan TUI Application
 Main Textual application for Titan CLI with fixed status bar and theme support.
 """
 from textual.app import App, ComposeResult
-from textual.widgets import Header
 from textual.binding import Binding
-from textual.containers import Container, Vertical
+from textual.containers import Container
 
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.external_cli.launcher import CLILauncher
 from .theme import TITAN_THEME_CSS
 from .widgets.status_bar import StatusBarWidget
+from .screens import MainMenuScreen
 
 
 class TitanApp(App):
@@ -85,16 +85,19 @@ class TitanApp(App):
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
-        yield Header(show_clock=False)
+        # yield Header(show_clock=False)
 
-        # Main content area (will be replaced with actual screens/menus)
-        with Container(id="main-container"):
-            yield Vertical()  # Placeholder for now
+        # Main content area - screens will be pushed here
+        yield Container(id="main-container")
 
         # Status bar (fixed at bottom, above footer)
         yield StatusBarWidget(id="status-bar")
 
         # yield Footer()
+
+    def on_mount(self) -> None:
+        """Push the main menu screen when the app mounts."""
+        self.push_screen(MainMenuScreen(self.config))
 
     async def launch_external_cli(self, cli_name: str, prompt: str = None) -> int:
         """
