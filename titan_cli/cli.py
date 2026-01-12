@@ -1169,7 +1169,9 @@ def show_interactive_menu():
 def main(ctx: typer.Context):
     """Titan CLI - Main entry point"""
     if ctx.invoked_subcommand is None:
-        show_interactive_menu()
+        # Launch TUI by default
+        from titan_cli.ui.tui import launch_tui
+        launch_tui()
 
 
 @app.command()
@@ -1177,4 +1179,17 @@ def version():
     """Show Titan CLI version."""
     cli_version = get_version()
     typer.echo(msg.CLI.VERSION.format(version=cli_version))
+
+
+@app.command()
+def tui():
+    """Launch Titan in TUI mode (Textual interface)."""
+    from titan_cli.ui.tui import launch_tui
+    launch_tui()
+
+
+@app.command()
+def menu():
+    """Launch the legacy interactive menu (Rich-based)."""
+    show_interactive_menu()
     
