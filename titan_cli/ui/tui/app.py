@@ -85,7 +85,7 @@ class TitanApp(App):
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
-        yield Header(show_clock=True)
+        yield Header(show_clock=False)
 
         # Main content area (will be replaced with actual screens/menus)
         with Container(id="main-container"):

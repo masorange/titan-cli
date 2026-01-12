@@ -3,10 +3,11 @@ Status Bar Widget
 
 Fixed status bar showing git branch, AI info, and active project.
 """
+from textual.app import ComposeResult
 from textual.widget import Widget
+from textual.widgets import Static
+from textual.containers import Horizontal
 from textual.reactive import reactive
-from rich.table import Table as RichTable
-
 
 class StatusBarWidget(Widget):
     """
@@ -28,40 +29,48 @@ class StatusBarWidget(Widget):
     DEFAULT_CSS = """
     StatusBarWidget {
         background: #334155;
-        color: #e2e8f0;
+        color: white;
         height: 3;
-        border-top: solid #3b82f6;
-        padding: 0 1;
+        width: 100%;
+    }
+
+    StatusBarWidget Horizontal {
+        width: 100%;
+        height: 100%;
+    }
+
+    StatusBarWidget Static {
+        width: 1fr;
+        height: 100%;
+        content-align: center middle;
+    }
+
+    StatusBarWidget #branch-info {
+        text-align: left;
+    }
+
+    StatusBarWidget #ai-info {
+        text-align: center;
+    }
+
+    StatusBarWidget #project-info {
+        text-align: right;
     }
     """
 
-    def render(self) -> RichTable:
-        """
-        Render the status bar as a Rich Table.
+    def compose(self) -> ComposeResult:
+        """Compose the status bar with three columns."""
+        with Horizontal():
+            yield Static("Branch: N/A", id="branch-info")
+            yield Static("AI: N/A", id="ai-info")
+            yield Static("Project: N/A", id="project-info")
 
-        Returns:
-            Rich Table with 3 columns for branch, AI, and project.
-        """
-        # Create a Rich table (Textual supports rendering Rich renderables)
-        table = RichTable(
-            show_header=False,
-            show_lines=False,
-            box=None,
-            expand=True,
-            padding=(0, 1),
-        )
-
-        table.add_column(justify="left", ratio=1)
-        table.add_column(justify="center", ratio=1)
-        table.add_column(justify="right", ratio=1)
-
-        table.add_row(
-            f"[dim]Branch:[/dim] [cyan]{self.git_branch}[/cyan]",
-            f"[dim]AI:[/dim] [yellow]{self.ai_info}[/yellow]",
-            f"[dim]Project:[/dim] [green]{self.project_name}[/green]",
-        )
-
-        return table
+    # Temporarily disabled for debugging
+    # def on_mount(self) -> None:
+    #     """Initialize the status bar content when mounted."""
+    #     self._update_branch(self.git_branch)
+    #     self._update_ai(self.ai_info)
+    #     self._update_project(self.project_name)
 
     def update_status(self, git_branch: str = None, ai_info: str = None, project_name: str = None):
         """
