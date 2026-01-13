@@ -211,6 +211,76 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
         )
 
 # ============================================================================
+# JSON Parsing Tests
+# ============================================================================
+
+def test_parse_ai_response_with_json_format():
+    """Test that JSON parsing works correctly"""
+    from titan_plugin_github.agents.issue_generator import IssueGeneratorAgent
+    from unittest.mock import MagicMock
+
+    agent = IssueGeneratorAgent(MagicMock())
+
+    # Test JSON format
+    json_response = '''
+    {
+      "category": "bug",
+      "title": "fix(auth): resolve login timeout issue",
+      "body": "## Description\\nUsers experiencing timeout errors during login"
+    }
+    '''
+
+    category, title, body = agent._parse_ai_response(json_response)
+
+    assert category == "bug"
+    assert title == "fix(auth): resolve login timeout issue"
+    assert "Users experiencing timeout" in body
+
+def test_parse_ai_response_with_fallback_regex():
+    """Test that regex fallback works when JSON parsing fails"""
+    from titan_plugin_github.agents.issue_generator import IssueGeneratorAgent
+    from unittest.mock import MagicMock
+
+    agent = IssueGeneratorAgent(MagicMock())
+
+    # Test old format (should use regex fallback)
+    old_format_response = '''
+    CATEGORY: feature
+    TITLE: feat(api): add new endpoint
+    DESCRIPTION:
+    ## Summary
+    New API endpoint for user management
+    '''
+
+    category, title, body = agent._parse_ai_response(old_format_response)
+
+    assert category == "feature"
+    assert title == "feat(api): add new endpoint"
+    assert "Summary" in body
+
+def test_parse_ai_response_with_user_category_text():
+    """Test that JSON parsing avoids conflicts with user text containing 'CATEGORY:'"""
+    from titan_plugin_github.agents.issue_generator import IssueGeneratorAgent
+    from unittest.mock import MagicMock
+
+    agent = IssueGeneratorAgent(MagicMock())
+
+    # User description contains "CATEGORY:" but JSON should parse correctly
+    response_with_conflict = '''
+    {
+      "category": "bug",
+      "title": "fix(docs): update CATEGORY: field documentation",
+      "body": "The CATEGORY: field in the config is confusing users"
+    }
+    '''
+
+    category, title, body = agent._parse_ai_response(response_with_conflict)
+
+    assert category == "bug"
+    assert "CATEGORY: field" in title
+    assert "CATEGORY: field in the config" in body
+
+# ============================================================================
 # Error Scenario Tests
 # ============================================================================
 

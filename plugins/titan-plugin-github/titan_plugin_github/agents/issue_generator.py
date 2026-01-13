@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 import re
+import json
 from dataclasses import dataclass
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest, AIGenerator
 
@@ -67,6 +68,7 @@ Your task is to:
 4. Use English for all content
 5. Prioritize clarity, conciseness, and actionable detail
 6. Preserve any code snippets exactly as provided, formatted in markdown code blocks
+7. Always return your response as valid JSON format for reliable parsing
 """
 
     def _load_template(self, template_name: str) -> Optional[str]:
@@ -136,11 +138,31 @@ Your task is to:
     def _parse_ai_response(self, content: str) -> Tuple[str, str, str]:
         """
         Parse AI response to extract category, title, and body.
-        Uses regex for robust parsing.
+        Tries JSON parsing first, falls back to regex for robustness.
 
         Returns:
             Tuple of (category, title, body)
         """
+        # Try JSON parsing first (more robust, avoids conflicts with user text)
+        try:
+            # Try to find JSON in the content (might have markdown code blocks around it)
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                data = json.loads(json_match.group(0))
+                category = data.get("category", "feature").lower()
+                title = data.get("title", "New issue")
+                body = data.get("body", "")
+
+                # Validate category
+                if category not in self.categories:
+                    category = "feature"
+
+                return category, title, body
+        except (json.JSONDecodeError, AttributeError):
+            # JSON parsing failed, fall back to regex
+            pass
+
+        # Fallback: regex parsing for backwards compatibility
         # Extract category
         category_match = re.search(r'CATEGORY:\s*(\w+)', content, re.IGNORECASE)
         category = category_match.group(1).strip().lower() if category_match else "feature"
@@ -151,7 +173,7 @@ Your task is to:
 
         # Extract title
         title_match = re.search(r'TITLE:\s*(.+?)(?=\n|DESCRIPTION:|$)', content, re.IGNORECASE)
-        title = title_match.group(1).strip() if title_match else "Issue"
+        title = title_match.group(1).strip() if title_match else "New issue"
 
         # Extract description/body
         desc_match = re.search(r'DESCRIPTION:\s*(.+)', content, re.IGNORECASE | re.DOTALL)
@@ -202,11 +224,12 @@ Instructions:
   * Complex: Comprehensive detail with examples
   * Very Complex: Full context, edge cases, and implementation notes
 
-Output format (REQUIRED):
-CATEGORY: <category>
-TITLE: <prefix>(scope): brief description
-DESCRIPTION:
-<complete markdown-formatted description>
+Output format (REQUIRED - JSON):
+{{
+  "category": "<category>",
+  "title": "<prefix>(scope): brief description",
+  "body": "<complete markdown-formatted description>"
+}}
 """
 
         # Single AI call for categorization + generation with appropriate token limit
