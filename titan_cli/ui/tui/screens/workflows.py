@@ -9,7 +9,7 @@ from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 from textual.containers import Horizontal
-from textual.errors import NoMatches
+from textual.css.query import NoMatches
 
 from .base import BaseScreen
 
@@ -54,6 +54,9 @@ class WorkflowsScreen(BaseScreen):
                 workflow_list.highlighted = 0
         except (NoMatches, AttributeError):
             pass
+        finally:
+            # Re-enable auto-filtering after mount completes
+            self._is_mounting = False
 
     CSS = """
     WorkflowsScreen {
@@ -131,16 +134,16 @@ class WorkflowsScreen(BaseScreen):
             else:
                 # Get unique plugin names and create mapping
                 plugin_names = set()
-                self._plugin_source_map = {}  # Map formatted name -> original sources
+                self._plugin_source_map = {}  # Map formatted name -> workflow info objects
 
                 for wf_info in self._all_workflows:
-                    plugin_name = self._extract_plugin_name(wf_info.source)
+                    plugin_name = self._get_plugin_name_from_workflow(wf_info)
                     plugin_names.add(plugin_name)
 
-                    # Map plugin name to all its sources for filtering
+                    # Map plugin name to workflow info objects for filtering
                     if plugin_name not in self._plugin_source_map:
-                        self._plugin_source_map[plugin_name] = set()
-                    self._plugin_source_map[plugin_name].add(wf_info.source)
+                        self._plugin_source_map[plugin_name] = []
+                    self._plugin_source_map[plugin_name].append(wf_info)
 
                 # Build plugin filter options
                 plugin_options = [Option("📦 All Plugins", id="all")]
@@ -161,23 +164,33 @@ class WorkflowsScreen(BaseScreen):
                     with right_panel:
                         yield OptionList(*workflow_options, id="workflow-list")
 
-    def _extract_plugin_name(self, source: str) -> str:
+    def _get_plugin_name_from_workflow(self, wf_info) -> str:
         """
-        Extract and format plugin name from source.
+        Get the actual plugin name for a workflow, detecting the real plugin even for project/user workflows.
 
         Examples:
-            "plugin:github" -> "Github"
-            "plugin:jira" -> "Jira"
-            "project" -> "Project"
+            Plugin workflow: "plugin:github" -> "Github"
+            Project workflow using GitHub steps -> "Github"
+            Project workflow using Jira steps -> "Jira"
+            Project workflow with no plugins -> "Custom"
         """
-        if source.startswith("plugin:"):
-            # Extract plugin name after "plugin:"
-            plugin_name = source.split(":", 1)[1]
-        else:
-            plugin_name = source
+        # If it's already from a plugin, extract the name
+        if wf_info.source.startswith("plugin:"):
+            plugin_name = wf_info.source.split(":", 1)[1]
+            return plugin_name.capitalize()
 
-        # Capitalize first letter
-        return plugin_name.capitalize()
+        # For project/user workflows, check which plugin they use
+        if wf_info.source in ["project", "user"]:
+            if wf_info.required_plugins:
+                # Use the first required plugin (most workflows use only one)
+                primary_plugin = sorted(wf_info.required_plugins)[0]
+                return primary_plugin.capitalize()
+            else:
+                # No plugin dependencies, it's a custom workflow
+                return "Custom"
+
+        # Fallback for other sources
+        return wf_info.source.capitalize()
 
     def _remove_duplicate_workflows(self, workflows):
         """Remove duplicate workflows by name, keeping first occurrence."""
@@ -193,18 +206,17 @@ class WorkflowsScreen(BaseScreen):
         """Build workflow options, optionally filtered by plugin."""
         options = []
 
-        # Get valid sources for selected plugin
-        valid_sources = None
+        # Get workflows for selected plugin
         if selected_plugin and selected_plugin != "all":
-            valid_sources = self._plugin_source_map.get(selected_plugin, set())
+            # Use the pre-mapped workflows for this plugin
+            workflows_to_show = self._plugin_source_map.get(selected_plugin, [])
+        else:
+            # Show all workflows
+            workflows_to_show = workflows
 
-        for wf_info in workflows:
-            # Filter by plugin if selected
-            if valid_sources is not None and wf_info.source not in valid_sources:
-                continue
-
-            # Format source display
-            plugin_display = self._extract_plugin_name(wf_info.source)
+        for wf_info in workflows_to_show:
+            # Format plugin display
+            plugin_display = self._get_plugin_name_from_workflow(wf_info)
 
             label = f"⚡ {wf_info.name}"
             description = f"({plugin_display}) {wf_info.description}"
