@@ -1,11 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.engine.results import Success
+from titan_cli.engine.results import Success, Error
 from titan_cli.core.secrets import SecretManager
 from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step
 from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
-from titan_plugin_github.steps.preview_steps import preview_and_confirm_issue_step
+from titan_plugin_github.steps.preview_step import preview_and_confirm_issue_step
 from titan_plugin_github.models import Issue, User
 
 @pytest.fixture
@@ -203,3 +203,101 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
             assignees=[],
             labels=["feature"],
         )
+
+# ============================================================================
+# Error Scenario Tests
+# ============================================================================
+
+@patch("titan_plugin_github.steps.issue_steps.IssueGeneratorAgent")
+def test_ai_suggest_issue_when_ai_client_fails(MockIssueGeneratorAgent, mock_secret_manager):
+    """Test behavior when AI client raises exception"""
+    # Arrange
+    mock_issue_generator = MockIssueGeneratorAgent.return_value
+    mock_issue_generator.generate_issue.side_effect = Exception("API Error")
+
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
+    ctx.ai = MagicMock()
+    ctx.ui = MagicMock()
+
+    # Act
+    result = ai_suggest_issue_title_and_body_step(ctx)
+
+    # Assert
+    assert isinstance(result, Error)
+    assert "Failed to generate issue" in result.message
+    assert "API Error" in result.message
+
+@patch("titan_plugin_github.steps.issue_steps.IssueGeneratorAgent")
+def test_ai_suggest_issue_with_malformed_response(MockIssueGeneratorAgent, mock_secret_manager):
+    """Test behavior when AI returns malformed response missing required keys"""
+    # Arrange
+    mock_issue_generator = MockIssueGeneratorAgent.return_value
+    # Malformed response - missing required keys like "title" or "body"
+    mock_issue_generator.generate_issue.return_value = {
+        "category": "bug"
+        # Missing: title, body, labels
+    }
+
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
+    ctx.ai = MagicMock()
+    ctx.ui = MagicMock()
+
+    # Act
+    result = ai_suggest_issue_title_and_body_step(ctx)
+
+    # Assert
+    assert isinstance(result, Error)
+    assert "Failed to generate issue" in result.message
+
+@patch("titan_plugin_github.clients.github_client.GitHubClient")
+def test_create_issue_with_invalid_labels(MockGitHubClient, mock_secret_manager):
+    """Test behavior when labels don't exist in repository"""
+    # Arrange
+    mock_github_client = MockGitHubClient()
+    mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]
+
+    ctx = WorkflowContext(
+        secrets=mock_secret_manager,
+        data={
+            "issue_title": "Test Title",
+            "issue_body": "Test Body",
+            "assignees": [],
+            "labels": ["invalid-label", "nonexistent"]  # Labels that don't exist
+        }
+    )
+    ctx.github = mock_github_client
+
+    # Act
+    result = create_issue_steps(ctx)
+
+    # Assert
+    assert isinstance(result, Error)
+    assert "Invalid labels" in result.message
+    assert "invalid-label" in result.message or "nonexistent" in result.message
+
+@patch("titan_plugin_github.clients.github_client.GitHubClient")
+def test_create_issue_when_github_api_fails(MockGitHubClient, mock_secret_manager):
+    """Test behavior when GitHub API fails to create issue"""
+    # Arrange
+    mock_github_client = MockGitHubClient()
+    mock_github_client.list_labels.return_value = ["bug", "feature"]
+    mock_github_client.create_issue.side_effect = Exception("GitHub API Error")
+
+    ctx = WorkflowContext(
+        secrets=mock_secret_manager,
+        data={
+            "issue_title": "Test Title",
+            "issue_body": "Test Body",
+            "assignees": [],
+            "labels": ["bug"]
+        }
+    )
+    ctx.github = mock_github_client
+
+    # Act
+    result = create_issue_steps(ctx)
+
+    # Assert
+    assert isinstance(result, Error)
+    assert "Failed to create issue" in result.message
+    assert "GitHub API Error" in result.message
