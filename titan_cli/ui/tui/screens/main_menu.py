@@ -55,13 +55,11 @@ class MainMenuScreen(BaseScreen):
         height: auto;
         border: none;
         background: $surface-lighten-1;
-        padding: 0;
     }
 
     OptionList:focus {
         border: none;
         background: $surface-lighten-1;
-        padding: 0;
     }
 
     OptionList > .option-list--option {
@@ -108,7 +106,6 @@ class MainMenuScreen(BaseScreen):
                 [
                     Option("🔌 Plugin Management", id="plugin_management"),
                     Option("⚙️  AI Configuration", id="ai_config"),
-                    Option("❌ Exit", id="exit"),
                 ]
             )
 

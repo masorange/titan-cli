@@ -81,6 +81,20 @@ $banner-end: #ff79c6;
     scrollbar-corner-color: $surface;
 }
 
+/* Global OptionList styles - transparent to inherit parent background */
+OptionList {
+    border: none;
+    background: transparent;
+}
+
+OptionList > .option-list--option {
+    background: transparent;
+}
+
+OptionList > .option-list--option-highlighted {
+    background: $primary;
+}
+
 Screen {
     background: $surface;
     color: $text;

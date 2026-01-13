@@ -322,5 +322,6 @@ class PromptsRenderer:
                     self.text.error(
                         msg.Prompts.INVALID_MENU_CHOICE.format(total_items=total_items)
                     )
+                    
             except ValueError:
                 self.text.error(msg.Prompts.NOT_A_NUMBER, show_emoji=False)
