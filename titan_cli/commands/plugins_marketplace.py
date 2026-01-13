@@ -307,16 +307,8 @@ def discover_plugins() -> None:
                 install_plugin_from_marketplace(plugin_name, force=True)
             return
 
-        # Install new plugin
+        # Install new plugin (configuration wizard runs automatically during installation)
         install_plugin_from_marketplace(plugin_name)
-
-        # Ask about configuration
-        text.line()
-        if prompts.ask_confirm(msg.Plugins.MARKETPLACE_CONFIGURE_NOW):
-            text.info(msg.Plugins.MARKETPLACE_OPENING_CONFIG)
-            # TODO: Trigger configuration wizard
-            # For now, just show hint
-            text.body(msg.Plugins.MARKETPLACE_CONFIG_HINT, style="dim")
 
     except PluginDownloadError as e:
         text.line()

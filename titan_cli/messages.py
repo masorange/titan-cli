@@ -457,9 +457,6 @@ class Messages:
 
         # Marketplace prompts
         MARKETPLACE_SELECT_PROMPT = "Select a plugin to install (or 'q' to quit)"
-        MARKETPLACE_CONFIGURE_NOW = "Configure plugin now?"
-        MARKETPLACE_OPENING_CONFIG = "Opening plugin configuration..."
-        MARKETPLACE_CONFIG_HINT = "Run: titan config edit"
         MARKETPLACE_FETCH_ERROR = "❌ Failed to fetch marketplace: {error}"
 
         # Errors
