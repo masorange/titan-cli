@@ -4,9 +4,9 @@ Workflow steps for GitHub operations
 """
 
 from .create_pr_step import create_pr_step
-from .ai_pr_step import ai_suggest_pr_description
+from .ai_pr_step import ai_suggest_pr_description_step
 
 __all__ = [
     "create_pr_step",
-    "ai_suggest_pr_description",
+    "ai_suggest_pr_description_step",
 ]

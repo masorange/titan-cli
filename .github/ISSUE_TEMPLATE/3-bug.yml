@@ -1,0 +1,129 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please provide as much detail as possible.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A brief summary of the bug
+      placeholder: e.g., AI issue creation fails when code snippets contain markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current Behavior
+      description: What is happening currently?
+      placeholder: |
+        Describe what's happening that shouldn't be happening.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+      placeholder: |
+        Describe the expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this bug?
+      placeholder: |
+        1. Run command '...'
+        2. Select option '...'
+        3. Enter input '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: code-snippets
+    attributes:
+      label: Code Snippets / Error Messages
+      description: Relevant code, error messages, or stack traces
+      placeholder: |
+        ```
+        Error: Something went wrong
+        Stack trace...
+        ```
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution (Optional)
+      description: If you have an idea of how to fix this, describe it here
+      placeholder: |
+        The bug appears to be caused by... and could be fixed by...
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: How can we verify the bug is fixed?
+      placeholder: |
+        - [ ] Bug no longer occurs when following reproduction steps
+        - [ ] Regression tests added to prevent recurrence
+        - [ ] No side effects or new bugs introduced
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing-strategy
+    attributes:
+      label: Testing Strategy
+      description: How should the fix be tested?
+      placeholder: |
+        **Regression Test:**
+        - Add test that reproduces the bug
+        - Verify test passes after fix
+
+        **Manual Testing:**
+        - Follow reproduction steps
+        - Verify bug is resolved
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: What environment are you running in?
+      placeholder: |
+        - OS: Ubuntu 22.04
+        - Python version: 3.11
+        - Titan CLI version: 0.1.0
+        - Installation method: pip / poetry
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - Critical (system crash, data loss)
+        - High (feature unusable)
+        - Medium (feature degraded)
+        - Low (minor issue, has workaround)
+    validations:
+      required: false

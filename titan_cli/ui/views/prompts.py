@@ -5,6 +5,7 @@ Class-based, theme-aware wrapper for rich.prompt. This is considered a 'view'
 because it is a composite component that uses other components (like TextRenderer)
 to display its own UI (e.g., error messages).
 """
+
 import os
 import subprocess
 import tempfile
@@ -15,8 +16,13 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm, IntPrompt
 from ..console import get_console
 from ..components.typography import TextRenderer
-from ...messages import msg # Import messages
-from .menu_components import Menu, MenuItem, MenuRenderer # Import Menu, MenuItem, MenuRenderer from the new package
+from ...messages import msg  # Import messages
+from .menu_components import (
+    Menu,
+    MenuItem,
+    MenuRenderer,
+)  # Import Menu, MenuItem, MenuRenderer from the new package
+
 
 class PromptsRenderer:
     """
@@ -51,13 +57,12 @@ class PromptsRenderer:
             menu_renderer = MenuRenderer(console=self.console, text_renderer=self.text)
         self.menu_renderer = menu_renderer
 
-
     def ask_text(
         self,
         prompt: str,
         default: str = "",
         password: bool = False,
-        validator: Optional[Callable[[str], bool]] = None
+        validator: Optional[Callable[[str], bool]] = None,
     ) -> str:
         """
         Ask for text input.
@@ -67,7 +72,7 @@ class PromptsRenderer:
                 prompt,
                 default=default if default else None,
                 password=password,
-                console=self.console
+                console=self.console,
             )
 
             if validator and not validator(value):
@@ -77,14 +82,11 @@ class PromptsRenderer:
             return value
 
     def ask_multiline(
-        self, 
-        prompt: str,
-        default: str = "",
-        template: Optional[str] = None
+        self, prompt: str, default: str = "", template: Optional[str] = None
     ) -> str:
         """
         Open external editor for multi-line input (cross-platform).
-        
+
         Falls back to inline input if editor fails.
         """
         self.text.info(prompt)
@@ -100,37 +102,40 @@ class PromptsRenderer:
     def _get_editor(self) -> str:
         """Get appropriate editor for current platform."""
         # 1. User preference
-        if editor := os.environ.get('EDITOR') or os.environ.get('VISUAL'):
+        if editor := os.environ.get("EDITOR") or os.environ.get("VISUAL"):
             return editor
 
         # 2. Platform defaults
         system = platform.system()
 
-        if system == 'Windows':
+        if system == "Windows":
             # Intentar editores comunes en Windows
-            for editor in ['code --wait', 'notepad++', 'notepad']:
+            for editor in ["code --wait", "notepad++", "notepad"]:
                 try:
                     # Check si existe
                     cmd = editor.split()[0]
-                    if system == 'Windows':
-                        cmd += '.exe' if not cmd.endswith('.exe') else ''
+                    if system == "Windows":
+                        cmd += ".exe" if not cmd.endswith(".exe") else ""
 
                     # Verificar que existe
-                    subprocess.run(['where' if system == 'Windows' else 'which', cmd],
-                                   capture_output=True, check=True)
+                    subprocess.run(
+                        ["where" if system == "Windows" else "which", cmd],
+                        capture_output=True,
+                        check=True,
+                    )
                     return editor
                 except subprocess.CalledProcessError:
                     continue
 
             # Fallback final
-            return 'notepad'
+            return "notepad"
 
-        elif system == 'Darwin':  # macOS
+        elif system == "Darwin":  # macOS
             # Preferir nano por ser más user-friendly
-            return 'nano'
+            return "nano"
 
         else:  # Linux y otros
-            return 'nano'
+            return "nano"
 
     def _ask_multiline_editor(self, content: str) -> str:
         """Open external editor."""
@@ -138,10 +143,7 @@ class PromptsRenderer:
 
         # Create temp file
         with tempfile.NamedTemporaryFile(
-            mode='w+',
-            suffix='.md',
-            delete=False,
-            encoding='utf-8'
+            mode="w+", suffix=".md", delete=False, encoding="utf-8"
         ) as tf:
             temp_path = tf.name
             if content:
@@ -149,10 +151,12 @@ class PromptsRenderer:
                 tf.flush()
 
         try:
-            self.text.body(f"Opening {editor_cmd}... (save and close to continue)", style="dim")
+            self.text.body(
+                f"Opening {editor_cmd}... (save and close to continue)", style="dim"
+            )
 
             # Ejecutar editor
-            if platform.system() == 'Windows':
+            if platform.system() == "Windows":
                 # Windows requiere manejo especial
                 subprocess.run(editor_cmd, shell=True, check=True)
             else:
@@ -160,7 +164,7 @@ class PromptsRenderer:
                 subprocess.run(editor_cmd.split() + [temp_path], check=True)
 
             # Leer resultado
-            with open(temp_path, 'r', encoding='utf-8') as f:
+            with open(temp_path, "r", encoding="utf-8") as f:
                 result = f.read().strip()
 
             return result
@@ -170,11 +174,14 @@ class PromptsRenderer:
 
     def _ask_multiline_inline(self, default: str = "") -> str:
         """Fallback: multi-line input in terminal."""
-        self.text.body("(Press Ctrl+D on Unix / Ctrl+Z then Enter on Windows to finish):", style="dim")
+        self.text.body(
+            "(Press Ctrl+D on Unix / Ctrl+Z then Enter on Windows to finish):",
+            style="dim",
+        )
 
         lines = []
         if default:
-            lines = default.split('\n')
+            lines = default.split("\n")
             # Mostrar contenido por defecto
             for line in lines:
                 self.console.print(f"  {line}", style="dim")
@@ -186,40 +193,61 @@ class PromptsRenderer:
         except EOFError:
             pass
 
-        return '\n'.join(lines).strip()
+        return "\n".join(lines).strip()
 
-    def ask_confirm(
-        self,
-        question: str,
-        default: bool = False
-    ) -> bool:
+    def ask_confirm(self, question: str, default: bool = False) -> bool:
         """
         Ask for yes/no confirmation.
         """
         return Confirm.ask(question, default=default, console=self.console)
 
     def ask_choice(
-        self,
-        question: str,
-        choices: List[str],
-        default: Optional[str] = None
+        self, question: str, choices: List[str], default: Optional[str] = None
     ) -> str:
         """
         Ask user to choose from a list of options.
         """
         return Prompt.ask(
-            question,
-            choices=choices,
-            default=default,
-            console=self.console
+            question, choices=choices, default=default, console=self.console
         )
+
+    def ask_choices(
+        self, question: str, choices: List[str], default: Optional[str] = None
+    ) -> List[str]:
+        """
+        Ask user to choose multiple options from a list.
+        """
+        self.console.print(question)
+        for i, choice in enumerate(choices, 1):
+            self.console.print(f"  {i}. {choice}")
+
+        while True:
+            response = Prompt.ask(
+                "Enter a comma-separated list of choices (e.g. 1,3)",
+                default=default,
+                console=self.console,
+            )
+            try:
+                selected_indices = [
+                    int(i.strip()) for i in response.split(",") if i.strip()
+                ]
+            except ValueError:
+                self.text.error("Invalid input. Please enter numbers only.")
+                continue
+
+            if all(1 <= i <= len(choices) for i in selected_indices):
+                return [choices[i - 1] for i in selected_indices]
+            else:
+                self.text.error(
+                    "Invalid selection. Please enter numbers from the list."
+                )
 
     def ask_int(
         self,
         question: str,
         default: Optional[int] = None,
         min_value: Optional[int] = None,
-        max_value: Optional[int] = None
+        max_value: Optional[int] = None,
     ) -> int:
         """
         Ask for integer input.
@@ -228,27 +256,27 @@ class PromptsRenderer:
             # IntPrompt itself handles non-integer input by re-prompting.
             # The TypeError occurred if the user just hits Enter with no default.
             value = IntPrompt.ask(question, default=default, console=self.console)
-            
+
             # Handle case where user hits Enter without input and no default is set
             if value is None:
                 self.text.error(msg.Prompts.MISSING_VALUE, show_emoji=False)
                 continue
 
             if min_value is not None and value < min_value:
-                self.text.error(msg.Prompts.VALUE_TOO_LOW.format(min=min_value), show_emoji=False)
+                self.text.error(
+                    msg.Prompts.VALUE_TOO_LOW.format(min=min_value), show_emoji=False
+                )
                 continue
 
             if max_value is not None and value > max_value:
-                self.text.error(msg.Prompts.VALUE_TOO_HIGH.format(max=max_value), show_emoji=False)
+                self.text.error(
+                    msg.Prompts.VALUE_TOO_HIGH.format(max=max_value), show_emoji=False
+                )
                 continue
 
             return value
 
-    def ask_menu(
-        self,
-        menu: Menu,
-        allow_quit: bool = True
-    ) -> Optional[MenuItem]:
+    def ask_menu(self, menu: Menu, allow_quit: bool = True) -> Optional[MenuItem]:
         """
         Displays a menu and asks the user to choose an item.
 
@@ -272,7 +300,7 @@ class PromptsRenderer:
         while True:
             choice_str = Prompt.ask(prompt, console=self.console)
 
-            if allow_quit and choice_str.lower() == 'q':
+            if allow_quit and choice_str.lower() == "q":
                 return None
 
             try:
@@ -286,6 +314,8 @@ class PromptsRenderer:
                             if item_count == choice:
                                 return item
                 else:
-                    self.text.error(msg.Prompts.INVALID_MENU_CHOICE.format(total_items=total_items))
+                    self.text.error(
+                        msg.Prompts.INVALID_MENU_CHOICE.format(total_items=total_items)
+                    )
             except ValueError:
                 self.text.error(msg.Prompts.NOT_A_NUMBER, show_emoji=False)
