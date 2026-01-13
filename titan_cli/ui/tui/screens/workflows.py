@@ -3,6 +3,8 @@ Workflows Screen
 
 Screen for listing and executing workflows.
 """
+from typing import List
+
 from textual.app import ComposeResult
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
@@ -10,6 +12,8 @@ from textual.containers import Container
 from textual.containers import Horizontal
 from textual.css.query import NoMatches
 
+from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
+from titan_cli.core.workflows.workflow_sources import WorkflowInfo
 from .base import BaseScreen
 
 class WorkflowsScreen(BaseScreen):
@@ -112,27 +116,25 @@ class WorkflowsScreen(BaseScreen):
     """
 
     def compose_content(self) -> ComposeResult:
-        """Compose the workflows screen content."""
+        """
+        Compose the workflows screen content.
+
+        Creates a two-panel layout:
+        - Left panel (20%): Plugin filter list
+        - Right panel (80%): Workflows list (filtered by selected plugin)
+        """
         all_workflows = self.config.workflows.discover()
 
-        # Cache and remove duplicates
-        self._all_workflows = self._remove_duplicate_workflows(all_workflows)
+        # Cache and remove duplicates using service
+        self._all_workflows = WorkflowFilterService.remove_duplicates(all_workflows)
+
         with Container(id="workflows-container"):
             if not self._all_workflows:
                 yield Static("No workflows found.", id="no-workflows")
             else:
-                # Get unique plugin names and create mapping
-                plugin_names = set()
-                self._plugin_source_map = {}  # Map formatted name -> workflow info objects
-
-                for wf_info in self._all_workflows:
-                    plugin_name = self._get_plugin_name_from_workflow(wf_info)
-                    plugin_names.add(plugin_name)
-
-                    # Map plugin name to workflow info objects for filtering
-                    if plugin_name not in self._plugin_source_map:
-                        self._plugin_source_map[plugin_name] = []
-                    self._plugin_source_map[plugin_name].append(wf_info)
+                # Group workflows by plugin using service
+                self._plugin_source_map = WorkflowFilterService.group_by_plugin(self._all_workflows)
+                plugin_names = WorkflowFilterService.get_unique_plugin_names(self._all_workflows)
 
                 # Build plugin filter options
                 plugin_options = [Option("📦 All Plugins", id="all")]
@@ -153,45 +155,7 @@ class WorkflowsScreen(BaseScreen):
                     with right_panel:
                         yield OptionList(*workflow_options, id="workflow-list")
 
-    def _get_plugin_name_from_workflow(self, wf_info) -> str:
-        """
-        Get the actual plugin name for a workflow, detecting the real plugin even for project/user workflows.
-
-        Examples:
-            Plugin workflow: "plugin:github" -> "Github"
-            Project workflow using GitHub steps -> "Github"
-            Project workflow using Jira steps -> "Jira"
-            Project workflow with no plugins -> "Custom"
-        """
-        # If it's already from a plugin, extract the name
-        if wf_info.source.startswith("plugin:"):
-            plugin_name = wf_info.source.split(":", 1)[1]
-            return plugin_name.capitalize()
-
-        # For project/user workflows, check which plugin they use
-        if wf_info.source in ["project", "user"]:
-            if wf_info.required_plugins:
-                # Use the first required plugin (most workflows use only one)
-                primary_plugin = sorted(wf_info.required_plugins)[0]
-                return primary_plugin.capitalize()
-            else:
-                # No plugin dependencies, it's a custom workflow
-                return "Custom"
-
-        # Fallback for other sources
-        return wf_info.source.capitalize()
-
-    def _remove_duplicate_workflows(self, workflows):
-        """Remove duplicate workflows by name, keeping first occurrence."""
-        seen = set()
-        unique_workflows = []
-        for wf in workflows:
-            if wf.name not in seen:
-                seen.add(wf.name)
-                unique_workflows.append(wf)
-        return unique_workflows
-
-    def _build_workflow_options(self, workflows, selected_plugin=None):
+    def _build_workflow_options(self, workflows: List[WorkflowInfo], selected_plugin: str = None) -> List[Option]:
         """Build workflow options, optionally filtered by plugin."""
         options = []
 
