@@ -3,10 +3,12 @@ Workflows Screen
 
 Screen for listing and executing workflows.
 """
+
 from textual.app import ComposeResult
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
+from textual.containers import Horizontal
 
 from .base import BaseScreen
 
@@ -44,28 +46,43 @@ class WorkflowsScreen(BaseScreen):
         margin-bottom: 1;
     }
 
-    OptionList {
-        height: auto;
-        border: none;
+    Horizontal {
+        width: 100%;
+        height: 1fr;
+        padding: 1;
     }
 
-    OptionList > .option-list--option {
-        padding: 1 2;
+    #left-panel {
+        width: 20%;
+        border: round $primary;
+        border-title-align: center;
     }
 
-    OptionList > .option-list--option-highlighted {
-        background: $primary;
+    #right-panel {
+        width: 80%;
+        border: round $primary;
+        border-title-align: center;
+        background: $surface-lighten-1;
+        padding: 0;
     }
+
+    #right-panel OptionList {
+        height: 100%;
+        width: 100%;
+        padding: 1 0;
+        margin: 0;
+    }
+
     """
 
     def compose_content(self) -> ComposeResult:
+
+        self.config.load()
+        available_workflows = self.config.workflows.discover()
+
         """Compose the workflows screen content."""
         with Container(id="workflows-container"):
             yield Static("⚡ Available Workflows", id="workflows-title")
-
-            # Discover workflows
-            self.config.load()
-            available_workflows = self.config.workflows.discover()
 
             if not available_workflows:
                 yield Static("No workflows found.", id="no-workflows")
@@ -75,10 +92,20 @@ class WorkflowsScreen(BaseScreen):
                 for wf_info in available_workflows:
                     label = f"⚡ {wf_info.name}"
                     description = f"({wf_info.source}) {wf_info.description}"
-                    options.append(Option(f"{label}\n  [dim]{description}[/dim]", id=wf_info.name))
+                    options.append(
+                        Option(f"{label}\n  [dim]{description}[/dim]", id=wf_info.name)
+                    )
 
-                options.append(Option("← Back to Main Menu", id="back"))
-                yield OptionList(*options)
+                with Horizontal():
+                    left_panel = Container(id="left-panel")
+                    left_panel.border_title = "Plugins"
+                    with left_panel:
+                        yield Static("Hola 1 - Left")
+
+                    right_panel = Container(id="right-panel")
+                    right_panel.border_title = "Workflows"
+                    with right_panel:
+                        yield OptionList(*options)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle workflow selection."""

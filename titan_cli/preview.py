@@ -119,6 +119,18 @@ def preview_main_menu():
         raise typer.Exit(1)
 
 
+@preview_app.command("workflows")
+def preview_workflows():
+    """
+    Shows a preview of the WorkflowsScreen component.
+    """
+    try:
+        runpy.run_module("titan_cli.ui.tui.screens.__previews__.workflows_preview", run_name="__main__")
+    except ModuleNotFoundError:
+        typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
 @preview_app.command("workflow")
 def preview_workflow(name: str):
     """

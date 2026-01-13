@@ -55,13 +55,11 @@ class MainMenuScreen(BaseScreen):
         height: auto;
         border: none;
         background: $surface-lighten-1;
-        padding: 0;
     }
 
     OptionList:focus {
         border: none;
         background: $surface-lighten-1;
-        padding: 0;
     }
 
     OptionList > .option-list--option {
