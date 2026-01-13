@@ -12,7 +12,7 @@ from ..agents import PRAgent
 from ..messages import msg
 
 
-def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
+def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Generate PR title and description using PRAgent.
 
@@ -182,4 +182,4 @@ def ai_suggest_pr_description(ctx: WorkflowContext) -> WorkflowResult:
 
 
 # Export for plugin registration
-__all__ = ["ai_suggest_pr_description"]
+__all__ = ["ai_suggest_pr_description_step"]

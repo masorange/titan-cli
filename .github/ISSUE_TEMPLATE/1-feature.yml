@@ -1,0 +1,137 @@
+name: Feature Request
+description: Propose a new feature or functionality
+title: "feat: "
+labels: ["feature", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to propose a new feature!
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A brief summary of the feature you're proposing
+      placeholder: e.g., Add support for creating GitHub issues with AI-powered descriptions
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Detailed description of the feature
+      placeholder: |
+        Describe the feature in detail. What problem does it solve? Who will benefit from it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: objectives
+    attributes:
+      label: Objectives
+      description: What are the main goals of this feature?
+      placeholder: |
+        - Enable users to...
+        - Improve workflow by...
+        - Reduce manual work in...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How do you envision this feature being implemented?
+      placeholder: |
+        Describe your proposed approach, architecture, or implementation strategy.
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-phases
+    attributes:
+      label: Implementation Phases
+      description: Break down the implementation into phases or steps
+      placeholder: |
+        ### Phase 1: Core Functionality
+        - Task 1
+        - Task 2
+
+        ### Phase 2: Integration
+        - Task 3
+        - Task 4
+    validations:
+      required: false
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Checklist of tasks to complete this feature
+      placeholder: |
+        - [ ] Create models and data structures
+        - [ ] Implement core logic
+        - [ ] Add tests
+        - [ ] Update documentation
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What conditions must be met for this feature to be considered complete?
+      placeholder: |
+        - [ ] Feature works as expected in all scenarios
+        - [ ] Tests pass with >80% coverage
+        - [ ] Documentation is updated
+        - [ ] No breaking changes introduced
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing-strategy
+    attributes:
+      label: Testing Strategy
+      description: How should this feature be tested?
+      placeholder: |
+        **Unit Tests:**
+        - Test case 1
+        - Test case 2
+
+        **Integration Tests:**
+        - Test scenario 1
+
+        **Manual Testing:**
+        - Steps to verify functionality
+    validations:
+      required: false
+
+  - type: textarea
+    id: considerations
+    attributes:
+      label: Considerations
+      description: Any technical constraints, dependencies, or important considerations?
+      placeholder: |
+        - Dependency on X library version Y
+        - Backwards compatibility concerns
+        - Performance implications
+        - Security considerations
+    validations:
+      required: false
+
+  - type: textarea
+    id: code-snippets
+    attributes:
+      label: Code Snippets (Optional)
+      description: Any code examples, APIs, or snippets to illustrate the feature
+      placeholder: |
+        ```python
+        # Example usage
+        result = new_feature.execute()
+        ```
+      render: markdown
+    validations:
+      required: false

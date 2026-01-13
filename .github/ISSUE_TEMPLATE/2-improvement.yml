@@ -1,0 +1,157 @@
+name: Improvement
+description: Suggest an improvement to an existing feature
+title: "improve: "
+labels: ["enhancement", "improvement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping us improve Titan CLI!
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A brief summary of the improvement
+      placeholder: e.g., Improve AI issue generation to preserve code formatting
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Detailed description of the improvement
+      placeholder: |
+        What needs to be improved and why?
+    validations:
+      required: true
+
+  - type: textarea
+    id: objectives
+    attributes:
+      label: Objectives
+      description: What are the main goals of this improvement?
+      placeholder: |
+        - Make X more efficient
+        - Improve user experience for Y
+        - Reduce complexity in Z
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current Behavior
+      description: How does it work currently?
+      placeholder: |
+        Describe the current state and what's limiting about it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: How should it work after the improvement?
+      placeholder: |
+        Describe the desired outcome and benefits.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How would you implement this improvement?
+      placeholder: |
+        Describe your proposed approach.
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-phases
+    attributes:
+      label: Implementation Phases
+      description: Break down the implementation into phases or steps
+      placeholder: |
+        ### Phase 1: Refactor
+        - Task 1
+        - Task 2
+
+        ### Phase 2: Enhancement
+        - Task 3
+    validations:
+      required: false
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Checklist of tasks to complete this improvement
+      placeholder: |
+        - [ ] Refactor existing code
+        - [ ] Implement improvements
+        - [ ] Update tests
+        - [ ] Update documentation
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What conditions must be met for this improvement to be considered complete?
+      placeholder: |
+        - [ ] Improvement works as expected
+        - [ ] No regressions introduced
+        - [ ] Tests updated and passing
+        - [ ] Performance metrics improved (if applicable)
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing-strategy
+    attributes:
+      label: Testing Strategy
+      description: How should this improvement be tested?
+      placeholder: |
+        **Unit Tests:**
+        - Test improved behavior
+
+        **Regression Tests:**
+        - Ensure no existing functionality broken
+
+        **Manual Testing:**
+        - Steps to verify improvement
+    validations:
+      required: false
+
+  - type: textarea
+    id: considerations
+    attributes:
+      label: Considerations
+      description: Any technical constraints, dependencies, or important considerations?
+      placeholder: |
+        - Backwards compatibility
+        - Migration path for existing users
+        - Performance impact
+    validations:
+      required: false
+
+  - type: textarea
+    id: code-snippets
+    attributes:
+      label: Code Snippets (Optional)
+      description: Any code examples to illustrate the improvement
+      placeholder: |
+        ```python
+        # Before
+        old_implementation()
+
+        # After
+        improved_implementation()
+        ```
+      render: markdown
+    validations:
+      required: false

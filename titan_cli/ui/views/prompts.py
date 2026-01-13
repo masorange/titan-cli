@@ -62,17 +62,6 @@ class PromptsRenderer:
             menu_renderer = MenuRenderer(console=self.console, text_renderer=self.text)
         self.menu_renderer = menu_renderer
 
-        if table_renderer is None:
-            table_renderer = TableRenderer(console=self.console)
-        self.table_renderer = table_renderer
-
-        if status_bar_renderer is None:
-            status_bar_renderer = StatusBarRenderer(
-                table_renderer=self.table_renderer, 
-                text_renderer=self.text
-            )
-        self.status_bar_renderer = status_bar_renderer
-
     def ask_text(
         self,
         prompt: str,
@@ -227,6 +216,37 @@ class PromptsRenderer:
             question, choices=choices, default=default, console=self.console
         )
 
+    def ask_choices(
+        self, question: str, choices: List[str], default: Optional[str] = None
+    ) -> List[str]:
+        """
+        Ask user to choose multiple options from a list.
+        """
+        self.console.print(question)
+        for i, choice in enumerate(choices, 1):
+            self.console.print(f"  {i}. {choice}")
+
+        while True:
+            response = Prompt.ask(
+                "Enter a comma-separated list of choices (e.g. 1,3)",
+                default=default,
+                console=self.console,
+            )
+            try:
+                selected_indices = [
+                    int(i.strip()) for i in response.split(",") if i.strip()
+                ]
+            except ValueError:
+                self.text.error("Invalid input. Please enter numbers only.")
+                continue
+
+            if all(1 <= i <= len(choices) for i in selected_indices):
+                return [choices[i - 1] for i in selected_indices]
+            else:
+                self.text.error(
+                    "Invalid selection. Please enter numbers from the list."
+                )
+
     def ask_int(
         self,
         question: str,
@@ -302,7 +322,5 @@ class PromptsRenderer:
                     self.text.error(
                         msg.Prompts.INVALID_MENU_CHOICE.format(total_items=total_items)
                     )
-
-                self.status_bar_renderer.print()
             except ValueError:
                 self.text.error(msg.Prompts.NOT_A_NUMBER, show_emoji=False)

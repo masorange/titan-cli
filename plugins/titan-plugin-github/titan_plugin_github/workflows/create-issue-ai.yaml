@@ -1,0 +1,32 @@
+name: "Create GitHub Issue (AI-Powered)"
+description: "Create a GitHub issue with AI-generated description and auto-categorization"
+params:
+  assignees: []
+steps:
+  - id: prompt_for_issue_body
+    name: "Prompt for Issue Body"
+    plugin: github
+    step: prompt_for_issue_body_step
+
+  - id: ai_suggest_issue
+    name: "Categorize and Generate Issue"
+    plugin: github
+    step: ai_suggest_issue_title_and_body
+
+  - id: preview_and_confirm_issue
+    name: "Preview and Confirm Issue"
+    plugin: github
+    step: preview_and_confirm_issue
+
+  - id: prompt_for_self_assign
+    name: "Prompt for Self Assign"
+    plugin: github
+    step: prompt_for_self_assign
+
+  - id: create_issue
+    name: "Create Issue"
+    plugin: github
+    step: create_issue
+    params:
+      assignees: "${assignees}"
+      labels: "${labels}"

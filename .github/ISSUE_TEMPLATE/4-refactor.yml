@@ -1,0 +1,164 @@
+name: Refactor
+description: Propose code refactoring or restructuring
+title: "refactor: "
+labels: ["refactor", "technical-debt"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve code quality!
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A brief summary of the refactoring
+      placeholder: e.g., Refactor workflow executor to use strategy pattern
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Detailed description of what needs to be refactored and why
+      placeholder: |
+        What code needs refactoring and what's the motivation?
+    validations:
+      required: true
+
+  - type: textarea
+    id: objectives
+    attributes:
+      label: Objectives
+      description: What are the goals of this refactoring?
+      placeholder: |
+        - Improve code maintainability
+        - Reduce complexity
+        - Better separation of concerns
+        - Improve testability
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current State
+      description: Describe the current code structure and what's problematic
+      placeholder: |
+        Currently the code is structured as... which causes issues with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How should the code be restructured?
+      placeholder: |
+        Refactor to use... pattern/architecture which will...
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-phases
+    attributes:
+      label: Implementation Phases
+      description: Break down the refactoring into phases
+      placeholder: |
+        ### Phase 1: Extract Components
+        - Extract class X
+        - Create interface Y
+
+        ### Phase 2: Migrate
+        - Update callers
+        - Remove old code
+
+        ### Phase 3: Polish
+        - Update tests
+        - Update documentation
+    validations:
+      required: false
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Checklist of refactoring tasks
+      placeholder: |
+        - [ ] Create new structure/classes
+        - [ ] Migrate existing code
+        - [ ] Update tests
+        - [ ] Remove deprecated code
+        - [ ] Update documentation
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: How can we verify the refactoring is complete?
+      placeholder: |
+        - [ ] All existing tests pass
+        - [ ] Code coverage maintained or improved
+        - [ ] No functional changes (behavior unchanged)
+        - [ ] Code complexity reduced (measurable if possible)
+        - [ ] Documentation updated
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing-strategy
+    attributes:
+      label: Testing Strategy
+      description: How to ensure the refactoring doesn't break anything?
+      placeholder: |
+        **Regression Testing:**
+        - Run full test suite before and after
+        - Ensure all tests pass
+
+        **Code Quality:**
+        - Check cyclomatic complexity
+        - Verify code coverage
+
+        **Manual Testing:**
+        - Test affected workflows manually
+    validations:
+      required: false
+
+  - type: textarea
+    id: considerations
+    attributes:
+      label: Considerations
+      description: Important technical considerations
+      placeholder: |
+        - Backwards compatibility requirements
+        - Breaking changes (if any)
+        - Dependencies affected
+        - Migration path
+    validations:
+      required: false
+
+  - type: textarea
+    id: code-snippets
+    attributes:
+      label: Code Snippets (Optional)
+      description: Examples of current vs proposed structure
+      placeholder: |
+        ```python
+        # Current
+        def monolithic_function():
+            # 200 lines of code
+            pass
+
+        # Proposed
+        class RefactoredComponent:
+            def method1(self):
+                pass
+            def method2(self):
+                pass
+        ```
+      render: markdown
+    validations:
+      required: false
