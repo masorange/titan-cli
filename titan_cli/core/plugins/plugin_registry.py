@@ -11,13 +11,25 @@ from .plugin_base import TitanPlugin
 class PluginRegistry:
     """Discovers and manages installed plugins."""
 
-    # Local plugins directory
-    LOCAL_PLUGINS_DIR = Path.home() / ".titan" / "plugins"
+    def __init__(self, discover_on_init: bool = True, plugins_dir: Optional[Path] = None):
+        """
+        Initialize plugin registry.
 
-    def __init__(self, discover_on_init: bool = True):
+        Args:
+            discover_on_init: Automatically discover plugins on initialization
+            plugins_dir: Custom plugins directory (defaults to .titan/plugins in current dir)
+        """
         self._plugins: Dict[str, TitanPlugin] = {}
         self._failed_plugins: Dict[str, Exception] = {}
         self._discovered_plugin_names: List[str] = []
+
+        # Use project-level plugin directory by default
+        if plugins_dir is not None:
+            self.local_plugins_dir = plugins_dir
+        else:
+            # Default to current working directory's .titan/plugins
+            self.local_plugins_dir = Path.cwd() / ".titan" / "plugins"
+
         if discover_on_init:
             self.discover()
 
@@ -49,11 +61,11 @@ class PluginRegistry:
                 self._failed_plugins[ep.name] = error
 
     def _discover_from_local_plugins(self):
-        """Discover plugins from local ~/.titan/plugins directory."""
-        if not self.LOCAL_PLUGINS_DIR.exists():
+        """Discover plugins from project-level .titan/plugins directory."""
+        if not self.local_plugins_dir.exists():
             return
 
-        for plugin_dir in self.LOCAL_PLUGINS_DIR.iterdir():
+        for plugin_dir in self.local_plugins_dir.iterdir():
             if not plugin_dir.is_dir():
                 continue
 

@@ -19,8 +19,8 @@ class TitanConfig:
         registry: Optional[PluginRegistry] = None,
         global_config_path: Optional[Path] = None
     ):
-        # Core dependencies
-        self.registry = registry or PluginRegistry()
+        # Core dependencies - Create registry without discovering plugins yet
+        self.registry = registry or PluginRegistry(discover_on_init=False)
 
         # These are initialized in load() after config is read
         self.secrets = None  # Set by load()
@@ -93,7 +93,12 @@ class TitanConfig:
         # Use active_project_path for secrets if available, otherwise project_root
         secrets_path = self._active_project_path if self._active_project_path and self._active_project_path.is_dir() else self._project_root
         self.secrets = SecretManager(project_path=secrets_path if secrets_path and secrets_path.is_dir() else None)
-        
+
+        # Configure plugins directory based on project path
+        # Use active_project_path for plugins if available, otherwise project_root
+        plugins_path = self._active_project_path if self._active_project_path else self._project_root
+        self.registry.local_plugins_dir = plugins_path / ".titan" / "plugins"
+
         # Reset and re-initialize plugins
         self.registry.reset()
         self.registry.initialize_plugins(config=self, secrets=self.secrets)

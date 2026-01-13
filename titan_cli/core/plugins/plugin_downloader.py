@@ -28,19 +28,23 @@ class PluginDownloader:
     REGISTRY_BRANCH = "feat/plugin-marketplace-system"  # TODO: Change to "master" after merge
     REGISTRY_URL = f"https://raw.githubusercontent.com/{REGISTRY_REPO}/{REGISTRY_BRANCH}/registry.json"
 
-    # Local plugin directory
-    PLUGINS_DIR = Path.home() / ".titan" / "plugins"
-
     def __init__(self, registry_url: Optional[str] = None, plugins_dir: Optional[Path] = None):
         """
         Initialize plugin downloader.
 
         Args:
             registry_url: Custom registry URL (defaults to official)
-            plugins_dir: Custom plugins directory (defaults to ~/.titan/plugins)
+            plugins_dir: Custom plugins directory (defaults to .titan/plugins in current dir)
         """
         self.registry_url = registry_url or self.REGISTRY_URL
-        self.plugins_dir = plugins_dir or self.PLUGINS_DIR
+
+        # Use project-level plugin directory by default
+        if plugins_dir is not None:
+            self.plugins_dir = plugins_dir
+        else:
+            # Default to current working directory's .titan/plugins
+            self.plugins_dir = Path.cwd() / ".titan" / "plugins"
+
         self._registry_cache: Optional[Dict[str, Any]] = None
 
     def fetch_registry(self, force_refresh: bool = False) -> Dict[str, Any]:

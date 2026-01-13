@@ -37,8 +37,12 @@ def install_plugin_from_marketplace(
     text.line()
 
     try:
-        # Initialize downloader and validator
-        downloader = PluginDownloader()
+        # Get current project path from config
+        config = TitanConfig()
+        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+
+        # Initialize downloader and validator with project-specific plugin directory
+        downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
         validator = PluginValidator()
 
         # Fetch plugin info
@@ -66,7 +70,6 @@ def install_plugin_from_marketplace(
             text.body(f"Dependencies: {', '.join(dependencies)}", style="dim")
 
             # Validate dependencies are installed
-            config = TitanConfig()
             installed = config.registry.list_installed()
             missing = [dep for dep in dependencies if dep not in installed]
 
@@ -160,7 +163,12 @@ def uninstall_plugin_from_marketplace(name: str) -> None:
     text.line()
 
     try:
-        downloader = PluginDownloader()
+        # Get current project path from config
+        config = TitanConfig()
+        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+
+        # Initialize downloader with project-specific plugin directory
+        downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
 
         # Check if installed
         installed = downloader.list_installed()
@@ -198,8 +206,12 @@ def discover_plugins() -> None:
     text.line()
 
     try:
-        downloader = PluginDownloader()
+        # Get current project path from config
         config = TitanConfig()
+        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+
+        # Initialize downloader with project-specific plugin directory
+        downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
 
         # Fetch registry
         text.body("Fetching plugin registry from GitHub...", style="dim")
@@ -331,7 +343,13 @@ def update_plugin(name: str, all_plugins: bool = False) -> None:
 
     if all_plugins:
         text.info("Updating all installed plugins...")
-        downloader = PluginDownloader()
+
+        # Get current project path from config
+        config = TitanConfig()
+        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+
+        # Initialize downloader with project-specific plugin directory
+        downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
         installed = downloader.list_installed()
 
         if not installed:

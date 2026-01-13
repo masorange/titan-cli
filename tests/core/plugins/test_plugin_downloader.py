@@ -64,7 +64,8 @@ class TestPluginDownloader:
     def test_init_with_defaults(self):
         """Test initialization with default values."""
         downloader = PluginDownloader()
-        assert downloader.plugins_dir == Path.home() / ".titan" / "plugins"
+        # Should use current working directory's .titan/plugins
+        assert downloader.plugins_dir == Path.cwd() / ".titan" / "plugins"
         assert downloader.registry_url == downloader.REGISTRY_URL
 
     def test_init_with_custom_paths(self, temp_plugins_dir):
