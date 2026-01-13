@@ -22,5 +22,67 @@
     "Code review assistance",
     "GitHub API integration",
     "Workflow automation"
-  ]
+  ],
+  "configSchema": {
+    "type": "object",
+    "title": "GitHub Configuration",
+    "description": "Configure your GitHub connection and preferences",
+    "properties": {
+      "token": {
+        "type": "string",
+        "title": "GitHub Token",
+        "description": "Personal Access Token for GitHub API",
+        "required": true,
+        "secret": true,
+        "prompt": {
+          "message": "GitHub Personal Access Token:",
+          "type": "password",
+          "help": "Create one at: https://github.com/settings/tokens (needs 'repo' scope)"
+        }
+      },
+      "default_branch": {
+        "type": "string",
+        "title": "Default Branch",
+        "description": "Default base branch for PRs",
+        "default": "master",
+        "prompt": {
+          "message": "Rama base por defecto para PRs:",
+          "placeholder": "master"
+        }
+      },
+      "auto_assign_reviewers": {
+        "type": "boolean",
+        "title": "Auto-assign Reviewers",
+        "description": "Automatically assign reviewers to PRs",
+        "default": true,
+        "prompt": {
+          "message": "¿Auto-asignar reviewers a PRs?"
+        }
+      },
+      "pr_template_style": {
+        "type": "string",
+        "title": "PR Template Style",
+        "description": "Style of PR description template",
+        "enum": ["standard", "detailed", "minimal"],
+        "default": "standard",
+        "prompt": {
+          "message": "Estilo de template para PRs:",
+          "choices": [
+            {"name": "Estándar (resumen + test plan)", "value": "standard"},
+            {"name": "Detallado (con checklist completo)", "value": "detailed"},
+            {"name": "Mínimo (solo resumen)", "value": "minimal"}
+          ]
+        }
+      },
+      "enable_ai_pr_descriptions": {
+        "type": "boolean",
+        "title": "Enable AI PR Descriptions",
+        "description": "Use AI to generate PR descriptions",
+        "default": true,
+        "prompt": {
+          "message": "¿Generar descripciones de PR con IA?"
+        }
+      }
+    }
+  }
 }

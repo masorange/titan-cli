@@ -311,3 +311,58 @@ class TitanConfig:
         plugin_cfg = self.config.plugins.get(plugin_name)
         return plugin_cfg.enabled if plugin_cfg else False
 
+    def set_plugin_config(self, plugin_name: str, plugin_config: dict):
+        """
+        Save plugin configuration to global config file.
+
+        Args:
+            plugin_name: Name of the plugin
+            plugin_config: Dictionary with configuration values (non-secret)
+
+        Raises:
+            ConfigWriteError: If unable to write config file
+        """
+        # Ensure .titan directory exists
+        if not self._global_config_path.parent.exists():
+            try:
+                self._global_config_path.parent.mkdir(parents=True)
+            except OSError as e:
+                raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+
+        # Load existing config
+        existing_config = {}
+        if self._global_config_path.exists():
+            try:
+                with open(self._global_config_path, "rb") as f:
+                    existing_config = tomli.load(f)
+            except Exception:
+                pass
+
+        # Ensure plugins section exists
+        if 'plugins' not in existing_config:
+            existing_config['plugins'] = {}
+
+        # Ensure plugin section exists
+        if plugin_name not in existing_config['plugins']:
+            existing_config['plugins'][plugin_name] = {}
+
+        # Ensure config subsection exists
+        if 'config' not in existing_config['plugins'][plugin_name]:
+            existing_config['plugins'][plugin_name]['config'] = {}
+
+        # Merge new config with existing
+        existing_config['plugins'][plugin_name]['config'].update(plugin_config)
+
+        # Save to disk
+        try:
+            import tomli_w
+            with open(self._global_config_path, "wb") as f:
+                tomli_w.dump(existing_config, f)
+        except ImportError as e:
+            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+        except Exception as e:
+            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+
+        # Reload config to reflect changes
+        self.load()
+

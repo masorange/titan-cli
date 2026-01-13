@@ -23,5 +23,79 @@
     "Issue creation and updates",
     "Workflow automation",
     "Jinja2 template customization"
-  ]
+  ],
+  "configSchema": {
+    "type": "object",
+    "title": "JIRA Configuration",
+    "description": "Configure your JIRA connection and preferences",
+    "properties": {
+      "url": {
+        "type": "string",
+        "title": "JIRA URL",
+        "description": "Your JIRA instance URL",
+        "required": true,
+        "format": "uri",
+        "prompt": {
+          "message": "¿Cuál es tu URL de JIRA?",
+          "placeholder": "https://company.atlassian.net",
+          "help": "Example: https://your-company.atlassian.net"
+        }
+      },
+      "email": {
+        "type": "string",
+        "title": "Email",
+        "description": "Your JIRA account email",
+        "required": true,
+        "format": "email",
+        "prompt": {
+          "message": "Email de tu cuenta JIRA:",
+          "placeholder": "user@company.com"
+        }
+      },
+      "api_token": {
+        "type": "string",
+        "title": "API Token",
+        "description": "JIRA API Token for authentication",
+        "required": true,
+        "secret": true,
+        "prompt": {
+          "message": "API Token de JIRA:",
+          "type": "password",
+          "help": "Create one at: https://id.atlassian.com/manage/api-tokens"
+        }
+      },
+      "default_project": {
+        "type": "string",
+        "title": "Default Project",
+        "description": "Default JIRA project key",
+        "required": false,
+        "pattern": "^[A-Z]{2,10}$",
+        "prompt": {
+          "message": "Proyecto por defecto (opcional):",
+          "placeholder": "PROJ",
+          "help": "Must be 2-10 uppercase letters"
+        }
+      },
+      "max_results": {
+        "type": "integer",
+        "title": "Max Results",
+        "description": "Maximum number of issues to return in searches",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 100,
+        "prompt": {
+          "message": "Máximo de resultados en búsquedas:"
+        }
+      },
+      "enable_ai_analysis": {
+        "type": "boolean",
+        "title": "Enable AI Analysis",
+        "description": "Use AI for requirement analysis",
+        "default": true,
+        "prompt": {
+          "message": "¿Habilitar análisis con IA?"
+        }
+      }
+    }
+  }
 }
