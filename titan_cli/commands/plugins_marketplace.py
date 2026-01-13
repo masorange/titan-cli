@@ -250,7 +250,7 @@ def discover_plugins() -> None:
             item = MenuItem(
                 label=label,
                 description=description,
-                value=name
+                action=name
             )
 
             if category == "official":
@@ -297,7 +297,7 @@ def discover_plugins() -> None:
             return
 
         # Install selected plugin
-        plugin_name = selected.value
+        plugin_name = selected.action
         text.line()
 
         # Check if already installed
