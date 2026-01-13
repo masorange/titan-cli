@@ -218,9 +218,11 @@ class WorkflowsScreen(BaseScreen):
         Args:
             workflow_name: Name of the workflow to execute
         """
-        # TODO: Implement workflow execution
-        # For now, just show a notification
-        self.app.notify(f"Executing workflow: {workflow_name} - Coming soon!")
+        from .workflow_execution import WorkflowExecutionScreen
+
+        # Navigate to workflow execution screen
+        execution_screen = WorkflowExecutionScreen(self.config, workflow_name)
+        self.app.push_screen(execution_screen)
 
     def action_go_back(self) -> None:
         """Go back to main menu."""
