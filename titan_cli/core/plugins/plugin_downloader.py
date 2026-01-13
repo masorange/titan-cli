@@ -175,8 +175,8 @@ class PluginDownloader:
                 zip_ref.extractall(extract_dir)
 
             # Find plugin directory in extracted content
-            # Structure: titan-plugins-{branch}/{source_path}
-            repo_dir = extract_dir / f"titan-plugins-{self.REGISTRY_BRANCH}"
+            # Structure: titan-cli-{branch}/{source_path}
+            repo_dir = extract_dir / f"titan-cli-{self.REGISTRY_BRANCH}"
             plugin_dir = repo_dir / source_path
 
             if not plugin_dir.exists():
