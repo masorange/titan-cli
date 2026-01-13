@@ -58,6 +58,7 @@ class WorkflowsScreen(BaseScreen):
             # Re-enable auto-filtering after mount completes
             self._is_mounting = False
 
+
     CSS = """
     WorkflowsScreen {
         align: center middle;
@@ -76,7 +77,7 @@ class WorkflowsScreen(BaseScreen):
         margin-bottom: 1;
     }
 
-    Horizontal {
+    #workflows-container Horizontal {
         width: 100%;
         height: 1fr;
         padding: 1;
@@ -84,6 +85,7 @@ class WorkflowsScreen(BaseScreen):
 
     #left-panel {
         width: 20%;
+        height: 100%;
         border: round $primary;
         border-title-align: center;
         background: $surface-lighten-1;
@@ -99,6 +101,7 @@ class WorkflowsScreen(BaseScreen):
 
     #right-panel {
         width: 80%;
+        height: 100%;
         border: round $primary;
         border-title-align: center;
         background: $surface-lighten-1;
@@ -118,14 +121,11 @@ class WorkflowsScreen(BaseScreen):
     """
 
     def compose_content(self) -> ComposeResult:
-
-        self.config.load()
+        """Compose the workflows screen content."""
         all_workflows = self.config.workflows.discover()
 
         # Cache and remove duplicates
         self._all_workflows = self._remove_duplicate_workflows(all_workflows)
-
-        """Compose the workflows screen content."""
         with Container(id="workflows-container"):
             yield Static("⚡ Available Workflows", id="workflows-title")
 
