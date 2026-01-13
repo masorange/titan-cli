@@ -79,6 +79,31 @@ def create_pr_step(ctx: WorkflowContext) -> Success:
     return Success("Pull request created", metadata={"pull_request": pr})
 ```
 
+
+### `IssueGeneratorAgent`
+
+The `IssueGeneratorAgent` is a specialized agent that uses AI to generate GitHub issue titles and descriptions. It can use a template if one is found in the repository.
+
+### AI-Powered Issue Creation Workflow
+
+The `create-issue-ai` workflow provides an interactive way to create GitHub issues with the help of AI.
+
+#### Workflow Steps
+
+1.  **Prompt for Issue Body**: The user is prompted to enter a description of the issue. This can be a simple text or a markdown with code snippets.
+2.  **Find Issue Template**: The workflow searches for an issue template in the `.github` directory.
+3.  **Generate Issue Title and Description**: The `IssueGeneratorAgent` uses the user's description and the issue template (if found) to generate a professional, descriptive, and useful issue title and body in English.
+4.  **Preview and Confirm Issue**: The user is shown a preview of the AI-generated issue and asked for confirmation.
+5.  **Prompt for Self Assign**: The user is asked if they want to assign the issue to themselves.
+6.  **Prompt for Labels**: The user is prompted to select labels from the available labels in the repository.
+7.  **Create Issue**: The issue is created in GitHub.
+
+#### Example Usage
+
+```bash
+titan workflow run create-issue-ai
+```
+
 ---
 ## 🧪 Testing
 

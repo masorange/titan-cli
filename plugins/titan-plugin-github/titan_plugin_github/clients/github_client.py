@@ -19,6 +19,7 @@ from ..models import (
     PRSearchResult,
     PRMergeResult,
     PRComment as GitHubPRComment,
+    Issue,
 )
 from ..exceptions import (
     GitHubError,
@@ -1040,3 +1041,65 @@ class GitHubClient:
             )
         except GitHubAPIError as e:
             raise GitHubAPIError(msg.GitHub.PR_CREATION_FAILED.format(error=e))
+
+    def create_issue(
+        self,
+        title: str,
+        body: str,
+        assignees: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> Issue:
+        """
+        Create a new GitHub issue.
+        """
+        try:
+            args = ["issue", "create", "--title", title, "--body", body]
+
+            if assignees:
+                for assignee in assignees:
+                    args.extend(["--assignee", assignee])
+            if labels:
+                for label in labels:
+                    args.extend(["--label", label])
+
+            args.extend(self._get_repo_arg())
+            output = self._run_gh_command(args)
+            issue_url = output.strip()
+            try:
+                issue_number = int(issue_url.strip().split("/")[-1])
+            except (ValueError, IndexError) as e:
+                raise GitHubAPIError(f"Failed to parse issue number from URL '{issue_url}': {e}")
+
+            # Fetch the issue to return the full object
+            issue_args = [
+                "issue",
+                "view",
+                str(issue_number),
+                "--json",
+                "number,title,body,state,author,labels,createdAt,updatedAt",
+            ] + self._get_repo_arg()
+            issue_output = self._run_gh_command(issue_args)
+            issue_data = json.loads(issue_output)
+            return Issue.from_dict(issue_data)
+
+        except (ValueError, json.JSONDecodeError) as e:
+            raise GitHubAPIError(f"Failed to parse issue data: {e}")
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to create issue: {e}")
+
+    def list_labels(self) -> List[str]:
+        """
+        List all labels in the repository.
+
+        Returns:
+            List of label names.
+        """
+        try:
+            args = ["label", "list", "--json", "name"] + self._get_repo_arg()
+            output = self._run_gh_command(args)
+            labels_data = json.loads(output)
+            return [label["name"] for label in labels_data]
+        except (ValueError, json.JSONDecodeError) as e:
+            raise GitHubAPIError(f"Failed to parse label data: {e}")
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to list labels: {e}")
