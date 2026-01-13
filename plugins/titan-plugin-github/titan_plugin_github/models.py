@@ -291,3 +291,40 @@ class PRMergeResult:
     merged: bool
     sha: Optional[str] = None
     message: str = ""
+
+
+@dataclass
+class Issue:
+    """
+    GitHub Issue representation.
+    """
+    number: int
+    title: str
+    body: str
+    state: str
+    author: User
+    labels: List[str] = field(default_factory=list)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Issue':
+        """
+        Create Issue from GitHub API response.
+        """
+        author_data = data.get("author", {})
+        author = User.from_dict(author_data)
+
+        labels_data = data.get("labels", [])
+        labels = [label.get("name", "") for label in labels_data]
+
+        return cls(
+            number=data.get("number", 0),
+            title=data.get("title", ""),
+            body=data.get("body", ""),
+            state=data.get("state", "OPEN"),
+            author=author,
+            labels=labels,
+            created_at=data.get("createdAt"),
+            updated_at=data.get("updatedAt"),
+        )

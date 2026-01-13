@@ -3,7 +3,6 @@ Workflows Screen
 
 Screen for listing and executing workflows.
 """
-
 from textual.app import ComposeResult
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
@@ -57,7 +56,6 @@ class WorkflowsScreen(BaseScreen):
         finally:
             # Re-enable auto-filtering after mount completes
             self._is_mounting = False
-
 
     CSS = """
     WorkflowsScreen {

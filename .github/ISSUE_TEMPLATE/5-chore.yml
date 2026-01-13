@@ -1,0 +1,95 @@
+name: Chore
+description: Maintenance tasks, dependencies, configurations
+title: "chore: "
+labels: ["chore", "maintenance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintenance tasks that don't modify src or test files directly.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A brief summary of the maintenance task
+      placeholder: e.g., Update Python dependencies to latest versions
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Detailed description of what needs to be done
+      placeholder: |
+        What maintenance task is needed and why?
+    validations:
+      required: true
+
+  - type: textarea
+    id: objectives
+    attributes:
+      label: Objectives
+      description: What are the goals of this maintenance task?
+      placeholder: |
+        - Update dependencies to fix security vulnerabilities
+        - Update CI/CD pipeline configuration
+        - Update build tooling
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What type of maintenance is this?
+      options:
+        - Dependencies update
+        - CI/CD configuration
+        - Build tooling
+        - Project configuration
+        - Scripts/automation
+        - Other
+    validations:
+      required: false
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Checklist of tasks to complete
+      placeholder: |
+        - [ ] Update package.json / pyproject.toml
+        - [ ] Run tests to verify compatibility
+        - [ ] Update lockfile
+        - [ ] Update documentation if needed
+    validations:
+      required: false
+
+  - type: textarea
+    id: considerations
+    attributes:
+      label: Considerations (Optional)
+      description: Any important notes or potential issues?
+      placeholder: |
+        - Breaking changes in dependency X
+        - May require updating Python version
+        - CI/CD pipeline may need adjustment
+    validations:
+      required: false
+
+  - type: textarea
+    id: code-snippets
+    attributes:
+      label: Configuration Changes (Optional)
+      description: Any configuration file changes
+      placeholder: |
+        ```yaml
+        # .github/workflows/ci.yml
+        - uses: actions/setup-python@v4
+        + uses: actions/setup-python@v5
+        ```
+      render: markdown
+    validations:
+      required: false

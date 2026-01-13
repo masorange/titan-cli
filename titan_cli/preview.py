@@ -118,7 +118,6 @@ def preview_main_menu():
         typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-
 @preview_app.command("workflows")
 def preview_workflows():
     """
@@ -129,7 +128,6 @@ def preview_workflows():
     except ModuleNotFoundError:
         typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
         raise typer.Exit(1)
-
 
 @preview_app.command("workflow")
 def preview_workflow(name: str):
