@@ -32,7 +32,7 @@ class WorkflowsScreen(BaseScreen):
     ]
 
     def __init__(self, config):
-        super().__init__(config)
+        super().__init__(config, title="⚡ Available Workflows", show_back=True)
         self.selected_plugin = "all"  # Track selected plugin filter (start with "all")
         self._is_mounting = False  # Flag to prevent auto-update during mount
         self._all_workflows = None  # Cache for discovered workflows
@@ -68,13 +68,6 @@ class WorkflowsScreen(BaseScreen):
         width: 100%;
         height: 1fr;
         background: $surface-lighten-1;
-    }
-
-    #workflows-title {
-        text-align: center;
-        color: $primary;
-        text-style: bold;
-        margin-bottom: 1;
     }
 
     #workflows-container Horizontal {
@@ -127,8 +120,6 @@ class WorkflowsScreen(BaseScreen):
         # Cache and remove duplicates
         self._all_workflows = self._remove_duplicate_workflows(all_workflows)
         with Container(id="workflows-container"):
-            yield Static("⚡ Available Workflows", id="workflows-title")
-
             if not self._all_workflows:
                 yield Static("No workflows found.", id="no-workflows")
             else:

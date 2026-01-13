@@ -8,6 +8,7 @@ from textual.screen import Screen
 
 from titan_cli.core.config import TitanConfig
 from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
+from titan_cli.ui.tui.widgets.header import HeaderWidget
 
 
 class BaseScreen(Screen):
@@ -34,19 +35,24 @@ class BaseScreen(Screen):
     }
     """
 
-    def __init__(self, config: TitanConfig, **kwargs):
+    def __init__(self, config: TitanConfig, title: str = "Titan CLI", show_back: bool = False, **kwargs):
         """
         Initialize base screen.
 
         Args:
             config: TitanConfig instance
+            title: Title to display in header
+            show_back: Whether to show back button in header
         """
         super().__init__(**kwargs)
         self.config = config
+        self.screen_title = title
+        self.show_back = show_back
 
     def compose(self) -> ComposeResult:
         """Compose the base screen layout."""
-        # yield Header()
+        # Header with title and optional back button
+        yield HeaderWidget(title=self.screen_title, show_back=self.show_back)
 
         # Content area - subclasses define this
         yield from self.compose_content()
@@ -93,3 +99,11 @@ class BaseScreen(Screen):
         status_bar.git_branch = git_branch
         status_bar.ai_info = ai_info
         status_bar.project_name = project_name
+
+    def on_header_widget_back_pressed(self, message: HeaderWidget.BackPressed) -> None:
+        """Handle back button press from header."""
+        self.action_go_back()
+
+    def action_go_back(self) -> None:
+        """Go back to previous screen. Override in subclasses if needed."""
+        self.app.pop_screen()

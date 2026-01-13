@@ -106,7 +106,6 @@ class MainMenuScreen(BaseScreen):
                 [
                     Option("🔌 Plugin Management", id="plugin_management"),
                     Option("⚙️  AI Configuration", id="ai_config"),
-                    Option("❌ Exit", id="exit"),
                 ]
             )
 
