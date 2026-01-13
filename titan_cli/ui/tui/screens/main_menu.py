@@ -3,6 +3,7 @@ Main Menu Screen
 
 The primary navigation screen for Titan TUI.
 """
+
 from textual.app import ComposeResult
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
@@ -36,11 +37,11 @@ class MainMenuScreen(BaseScreen):
     }
 
     #menu-container {
-        width: 80%;
+        width: 70%;
         height: 1fr;
         background: $surface-lighten-1;
         border: solid $primary;
-        padding: 2;
+        margin: 1;
     }
 
     #menu-title {
@@ -53,15 +54,35 @@ class MainMenuScreen(BaseScreen):
     OptionList {
         height: auto;
         border: none;
+        background: $surface-lighten-1;
+        padding: 0;
+    }
+
+    OptionList:focus {
+        border: none;
+        background: $surface-lighten-1;
+        padding: 0;
     }
 
     OptionList > .option-list--option {
         padding: 1 2;
+        background: $surface-lighten-1;
+        border-left: none;
     }
 
     OptionList > .option-list--option-highlighted {
         background: $primary;
+        border-left: none;
     }
+
+    OptionList:focus > .option-list--option {
+        border-left: none;
+    }
+
+    OptionList:focus > .option-list--option-highlighted {
+        border-left: none;
+    }
+
     """
 
     def compose_content(self) -> ComposeResult:
@@ -77,16 +98,19 @@ class MainMenuScreen(BaseScreen):
 
             # Only show Workflows if there are enabled plugins
             installed_plugins = self.config.registry.list_installed()
-            enabled_plugins = [p for p in installed_plugins if self.config.is_plugin_enabled(p)]
+            enabled_plugins = [
+                p for p in installed_plugins if self.config.is_plugin_enabled(p)
+            ]
             if enabled_plugins:
                 options.append(Option("⚡ Workflows", id="run_workflow"))
 
-            options.extend([
-                Option("🔌 Plugin Management", id="plugin_management"),
-                Option("⚙️  AI Configuration", id="ai_config"),
-                Option("🔄 Switch Project", id="switch_project"),
-                Option("❌ Exit", id="exit"),
-            ])
+            options.extend(
+                [
+                    Option("🔌 Plugin Management", id="plugin_management"),
+                    Option("⚙️  AI Configuration", id="ai_config"),
+                    Option("❌ Exit", id="exit"),
+                ]
+            )
 
             yield OptionList(*options)
 
@@ -106,8 +130,6 @@ class MainMenuScreen(BaseScreen):
             self.handle_plugin_management_action()
         elif action == "ai_config":
             self.handle_ai_config_action()
-        elif action == "switch_project":
-            self.handle_switch_project_action()
 
     def handle_cli_action(self) -> None:
         """Handle Launch External CLI action."""
@@ -120,6 +142,7 @@ class MainMenuScreen(BaseScreen):
     def handle_workflow_action(self) -> None:
         """Handle Workflows action."""
         from .workflows import WorkflowsScreen
+
         self.app.push_screen(WorkflowsScreen(self.config))
 
     def handle_plugin_management_action(self) -> None:

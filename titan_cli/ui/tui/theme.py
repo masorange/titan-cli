@@ -5,34 +5,31 @@ Centralized theme configuration for the Textual UI.
 Defines color variables, CSS utilities, and style constants.
 """
 
-# Titan Theme CSS - Define color variables and base styles
+# Titan Theme CSS - Dracula Edition (Grises y Púrpuras)
 TITAN_THEME_CSS = """
-/* Color Variables - Based on your current Rich theme */
-$primary: #3b82f6;           /* Blue */
-$secondary: #10b981;         /* Green */
-$accent: #f59e0b;            /* Amber */
-$error: #ef4444;             /* Red */
-$warning: #f59e0b;           /* Amber */
-$success: #10b981;           /* Green */
-$info: #3b82f6;              /* Blue */
+/* Color Variables */
+$primary: #bd93f9;           /* Purple (Dracula standard) */
+$secondary: #50fa7b;         /* Green */
+$accent: #ff79c6;            /* Pink */
+$error: #ff5555;             /* Red */
+$warning: #f1fa8c;           /* Yellow */
+$success: #50fa7b;           /* Green */
+$info: #8be9fd;              /* Cyan */
 
-$surface: #1e293b;           /* Dark surface */
-$surface-lighten-1: #334155; /* Lighter surface */
-$surface-lighten-2: #475569; /* Even lighter */
+/* Backgrounds */
+$surface: #282a36;           
+$surface-lighten-1: #343746; 
+$surface-lighten-2: #44475a;
 
-$text: #e2e8f0;              /* Light text */
-$text-muted: #94a3b8;        /* Muted text */
-$text-disabled: #64748b;     /* Disabled text */
+/* Text Colors */
+$text: #f8f8f2;              /* Foreground (Almost white) */
+$text-muted: #6272a4;        /* Comment */
+$text-disabled: #44475a;     /* Disabled */
 
 /* Banner gradient colors */
-$banner-start: #3b82f6;
-$banner-mid: #8b5cf6;
-$banner-end: #ec4899;
-
-/* Spacing */
-$spacing-small: 1;
-$spacing-medium: 2;
-$spacing-large: 3;
+$banner-start: #6272a4;      
+$banner-mid: #bd93f9;        
+$banner-end: #ff79c6;     
 
 /* Base widget styles */
 .title {
@@ -71,5 +68,21 @@ $spacing-large: 3;
 
 .info-text {
     color: $info;
+}
+
+/* Global scrollbar styles - applies to all widgets */
+* {
+    scrollbar-background: $surface;
+    scrollbar-background-hover: $surface-lighten-1;
+    scrollbar-background-active: $surface-lighten-2;
+    scrollbar-color: $primary;
+    scrollbar-color-hover: $accent;
+    scrollbar-color-active: $accent;
+    scrollbar-corner-color: $surface;
+}
+
+Screen {
+    background: $surface;
+    color: $text;
 }
 """

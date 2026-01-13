@@ -28,7 +28,7 @@ class StatusBarWidget(Widget):
 
     DEFAULT_CSS = """
     StatusBarWidget {
-        background: #334155;
+        background: $surface-lighten-1;
         color: white;
         height: 1;
         width: 100%;

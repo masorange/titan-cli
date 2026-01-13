@@ -107,6 +107,18 @@ def preview_statusbar():
         raise typer.Exit(1)
 
 
+@preview_app.command("main-menu")
+def preview_main_menu():
+    """
+    Shows a preview of the MainMenuScreen component.
+    """
+    try:
+        runpy.run_module("titan_cli.ui.tui.screens.__previews__.main_menu_preview", run_name="__main__")
+    except ModuleNotFoundError:
+        typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
 @preview_app.command("workflow")
 def preview_workflow(name: str):
     """
