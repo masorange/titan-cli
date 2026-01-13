@@ -4,7 +4,7 @@ from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success
 from titan_cli.core.secrets import SecretManager
 from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step
-from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body, create_issue
+from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
 from titan_plugin_github.steps.preview_steps import preview_and_confirm_issue_step
 from titan_plugin_github.models import Issue, User
 
@@ -42,7 +42,7 @@ def test_ai_suggest_issue_title_and_body(MockIssueGeneratorAgent, mock_secret_ma
     ctx.ui = MagicMock()
 
     # Act
-    result = ai_suggest_issue_title_and_body(ctx)
+    result = ai_suggest_issue_title_and_body_step(ctx)
 
     # Assert
     assert isinstance(result, Success)
@@ -68,7 +68,7 @@ def test_ai_suggest_issue_title_and_body_bug_category(mock_secret_manager):
         ctx.ui = MagicMock()
 
         # Act
-        result = ai_suggest_issue_title_and_body(ctx)
+        result = ai_suggest_issue_title_and_body_step(ctx)
 
         # Assert
         assert isinstance(result, Success)
@@ -91,7 +91,7 @@ def test_ai_suggest_issue_title_and_body_without_template(mock_secret_manager):
         ctx.ui = MagicMock()
 
         # Act
-        result = ai_suggest_issue_title_and_body(ctx)
+        result = ai_suggest_issue_title_and_body_step(ctx)
 
         # Assert
         assert isinstance(result, Success)
@@ -148,7 +148,7 @@ def test_create_issue_step(MockGitHubClient, mock_secret_manager):
     ctx.github = mock_github_client
 
     # Act
-    result = create_issue(ctx)
+    result = create_issue_steps(ctx)
     if result.metadata:
         ctx.data.update(result.metadata)
 
@@ -191,7 +191,7 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
         ctx.github = mock_github_client
 
         # Act
-        result = create_issue(ctx)
+        result = create_issue_steps(ctx)
         if result.metadata:
             ctx.data.update(result.metadata)
 

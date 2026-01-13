@@ -22,7 +22,10 @@ def preview_and_confirm_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         panel_type="default",
     )
 
-    if not ctx.views.prompts.ask_confirm("Use this AI-generated issue?", default=True):
-        return Error("User rejected AI-generated issue")
+    try:
+        if not ctx.views.prompts.ask_confirm("Use this AI-generated issue?", default=True):
+            return Error("User rejected AI-generated issue")
+    except (KeyboardInterrupt, EOFError):
+        return Error("User cancelled operation")
 
     return Success("User confirmed AI-generated issue")

@@ -3,7 +3,7 @@ from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
 from ..agents.issue_generator import IssueGeneratorAgent
 
-def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
+def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Use AI to suggest a title and description for a GitHub issue.
     Auto-categorizes and selects the appropriate template.
@@ -45,7 +45,7 @@ def ai_suggest_issue_title_and_body(ctx: WorkflowContext) -> WorkflowResult:
         return Error(f"Failed to generate issue: {e}")
 
 
-def create_issue(ctx: WorkflowContext) -> WorkflowResult:
+def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     """
     Create a new GitHub issue.
     """
