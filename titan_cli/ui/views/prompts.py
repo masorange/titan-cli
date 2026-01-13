@@ -76,8 +76,38 @@ class PromptsRenderer:
 
             return value
 
+    def ask_password(
+        self,
+        message: str,
+        required: bool = True,
+        validator: Optional[Callable[[str], bool]] = None
+    ) -> str:
+        """
+        Ask for password input (hidden).
+
+        Args:
+            message: Prompt message
+            required: Whether input is required
+            validator: Optional validation function
+
+        Returns:
+            Password string
+        """
+        while True:
+            value = self.ask_text(
+                prompt=message,
+                password=True,
+                validator=validator if not required else lambda x: bool(x.strip())
+            )
+
+            if required and not value.strip():
+                self.text.error(msg.Prompts.INVALID_INPUT, show_emoji=False)
+                continue
+
+            return value
+
     def ask_multiline(
-        self, 
+        self,
         prompt: str,
         default: str = "",
         template: Optional[str] = None
