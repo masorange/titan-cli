@@ -67,20 +67,16 @@ class TestConfigSchemaRenderer:
             'prompt': {'message': 'Choose option:'}
         }
 
-        renderer.prompts.ask_select.return_value = 'option2'
+        renderer.prompts.ask_choice.return_value = 'option2'
 
         result = renderer._render_field('mode', schema, None)
 
         assert result == 'option2'
-        renderer.prompts.ask_select.assert_called_once()
+        renderer.prompts.ask_choice.assert_called_once()
 
         # Check choices were auto-generated from enum
-        call_args = renderer.prompts.ask_select.call_args
-        assert call_args[1]['choices'] == [
-            {'name': 'option1', 'value': 'option1'},
-            {'name': 'option2', 'value': 'option2'},
-            {'name': 'option3', 'value': 'option3'}
-        ]
+        call_args = renderer.prompts.ask_choice.call_args
+        assert call_args[1]['choices'] == ['option1', 'option2', 'option3']
 
     def test_render_select_field_custom_choices(self, renderer):
         """Test rendering select field with custom choice labels."""
@@ -96,18 +92,15 @@ class TestConfigSchemaRenderer:
             }
         }
 
-        renderer.prompts.ask_select.return_value = 'val1'
+        renderer.prompts.ask_choice.return_value = 'val1'
 
         result = renderer._render_field('choice', schema, None)
 
         assert result == 'val1'
 
-        # Check custom choices were used
-        call_args = renderer.prompts.ask_select.call_args
-        assert call_args[1]['choices'] == [
-            {'name': 'Label 1', 'value': 'val1'},
-            {'name': 'Label 2', 'value': 'val2'}
-        ]
+        # Check custom choices were used (only values extracted)
+        call_args = renderer.prompts.ask_choice.call_args
+        assert call_args[1]['choices'] == ['val1', 'val2']
 
     def test_render_boolean_field(self, renderer):
         """Test rendering a boolean field."""
@@ -122,7 +115,7 @@ class TestConfigSchemaRenderer:
 
         assert result is True
         renderer.prompts.ask_confirm.assert_called_once_with(
-            message='Enable feature?',
+            prompt='Enable feature?',
             default=True
         )
 
@@ -140,7 +133,7 @@ class TestConfigSchemaRenderer:
 
         assert result is False
         renderer.prompts.ask_confirm.assert_called_once_with(
-            message='Enable?',
+            prompt='Enable?',
             default=False
         )
 

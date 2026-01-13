@@ -188,8 +188,8 @@ class ConfigSchemaRenderer:
         else:
             # Fallback to text input
             return self.prompts.ask_text(
-                message=message,
-                default=str(default_value) if default_value else None
+                prompt=message,
+                default=str(default_value) if default_value else ""
             )
 
     def _render_string_field(
@@ -205,19 +205,21 @@ class ConfigSchemaRenderer:
 
         # String with enum → Select menu
         if 'enum' in schema:
-            choices = []
             enum_values = schema['enum']
 
-            # Use custom choices if provided
+            # Use custom choices if provided in prompt config
             if 'choices' in prompt_config:
-                choices = prompt_config['choices']
+                # Custom choices with labels
+                choice_items = prompt_config['choices']
+                # Extract just the values for ask_choice
+                choice_values = [c['value'] for c in choice_items]
             else:
                 # Auto-generate choices from enum
-                choices = [{'name': str(v), 'value': v} for v in enum_values]
+                choice_values = [str(v) for v in enum_values]
 
-            return self.prompts.ask_select(
-                message=message,
-                choices=choices,
+            return self.prompts.ask_choice(
+                question=message,
+                choices=choice_values,
                 default=default_value
             )
 
@@ -236,8 +238,8 @@ class ConfigSchemaRenderer:
             while True:
                 try:
                     value = self.prompts.ask_text(
-                        message=message,
-                        default=default_value or placeholder
+                        prompt=message,
+                        default=default_value or placeholder or ""
                     )
 
                     # Check required
@@ -263,7 +265,7 @@ class ConfigSchemaRenderer:
         """Render a boolean field as yes/no confirmation."""
         default = default_value if default_value is not None else True
         return self.prompts.ask_confirm(
-            message=message,
+            prompt=message,
             default=default
         )
 
@@ -291,8 +293,8 @@ class ConfigSchemaRenderer:
 
         while True:
             value_str = self.prompts.ask_text(
-                message=message,
-                default=str(default_value) if default_value is not None else None
+                prompt=message,
+                default=str(default_value) if default_value is not None else ""
             )
 
             # Check required
@@ -337,8 +339,8 @@ class ConfigSchemaRenderer:
                 self.text.body(f"  {i}. {choice['name']}", style="dim")
 
             value_str = self.prompts.ask_text(
-                message="Enter numbers (e.g., 1,3,5):",
-                default=None
+                prompt="Enter numbers (e.g., 1,3,5):",
+                default=""
             )
 
             if not value_str:
@@ -354,9 +356,9 @@ class ConfigSchemaRenderer:
 
         # Free-form array (comma-separated)
         else:
-            default_str = ','.join(map(str, default_value)) if default_value else None
+            default_str = ','.join(map(str, default_value)) if default_value else ""
             value_str = self.prompts.ask_text(
-                message=f"{message} (comma-separated):",
+                prompt=f"{message} (comma-separated):",
                 default=default_str
             )
 
