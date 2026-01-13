@@ -9,9 +9,9 @@ from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 from textual.containers import Horizontal
+from textual.errors import NoMatches
 
 from .base import BaseScreen
-
 
 class WorkflowsScreen(BaseScreen):
     """
@@ -26,7 +26,34 @@ class WorkflowsScreen(BaseScreen):
     BINDINGS = [
         ("escape", "go_back", "Back"),
         ("q", "go_back", "Back"),
+        ("left", "focus_plugins", "Plugins"),
+        ("right", "focus_workflows", "Workflows"),
+        ("tab", "focus_next", "Next Panel"),
     ]
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.selected_plugin = "all"  # Track selected plugin filter (start with "all")
+        self._is_mounting = False  # Flag to prevent auto-update during mount
+        self._all_workflows = None  # Cache for discovered workflows
+        self._plugin_source_map = {}  # Map plugin names to their source identifiers
+
+    def on_mount(self) -> None:
+        """Initialize the screen with first options highlighted."""
+        self._is_mounting = True
+
+        try:
+            # Highlight first plugin option
+            plugin_list = self.query_one("#plugin-list", OptionList)
+            if len(plugin_list._options) > 0:
+                plugin_list.highlighted = 0
+
+            # Highlight first workflow option
+            workflow_list = self.query_one("#workflow-list", OptionList)
+            if len(workflow_list._options) > 0:
+                workflow_list.highlighted = 0
+        except (NoMatches, AttributeError):
+            pass
 
     CSS = """
     WorkflowsScreen {
@@ -35,7 +62,7 @@ class WorkflowsScreen(BaseScreen):
 
     #workflows-container {
         width: 100%;
-        height: auto;
+        height: 1fr;
         background: $surface-lighten-1;
     }
 
@@ -56,6 +83,15 @@ class WorkflowsScreen(BaseScreen):
         width: 20%;
         border: round $primary;
         border-title-align: center;
+        background: $surface-lighten-1;
+        padding: 0;
+    }
+
+    #left-panel OptionList {
+        height: 100%;
+        width: 100%;
+        padding: 1 0;
+        margin: 0;
     }
 
     #right-panel {
@@ -73,48 +109,145 @@ class WorkflowsScreen(BaseScreen):
         margin: 0;
     }
 
+    OptionList > .option-list--option {
+        padding: 1;
+    }
     """
 
     def compose_content(self) -> ComposeResult:
 
         self.config.load()
-        available_workflows = self.config.workflows.discover()
+        all_workflows = self.config.workflows.discover()
+
+        # Cache and remove duplicates
+        self._all_workflows = self._remove_duplicate_workflows(all_workflows)
 
         """Compose the workflows screen content."""
         with Container(id="workflows-container"):
             yield Static("⚡ Available Workflows", id="workflows-title")
 
-            if not available_workflows:
+            if not self._all_workflows:
                 yield Static("No workflows found.", id="no-workflows")
             else:
-                # Build workflow options
-                options = []
-                for wf_info in available_workflows:
-                    label = f"⚡ {wf_info.name}"
-                    description = f"({wf_info.source}) {wf_info.description}"
-                    options.append(
-                        Option(f"{label}\n  [dim]{description}[/dim]", id=wf_info.name)
-                    )
+                # Get unique plugin names and create mapping
+                plugin_names = set()
+                self._plugin_source_map = {}  # Map formatted name -> original sources
+
+                for wf_info in self._all_workflows:
+                    plugin_name = self._extract_plugin_name(wf_info.source)
+                    plugin_names.add(plugin_name)
+
+                    # Map plugin name to all its sources for filtering
+                    if plugin_name not in self._plugin_source_map:
+                        self._plugin_source_map[plugin_name] = set()
+                    self._plugin_source_map[plugin_name].add(wf_info.source)
+
+                # Build plugin filter options
+                plugin_options = [Option("📦 All Plugins", id="all")]
+                for plugin_name in sorted(plugin_names):
+                    plugin_options.append(Option(f"🔌 {plugin_name}", id=plugin_name))
+
+                # Build workflow options (initially show all)
+                workflow_options = self._build_workflow_options(self._all_workflows)
 
                 with Horizontal():
                     left_panel = Container(id="left-panel")
                     left_panel.border_title = "Plugins"
                     with left_panel:
-                        yield Static("Hola 1 - Left")
+                        yield OptionList(*plugin_options, id="plugin-list")
 
                     right_panel = Container(id="right-panel")
                     right_panel.border_title = "Workflows"
                     with right_panel:
-                        yield OptionList(*options)
+                        yield OptionList(*workflow_options, id="workflow-list")
+
+    def _extract_plugin_name(self, source: str) -> str:
+        """
+        Extract and format plugin name from source.
+
+        Examples:
+            "plugin:github" -> "Github"
+            "plugin:jira" -> "Jira"
+            "project" -> "Project"
+        """
+        if source.startswith("plugin:"):
+            # Extract plugin name after "plugin:"
+            plugin_name = source.split(":", 1)[1]
+        else:
+            plugin_name = source
+
+        # Capitalize first letter
+        return plugin_name.capitalize()
+
+    def _remove_duplicate_workflows(self, workflows):
+        """Remove duplicate workflows by name, keeping first occurrence."""
+        seen = set()
+        unique_workflows = []
+        for wf in workflows:
+            if wf.name not in seen:
+                seen.add(wf.name)
+                unique_workflows.append(wf)
+        return unique_workflows
+
+    def _build_workflow_options(self, workflows, selected_plugin=None):
+        """Build workflow options, optionally filtered by plugin."""
+        options = []
+
+        # Get valid sources for selected plugin
+        valid_sources = None
+        if selected_plugin and selected_plugin != "all":
+            valid_sources = self._plugin_source_map.get(selected_plugin, set())
+
+        for wf_info in workflows:
+            # Filter by plugin if selected
+            if valid_sources is not None and wf_info.source not in valid_sources:
+                continue
+
+            # Format source display
+            plugin_display = self._extract_plugin_name(wf_info.source)
+
+            label = f"⚡ {wf_info.name}"
+            description = f"({plugin_display}) {wf_info.description}"
+            options.append(
+                Option(f"{label}\n  [dim]{description}[/dim]", id=wf_info.name)
+            )
+
+        return options if options else [Option("No workflows found", id="none", disabled=True)]
+
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        """Handle plugin navigation - auto-filter when highlighting."""
+        # Ignore during mount to prevent duplicate updates
+        if self._is_mounting:
+            return
+
+        if event.option_list.id == "plugin-list":
+            # Only update if plugin actually changed to avoid duplicate updates
+            if self.selected_plugin != event.option.id:
+                self.selected_plugin = event.option.id
+                self._update_workflow_list()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        """Handle workflow selection."""
-        workflow_name = event.option.id
+        """Handle workflow selection (Enter key)."""
+        if event.option_list.id == "workflow-list":
+            # Workflow selected - execute it
+            workflow_name = event.option.id
+            if workflow_name != "none":  # Don't execute disabled placeholder
+                self.execute_workflow(workflow_name)
 
-        if workflow_name == "back":
-            self.action_go_back()
-        else:
-            self.execute_workflow(workflow_name)
+    def _update_workflow_list(self) -> None:
+        """Update the workflow list based on selected plugin filter."""
+        # Use cached workflows instead of discovering again
+        workflow_options = self._build_workflow_options(self._all_workflows, self.selected_plugin)
+
+        # Get the workflow list widget and replace its options
+        workflow_list = self.query_one("#workflow-list", OptionList)
+
+        # Clear and add in one operation
+        workflow_list.clear_options()
+        workflow_list.add_options(workflow_options)
+
+        # Force refresh to update display
+        workflow_list.refresh()
 
     def execute_workflow(self, workflow_name: str) -> None:
         """
@@ -130,3 +263,22 @@ class WorkflowsScreen(BaseScreen):
     def action_go_back(self) -> None:
         """Go back to main menu."""
         self.app.pop_screen()
+
+    def action_focus_plugins(self) -> None:
+        """Focus on the plugins panel."""
+        try:
+            plugin_list = self.query_one("#plugin-list", OptionList)
+            plugin_list.focus()
+        except NoMatches:
+            pass
+
+    def action_focus_workflows(self) -> None:
+        """Focus on the workflows panel."""
+        try:
+            workflow_list = self.query_one("#workflow-list", OptionList)
+            workflow_list.focus()
+            # Ensure first item is highlighted if nothing is selected
+            if workflow_list.highlighted is None and len(workflow_list._options) > 0:
+                workflow_list.highlighted = 0
+        except NoMatches:
+            pass
