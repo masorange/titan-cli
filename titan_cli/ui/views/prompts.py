@@ -14,6 +14,9 @@ import platform
 from typing import Optional, List, Callable
 from rich.console import Console
 from rich.prompt import Prompt, Confirm, IntPrompt
+
+from titan_cli.ui.components.table import TableRenderer
+from titan_cli.ui.views.status_bar import StatusBarRenderer
 from ..console import get_console
 from ..components.typography import TextRenderer
 from ...messages import msg  # Import messages
@@ -34,6 +37,8 @@ class PromptsRenderer:
         console: Optional[Console] = None,
         text_renderer: Optional[TextRenderer] = None,
         menu_renderer: Optional[MenuRenderer] = None,
+        status_bar_renderer: Optional[StatusBarRenderer] = None,
+        table_renderer: Optional[TableRenderer] = None,
     ):
         """
         Initializes the PromptsRenderer.

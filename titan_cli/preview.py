@@ -95,6 +95,29 @@ def preview_menu():
         typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
+@preview_app.command("statusbar")
+def preview_statusbar():
+    """
+    Shows a preview of the StatusBarWidget component.
+    """
+    try:
+        runpy.run_module("titan_cli.ui.tui.__previews__.statusbar_preview", run_name="__main__")
+    except ModuleNotFoundError:
+        typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
+@preview_app.command("main-menu")
+def preview_main_menu():
+    """
+    Shows a preview of the MainMenuScreen component.
+    """
+    try:
+        runpy.run_module("titan_cli.ui.tui.screens.__previews__.main_menu_preview", run_name="__main__")
+    except ModuleNotFoundError:
+        typer.secho("Error: Preview script not found.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
 
 @preview_app.command("workflow")
 def preview_workflow(name: str):

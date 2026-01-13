@@ -11,7 +11,7 @@ classifiers = []
 packages = [{include = "titan_cli"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10"
+python = ">=3.10,<4.0.0"
 typer = ">=0.20.0,<1.0.0"
 rich = ">=14.2.0,<15.0.0"
 tomli = ">=2.0.0,<3.0.0"
@@ -27,6 +27,7 @@ titan-plugin-git = {path = "plugins/titan-plugin-git", develop = true}
 titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}
 titan-plugin-jira = {path = "plugins/titan-plugin-jira", develop = true}
 pyyaml = "^6.0.3"
+textual = "^1.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
