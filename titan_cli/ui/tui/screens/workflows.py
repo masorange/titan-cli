@@ -215,13 +215,10 @@ class WorkflowsScreen(BaseScreen):
             workflows_to_show = workflows
 
         for wf_info in workflows_to_show:
-            # Format plugin display
-            plugin_display = self._get_plugin_name_from_workflow(wf_info)
-
-            label = f"⚡ {wf_info.name}"
-            description = f"({plugin_display}) {wf_info.description}"
+            label = f"{wf_info.name.capitalize()}"
+            description = f"{wf_info.description}"
             options.append(
-                Option(f"{label}\n  [dim]{description}[/dim]", id=wf_info.name)
+                Option(f"{label}\n[dim]{description}[/dim]", id=wf_info.name)
             )
 
         return options if options else [Option("No workflows found", id="none", disabled=True)]
