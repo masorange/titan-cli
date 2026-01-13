@@ -39,7 +39,7 @@ def install_plugin_from_marketplace(
     try:
         # Get current project path from config
         config = TitanConfig()
-        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+        plugins_path = config.active_project_path if config.active_project_path else config.project_root
 
         # Initialize downloader and validator with project-specific plugin directory
         downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
@@ -165,7 +165,7 @@ def uninstall_plugin_from_marketplace(name: str) -> None:
     try:
         # Get current project path from config
         config = TitanConfig()
-        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+        plugins_path = config.active_project_path if config.active_project_path else config.project_root
 
         # Initialize downloader with project-specific plugin directory
         downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
@@ -208,7 +208,7 @@ def discover_plugins() -> None:
     try:
         # Get current project path from config
         config = TitanConfig()
-        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+        plugins_path = config.active_project_path if config.active_project_path else config.project_root
 
         # Initialize downloader with project-specific plugin directory
         downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
@@ -346,7 +346,7 @@ def update_plugin(name: str, all_plugins: bool = False) -> None:
 
         # Get current project path from config
         config = TitanConfig()
-        plugins_path = config._active_project_path if config._active_project_path else config._project_root
+        plugins_path = config.active_project_path if config.active_project_path else config.project_root
 
         # Initialize downloader with project-specific plugin directory
         downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")

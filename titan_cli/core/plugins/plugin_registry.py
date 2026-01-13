@@ -76,8 +76,23 @@ class PluginRegistry:
 
             try:
                 # Load plugin metadata
-                with open(plugin_json) as f:
-                    metadata = json.load(f)
+                try:
+                    with open(plugin_json) as f:
+                        metadata = json.load(f)
+                except json.JSONDecodeError as e:
+                    error = PluginLoadError(
+                        plugin_name=plugin_dir.name,
+                        original_exception=f"Invalid JSON in plugin.json: {e}"
+                    )
+                    self._failed_plugins[plugin_dir.name] = error
+                    continue
+                except OSError as e:
+                    error = PluginLoadError(
+                        plugin_name=plugin_dir.name,
+                        original_exception=f"Cannot read plugin.json: {e}"
+                    )
+                    self._failed_plugins[plugin_dir.name] = error
+                    continue
 
                 plugin_name = metadata.get("name")
                 if not plugin_name:
