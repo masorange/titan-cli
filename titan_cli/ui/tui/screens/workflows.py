@@ -14,6 +14,7 @@ from textual.css.query import NoMatches
 
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.core.workflows.workflow_sources import WorkflowInfo
+from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
 from .base import BaseScreen
 
 class WorkflowsScreen(BaseScreen):
@@ -218,7 +219,6 @@ class WorkflowsScreen(BaseScreen):
         Args:
             workflow_name: Name of the workflow to execute
         """
-        from .workflow_execution import WorkflowExecutionScreen
 
         # Navigate to workflow execution screen
         execution_screen = WorkflowExecutionScreen(self.config, workflow_name)
