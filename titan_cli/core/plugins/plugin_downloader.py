@@ -176,7 +176,9 @@ class PluginDownloader:
 
             # Find plugin directory in extracted content
             # Structure: titan-cli-{branch}/{source_path}
-            repo_dir = extract_dir / f"titan-cli-{self.REGISTRY_BRANCH}"
+            # Note: GitHub replaces / with - in ZIP directory names
+            branch_in_zip = self.REGISTRY_BRANCH.replace("/", "-")
+            repo_dir = extract_dir / f"titan-cli-{branch_in_zip}"
             plugin_dir = repo_dir / source_path
 
             if not plugin_dir.exists():
