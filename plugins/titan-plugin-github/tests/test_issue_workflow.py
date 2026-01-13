@@ -35,7 +35,9 @@ def test_ai_suggest_issue_title_and_body(MockIssueGeneratorAgent, mock_secret_ma
         "body": "Test Body",
         "category": "feature",
         "labels": ["feature"],
-        "template_used": True
+        "template_used": True,
+        "tokens_used": 450,
+        "complexity": "moderate"
     }
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
     ctx.ai = MagicMock()
@@ -61,7 +63,9 @@ def test_ai_suggest_issue_title_and_body_bug_category(mock_secret_manager):
             "body": "Bug description",
             "category": "bug",
             "labels": ["bug"],
-            "template_used": True
+            "template_used": True,
+            "tokens_used": 380,
+            "complexity": "simple"
         }
         ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Something is broken"})
         ctx.ai = MagicMock()
@@ -84,7 +88,9 @@ def test_ai_suggest_issue_title_and_body_without_template(mock_secret_manager):
             "body": "Chore description",
             "category": "chore",
             "labels": ["chore", "maintenance"],
-            "template_used": False  # No template found
+            "template_used": False,  # No template found
+            "tokens_used": 320,
+            "complexity": "simple"
         }
         ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Update deps"})
         ctx.ai = MagicMock()

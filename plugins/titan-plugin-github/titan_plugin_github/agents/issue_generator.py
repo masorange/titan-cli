@@ -1,13 +1,30 @@
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 import re
+from dataclasses import dataclass
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest, AIGenerator
+
+
+@dataclass
+class IssueSizeEstimation:
+    """
+    Issue size estimation with token limits.
+
+    Attributes:
+        complexity: Size category (simple, moderate, complex, very_complex)
+        max_tokens: Maximum tokens for issue description generation
+        description_length: Length of user's description
+    """
+    complexity: str
+    max_tokens: int
+    description_length: int
 
 
 class IssueGeneratorAgent(BaseAIAgent):
     def __init__(self, ai_client: AIGenerator, template_dir: Optional[Path] = None):
         super().__init__(ai_client)
         self.template_dir = template_dir or Path(".github/ISSUE_TEMPLATE")
+        self.max_tokens = 8192  # Add token limit configuration
         self.categories = {
             "feature": {
                 "template": "feature.md",
@@ -76,6 +93,46 @@ Your task is to:
             templates[category] = template_content
         return templates
 
+    def _estimate_issue_complexity(self, description: str) -> IssueSizeEstimation:
+        """
+        Estimate issue complexity based on description length and content.
+
+        Args:
+            description: User's issue description
+
+        Returns:
+            IssueSizeEstimation with complexity and token limits
+        """
+        desc_length = len(description)
+        # Count newlines as indicator of detail
+        lines = description.count('\n') + 1
+        # Count code blocks as indicator of technical complexity
+        code_blocks = description.count('```')
+
+        # Determine complexity and set appropriate token limits
+        if desc_length < 200 and lines <= 3 and code_blocks == 0:
+            # Simple issue: brief request, quick fix
+            complexity = "simple"
+            max_tokens = 1500
+        elif desc_length < 500 and lines <= 10:
+            # Moderate issue: standard feature or bug with some detail
+            complexity = "moderate"
+            max_tokens = 2500
+        elif desc_length < 1000 and lines <= 25:
+            # Complex issue: detailed requirements, multiple aspects
+            complexity = "complex"
+            max_tokens = 4000
+        else:
+            # Very complex: comprehensive spec, architectural changes
+            complexity = "very_complex"
+            max_tokens = 6000
+
+        return IssueSizeEstimation(
+            complexity=complexity,
+            max_tokens=max_tokens,
+            description_length=desc_length
+        )
+
     def _parse_ai_response(self, content: str) -> Tuple[str, str, str]:
         """
         Parse AI response to extract category, title, and body.
@@ -107,8 +164,11 @@ Your task is to:
         Generate a complete issue with auto-categorization in a single AI call.
 
         Returns:
-            dict with keys: title, body, category, labels, template_used
+            dict with keys: title, body, category, labels, template_used, tokens_used, complexity
         """
+        # Estimate issue complexity to determine appropriate token allocation
+        estimation = self._estimate_issue_complexity(user_description)
+
         # Load all available templates
         all_templates = self._load_all_templates()
 
@@ -136,6 +196,11 @@ Instructions:
 - If a section doesn't apply, write "N/A" or a brief note
 - Preserve any code snippets exactly as provided in markdown code blocks
 - Use the correct conventional commit prefix for the title
+- Adjust detail level based on issue complexity ({estimation.complexity}):
+  * Simple: Brief, direct descriptions (1-2 sentences per section)
+  * Moderate: Standard detail (2-3 sentences per section)
+  * Complex: Comprehensive detail with examples
+  * Very Complex: Full context, edge cases, and implementation notes
 
 Output format (REQUIRED):
 CATEGORY: <category>
@@ -144,8 +209,11 @@ DESCRIPTION:
 <complete markdown-formatted description>
 """
 
-        # Single AI call for categorization + generation
-        request = AgentRequest(context=prompt)
+        # Single AI call for categorization + generation with appropriate token limit
+        request = AgentRequest(
+            context=prompt,
+            max_tokens=estimation.max_tokens
+        )
         response = self.generate(request)
 
         # Parse response using robust regex parsing
@@ -159,7 +227,9 @@ DESCRIPTION:
             "body": body,
             "category": category,
             "labels": category_info["labels"],
-            "template_used": template_used
+            "template_used": template_used,
+            "tokens_used": response.tokens_used,
+            "complexity": estimation.complexity
         }
 
     def _format_templates_for_prompt(self, templates: Dict[str, Optional[str]]) -> str:
