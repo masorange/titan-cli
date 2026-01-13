@@ -1,0 +1,27 @@
+{
+  "name": "jira",
+  "display_name": "JIRA Plugin",
+  "version": "1.0.0",
+  "description": "JIRA integration with AI-powered issue analysis",
+  "author": "MasMovil Titan Team",
+  "license": "MIT",
+  "min_titan_version": "1.0.0",
+  "entry_point": "titan_plugin_jira.plugin:JiraPlugin",
+  "category": "official",
+  "homepage": "https://github.com/masmovil/titan-plugins",
+  "repository": "https://github.com/masmovil/titan-plugins",
+  "dependencies": [],
+  "python_dependencies": [
+    "jira>=3.0.0",
+    "anthropic>=0.40.0"
+  ],
+  "keywords": ["jira", "issue-tracking", "project-management"],
+  "verified": true,
+  "features": [
+    "JIRA issue search and retrieval",
+    "AI-powered requirements analysis",
+    "Issue creation and updates",
+    "Workflow automation",
+    "Jinja2 template customization"
+  ]
+}

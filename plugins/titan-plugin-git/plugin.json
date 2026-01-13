@@ -1,0 +1,25 @@
+{
+  "name": "git",
+  "display_name": "Git Plugin",
+  "version": "1.0.0",
+  "description": "Git operations and repository management",
+  "author": "MasMovil Titan Team",
+  "license": "MIT",
+  "min_titan_version": "1.0.0",
+  "entry_point": "titan_plugin_git.plugin:GitPlugin",
+  "category": "official",
+  "homepage": "https://github.com/masmovil/titan-plugins",
+  "repository": "https://github.com/masmovil/titan-plugins",
+  "dependencies": [],
+  "python_dependencies": [
+    "gitpython>=3.1.0"
+  ],
+  "keywords": ["git", "vcs", "version-control"],
+  "verified": true,
+  "features": [
+    "Repository status checking",
+    "Branch management",
+    "Commit operations",
+    "Workflow steps integration"
+  ]
+}

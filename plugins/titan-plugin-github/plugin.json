@@ -1,0 +1,26 @@
+{
+  "name": "github",
+  "display_name": "GitHub Plugin",
+  "version": "1.0.0",
+  "description": "GitHub integration with PR management and AI-powered reviews",
+  "author": "MasMovil Titan Team",
+  "license": "MIT",
+  "min_titan_version": "1.0.0",
+  "entry_point": "titan_plugin_github.plugin:GitHubPlugin",
+  "category": "official",
+  "homepage": "https://github.com/masmovil/titan-plugins",
+  "repository": "https://github.com/masmovil/titan-plugins",
+  "dependencies": ["git"],
+  "python_dependencies": [
+    "PyGithub>=2.0.0"
+  ],
+  "keywords": ["github", "pr", "pull-request", "code-review"],
+  "verified": true,
+  "features": [
+    "Pull Request creation and management",
+    "AI-powered PR descriptions",
+    "Code review assistance",
+    "GitHub API integration",
+    "Workflow automation"
+  ]
+}
