@@ -719,13 +719,19 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                 text.error(f"An unexpected error occurred: {e}")
                 spacer.line()
 
+    def browse_marketplace_handler():
+        """Browse and install plugins from GitHub marketplace."""
+        from titan_cli.commands.plugins_marketplace import discover_plugins
+        discover_plugins()
+
     # --- Action Loop ---
     while True:
         # We rebuild the menu inside the loop to refresh the active project name
         submenu_builder = DynamicMenu(title="Plugin Management", emoji="🔌")
-        
+
         # Global Actions
         global_cat = submenu_builder.add_category("Global")
+        global_cat.add_item("Browse Plugin Marketplace", "Discover and install plugins from GitHub.", "marketplace")
         global_cat.add_item("Install a new Plugin", "Install a new plugin from a known list.", "install")
         global_cat.add_item("List Installed Plugins", "List all globally installed plugins.", "list")
 
@@ -742,6 +748,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
             break
 
         action_map = {
+            "marketplace": browse_marketplace_handler,
             "install": install_plugin_handler,
             "list": list_plugins_handler,
             "toggle": toggle_plugins_handler

@@ -25,7 +25,7 @@ class PluginDownloader:
 
     # GitHub repository configuration
     REGISTRY_REPO = "masmovil/titan-cli"
-    REGISTRY_BRANCH = "master"
+    REGISTRY_BRANCH = "feat/plugin-marketplace-system"  # TODO: Change to "master" after merge
     REGISTRY_URL = f"https://raw.githubusercontent.com/{REGISTRY_REPO}/{REGISTRY_BRANCH}/registry.json"
 
     # Local plugin directory
