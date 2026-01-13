@@ -33,7 +33,7 @@ def install_plugin_from_marketplace(
     text = TextRenderer()
     panel = PanelRenderer()
 
-    text.info(f"Installing plugin: {name}")
+    text.info(msg.Plugins.INSTALLING_PLUGIN.format(name=name))
     text.line()
 
     try:
@@ -46,7 +46,7 @@ def install_plugin_from_marketplace(
         validator = PluginValidator()
 
         # Fetch plugin info
-        text.body("Fetching plugin information from registry...")
+        text.body(msg.Plugins.INSTALL_FETCHING_INFO)
         plugin_info = downloader.get_plugin_info(name)
 
         # Display plugin info
@@ -59,7 +59,7 @@ def install_plugin_from_marketplace(
             ("Plugin: ", "bold"),
             (display_name, "cyan"),
             (" ", "default"),
-            ("⭐ Verified" if verified else "⚠️  Community", "green" if verified else "yellow")
+            (msg.Plugins.PLUGIN_VERIFIED if verified else msg.Plugins.PLUGIN_COMMUNITY, "green" if verified else "yellow")
         )
         text.body(description, style="dim")
         text.line()
@@ -67,31 +67,31 @@ def install_plugin_from_marketplace(
         # Check dependencies
         dependencies = plugin_info.get("dependencies", [])
         if dependencies:
-            text.body(f"Dependencies: {', '.join(dependencies)}", style="dim")
+            text.body(msg.Plugins.DEPENDENCIES_LABEL.format(dependencies=', '.join(dependencies)), style="dim")
 
             # Validate dependencies are installed
             installed = config.registry.list_installed()
             missing = [dep for dep in dependencies if dep not in installed]
 
             if missing:
-                text.error(f"Missing dependencies: {', '.join(missing)}")
-                text.body("Please install dependencies first:")
+                text.error(msg.Plugins.DEPENDENCIES_MISSING.format(missing=', '.join(missing)))
+                text.body(msg.Plugins.DEPENDENCIES_INSTALL_FIRST)
                 for dep in missing:
-                    text.body(f"  titan plugins install {dep}")
+                    text.body(msg.Plugins.DEPENDENCY_INSTALL_CMD.format(dep=dep))
                 raise typer.Exit(1)
 
         # Download and install
-        text.body("Downloading plugin from GitHub...")
+        text.body(msg.Plugins.INSTALL_DOWNLOADING)
         install_path = downloader.install_plugin(name, version, force)
 
         # Validate plugin
-        text.body("Validating plugin...")
+        text.body(msg.Plugins.INSTALL_VALIDATING)
         metadata = validator.validate_plugin(install_path)
 
         # Configure plugin if schema is present
         if 'configSchema' in metadata:
             text.line()
-            text.info("📝 Plugin requires configuration")
+            text.info(msg.Plugins.CONFIG_REQUIRED)
             text.line()
 
             try:
@@ -105,47 +105,47 @@ def install_plugin_from_marketplace(
                 if plugin_config:
                     config.set_plugin_config(name, plugin_config)
                     text.line()
-                    text.success("Configuration saved successfully!")
+                    text.success(msg.Plugins.CONFIG_SUCCESS)
 
             except KeyboardInterrupt:
                 text.line()
-                text.warning("Configuration skipped - you can configure later with:")
-                text.body(f"  titan plugins configure {name}", style="dim")
+                text.warning(msg.Plugins.CONFIG_SKIPPED)
+                text.body(msg.Plugins.CONFIG_CMD_HINT.format(name=name), style="dim")
             except Exception as e:
                 text.line()
-                text.error(f"Configuration error: {e}")
-                text.warning("Plugin installed but not configured")
-                text.body(f"  titan plugins configure {name}", style="dim")
+                text.error(msg.Plugins.CONFIG_ERROR.format(error=e))
+                text.warning(msg.Plugins.CONFIG_INSTALL_BUT_NOT_CONFIGURED)
+                text.body(msg.Plugins.CONFIG_CMD_HINT.format(name=name), style="dim")
 
         # Success
         text.line()
-        text.success(f"✅ Plugin '{display_name}' installed successfully!")
-        text.body(f"Location: {install_path}", style="dim")
+        text.success(msg.Plugins.INSTALL_SUCCESS.format(display_name=display_name))
+        text.body(msg.Plugins.INSTALL_LOCATION.format(path=install_path), style="dim")
         text.line()
-        text.body("Plugin will be loaded on next 'titan' command")
+        text.body(msg.Plugins.INSTALL_NEXT_LOAD)
 
     except PluginDownloadError as e:
         text.line()
-        text.error(f"❌ Download failed: {e}")
-        panel.print(str(e), panel_type="error", title="Download Error")
+        text.error(msg.Plugins.DOWNLOAD_FAILED.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_DOWNLOAD)
         raise typer.Exit(1)
 
     except PluginInstallError as e:
         text.line()
-        text.error(f"❌ Installation failed: {e}")
-        panel.print(str(e), panel_type="error", title="Installation Error")
+        text.error(msg.Plugins.INSTALL_FAILED.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_INSTALL)
         raise typer.Exit(1)
 
     except PluginValidationError as e:
         text.line()
-        text.error(f"❌ Validation failed: {e}")
-        panel.print(str(e), panel_type="error", title="Validation Error")
+        text.error(msg.Plugins.VALIDATION_FAILED.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_VALIDATION)
         raise typer.Exit(1)
 
     except Exception as e:
         text.line()
-        text.error(f"❌ Unexpected error: {e}")
-        panel.print(str(e), panel_type="error", title="Error")
+        text.error(msg.Plugins.UNEXPECTED_ERROR.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_GENERIC)
         raise typer.Exit(1)
 
 
@@ -159,7 +159,7 @@ def uninstall_plugin_from_marketplace(name: str) -> None:
     text = TextRenderer()
     panel = PanelRenderer()
 
-    text.info(f"Uninstalling plugin: {name}")
+    text.info(msg.Plugins.UNINSTALLING_PLUGIN.format(name=name))
     text.line()
 
     try:
@@ -173,26 +173,26 @@ def uninstall_plugin_from_marketplace(name: str) -> None:
         # Check if installed
         installed = downloader.list_installed()
         if name not in installed:
-            text.warning(f"Plugin '{name}' is not installed")
+            text.warning(msg.Plugins.UNINSTALL_NOT_INSTALLED.format(name=name))
             raise typer.Exit(1)
 
         # Uninstall
         downloader.uninstall_plugin(name)
 
         # Success
-        text.success(f"✅ Plugin '{name}' uninstalled successfully!")
-        text.body("Plugin will be removed on next 'titan' command")
+        text.success(msg.Plugins.UNINSTALL_SUCCESS.format(name=name))
+        text.body(msg.Plugins.UNINSTALL_NEXT_LOAD)
 
     except PluginInstallError as e:
         text.line()
-        text.error(f"❌ Uninstallation failed: {e}")
-        panel.print(str(e), panel_type="error", title="Uninstall Error")
+        text.error(msg.Plugins.UNINSTALL_FAILED.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_UNINSTALL)
         raise typer.Exit(1)
 
     except Exception as e:
         text.line()
-        text.error(f"❌ Unexpected error: {e}")
-        panel.print(str(e), panel_type="error", title="Error")
+        text.error(msg.Plugins.UNEXPECTED_ERROR.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_GENERIC)
         raise typer.Exit(1)
 
 
@@ -202,7 +202,7 @@ def discover_plugins() -> None:
     panel = PanelRenderer()
     prompts = PromptsRenderer()
 
-    text.title("📦 Titan Plugin Marketplace")
+    text.title(msg.Plugins.MARKETPLACE_TITLE)
     text.line()
 
     try:
@@ -214,11 +214,11 @@ def discover_plugins() -> None:
         downloader = PluginDownloader(plugins_dir=plugins_path / ".titan" / "plugins")
 
         # Fetch registry
-        text.body("Fetching plugin registry from GitHub...", style="dim")
+        text.body(msg.Plugins.MARKETPLACE_FETCHING_REGISTRY, style="dim")
         registry = downloader.fetch_registry()
 
         if "plugins" not in registry:
-            text.error("Invalid registry format")
+            text.error(msg.Plugins.MARKETPLACE_INVALID_REGISTRY)
             raise typer.Exit(1)
 
         plugins = registry["plugins"]
@@ -238,7 +238,7 @@ def discover_plugins() -> None:
             verified = info.get("verified", False)
 
             # Build label with status indicators
-            status_badge = "✅ Installed" if is_installed else ""
+            status_badge = msg.Plugins.PLUGIN_ALREADY_INSTALLED if is_installed else ""
             verified_badge = "⭐" if verified else ""
 
             label = f"{display_name} (v{version})"
@@ -278,13 +278,13 @@ def discover_plugins() -> None:
             )
 
         if not categories:
-            text.warning("No plugins available in marketplace")
+            text.warning(msg.Plugins.MARKETPLACE_NO_PLUGINS)
             return
 
         # Show interactive menu
         text.line()
         menu = Menu(
-            title="Select a plugin to install (or 'q' to quit)",
+            title=msg.Plugins.MARKETPLACE_SELECT_PROMPT,
             emoji="📦",
             categories=categories
         )
@@ -293,7 +293,7 @@ def discover_plugins() -> None:
 
         if not selected:
             text.line()
-            text.body("Marketplace closed", style="dim")
+            text.body(msg.Plugins.MARKETPLACE_CLOSED, style="dim")
             return
 
         # Install selected plugin
@@ -302,8 +302,8 @@ def discover_plugins() -> None:
 
         # Check if already installed
         if plugin_name in installed:
-            text.warning(f"Plugin '{plugin_name}' is already installed")
-            if prompts.ask_confirm("Reinstall?"):
+            text.warning(msg.Plugins.REINSTALL_ALREADY_INSTALLED.format(name=plugin_name))
+            if prompts.ask_confirm(msg.Plugins.REINSTALL_CONFIRM):
                 install_plugin_from_marketplace(plugin_name, force=True)
             return
 
@@ -312,22 +312,22 @@ def discover_plugins() -> None:
 
         # Ask about configuration
         text.line()
-        if prompts.ask_confirm("Configure plugin now?"):
-            text.info("Opening plugin configuration...")
+        if prompts.ask_confirm(msg.Plugins.MARKETPLACE_CONFIGURE_NOW):
+            text.info(msg.Plugins.MARKETPLACE_OPENING_CONFIG)
             # TODO: Trigger configuration wizard
             # For now, just show hint
-            text.body("Run: titan config edit", style="dim")
+            text.body(msg.Plugins.MARKETPLACE_CONFIG_HINT, style="dim")
 
     except PluginDownloadError as e:
         text.line()
-        text.error(f"❌ Failed to fetch marketplace: {e}")
-        panel.print(str(e), panel_type="error", title="Marketplace Error")
+        text.error(msg.Plugins.MARKETPLACE_FETCH_ERROR.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_DOWNLOAD)
         raise typer.Exit(1)
 
     except Exception as e:
         text.line()
-        text.error(f"❌ Unexpected error: {e}")
-        panel.print(str(e), panel_type="error", title="Error")
+        text.error(msg.Plugins.UNEXPECTED_ERROR.format(error=e))
+        panel.print(str(e), panel_type="error", title=msg.Plugins.ERROR_GENERIC)
         raise typer.Exit(1)
 
 
@@ -342,7 +342,7 @@ def update_plugin(name: str, all_plugins: bool = False) -> None:
     text = TextRenderer()
 
     if all_plugins:
-        text.info("Updating all installed plugins...")
+        text.info(msg.Plugins.UPDATING_ALL_PLUGINS)
 
         # Get current project path from config
         config = TitanConfig()
@@ -353,14 +353,14 @@ def update_plugin(name: str, all_plugins: bool = False) -> None:
         installed = downloader.list_installed()
 
         if not installed:
-            text.warning("No plugins installed")
+            text.warning(msg.Plugins.UPDATE_NO_PLUGINS)
             return
 
         for plugin_name in installed:
             text.line()
-            text.body(f"Updating {plugin_name}...")
+            text.body(msg.Plugins.UPDATE_CHECKING.format(name=plugin_name))
             install_plugin_from_marketplace(plugin_name, force=True)
 
     else:
-        text.info(f"Updating plugin: {name}")
+        text.info(msg.Plugins.UPDATING_PLUGIN.format(name=name))
         install_plugin_from_marketplace(name, force=True)

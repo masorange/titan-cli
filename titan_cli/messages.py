@@ -403,6 +403,79 @@ class Messages:
         CONFIGURE_TITLE = "Configuring {name}..."
         CONFIGURE_SOON = "Feature coming soon!"
 
+        # Marketplace
+        MARKETPLACE_TITLE = "📦 Titan Plugin Marketplace"
+        MARKETPLACE_FETCHING_REGISTRY = "Fetching plugin registry from GitHub..."
+        MARKETPLACE_INVALID_REGISTRY = "Invalid registry format"
+        MARKETPLACE_NO_PLUGINS = "No plugins available in marketplace"
+        MARKETPLACE_CLOSED = "Marketplace closed"
+
+        # Installation
+        INSTALLING_PLUGIN = "Installing plugin: {name}"
+        INSTALL_SUCCESS = "✅ Plugin '{display_name}' installed successfully!"
+        INSTALL_LOCATION = "Location: {path}"
+        INSTALL_NEXT_LOAD = "Plugin will be loaded on next 'titan' command"
+        INSTALL_FETCHING_INFO = "Fetching plugin information from registry..."
+        INSTALL_DOWNLOADING = "Downloading plugin from GitHub..."
+        INSTALL_VALIDATING = "Validating plugin..."
+
+        # Plugin info display
+        PLUGIN_VERIFIED = "⭐ Verified"
+        PLUGIN_COMMUNITY = "⚠️  Community"
+        PLUGIN_ALREADY_INSTALLED = "✅ Installed"
+
+        # Dependencies
+        DEPENDENCIES_LABEL = "Dependencies: {dependencies}"
+        DEPENDENCIES_MISSING = "Missing dependencies: {missing}"
+        DEPENDENCIES_INSTALL_FIRST = "Please install dependencies first:"
+        DEPENDENCY_INSTALL_CMD = "  titan plugins install {dep}"
+
+        # Configuration
+        CONFIG_REQUIRED = "📝 Plugin requires configuration"
+        CONFIG_SUCCESS = "Configuration saved successfully!"
+        CONFIG_SKIPPED = "Configuration skipped - you can configure later with:"
+        CONFIG_CMD_HINT = "  titan plugins configure {name}"
+        CONFIG_ERROR = "Configuration error: {error}"
+        CONFIG_INSTALL_BUT_NOT_CONFIGURED = "Plugin installed but not configured"
+        CONFIG_CANCELLED = "⚠️  Configuration cancelled by user"
+
+        # Uninstallation
+        UNINSTALLING_PLUGIN = "Uninstalling plugin: {name}"
+        UNINSTALL_SUCCESS = "✅ Plugin '{name}' uninstalled successfully!"
+        UNINSTALL_NEXT_LOAD = "Plugin will be removed on next 'titan' command"
+        UNINSTALL_NOT_INSTALLED = "Plugin '{name}' is not installed"
+
+        # Updates
+        UPDATING_PLUGIN = "Updating plugin: {name}"
+        UPDATING_ALL_PLUGINS = "Updating all installed plugins..."
+        UPDATE_NO_PLUGINS = "No plugins installed"
+        UPDATE_CHECKING = "Updating {name}..."
+
+        # Reinstall
+        REINSTALL_CONFIRM = "Reinstall?"
+        REINSTALL_ALREADY_INSTALLED = "Plugin '{name}' is already installed"
+
+        # Marketplace prompts
+        MARKETPLACE_SELECT_PROMPT = "Select a plugin to install (or 'q' to quit)"
+        MARKETPLACE_CONFIGURE_NOW = "Configure plugin now?"
+        MARKETPLACE_OPENING_CONFIG = "Opening plugin configuration..."
+        MARKETPLACE_CONFIG_HINT = "Run: titan config edit"
+        MARKETPLACE_FETCH_ERROR = "❌ Failed to fetch marketplace: {error}"
+
+        # Errors
+        DOWNLOAD_FAILED = "❌ Download failed: {error}"
+        INSTALL_FAILED = "❌ Installation failed: {error}"
+        VALIDATION_FAILED = "❌ Validation failed: {error}"
+        UNINSTALL_FAILED = "❌ Uninstallation failed: {error}"
+        UNEXPECTED_ERROR = "❌ Unexpected error: {error}"
+
+        # Error panel titles
+        ERROR_DOWNLOAD = "Download Error"
+        ERROR_INSTALL = "Installation Error"
+        ERROR_VALIDATION = "Validation Error"
+        ERROR_UNINSTALL = "Uninstall Error"
+        ERROR_GENERIC = "Error"
+
 
 
 
