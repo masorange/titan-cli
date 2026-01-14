@@ -437,7 +437,10 @@ class WorkflowExecutionContent(Widget):
         """Auto-scroll when any widget is mounted as a descendant."""
         # Don't auto-scroll if we're mounting a PromptInput (it will handle its own scroll)
         from titan_cli.ui.tui.textual_components import PromptInput
-        if not isinstance(event.widget, PromptInput) and not isinstance(event.widget.parent, PromptInput):
+
+        # Skip scroll only if the widget itself is a PromptInput
+        # (not if it's a child of PromptInput, to avoid blocking scroll after PromptInput is removed)
+        if not isinstance(event.widget, PromptInput):
             self._scroll_to_end()
 
     def handle_event(self, message) -> None:
@@ -458,6 +461,7 @@ class WorkflowExecutionContent(Widget):
             # Mount error panel
             try:
                 self.mount(Panel(f"Failed: {message.step_name} - {message.error_message}", panel_type="error"))
+                self._scroll_to_end()
             except Exception:
                 pass
 
@@ -470,6 +474,7 @@ class WorkflowExecutionContent(Widget):
             # Mount warning panel for skipped steps
             try:
                 self.mount(Panel(f"Skipped: {message.step_name}", panel_type="warning"))
+                self._scroll_to_end()
             except Exception:
                 pass
 
