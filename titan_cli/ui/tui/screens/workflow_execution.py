@@ -4,11 +4,11 @@ Workflow Execution Screen
 Screen for executing workflows and displaying progress in real-time.
 """
 import os
-from typing import Optional, Dict
+from typing import Any, List, Optional, Dict
 
 from textual.app import ComposeResult
 from textual.widgets import Static
-from textual.containers import Container, Vertical, ScrollableContainer, VerticalScroll
+from textual.containers import Container, ScrollableContainer, VerticalScroll
 from textual.worker import Worker, WorkerState
 
 from titan_cli.ui.tui.widgets import HeaderWidget
@@ -26,6 +26,7 @@ from titan_cli.ui.tui.widgets.text import DimText
 from .base import BaseScreen
 
 from textual.containers import Horizontal
+from textual.widget import Widget
 
 class WorkflowExecutionScreen(BaseScreen):
     """
@@ -67,6 +68,10 @@ class WorkflowExecutionScreen(BaseScreen):
         padding: 0;
     }
 
+    #steps-content {
+        padding: 1;
+    }
+
     #workflow-execution-panel {
         width: 80%;
         height: 100%;
@@ -76,33 +81,6 @@ class WorkflowExecutionScreen(BaseScreen):
         padding: 0;
     }
 
-    #steps-scroll {
-        width: 100%;
-        max-height: 10;
-        min-height: 5;
-        border: round $primary;
-        border-title-align: center;
-        margin-bottom: 1;
-    }
-
-    #steps-container {
-        width: 100%;
-        height: auto;
-        padding: 1 0 1 0;
-    }
-
-    .step-widget {
-        width: 100%;
-        height: auto;
-        padding: 0 1;
-    }
-
-    #output-scroll {
-        width: 100%;
-        height: 1fr;
-        border: round $primary;
-        border-title-align: center;
-    }
 
     #output-text {
         width: 100%;
@@ -122,7 +100,6 @@ class WorkflowExecutionScreen(BaseScreen):
         self.workflow: Optional[ParsedWorkflow] = None
         self._worker: Optional[Worker] = None
         self._original_cwd = os.getcwd()
-        self._step_widgets: Dict[str, Static] = {}  # Map step_id to widget
         self._output_lines = []
 
     def compose_content(self) -> ComposeResult:
@@ -133,7 +110,7 @@ class WorkflowExecutionScreen(BaseScreen):
                     left_panel = VerticalScroll(id="steps-panel")
                     left_panel.border_title = "Steps"
                     with left_panel:
-                        yield Vertical(id="steps-container")
+                        yield StepsContent(id="steps-content")
 
                     right_panel = VerticalScroll(id="workflow-execution-panel")
                     right_panel.border_title = "Workflow Execution"
@@ -160,20 +137,8 @@ class WorkflowExecutionScreen(BaseScreen):
             self._update_description(self.workflow.description or "")
 
             # Create step widgets for non-hook steps
-            steps_container = self.query_one("#steps-container", Vertical)
-            for idx, step_data in enumerate(self.workflow.steps):
-                if step_data.get("hook"):
-                    continue
-
-                step_id = step_data.get("id") or f"step_{idx}"
-                step_name = step_data.get("name") or step_id
-
-                step_widget = Static(
-                    f"{Icons.PENDING} {step_name}",
-                    classes="step-widget"
-                )
-                self._step_widgets[step_id] = step_widget
-                steps_container.mount(step_widget)
+            steps_widget = self.query_one("#steps-content", StepsContent)
+            steps_widget.set_steps(self.workflow.steps)
 
             self._append_output("Preparing to execute workflow...")
 
@@ -273,8 +238,11 @@ class WorkflowExecutionScreen(BaseScreen):
 
     def _update_step_widget(self, step_id: str, text: str) -> None:
         """Update a step widget's display."""
-        if step_id in self._step_widgets:
-            self._step_widgets[step_id].update(text)
+        try:
+            steps_widget = self.query_one("#steps-content", StepsContent)
+            steps_widget.update_step(step_id, text)
+        except Exception:
+            pass
 
     def _append_output(self, text: str) -> None:
         """Append text to the output panel."""
@@ -355,3 +323,62 @@ class WorkflowExecutionScreen(BaseScreen):
         os.chdir(self._original_cwd)
 
         self.app.pop_screen()
+
+class StepsContent(Widget):
+    """Widget to display workflow steps and their statuses."""
+
+    DEFAULT_CSS = """
+    StepsContent {
+        width: 100%;
+        height: auto;
+        layout: vertical;
+    }
+
+    .step-widget {
+        width: 100%;
+        height: auto;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.steps: List[Dict[str, Any]] = []
+        self._step_widgets: Dict[str, Static] = {}
+
+    def set_steps(self, steps: List[Dict[str, Any]]) -> None:
+        """Set the steps to display."""
+        self.steps = steps
+
+        for idx, step_data in enumerate(steps):
+            if step_data.get("hook"):
+                continue
+
+            step_id = step_data.get("id") or f"step_{idx}"
+            step_name = step_data.get("name") or step_id
+
+            step_widget = Static(f"{Icons.PENDING} {step_name}", classes="step-widget")
+            self._step_widgets[step_id] = step_widget
+            self.mount(step_widget)
+
+    def update_step(self, step_id: str, text: str) -> None:
+        """Update a specific step's display."""
+        if step_id in self._step_widgets:
+            self._step_widgets[step_id].update(text)
+
+    def set_step_running(self, step_id: str, step_name: str) -> None:
+        """Mark a step as running."""
+        self.update_step(step_id, f"{Icons.RUNNING} [cyan]{step_name}[/cyan]")
+
+    def set_step_success(self, step_id: str, step_name: str) -> None:
+        """Mark a step as successful."""
+        self.update_step(step_id, f"{Icons.SUCCESS} [green]{step_name}[/green]")
+
+    def set_step_failed(self, step_id: str, step_name: str) -> None:
+        """Mark a step as failed."""
+        self.update_step(step_id, f"{Icons.ERROR} [red]{step_name}[/red]")
+
+    def set_step_skipped(self, step_id: str, step_name: str) -> None:
+        """Mark a step as skipped."""
+        self.update_step(step_id, f"{Icons.SKIPPED} [yellow]{step_name}[/yellow]")
+
