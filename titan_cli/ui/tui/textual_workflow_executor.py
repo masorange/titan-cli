@@ -279,6 +279,11 @@ class TextualWorkflowExecutor:
         # Check if this is a nested workflow (called from another workflow)
         is_nested = len(ctx._workflow_stack) > 0
 
+        # DEBUG: Log completion
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] Workflow '{workflow.name}' completed. is_nested={is_nested}, stack={ctx._workflow_stack}\n")
+
         # Emit workflow completed event
         self._post_message(
             self.WorkflowCompleted(
@@ -287,6 +292,9 @@ class TextualWorkflowExecutor:
                 is_nested=is_nested
             )
         )
+
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] WorkflowCompleted message posted\n")
 
         return Success(f"Workflow '{workflow.name}' finished.", {})
 

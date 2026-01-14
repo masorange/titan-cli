@@ -479,11 +479,40 @@ class WorkflowExecutionContent(Widget):
                 pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowCompleted):
+            # DEBUG: Log receipt
+            import time
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] SCREEN: Received WorkflowCompleted, is_nested={message.is_nested}\n")
+
             # Show success toast instead of inline message
-            self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
+            try:
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"[{time.time():.3f}] SCREEN: About to call notify\n")
+                self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"[{time.time():.3f}] SCREEN: notify called successfully\n")
+            except Exception as e:
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"[{time.time():.3f}] SCREEN: notify failed: {e}\n")
+                # Fallback if notify fails
+                self.append_output(f"\n[bold green]✨ Workflow completed: {message.workflow_name}[/bold green]")
+
             # Auto return to previous screen after a short delay (only if not nested)
             if not message.is_nested:
-                self.set_timer(3.0, self.app.pop_screen)
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"[{time.time():.3f}] SCREEN: Setting timer for auto-back\n")
+                try:
+                    self.set_timer(3.0, self.app.pop_screen)
+                    with open("/tmp/titan_debug.log", "a") as f:
+                        f.write(f"[{time.time():.3f}] SCREEN: Timer set successfully\n")
+                except Exception as e:
+                    with open("/tmp/titan_debug.log", "a") as f:
+                        f.write(f"[{time.time():.3f}] SCREEN: Timer failed: {e}, popping immediately\n")
+                    # If timer fails, pop immediately
+                    self.app.pop_screen()
+            else:
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"[{time.time():.3f}] SCREEN: Workflow is nested, skipping auto-back\n")
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
             # Show error toast for workflow failure
