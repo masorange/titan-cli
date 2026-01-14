@@ -20,9 +20,17 @@ class Table(Widget):
         margin: 0 0 1 0;
     }
 
+    Table.compact {
+        width: auto;
+    }
+
     Table > DataTable {
         width: 100%;
         height: auto;
+    }
+
+    Table.compact > DataTable {
+        width: auto;
     }
     """
 
@@ -31,6 +39,7 @@ class Table(Widget):
         headers: List[str],
         rows: List[List[str]],
         title: str = "",
+        full_width: bool = True,
         **kwargs
     ):
         """
@@ -40,11 +49,16 @@ class Table(Widget):
             headers: List of column headers
             rows: List of rows (each row is a list of cell values)
             title: Optional title for the table
+            full_width: If False, table uses auto width (compact mode)
         """
         super().__init__(**kwargs)
         self.headers = headers
         self.rows = rows
         self.title_text = title
+
+        # Add compact class if not full width
+        if not full_width:
+            self.add_class("compact")
 
     def compose(self) -> ComposeResult:
         """Compose the table."""

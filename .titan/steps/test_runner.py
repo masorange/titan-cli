@@ -73,7 +73,8 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
                     ["Failed", f"{Icons.ERROR} {failed_count}"],
                     ["Duration", duration]
                 ],
-                title="Test Results Summary"
+                title="Test Results Summary",
+                full_width=False  # Compact table for summary
             )
         )
         ctx.textual.text("")  # spacing
