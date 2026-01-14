@@ -3,8 +3,7 @@ Tests for ConfigSchemaRenderer - Dynamic plugin configuration.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
+from unittest.mock import patch
 
 from titan_cli.core.plugins.config_schema_renderer import ConfigSchemaRenderer
 
@@ -404,7 +403,7 @@ class TestConfigSchemaRenderer:
 
         renderer.prompts.ask_text.return_value = 'value'
 
-        result = renderer._render_field('field', schema, None)
+        renderer._render_field('field', schema, None)
 
         # Check help text was displayed
         renderer.text.body.assert_any_call(

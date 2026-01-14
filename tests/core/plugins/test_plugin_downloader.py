@@ -4,7 +4,7 @@ Tests for PluginDownloader module.
 
 import json
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pytest
 
 from titan_cli.core.plugins.plugin_downloader import PluginDownloader

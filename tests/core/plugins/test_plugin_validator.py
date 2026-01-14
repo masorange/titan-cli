@@ -3,7 +3,6 @@ Tests for PluginValidator module.
 """
 
 import json
-from pathlib import Path
 import pytest
 
 from titan_cli.core.plugins.plugin_validator import PluginValidator
