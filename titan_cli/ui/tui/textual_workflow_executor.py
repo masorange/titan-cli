@@ -122,6 +122,23 @@ class TextualWorkflowExecutor:
         if self._message_target and hasattr(self._message_target, 'post_message'):
             self._message_target.post_message(message)
 
+    def _post_message_sync(self, message: Message) -> None:
+        """Post a message synchronously (blocks until processed)."""
+        if self._message_target and hasattr(self._message_target, 'post_message'):
+            def _post():
+                self._message_target.post_message(message)
+
+            # Use call_from_thread to block until message is posted
+            if hasattr(self._message_target, 'app'):
+                try:
+                    self._message_target.app.call_from_thread(_post)
+                except Exception:
+                    # App is closing or worker was cancelled, fail silently
+                    pass
+            else:
+                # Fallback to async post if no app available
+                self._message_target.post_message(message)
+
     def execute(
         self,
         workflow: ParsedWorkflow,
@@ -139,6 +156,9 @@ class TextualWorkflowExecutor:
         Returns:
             WorkflowResult indicating success or failure
         """
+        # Clear debug log at start of workflow
+        open("/tmp/titan_debug.log", "w").close()
+
         # Inject Textual components into context if message_target is available
         if self._message_target and hasattr(self._message_target, 'app'):
             try:
@@ -192,13 +212,18 @@ class TextualWorkflowExecutor:
                 step_name = step_config.name or step_id
 
                 # Emit step started event
-                self._post_message(
+                import time
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"\n[{time.time():.3f}] ====== Starting step '{step_name}' ======\n")
+                self._post_message_sync(
                     self.StepStarted(
                         step_index=step_index,
                         step_id=step_id,
                         step_name=step_name
                     )
                 )
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"[{time.time():.3f}] StepStarted message posted for '{step_name}'\n")
 
                 try:
                     if step_config.workflow:
@@ -214,7 +239,7 @@ class TextualWorkflowExecutor:
 
                 # Handle step result
                 if is_error(step_result):
-                    self._post_message(
+                    self._post_message_sync(
                         self.StepFailed(
                             step_index=step_index,
                             step_id=step_id,
@@ -225,7 +250,7 @@ class TextualWorkflowExecutor:
                     )
 
                     if step_config.on_error == "fail":
-                        self._post_message(
+                        self._post_message_sync(
                             self.WorkflowFailed(
                                 workflow_name=workflow.name,
                                 step_name=step_name,
@@ -235,7 +260,7 @@ class TextualWorkflowExecutor:
                         return Error(f"Workflow failed at step '{step_name}'", step_result.exception)
                     # else: on_error == "continue" - continue to next step
                 elif is_skip(step_result):
-                    self._post_message(
+                    self._post_message_sync(
                         self.StepSkipped(
                             step_index=step_index,
                             step_id=step_id,
@@ -245,13 +270,18 @@ class TextualWorkflowExecutor:
                     if step_result.metadata:
                         ctx.data.update(step_result.metadata)
                 else:  # Success
-                    self._post_message(
+                    import time
+                    with open("/tmp/titan_debug.log", "a") as f:
+                        f.write(f"[{time.time():.3f}] Step '{step_name}' completed, posting StepCompleted message\n")
+                    self._post_message_sync(
                         self.StepCompleted(
                             step_index=step_index,
                             step_id=step_id,
                             step_name=step_name
                         )
                     )
+                    with open("/tmp/titan_debug.log", "a") as f:
+                        f.write(f"[{time.time():.3f}] StepCompleted message posted for '{step_name}'\n")
                     if step_result.metadata:
                         ctx.data.update(step_result.metadata)
 

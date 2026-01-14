@@ -246,12 +246,18 @@ class WorkflowExecutionScreen(BaseScreen):
         self, message: TextualWorkflowExecutor.StepStarted
     ) -> None:
         """Handle step started event."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] SCREEN: Processing StepStarted for '{message.step_name}'\n")
         self._handle_workflow_event(message)
 
     def on_textual_workflow_executor_step_completed(
         self, message: TextualWorkflowExecutor.StepCompleted
     ) -> None:
         """Handle step completed event."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] SCREEN: Processing StepCompleted for '{message.step_name}'\n")
         self._handle_workflow_event(message)
 
     def on_textual_workflow_executor_step_failed(
@@ -264,6 +270,9 @@ class WorkflowExecutionScreen(BaseScreen):
         self, message: TextualWorkflowExecutor.StepSkipped
     ) -> None:
         """Handle step skipped event."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] SCREEN: Processing StepSkipped for '{message.step_name}'\n")
         self._handle_workflow_event(message)
 
     def on_textual_workflow_executor_workflow_completed(
@@ -296,11 +305,20 @@ class WorkflowExecutionScreen(BaseScreen):
         """Cancel workflow execution and go back."""
         # Cancel worker if running
         if self._worker and self._worker.state == WorkerState.RUNNING:
-            self._worker.cancel()
+            # Try to cancel, but don't wait for it to finish
+            # The worker thread may be blocked, so we just move on
+            try:
+                self._worker.cancel()
+            except Exception:
+                pass
 
         # Restore working directory
-        os.chdir(self._original_cwd)
+        try:
+            os.chdir(self._original_cwd)
+        except Exception:
+            pass
 
+        # Pop screen immediately without waiting for worker
         self.app.pop_screen()
 
 class StepsContent(Widget):
@@ -378,6 +396,9 @@ class StepsContent(Widget):
 class WorkflowExecutionContent(Widget):
     """Widget to display workflow execution output."""
 
+    # Allow children to receive focus (for input widgets)
+    can_focus_children = True
+
     DEFAULT_CSS = """
     WorkflowExecutionContent {
         width: 100%;
@@ -385,7 +406,7 @@ class WorkflowExecutionContent(Widget):
         layout: vertical;
     }
 
-    #output-text {
+    WorkflowExecutionContent > Static {
         width: 100%;
         height: auto;
     }
@@ -393,20 +414,40 @@ class WorkflowExecutionContent(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._output_lines: List[str] = []
 
     def compose(self) -> ComposeResult:
         """Compose the execution content."""
-        yield Static("", id="output-text")
+        # Don't yield anything - content will be mounted dynamically
+        return
+        yield  # Make this a generator
 
     def append_output(self, text: str) -> None:
         """Append text to the output."""
-        self._output_lines.append(text)
+        # Mount each line as a separate Static widget to preserve order
         try:
-            output_widget = self.query_one("#output-text", Static)
-            output_widget.update("\n".join(self._output_lines))
+            text_widget = Static(text)
+            self.mount(text_widget)
+            # Auto-scroll to show new content
+            self._scroll_to_end()
         except Exception:
             pass
+
+    def _scroll_to_end(self) -> None:
+        """Scroll the parent container to show the end."""
+        try:
+            # Get the parent VerticalScroll container
+            parent = self.parent
+            if parent and hasattr(parent, 'scroll_end'):
+                parent.scroll_end(animate=False)
+        except Exception:
+            pass
+
+    def on_descendant_mount(self, event) -> None:
+        """Auto-scroll when any widget is mounted as a descendant."""
+        # Don't auto-scroll if we're mounting a PromptInput (it will handle its own scroll)
+        from titan_cli.ui.tui.textual_components import PromptInput
+        if not isinstance(event.widget, PromptInput) and not isinstance(event.widget.parent, PromptInput):
+            self._scroll_to_end()
 
     def handle_event(self, message) -> None:
         """Handle workflow events generically."""

@@ -7,8 +7,112 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 """
 
 import threading
-from typing import Optional
+from typing import Optional, Callable
 from textual.widget import Widget
+from textual.widgets import Input
+
+
+class PromptInput(Widget):
+    """Widget wrapper for Input that handles submission events."""
+
+    # Allow this widget and its children to receive focus
+    can_focus = True
+    can_focus_children = True
+
+    DEFAULT_CSS = """
+    PromptInput {
+        width: 100%;
+        height: auto;
+        padding: 1;
+        margin: 1 0;
+        background: $surface-lighten-1;
+        border: round $accent;
+    }
+
+    PromptInput > Static {
+        width: 100%;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    PromptInput > Input {
+        width: 100%;
+    }
+    """
+
+    def __init__(self, question: str, default: str, placeholder: str, on_submit: Callable[[str], None], **kwargs):
+        super().__init__(**kwargs)
+        self.question = question
+        self.default = default
+        self.placeholder = placeholder
+        self.on_submit_callback = on_submit
+
+    def compose(self):
+        from textual.widgets import Static
+        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
+        yield Input(
+            value=self.default,
+            placeholder=self.placeholder,
+            id="prompt-input"
+        )
+
+    def on_mount(self):
+        """Focus input when mounted and scroll into view."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] PromptInput on_mount called\n")
+        # Use call_after_refresh to ensure widget tree is ready
+        self.call_after_refresh(self._focus_input)
+
+    def _focus_input(self):
+        """Focus the input widget and scroll into view."""
+        try:
+            import time
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] _focus_input() called\n")
+                f.write(f"[{time.time():.3f}] PromptInput.has_focus={self.has_focus}, can_focus={self.can_focus}\n")
+                f.write(f"[{time.time():.3f}] App focused widget: {self.app.focused}\n")
+
+            input_widget = self.query_one(Input)
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] Input widget found: {input_widget}\n")
+                f.write(f"[{time.time():.3f}] Input.can_focus={input_widget.can_focus}\n")
+
+            # Use app.set_focus() to force focus change from steps-panel
+            self.app.set_focus(input_widget)
+
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] Input focused, has_focus={input_widget.has_focus}\n")
+                f.write(f"[{time.time():.3f}] App focused widget after: {self.app.focused}\n")
+
+            # Scroll to make this widget visible
+            self.scroll_visible(animate=False)
+        except Exception as e:
+            import time
+            import traceback
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] ERROR in _focus_input: {e}\n")
+                f.write(f"{traceback.format_exc()}\n")
+
+    def on_key(self, event) -> None:
+        """Log all key events."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] PromptInput received key: {event.key}\n")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Log input changes."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] Input changed, value: {event.value}\n")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle input submission."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] on_input_submitted called with value: {event.value}\n")
+        value = event.value
+        self.on_submit_callback(value)
 
 
 class TextualComponents:
@@ -56,10 +160,27 @@ class TextualComponents:
             from titan_cli.ui.tui.widgets import Panel
             ctx.textual.mount(Panel("Success!", panel_type="success"))
         """
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] mount() called for {widget.__class__.__name__}\n")
+
         def _mount():
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] _mount() executing for {widget.__class__.__name__}\n")
             self.output_widget.mount(widget)
-        # Call from thread since executor runs in background thread
-        self.app.call_from_thread(_mount)
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] _mount() completed for {widget.__class__.__name__}\n")
+
+        # call_from_thread already blocks until the function completes
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] calling call_from_thread...\n")
+        try:
+            self.app.call_from_thread(_mount)
+        except Exception:
+            # App is closing or worker was cancelled
+            pass
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] call_from_thread returned\n")
 
     def text(self, text: str, markup: str = "") -> None:
         """
@@ -78,8 +199,13 @@ class TextualComponents:
                 self.output_widget.append_output(f"[{markup}]{text}[/{markup}]")
             else:
                 self.output_widget.append_output(text)
-        # Call from thread since executor runs in background thread
-        self.app.call_from_thread(_append)
+
+        # call_from_thread already blocks until the function completes
+        try:
+            self.app.call_from_thread(_append)
+        except Exception:
+            # App is closing or worker was cancelled
+            pass
 
     def ask_text(self, question: str, default: str = "") -> Optional[str]:
         """
@@ -95,26 +221,13 @@ class TextualComponents:
         Example:
             message = ctx.textual.ask_text("Enter commit message:", default="")
         """
-        from textual.widgets import Input
-
         # Event and result container for synchronization
         result_event = threading.Event()
         result_container = {"value": None}
 
         def _mount_input():
-            # Show question
-            self.output_widget.append_output(f"[bold cyan]{question}[/bold cyan]")
-
-            # Create Input widget
-            input_widget = Input(
-                value=default,
-                placeholder="Type here and press Enter...",
-                id=f"prompt-input-{id(result_event)}"
-            )
-
             # Handler when Enter is pressed
-            def on_submitted(event):
-                value = event.value
+            def on_submitted(value: str):
                 result_container["value"] = value
 
                 # Show what user entered (confirmation)
@@ -126,18 +239,32 @@ class TextualComponents:
                 # Unblock the step
                 result_event.set()
 
-            # Connect event handler
-            input_widget.on(Input.Submitted, on_submitted)
+            # Create PromptInput widget that handles the submission
+            input_widget = PromptInput(
+                question=question,
+                default=default,
+                placeholder="Type here and press Enter...",
+                on_submit=on_submitted
+            )
 
-            # Mount and focus
+            # Mount the widget (it will auto-focus)
             self.output_widget.mount(input_widget)
-            input_widget.focus()
 
         # Call from thread since executor runs in background thread
-        self.app.call_from_thread(_mount_input)
+        try:
+            self.app.call_from_thread(_mount_input)
+        except Exception:
+            # App is closing or worker was cancelled
+            return default
 
-        # BLOCK here until user responds
-        result_event.wait()
+        # BLOCK here until user responds (with timeout to allow cancellation)
+        # Wait in loop with timeout so we can be interrupted
+        while not result_event.is_set():
+            if result_event.wait(timeout=0.5):
+                break
+            # Check if app is still running
+            if not self.app.is_running:
+                return default
 
         return result_container["value"]
 
@@ -204,9 +331,18 @@ class TextualComponents:
             result_event.set()
 
         # Run in main thread (because suspend() must run on main thread)
-        self.app.call_from_thread(_launch)
+        try:
+            self.app.call_from_thread(_launch)
+        except Exception:
+            # App is closing or worker was cancelled
+            return -1
 
-        # Wait for completion
-        result_event.wait()
+        # Wait for completion (with timeout to allow cancellation)
+        while not result_event.is_set():
+            if result_event.wait(timeout=0.5):
+                break
+            # Check if app is still running
+            if not self.app.is_running:
+                return -1
 
         return result_container["exit_code"]
