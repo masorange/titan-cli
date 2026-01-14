@@ -29,38 +29,26 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
     try:
         status = ctx.git.get_status()
 
+        if not ctx.textual:
+            return Error("Textual UI context is not available for this step.")
+
         # If there are uncommitted changes, show warning panel
         if not status.is_clean:
-            if ctx.textual:
-                
-                ctx.textual.mount(
-                    Panel(
-                        text=global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING,
-                        panel_type="warning"
-                    )
-                )
-            elif ctx.ui:
-                ctx.ui.panel.print(
-                    global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING,
+            ctx.textual.mount(
+                Panel(
+                    text=global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING,
                     panel_type="warning"
                 )
-                ctx.ui.spacer.small()
+            )
             message = msg.Steps.Status.STATUS_RETRIEVED_WITH_UNCOMMITTED
         else:
             # Show success panel for clean working directory
-            if ctx.textual:            
-                ctx.textual.mount(
-                    Panel(
-                        text=msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN,
-                        panel_type="success"
-                    )
-                )
-            elif ctx.ui:
-                ctx.ui.panel.print(
-                    msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN,
+            ctx.textual.mount(
+                Panel(
+                    text=msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN,
                     panel_type="success"
                 )
-                ctx.ui.spacer.small()
+            )
             message = msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN
 
         return Success(

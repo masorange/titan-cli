@@ -1,6 +1,7 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/ai_commit_message_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_plugin_git.messages import msg
+from titan_cli.ui.tui.widgets import Panel
 
 
 def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
@@ -25,22 +26,17 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the operation fails.
         Skip: If no changes, AI not configured, or user declined.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header(
-            name="AI Generate Commit Message",
-            step_type="plugin",
-            step_detail="git.ai_generate_commit_message"
-        )
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        if ctx.ui:
-            ctx.ui.panel.print(
-                msg.Steps.AICommitMessage.AI_NOT_CONFIGURED,
+        ctx.textual.mount(
+            Panel(
+                text=msg.Steps.AICommitMessage.AI_NOT_CONFIGURED,
                 panel_type="info"
             )
-            ctx.ui.spacer.small()
+        )
         return Skip(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
 
     # Get git client
@@ -50,18 +46,17 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
     # Get git status
     git_status = ctx.get('git_status')
     if not git_status or git_status.is_clean:
-        if ctx.ui:
-            ctx.ui.panel.print(
-                msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT,
+        ctx.textual.mount(
+            Panel(
+                text=msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT,
                 panel_type="info"
             )
-            ctx.ui.spacer.small()
+        )
         return Skip(msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT)
 
     try:
         # Get diff of uncommitted changes
-        if ctx.ui:
-            ctx.ui.text.info(msg.Steps.AICommitMessage.ANALYZING_CHANGES)
+        ctx.textual.text(msg.Steps.AICommitMessage.ANALYZING_CHANGES, markup="dim")
 
         # Get diff of all uncommitted changes
         diff_text = ctx.git.get_uncommitted_diff()
@@ -105,8 +100,7 @@ Examples (notice they are all one line):
 
 Return ONLY the single-line commit message, absolutely nothing else."""
 
-        if ctx.ui:
-            ctx.ui.text.info(msg.Steps.AICommitMessage.GENERATING_MESSAGE)
+        ctx.textual.text(msg.Steps.AICommitMessage.GENERATING_MESSAGE, markup="dim")
 
         # Call AI
         from titan_cli.ai.models import AIMessage
@@ -122,48 +116,43 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         commit_message = commit_message.split('\n')[0].strip()
 
         # Show preview to user
-        if ctx.ui:
-            ctx.ui.spacer.small()
-            ctx.ui.text.subtitle(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE)
-            ctx.ui.text.body(f"  {commit_message}", style="bold cyan")
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE, markup="bold")
+        ctx.textual.text(f"  {commit_message}", markup="bold cyan")
 
-            # Warn if message is too long
-            if len(commit_message) > 72:
-                ctx.ui.text.warning(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=len(commit_message)))
+        # Warn if message is too long
+        if len(commit_message) > 72:
+            ctx.textual.text(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=len(commit_message)), markup="yellow")
 
-            ctx.ui.spacer.small()
+        ctx.textual.text("")  # spacing
 
-            # Ask user if they want to use it
-            use_ai = ctx.views.prompts.ask_confirm(
-                msg.Steps.AICommitMessage.CONFIRM_USE_MESSAGE,
-                default=True
-            )
+        # Ask user if they want to use it
+        use_ai = ctx.textual.ask_confirm(
+            msg.Steps.AICommitMessage.CONFIRM_USE_MESSAGE,
+            default=True
+        )
 
-            if not use_ai:
-                if ctx.views:
-                    try:
-                        manual_message = ctx.views.prompts.ask_text(msg.Prompts.ENTER_COMMIT_MESSAGE)
-                        if not manual_message:
-                            return Error(msg.Steps.Commit.COMMIT_MESSAGE_REQUIRED)
-                        
-                        # Overwrite the metadata to ensure the manual message is used
-                        return Success(
-                            message=msg.Steps.Prompt.COMMIT_MESSAGE_CAPTURED,
-                            metadata={"commit_message": manual_message}
-                        )
-                    except (KeyboardInterrupt, EOFError):
-                        return Error(msg.Steps.Prompt.USER_CANCELLED)
-                else:
-                    return Skip(msg.Steps.AICommitMessage.USER_DECLINED)
+        if not use_ai:
+            try:
+                manual_message = ctx.textual.ask_text(msg.Prompts.ENTER_COMMIT_MESSAGE)
+                if not manual_message:
+                    return Error(msg.Steps.Commit.COMMIT_MESSAGE_REQUIRED)
 
+                # Overwrite the metadata to ensure the manual message is used
+                return Success(
+                    message=msg.Steps.Prompt.COMMIT_MESSAGE_CAPTURED,
+                    metadata={"commit_message": manual_message}
+                )
+            except (KeyboardInterrupt, EOFError):
+                return Error(msg.Steps.Prompt.USER_CANCELLED)
 
         # Show success panel
-        if ctx.ui:
-            ctx.ui.panel.print(
-                "AI commit message generated successfully",
+        ctx.textual.mount(
+            Panel(
+                text="AI commit message generated successfully",
                 panel_type="success"
             )
-            ctx.ui.spacer.small()
+        )
 
         # Success - save to context
         return Success(
@@ -172,9 +161,8 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         )
 
     except Exception as e:
-        if ctx.ui:
-            ctx.ui.text.warning(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
-            ctx.ui.text.info(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL)
+        ctx.textual.text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e), markup="yellow")
+        ctx.textual.text(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL, markup="dim")
 
         return Skip(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
 
