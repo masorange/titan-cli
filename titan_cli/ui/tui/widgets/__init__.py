@@ -6,6 +6,7 @@ Reusable Textual widgets for the Titan TUI.
 from .status_bar import StatusBarWidget
 from .header import HeaderWidget
 from .text import (
+    Text,
     DimText,
     BoldText,
     PrimaryText,
@@ -20,7 +21,7 @@ from .text import (
 __all__ = [
     "StatusBarWidget",
     "HeaderWidget",
-    "WorkflowInfoWidget",
+    "Text",
     "DimText",
     "BoldText",
     "PrimaryText",
