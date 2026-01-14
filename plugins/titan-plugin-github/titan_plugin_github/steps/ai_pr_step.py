@@ -124,13 +124,8 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Show description
         ctx.textual.text(msg.GitHub.AI.DESCRIPTION_LABEL, markup="bold")
-        # TODO: Need to render markdown in Textual - for now just show as text
-        ctx.textual.mount(
-            Panel(
-                text=analysis.pr_body,
-                panel_type="info"
-            )
-        )
+        # Render markdown in a scrollable container
+        ctx.textual.markdown(analysis.pr_body)
 
         ctx.textual.text("")  # spacing
 

@@ -10,8 +10,8 @@ import threading
 from typing import Optional, Callable
 from contextlib import contextmanager
 from textual.widget import Widget
-from textual.widgets import Input, LoadingIndicator, Static
-from textual.containers import Container
+from textual.widgets import Input, LoadingIndicator, Static, Markdown
+from textual.containers import Container, VerticalScroll
 
 
 class PromptInput(Widget):
@@ -156,6 +156,43 @@ class TextualComponents:
         # call_from_thread already blocks until the function completes
         try:
             self.app.call_from_thread(_append)
+        except Exception:
+            # App is closing or worker was cancelled
+            pass
+
+    def markdown(self, markdown_text: str, max_height: int = 30) -> None:
+        """
+        Render markdown content in a scrollable container.
+
+        Args:
+            markdown_text: Markdown content to render
+            max_height: Maximum height in lines (default: 30)
+
+        Example:
+            ctx.textual.markdown("## My Title\n\nSome **bold** text")
+        """
+        # Create a scrollable container with the markdown widget
+        container = VerticalScroll()
+        container.styles.width = "100%"
+        container.styles.height = "auto"
+        container.styles.max_height = max_height
+        container.styles.border = ("round", "$primary")
+        container.styles.background = "$surface"
+        container.styles.padding = 1
+        container.styles.margin = (0, 0, 1, 0)
+
+        # Create markdown widget
+        md_widget = Markdown(markdown_text)
+
+        def _mount():
+            # Mount markdown inside container
+            container.mount(md_widget)
+            # Mount container to output
+            self.output_widget.mount(container)
+
+        # call_from_thread already blocks until the function completes
+        try:
+            self.app.call_from_thread(_mount)
         except Exception:
             # App is closing or worker was cancelled
             pass
