@@ -58,15 +58,21 @@ class WorkflowContextBuilder:
     def with_ui(
         self,
         ui: Optional[UIComponents] = None,
-        views: Optional[UIViews] = None
+        views: Optional[UIViews] = None,
+        git_status: Optional[Any] = None,
+        ai_info: Optional[str] = None,
+        project_name: Optional[str] = None,
     ) -> "WorkflowContextBuilder":
         """
         Add UI components and views.
-        
+
         Args:
             ui: Optional UIComponents (auto-created if None)
             views: Optional UIViews (auto-created if None)
-        
+            git_status: Optional GitStatus for status bar
+            ai_info: Optional AI provider/model info for status bar
+            project_name: Optional project name for status bar
+
         Returns:
             Builder instance
         """
@@ -74,7 +80,12 @@ class WorkflowContextBuilder:
         self._ui = ui or UIComponents.create()
 
         # Create or inject UIViews
-        self._views = views or UIViews.create(self._ui)
+        self._views = views or UIViews.create(
+            self._ui,
+            git_status=git_status,
+            ai_info=ai_info,
+            project_name=project_name,
+        )
 
         return self
 

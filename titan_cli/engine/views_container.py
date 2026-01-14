@@ -7,8 +7,8 @@ from typing import Optional
 
 from titan_cli.ui.views.prompts import PromptsRenderer
 from titan_cli.ui.views.menu_components.menu import MenuRenderer
+from titan_cli.ui.views.status_bar import StatusBarRenderer
 from .ui_container import UIComponents
-
 
 @dataclass
 class UIViews:
@@ -21,10 +21,12 @@ class UIViews:
     Attributes:
         prompts: Interactive prompts (ask_text, ask_confirm, etc.)
         menu: Menu rendering and selection
+        status_bar: Status bar renderer (optional)
         ui: Reference to UIComponents for composition
     """
     prompts: PromptsRenderer
     menu: MenuRenderer
+    status_bar: Optional[StatusBarRenderer]
     ui: UIComponents
 
     def step_header(self, name: str, step_type: Optional[str] = None, step_detail: Optional[str] = None) -> None:
@@ -64,18 +66,44 @@ class UIViews:
         self.ui.spacer.small()
 
     @classmethod
-    def create(cls, ui: UIComponents) -> "UIViews":
+    def create(
+        cls,
+        ui: UIComponents,
+        git_status: Optional[any] = None,
+        ai_info: Optional[str] = None,
+        project_name: Optional[str] = None,
+    ) -> "UIViews":
         """
         Create UI views using components.
 
         Args:
             ui: UIComponents instance for composition
+            git_status: Optional GitStatus object for status bar
+            ai_info: Optional AI provider/model info string (e.g., "anthropic/claude-3")
+            project_name: Optional project name for status bar
 
         Returns:
             UIViews instance
         """
+        # Create status bar if any of the status bar data is provided
+        status_bar = None
+        if git_status is not None or ai_info is not None or project_name is not None:
+            status_bar = StatusBarRenderer(
+                table_renderer=ui.table,
+                git_status=git_status,
+                ai_info=ai_info,
+                project_name=project_name,
+            )
+
+        menu_renderer = MenuRenderer(
+            console=ui.text.console,
+            text_renderer=ui.text,
+            status_bar_renderer=status_bar,
+        )
+
         return cls(
-            prompts=PromptsRenderer(text_renderer=ui.text),
-            menu=MenuRenderer(console=ui.text.console, text_renderer=ui.text),
+            prompts=PromptsRenderer(text_renderer=ui.text, menu_renderer=menu_renderer),
+            menu=menu_renderer,
+            status_bar=status_bar,
             ui=ui,  # Store reference for composition
         )

@@ -95,7 +95,7 @@ def preview_workflow():
     from titan_plugin_git.steps.ai_commit_message_step import ai_generate_commit_message
     from titan_plugin_git.steps.commit_step import create_git_commit_step
     from titan_plugin_git.steps.push_step import create_git_push_step
-    from titan_plugin_github.steps.ai_pr_step import ai_suggest_pr_description
+    from titan_plugin_github.steps.ai_pr_step import ai_suggest_pr_description_step
     from titan_plugin_github.steps.prompt_steps import prompt_for_pr_title_step, prompt_for_pr_body_step
 
     # Execute steps in order
@@ -104,7 +104,7 @@ def preview_workflow():
         ("ai_commit_message", ai_generate_commit_message),
         ("create_commit", create_git_commit_step),
         ("push", create_git_push_step),
-        ("ai_pr_description", ai_suggest_pr_description),
+        ("ai_pr_description", ai_suggest_pr_description_step),
         ("prompt_pr_title", prompt_for_pr_title_step),
         ("prompt_pr_body", prompt_for_pr_body_step),
     ]
