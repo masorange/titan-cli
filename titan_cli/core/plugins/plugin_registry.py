@@ -44,7 +44,9 @@ class PluginRegistry:
     def _discover_from_entry_points(self):
         """Discover plugins from Python entry points (installed packages)."""
         discovered = entry_points(group='titan.plugins')
-        self._discovered_plugin_names.extend([ep.name for ep in discovered])
+        for ep in discovered:
+            if ep.name not in self._discovered_plugin_names:
+                self._discovered_plugin_names.append(ep.name)
 
         for ep in discovered:
             # Skip if already loaded from local plugins
