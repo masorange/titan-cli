@@ -8,8 +8,10 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 
 import threading
 from typing import Optional, Callable
+from contextlib import contextmanager
 from textual.widget import Widget
-from textual.widgets import Input
+from textual.widgets import Input, LoadingIndicator, Static
+from textual.containers import Container
 
 
 class PromptInput(Widget):
@@ -298,6 +300,44 @@ class TextualComponents:
         else:
             # Invalid response, use default
             return default
+
+    @contextmanager
+    def loading(self, message: str = "Loading..."):
+        """
+        Show a loading indicator with a message (context manager).
+
+        Args:
+            message: Message to display while loading
+
+        Example:
+            with ctx.textual.loading("Generating commit message..."):
+                response = ctx.ai.generate(messages)
+        """
+        # Create loading container with message and spinner
+        loading_container = Container(
+            Static(f"[dim]{message}[/dim]"),
+            LoadingIndicator()
+        )
+        loading_container.styles.height = "auto"
+
+        # Mount the loading widget
+        self.mount(loading_container)
+
+        try:
+            yield
+        finally:
+            # Remove loading widget when done
+            def _remove():
+                try:
+                    loading_container.remove()
+                except Exception:
+                    pass
+
+            try:
+                self.app.call_from_thread(_remove)
+            except Exception:
+                # App is closing or worker was cancelled
+                pass
 
     def launch_external_cli(self, cli_name: str, prompt: str = None, cwd: str = None) -> int:
         """

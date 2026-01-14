@@ -80,7 +80,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
 
     # --- Handle Failures ---
     if failed_count == 0:
-        ctx.textual.mount(Panel(f"{Icons.SUCCESS} All tests passed!", panel_type="success"))
+        ctx.textual.mount(Panel("All tests passed!", panel_type="success"))
         return Success("All tests passed")
 
     ctx.textual.text(f"{failed_count} test(s) failed", markup="yellow")

@@ -100,13 +100,13 @@ Examples (notice they are all one line):
 
 Return ONLY the single-line commit message, absolutely nothing else."""
 
-        ctx.textual.text(msg.Steps.AICommitMessage.GENERATING_MESSAGE, markup="dim")
-
-        # Call AI
+        # Call AI with loading indicator
         from titan_cli.ai.models import AIMessage
 
         messages = [AIMessage(role="user", content=prompt)]
-        response = ctx.ai.generate(messages, max_tokens=1024, temperature=0.7)
+
+        with ctx.textual.loading(msg.Steps.AICommitMessage.GENERATING_MESSAGE):
+            response = ctx.ai.generate(messages, max_tokens=1024, temperature=0.7)
 
         commit_message = response.content.strip()
 
