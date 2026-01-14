@@ -11,7 +11,7 @@ from typing import Optional, Callable
 from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import Input, LoadingIndicator, Static, Markdown
-from textual.containers import Container, VerticalScroll
+from textual.containers import Container
 
 
 class PromptInput(Widget):
@@ -171,24 +171,19 @@ class TextualComponents:
         Example:
             ctx.textual.markdown("## My Title\n\nSome **bold** text")
         """
-        # Create a scrollable container with the markdown widget
-        container = VerticalScroll()
-        container.styles.width = "100%"
-        container.styles.height = "auto"
-        container.styles.max_height = max_height
-        container.styles.border = ("round", "$primary")
-        container.styles.background = "$surface"
-        container.styles.padding = 1
-        container.styles.margin = (0, 0, 1, 0)
-
-        # Create markdown widget
+        # Create markdown widget directly (Textual's Markdown already handles wrapping)
         md_widget = Markdown(markdown_text)
 
+        # Apply basic styling
+        md_widget.styles.width = "100%"
+        md_widget.styles.height = "auto"
+        md_widget.styles.max_height = max_height
+        md_widget.styles.padding = (1, 2)
+        md_widget.styles.margin = (0, 0, 1, 0)
+
         def _mount():
-            # Mount markdown inside container
-            container.mount(md_widget)
-            # Mount container to output
-            self.output_widget.mount(container)
+            # Mount markdown to output
+            self.output_widget.mount(md_widget)
 
         # call_from_thread already blocks until the function completes
         try:
