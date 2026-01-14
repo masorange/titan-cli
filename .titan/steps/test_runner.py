@@ -5,6 +5,8 @@ from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
 from titan_cli.engine.utils import get_poetry_venv_env
+from titan_cli.ui.tui.widgets import Table, Panel
+from titan_cli.ui.tui.icons import Icons
 
 # Constants for display limits
 MAX_TEST_NAME_LENGTH = 60
@@ -15,8 +17,8 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     """
     Run pytest using the --json-report flag and parse the structured output.
     """
-    if not ctx.ui:
-        return Error("UI context is not available for this step.")
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     project_root = ctx.get("project_root", ".")
     report_path = Path(project_root) / ".report.json"
@@ -26,7 +28,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     if not venv_env:
         return Error("Could not determine poetry virtual environment for pytest.")
 
-    ctx.ui.text.body("Running tests with pytest...", style="dim")
+    ctx.textual.text("Running tests with pytest...", markup="dim")
 
     # Run pytest with JSON report enabled, using the venv environment
     result = subprocess.run(
@@ -51,7 +53,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
         if os.path.exists(report_path):
             os.remove(report_path)
 
-    ctx.ui.spacer.small()
+    ctx.textual.text("")  # spacing
 
     # --- Extract Summary ---
     summary = report.get("summary", {})
@@ -61,31 +63,33 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     duration = f"{report.get('duration', 0):.2f}s"
 
     # --- Show Summary Table ---
-    if ctx.ui.table and total_count > 0:
-        ctx.ui.table.print_table(
-            headers=["Metric", "Value"],
-            rows=[
-                ["Total Tests", str(total_count)],
-                ["Passed", f"✓ {passed_count}"],
-                ["Failed", f"✗ {failed_count}"],
-                ["Duration", duration]
-            ],
-            title="Test Results Summary"
+    if total_count > 0:
+        ctx.textual.mount(
+            Table(
+                headers=["Metric", "Value"],
+                rows=[
+                    ["Total Tests", str(total_count)],
+                    ["Passed", f"{Icons.SUCCESS} {passed_count}"],
+                    ["Failed", f"{Icons.ERROR} {failed_count}"],
+                    ["Duration", duration]
+                ],
+                title="Test Results Summary"
+            )
         )
-        ctx.ui.spacer.small()
+        ctx.textual.text("")  # spacing
 
     # --- Handle Failures ---
     if failed_count == 0:
-        ctx.ui.text.success("✓ All tests passed!")
+        ctx.textual.mount(Panel(f"{Icons.SUCCESS} All tests passed!", panel_type="success"))
         return Success("All tests passed")
 
-    ctx.ui.text.warning(f"{failed_count} test(s) failed")
-    ctx.ui.spacer.small()
+    ctx.textual.text(f"{failed_count} test(s) failed", markup="yellow")
+    ctx.textual.text("")  # spacing
 
     failures = [test for test in report.get("tests", []) if test.get("outcome") == "failed"]
-    
+
     # --- Show Failures Table ---
-    if failures and ctx.ui.table:
+    if failures:
         failure_rows = []
         for failure in failures:
             test_name = failure.get("nodeid", "Unknown Test")
@@ -97,16 +101,17 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
                 test_name = "..." + test_name[-(MAX_TEST_NAME_LENGTH - 3):]
             if len(error_repr) > MAX_ERROR_DISPLAY_LENGTH:
                 error_repr = error_repr[:(MAX_ERROR_DISPLAY_LENGTH - 3)] + "..."
-            
+
             failure_rows.append([test_name, error_repr])
-        
-        ctx.ui.table.print_table(
-            headers=["Test", "Error"],
-            rows=failure_rows,
-            title="Failed Tests Details",
-            show_lines=True
+
+        ctx.textual.mount(
+            Table(
+                headers=["Test", "Error"],
+                rows=failure_rows,
+                title="Failed Tests Details"
+            )
         )
-        ctx.ui.spacer.small()
+        ctx.textual.text("")  # spacing
 
     # --- Format Failures for AI ---
     failures_text = f"{failed_count} test(s) failed:\n\n"
