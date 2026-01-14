@@ -246,18 +246,12 @@ class WorkflowExecutionScreen(BaseScreen):
         self, message: TextualWorkflowExecutor.StepStarted
     ) -> None:
         """Handle step started event."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] SCREEN: Processing StepStarted for '{message.step_name}'\n")
         self._handle_workflow_event(message)
 
     def on_textual_workflow_executor_step_completed(
         self, message: TextualWorkflowExecutor.StepCompleted
     ) -> None:
         """Handle step completed event."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] SCREEN: Processing StepCompleted for '{message.step_name}'\n")
         self._handle_workflow_event(message)
 
     def on_textual_workflow_executor_step_failed(
@@ -270,9 +264,6 @@ class WorkflowExecutionScreen(BaseScreen):
         self, message: TextualWorkflowExecutor.StepSkipped
     ) -> None:
         """Handle step skipped event."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] SCREEN: Processing StepSkipped for '{message.step_name}'\n")
         self._handle_workflow_event(message)
 
     def on_textual_workflow_executor_workflow_completed(

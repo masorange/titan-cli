@@ -60,59 +60,22 @@ class PromptInput(Widget):
 
     def on_mount(self):
         """Focus input when mounted and scroll into view."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] PromptInput on_mount called\n")
         # Use call_after_refresh to ensure widget tree is ready
         self.call_after_refresh(self._focus_input)
 
     def _focus_input(self):
         """Focus the input widget and scroll into view."""
         try:
-            import time
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] _focus_input() called\n")
-                f.write(f"[{time.time():.3f}] PromptInput.has_focus={self.has_focus}, can_focus={self.can_focus}\n")
-                f.write(f"[{time.time():.3f}] App focused widget: {self.app.focused}\n")
-
             input_widget = self.query_one(Input)
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] Input widget found: {input_widget}\n")
-                f.write(f"[{time.time():.3f}] Input.can_focus={input_widget.can_focus}\n")
-
             # Use app.set_focus() to force focus change from steps-panel
             self.app.set_focus(input_widget)
-
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] Input focused, has_focus={input_widget.has_focus}\n")
-                f.write(f"[{time.time():.3f}] App focused widget after: {self.app.focused}\n")
-
             # Scroll to make this widget visible
             self.scroll_visible(animate=False)
-        except Exception as e:
-            import time
-            import traceback
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] ERROR in _focus_input: {e}\n")
-                f.write(f"{traceback.format_exc()}\n")
-
-    def on_key(self, event) -> None:
-        """Log all key events."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] PromptInput received key: {event.key}\n")
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """Log input changes."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] Input changed, value: {event.value}\n")
+        except Exception:
+            pass
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] on_input_submitted called with value: {event.value}\n")
         value = event.value
         self.on_submit_callback(value)
 
@@ -162,27 +125,15 @@ class TextualComponents:
             from titan_cli.ui.tui.widgets import Panel
             ctx.textual.mount(Panel("Success!", panel_type="success"))
         """
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] mount() called for {widget.__class__.__name__}\n")
-
         def _mount():
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] _mount() executing for {widget.__class__.__name__}\n")
             self.output_widget.mount(widget)
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] _mount() completed for {widget.__class__.__name__}\n")
 
         # call_from_thread already blocks until the function completes
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] calling call_from_thread...\n")
         try:
             self.app.call_from_thread(_mount)
         except Exception:
             # App is closing or worker was cancelled
             pass
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] call_from_thread returned\n")
 
     def text(self, text: str, markup: str = "") -> None:
         """
@@ -313,10 +264,6 @@ class TextualComponents:
             with ctx.textual.loading("Generating commit message..."):
                 response = ctx.ai.generate(messages)
         """
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] loading(): Creating loading container\n")
-
         # Create loading container with message and spinner
         loading_container = Container(
             Static(f"[dim]{message}[/dim]"),
@@ -324,38 +271,24 @@ class TextualComponents:
         )
         loading_container.styles.height = "auto"
 
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] loading(): Mounting loading container\n")
-
         # Mount the loading widget
         self.mount(loading_container)
-
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] loading(): Loading container mounted, yielding\n")
 
         try:
             yield
         finally:
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] loading(): In finally block, removing loading container\n")
-
             # Remove loading widget when done
             def _remove():
                 try:
-                    with open("/tmp/titan_debug.log", "a") as f:
-                        f.write(f"[{time.time():.3f}] loading._remove(): Removing loading container\n")
                     loading_container.remove()
-                    with open("/tmp/titan_debug.log", "a") as f:
-                        f.write(f"[{time.time():.3f}] loading._remove(): Loading container removed\n")
-                except Exception as e:
-                    with open("/tmp/titan_debug.log", "a") as f:
-                        f.write(f"[{time.time():.3f}] loading._remove(): Error removing: {e}\n")
+                except Exception:
+                    pass
 
             try:
                 self.app.call_from_thread(_remove)
-            except Exception as e:
-                with open("/tmp/titan_debug.log", "a") as f:
-                    f.write(f"[{time.time():.3f}] loading(): Error in call_from_thread: {e}\n")
+            except Exception:
+                # App is closing or worker was cancelled
+                pass
 
     def launch_external_cli(self, cli_name: str, prompt: str = None, cwd: str = None) -> int:
         """

@@ -102,25 +102,11 @@ Return ONLY the single-line commit message, absolutely nothing else."""
 
         # Call AI with loading indicator
         from titan_cli.ai.models import AIMessage
-        import time
-
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] AI Commit: About to call AI\n")
 
         messages = [AIMessage(role="user", content=prompt)]
 
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] AI Commit: Entering loading context\n")
-
         with ctx.textual.loading(msg.Steps.AICommitMessage.GENERATING_MESSAGE):
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] AI Commit: Inside loading context, calling AI\n")
             response = ctx.ai.generate(messages, max_tokens=1024, temperature=0.7)
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] AI Commit: AI call completed\n")
-
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] AI Commit: Exited loading context\n")
 
         commit_message = response.content.strip()
 
@@ -129,13 +115,7 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         # Take only the first line if AI returned multiple lines
         commit_message = commit_message.split('\n')[0].strip()
 
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] AI Commit: Cleaned message: {commit_message}\n")
-
         # Show preview to user
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] AI Commit: Showing preview to user\n")
-
         ctx.textual.text("")  # spacing
         ctx.textual.text(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE, markup="bold")
         ctx.textual.text(f"  {commit_message}", markup="bold cyan")
@@ -146,17 +126,11 @@ Return ONLY the single-line commit message, absolutely nothing else."""
 
         ctx.textual.text("")  # spacing
 
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] AI Commit: About to ask for confirmation\n")
-
         # Ask user if they want to use it
         use_ai = ctx.textual.ask_confirm(
             msg.Steps.AICommitMessage.CONFIRM_USE_MESSAGE,
             default=True
         )
-
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] AI Commit: User answered: {use_ai}\n")
 
         if not use_ai:
             try:
