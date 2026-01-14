@@ -8,13 +8,11 @@ define their configuration needs declaratively without writing UI code.
 
 import re
 from typing import Dict, Any, Optional, List, Callable
-from pathlib import Path
 
 from titan_cli.ui.views.prompts import PromptsRenderer
 from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.panel import PanelRenderer
 from titan_cli.core.secrets import SecretManager
-from titan_cli.core.config import TitanConfig
 from titan_cli.messages import msg
 
 

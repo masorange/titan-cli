@@ -11,7 +11,6 @@ from titan_cli.core.plugins.exceptions import PluginDownloadError, PluginInstall
 from titan_cli.core.config import TitanConfig
 from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.panel import PanelRenderer
-from titan_cli.ui.components.table import TableRenderer
 from titan_cli.ui.views.prompts import PromptsRenderer
 from titan_cli.ui.views.menu_components import Menu, MenuItem, MenuCategory
 from titan_cli.messages import msg
@@ -52,7 +51,6 @@ def install_plugin_from_marketplace(
         # Display plugin info
         display_name = plugin_info.get("display_name", name)
         description = plugin_info.get("description", "No description")
-        category = plugin_info.get("category", "unknown")
         verified = plugin_info.get("verified", False)
 
         text.styled_text(

@@ -5,9 +5,8 @@ Validates plugin metadata, structure, and compatibility.
 """
 
 import json
-import importlib.util
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from .exceptions import PluginValidationError
 from titan_cli.messages import msg

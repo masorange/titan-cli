@@ -143,9 +143,6 @@ class PluginDownloader:
         """
         plugin_info = self.get_plugin_info(plugin_name)
 
-        # Determine version
-        target_version = version or plugin_info.get("latest_version", "main")
-
         # Build download URL
         source_path = plugin_info.get("source")
         if not source_path:
