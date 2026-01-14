@@ -11,6 +11,8 @@ from titan_cli.core.secrets import SecretManager
 from .context import WorkflowContext
 from .ui_container import UIComponents
 from .views_container import UIViews
+from titan_cli.ai.client import AIClient
+from titan_cli.ai.exceptions import AIConfigurationError
 
 
 class WorkflowContextBuilder:
@@ -62,7 +64,7 @@ class WorkflowContextBuilder:
         git_status: Optional[Any] = None,
         ai_info: Optional[str] = None,
         project_name: Optional[str] = None,
-    ) -> "WorkflowContextBuilder":
+    ) -> WorkflowContextBuilder:
         """
         Add UI components and views.
 
@@ -89,7 +91,7 @@ class WorkflowContextBuilder:
 
         return self
 
-    def with_ai(self, ai_client: Optional[Any] = None) -> "WorkflowContextBuilder":
+    def with_ai(self, ai_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add AI client.
 
@@ -103,9 +105,6 @@ class WorkflowContextBuilder:
             # Convenience - auto-create from ai_config
             if self._ai_config:
                 try:
-                    from titan_cli.ai.client import AIClient
-                    from titan_cli.ai.exceptions import AIConfigurationError
-
                     self._ai = AIClient(self._ai_config, self._secrets)
                 except AIConfigurationError:
                     self._ai = None

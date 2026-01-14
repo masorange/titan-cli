@@ -14,6 +14,8 @@ from textual.css.query import NoMatches
 
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.core.workflows.workflow_sources import WorkflowInfo
+from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
+from titan_cli.ui.tui.icons import Icons
 from .base import BaseScreen
 
 class WorkflowsScreen(BaseScreen):
@@ -137,9 +139,9 @@ class WorkflowsScreen(BaseScreen):
                 plugin_names = WorkflowFilterService.get_unique_plugin_names(self._all_workflows)
 
                 # Build plugin filter options
-                plugin_options = [Option("📦 All Plugins", id="all")]
+                plugin_options = [Option(f"{Icons.PACKAGE} All Plugins", id="all")]
                 for plugin_name in sorted(plugin_names):
-                    plugin_options.append(Option(f"🔌 {plugin_name}", id=plugin_name))
+                    plugin_options.append(Option(f"{Icons.PLUGIN} {plugin_name}", id=plugin_name))
 
                 # Build workflow options (initially show all)
                 workflow_options = self._build_workflow_options(self._all_workflows)
@@ -218,9 +220,10 @@ class WorkflowsScreen(BaseScreen):
         Args:
             workflow_name: Name of the workflow to execute
         """
-        # TODO: Implement workflow execution
-        # For now, just show a notification
-        self.app.notify(f"Executing workflow: {workflow_name} - Coming soon!")
+
+        # Navigate to workflow execution screen
+        execution_screen = WorkflowExecutionScreen(self.config, workflow_name)
+        self.app.push_screen(execution_screen)
 
     def action_go_back(self) -> None:
         """Go back to main menu."""

@@ -4,6 +4,7 @@ from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
 from titan_cli.engine.utils import get_poetry_venv_env
+from titan_cli.ui.tui.widgets import Table
 
 
 def _format_file_path(file_path: str, project_root: str) -> str:
@@ -22,8 +23,8 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     """
     Run ruff with autofix and show diff between before/after.
     """
-    if not ctx.ui:
-        return Error("UI context is not available for this step.")
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     project_root = ctx.get("project_root", ".") # Fallback to current dir
     venv_env = get_poetry_venv_env(cwd=project_root)
@@ -31,7 +32,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Could not determine poetry virtual environment for ruff.")
 
     # 1. Scan before fix
-    ctx.ui.text.body("Running initial ruff scan...", style="dim")
+    ctx.textual.text("Running initial ruff scan...", markup="dim")
     result_before = subprocess.run(
         ["ruff", "check", ".", "--output-format=json"],
         capture_output=True,
@@ -47,7 +48,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
 
 
     # 2. Auto-fix
-    ctx.ui.text.body("Applying auto-fixes...", style="dim")
+    ctx.textual.text("Applying auto-fixes...", markup="dim")
     subprocess.run(
         ["ruff", "check", ".", "--fix", "--quiet"],
         capture_output=True,
@@ -56,7 +57,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     # 3. Scan after fix
-    ctx.ui.text.body("Running final ruff scan...", style="dim")
+    ctx.textual.text("Running final ruff scan...", markup="dim")
     result_after = subprocess.run(
         ["ruff", "check", ".", "--output-format=json"],
         capture_output=True,
@@ -70,20 +71,20 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         return Error(f"Failed to parse final ruff output as JSON.\n{result_after.stdout}")
 
     # 4. Show summary
-    ctx.ui.spacer.small()
+    ctx.textual.text("")  # spacing
     fixed_count = len(errors_before) - len(errors_after)
 
     if fixed_count > 0:
-        ctx.ui.text.success(f"Auto-fixed {fixed_count} issue(s)")
+        ctx.textual.text(f"Auto-fixed {fixed_count} issue(s)", markup="green")
 
     if not errors_after:
-        ctx.ui.text.success("All linting issues resolved!")
+        ctx.textual.text("All linting issues resolved!", markup="green")
         return Success("Linting passed")
 
     # 5. Show remaining errors
     if errors_after:
-        ctx.ui.text.warning(f"{len(errors_after)} issue(s) require manual fix:")
-        ctx.ui.spacer.small()
+        ctx.textual.text(f"{len(errors_after)} issue(s) require manual fix:", markup="yellow")
+        ctx.textual.text("")  # spacing
 
         # Prepare data for the table
         table_headers = ["File", "Line", "Col", "Code", "Message"]
@@ -100,16 +101,14 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
 
             table_rows.append([file_path, row, col, code, message])
 
-        if ctx.ui.table: # Ensure table renderer is available
-            ctx.ui.table.print_table(
+        # Mount table widget
+        ctx.textual.mount(
+            Table(
                 headers=table_headers,
                 rows=table_rows,
-                show_lines=True,
                 title="Remaining Ruff Issues"
             )
-        else: # Fallback if table renderer is somehow not available
-            for row_data in table_rows:
-                ctx.ui.text.error(f"{row_data[0]}:{row_data[1]}:{row_data[2]} - [{row_data[3]}] {row_data[4]}")
+        )
 
         # Build formatted error list for AI assistant
         errors_text = f"{len(errors_after)} linting issues found:\n\n"

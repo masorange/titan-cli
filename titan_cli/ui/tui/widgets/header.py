@@ -10,6 +10,8 @@ from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.message import Message
 
+from titan_cli.ui.tui.icons import Icons
+
 
 class HeaderWidget(Widget):
     """
@@ -87,7 +89,7 @@ class HeaderWidget(Widget):
         """Compose the header with back button and title."""
         with Horizontal():
             if self.show_back:
-                yield Static("← Back", id="header-back", classes="header-left")
+                yield Static(f"{Icons.BACK} Back", id="header-back", classes="header-left")
             else:
                 yield Static("", classes="header-left")
 
