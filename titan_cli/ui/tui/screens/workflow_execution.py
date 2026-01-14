@@ -8,8 +8,10 @@ from typing import Optional, Dict
 
 from textual.app import ComposeResult
 from textual.widgets import Static
-from textual.containers import Container, Vertical
+from textual.containers import Container, Vertical, ScrollableContainer
 from textual.worker import Worker, WorkerState
+
+from titan_cli.ui.tui.widgets import HeaderWidget
 
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.workflows import ParsedWorkflow
@@ -19,8 +21,10 @@ from titan_cli.core.workflows.workflow_exceptions import (
     WorkflowExecutionError,
 )
 from titan_cli.ui.tui.textual_workflow_executor import TextualWorkflowExecutor
+from titan_cli.ui.tui.widgets.text import DimText
 from .base import BaseScreen
 
+from textual.containers import Horizontal
 
 class WorkflowExecutionScreen(BaseScreen):
     """
@@ -40,23 +44,56 @@ class WorkflowExecutionScreen(BaseScreen):
         align: center middle;
     }
 
+    #workflow-description {
+        width: 100%;
+        text-align: center;
+        padding-bottom: 1;
+    }
+
     #execution-container {
         width: 100%;
         height: 1fr;
         background: $surface-lighten-1;
-        padding: 2;
+        padding: 0 2 1 2;
     }
 
-    #workflow-info {
+    #left-panel {
+        width: 20%;
+        height: 100%;
+        border: round $primary;
+        border-title-align: center;
+        background: $surface-lighten-1;
+        padding: 0;
+    }
+
+    #left-panel #workflow-info  {
         width: 100%;
-        height: auto;
+        height: 1fr;
+        margin-bottom: 1;
+        text-align: center;
+    }
+
+    #right-panel {
+        width: 80%;
+        height: 100%;
+        border: round $primary;
+        border-title-align: center;
+        background: $surface-lighten-1;
+        padding: 0;
+    }
+
+    #steps-scroll {
+        width: 100%;
+        max-height: 10;
+        min-height: 5;
+        border: round $primary;
+        border-title-align: center;
         margin-bottom: 1;
     }
 
     #steps-container {
         width: 100%;
         height: auto;
-        margin-bottom: 1;
     }
 
     .step-widget {
@@ -65,16 +102,17 @@ class WorkflowExecutionScreen(BaseScreen):
         padding: 0 1;
     }
 
-    #output-container {
+    #output-scroll {
         width: 100%;
         height: 1fr;
         border: round $primary;
-        padding: 1;
+        border-title-align: center;
     }
 
     #output-text {
         width: 100%;
         height: auto;
+        padding: 1;
     }
     """
 
@@ -82,7 +120,7 @@ class WorkflowExecutionScreen(BaseScreen):
         super().__init__(
             config,
             title=f"⚡ Executing: {workflow_name}",
-            show_back=False,
+            show_back=True,
             **kwargs
         )
         self.workflow_name = workflow_name
@@ -95,20 +133,18 @@ class WorkflowExecutionScreen(BaseScreen):
     def compose_content(self) -> ComposeResult:
         """Compose the workflow execution screen."""
         with Container(id="execution-container"):
-            # Workflow info section
-            yield Static(
-                f"Loading workflow: {self.workflow_name}...",
-                id="workflow-info"
-            )
+            yield DimText(id="workflow-description")
+            with Horizontal():
+                    left_panel = Container(id="left-panel")
+                    left_panel.border_title = "Workflow Info"
+                    with left_panel:
+                        yield Vertical(id="steps-container")
 
-            # Steps section
-            with Vertical(id="steps-container"):
-                pass  # Steps will be added dynamically
-
-            # Output section
-            with Container(id="output-container"):
-                yield Static("", id="output-text")
-
+                    right_panel = Container(id="right-panel")
+                    right_panel.border_title = "Workflow Execution"
+                    with right_panel:
+                        yield Static("", id="output-text")            
+                
     def on_mount(self) -> None:
         """Start workflow execution when screen is mounted."""
         self._load_and_execute_workflow()
@@ -118,19 +154,15 @@ class WorkflowExecutionScreen(BaseScreen):
         try:
             # Load workflow
             self.workflow = self.config.workflows.get_workflow(self.workflow_name)
-            if not self.workflow:
-                self._update_workflow_info(
-                    f"[red]Error: Workflow '{self.workflow_name}' not found[/red]"
-                )
-                return
+            # if not self.workflow:
+                # TODO Create empty error screen 
+                # self._update_workflow_info(
+                #     f"[red]Error: Workflow '{self.workflow_name}' not found[/red]"
+                # )
+                # return
 
-            # Update workflow info
-            info_text = f"[bold cyan]{self.workflow.name}[/bold cyan]\n"
-            if self.workflow.description:
-                info_text += f"[dim]{self.workflow.description}[/dim]\n"
-            if self.workflow.source:
-                info_text += f"[dim]Source: {self.workflow.source}[/dim]"
-            self._update_workflow_info(info_text)
+            self._update_header_title(f"⚡ {self.workflow.name}")
+            self._update_description(self.workflow.description or "")
 
             # Create step widgets for non-hook steps
             steps_container = self.query_one("#steps-container", Vertical)
@@ -156,12 +188,16 @@ class WorkflowExecutionScreen(BaseScreen):
                 name="workflow_executor"
             )
 
-        except (WorkflowNotFoundError, WorkflowExecutionError) as e:
-            self._update_workflow_info(f"[red]Error: {e}[/red]")
-        except Exception as e:
-            self._update_workflow_info(
-                f"[red]Unexpected error: {type(e).__name__} - {e}[/red]"
-            )
+        except (WorkflowNotFoundError, WorkflowExecutionError):
+            pass
+            # TODO Create empty error screen
+            # self._update_workflow_info(f"[red]Error: {e}[/red]")
+        except Exception:
+            pass
+            # TODO Create empty error screen
+            # self._update_workflow_info(
+            #     f"[red]Unexpected error: {type(e).__name__} - {e}[/red]"
+            # )
 
     async def _execute_workflow_async(self) -> None:
         """Execute the workflow asynchronously."""
@@ -224,13 +260,21 @@ class WorkflowExecutionScreen(BaseScreen):
             # Restore original working directory
             os.chdir(self._original_cwd)
 
-    def _update_workflow_info(self, text: str) -> None:
-        """Update the workflow info widget."""
+    def _update_header_title(self, title: str) -> None:
+        """Update the header title."""
         try:
-            info_widget = self.query_one("#workflow-info", Static)
-            info_widget.update(text)
+            header = self.query_one(HeaderWidget)
+            header.title = title
         except Exception:
             pass
+
+    def _update_description(self, description: str) -> None:
+        """Update the workflow description."""
+        try:
+            header = self.query_one("#workflow-description", DimText)
+            header.update(description)
+        except Exception:
+            pass    
 
     def _update_step_widget(self, step_id: str, text: str) -> None:
         """Update a step widget's display."""
@@ -243,6 +287,10 @@ class WorkflowExecutionScreen(BaseScreen):
         try:
             output_widget = self.query_one("#output-text", Static)
             output_widget.update("\n".join(self._output_lines))
+
+            # Auto-scroll to bottom
+            output_scroll = self.query_one("#output-scroll", ScrollableContainer)
+            output_scroll.scroll_end(animate=False)
         except Exception:
             pass
 
