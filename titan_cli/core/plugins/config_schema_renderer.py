@@ -265,7 +265,7 @@ class ConfigSchemaRenderer:
         """Render a boolean field as yes/no confirmation."""
         default = default_value if default_value is not None else True
         return self.prompts.ask_confirm(
-            prompt=message,
+            question=message,
             default=default
         )
 

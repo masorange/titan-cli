@@ -115,7 +115,7 @@ class TestConfigSchemaRenderer:
 
         assert result is True
         renderer.prompts.ask_confirm.assert_called_once_with(
-            prompt='Enable feature?',
+            question='Enable feature?',
             default=True
         )
 
@@ -133,7 +133,7 @@ class TestConfigSchemaRenderer:
 
         assert result is False
         renderer.prompts.ask_confirm.assert_called_once_with(
-            prompt='Enable?',
+            question='Enable?',
             default=False
         )
 
