@@ -25,7 +25,7 @@ class PluginDownloader:
 
     # GitHub repository configuration
     REGISTRY_REPO = "masmovil/titan-cli"
-    REGISTRY_BRANCH = "feat/plugin-marketplace-system"  # TODO: Change to "master" after merge
+    REGISTRY_BRANCH = "master"
     REGISTRY_URL = f"https://raw.githubusercontent.com/{REGISTRY_REPO}/{REGISTRY_BRANCH}/registry.json"
 
     def __init__(self, registry_url: Optional[str] = None, plugins_dir: Optional[Path] = None):
