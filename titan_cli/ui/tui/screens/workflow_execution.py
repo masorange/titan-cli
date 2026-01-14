@@ -12,6 +12,7 @@ from textual.containers import Container, Vertical, ScrollableContainer, Vertica
 from textual.worker import Worker, WorkerState
 
 from titan_cli.ui.tui.widgets import HeaderWidget
+from titan_cli.ui.tui.icons import Icons
 
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.workflows import ParsedWorkflow
@@ -113,7 +114,7 @@ class WorkflowExecutionScreen(BaseScreen):
     def __init__(self, config, workflow_name: str, **kwargs):
         super().__init__(
             config,
-            title=f"⚡ Executing: {workflow_name}",
+            title=f"{Icons.WORKFLOW} Executing: {workflow_name}",
             show_back=True,
             **kwargs
         )
@@ -155,7 +156,7 @@ class WorkflowExecutionScreen(BaseScreen):
                 # )
                 # return
 
-            self._update_header_title(f"⚡ {self.workflow.name}")
+            self._update_header_title(f"{Icons.WORKFLOW} {self.workflow.name}")
             self._update_description(self.workflow.description or "")
 
             # Create step widgets for non-hook steps
@@ -168,7 +169,7 @@ class WorkflowExecutionScreen(BaseScreen):
                 step_name = step_data.get("name") or step_id
 
                 step_widget = Static(
-                    f"⏸️ {step_name}",
+                    f"{Icons.PENDING} {step_name}",
                     classes="step-widget"
                 )
                 self._step_widgets[step_id] = step_widget
@@ -245,10 +246,10 @@ class WorkflowExecutionScreen(BaseScreen):
             self._append_output("\n[dim]Press ESC or Q to return[/dim]")
 
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
-            self._append_output(f"\n[red]❌ Workflow failed: {e}[/red]")
+            self._append_output(f"\n[red]{Icons.ERROR} Workflow failed: {e}[/red]")
             self._append_output("[dim]Press ESC or Q to return[/dim]")
         except Exception as e:
-            self._append_output(f"\n[red]❌ Unexpected error: {type(e).__name__}: {e}[/red]")
+            self._append_output(f"\n[red]{Icons.ERROR} Unexpected error: {type(e).__name__}: {e}[/red]")
             self._append_output("[dim]Press ESC or Q to return[/dim]")
         finally:
             # Restore original working directory
@@ -302,25 +303,25 @@ class WorkflowExecutionScreen(BaseScreen):
         self, message: TextualWorkflowExecutor.StepStarted
     ) -> None:
         """Handle step started event."""
-        self._update_step_widget(message.step_id, f"⏳ [cyan]{message.step_name}[/cyan]")
+        self._update_step_widget(message.step_id, f"{Icons.RUNNING} [cyan]{message.step_name}[/cyan]")
         self._append_output(f"[cyan]→ Step {message.step_index}: {message.step_name}[/cyan]")
 
     def on_textual_workflow_executor_step_completed(
         self, message: TextualWorkflowExecutor.StepCompleted
     ) -> None:
         """Handle step completed event."""
-        self._update_step_widget(message.step_id, f"✅ [green]{message.step_name}[/green]")
-        self._append_output(f"[green]✅ Completed: {message.step_name}[/green]\n")
+        self._update_step_widget(message.step_id, f"{Icons.SUCCESS} [green]{message.step_name}[/green]")
+        self._append_output(f"[green]{Icons.SUCCESS} Completed: {message.step_name}[/green]\n")
 
     def on_textual_workflow_executor_step_failed(
         self, message: TextualWorkflowExecutor.StepFailed
     ) -> None:
         """Handle step failed event."""
-        self._update_step_widget(message.step_id, f"❌ [red]{message.step_name}[/red]")
-        self._append_output(f"[red]❌ Failed: {message.step_name}[/red]")
+        self._update_step_widget(message.step_id, f"{Icons.ERROR} [red]{message.step_name}[/red]")
+        self._append_output(f"[red]{Icons.ERROR} Failed: {message.step_name}[/red]")
         self._append_output(f"[red]   Error: {message.error_message}[/red]")
         if message.on_error == "continue":
-            self._append_output("[yellow]   ⚠️  Continuing despite error[/yellow]\n")
+            self._append_output(f"[yellow]   {Icons.WARNING}  Continuing despite error[/yellow]\n")
         else:
             self._append_output("")
 
@@ -328,20 +329,20 @@ class WorkflowExecutionScreen(BaseScreen):
         self, message: TextualWorkflowExecutor.StepSkipped
     ) -> None:
         """Handle step skipped event."""
-        self._update_step_widget(message.step_id, f"⏭️ [yellow]{message.step_name}[/yellow]")
-        self._append_output(f"[yellow]⏭️ Skipped: {message.step_name}[/yellow]\n")
+        self._update_step_widget(message.step_id, f"{Icons.SKIPPED} [yellow]{message.step_name}[/yellow]")
+        self._append_output(f"[yellow]{Icons.SKIPPED} Skipped: {message.step_name}[/yellow]\n")
 
     def on_textual_workflow_executor_workflow_completed(
         self, message: TextualWorkflowExecutor.WorkflowCompleted
     ) -> None:
         """Handle workflow completed event."""
-        self._append_output(f"\n[bold green]✅ Workflow completed: {message.workflow_name}[/bold green]")
+        self._append_output(f"\n[bold green]{Icons.SUCCESS} Workflow completed: {message.workflow_name}[/bold green]")
 
     def on_textual_workflow_executor_workflow_failed(
         self, message: TextualWorkflowExecutor.WorkflowFailed
     ) -> None:
         """Handle workflow failed event."""
-        self._append_output(f"\n[bold red]❌ Workflow failed at step: {message.step_name}[/bold red]")
+        self._append_output(f"\n[bold red]{Icons.ERROR} Workflow failed at step: {message.step_name}[/bold red]")
         self._append_output(f"[red]{message.error_message}[/red]")
 
     def action_cancel_execution(self) -> None:

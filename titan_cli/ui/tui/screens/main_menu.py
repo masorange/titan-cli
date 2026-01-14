@@ -9,6 +9,7 @@ from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 
+from titan_cli.ui.tui.icons import Icons
 from .base import BaseScreen
 
 
@@ -100,12 +101,12 @@ class MainMenuScreen(BaseScreen):
                 p for p in installed_plugins if self.config.is_plugin_enabled(p)
             ]
             if enabled_plugins:
-                options.append(Option("⚡ Workflows", id="run_workflow"))
+                options.append(Option(f"{Icons.WORKFLOW} Workflows", id="run_workflow"))
 
             options.extend(
                 [
-                    Option("🔌 Plugin Management", id="plugin_management"),
-                    Option("⚙️  AI Configuration", id="ai_config"),
+                    Option(f"{Icons.PLUGIN} Plugin Management", id="plugin_management"),
+                    Option(f"{Icons.SETTINGS}  AI Configuration", id="ai_config"),
                 ]
             )
 

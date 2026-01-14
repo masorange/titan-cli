@@ -15,6 +15,7 @@ from textual.css.query import NoMatches
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.core.workflows.workflow_sources import WorkflowInfo
 from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
+from titan_cli.ui.tui.icons import Icons
 from .base import BaseScreen
 
 class WorkflowsScreen(BaseScreen):
@@ -138,9 +139,9 @@ class WorkflowsScreen(BaseScreen):
                 plugin_names = WorkflowFilterService.get_unique_plugin_names(self._all_workflows)
 
                 # Build plugin filter options
-                plugin_options = [Option("📦 All Plugins", id="all")]
+                plugin_options = [Option(f"{Icons.PACKAGE} All Plugins", id="all")]
                 for plugin_name in sorted(plugin_names):
-                    plugin_options.append(Option(f"🔌 {plugin_name}", id=plugin_name))
+                    plugin_options.append(Option(f"{Icons.PLUGIN} {plugin_name}", id=plugin_name))
 
                 # Build workflow options (initially show all)
                 workflow_options = self._build_workflow_options(self._all_workflows)
