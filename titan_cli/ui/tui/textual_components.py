@@ -160,13 +160,12 @@ class TextualComponents:
             # App is closing or worker was cancelled
             pass
 
-    def markdown(self, markdown_text: str, max_height: int = 30) -> None:
+    def markdown(self, markdown_text: str) -> None:
         """
-        Render markdown content in a scrollable container.
+        Render markdown content (parent container handles scrolling).
 
         Args:
             markdown_text: Markdown content to render
-            max_height: Maximum height in lines (default: 30)
 
         Example:
             ctx.textual.markdown("## My Title\n\nSome **bold** text")
@@ -174,10 +173,9 @@ class TextualComponents:
         # Create markdown widget directly (Textual's Markdown already handles wrapping)
         md_widget = Markdown(markdown_text)
 
-        # Apply basic styling
+        # Apply basic styling - let it expand fully, parent has scroll
         md_widget.styles.width = "100%"
         md_widget.styles.height = "auto"
-        md_widget.styles.max_height = max_height
         md_widget.styles.padding = (1, 2)
         md_widget.styles.margin = (0, 0, 1, 0)
 
