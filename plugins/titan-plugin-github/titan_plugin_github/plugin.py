@@ -117,7 +117,7 @@ class GitHubPlugin(TitanPlugin):
         from .steps.ai_pr_step import ai_suggest_pr_description_step
         from .steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
         from .steps.template_steps import find_issue_template_step
-        from .steps.preview_steps import preview_and_confirm_issue_step
+        from .steps.preview_step import preview_and_confirm_issue_step
         return {
             "create_pr": create_pr_step,
             "prompt_for_pr_title": prompt_for_pr_title_step,
