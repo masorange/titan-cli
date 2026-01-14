@@ -294,30 +294,29 @@ class WorkflowExecutionScreen(BaseScreen):
             pass
 
     def _schedule_auto_back(self) -> None:
-        """Schedule auto-back - will execute when worker finishes."""
+        """Schedule auto-back - will poll worker state until it finishes."""
         import time
         with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] SCREEN: Auto-back scheduled, setting flag\n")
+            f.write(f"[{time.time():.3f}] SCREEN: Auto-back scheduled, starting polling\n")
         self._should_auto_back = True
-        # Check if worker already finished
-        self._check_and_pop_if_ready()
+        # Start polling worker state
+        self._poll_worker_and_pop()
 
-    def _check_and_pop_if_ready(self) -> None:
-        """Check if we should pop screen (worker finished + auto-back scheduled)."""
+    def _poll_worker_and_pop(self) -> None:
+        """Poll worker state and pop screen when finished."""
         import time
-        if self._should_auto_back and (not self._worker or self._worker.state != WorkerState.RUNNING):
+
+        # Check if worker is still running
+        if self._worker and self._worker.state == WorkerState.RUNNING:
             with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] SCREEN: Worker finished and auto-back ready, popping screen\n")
+                f.write(f"[{time.time():.3f}] SCREEN: Worker still running, will check again in 0.1s\n")
+            # Worker still running, check again in 100ms
+            self.set_timer(0.1, self._poll_worker_and_pop)
+        else:
+            # Worker finished, safe to pop
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] SCREEN: Worker finished, popping screen now\n")
             self.app.pop_screen()
-
-    def on_worker_state_changed(self, event) -> None:
-        """Handle worker state changes."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] SCREEN: Worker state changed to {event.state}\n")
-        # When worker finishes, check if we should auto-back
-        if event.state != WorkerState.RUNNING:
-            self._check_and_pop_if_ready()
 
     def action_cancel_execution(self) -> None:
         """Cancel workflow execution and go back."""
