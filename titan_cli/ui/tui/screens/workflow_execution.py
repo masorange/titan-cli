@@ -8,7 +8,7 @@ from typing import Optional, Dict
 
 from textual.app import ComposeResult
 from textual.widgets import Static
-from textual.containers import Container, Vertical, ScrollableContainer
+from textual.containers import Container, Vertical, ScrollableContainer, VerticalScroll
 from textual.worker import Worker, WorkerState
 
 from titan_cli.ui.tui.widgets import HeaderWidget
@@ -57,7 +57,7 @@ class WorkflowExecutionScreen(BaseScreen):
         padding: 0 2 1 2;
     }
 
-    #left-panel {
+    #steps-panel {
         width: 20%;
         height: 100%;
         border: round $primary;
@@ -66,14 +66,7 @@ class WorkflowExecutionScreen(BaseScreen):
         padding: 0;
     }
 
-    #left-panel #workflow-info  {
-        width: 100%;
-        height: 1fr;
-        margin-bottom: 1;
-        text-align: center;
-    }
-
-    #right-panel {
+    #workflow-execution-panel {
         width: 80%;
         height: 100%;
         border: round $primary;
@@ -94,6 +87,7 @@ class WorkflowExecutionScreen(BaseScreen):
     #steps-container {
         width: 100%;
         height: auto;
+        padding: 1 0 1 0;
     }
 
     .step-widget {
@@ -135,12 +129,12 @@ class WorkflowExecutionScreen(BaseScreen):
         with Container(id="execution-container"):
             yield DimText(id="workflow-description")
             with Horizontal():
-                    left_panel = Container(id="left-panel")
-                    left_panel.border_title = "Workflow Info"
+                    left_panel = VerticalScroll(id="steps-panel")
+                    left_panel.border_title = "Steps"
                     with left_panel:
                         yield Vertical(id="steps-container")
 
-                    right_panel = Container(id="right-panel")
+                    right_panel = VerticalScroll(id="workflow-execution-panel")
                     right_panel.border_title = "Workflow Execution"
                     with right_panel:
                         yield Static("", id="output-text")            
