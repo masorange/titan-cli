@@ -452,6 +452,7 @@ class WorkflowExecutionContent(Widget):
     def handle_event(self, message) -> None:
         """Handle workflow events generically."""
         from titan_cli.ui.tui.textual_workflow_executor import TextualWorkflowExecutor
+        from titan_cli.ui.tui.widgets import Panel
 
         if isinstance(message, TextualWorkflowExecutor.WorkflowStarted):
             self.append_output(f"\n[bold cyan]🚀 Starting workflow: {message.workflow_name}[/bold cyan]")
@@ -463,15 +464,23 @@ class WorkflowExecutionContent(Widget):
             self.append_output(f"[green]{Icons.SUCCESS} Completed: {message.step_name}[/green]\n")
 
         elif isinstance(message, TextualWorkflowExecutor.StepFailed):
-            self.append_output(f"[red]{Icons.ERROR} Failed: {message.step_name}[/red]")
-            self.append_output(f"[red]   Error: {message.error_message}[/red]")
+            # Mount error panel
+            try:
+                self.mount(Panel(f"Failed: {message.step_name} - {message.error_message}", panel_type="error"))
+            except Exception:
+                pass
+
             if message.on_error == "continue":
                 self.append_output(f"[yellow]   {Icons.WARNING}  Continuing despite error[/yellow]\n")
             else:
                 self.append_output("")
 
         elif isinstance(message, TextualWorkflowExecutor.StepSkipped):
-            self.append_output(f"[yellow]{Icons.SKIPPED} Skipped: {message.step_name}[/yellow]\n")
+            # Mount warning panel for skipped steps
+            try:
+                self.mount(Panel(f"Skipped: {message.step_name}", panel_type="warning"))
+            except Exception:
+                pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowCompleted):
             self.append_output(f"\n[bold green]{Icons.SUCCESS} Workflow completed: {message.workflow_name}[/bold green]")

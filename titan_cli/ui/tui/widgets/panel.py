@@ -17,13 +17,13 @@ class Panel(Widget):
 
     DEFAULT_CSS = """
     Panel {
-        width: 100%;
+        width: auto;
         height: auto;
         margin: 0 0 1 0;
     }
 
     Panel > Container {
-        width: 100%;
+        width: auto;
         height: auto;
         border: round $primary;
         padding: 1;
@@ -46,7 +46,7 @@ class Panel(Widget):
     }
 
     Panel Label {
-        width: 100%;
+        width: auto;
         height: auto;
     }
     """
