@@ -313,6 +313,10 @@ class TextualComponents:
             with ctx.textual.loading("Generating commit message..."):
                 response = ctx.ai.generate(messages)
         """
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] loading(): Creating loading container\n")
+
         # Create loading container with message and spinner
         loading_container = Container(
             Static(f"[dim]{message}[/dim]"),
@@ -320,24 +324,38 @@ class TextualComponents:
         )
         loading_container.styles.height = "auto"
 
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] loading(): Mounting loading container\n")
+
         # Mount the loading widget
         self.mount(loading_container)
+
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] loading(): Loading container mounted, yielding\n")
 
         try:
             yield
         finally:
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] loading(): In finally block, removing loading container\n")
+
             # Remove loading widget when done
             def _remove():
                 try:
+                    with open("/tmp/titan_debug.log", "a") as f:
+                        f.write(f"[{time.time():.3f}] loading._remove(): Removing loading container\n")
                     loading_container.remove()
-                except Exception:
-                    pass
+                    with open("/tmp/titan_debug.log", "a") as f:
+                        f.write(f"[{time.time():.3f}] loading._remove(): Loading container removed\n")
+                except Exception as e:
+                    with open("/tmp/titan_debug.log", "a") as f:
+                        f.write(f"[{time.time():.3f}] loading._remove(): Error removing: {e}\n")
 
             try:
                 self.app.call_from_thread(_remove)
-            except Exception:
-                # App is closing or worker was cancelled
-                pass
+            except Exception as e:
+                with open("/tmp/titan_debug.log", "a") as f:
+                    f.write(f"[{time.time():.3f}] loading(): Error in call_from_thread: {e}\n")
 
     def launch_external_cli(self, cli_name: str, prompt: str = None, cwd: str = None) -> int:
         """
