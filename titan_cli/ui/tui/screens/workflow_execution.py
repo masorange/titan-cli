@@ -479,9 +479,11 @@ class WorkflowExecutionContent(Widget):
                 pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowCompleted):
-            self.append_output(f"\n[bold green]{Icons.SUCCESS} Workflow completed: {message.workflow_name}[/bold green]")
+            # Show success toast instead of inline message
+            self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
-            self.append_output(f"\n[bold red]{Icons.ERROR} Workflow failed at step: {message.step_name}[/bold red]")
+            # Show error toast for workflow failure
+            self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)
             self.append_output(f"[red]{message.error_message}[/red]")
 
