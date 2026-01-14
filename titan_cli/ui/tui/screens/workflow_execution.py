@@ -161,7 +161,6 @@ class WorkflowExecutionScreen(BaseScreen):
             # Change to project directory if specified
             if self.config.active_project_path:
                 os.chdir(self.config.active_project_path)
-                self._output(f"Working directory: {self.config.active_project_path}")
 
             # Create secret manager
             secrets = SecretManager(
@@ -198,13 +197,8 @@ class WorkflowExecutionScreen(BaseScreen):
                 message_target=self  # Pass self to receive messages
             )
 
-            self._output("Starting workflow execution...")
-
             # Execute workflow (this is synchronous and may take time)
             executor.execute(self.workflow, execution_context)
-
-            # Execution completed - messages were sent during execution
-            self._output("\n[dim]Press ESC or Q to return[/dim]")
 
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
             self._output(f"\n[red]{Icons.ERROR} Workflow failed: {e}[/red]")
@@ -321,7 +315,7 @@ class StepsContent(Widget):
     .step-widget {
         width: 100%;
         height: auto;
-        padding: 0 1;
+        padding: 0 1 1 1;
     }
     """
 
@@ -419,9 +413,6 @@ class WorkflowExecutionContent(Widget):
 
         if isinstance(message, TextualWorkflowExecutor.WorkflowStarted):
             self.append_output(f"\n[bold cyan]🚀 Starting workflow: {message.workflow_name}[/bold cyan]")
-            if message.description:
-                self.append_output(f"[dim]{message.description}[/dim]")
-            self.append_output(f"[dim]Total steps: {message.total_steps}[/dim]\n")
 
         elif isinstance(message, TextualWorkflowExecutor.StepStarted):
             self.append_output(f"[cyan]→ Step {message.step_index}: {message.step_name}[/cyan]")
