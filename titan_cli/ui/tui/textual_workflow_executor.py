@@ -44,10 +44,11 @@ class TextualWorkflowExecutor:
 
     class WorkflowCompleted(Message):
         """Emitted when workflow completes successfully."""
-        def __init__(self, workflow_name: str, message: str) -> None:
+        def __init__(self, workflow_name: str, message: str, is_nested: bool = False) -> None:
             super().__init__()
             self.workflow_name = workflow_name
             self.message = message
+            self.is_nested = is_nested
 
     class WorkflowFailed(Message):
         """Emitted when workflow fails."""
@@ -275,11 +276,15 @@ class TextualWorkflowExecutor:
         finally:
             ctx.exit_workflow(workflow.name)
 
+        # Check if this is a nested workflow (called from another workflow)
+        is_nested = len(ctx._workflow_stack) > 0
+
         # Emit workflow completed event
         self._post_message(
             self.WorkflowCompleted(
                 workflow_name=workflow.name,
-                message=f"Workflow '{workflow.name}' finished."
+                message=f"Workflow '{workflow.name}' finished.",
+                is_nested=is_nested
             )
         )
 

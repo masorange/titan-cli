@@ -481,8 +481,9 @@ class WorkflowExecutionContent(Widget):
         elif isinstance(message, TextualWorkflowExecutor.WorkflowCompleted):
             # Show success toast instead of inline message
             self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
-            # Auto return to previous screen after a short delay
-            self.set_timer(3.0, self.app.pop_screen)
+            # Auto return to previous screen after a short delay (only if not nested)
+            if not message.is_nested:
+                self.set_timer(3.0, self.app.pop_screen)
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
             # Show error toast for workflow failure
