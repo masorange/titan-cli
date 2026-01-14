@@ -138,10 +138,11 @@ class WorkflowExecutionScreen(BaseScreen):
 
             self._output("Preparing to execute workflow...")
 
-            # Execute workflow in background worker
+            # Execute workflow in background thread (not async worker)
             self._worker = self.run_worker(
-                self._execute_workflow_async(),
-                name="workflow_executor"
+                self._execute_workflow,
+                name="workflow_executor",
+                thread=True
             )
 
         except (WorkflowNotFoundError, WorkflowExecutionError):
@@ -155,8 +156,8 @@ class WorkflowExecutionScreen(BaseScreen):
             #     f"[red]Unexpected error: {type(e).__name__} - {e}[/red]"
             # )
 
-    async def _execute_workflow_async(self) -> None:
-        """Execute the workflow asynchronously."""
+    def _execute_workflow(self) -> None:
+        """Execute the workflow in a background thread."""
         try:
             # Change to project directory if specified
             if self.config.active_project_path:

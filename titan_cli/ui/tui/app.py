@@ -30,9 +30,13 @@ class TitanApp(App):
     # Combine theme CSS with app-specific CSS
     CSS = TITAN_THEME_CSS
 
+    # Allow text selection in terminal (Shift+Mouse will work in most terminals)
+    ENABLE_COMMAND_PALETTE = False  # Disable Ctrl+\ interference
+
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
+        Binding("ctrl+shift+c", "toggle_copy_mode", "Copy Mode"),
         Binding("?", "help", "Help"),
     ]
 
@@ -80,3 +84,19 @@ class TitanApp(App):
 
         # TUI is automatically restored here
         return exit_code
+
+    def action_toggle_copy_mode(self) -> None:
+        """Toggle copy mode - disables mouse capture to allow text selection."""
+        # Toggle mouse capture
+        current = getattr(self, '_copy_mode', False)
+        self._copy_mode = not current
+
+        # Disable/enable mouse capture globally
+        if self._copy_mode:
+            # Disable mouse - allows terminal selection
+            self.mouse_capture = False
+            self.notify("📋 Copy Mode ON - Use mouse to select text, press Ctrl+Shift+C to exit", timeout=3)
+        else:
+            # Re-enable mouse
+            self.mouse_capture = True
+            self.notify("🖱️  Copy Mode OFF - Mouse interactions restored", timeout=3)

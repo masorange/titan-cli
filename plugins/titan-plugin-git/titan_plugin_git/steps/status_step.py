@@ -7,6 +7,7 @@ from titan_cli.engine import (
 )
 from titan_cli.messages import msg as global_msg
 from ..messages import msg
+from titan_cli.ui.tui.widgets import Panel
 
 def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -21,16 +22,7 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
     Returns:
         Success: If the status was retrieved successfully.
         Error: If the GitClient is not available or the git command fails.
-        Skip: If user cancels when uncommitted changes are detected.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header(
-            name="Check Git Status",
-            step_type="plugin",
-            step_detail="git.get_status"
-        )
-
     if not ctx.git:
         return Error(msg.Steps.Status.GIT_CLIENT_NOT_AVAILABLE)
 
@@ -39,9 +31,15 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # If there are uncommitted changes, show warning panel
         if not status.is_clean:
-            # Show warning panel if UI is available
-            if ctx.ui:
-                # Warning panel for uncommitted changes (don't pass title to use default with emoji)
+            if ctx.textual:
+                
+                ctx.textual.mount(
+                    Panel(
+                        text=global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING,
+                        panel_type="warning"
+                    )
+                )
+            elif ctx.ui:
                 ctx.ui.panel.print(
                     global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING,
                     panel_type="warning"
@@ -50,7 +48,14 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
             message = msg.Steps.Status.STATUS_RETRIEVED_WITH_UNCOMMITTED
         else:
             # Show success panel for clean working directory
-            if ctx.ui:
+            if ctx.textual:            
+                ctx.textual.mount(
+                    Panel(
+                        text=msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN,
+                        panel_type="success"
+                    )
+                )
+            elif ctx.ui:
                 ctx.ui.panel.print(
                     msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN,
                     panel_type="success"

@@ -139,6 +139,20 @@ class TextualWorkflowExecutor:
         Returns:
             WorkflowResult indicating success or failure
         """
+        # Inject Textual components into context if message_target is available
+        if self._message_target and hasattr(self._message_target, 'app'):
+            try:
+                from titan_cli.ui.tui.textual_components import TextualComponents
+                from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionContent
+
+                app = self._message_target.app
+                output_widget = self._message_target.query_one("#execution-content", WorkflowExecutionContent)
+
+                ctx.textual = TextualComponents(app, output_widget)
+            except Exception:
+                # If we can't get the components, steps will fall back to ctx.ui
+                pass
+
         # Merge workflow params into ctx.data with optional overrides
         effective_params = {**workflow.params}
         if params_override:
