@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from .exceptions import PluginValidationError
+from titan_cli.messages import msg
 
 
 class PluginValidator:
@@ -67,10 +68,14 @@ class PluginValidator:
             PluginValidationError: If validation fails
         """
         if not plugin_path.exists():
-            raise PluginValidationError(f"Plugin path does not exist: {plugin_path}")
+            raise PluginValidationError(
+                msg.PluginValidator.PATH_NOT_EXISTS.format(path=plugin_path)
+            )
 
         if not plugin_path.is_dir():
-            raise PluginValidationError(f"Plugin path is not a directory: {plugin_path}")
+            raise PluginValidationError(
+                msg.PluginValidator.PATH_NOT_DIR.format(path=plugin_path)
+            )
 
         # Validate plugin.json
         metadata = self.validate_metadata(plugin_path)
@@ -100,7 +105,7 @@ class PluginValidator:
 
         if not metadata_path.exists():
             raise PluginValidationError(
-                f"Missing plugin.json in {plugin_path.name}"
+                msg.PluginValidator.MISSING_METADATA.format(name=plugin_path.name)
             )
 
         try:
@@ -108,18 +113,18 @@ class PluginValidator:
                 metadata = json.load(f)
         except json.JSONDecodeError as e:
             raise PluginValidationError(
-                f"Invalid JSON in plugin.json: {e}"
+                msg.PluginValidator.INVALID_JSON.format(error=e)
             ) from e
         except Exception as e:
             raise PluginValidationError(
-                f"Failed to read plugin.json: {e}"
+                msg.PluginValidator.READ_ERROR.format(error=e)
             ) from e
 
         # Check required fields
         missing_fields = self.REQUIRED_FIELDS - set(metadata.keys())
         if missing_fields:
             raise PluginValidationError(
-                f"Missing required fields in plugin.json: {', '.join(missing_fields)}"
+                msg.PluginValidator.MISSING_FIELDS.format(fields=", ".join(missing_fields))
             )
 
         # Validate field types
@@ -145,7 +150,7 @@ class PluginValidator:
         for field in string_fields:
             if field in metadata and not isinstance(metadata[field], str):
                 raise PluginValidationError(
-                    f"Field '{field}' must be a string"
+                    msg.PluginValidator.INVALID_FIELD_TYPE.format(field=field, field_type="string")
                 )
 
         # List fields
@@ -153,18 +158,20 @@ class PluginValidator:
         for field in list_fields:
             if field in metadata and not isinstance(metadata[field], list):
                 raise PluginValidationError(
-                    f"Field '{field}' must be a list"
+                    msg.PluginValidator.INVALID_FIELD_TYPE.format(field=field, field_type="list")
                 )
 
         # Boolean fields
         if "verified" in metadata and not isinstance(metadata["verified"], bool):
-            raise PluginValidationError("Field 'verified' must be a boolean")
+            raise PluginValidationError(
+                msg.PluginValidator.INVALID_FIELD_TYPE.format(field="verified", field_type="boolean")
+            )
 
         # Category validation
         valid_categories = ["official", "community"]
         if metadata.get("category") not in valid_categories:
             raise PluginValidationError(
-                f"Field 'category' must be one of: {', '.join(valid_categories)}"
+                msg.PluginValidator.INVALID_CATEGORY.format(categories=", ".join(valid_categories))
             )
 
     def validate_entry_point(self, plugin_path: Path, entry_point: str) -> None:
@@ -180,8 +187,7 @@ class PluginValidator:
         """
         if ":" not in entry_point:
             raise PluginValidationError(
-                f"Invalid entry point format: {entry_point}. "
-                "Expected format: 'module.path:ClassName'"
+                msg.PluginValidator.INVALID_ENTRY_POINT.format(entry_point=entry_point)
             )
 
         module_path, class_name = entry_point.split(":", 1)
@@ -191,7 +197,7 @@ class PluginValidator:
 
         if not module_file.exists():
             raise PluginValidationError(
-                f"Entry point module not found: {module_file}"
+                msg.PluginValidator.ENTRY_POINT_NOT_FOUND.format(module_file=module_file)
             )
 
         # Verify class exists in module (basic check - don't import to avoid side effects)
@@ -199,11 +205,14 @@ class PluginValidator:
             content = module_file.read_text()
             if f"class {class_name}" not in content:
                 raise PluginValidationError(
-                    f"Entry point class '{class_name}' not found in {module_file.name}"
+                    msg.PluginValidator.CLASS_NOT_FOUND.format(
+                        class_name=class_name,
+                        file=module_file.name
+                    )
                 )
         except Exception as e:
             raise PluginValidationError(
-                f"Failed to validate entry point: {e}"
+                msg.PluginValidator.ENTRY_POINT_ERROR.format(error=e)
             ) from e
 
     def validate_compatibility(self, metadata: Dict[str, Any]) -> None:
@@ -224,8 +233,10 @@ class PluginValidator:
         # Simple version comparison (semantic versioning)
         if not self._is_version_compatible(min_version, self.titan_version):
             raise PluginValidationError(
-                f"Plugin requires Titan CLI >= {min_version}, "
-                f"but current version is {self.titan_version}"
+                msg.PluginValidator.INCOMPATIBLE_VERSION.format(
+                    min_version=min_version,
+                    current_version=self.titan_version
+                )
             )
 
     def _is_version_compatible(self, min_version: str, current_version: str) -> bool:
@@ -276,7 +287,7 @@ class PluginValidator:
         dependencies = metadata.get("dependencies", [])
 
         if not isinstance(dependencies, list):
-            raise PluginValidationError("Dependencies must be a list")
+            raise PluginValidationError(msg.PluginValidator.INVALID_DEPENDENCIES)
 
         missing = []
         for dep in dependencies:

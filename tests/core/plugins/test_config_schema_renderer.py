@@ -206,10 +206,10 @@ class TestConfigSchemaRenderer:
 
     def test_validate_uri_invalid(self, renderer):
         """Test URI validation with invalid URLs."""
-        with pytest.raises(ValueError, match="must start with http"):
+        with pytest.raises(ValueError, match="Invalid URI format"):
             renderer._validate_uri('ftp://example.com')
 
-        with pytest.raises(ValueError, match="must start with http"):
+        with pytest.raises(ValueError, match="Invalid URI format"):
             renderer._validate_uri('example.com')
 
     def test_validate_pattern_valid(self, renderer):

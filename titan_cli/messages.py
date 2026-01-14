@@ -473,6 +473,108 @@ class Messages:
         ERROR_UNINSTALL = "Uninstall Error"
         ERROR_GENERIC = "Error"
 
+    # ═══════════════════════════════════════════════════════════════
+    # Plugin Downloader
+    # ═══════════════════════════════════════════════════════════════
+
+    class PluginDownloader:
+        """Plugin downloader messages"""
+
+        # Registry fetching
+        FETCH_REGISTRY_HTTP_ERROR = "Failed to fetch registry: HTTP {status}"
+        FETCH_REGISTRY_HTTP_EXCEPTION = "HTTP error fetching registry: {code} {reason}"
+        FETCH_REGISTRY_NETWORK_ERROR = "Network error fetching registry: {reason}"
+        FETCH_REGISTRY_JSON_ERROR = "Invalid registry JSON: {error}"
+        FETCH_REGISTRY_UNEXPECTED = "Unexpected error fetching registry: {error}"
+
+        # Registry validation
+        REGISTRY_INVALID_FORMAT = "Invalid registry format: missing 'plugins' key"
+        PLUGIN_NOT_IN_REGISTRY = "Plugin '{name}' not found in registry. Available plugins: {available}"
+        PLUGIN_NO_SOURCE = "Plugin '{name}' has no source path in registry"
+
+        # Download operations
+        DOWNLOAD_HTTP_ERROR = "Failed to download plugin: HTTP {status}"
+        DOWNLOAD_DIR_NOT_FOUND = "Plugin directory not found: {source_path}"
+        DOWNLOAD_HTTP_EXCEPTION = "HTTP error downloading plugin: {code} {reason}"
+        DOWNLOAD_NETWORK_ERROR = "Network error downloading plugin: {reason}"
+        DOWNLOAD_INVALID_ZIP = "Invalid ZIP file: {error}"
+        DOWNLOAD_UNEXPECTED = "Unexpected error downloading plugin: {error}"
+
+        # Installation operations
+        ALREADY_INSTALLED = "Plugin '{name}' is already installed. Use force=True to reinstall."
+        INSTALL_DOWNLOAD_FAILED = "Failed to download plugin '{name}': {error}"
+        INSTALL_FAILED = "Failed to install plugin '{name}': {error}"
+
+        # Uninstallation operations
+        NOT_INSTALLED = "Plugin '{name}' is not installed"
+        UNINSTALL_FAILED = "Failed to uninstall plugin '{name}': {error}"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Plugin Validator
+    # ═══════════════════════════════════════════════════════════════
+
+    class PluginValidator:
+        """Plugin validator messages"""
+
+        # Path validation
+        PATH_NOT_EXISTS = "Plugin path does not exist: {path}"
+        PATH_NOT_DIR = "Plugin path is not a directory: {path}"
+
+        # Metadata validation
+        MISSING_METADATA = "Missing plugin.json in {name}"
+        INVALID_JSON = "Invalid JSON in plugin.json: {error}"
+        READ_ERROR = "Failed to read plugin.json: {error}"
+        MISSING_FIELDS = "Missing required fields in plugin.json: {fields}"
+
+        # Field validation
+        INVALID_FIELD_TYPE = "Field '{field}' must be a {field_type}"
+        INVALID_CATEGORY = "Field 'category' must be one of: {categories}"
+
+        # Entry point validation
+        INVALID_ENTRY_POINT = "Invalid entry point format: {entry_point}. Expected format: 'module.path:ClassName'"
+        ENTRY_POINT_NOT_FOUND = "Entry point module not found: {module_file}"
+        CLASS_NOT_FOUND = "Entry point class '{class_name}' not found in {file}"
+        ENTRY_POINT_ERROR = "Failed to validate entry point: {error}"
+
+        # Version validation
+        INCOMPATIBLE_VERSION = "Plugin requires Titan CLI >= {min_version}, but current version is {current_version}"
+
+        # Dependencies validation
+        INVALID_DEPENDENCIES = "Dependencies must be a list"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Configuration Schema Renderer
+    # ═══════════════════════════════════════════════════════════════
+
+    class ConfigSchema:
+        """Configuration schema renderer messages"""
+
+        # Wizard states
+        NO_CONFIG_REQUIRED = "No configuration required for this plugin"
+        CONFIG_CANCELLED = "Configuration cancelled by user"
+        CONFIG_COMPLETED = "✅ Configuration completed successfully!"
+        CONFIG_ERROR = "Error configuring {field_name}: {error}"
+
+        # Field states
+        FIELD_SAVED_SECURELY = "✓ {field_name} saved securely"
+        FIELD_REQUIRED = "✗ This field is required"
+
+        # Validation messages
+        VALUE_TOO_LOW = "✗ Value must be >= {min_val}"
+        VALUE_TOO_HIGH = "✗ Value must be <= {max_val}"
+        INVALID_NUMBER = "✗ Value must be a valid {number_type}"
+        INVALID_SELECTION = "Invalid selection, using default"
+        INVALID_EMAIL = "✗ Invalid email format"
+        INVALID_URI = "✗ Invalid URI format"
+        PATTERN_MISMATCH = "✗ Value does not match required pattern: {pattern}"
+
+        # Array field messages
+        ARRAY_ENTER_VALUES = "Enter values for {field_name} (one per line, empty line to finish):"
+        ARRAY_CURRENT_VALUES = "Current values:"
+        ARRAY_VALUE_PROMPT = "Value {index}"
+
+        # Choice field messages
+        CHOICE_SELECT = "Select {field_name}:"
 
 
 

@@ -14,6 +14,7 @@ from urllib.request import urlopen
 from urllib.error import URLError, HTTPError
 
 from .exceptions import PluginDownloadError, PluginInstallError
+from titan_cli.messages import msg
 
 
 class PluginDownloader:
@@ -67,7 +68,7 @@ class PluginDownloader:
             with urlopen(self.registry_url, timeout=10) as response:
                 if response.status != 200:
                     raise PluginDownloadError(
-                        f"Failed to fetch registry: HTTP {response.status}"
+                        msg.PluginDownloader.FETCH_REGISTRY_HTTP_ERROR.format(status=response.status)
                     )
 
                 content = response.read().decode('utf-8')
@@ -76,19 +77,19 @@ class PluginDownloader:
 
         except HTTPError as e:
             raise PluginDownloadError(
-                f"HTTP error fetching registry: {e.code} {e.reason}"
+                msg.PluginDownloader.FETCH_REGISTRY_HTTP_EXCEPTION.format(code=e.code, reason=e.reason)
             ) from e
         except URLError as e:
             raise PluginDownloadError(
-                f"Network error fetching registry: {e.reason}"
+                msg.PluginDownloader.FETCH_REGISTRY_NETWORK_ERROR.format(reason=e.reason)
             ) from e
         except json.JSONDecodeError as e:
             raise PluginDownloadError(
-                f"Invalid registry JSON: {e}"
+                msg.PluginDownloader.FETCH_REGISTRY_JSON_ERROR.format(error=e)
             ) from e
         except Exception as e:
             raise PluginDownloadError(
-                f"Unexpected error fetching registry: {e}"
+                msg.PluginDownloader.FETCH_REGISTRY_UNEXPECTED.format(error=e)
             ) from e
 
     def get_plugin_info(self, plugin_name: str) -> Dict[str, Any]:
@@ -107,15 +108,17 @@ class PluginDownloader:
         registry = self.fetch_registry()
 
         if "plugins" not in registry:
-            raise PluginDownloadError("Invalid registry format: missing 'plugins' key")
+            raise PluginDownloadError(msg.PluginDownloader.REGISTRY_INVALID_FORMAT)
 
         plugins = registry["plugins"]
 
         if plugin_name not in plugins:
             available = ", ".join(plugins.keys())
             raise PluginDownloadError(
-                f"Plugin '{plugin_name}' not found in registry. "
-                f"Available plugins: {available}"
+                msg.PluginDownloader.PLUGIN_NOT_IN_REGISTRY.format(
+                    name=plugin_name,
+                    available=available
+                )
             )
 
         return plugins[plugin_name]
@@ -147,7 +150,7 @@ class PluginDownloader:
         source_path = plugin_info.get("source")
         if not source_path:
             raise PluginDownloadError(
-                f"Plugin '{plugin_name}' has no source path in registry"
+                msg.PluginDownloader.PLUGIN_NO_SOURCE.format(name=plugin_name)
             )
 
         # Download entire repository as ZIP
@@ -164,7 +167,7 @@ class PluginDownloader:
             with urlopen(zip_url, timeout=30) as response:
                 if response.status != 200:
                     raise PluginDownloadError(
-                        f"Failed to download plugin: HTTP {response.status}"
+                        msg.PluginDownloader.DOWNLOAD_HTTP_ERROR.format(status=response.status)
                     )
 
                 zip_path.write_bytes(response.read())
@@ -183,26 +186,26 @@ class PluginDownloader:
 
             if not plugin_dir.exists():
                 raise PluginDownloadError(
-                    f"Plugin directory not found: {source_path}"
+                    msg.PluginDownloader.DOWNLOAD_DIR_NOT_FOUND.format(source_path=source_path)
                 )
 
             return plugin_dir
 
         except HTTPError as e:
             raise PluginDownloadError(
-                f"HTTP error downloading plugin: {e.code} {e.reason}"
+                msg.PluginDownloader.DOWNLOAD_HTTP_EXCEPTION.format(code=e.code, reason=e.reason)
             ) from e
         except URLError as e:
             raise PluginDownloadError(
-                f"Network error downloading plugin: {e.reason}"
+                msg.PluginDownloader.DOWNLOAD_NETWORK_ERROR.format(reason=e.reason)
             ) from e
         except zipfile.BadZipFile as e:
             raise PluginDownloadError(
-                f"Invalid ZIP file: {e}"
+                msg.PluginDownloader.DOWNLOAD_INVALID_ZIP.format(error=e)
             ) from e
         except Exception as e:
             raise PluginDownloadError(
-                f"Unexpected error downloading plugin: {e}"
+                msg.PluginDownloader.DOWNLOAD_UNEXPECTED.format(error=e)
             ) from e
 
     def install_plugin(
@@ -230,8 +233,7 @@ class PluginDownloader:
 
         if install_path.exists() and not force:
             raise PluginInstallError(
-                f"Plugin '{plugin_name}' is already installed. "
-                f"Use force=True to reinstall."
+                msg.PluginDownloader.ALREADY_INSTALLED.format(name=plugin_name)
             )
 
         try:
@@ -257,11 +259,11 @@ class PluginDownloader:
 
         except PluginDownloadError as e:
             raise PluginInstallError(
-                f"Failed to download plugin '{plugin_name}': {e}"
+                msg.PluginDownloader.INSTALL_DOWNLOAD_FAILED.format(name=plugin_name, error=e)
             ) from e
         except Exception as e:
             raise PluginInstallError(
-                f"Failed to install plugin '{plugin_name}': {e}"
+                msg.PluginDownloader.INSTALL_FAILED.format(name=plugin_name, error=e)
             ) from e
 
     def uninstall_plugin(self, plugin_name: str) -> None:
@@ -278,14 +280,14 @@ class PluginDownloader:
 
         if not install_path.exists():
             raise PluginInstallError(
-                f"Plugin '{plugin_name}' is not installed"
+                msg.PluginDownloader.NOT_INSTALLED.format(name=plugin_name)
             )
 
         try:
             shutil.rmtree(install_path)
         except Exception as e:
             raise PluginInstallError(
-                f"Failed to uninstall plugin '{plugin_name}': {e}"
+                msg.PluginDownloader.UNINSTALL_FAILED.format(name=plugin_name, error=e)
             ) from e
 
     def list_installed(self) -> list[str]:

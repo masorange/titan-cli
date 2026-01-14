@@ -42,13 +42,13 @@ class MockDependentPlugin(MockPlugin):
     _dependencies = ["plugin_one"]
 
 
-def test_plugin_registry_discovery_success(mocker):
+def test_plugin_registry_discovery_success(mocker, tmp_path):
     """
     Test that PluginRegistry successfully discovers and loads plugins.
     """
     mock_ep1 = MagicMock()
     mock_ep1.name = "plugin_one"
-    
+
     # Create a new class for each mock plugin to have a different name
     PluginOne = type("PluginOne", (MockPlugin,), {"_name": "plugin_one"})
     mock_ep1.load.return_value = PluginOne
@@ -63,9 +63,10 @@ def test_plugin_registry_discovery_success(mocker):
         return_value=[mock_ep1, mock_ep2]
     )
 
-    registry = PluginRegistry(discover_on_init=False)
+    # Use temporary directory to avoid loading local plugins
+    registry = PluginRegistry(discover_on_init=False, plugins_dir=tmp_path / "plugins")
     registry.discover()
-    
+
     installed_plugins = registry.list_installed()
     assert len(installed_plugins) == 2
     assert "plugin_one" in installed_plugins
@@ -76,7 +77,7 @@ def test_plugin_registry_discovery_success(mocker):
     assert plugin_instance.name == "plugin_one"
 
 
-def test_plugin_registry_handles_load_failure(mocker, capsys):
+def test_plugin_registry_handles_load_failure(mocker, capsys, tmp_path):
     """
     Test that PluginRegistry gracefully handles a plugin that fails to load or is invalid.
     """
@@ -101,13 +102,14 @@ def test_plugin_registry_handles_load_failure(mocker, capsys):
         return_value=[mock_ep1, mock_ep_bad_import, mock_ep_bad_type]
     )
 
-    registry = PluginRegistry(discover_on_init=False)
+    # Use temporary directory to avoid loading local plugins
+    registry = PluginRegistry(discover_on_init=False, plugins_dir=tmp_path / "plugins")
     registry.discover()
 
     installed_plugins = registry.list_installed()
     assert len(installed_plugins) == 1
     assert "plugin_good" in installed_plugins
-    
+
     failed_plugins = registry.list_failed()
     assert len(failed_plugins) == 2
     assert "plugin_bad_import" in failed_plugins
@@ -120,7 +122,7 @@ def test_plugin_registry_handles_load_failure(mocker, capsys):
     assert "Plugin class must inherit from TitanPlugin" in str(failed_plugins["plugin_bad_type"])
 
 
-def test_plugin_registry_dependency_resolution(mocker):
+def test_plugin_registry_dependency_resolution(mocker, tmp_path):
     """
     Test that plugins are initialized in correct dependency order.
     """
@@ -139,9 +141,10 @@ def test_plugin_registry_dependency_resolution(mocker):
         return_value=[mock_ep_p2, mock_ep_p1] # Load dependent first to test sorting
     )
 
-    registry = PluginRegistry(discover_on_init=False)
+    # Use temporary directory to avoid loading local plugins
+    registry = PluginRegistry(discover_on_init=False, plugins_dir=tmp_path / "plugins")
     registry.discover()
-    
+
     mock_config = MagicMock(spec=TitanConfig)
     mock_secrets = MagicMock(spec=SecretManager)
 
@@ -154,7 +157,7 @@ def test_plugin_registry_dependency_resolution(mocker):
     assert plugin_two._initialized
 
 
-def test_plugin_registry_unresolved_dependency(mocker):
+def test_plugin_registry_unresolved_dependency(mocker, tmp_path):
     """
     Test that PluginRegistry raises an error for unresolved dependencies.
     """
@@ -168,9 +171,10 @@ def test_plugin_registry_unresolved_dependency(mocker):
         return_value=[mock_ep_dep]
     )
 
-    registry = PluginRegistry(discover_on_init=False)
+    # Use temporary directory to avoid loading local plugins
+    registry = PluginRegistry(discover_on_init=False, plugins_dir=tmp_path / "plugins")
     registry.discover()
-    
+
     mock_config = MagicMock(spec=TitanConfig)
     mock_secrets = MagicMock(spec=SecretManager)
 
@@ -181,7 +185,7 @@ def test_plugin_registry_unresolved_dependency(mocker):
     assert "Circular or unresolvable dependency" in str(failed_plugins["plugin_dependent"])
 
 
-def test_plugin_registry_plugin_initialization_context(mocker):
+def test_plugin_registry_plugin_initialization_context(mocker, tmp_path):
     """
     Test that config and secrets are passed correctly to plugin initialize method.
     """
@@ -195,9 +199,10 @@ def test_plugin_registry_plugin_initialization_context(mocker):
         return_value=[mock_ep]
     )
 
-    registry = PluginRegistry(discover_on_init=False)
+    # Use temporary directory to avoid loading local plugins
+    registry = PluginRegistry(discover_on_init=False, plugins_dir=tmp_path / "plugins")
     registry.discover()
-    
+
     mock_config = MagicMock(spec=TitanConfig)
     mock_secrets = MagicMock(spec=SecretManager)
 

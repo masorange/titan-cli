@@ -303,7 +303,7 @@ def discover_plugins() -> None:
         # Check if already installed
         if plugin_name in installed:
             text.warning(msg.Plugins.REINSTALL_ALREADY_INSTALLED.format(name=plugin_name))
-            if prompts.ask_confirm(msg.Plugins.REINSTALL_CONFIRM):
+            if prompts.ask_confirm(question=msg.Plugins.REINSTALL_CONFIRM):
                 install_plugin_from_marketplace(plugin_name, force=True)
             return
 

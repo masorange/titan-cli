@@ -15,6 +15,7 @@ from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.panel import PanelRenderer
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.config import TitanConfig
+from titan_cli.messages import msg
 
 
 class ConfigSchemaRenderer:
@@ -92,7 +93,7 @@ class ConfigSchemaRenderer:
         # Process schema properties
         properties = schema.get('properties', {})
         if not properties:
-            self.text.warning("No configuration required for this plugin")
+            self.text.warning(msg.ConfigSchema.NO_CONFIG_REQUIRED)
             return {}
 
         config = existing_config.copy() if existing_config else {}
@@ -111,21 +112,24 @@ class ConfigSchemaRenderer:
                     # Save to secure storage with namespaced key
                     secret_key = f"{plugin_name.upper()}_{field_name.upper()}"
                     self.secrets.set(secret_key, value, scope="user")
-                    self.text.body(f"  ✓ {field_name} saved securely", style="dim green")
+                    self.text.body(
+                        msg.ConfigSchema.FIELD_SAVED_SECURELY.format(field_name=field_name),
+                        style="dim green"
+                    )
                 else:
                     # Save to config dict
                     config[field_name] = value
 
             except KeyboardInterrupt:
                 self.text.line()
-                self.text.warning("Configuration cancelled by user")
+                self.text.warning(msg.ConfigSchema.CONFIG_CANCELLED)
                 raise
             except Exception as e:
-                self.text.error(f"Error configuring {field_name}: {e}")
+                self.text.error(msg.ConfigSchema.CONFIG_ERROR.format(field_name=field_name, error=e))
                 raise
 
         self.text.line()
-        self.text.success("✅ Configuration completed successfully!")
+        self.text.success(msg.ConfigSchema.CONFIG_COMPLETED)
 
         return config
 
@@ -244,7 +248,7 @@ class ConfigSchemaRenderer:
 
                     # Check required
                     if is_required and not value:
-                        self.text.error("  ✗ This field is required")
+                        self.text.error(msg.ConfigSchema.FIELD_REQUIRED)
                         continue
 
                     # Run validator if present
@@ -299,7 +303,7 @@ class ConfigSchemaRenderer:
 
             # Check required
             if is_required and not value_str:
-                self.text.error("  ✗ This field is required")
+                self.text.error(msg.ConfigSchema.FIELD_REQUIRED)
                 continue
 
             # Convert to number
@@ -308,17 +312,17 @@ class ConfigSchemaRenderer:
 
                 # Validate range
                 if min_val is not None and num < min_val:
-                    self.text.error(f"  ✗ Value must be >= {min_val}")
+                    self.text.error(msg.ConfigSchema.VALUE_TOO_LOW.format(min_val=min_val))
                     continue
                 if max_val is not None and num > max_val:
-                    self.text.error(f"  ✗ Value must be <= {max_val}")
+                    self.text.error(msg.ConfigSchema.VALUE_TOO_HIGH.format(max_val=max_val))
                     continue
 
                 return num
 
             except ValueError:
                 number_type = "integer" if is_integer else "number"
-                self.text.error(f"  ✗ Value must be a valid {number_type}")
+                self.text.error(msg.ConfigSchema.INVALID_NUMBER.format(number_type=number_type))
 
     def _render_array_field(
         self,
@@ -351,7 +355,7 @@ class ConfigSchemaRenderer:
                 indices = [int(x.strip()) - 1 for x in value_str.split(',')]
                 return [choices[i]['value'] for i in indices if 0 <= i < len(choices)]
             except (ValueError, IndexError):
-                self.text.warning("Invalid selection, using default")
+                self.text.warning(msg.ConfigSchema.INVALID_SELECTION)
                 return default_value or []
 
         # Free-form array (comma-separated)
@@ -421,14 +425,14 @@ class ConfigSchemaRenderer:
         """Validate email format."""
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(pattern, value):
-            raise ValueError("Invalid email format")
+            raise ValueError(msg.ConfigSchema.INVALID_EMAIL)
         return True
 
     @staticmethod
     def _validate_uri(value: str) -> bool:
         """Validate URI format (must start with http:// or https://)."""
         if not value.startswith(('http://', 'https://')):
-            raise ValueError("URL must start with http:// or https://")
+            raise ValueError(msg.ConfigSchema.INVALID_URI)
         return True
 
     @staticmethod
@@ -443,7 +447,7 @@ class ConfigSchemaRenderer:
     def _validate_pattern(value: str, pattern: str) -> bool:
         """Validate value against regex pattern."""
         if not re.match(pattern, value):
-            raise ValueError(f"Value does not match required pattern: {pattern}")
+            raise ValueError(msg.ConfigSchema.PATTERN_MISMATCH.format(pattern=pattern))
         return True
 
     @staticmethod
