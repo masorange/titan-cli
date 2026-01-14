@@ -97,6 +97,7 @@ class WorkflowExecutionScreen(BaseScreen):
         self.workflow: Optional[ParsedWorkflow] = None
         self._worker: Optional[Worker] = None
         self._original_cwd = os.getcwd()
+        self._should_auto_back = False  # Flag to trigger auto-back when worker finishes
 
     def compose_content(self) -> ComposeResult:
         """Compose the workflow execution screen."""
@@ -291,6 +292,32 @@ class WorkflowExecutionScreen(BaseScreen):
             execution_widget.handle_event(message)
         except Exception:
             pass
+
+    def _schedule_auto_back(self) -> None:
+        """Schedule auto-back - will execute when worker finishes."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] SCREEN: Auto-back scheduled, setting flag\n")
+        self._should_auto_back = True
+        # Check if worker already finished
+        self._check_and_pop_if_ready()
+
+    def _check_and_pop_if_ready(self) -> None:
+        """Check if we should pop screen (worker finished + auto-back scheduled)."""
+        import time
+        if self._should_auto_back and (not self._worker or self._worker.state != WorkerState.RUNNING):
+            with open("/tmp/titan_debug.log", "a") as f:
+                f.write(f"[{time.time():.3f}] SCREEN: Worker finished and auto-back ready, popping screen\n")
+            self.app.pop_screen()
+
+    def on_worker_state_changed(self, event) -> None:
+        """Handle worker state changes."""
+        import time
+        with open("/tmp/titan_debug.log", "a") as f:
+            f.write(f"[{time.time():.3f}] SCREEN: Worker state changed to {event.state}\n")
+        # When worker finishes, check if we should auto-back
+        if event.state != WorkerState.RUNNING:
+            self._check_and_pop_if_ready()
 
     def action_cancel_execution(self) -> None:
         """Cancel workflow execution and go back."""
@@ -497,19 +524,12 @@ class WorkflowExecutionContent(Widget):
                 # Fallback if notify fails
                 self.append_output(f"\n[bold green]✨ Workflow completed: {message.workflow_name}[/bold green]")
 
-            # Auto return to previous screen after a short delay (only if not nested)
+            # Schedule auto-back after a short delay (only if not nested)
             if not message.is_nested:
                 with open("/tmp/titan_debug.log", "a") as f:
-                    f.write(f"[{time.time():.3f}] SCREEN: Setting timer for auto-back\n")
-                try:
-                    self.set_timer(3.0, self.app.pop_screen)
-                    with open("/tmp/titan_debug.log", "a") as f:
-                        f.write(f"[{time.time():.3f}] SCREEN: Timer set successfully\n")
-                except Exception as e:
-                    with open("/tmp/titan_debug.log", "a") as f:
-                        f.write(f"[{time.time():.3f}] SCREEN: Timer failed: {e}, popping immediately\n")
-                    # If timer fails, pop immediately
-                    self.app.pop_screen()
+                    f.write(f"[{time.time():.3f}] SCREEN: Setting timer for auto-back flag\n")
+                # Don't pop immediately - wait for worker to finish, then pop
+                self.set_timer(3.0, self._schedule_auto_back)
             else:
                 with open("/tmp/titan_debug.log", "a") as f:
                     f.write(f"[{time.time():.3f}] SCREEN: Workflow is nested, skipping auto-back\n")
