@@ -171,3 +171,42 @@ class TextualComponents:
         else:
             # Invalid response, use default
             return default
+
+    def launch_external_cli(self, cli_name: str, prompt: str = None, cwd: str = None) -> int:
+        """
+        Launch an external CLI tool, suspending the TUI while it runs.
+
+        Args:
+            cli_name: Name of the CLI to launch (e.g., "claude", "gemini")
+            prompt: Optional initial prompt to pass to the CLI
+            cwd: Working directory (default: current)
+
+        Returns:
+            Exit code from the CLI tool
+
+        Example:
+            exit_code = ctx.textual.launch_external_cli("claude", prompt="Fix this bug")
+        """
+        from titan_cli.external_cli.launcher import CLILauncher
+
+        # Container for result (since we need to pass it from main thread back to worker)
+        result_container = {"exit_code": None}
+        result_event = threading.Event()
+
+        def _launch():
+            # Suspend TUI, launch CLI, restore TUI
+            with self.app.suspend():
+                launcher = CLILauncher(cli_name)
+                exit_code = launcher.launch(prompt=prompt, cwd=cwd)
+                result_container["exit_code"] = exit_code
+
+            # Signal completion
+            result_event.set()
+
+        # Run in main thread (because suspend() must run on main thread)
+        self.app.call_from_thread(_launch)
+
+        # Wait for completion
+        result_event.wait()
+
+        return result_container["exit_code"]
