@@ -140,3 +140,6 @@ venv.bak/
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Titan CLI - Downloaded plugins (project-level)
+.titan/plugins/

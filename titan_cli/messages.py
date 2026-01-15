@@ -403,6 +403,178 @@ class Messages:
         CONFIGURE_TITLE = "Configuring {name}..."
         CONFIGURE_SOON = "Feature coming soon!"
 
+        # Marketplace
+        MARKETPLACE_TITLE = "📦 Titan Plugin Marketplace"
+        MARKETPLACE_FETCHING_REGISTRY = "Fetching plugin registry from GitHub..."
+        MARKETPLACE_INVALID_REGISTRY = "Invalid registry format"
+        MARKETPLACE_NO_PLUGINS = "No plugins available in marketplace"
+        MARKETPLACE_CLOSED = "Marketplace closed"
+
+        # Installation
+        INSTALLING_PLUGIN = "Installing plugin: {name}"
+        INSTALL_SUCCESS = "✅ Plugin '{display_name}' installed successfully!"
+        INSTALL_LOCATION = "Location: {path}"
+        INSTALL_NEXT_LOAD = "Plugin will be loaded on next 'titan' command"
+        INSTALL_FETCHING_INFO = "Fetching plugin information from registry..."
+        INSTALL_DOWNLOADING = "Downloading plugin from GitHub..."
+        INSTALL_VALIDATING = "Validating plugin..."
+
+        # Plugin info display
+        PLUGIN_VERIFIED = "⭐ Verified"
+        PLUGIN_COMMUNITY = "⚠️  Community"
+        PLUGIN_ALREADY_INSTALLED = "✅ Installed"
+
+        # Dependencies
+        DEPENDENCIES_LABEL = "Dependencies: {dependencies}"
+        DEPENDENCIES_MISSING = "Missing dependencies: {missing}"
+        DEPENDENCIES_INSTALL_FIRST = "Please install dependencies first:"
+        DEPENDENCY_INSTALL_CMD = "  titan plugins install {dep}"
+
+        # Configuration
+        CONFIG_REQUIRED = "📝 Plugin requires configuration"
+        CONFIG_SUCCESS = "Configuration saved successfully!"
+        CONFIG_SKIPPED = "Configuration skipped - you can configure later with:"
+        CONFIG_CMD_HINT = "  titan plugins configure {name}"
+        CONFIG_ERROR = "Configuration error: {error}"
+        CONFIG_INSTALL_BUT_NOT_CONFIGURED = "Plugin installed but not configured"
+        CONFIG_CANCELLED = "⚠️  Configuration cancelled by user"
+
+        # Uninstallation
+        UNINSTALLING_PLUGIN = "Uninstalling plugin: {name}"
+        UNINSTALL_SUCCESS = "✅ Plugin '{name}' uninstalled successfully!"
+        UNINSTALL_NEXT_LOAD = "Plugin will be removed on next 'titan' command"
+        UNINSTALL_NOT_INSTALLED = "Plugin '{name}' is not installed"
+
+        # Updates
+        UPDATING_PLUGIN = "Updating plugin: {name}"
+        UPDATING_ALL_PLUGINS = "Updating all installed plugins..."
+        UPDATE_NO_PLUGINS = "No plugins installed"
+        UPDATE_CHECKING = "Updating {name}..."
+
+        # Reinstall
+        REINSTALL_CONFIRM = "Reinstall?"
+        REINSTALL_ALREADY_INSTALLED = "Plugin '{name}' is already installed"
+
+        # Marketplace prompts
+        MARKETPLACE_SELECT_PROMPT = "Select a plugin to install (or 'q' to quit)"
+        MARKETPLACE_FETCH_ERROR = "❌ Failed to fetch marketplace: {error}"
+
+        # Errors
+        DOWNLOAD_FAILED = "❌ Download failed: {error}"
+        INSTALL_FAILED = "❌ Installation failed: {error}"
+        VALIDATION_FAILED = "❌ Validation failed: {error}"
+        UNINSTALL_FAILED = "❌ Uninstallation failed: {error}"
+        UNEXPECTED_ERROR = "❌ Unexpected error: {error}"
+
+        # Error panel titles
+        ERROR_DOWNLOAD = "Download Error"
+        ERROR_INSTALL = "Installation Error"
+        ERROR_VALIDATION = "Validation Error"
+        ERROR_UNINSTALL = "Uninstall Error"
+        ERROR_GENERIC = "Error"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Plugin Downloader
+    # ═══════════════════════════════════════════════════════════════
+
+    class PluginDownloader:
+        """Plugin downloader messages"""
+
+        # Registry fetching
+        FETCH_REGISTRY_HTTP_ERROR = "Failed to fetch registry: HTTP {status}"
+        FETCH_REGISTRY_HTTP_EXCEPTION = "HTTP error fetching registry: {code} {reason}"
+        FETCH_REGISTRY_NETWORK_ERROR = "Network error fetching registry: {reason}"
+        FETCH_REGISTRY_JSON_ERROR = "Invalid registry JSON: {error}"
+        FETCH_REGISTRY_UNEXPECTED = "Unexpected error fetching registry: {error}"
+
+        # Registry validation
+        REGISTRY_INVALID_FORMAT = "Invalid registry format: missing 'plugins' key"
+        PLUGIN_NOT_IN_REGISTRY = "Plugin '{name}' not found in registry. Available plugins: {available}"
+        PLUGIN_NO_SOURCE = "Plugin '{name}' has no source path in registry"
+
+        # Download operations
+        DOWNLOAD_HTTP_ERROR = "Failed to download plugin: HTTP {status}"
+        DOWNLOAD_DIR_NOT_FOUND = "Plugin directory not found: {source_path}"
+        DOWNLOAD_HTTP_EXCEPTION = "HTTP error downloading plugin: {code} {reason}"
+        DOWNLOAD_NETWORK_ERROR = "Network error downloading plugin: {reason}"
+        DOWNLOAD_INVALID_ZIP = "Invalid ZIP file: {error}"
+        DOWNLOAD_UNEXPECTED = "Unexpected error downloading plugin: {error}"
+
+        # Installation operations
+        ALREADY_INSTALLED = "Plugin '{name}' is already installed. Use force=True to reinstall."
+        INSTALL_DOWNLOAD_FAILED = "Failed to download plugin '{name}': {error}"
+        INSTALL_FAILED = "Failed to install plugin '{name}': {error}"
+
+        # Uninstallation operations
+        NOT_INSTALLED = "Plugin '{name}' is not installed"
+        UNINSTALL_FAILED = "Failed to uninstall plugin '{name}': {error}"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Plugin Validator
+    # ═══════════════════════════════════════════════════════════════
+
+    class PluginValidator:
+        """Plugin validator messages"""
+
+        # Path validation
+        PATH_NOT_EXISTS = "Plugin path does not exist: {path}"
+        PATH_NOT_DIR = "Plugin path is not a directory: {path}"
+
+        # Metadata validation
+        MISSING_METADATA = "Missing plugin.json in {name}"
+        INVALID_JSON = "Invalid JSON in plugin.json: {error}"
+        READ_ERROR = "Failed to read plugin.json: {error}"
+        MISSING_FIELDS = "Missing required fields in plugin.json: {fields}"
+
+        # Field validation
+        INVALID_FIELD_TYPE = "Field '{field}' must be a {field_type}"
+        INVALID_CATEGORY = "Field 'category' must be one of: {categories}"
+
+        # Entry point validation
+        INVALID_ENTRY_POINT = "Invalid entry point format: {entry_point}. Expected format: 'module.path:ClassName'"
+        ENTRY_POINT_NOT_FOUND = "Entry point module not found: {module_file}"
+        CLASS_NOT_FOUND = "Entry point class '{class_name}' not found in {file}"
+        ENTRY_POINT_ERROR = "Failed to validate entry point: {error}"
+
+        # Version validation
+        INCOMPATIBLE_VERSION = "Plugin requires Titan CLI >= {min_version}, but current version is {current_version}"
+
+        # Dependencies validation
+        INVALID_DEPENDENCIES = "Dependencies must be a list"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Configuration Schema Renderer
+    # ═══════════════════════════════════════════════════════════════
+
+    class ConfigSchema:
+        """Configuration schema renderer messages"""
+
+        # Wizard states
+        NO_CONFIG_REQUIRED = "No configuration required for this plugin"
+        CONFIG_CANCELLED = "Configuration cancelled by user"
+        CONFIG_COMPLETED = "✅ Configuration completed successfully!"
+        CONFIG_ERROR = "Error configuring {field_name}: {error}"
+
+        # Field states
+        FIELD_SAVED_SECURELY = "✓ {field_name} saved securely"
+        FIELD_REQUIRED = "✗ This field is required"
+
+        # Validation messages
+        VALUE_TOO_LOW = "✗ Value must be >= {min_val}"
+        VALUE_TOO_HIGH = "✗ Value must be <= {max_val}"
+        INVALID_NUMBER = "✗ Value must be a valid {number_type}"
+        INVALID_SELECTION = "Invalid selection, using default"
+        INVALID_EMAIL = "✗ Invalid email format"
+        INVALID_URI = "✗ Invalid URI format"
+        PATTERN_MISMATCH = "✗ Value does not match required pattern: {pattern}"
+
+        # Array field messages
+        ARRAY_ENTER_VALUES = "Enter values for {field_name} (one per line, empty line to finish):"
+        ARRAY_CURRENT_VALUES = "Current values:"
+        ARRAY_VALUE_PROMPT = "Value {index}"
+
+        # Choice field messages
+        CHOICE_SELECT = "Select {field_name}:"
 
 
 

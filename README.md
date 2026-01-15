@@ -38,21 +38,52 @@ titan preview panel
 titan preview menu
 ```
 
-## 🔌 Plugins
+## 🔌 Plugin Marketplace
 
-Extend Titan CLI with plugins:
+Titan CLI features a plugin marketplace that makes it easy to discover and install plugins directly from GitHub.
+
+### Browse & Install Plugins
 
 ```bash
-# Install a plugin
-pipx inject titan-cli titan-plugin-github
+# Interactive marketplace (recommended)
+titan plugins discover
 
-# List installed plugins
-titan plugins list
+# Or install directly by name
+titan plugins install git
+titan plugins install github
+titan plugins install jira
 ```
 
-## Available plugins:
+### Plugin Management
 
-**Not available at the moment**
+```bash
+# List installed plugins
+titan plugins list
+
+# Update a plugin
+titan plugins update git
+
+# Update all plugins
+titan plugins update --all
+
+# Uninstall a plugin
+titan plugins uninstall jira
+
+# Get plugin info
+titan plugins info github
+```
+
+### Available Official Plugins
+
+- **git** - Git operations and repository management
+- **github** - GitHub integration with AI-powered PR descriptions
+- **jira** - JIRA issue tracking with AI-powered requirements analysis
+
+All plugins feature:
+- ✅ Automatic configuration wizard on first install
+- ✅ Project-level installation (`.titan/plugins/`)
+- ✅ Secure secret management via OS keyring
+- ✅ Dynamic JSON Schema-based configuration
 
 ## 📚 Documentation
 

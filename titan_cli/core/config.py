@@ -19,8 +19,8 @@ class TitanConfig:
         registry: Optional[PluginRegistry] = None,
         global_config_path: Optional[Path] = None
     ):
-        # Core dependencies
-        self.registry = registry or PluginRegistry()
+        # Core dependencies - Create registry without discovering plugins yet
+        self.registry = registry or PluginRegistry(discover_on_init=False)
 
         # These are initialized in load() after config is read
         self.secrets = None  # Set by load()
@@ -93,7 +93,12 @@ class TitanConfig:
         # Use active_project_path for secrets if available, otherwise project_root
         secrets_path = self._active_project_path if self._active_project_path and self._active_project_path.is_dir() else self._project_root
         self.secrets = SecretManager(project_path=secrets_path if secrets_path and secrets_path.is_dir() else None)
-        
+
+        # Configure plugins directory based on project path
+        # Use active_project_path for plugins if available, otherwise project_root
+        plugins_path = self._active_project_path if self._active_project_path else self._project_root
+        self.registry.local_plugins_dir = plugins_path / ".titan" / "plugins"
+
         # Reset and re-initialize plugins
         self.registry.reset()
         self.registry.initialize_plugins(config=self, secrets=self.secrets)
@@ -343,4 +348,59 @@ class TitanConfig:
             'ai_info': ai_info,
             'project_name': project_name
         }
+
+    def set_plugin_config(self, plugin_name: str, plugin_config: dict):
+        """
+        Save plugin configuration to global config file.
+
+        Args:
+            plugin_name: Name of the plugin
+            plugin_config: Dictionary with configuration values (non-secret)
+
+        Raises:
+            ConfigWriteError: If unable to write config file
+        """
+        # Ensure .titan directory exists
+        if not self._global_config_path.parent.exists():
+            try:
+                self._global_config_path.parent.mkdir(parents=True)
+            except OSError as e:
+                raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+
+        # Load existing config
+        existing_config = {}
+        if self._global_config_path.exists():
+            try:
+                with open(self._global_config_path, "rb") as f:
+                    existing_config = tomli.load(f)
+            except Exception:
+                pass
+
+        # Ensure plugins section exists
+        if 'plugins' not in existing_config:
+            existing_config['plugins'] = {}
+
+        # Ensure plugin section exists
+        if plugin_name not in existing_config['plugins']:
+            existing_config['plugins'][plugin_name] = {}
+
+        # Ensure config subsection exists
+        if 'config' not in existing_config['plugins'][plugin_name]:
+            existing_config['plugins'][plugin_name]['config'] = {}
+
+        # Merge new config with existing
+        existing_config['plugins'][plugin_name]['config'].update(plugin_config)
+
+        # Save to disk
+        try:
+            import tomli_w
+            with open(self._global_config_path, "wb") as f:
+                tomli_w.dump(existing_config, f)
+        except ImportError as e:
+            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+        except Exception as e:
+            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+
+        # Reload config to reflect changes
+        self.load()
 

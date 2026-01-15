@@ -1,9 +1,16 @@
 import typer
+from typing import Optional
 from titan_cli.core.config import TitanConfig
 from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.panel import PanelRenderer
 from titan_cli.ui.components.table import TableRenderer
 from titan_cli.messages import msg
+from titan_cli.commands.plugins_marketplace import (
+    install_plugin_from_marketplace,
+    uninstall_plugin_from_marketplace,
+    discover_plugins,
+    update_plugin
+)
 
 plugins_app = typer.Typer(name="plugins", help="Manage Titan plugins")
 
@@ -153,3 +160,39 @@ def configure_plugin(name: str):
 
     text.title(msg.Plugins.CONFIGURE_TITLE.format(name=name))
     text.body(msg.Plugins.CONFIGURE_SOON)
+
+
+@plugins_app.command("discover")
+def discover():
+    """Browse plugin marketplace and show available plugins."""
+    discover_plugins()
+
+
+@plugins_app.command("install")
+def install(
+    name: str,
+    version: Optional[str] = typer.Option(None, help="Specific version to install"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force reinstall if already installed")
+):
+    """Install plugin from GitHub marketplace."""
+    install_plugin_from_marketplace(name, version, force)
+
+
+@plugins_app.command("uninstall")
+def uninstall(name: str):
+    """Uninstall plugin from local plugins directory."""
+    uninstall_plugin_from_marketplace(name)
+
+
+@plugins_app.command("update")
+def update(
+    name: Optional[str] = typer.Argument(None, help="Plugin name to update"),
+    all_plugins: bool = typer.Option(False, "--all", "-a", help="Update all installed plugins")
+):
+    """Update installed plugin to latest version."""
+    if not name and not all_plugins:
+        text = TextRenderer()
+        text.error("Please specify a plugin name or use --all to update all plugins")
+        raise typer.Exit(1)
+
+    update_plugin(name or "", all_plugins)

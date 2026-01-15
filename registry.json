@@ -1,0 +1,61 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2025-01-13",
+  "plugins": {
+    "git": {
+      "display_name": "Git Plugin",
+      "description": "Git operations and repository management",
+      "category": "official",
+      "verified": true,
+      "latest_version": "1.0.0",
+      "source": "plugins/titan-plugin-git",
+      "author": "MasMovil Titan Team",
+      "license": "MIT",
+      "min_titan_version": "1.0.0",
+      "dependencies": [],
+      "python_dependencies": [
+        "gitpython>=3.1.0"
+      ],
+      "keywords": ["git", "vcs", "version-control"],
+      "homepage": "https://github.com/masmovil/titan-plugins",
+      "repository": "https://github.com/masmovil/titan-plugins"
+    },
+    "github": {
+      "display_name": "GitHub Plugin",
+      "description": "GitHub integration with PR management and AI-powered reviews",
+      "category": "official",
+      "verified": true,
+      "latest_version": "1.0.0",
+      "source": "plugins/titan-plugin-github",
+      "author": "MasMovil Titan Team",
+      "license": "MIT",
+      "min_titan_version": "1.0.0",
+      "dependencies": ["git"],
+      "python_dependencies": [
+        "PyGithub>=2.0.0"
+      ],
+      "keywords": ["github", "pr", "pull-request", "code-review"],
+      "homepage": "https://github.com/masmovil/titan-plugins",
+      "repository": "https://github.com/masmovil/titan-plugins"
+    },
+    "jira": {
+      "display_name": "JIRA Plugin",
+      "description": "JIRA integration with AI-powered issue analysis",
+      "category": "official",
+      "verified": true,
+      "latest_version": "1.0.0",
+      "source": "plugins/titan-plugin-jira",
+      "author": "MasMovil Titan Team",
+      "license": "MIT",
+      "min_titan_version": "1.0.0",
+      "dependencies": [],
+      "python_dependencies": [
+        "jira>=3.0.0",
+        "anthropic>=0.40.0"
+      ],
+      "keywords": ["jira", "issue-tracking", "project-management"],
+      "homepage": "https://github.com/masmovil/titan-plugins",
+      "repository": "https://github.com/masmovil/titan-plugins"
+    }
+  }
+}
