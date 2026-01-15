@@ -66,30 +66,30 @@ def test_anthropic_provider_system_prompt(MockAnthropic):
 
 # --- Tests for GeminiProvider ---
 
-@patch('titan_cli.ai.providers.gemini.genai')
-@patch('titan_cli.ai.providers.gemini.google.auth')
-def test_gemini_provider_generate_success(mock_google_auth, mock_genai):
+@patch('titan_cli.ai.providers.gemini.GEMINI_AVAILABLE', True)
+@patch('google.genai.Client')
+def test_gemini_provider_generate_success(mock_client_class):
     """
     Test successful generation with GeminiProvider using an API key.
     """
     # Setup mock
-    mock_model = MagicMock()
+    mock_client_instance = MagicMock()
     mock_response = MagicMock()
     mock_response.text = "Hello from Gemini"
     mock_response.usage_metadata = MagicMock(prompt_token_count=15, candidates_token_count=25)
-    mock_model.generate_content.return_value = mock_response
-    mock_genai.GenerativeModel.return_value = mock_model
+    mock_client_instance.models.generate_content.return_value = mock_response
+    mock_client_class.return_value = mock_client_instance
 
     # Initialize provider
     provider = GeminiProvider(api_key="test_key")
     request = AIRequest(messages=[AIMessage(role="user", content="Hello")])
-    
+
     # Generate response
     response = provider.generate(request)
-    
+
     # Assertions
-    mock_genai.configure.assert_called_with(api_key="test_key")
-    mock_model.generate_content.assert_called_once()
+    mock_client_class.assert_called_once_with(api_key="test_key")
+    mock_client_instance.models.generate_content.assert_called_once()
     assert response.content == "Hello from Gemini"
     assert response.usage["input_tokens"] == 15
     assert response.usage["output_tokens"] == 25

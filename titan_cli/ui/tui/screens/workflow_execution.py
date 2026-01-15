@@ -560,7 +560,6 @@ class WorkflowExecutionContent(Widget):
                 self._workflow_depth -= 1
 
             # DEBUG: Log receipt
-            import time
             # with open("/tmp/titan_debug.log", "a") as f:
             #     f.write(f"[{time.time():.3f}] SCREEN: Received WorkflowCompleted, is_nested={message.is_nested}\n")
 
@@ -571,7 +570,7 @@ class WorkflowExecutionContent(Widget):
                 self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
                 # with open("/tmp/titan_debug.log", "a") as f:
                 #     f.write(f"[{time.time():.3f}] SCREEN: notify called successfully\n")
-            except Exception as e:
+            except Exception:
                 # with open("/tmp/titan_debug.log", "a") as f:
                 #     f.write(f"[{time.time():.3f}] SCREEN: notify failed: {e}\n")
                 # Fallback if notify fails
