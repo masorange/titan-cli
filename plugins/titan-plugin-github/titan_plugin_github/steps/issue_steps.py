@@ -1,6 +1,7 @@
 import ast
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
+from titan_cli.ui.tui.widgets import Panel
 from ..agents.issue_generator import IssueGeneratorAgent
 
 def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -8,32 +9,39 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
     Use AI to suggest a title and description for a GitHub issue.
     Auto-categorizes and selects the appropriate template.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
     if not ctx.ai:
         return Skip("AI client not available")
-
-    if not ctx.ui:
-        return Error("UI components not available")
 
     issue_body_prompt = ctx.get("issue_body")
     if not issue_body_prompt:
         return Error("issue_body not found in context")
 
-    ctx.ui.text.info("Using AI to categorize and generate issue...")
+    ctx.textual.text("Using AI to categorize and generate issue...", markup="cyan")
 
     try:
         issue_generator = IssueGeneratorAgent(ctx.ai)
-        result = issue_generator.generate_issue(issue_body_prompt)
+
+        with ctx.textual.loading("Generating issue with AI..."):
+            result = issue_generator.generate_issue(issue_body_prompt)
 
         # Show category detected
         category = result["category"]
         template_used = result.get("template_used", False)
 
-        if ctx.ui:
-            ctx.ui.text.success(f"Category detected: {category}")
-            if template_used:
-                ctx.ui.text.info(f"Using template: {category}.md")
-            else:
-                ctx.ui.text.warning(f"No template found for {category}, using default structure")
+        ctx.textual.mount(
+            Panel(
+                text=f"Category detected: {category}",
+                panel_type="success"
+            )
+        )
+
+        if template_used:
+            ctx.textual.text(f"Using template: {category}.md", markup="cyan")
+        else:
+            ctx.textual.text(f"No template found for {category}, using default structure", markup="yellow")
 
         ctx.set("issue_title", result["title"])
         ctx.set("issue_body", result["body"])
@@ -49,6 +57,9 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     """
     Create a new GitHub issue.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
     if not ctx.github:
         return Error("GitHub client not available")
 
@@ -103,6 +114,12 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
             body=issue_body,
             assignees=assignees,
             labels=labels,
+        )
+        ctx.textual.mount(
+            Panel(
+                text=f"Successfully created issue #{issue.number}",
+                panel_type="success"
+            )
         )
         return Success(
             f"Successfully created issue #{issue.number}",
