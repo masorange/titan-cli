@@ -297,27 +297,25 @@ class WorkflowExecutionScreen(BaseScreen):
 
     def _schedule_auto_back(self) -> None:
         """Schedule auto-back - will poll worker state until it finishes."""
-        import time
-        with open("/tmp/titan_debug.log", "a") as f:
-            f.write(f"[{time.time():.3f}] SCREEN: Auto-back scheduled, starting polling\n")
+        # import time
+        # with open("/tmp/titan_debug.log", "a") as f:
+        #     f.write(f"[{time.time():.3f}] SCREEN: Auto-back scheduled, starting polling\n")
         self._should_auto_back = True
         # Start polling worker state
         self._poll_worker_and_pop()
 
     def _poll_worker_and_pop(self) -> None:
         """Poll worker state and pop screen when finished."""
-        import time
-
         # Check if worker is still running
         if self._worker and self._worker.state == WorkerState.RUNNING:
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] SCREEN: Worker still running, will check again in 0.1s\n")
+            # with open("/tmp/titan_debug.log", "a") as f:
+            #     f.write(f"[{time.time():.3f}] SCREEN: Worker still running, will check again in 0.1s\n")
             # Worker still running, check again in 100ms
             self.set_timer(0.1, self._poll_worker_and_pop)
         else:
             # Worker finished, safe to pop
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] SCREEN: Worker finished, popping screen now\n")
+            # with open("/tmp/titan_debug.log", "a") as f:
+            #     f.write(f"[{time.time():.3f}] SCREEN: Worker finished, popping screen now\n")
             self.app.pop_screen()
 
     def action_cancel_execution(self) -> None:
@@ -563,31 +561,32 @@ class WorkflowExecutionContent(Widget):
 
             # DEBUG: Log receipt
             import time
-            with open("/tmp/titan_debug.log", "a") as f:
-                f.write(f"[{time.time():.3f}] SCREEN: Received WorkflowCompleted, is_nested={message.is_nested}\n")
+            # with open("/tmp/titan_debug.log", "a") as f:
+            #     f.write(f"[{time.time():.3f}] SCREEN: Received WorkflowCompleted, is_nested={message.is_nested}\n")
 
             # Show success toast instead of inline message
             try:
-                with open("/tmp/titan_debug.log", "a") as f:
-                    f.write(f"[{time.time():.3f}] SCREEN: About to call notify\n")
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: About to call notify\n")
                 self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
-                with open("/tmp/titan_debug.log", "a") as f:
-                    f.write(f"[{time.time():.3f}] SCREEN: notify called successfully\n")
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: notify called successfully\n")
             except Exception as e:
-                with open("/tmp/titan_debug.log", "a") as f:
-                    f.write(f"[{time.time():.3f}] SCREEN: notify failed: {e}\n")
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: notify failed: {e}\n")
                 # Fallback if notify fails
                 self.append_output(f"\n[bold green]✨ Workflow completed: {message.workflow_name}[/bold green]")
 
             # Schedule auto-back after a short delay (only if not nested)
             if not message.is_nested:
-                with open("/tmp/titan_debug.log", "a") as f:
-                    f.write(f"[{time.time():.3f}] SCREEN: Setting timer for auto-back flag\n")
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: Setting timer for auto-back flag\n")
                 # Don't pop immediately - wait for worker to finish, then pop
                 self.set_timer(3.0, self._schedule_auto_back)
             else:
-                with open("/tmp/titan_debug.log", "a") as f:
-                    f.write(f"[{time.time():.3f}] SCREEN: Workflow is nested, skipping auto-back\n")
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: Workflow is nested, skipping auto-back\n")
+                pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
             # Show error toast for workflow failure
