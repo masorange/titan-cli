@@ -139,30 +139,26 @@ Your task is to:
         """
         Parse AI response to extract category, title, and body.
         Tries JSON parsing first, falls back to regex for robustness.
+        Handles incomplete JSON by attempting to fix it.
 
         Returns:
             Tuple of (category, title, body)
         """
-        # DEBUG: Log to file
-        import time
-        with open("/tmp/issue_parser_debug.log", "a") as f:
-            f.write(f"\n\n[{time.time():.3f}] ===== PARSE AI RESPONSE =====\n")
-            f.write(f"Content length: {len(content)}\n")
-            f.write(f"Content preview: {content[:500]}\n")
-
         # Try JSON parsing first (more robust, avoids conflicts with user text)
         try:
-            # Remove markdown code blocks if present (```json ... ```)
-            cleaned_content = re.sub(r'```(?:json)?\s*', '', content)
+            # Remove ONLY the outer markdown code block wrapper (```json ... ```)
+            # but preserve code blocks inside the JSON body content
+            cleaned_content = content.strip()
 
-            # Save full content to separate file
-            with open("/tmp/issue_full_content.txt", "w") as f:
-                f.write(f"=== ORIGINAL CONTENT ===\n{content}\n\n")
-                f.write(f"=== CLEANED CONTENT ===\n{cleaned_content}\n")
+            # Remove opening ```json or ``` if present at the start
+            if cleaned_content.startswith('```json'):
+                cleaned_content = cleaned_content[7:].lstrip()
+            elif cleaned_content.startswith('```'):
+                cleaned_content = cleaned_content[3:].lstrip()
 
-            with open("/tmp/issue_parser_debug.log", "a") as f:
-                f.write(f"Cleaned content length: {len(cleaned_content)}\n")
-                f.write("Looking for JSON with regex...\n")
+            # Remove closing ``` if present at the end
+            if cleaned_content.endswith('```'):
+                cleaned_content = cleaned_content[:-3].rstrip()
 
             # Try to find JSON in the content (handle incomplete JSON)
             json_match = re.search(r'\{[\s\S]*\}', cleaned_content)
@@ -178,29 +174,13 @@ Your task is to:
                         json_str = json_str + '"'
                     # Then close the JSON object
                     json_str = json_str + '\n}'
-
-                with open("/tmp/issue_parser_debug.log", "a") as f:
-                    f.write("Incomplete JSON detected, trying to fix...\n")
-                    f.write(f"Fixed JSON preview: {json_str[-200:]}\n")
             elif json_match:
                 json_str = json_match.group(0)
             else:
                 json_str = None
 
-            with open("/tmp/issue_parser_debug.log", "a") as f:
-                f.write(f"JSON string found: {json_str is not None}\n")
-
             if json_str:
-                with open("/tmp/issue_parser_debug.log", "a") as f:
-                    f.write("Attempting to parse JSON...\n")
-
                 data = json.loads(json_str)
-
-                with open("/tmp/issue_parser_debug.log", "a") as f:
-                    f.write(f"Parsed data keys: {list(data.keys())}\n")
-                    f.write(f"Category: {data.get('category')}\n")
-                    f.write(f"Title: {data.get('title')}\n")
-                    f.write(f"Body preview: {data.get('body', '')[:200]}\n")
 
                 category = data.get("category", "feature").lower()
                 title = data.get("title", "New issue")
@@ -210,14 +190,9 @@ Your task is to:
                 if category not in self.categories:
                     category = "feature"
 
-                with open("/tmp/issue_parser_debug.log", "a") as f:
-                    f.write(f"Returning - category: {category}, title: {title}, body length: {len(body)}\n")
-
                 return category, title, body
-        except (json.JSONDecodeError, AttributeError) as e:
+        except (json.JSONDecodeError, AttributeError):
             # JSON parsing failed, fall back to regex
-            with open("/tmp/issue_parser_debug.log", "a") as f:
-                f.write(f"JSON parsing failed: {e}\n")
             pass
 
         # Fallback: regex parsing for backwards compatibility
@@ -271,9 +246,10 @@ Instructions:
 - Choose the most appropriate category based on the description
 - Follow the template structure for that category (if available)
 - Remove all HTML comments (<!-- -->)
-- Keep all section headers (##)
-- Fill in meaningful content for each section
-- If a section doesn't apply, write "N/A" or a brief note
+- Keep only section headers (##) that have meaningful content
+- IMPORTANT: Completely omit optional sections (marked with "Optional") if they don't apply or have no meaningful content
+- Never include a section header followed by just a language identifier (e.g., "python", "yaml") without actual code
+- Fill in meaningful content for each section you include
 - Preserve any code snippets exactly as provided in markdown code blocks
 - Use the correct conventional commit prefix for the title
 - Adjust detail level based on issue complexity ({estimation.complexity}):
@@ -297,8 +273,22 @@ Output format (REQUIRED - JSON):
         )
         response = self.generate(request)
 
+        # Temporary debug logging
+        import time
+        timestamp = time.time()
+        with open("/tmp/issue_ai_response.log", "a") as f:
+            f.write(f"\n\n[{timestamp}] ===== AI RESPONSE =====\n")
+            f.write(f"Content length: {len(response.content)}\n")
+            f.write(f"Full content:\n{response.content}\n")
+
         # Parse response using robust regex parsing
         category, title, body = self._parse_ai_response(response.content)
+
+        # Log parsed body
+        with open("/tmp/issue_ai_response.log", "a") as f:
+            f.write(f"\n[{timestamp}] ===== PARSED BODY =====\n")
+            f.write(f"Body length: {len(body)}\n")
+            f.write(f"Body content:\n{body}\n")
 
         category_info = self.categories[category]
         template_used = all_templates.get(category) is not None
