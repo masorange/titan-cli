@@ -182,6 +182,8 @@ class TextualComponents:
         def _mount():
             # Mount markdown to output
             self.output_widget.mount(md_widget)
+            # Trigger autoscroll after mounting
+            self.output_widget._scroll_to_end()
 
         # call_from_thread already blocks until the function completes
         try:
