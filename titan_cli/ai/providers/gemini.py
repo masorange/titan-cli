@@ -10,9 +10,9 @@ from ..exceptions import AIProviderAPIError
 from ..constants import get_default_model
 
 try:
-    import google.generativeai as genai
+    import google.genai as genai
     import google.auth
-    from google.generativeai.types import GenerationConfig # Import GenerationConfig
+    from google.genai.types import GenerationConfig # Import GenerationConfig
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -64,23 +64,23 @@ class GeminiProvider(AIProvider):
             # Standard Google Gemini endpoint - use google-generativeai library
             if not GEMINI_AVAILABLE:
                 raise AIProviderAPIError(
-                    "google-generativeai not installed.\n"
-                    "Install with: poetry add google-generativeai google-auth"
+                    "google-generativeai not installed.\n" # Keep for now
+                    "Install with: poetry add google-genai google-auth"
                 )
 
             if self.use_oauth:
-                # Use Application Default Credentials
+                # Use Application Default Credentials with Client, assuming Vertex AI context for OAuth
                 try:
-                    google.auth.default()
-                    # Gemini will use ADC automatically
+                    google.auth.default() # This is for ADC
+                    self._genai_client = genai.Client(vertexai=True)
                 except Exception as e:
                     raise AIProviderAPIError(
-                        f"Failed to get Google Cloud credentials: {e}\n"
+                        f"Failed to get Google Cloud credentials for Vertex AI: {e}\n"
                         "Run: gcloud auth application-default login"
                     )
             else:
-                # Use API key with official Google endpoint
-                genai.configure(api_key=api_key)
+                # Use API key with Client for official Google endpoint
+                self._genai_client = genai.Client(api_key=api_key)
 
     def generate(self, request: AIRequest) -> AIResponse:
         """
@@ -188,9 +188,6 @@ class GeminiProvider(AIProvider):
             # Convert messages to Gemini format
             gemini_messages = self._convert_messages(request.messages)
 
-            # Get model
-            model = genai.GenerativeModel(self.model)
-
             # Prepare generation config
             generation_config = GenerationConfig(
                 temperature=request.temperature,
@@ -200,14 +197,18 @@ class GeminiProvider(AIProvider):
             # Generate response
             if len(gemini_messages) == 1 and gemini_messages[0].get("role") == "user":
                 # Single message - use generate_content
-                response = model.generate_content(
-                    gemini_messages[0]["parts"],
+                response = self._genai_client.models.generate_content(
+                    model=self.model, # Pass model name here
+                    contents=gemini_messages[0]["parts"],
                     generation_config=generation_config
                 )
             else:
                 # Multiple messages - use chat
-                chat = model.start_chat(history=gemini_messages[:-1] if len(gemini_messages) > 1 else [])
-                response = chat.send_message(
+                chat_session = self._genai_client.chats.create(
+                    model=self.model, # Pass model name here
+                    history=gemini_messages[:-1] if len(gemini_messages) > 1 else []
+                )
+                response = chat_session.send_message(
                     gemini_messages[-1]["parts"],
                     generation_config=generation_config
                 )
