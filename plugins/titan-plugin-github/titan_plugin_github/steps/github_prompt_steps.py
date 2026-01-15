@@ -10,7 +10,7 @@ def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
     Skips if pr_title already exists.
 
     Requires:
-        ctx.views.prompts: A PromptsRenderer instance.
+        ctx.textual: Textual UI components.
 
     Outputs (saved to ctx.data):
         pr_title (str): The title entered by the user.
@@ -20,20 +20,15 @@ def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the user cancels or the title is empty.
         Skip: If pr_title already exists.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Skip if title already exists (e.g., from AI generation)
     if ctx.get("pr_title"):
         return Skip("PR title already provided, skipping manual prompt.")
 
     try:
-        # Show step header
-        if ctx.views:
-            ctx.views.step_header(
-                name="Prompt for PR Title",
-                step_type="plugin",
-                step_detail="github.prompt_for_pr_title"
-            )
-        title = ctx.views.prompts.ask_text(msg.Prompts.ENTER_PR_TITLE)
+        title = ctx.textual.ask_text(msg.Prompts.ENTER_PR_TITLE)
         if not title:
             return Error("PR title cannot be empty.")
         return Success("PR title captured", metadata={"pr_title": title})
@@ -45,11 +40,11 @@ def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
 
 def prompt_for_pr_body_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Interactively prompts the user for a Pull Request body using an external editor.
+    Interactively prompts the user for a Pull Request body.
     Skips if pr_body already exists.
 
     Requires:
-        ctx.views.prompts: A PromptsRenderer instance.
+        ctx.textual: Textual UI components.
 
     Outputs (saved to ctx.data):
         pr_body (str): The body/description entered by the user.
@@ -59,20 +54,16 @@ def prompt_for_pr_body_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the user cancels.
         Skip: If pr_body already exists.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Skip if body already exists (e.g., from AI generation)
     if ctx.get("pr_body"):
         return Skip("PR body already provided, skipping manual prompt.")
 
     try:
-        # Show step header
-        if ctx.views:
-            ctx.views.step_header(
-                name="Prompt for PR Body",
-                step_type="plugin",
-                step_detail="github.prompt_for_pr_body"
-            )
-        body = ctx.views.prompts.ask_multiline(msg.Prompts.ENTER_PR_BODY)
+        # TODO: Implement multiline input in Textual - for now use single line
+        body = ctx.textual.ask_text(msg.Prompts.ENTER_PR_BODY, default="")
         # Body can be empty
         return Success("PR body captured", metadata={"pr_body": body})
     except (KeyboardInterrupt, EOFError):

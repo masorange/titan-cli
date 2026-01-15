@@ -97,6 +97,7 @@ class WorkflowExecutionScreen(BaseScreen):
         self.workflow: Optional[ParsedWorkflow] = None
         self._worker: Optional[Worker] = None
         self._original_cwd = os.getcwd()
+        self._should_auto_back = False  # Flag to trigger auto-back when worker finishes
 
     def compose_content(self) -> ComposeResult:
         """Compose the workflow execution screen."""
@@ -281,8 +282,10 @@ class WorkflowExecutionScreen(BaseScreen):
     def _handle_workflow_event(self, message) -> None:
         """Generic handler that delegates to widgets."""
         try:
-            # Update steps widget if step-related
-            if hasattr(message, 'step_id'):
+            from titan_cli.ui.tui.textual_workflow_executor import TextualWorkflowExecutor
+
+            # Update steps widget for step-related and workflow events
+            if hasattr(message, 'step_id') or isinstance(message, (TextualWorkflowExecutor.WorkflowStarted, TextualWorkflowExecutor.WorkflowCompleted)):
                 steps_widget = self.query_one("#steps-content", StepsContent)
                 steps_widget.handle_event(message)
 
@@ -291,6 +294,29 @@ class WorkflowExecutionScreen(BaseScreen):
             execution_widget.handle_event(message)
         except Exception:
             pass
+
+    def _schedule_auto_back(self) -> None:
+        """Schedule auto-back - will poll worker state until it finishes."""
+        # import time
+        # with open("/tmp/titan_debug.log", "a") as f:
+        #     f.write(f"[{time.time():.3f}] SCREEN: Auto-back scheduled, starting polling\n")
+        self._should_auto_back = True
+        # Start polling worker state
+        self._poll_worker_and_pop()
+
+    def _poll_worker_and_pop(self) -> None:
+        """Poll worker state and pop screen when finished."""
+        # Check if worker is still running
+        if self._worker and self._worker.state == WorkerState.RUNNING:
+            # with open("/tmp/titan_debug.log", "a") as f:
+            #     f.write(f"[{time.time():.3f}] SCREEN: Worker still running, will check again in 0.1s\n")
+            # Worker still running, check again in 100ms
+            self.set_timer(0.1, self._poll_worker_and_pop)
+        else:
+            # Worker finished, safe to pop
+            # with open("/tmp/titan_debug.log", "a") as f:
+            #     f.write(f"[{time.time():.3f}] SCREEN: Worker finished, popping screen now\n")
+            self.app.pop_screen()
 
     def action_cancel_execution(self) -> None:
         """Cancel workflow execution and go back."""
@@ -333,6 +359,7 @@ class StepsContent(Widget):
         super().__init__(**kwargs)
         self.steps: List[Dict[str, Any]] = []
         self._step_widgets: Dict[str, Static] = {}
+        self._workflow_stack: List[Dict[str, Any]] = []  # Stack to track nested workflows
 
     def set_steps(self, steps: List[Dict[str, Any]]) -> None:
         """Set the steps to display."""
@@ -374,7 +401,39 @@ class StepsContent(Widget):
         """Handle workflow events generically."""
         from titan_cli.ui.tui.textual_workflow_executor import TextualWorkflowExecutor
 
-        if isinstance(message, TextualWorkflowExecutor.StepStarted):
+        if isinstance(message, TextualWorkflowExecutor.WorkflowStarted):
+            # If it's a nested workflow, save current state and show nested steps
+            if message.is_nested:
+                # Save current state
+                self._workflow_stack.append({
+                    'steps': self.steps,
+                    'widgets': self._step_widgets.copy()
+                })
+                # Clear current widgets
+                for widget in self._step_widgets.values():
+                    widget.remove()
+                self._step_widgets.clear()
+                # Set nested workflow steps
+                self.set_steps(message.steps)
+
+        elif isinstance(message, TextualWorkflowExecutor.WorkflowCompleted):
+            # If nested workflow completed, restore parent workflow steps
+            if message.is_nested and self._workflow_stack:
+                # Clear nested widgets
+                for widget in self._step_widgets.values():
+                    widget.remove()
+                self._step_widgets.clear()
+
+                # Restore parent workflow state
+                parent_state = self._workflow_stack.pop()
+                self.steps = parent_state['steps']
+                self._step_widgets = parent_state['widgets']
+
+                # Re-mount parent widgets
+                for widget in self._step_widgets.values():
+                    self.mount(widget)
+
+        elif isinstance(message, TextualWorkflowExecutor.StepStarted):
             self.update_step(message.step_id, f"{Icons.RUNNING} [cyan]{message.step_name}[/cyan]")
         elif isinstance(message, TextualWorkflowExecutor.StepCompleted):
             self.update_step(message.step_id, f"{Icons.SUCCESS} [green]{message.step_name}[/green]")
@@ -405,6 +464,7 @@ class WorkflowExecutionContent(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._workflow_depth = 0  # Track nested workflow depth
 
     def compose(self) -> ComposeResult:
         """Compose the execution content."""
@@ -449,13 +509,28 @@ class WorkflowExecutionContent(Widget):
         from titan_cli.ui.tui.widgets import Panel
 
         if isinstance(message, TextualWorkflowExecutor.WorkflowStarted):
+            # Track nested workflow depth
+            if message.is_nested:
+                self._workflow_depth += 1
             self.append_output(f"\n[bold cyan]🚀 Starting workflow: {message.workflow_name}[/bold cyan]")
 
         elif isinstance(message, TextualWorkflowExecutor.StepStarted):
-            self.append_output(f"[cyan]→ Step {message.step_index}: {message.step_name}[/cyan]")
+            # Format differently for nested workflows
+            if self._workflow_depth > 0:
+                # Nested workflow: show with indentation, no step number
+                indent = "  " * self._workflow_depth
+                self.append_output(f"[cyan]{indent}→ Step {message.step_index}: {message.step_name}[/cyan]")
+            else:
+                # Top-level workflow: show with step number
+                self.append_output(f"[cyan]→ Step {message.step_index}: {message.step_name}[/cyan]")
 
         elif isinstance(message, TextualWorkflowExecutor.StepCompleted):
-            self.append_output(f"[green]{Icons.SUCCESS} Completed: {message.step_name}[/green]\n")
+            # Apply indentation for nested workflows
+            if self._workflow_depth > 0:
+                indent = "  " * self._workflow_depth
+                self.append_output(f"[green]{indent}{Icons.SUCCESS} Completed: {message.step_name}[/green]\n")
+            else:
+                self.append_output(f"[green]{Icons.SUCCESS} Completed: {message.step_name}[/green]\n")
 
         elif isinstance(message, TextualWorkflowExecutor.StepFailed):
             # Mount error panel
@@ -466,7 +541,8 @@ class WorkflowExecutionContent(Widget):
                 pass
 
             if message.on_error == "continue":
-                self.append_output(f"[yellow]   {Icons.WARNING}  Continuing despite error[/yellow]\n")
+                indent = "  " * self._workflow_depth if self._workflow_depth > 0 else ""
+                self.append_output(f"[yellow]{indent}   {Icons.WARNING}  Continuing despite error[/yellow]\n")
             else:
                 self.append_output("")
 
@@ -479,10 +555,38 @@ class WorkflowExecutionContent(Widget):
                 pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowCompleted):
+            # Track nested workflow depth
+            if message.is_nested and self._workflow_depth > 0:
+                self._workflow_depth -= 1
+
+            # DEBUG: Log receipt
+            import time
+            # with open("/tmp/titan_debug.log", "a") as f:
+            #     f.write(f"[{time.time():.3f}] SCREEN: Received WorkflowCompleted, is_nested={message.is_nested}\n")
+
             # Show success toast instead of inline message
-            self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
-            # Auto return to previous screen after a short delay
-            self.set_timer(3.0, self.app.pop_screen)
+            try:
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: About to call notify\n")
+                self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: notify called successfully\n")
+            except Exception as e:
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: notify failed: {e}\n")
+                # Fallback if notify fails
+                self.append_output(f"\n[bold green]✨ Workflow completed: {message.workflow_name}[/bold green]")
+
+            # Schedule auto-back after a short delay (only if not nested)
+            if not message.is_nested:
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: Setting timer for auto-back flag\n")
+                # Don't pop immediately - wait for worker to finish, then pop
+                self.set_timer(3.0, self._schedule_auto_back)
+            else:
+                # with open("/tmp/titan_debug.log", "a") as f:
+                #     f.write(f"[{time.time():.3f}] SCREEN: Workflow is nested, skipping auto-back\n")
+                pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
             # Show error toast for workflow failure

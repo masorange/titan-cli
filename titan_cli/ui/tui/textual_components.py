@@ -10,7 +10,7 @@ import threading
 from typing import Optional, Callable
 from contextlib import contextmanager
 from textual.widget import Widget
-from textual.widgets import Input, LoadingIndicator, Static
+from textual.widgets import Input, LoadingIndicator, Static, Markdown
 from textual.containers import Container
 
 
@@ -156,6 +156,38 @@ class TextualComponents:
         # call_from_thread already blocks until the function completes
         try:
             self.app.call_from_thread(_append)
+        except Exception:
+            # App is closing or worker was cancelled
+            pass
+
+    def markdown(self, markdown_text: str) -> None:
+        """
+        Render markdown content (parent container handles scrolling).
+
+        Args:
+            markdown_text: Markdown content to render
+
+        Example:
+            ctx.textual.markdown("## My Title\n\nSome **bold** text")
+        """
+        # Create markdown widget directly (Textual's Markdown already handles wrapping)
+        md_widget = Markdown(markdown_text)
+
+        # Apply basic styling - let it expand fully, parent has scroll
+        md_widget.styles.width = "100%"
+        md_widget.styles.height = "auto"
+        md_widget.styles.padding = (1, 2)
+        md_widget.styles.margin = (0, 0, 1, 0)
+
+        def _mount():
+            # Mount markdown to output
+            self.output_widget.mount(md_widget)
+            # Trigger autoscroll after mounting
+            self.output_widget._scroll_to_end()
+
+        # call_from_thread already blocks until the function completes
+        try:
+            self.app.call_from_thread(_mount)
         except Exception:
             # App is closing or worker was cancelled
             pass

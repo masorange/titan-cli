@@ -35,19 +35,22 @@ class TextualWorkflowExecutor:
     # Message classes for communication with the screen
     class WorkflowStarted(Message):
         """Emitted when workflow execution starts."""
-        def __init__(self, workflow_name: str, description: Optional[str], source: Optional[str], total_steps: int) -> None:
+        def __init__(self, workflow_name: str, description: Optional[str], source: Optional[str], total_steps: int, steps: list = None, is_nested: bool = False) -> None:
             super().__init__()
             self.workflow_name = workflow_name
             self.description = description
             self.source = source
             self.total_steps = total_steps
+            self.steps = steps or []
+            self.is_nested = is_nested
 
     class WorkflowCompleted(Message):
         """Emitted when workflow completes successfully."""
-        def __init__(self, workflow_name: str, message: str) -> None:
+        def __init__(self, workflow_name: str, message: str, is_nested: bool = False) -> None:
             super().__init__()
             self.workflow_name = workflow_name
             self.message = message
+            self.is_nested = is_nested
 
     class WorkflowFailed(Message):
         """Emitted when workflow fails."""
@@ -182,13 +185,18 @@ class TextualWorkflowExecutor:
         ctx.workflow_name = workflow.name
         ctx.total_steps = len([s for s in workflow.steps if not s.get("hook")])
 
+        # Check if this is a nested workflow (called from another workflow)
+        is_nested = len(ctx._workflow_stack) > 0
+
         # Emit workflow started event
         self._post_message(
             self.WorkflowStarted(
                 workflow_name=workflow.name,
                 description=workflow.description,
                 source=workflow.source,
-                total_steps=ctx.total_steps
+                total_steps=ctx.total_steps,
+                steps=workflow.steps,
+                is_nested=is_nested
             )
         )
 
@@ -275,13 +283,24 @@ class TextualWorkflowExecutor:
         finally:
             ctx.exit_workflow(workflow.name)
 
+        # Check if this is a nested workflow (called from another workflow)
+        is_nested = len(ctx._workflow_stack) > 0
+
+        # DEBUG: Log completion
+        # with open("/tmp/titan_debug.log", "a") as f:
+        #     f.write(f"[{time.time():.3f}] Workflow '{workflow.name}' completed. is_nested={is_nested}, stack={ctx._workflow_stack}\n")
+
         # Emit workflow completed event
         self._post_message(
             self.WorkflowCompleted(
                 workflow_name=workflow.name,
-                message=f"Workflow '{workflow.name}' finished."
+                message=f"Workflow '{workflow.name}' finished.",
+                is_nested=is_nested
             )
         )
+
+        # with open("/tmp/titan_debug.log", "a") as f:
+        #     f.write(f"[{time.time():.3f}] WorkflowCompleted message posted\n")
 
         return Success(f"Workflow '{workflow.name}' finished.", {})
 

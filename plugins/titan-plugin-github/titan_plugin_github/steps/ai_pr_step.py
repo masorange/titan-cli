@@ -5,8 +5,8 @@ AI-powered PR description generation step.
 Uses PRAgent to analyze branch context and generate PR content.
 """
 
-from rich.markdown import Markdown
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.ui.tui.widgets import Panel
 
 from ..agents import PRAgent
 from ..messages import msg
@@ -40,22 +40,17 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         Skip: AI not configured or user declined
         Error: Failed to generate PR description
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header(
-            name="AI Generate PR Description",
-            step_type="plugin",
-            step_detail="github.ai_suggest_pr_description"
-        )
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        if ctx.ui:
-            ctx.ui.panel.print(
-                msg.GitHub.AI.AI_NOT_CONFIGURED,
+        ctx.textual.mount(
+            Panel(
+                text=msg.GitHub.AI.AI_NOT_CONFIGURED,
                 panel_type="info"
             )
-            ctx.ui.spacer.small()
+        )
         return Skip(msg.GitHub.AI.AI_NOT_CONFIGURED)
 
     # Get Git client
@@ -71,11 +66,10 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         # Show progress
-        if ctx.ui:
-            ctx.ui.text.info(msg.GitHub.AI.ANALYZING_BRANCH_DIFF.format(
-                head_branch=head_branch,
-                base_branch=base_branch
-            ))
+        ctx.textual.text(msg.GitHub.AI.ANALYZING_BRANCH_DIFF.format(
+            head_branch=head_branch,
+            base_branch=base_branch
+        ), markup="dim")
 
         # Create PRAgent instance
         pr_agent = PRAgent(
@@ -84,80 +78,74 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             github_client=ctx.github
         )
 
-        # Use PRAgent to analyze and generate PR content
-        if ctx.ui:
-            ctx.ui.text.info(msg.GitHub.AI.GENERATING_PR_DESCRIPTION)
-
-        analysis = pr_agent.analyze_and_plan(
-            head_branch=head_branch,
-            base_branch=base_branch,
-            auto_stage=False  # Only analyze branch commits, not uncommitted changes
-        )
+        # Use PRAgent to analyze and generate PR content with loading indicator
+        with ctx.textual.loading(msg.GitHub.AI.GENERATING_PR_DESCRIPTION):
+            analysis = pr_agent.analyze_and_plan(
+                head_branch=head_branch,
+                base_branch=base_branch,
+                auto_stage=False  # Only analyze branch commits, not uncommitted changes
+            )
 
         # Check if PR content was generated (need commits in branch)
         if not analysis.pr_title or not analysis.pr_body:
-            if ctx.ui:
-                ctx.ui.panel.print(
-                    "No commits found in branch to generate PR description.",
+            ctx.textual.mount(
+                Panel(
+                    text="No commits found in branch to generate PR description.",
                     panel_type="info"
                 )
-                ctx.ui.spacer.small()
+            )
             return Skip("No commits found for PR generation")
 
         # Show PR size info
-        if ctx.ui and analysis.pr_size:
-            ctx.ui.text.info(msg.GitHub.AI.PR_SIZE_INFO.format(
+        if analysis.pr_size:
+            ctx.textual.text(msg.GitHub.AI.PR_SIZE_INFO.format(
                 pr_size=analysis.pr_size,
                 files_changed=analysis.files_changed,
                 diff_lines=analysis.lines_changed,
                 max_chars="varies by size"
-            ))
+            ), markup="dim")
 
         # Show PR preview to user
-        if ctx.ui:
-            ctx.ui.spacer.small()
-            ctx.ui.text.subtitle(msg.GitHub.AI.AI_GENERATED_PR_TITLE)
-            ctx.ui.spacer.small()
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(msg.GitHub.AI.AI_GENERATED_PR_TITLE, markup="bold")
+        ctx.textual.text("")  # spacing
 
-            # Show title
-            ctx.ui.text.body(msg.GitHub.AI.TITLE_LABEL, style="bold")
-            ctx.ui.text.body(f"  {analysis.pr_title}", style="cyan")
+        # Show title
+        ctx.textual.text(msg.GitHub.AI.TITLE_LABEL, markup="bold")
+        ctx.textual.text(f"  {analysis.pr_title}", markup="cyan")
 
-            # Warn if title is too long
-            if len(analysis.pr_title) > 72:
-                ctx.ui.text.warning(msg.GitHub.AI.TITLE_TOO_LONG_WARNING.format(
-                    length=len(analysis.pr_title)
-                ))
+        # Warn if title is too long
+        if len(analysis.pr_title) > 72:
+            ctx.textual.text(msg.GitHub.AI.TITLE_TOO_LONG_WARNING.format(
+                length=len(analysis.pr_title)
+            ), markup="yellow")
 
-            ctx.ui.spacer.small()
+        ctx.textual.text("")  # spacing
 
-            # Show description
-            ctx.ui.text.body(msg.GitHub.AI.DESCRIPTION_LABEL, style="bold")
-            ctx.ui.panel.print(
-                Markdown(analysis.pr_body),
-                title=None,
-                panel_type="default"
-            )
+        # Show description
+        ctx.textual.text(msg.GitHub.AI.DESCRIPTION_LABEL, markup="bold")
+        # Render markdown in a scrollable container
+        ctx.textual.markdown(analysis.pr_body)
 
-            ctx.ui.spacer.small()
+        ctx.textual.text("")  # spacing
 
-            # Single confirmation for both title and description
-            use_ai_pr = ctx.views.prompts.ask_confirm(
-                msg.GitHub.AI.CONFIRM_USE_AI_PR,
-                default=True
-            )
+        # Single confirmation for both title and description
+        use_ai_pr = ctx.textual.ask_confirm(
+            msg.GitHub.AI.CONFIRM_USE_AI_PR,
+            default=True
+        )
 
-            if not use_ai_pr:
-                ctx.ui.text.warning(msg.GitHub.AI.AI_SUGGESTION_REJECTED)
-                return Skip("User rejected AI-generated PR")
+        if not use_ai_pr:
+            ctx.textual.text(msg.GitHub.AI.AI_SUGGESTION_REJECTED, markup="yellow")
+            return Skip("User rejected AI-generated PR")
 
         # Show success panel
-        if ctx.ui:
-            ctx.ui.panel.print(
-                "AI generated PR description successfully",
+        ctx.textual.mount(
+            Panel(
+                text="AI generated PR description successfully",
                 panel_type="success"
             )
-            ctx.ui.spacer.small()
+        )
 
         # Success - save to context
         metadata = {
@@ -174,9 +162,8 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
 
     except Exception as e:
         # Don't fail the workflow, just skip AI and use manual prompts
-        if ctx.ui:
-            ctx.ui.text.warning(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
-            ctx.ui.text.info(msg.GitHub.AI.FALLBACK_TO_MANUAL)
+        ctx.textual.text(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e), markup="yellow")
+        ctx.textual.text(msg.GitHub.AI.FALLBACK_TO_MANUAL, markup="dim")
 
         return Skip(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
 
