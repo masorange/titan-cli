@@ -151,7 +151,9 @@ class MainMenuScreen(BaseScreen):
 
     def handle_ai_config_action(self) -> None:
         """Handle AI Configuration action."""
-        self.app.notify("AI configuration - Coming soon!")
+        from .ai_config import AIConfigScreen
+
+        self.app.push_screen(AIConfigScreen(self.config))
 
     def handle_switch_project_action(self) -> None:
         """Handle Switch Project action."""
