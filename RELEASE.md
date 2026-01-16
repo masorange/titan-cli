@@ -210,4 +210,4 @@ python3 --version
 
 **Ready to release? Follow the steps above!**
 
-Release Date: 2026-01-12
+Release Date: 2026-01-16

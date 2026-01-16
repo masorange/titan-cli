@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "titan-plugin-github"
-version = "0.1.0"
+version = "1.0.0"
 description = "Titan CLI plugin for GitHub integration."
 authors = ["Team Titan CLI"]
 packages = [{include = "titan_plugin_github"}]
