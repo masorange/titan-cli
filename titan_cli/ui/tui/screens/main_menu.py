@@ -43,6 +43,7 @@ class MainMenuScreen(BaseScreen):
         background: $surface-lighten-1;
         border: solid $primary;
         margin: 1;
+        padding: 1 0;
     }
 
     #menu-title {

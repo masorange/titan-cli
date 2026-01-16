@@ -40,15 +40,7 @@ class AIConfigScreen(BaseScreen):
         height: auto;
         background: $surface-lighten-1;
         border: solid $primary;
-        margin: 1;
-        padding: 2;
-    }
-
-    #ai-config-title {
-        text-align: center;
-        color: $primary;
-        text-style: bold;
-        margin-bottom: 2;
+        padding: 1 0;
     }
 
     .info-text {
@@ -75,7 +67,6 @@ class AIConfigScreen(BaseScreen):
     def compose_content(self) -> ComposeResult:
         """Compose the AI configuration screen."""
         with Container(id="ai-config-container"):
-            yield Static(f"{Icons.SETTINGS} AI Configuration", id="ai-config-title")
 
             yield Static(
                 "Select an option:",
