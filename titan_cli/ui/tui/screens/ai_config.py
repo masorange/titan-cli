@@ -5,16 +5,148 @@ Screen for managing AI providers (list, add, set default, test, delete).
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static
+from textual.widgets import Static, LoadingIndicator
 from textual.containers import Container, Horizontal, VerticalScroll, Grid
 from textual.binding import Binding
+from textual.screen import ModalScreen
 
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import DimText, Button
+from titan_cli.ui.tui.widgets import DimText, Button, SuccessText, ErrorText
 from .base import BaseScreen
 import tomli
 import tomli_w
 from titan_cli.core.config import TitanConfig
+
+
+class TestConnectionModal(ModalScreen):
+    """Modal screen for testing AI provider connection."""
+
+    DEFAULT_CSS = """
+    TestConnectionModal {
+        align: center middle;
+    }
+
+    #test-modal-container {
+        width: 70;
+        height: auto;
+        background: $surface-lighten-1;
+        border: solid $primary;
+        padding: 2;
+    }
+
+    #test-modal-header {
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 2;
+    }
+
+    #test-modal-content {
+        height: auto;
+        min-height: 15;
+        align: center middle;
+    }
+
+    #test-modal-buttons {
+        height: auto;
+        align: center middle;
+        margin-top: 2;
+    }
+
+    #loading-container {
+        width: 100%;
+        height: auto;
+        align: center middle;
+    }
+
+    LoadingIndicator {
+        height: 5;
+        margin: 2 0;
+    }
+
+    .center-text {
+        text-align: center;
+        width: 100%;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close_modal", "Close"),
+    ]
+
+    def __init__(self, provider_id: str, provider_cfg, config, **kwargs):
+        super().__init__(**kwargs)
+        self.provider_id = provider_id
+        self.provider_cfg = provider_cfg
+        self.config = config
+
+    def compose(self) -> ComposeResult:
+        """Compose the test modal."""
+        with Container(id="test-modal-container"):
+            yield Static(f"{Icons.SETTINGS} Testing connection: {self.provider_cfg.name}", id="test-modal-header")
+            yield Container(id="test-modal-content")
+            with Container(id="test-modal-buttons"):
+                yield Button("Close", variant="default", id="close-modal-button")
+
+    def on_mount(self) -> None:
+        """Start the test when modal mounts."""
+        # Show loading indicator
+        content = self.query_one("#test-modal-content", Container)
+
+        # Mount loading indicator and text directly
+        content.mount(LoadingIndicator())
+        content.mount(DimText(f"\nTesting connection to {self.provider_cfg.name}...", classes="center-text"))
+
+        # Run test in background AFTER the UI has refreshed
+        self.call_after_refresh(self._start_test)
+
+    def _start_test(self) -> None:
+        """Start the test after UI refresh."""
+        self.run_worker(self._run_test(), exclusive=True)
+
+    async def _run_test(self) -> None:
+        """Run the test asynchronously."""
+        from titan_cli.core.secrets import SecretManager
+        from titan_cli.ai.client import AIClient
+        from titan_cli.ai.models import AIMessage
+
+        content = self.query_one("#test-modal-content", Container)
+        secrets = SecretManager()
+
+        try:
+            # Initialize AIClient with the specific provider_id
+            ai_client = AIClient(self.config.config.ai, secrets, provider_id=self.provider_id)
+
+            # Generate a simple test response
+            response = ai_client.generate(
+                messages=[AIMessage(role="user", content="Say 'Hello!' if you can hear me")],
+                max_tokens=200
+            )
+
+            # Show success - remove loading and show result
+            content.remove_children()
+            content.mount(SuccessText(f"{Icons.CHECK} Connection successful!\n\n"))
+
+            model_info = f" with model '{self.provider_cfg.model}'" if self.provider_cfg.model else ""
+            endpoint_info = " (custom endpoint)" if self.provider_cfg.base_url else ""
+
+            content.mount(DimText(f"Provider: {self.provider_cfg.provider}{model_info}{endpoint_info}\n"))
+            content.mount(DimText(f"Model: {response.model}\n"))
+            content.mount(DimText(f"\nResponse: {response.content}"))
+
+        except Exception as e:
+            # Show error - remove loading and show error
+            content.remove_children()
+            content.mount(ErrorText(f"{Icons.ERROR} Connection failed!\n\n"))
+            content.mount(DimText(f"Error: {str(e)}"))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press."""
+        if event.button.id == "close-modal-button":
+            self.dismiss()
+
+    def action_close_modal(self) -> None:
+        """Close the modal."""
+        self.dismiss()
 
 
 class ProviderCard(Container):
@@ -121,6 +253,7 @@ class AIConfigScreen(BaseScreen):
         height: 1fr;
         padding: 1 0;
         align: center top;
+        overflow-y: auto;
     }
 
     #providers-grid {
@@ -283,12 +416,8 @@ class AIConfigScreen(BaseScreen):
 
     def handle_test_connection(self, provider_id: str) -> None:
         """Test connection to a provider."""
-        from titan_cli.commands.ai import _test_ai_connection_by_id
-        from titan_cli.core.secrets import SecretManager
-
         # Reload config to get latest
         self.config.load()
-        secrets = SecretManager()
 
         if provider_id not in self.config.config.ai.providers:
             self.app.notify("Provider not found", severity="error")
@@ -296,9 +425,8 @@ class AIConfigScreen(BaseScreen):
 
         provider_cfg = self.config.config.ai.providers[provider_id]
 
-        # Suspend TUI to run test
-        with self.app.suspend():
-            _test_ai_connection_by_id(provider_id, secrets, self.config.config.ai, provider_cfg)
+        # Open modal
+        self.app.push_screen(TestConnectionModal(provider_id, provider_cfg, self.config))
 
     def handle_delete(self, provider_id: str) -> None:
         """Delete a provider."""
