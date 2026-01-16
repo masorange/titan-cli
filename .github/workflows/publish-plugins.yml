@@ -1,0 +1,130 @@
+name: Publish Plugins to PyPI
+
+on:
+  push:
+    tags:
+      - 'plugin-git-v*'
+      - 'plugin-github-v*'
+      - 'plugin-jira-v*'
+      - 'plugin-*-v*'  # Support new plugins
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: 'Plugin name (e.g., git, github, jira)'
+        required: true
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+
+jobs:
+  determine-plugin:
+    runs-on: ubuntu-latest
+    outputs:
+      plugin-name: ${{ steps.extract.outputs.plugin-name }}
+      plugin-version: ${{ steps.extract.outputs.version }}
+    steps:
+      - name: Extract plugin from tag
+        id: extract
+        run: |
+          # Handle both manual dispatch and tag-triggered workflow
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PLUGIN="${{ github.event.inputs.plugin }}"
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            TAG="${{ github.ref }}"
+            # Extract from tag: plugin-git-v1.0.0 -> git, 1.0.0
+            PLUGIN=$(echo "$TAG" | sed 's|refs/tags/plugin-||;s|-v.*||')
+            VERSION=$(echo "$TAG" | sed 's|refs/tags/.*-v||')
+          fi
+
+          echo "plugin-name=$PLUGIN" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Plugin: $PLUGIN, Version: $VERSION"
+
+  publish:
+    needs: determine-plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git operations
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+
+      - name: Update plugin version in pyproject.toml
+        working-directory: plugins/titan-plugin-${{ needs.determine-plugin.outputs.plugin-name }}
+        run: |
+          poetry version ${{ needs.determine-plugin.outputs.plugin-version }}
+
+      - name: Build plugin package
+        working-directory: plugins/titan-plugin-${{ needs.determine-plugin.outputs.plugin-name }}
+        run: poetry build
+
+      - name: Publish to PyPI
+        working-directory: plugins/titan-plugin-${{ needs.determine-plugin.outputs.plugin-name }}
+        run: poetry publish
+        env:
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
+
+  update-registry:
+    needs: [determine-plugin, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Update registry.json
+        run: |
+          python scripts/update_registry.py \
+            --plugin titan-plugin-${{ needs.determine-plugin.outputs.plugin-name }} \
+            --version ${{ needs.determine-plugin.outputs.plugin-version }}
+
+      - name: Commit registry update
+        run: |
+          git config user.email "titan-bot@masmovil.es"
+          git config user.name "Titan Bot"
+          git add registry.json
+          git diff --cached --exit-code || {
+            git commit -m "chore(registry): update titan-plugin-${{ needs.determine-plugin.outputs.plugin-name }} to v${{ needs.determine-plugin.outputs.plugin-version }}"
+            git push
+          }
+
+      - name: Create Release Notes
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: plugin-${{ needs.determine-plugin.outputs.plugin-name }}-v${{ needs.determine-plugin.outputs.plugin-version }}
+          release_name: Plugin ${{ needs.determine-plugin.outputs.plugin-name }} v${{ needs.determine-plugin.outputs.plugin-version }}
+          body: |
+            ## Plugin Release
+
+            **Plugin**: `titan-plugin-${{ needs.determine-plugin.outputs.plugin-name }}`  
+            **Version**: `${{ needs.determine-plugin.outputs.plugin-version }}`  
+            **Status**: ✅ Published to PyPI
+
+            ### Installation
+
+            ```bash
+            pipx inject titan-cli titan-plugin-${{ needs.determine-plugin.outputs.plugin-name }}
+            ```
+
+            ### Registry
+
+            The marketplace registry has been automatically updated.
+          draft: false
+          prerelease: false

@@ -1,0 +1,98 @@
+name: Test Plugins
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/**'
+      - '.github/workflows/test-plugins.yml'
+  push:
+    branches:
+      - develop
+      - feat/**
+    paths:
+      - 'plugins/**'
+
+jobs:
+  detect-plugins:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect changed plugins
+        id: set-matrix
+        run: |
+          # Get list of changed files
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
+          else
+            CHANGED_FILES=$(git diff --name-only HEAD~1..HEAD)
+          fi
+
+          # Extract unique plugin directories
+          PLUGINS=()
+          for file in $CHANGED_FILES; do
+            if [[ $file == plugins/titan-plugin-*/* ]]; then
+              PLUGIN=$(echo $file | cut -d'/' -f2)
+              if [[ ! " ${PLUGINS[@]} " =~ " ${PLUGIN} " ]]; then
+                PLUGINS+=("$PLUGIN")
+              fi
+            fi
+          done
+
+          # If no plugins detected, test all
+          if [ ${#PLUGINS[@]} -eq 0 ]; then
+            PLUGINS=("titan-plugin-git" "titan-plugin-github" "titan-plugin-jira")
+          fi
+
+          # Format as JSON array
+          MATRIX=$(printf '"%s",' "${PLUGINS[@]}" | sed 's/,$//')
+          MATRIX="{\"plugin\":[$MATRIX]}"
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+  test:
+    needs: detect-plugins
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.detect-plugins.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v3
+        with:
+          path: plugins/${{ matrix.plugin }}/.venv
+          key: venv-${{ matrix.plugin }}-${{ hashFiles(format('plugins/{0}/poetry.lock', matrix.plugin)) }}
+
+      - name: Install dependencies
+        working-directory: plugins/${{ matrix.plugin }}
+        run: poetry install
+
+      - name: Run linting (ruff)
+        working-directory: plugins/${{ matrix.plugin }}
+        run: poetry run ruff check . --output-format=short
+
+      - name: Run tests
+        working-directory: plugins/${{ matrix.plugin }}
+        run: poetry run pytest -v
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./plugins/${{ matrix.plugin }}/coverage.xml
+          flags: plugins
+          fail_ci_if_error: false

@@ -1,0 +1,5 @@
+# Requirements for standalone documentation agent
+# Install: pip install -r scripts/requirements_agent.txt
+
+anthropic>=0.75.0
+python-dotenv>=1.2.1
