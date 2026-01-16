@@ -6,12 +6,15 @@ Screen for managing AI providers (list, add, set default, test, delete).
 
 from textual.app import ComposeResult
 from textual.widgets import Static
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll, Grid
 from textual.binding import Binding
 
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import DimText, Button
 from .base import BaseScreen
+import tomli
+import tomli_w
+from titan_cli.core.config import TitanConfig
 
 
 class ProviderCard(Container):
@@ -20,11 +23,11 @@ class ProviderCard(Container):
     DEFAULT_CSS = """
     ProviderCard {
         width: 100%;
+        max-width: 60;
         height: auto;
         background: $surface-lighten-1;
         border: solid $accent;
         padding: 1 2;
-        margin-bottom: 2;
     }
 
     ProviderCard.default {
@@ -33,12 +36,10 @@ class ProviderCard(Container):
 
     ProviderCard .provider-name {
         text-style: bold;
-        margin-bottom: 1;
     }
 
     ProviderCard .provider-info {
         color: $text-muted;
-        margin-bottom: 1;
     }
 
     ProviderCard .button-row {
@@ -73,10 +74,13 @@ class ProviderCard(Container):
         yield DimText(f"Provider: {provider_label} (Claude)" if provider == "anthropic" else f"Provider: {provider_label} (Gemini)", classes="provider-info")
         yield DimText(f"Model: {model}", classes="provider-info")
 
-        # Show base URL if it's a corporate config
+        # Show base URL (always show this line for consistent height)
         base_url = self.provider_cfg.get("base_url")
         if base_url:
             yield DimText(f"Base URL: {base_url}", classes="provider-info")
+        else:
+            # Add empty line to maintain consistent height
+            yield DimText(" ", classes="provider-info")
 
         # Show type
         config_type = self.provider_cfg.get("type", "")
@@ -106,7 +110,7 @@ class AIConfigScreen(BaseScreen):
     }
 
     #config-container {
-        width: 80%;
+        width: 90%;
         height: 1fr;
         background: $surface-lighten-1;
         padding: 0 2 1 2;
@@ -115,12 +119,21 @@ class AIConfigScreen(BaseScreen):
     #providers-scroll {
         height: 1fr;
         padding: 1 0;
+        align: center top;
+    }
+
+    #providers-grid {
+        grid-size: 2;
+        grid-gutter: 2;
+        width: 100%;
+        height: auto;
     }
 
     #no-providers {
         text-align: center;
         color: $text-muted;
         margin: 8 0;
+        column-span: 2;
     }
 
     #add-provider-container {
@@ -144,9 +157,9 @@ class AIConfigScreen(BaseScreen):
             with Container(id="add-provider-container"):
                 yield Button(f"{Icons.SETTINGS} Add New Provider", variant="primary", id="add-provider-button")
 
-            # Scrollable area for providers
+            # Scrollable area with grid for providers
             with VerticalScroll(id="providers-scroll"):
-                pass  # Will be populated in on_mount
+                yield Grid(id="providers-grid")
 
     def on_mount(self) -> None:
         """Load providers when mounted."""
@@ -172,11 +185,26 @@ class AIConfigScreen(BaseScreen):
         # Reload config to get latest
         self.config.load()
 
-        scroll = self.query_one("#providers-scroll", VerticalScroll)
-        scroll.remove_children()
+        # Get the grid
+        try:
+            grid = self.query_one("#providers-grid", Grid)
+        except Exception:
+            # Grid was removed, recreate it
+            scroll = self.query_one("#providers-scroll", VerticalScroll)
+            # Remove no-providers message if it exists
+            try:
+                no_prov = self.query_one("#no-providers", Static)
+                no_prov.remove()
+            except Exception:
+                pass
+            grid = Grid(id="providers-grid")
+            scroll.mount(grid)
+
+        grid.remove_children()
 
         if not self.config.config.ai or not self.config.config.ai.providers:
-            scroll.mount(Static(
+            # Show no providers message
+            grid.mount(Static(
                 "No AI providers configured yet.\n\n"
                 "Click 'Add New Provider' to configure your first provider.",
                 id="no-providers"
@@ -196,7 +224,7 @@ class AIConfigScreen(BaseScreen):
             )
             if is_default:
                 card.add_class("default")
-            scroll.mount(card)
+            grid.mount(card)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -225,9 +253,6 @@ class AIConfigScreen(BaseScreen):
 
     def handle_set_default(self, provider_id: str) -> None:
         """Set a provider as default."""
-        import tomli
-        import tomli_w
-        from titan_cli.core.config import TitanConfig
 
         try:
             # Load global config
