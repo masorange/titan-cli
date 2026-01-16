@@ -1,0 +1,57 @@
+sequenceDiagram
+    participant App as Application
+    participant Registry as PluginRegistry
+    participant EP as Entry Points
+    participant Plugin as TitanPlugin
+    participant Config as TitanConfig
+    participant Secrets as SecretManager
+
+    App->>Registry: __init__(discover_on_init=True)
+    activate Registry
+    Registry->>Registry: discover()
+    Registry->>EP: entry_points(group='titan.plugins')
+    EP-->>Registry: List of entry points
+    
+    loop For each entry point
+        Registry->>EP: ep.load()
+        EP-->>Registry: plugin_class
+        alt Valid Plugin Class
+            Registry->>Plugin: plugin_class()
+            Plugin-->>Registry: plugin_instance
+            Registry->>Registry: _plugins[ep.name] = plugin_instance
+        else Invalid/Failed
+            Registry->>Registry: _failed_plugins[ep.name] = error
+        end
+    end
+    deactivate Registry
+
+    App->>Registry: initialize_plugins(config, secrets)
+    activate Registry
+    
+    loop Until all initialized or failed
+        Registry->>Registry: Check dependencies
+        loop For each plugin
+            alt Dependencies met
+                Registry->>Plugin: initialize(config, secrets)
+                activate Plugin
+                Plugin->>Config: Read configuration
+                Plugin->>Secrets: Read secrets
+                Plugin-->>Registry: Initialized
+                deactivate Plugin
+                Registry->>Registry: Mark as initialized
+            else Dependency failed
+                Registry->>Registry: Mark as failed
+                Registry->>Registry: Remove from _plugins
+            else Waiting for dependencies
+                Registry->>Registry: Defer to next pass
+            end
+        end
+        
+        alt No progress made
+            Registry->>Registry: Mark remaining as circular dependency
+        end
+    end
+    deactivate Registry
+
+    App->>Registry: get_plugin(name)
+    Registry-->>App: TitanPlugin instance

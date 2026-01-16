@@ -1,0 +1,44 @@
+flowchart TD
+    Start([Start Initialization]) --> GetPlugins[Get list of plugins to initialize]
+    GetPlugins --> LoopCheck{More plugins<br/>to process?}
+    
+    LoopCheck -->|No| Done([Initialization Complete])
+    LoopCheck -->|Yes| NextPlugin[Pick next plugin]
+    
+    NextPlugin --> CheckInit{Already<br/>initialized?}
+    CheckInit -->|Yes| LoopCheck
+    CheckInit -->|No| CheckDeps[Check dependencies]
+    
+    CheckDeps --> DepLoop{For each<br/>dependency}
+    DepLoop --> DepInit{Dependency<br/>initialized?}
+    
+    DepInit -->|Yes| NextDep[Check next dependency]
+    NextDep --> DepLoop
+    
+    DepInit -->|No| DepFailed{Dependency<br/>failed?}
+    
+    DepFailed -->|Yes| MarkFailed[Mark plugin as failed<br/>Remove from active plugins]
+    MarkFailed --> LoopCheck
+    
+    DepFailed -->|No| Defer[Defer to next pass]
+    Defer --> LoopCheck
+    
+    DepLoop -->|All met| Initialize[Call plugin.initialize<br/>config, secrets]
+    
+    Initialize --> InitSuccess{Success?}
+    InitSuccess -->|Yes| MarkInit[Mark as initialized]
+    MarkInit --> LoopCheck
+    
+    InitSuccess -->|No| CatchError[Catch exception]
+    CatchError --> MarkFailed
+    
+    LoopCheck --> ProgressCheck{Made progress<br/>this pass?}
+    ProgressCheck -->|No & remaining| Circular[Mark remaining as<br/>circular dependency]
+    Circular --> Done
+    ProgressCheck -->|Yes| LoopCheck
+
+    style Start fill:#90EE90
+    style Done fill:#90EE90
+    style MarkFailed fill:#FFB6C1
+    style Circular fill:#FFB6C1
+    style MarkInit fill:#87CEEB

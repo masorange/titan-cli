@@ -1,0 +1,38 @@
+flowchart LR
+    subgraph Plugin["TitanPlugin"]
+        direction TB
+        Client[get_client]
+        Steps[get_steps]
+        Workflows[workflows_path]
+        Available[is_available]
+    end
+    
+    subgraph Registry["PluginRegistry"]
+        direction TB
+        Discover[discover]
+        Init[initialize_plugins]
+        GetPlugin[get_plugin]
+    end
+    
+    subgraph Context["WorkflowContext"]
+        direction TB
+        Clients[Plugin Clients]
+        StepRegistry[Available Steps]
+    end
+    
+    Registry -->|Manages| Plugin
+    Plugin -->|Provides| Client
+    Plugin -->|Provides| Steps
+    Plugin -->|Provides| Workflows
+    
+    Client -->|Injected into| Clients
+    Steps -->|Registered in| StepRegistry
+    
+    Context -->|Uses| Clients
+    Context -->|Executes| StepRegistry
+    
+    Available -->|Validates| Plugin
+
+    style Plugin fill:#E6F3FF
+    style Registry fill:#FFE6F0
+    style Context fill:#F0FFE6

@@ -1,0 +1,72 @@
+classDiagram
+    class TitanPlugin {
+        <<abstract>>
+        +name: str*
+        +version: str
+        +description: str
+        +dependencies: list[str]
+        +initialize(config, secrets)*
+        +get_client() Optional[Any]
+        +get_steps() Dict[str, Callable]
+        +is_available() bool
+        +workflows_path: Optional[Path]
+    }
+
+    class PluginRegistry {
+        -_plugins: Dict[str, TitanPlugin]
+        -_failed_plugins: Dict[str, Exception]
+        -_discovered_plugin_names: List[str]
+        +discover()
+        +initialize_plugins(config, secrets)
+        +list_installed() List[str]
+        +list_discovered() List[str]
+        +list_failed() Dict[str, Exception]
+        +get_plugin(name) Optional[TitanPlugin]
+        +reset()
+    }
+
+    class PluginConfig {
+        +enabled: bool
+        +config: Dict[str, Any]
+    }
+
+    class GitPluginConfig {
+        +main_branch: str
+        +default_remote: str
+        +protected_branches: List[str]
+    }
+
+    class GitHubPluginConfig {
+        +repo_owner: str
+        +repo_name: str
+        +default_branch: Optional[str]
+        +default_reviewers: List[str]
+        +pr_template_path: Optional[str]
+        +auto_assign_prs: bool
+    }
+
+    class JiraPluginConfig {
+        +base_url: str
+        +email: str
+        +api_token: Optional[str]
+        +default_project: str
+        +timeout: int
+        +enable_cache: bool
+        +cache_ttl: int
+    }
+
+    class KnownPlugin {
+        <<TypedDict>>
+        +name: str
+        +description: str
+        +package_name: str
+        +dependencies: List[str]
+    }
+
+    PluginRegistry "1" --> "*" TitanPlugin : manages
+    PluginConfig <|-- GitPluginConfig : extends
+    PluginConfig <|-- GitHubPluginConfig : extends
+    PluginConfig <|-- JiraPluginConfig : extends
+
+    note for TitanPlugin "Base class for all plugins.\nProvides clients, workflow steps,\nand configuration."
+    note for PluginRegistry "Discovers plugins via entry_points.\nManages lifecycle and dependencies."
