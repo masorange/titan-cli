@@ -62,52 +62,64 @@ class TestExecuteAIAssistantStep(unittest.TestCase):
         self.mock_ctx.data = {'test_failures': 'some error'}
         self.mock_step = MagicMock()
         self.mock_step.params = {'context_key': 'test_failures'}
+        # Mock textual UI components
+        self.mock_ctx.textual = MagicMock()
+        self.mock_ctx.textual.launch_external_cli = MagicMock(return_value=0)
 
     @patch('shutil.which', return_value=None)
     def test_no_cli_available(self, mock_which):
         result = execute_ai_assistant_step(self.mock_step, self.mock_ctx)
         self.assertIsInstance(result, Skip)
-        self.mock_ctx.ui.text.warning.assert_called_with("No AI coding assistant CLI found")
+        # Verify that a warning panel was mounted
+        self.mock_ctx.textual.mount.assert_called_once()
 
     @patch('shutil.which', side_effect=lambda cli: '/usr/bin/claude' if cli == 'claude' else None)
-    @patch('titan_cli.external_cli.launcher.CLILauncher.launch', return_value=0)
-    def test_one_cli_available(self, mock_launch, mock_which):
+    def test_one_cli_available(self, mock_which):
+        # Mock the confirmation dialog to return True
+        self.mock_ctx.textual.ask_confirm = MagicMock(return_value=True)
+
         result = execute_ai_assistant_step(self.mock_step, self.mock_ctx)
         self.assertIsInstance(result, Success)
-        mock_launch.assert_called_once()
-        self.assertEqual(mock_launch.call_args.kwargs['prompt'], 'some error')
+
+        # Verify launch_external_cli was called with the expected prompt
+        self.mock_ctx.textual.launch_external_cli.assert_called_once()
+        call_kwargs = self.mock_ctx.textual.launch_external_cli.call_args.kwargs
+        self.assertEqual(call_kwargs['cli_name'], 'claude')
+        self.assertIn('some error', call_kwargs['prompt'])
 
 
     @patch('shutil.which', return_value='/usr/bin/some_cli')
-    @patch('titan_cli.external_cli.launcher.CLILauncher.launch', return_value=0)
-    def test_multiple_clis_available_select_one(self, mock_launch, mock_which):
-        # Mock user selection
-        mock_choice = MagicMock()
-        mock_choice.action = 'gemini'
-        self.mock_ctx.views.prompts.ask_menu.return_value = mock_choice
+    def test_multiple_clis_available_select_one(self, mock_which):
+        # Mock user confirming and selecting option 2 (gemini)
+        self.mock_ctx.textual.ask_confirm = MagicMock(return_value=True)
+        self.mock_ctx.textual.ask_text = MagicMock(return_value="2")
 
         result = execute_ai_assistant_step(self.mock_step, self.mock_ctx)
         self.assertIsInstance(result, Success)
-        
-        # Check that the menu was shown
-        self.mock_ctx.views.prompts.ask_menu.assert_called_once()
-        
-        # Check that the launching message for Gemini was displayed
-        from titan_cli.messages import msg
-        self.mock_ctx.ui.text.info.assert_called_with(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name="Gemini CLI"))
-        
-        # Check that launch was called once
-        mock_launch.assert_called_once()
+
+        # Check that the user was asked to select an option
+        self.mock_ctx.textual.ask_text.assert_called_once()
+
+        # Check that launch_external_cli was called with gemini
+        self.mock_ctx.textual.launch_external_cli.assert_called_once()
+        call_kwargs = self.mock_ctx.textual.launch_external_cli.call_args.kwargs
+        self.assertEqual(call_kwargs['cli_name'], 'gemini')
 
 
     @patch('shutil.which', return_value='/usr/bin/some_cli')
     def test_multiple_clis_available_cancel(self, mock_which):
-        # Mock user cancelling selection
-        self.mock_ctx.views.prompts.ask_menu.return_value = None
+        # Mock user confirming but then cancelling selection (empty input)
+        self.mock_ctx.textual.ask_confirm = MagicMock(return_value=True)
+        self.mock_ctx.textual.ask_text = MagicMock(return_value="")
 
         result = execute_ai_assistant_step(self.mock_step, self.mock_ctx)
         self.assertIsInstance(result, Skip)
-        self.mock_ctx.views.prompts.ask_menu.assert_called_once()
+
+        # Verify that ask_text was called to get user's selection
+        self.mock_ctx.textual.ask_text.assert_called_once()
+
+        # Verify that launch_external_cli was NOT called
+        self.mock_ctx.textual.launch_external_cli.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

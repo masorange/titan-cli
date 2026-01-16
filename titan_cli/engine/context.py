@@ -29,6 +29,11 @@ class WorkflowContext:
 
         ctx.views.prompts  # Composed views
         ctx.views.menu
+
+        ctx.textual.text     # Textual TUI components
+        ctx.textual.panel
+        ctx.textual.spacer
+        ctx.textual.prompts
     """
 
     # Core dependencies
@@ -37,6 +42,9 @@ class WorkflowContext:
     # UI (two-level architecture)
     ui: Optional[UIComponents] = None
     views: Optional[UIViews] = None
+
+    # Textual TUI components (for TUI mode)
+    textual: Optional[Any] = None
 
     # Plugin registry
     plugin_manager: Optional[Any] = None

@@ -1,5 +1,6 @@
 # plugins/titan-plugin-github/titan_plugin_github/steps/create_pr_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.ui.tui.widgets import Panel
 from ..exceptions import GitHubAPIError
 from ..messages import msg
 
@@ -29,13 +30,8 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the PR is created successfully.
         Error: If any required context arguments are missing or if the API call fails.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header(
-            name="Create Pull Request",
-            step_type="plugin",
-            step_detail="github.create_pr"
-        )
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # 1. Get GitHub client from context
     if not ctx.github:
@@ -63,17 +59,18 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
             assignees = [current_user]
         except GitHubAPIError as e:
             # Log warning but continue without assignee
-            if ctx.ui:
-                ctx.ui.text.warning(f"Could not get current user for auto-assign: {e}")
+            ctx.textual.text(f"Could not get current user for auto-assign: {e}", markup="yellow")
 
     # 4. Call the client method
     try:
         pr = ctx.github.create_pull_request(
             title=title, body=body, base=base, head=head, draft=is_draft, assignees=assignees
         )
-        ctx.ui.panel.print(
-            msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]),
-            panel_type="success",
+        ctx.textual.mount(
+            Panel(
+                text=msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]),
+                panel_type="success"
+            )
         )
 
         # 4. Return Success with PR info

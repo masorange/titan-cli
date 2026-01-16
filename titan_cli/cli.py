@@ -29,6 +29,8 @@ from titan_cli.core.discovery import discover_projects
 from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.spacer import SpacerRenderer
 from titan_cli.ui.views.prompts import PromptsRenderer
+from titan_cli.ui.views.menu_components.menu import MenuRenderer
+from titan_cli.ui.views.status_bar import StatusBarRenderer
 from titan_cli.core.project_init import initialize_project
 from titan_cli.ui.views.menu_components.dynamic_menu import DynamicMenu
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
@@ -1017,8 +1019,8 @@ def show_interactive_menu():
     The menu loops after each action until the user chooses to exit.
     """
     text = TextRenderer()
-    prompts = PromptsRenderer(text_renderer=text)
     spacer = SpacerRenderer()
+    table = TableRenderer()
 
     # This is the entry point for interactive mode.
     # We create a single PluginRegistry that will be passed to the config.
@@ -1027,6 +1029,44 @@ def show_interactive_menu():
 
     # Initial config load
     config = TitanConfig(registry=plugin_registry)
+
+    # Get status bar info from config
+    status_bar_info = config.get_status_bar_info()
+
+    # Try to get git status
+    git_status = None
+    try:
+        git_plugin = config.registry.get_plugin("git")
+        if git_plugin and git_plugin.is_available():
+            git_client = git_plugin.get_client()
+            git_status = git_client.get_status()
+    except Exception:
+        # Git not available or not a repository, that's fine
+        pass
+
+    # Create status bar renderer
+    status_bar = StatusBarRenderer(
+        table_renderer=table,
+        text_renderer=text,
+        git_status=git_status,
+        ai_info=status_bar_info.get('ai_info'),
+        project_name=status_bar_info.get('project_name'),
+    )
+
+    # Create menu renderer with status bar
+    menu_renderer = MenuRenderer(
+        console=text.console,
+        text_renderer=text,
+        status_bar_renderer=status_bar,
+    )
+
+    # Create prompts renderer with the menu renderer
+    prompts = PromptsRenderer(
+        text_renderer=text, 
+        menu_renderer=menu_renderer,
+        status_bar_renderer=status_bar,
+        table_renderer=table
+    )
 
     # Check for project_root and prompt if not set (only runs once)
     project_root = config.get_project_root()
@@ -1042,6 +1082,25 @@ def show_interactive_menu():
         # Before showing the menu, reload the config to get the latest state
         config.load()
         cli_version = get_version()
+
+        # Update status bar info
+        status_bar_info = config.get_status_bar_info()
+
+        # Update git status
+        try:
+            git_plugin = config.registry.get_plugin("git")
+            if git_plugin and git_plugin.is_available():
+                git_client = git_plugin.get_client()
+                git_status = git_client.get_status()
+            else:
+                git_status = None
+        except Exception:
+            git_status = None
+
+        # Update status bar with new info
+        status_bar.git_status = git_status
+        status_bar.ai_info = status_bar_info.get('ai_info') or "N/A"
+        status_bar.project_name = status_bar_info.get('project_name') or "N/A"
 
         # Get active project and append to subtitle if available
         active_project = config.get_active_project()
@@ -1110,7 +1169,9 @@ def show_interactive_menu():
 def main(ctx: typer.Context):
     """Titan CLI - Main entry point"""
     if ctx.invoked_subcommand is None:
-        show_interactive_menu()
+        # Launch TUI by default
+        from titan_cli.ui.tui import launch_tui
+        launch_tui()
 
 
 @app.command()
@@ -1118,4 +1179,17 @@ def version():
     """Show Titan CLI version."""
     cli_version = get_version()
     typer.echo(msg.CLI.VERSION.format(version=cli_version))
+
+
+@app.command()
+def tui():
+    """Launch Titan in TUI mode (Textual interface)."""
+    from titan_cli.ui.tui import launch_tui
+    launch_tui()
+
+
+@app.command()
+def menu():
+    """Launch the legacy interactive menu (Rich-based)."""
+    show_interactive_menu()
     
