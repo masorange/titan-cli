@@ -5,12 +5,13 @@ Step-by-step wizard for configuring AI providers with visual progress tracking.
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static, Button, OptionList
+from textual.widgets import Static, Button, OptionList, Input
 from textual.widgets.option_list import Option
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
 
 from titan_cli.ui.tui.icons import Icons
+from titan_cli.ui.tui.widgets import Text, DimText
 from .base import BaseScreen
 
 
@@ -142,6 +143,16 @@ class AIConfigWizardScreen(BaseScreen):
     #options-list > .option-list--option-highlighted {
         padding: 1;
     }
+
+    Input {
+        width: 100%;
+        margin-top: 1;
+        border: solid $accent;
+    }
+
+    Input:focus {
+        border: solid $primary;
+    }
     """
 
     def __init__(self, config):
@@ -268,9 +279,34 @@ class AIConfigWizardScreen(BaseScreen):
         title_widget.update("Base URL Configuration")
         body_widget.remove_children()
 
-        # TODO: Implement base URL input
-        description = Static("Base URL step - Coming soon")
+        # Add description
+        description = Text(
+            "Configure your corporate AI endpoint.\n\n"
+            "Enter the base URL for your organization's AI service."
+        )
         body_widget.mount(description)
+
+        # Add examples
+        examples = DimText(
+            "\nExamples:\n"
+            "  • https://ai.yourcompany.com\n"
+            "  • https://api.internal.corp/ai\n"
+            "  • https://llm-gateway.enterprise.local"
+        )
+        body_widget.mount(examples)
+
+        # Add input field with default value
+        default_url = self.wizard_data.get("base_url", "https://")
+        input_widget = Input(
+            value=default_url,
+            placeholder="Enter base URL...",
+            id="base-url-input"
+        )
+        input_widget.styles.margin = (2, 0, 0, 0)
+        body_widget.mount(input_widget)
+
+        # Focus the input
+        self.call_after_refresh(lambda: input_widget.focus())
 
     def load_provider_step(self, title_widget: Static, body_widget: Container) -> None:
         """Load Provider Selection step."""
@@ -331,6 +367,10 @@ class AIConfigWizardScreen(BaseScreen):
         # Save the selection and move to next step
         self.handle_next()
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input fields - auto-advance to next step."""
+        self.handle_next()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         if event.button.id == "next-button":
@@ -375,13 +415,40 @@ class AIConfigWizardScreen(BaseScreen):
                 self.app.notify("Please select a configuration type", severity="error")
                 return False
 
+        elif step["id"] == "base_url":
+            # Get base URL from input
+            try:
+                input_widget = self.query_one("#base-url-input", Input)
+                base_url = input_widget.value.strip()
+
+                # Validate URL
+                if not base_url:
+                    self.app.notify("Please enter a base URL", severity="warning")
+                    return False
+
+                if not base_url.startswith(("http://", "https://")):
+                    self.app.notify("Base URL must start with http:// or https://", severity="warning")
+                    return False
+
+                self.wizard_data["base_url"] = base_url
+                return True
+            except Exception:
+                self.app.notify("Please enter a valid base URL", severity="error")
+                return False
+
         # TODO: Add validation for other steps
         return True
 
     def handle_back(self) -> None:
         """Move to previous step."""
         if self.current_step > 0:
-            self.load_step(self.current_step - 1)
+            prev_step = self.current_step - 1
+
+            # Skip Base URL step if going back and config type is Individual
+            if self.steps[prev_step]["id"] == "base_url" and self.wizard_data.get("config_type") == "individual":
+                prev_step -= 1
+
+            self.load_step(prev_step)
 
     def action_back(self) -> None:
         """Go back to AI config menu."""
