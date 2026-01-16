@@ -155,6 +155,17 @@ class AIConfigScreen(BaseScreen):
     def on_screen_resume(self) -> None:
         """Reload providers when returning from wizard."""
         self.load_providers()
+        # Update status bar in case a new provider was added
+        self._refresh_status_bar()
+
+    def _refresh_status_bar(self) -> None:
+        """Refresh the status bar with current AI info."""
+        try:
+            from titan_cli.ui.tui.widgets import StatusBarWidget
+            status_bar = self.query_one(StatusBarWidget)
+            self._update_status_bar(status_bar)
+        except Exception:
+            pass  # Status bar might not be available
 
     def load_providers(self) -> None:
         """Load and display all configured providers."""
@@ -235,6 +246,9 @@ class AIConfigScreen(BaseScreen):
             self.config.load()
             self.load_providers()
 
+            # Update status bar
+            self._refresh_status_bar()
+
             provider_name = self.config.config.ai.providers[provider_id].name
             self.app.notify(f"'{provider_name}' is now the default provider", severity="information")
 
@@ -307,6 +321,9 @@ class AIConfigScreen(BaseScreen):
             # Reload and refresh display
             self.config.load()
             self.load_providers()
+
+            # Update status bar
+            self._refresh_status_bar()
 
             self.app.notify(f"Provider '{provider_name}' deleted", severity="information")
 
