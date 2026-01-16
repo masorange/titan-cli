@@ -160,7 +160,7 @@ class AIConfigScreen(BaseScreen):
 
             # Add provider button at the bottom
             with Container(id="add-provider-container"):
-                yield Button(f"{Icons.SETTINGS} Add New Provider", variant="primary", id="add-provider-button")
+                yield Button(f"{Icons.SETTINGS} New Provider", variant="primary", id="add-provider-button")
 
     def on_mount(self) -> None:
         """Load providers when mounted."""

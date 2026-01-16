@@ -121,18 +121,20 @@ class AIConfigWizardScreen(BaseScreen):
         align: right middle;
     }
 
-    #options-list {
+    #type-options-list, #provider-options-list {
         height: auto;
         margin-top: 1;
         margin-bottom: 2;
         border: solid $accent;
     }
 
-    #options-list > .option-list--option {
+    #type-options-list > .option-list--option,
+    #provider-options-list > .option-list--option {
         padding: 1;
     }
 
-    #options-list > .option-list--option-highlighted {
+    #type-options-list > .option-list--option-highlighted,
+    #provider-options-list > .option-list--option-highlighted {
         padding: 1;
     }
 
@@ -266,7 +268,7 @@ class AIConfigWizardScreen(BaseScreen):
         options = OptionList(
             Option("Corporate Configuration", id="corporate"),
             Option("Individual Configuration", id="individual"),
-            id="options-list"
+            id="type-options-list"
         )
         body_widget.mount(options)
 
@@ -323,7 +325,7 @@ class AIConfigWizardScreen(BaseScreen):
         options = OptionList(
             Option("Anthropic (Claude)", id="anthropic"),
             Option("Google (Gemini)", id="gemini"),
-            id="options-list"
+            id="provider-options-list"
         )
         body_widget.mount(options)
 
@@ -634,7 +636,7 @@ class AIConfigWizardScreen(BaseScreen):
         if step["id"] == "type":
             # Get selected configuration type
             try:
-                options_list = self.query_one("#options-list", OptionList)
+                options_list = self.query_one("#type-options-list", OptionList)
                 if options_list.highlighted is None:
                     self.app.notify("Please select a configuration type", severity="warning")
                     return False
@@ -670,7 +672,7 @@ class AIConfigWizardScreen(BaseScreen):
         elif step["id"] == "provider":
             # Get selected provider
             try:
-                options_list = self.query_one("#options-list", OptionList)
+                options_list = self.query_one("#provider-options-list", OptionList)
                 if options_list.highlighted is None:
                     self.app.notify("Please select a provider", severity="warning")
                     return False
