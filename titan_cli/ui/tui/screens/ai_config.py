@@ -110,10 +110,11 @@ class AIConfigScreen(BaseScreen):
     }
 
     #config-container {
-        width: 90%;
+        width: 85%;
         height: 1fr;
         background: $surface-lighten-1;
         padding: 0 2 1 2;
+        margin: 1 0 1 0;
     }
 
     #providers-scroll {
@@ -138,7 +139,7 @@ class AIConfigScreen(BaseScreen):
 
     #add-provider-container {
         height: auto;
-        padding: 1 0;
+        padding: 0 0;
         align: center middle;
     }
     """
@@ -153,13 +154,13 @@ class AIConfigScreen(BaseScreen):
     def compose_content(self) -> ComposeResult:
         """Compose the AI configuration screen."""
         with Container(id="config-container"):
-            # Add provider button at the top
-            with Container(id="add-provider-container"):
-                yield Button(f"{Icons.SETTINGS} Add New Provider", variant="primary", id="add-provider-button")
-
             # Scrollable area with grid for providers
             with VerticalScroll(id="providers-scroll"):
                 yield Grid(id="providers-grid")
+
+            # Add provider button at the bottom
+            with Container(id="add-provider-container"):
+                yield Button(f"{Icons.SETTINGS} Add New Provider", variant="primary", id="add-provider-button")
 
     def on_mount(self) -> None:
         """Load providers when mounted."""
