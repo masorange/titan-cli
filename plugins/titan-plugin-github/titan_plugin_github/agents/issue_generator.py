@@ -59,6 +59,16 @@ class IssueGeneratorAgent(BaseAIAgent):
             }
         }
 
+        # Label aliases for mapping to different repository label conventions
+        self.label_aliases = {
+            "feature": ["feature", "enhancement", "new-feature", "feat"],
+            "improvement": ["improvement", "enhancement", "optimization", "perf"],
+            "bug": ["bug", "fix", "defect", "error"],
+            "refactor": ["refactor", "refactoring", "technical-debt", "tech-debt"],
+            "chore": ["chore", "maintenance", "housekeeping"],
+            "documentation": ["documentation", "docs", "doc"]
+        }
+
     def get_system_prompt(self) -> str:
         return """You are an expert at creating highly professional, descriptive, and useful GitHub issues.
 Your task is to:
@@ -214,7 +224,40 @@ Your task is to:
 
         return category, title, body
 
-    def generate_issue(self, user_description: str) -> Dict[str, any]:
+    def _map_labels_to_available(self, category: str, available_labels: Optional[list] = None) -> list:
+        """
+        Map category labels to available repository labels using aliases.
+
+        Args:
+            category: The issue category
+            available_labels: List of labels available in the repository (optional)
+
+        Returns:
+            List of labels that exist in the repository, or default labels if no filtering
+        """
+        default_labels = self.categories.get(category, self.categories["feature"])["labels"]
+
+        # If no available_labels provided, return defaults (no filtering)
+        if available_labels is None:
+            return default_labels
+
+        # Get aliases for this category
+        aliases = self.label_aliases.get(category, [])
+
+        # Find matching labels in the repository
+        matched_labels = []
+        for alias in aliases:
+            # Case-insensitive matching
+            if alias.lower() in [label.lower() for label in available_labels]:
+                # Find the exact case from available_labels
+                matched_label = next(label for label in available_labels if label.lower() == alias.lower())
+                if matched_label not in matched_labels:
+                    matched_labels.append(matched_label)
+
+        # Fallback: if no matches found, return empty list (graceful degradation)
+        return matched_labels
+
+    def generate_issue(self, user_description: str, available_labels: Optional[list] = None) -> Dict[str, any]:
         """
         Generate a complete issue with auto-categorization in a single AI call.
 
@@ -276,14 +319,16 @@ Output format (REQUIRED - JSON):
         # Parse response using robust regex parsing
         category, title, body = self._parse_ai_response(response.content)
 
-        category_info = self.categories[category]
         template_used = all_templates.get(category) is not None
+
+        # Map labels to available repository labels (with fallback to empty list)
+        labels = self._map_labels_to_available(category, available_labels)
 
         return {
             "title": title,
             "body": body,
             "category": category,
-            "labels": category_info["labels"],
+            "labels": labels,
             "template_used": template_used,
             "tokens_used": response.tokens_used,
             "complexity": estimation.complexity

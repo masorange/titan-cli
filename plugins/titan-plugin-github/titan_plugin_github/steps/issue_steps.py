@@ -22,10 +22,25 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
     ctx.textual.text("Using AI to categorize and generate issue...", markup="cyan")
 
     try:
-        issue_generator = IssueGeneratorAgent(ctx.ai)
+        # Get available labels from repository for smart mapping
+        available_labels = None
+        if ctx.github:
+            try:
+                available_labels = ctx.github.list_labels()
+            except Exception:
+                # If we can't get labels, continue without filtering
+                pass
+
+        # Get template directory from repo path
+        template_dir = None
+        if ctx.git:
+            from pathlib import Path
+            template_dir = Path(ctx.git.repo_path) / ".github" / "ISSUE_TEMPLATE"
+
+        issue_generator = IssueGeneratorAgent(ctx.ai, template_dir=template_dir)
 
         with ctx.textual.loading("Generating issue with AI..."):
-            result = issue_generator.generate_issue(issue_body_prompt)
+            result = issue_generator.generate_issue(issue_body_prompt, available_labels=available_labels)
 
         # Show category detected
         category = result["category"]
@@ -93,19 +108,18 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     if not issue_body:
         return Error("issue_body not found in context")
 
-    # Validate that labels exist in GitHub repository
+    # Filter labels to only those that exist in the repository
     if labels and ctx.github:
         try:
             available_labels = ctx.github.list_labels()
-            invalid_labels = [label for label in labels if label not in available_labels]
-
-            if invalid_labels:
-                return Error(
-                    f"Invalid labels: {', '.join(invalid_labels)}. "
-                    f"Available labels: {', '.join(available_labels[:10])}"
-                )
+            # Filter labels to only include those that exist (case-insensitive)
+            filtered_labels = [
+                label for label in labels
+                if label.lower() in [av_label.lower() for av_label in available_labels]
+            ]
+            labels = filtered_labels
         except Exception:
-            # If we can't validate labels, continue anyway
+            # If we can't validate labels, continue with all labels anyway
             pass
 
     try:

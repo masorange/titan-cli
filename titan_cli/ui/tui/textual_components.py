@@ -95,15 +95,9 @@ class MultilineInput(TextArea):
         """Intercept key events before TextArea processes them."""
         from textual.events import Key
 
-        import time
-        with open("/tmp/multiline_keys2.log", "a") as f:
-            f.write(f"[{time.time()}] _on_key: key={event.key}\n")
-
         # Check if it's Enter without shift
         if isinstance(event, Key) and event.key == "enter":
             # Submit the input
-            with open("/tmp/multiline_keys2.log", "a") as f:
-                f.write(f"[{time.time()}] Submitting!\n")
             self.post_message(self.Submitted(self, self.text))
             event.prevent_default()
             event.stop()
@@ -503,6 +497,7 @@ class TextualComponents:
             exit_code = ctx.textual.launch_external_cli("claude", prompt="Fix this bug")
         """
         from titan_cli.external_cli.launcher import CLILauncher
+        from titan_cli.external_cli.configs import CLI_REGISTRY
 
         # Container for result (since we need to pass it from main thread back to worker)
         result_container = {"exit_code": None}
@@ -511,7 +506,13 @@ class TextualComponents:
         def _launch():
             # Suspend TUI, launch CLI, restore TUI
             with self.app.suspend():
-                launcher = CLILauncher(cli_name)
+                # Get CLI configuration for proper flag usage
+                config = CLI_REGISTRY.get(cli_name, {})
+                launcher = CLILauncher(
+                    cli_name,
+                    install_instructions=config.get("install_instructions"),
+                    prompt_flag=config.get("prompt_flag")
+                )
                 exit_code = launcher.launch(prompt=prompt, cwd=cwd)
                 result_container["exit_code"] = exit_code
 
