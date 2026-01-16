@@ -5,13 +5,13 @@ Step-by-step wizard for configuring AI providers with visual progress tracking.
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static, Button, OptionList, Input
+from textual.widgets import Static, OptionList, Input
 from textual.widgets.option_list import Option
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
 
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import Text, DimText
+from titan_cli.ui.tui.widgets import Text, DimText, Button
 from .base import BaseScreen
 
 
@@ -119,14 +119,6 @@ class AIConfigWizardScreen(BaseScreen):
         background: $surface-lighten-1;
         border-top: solid $primary;
         align: right middle;
-    }
-
-    Button {
-        margin: 0 1;
-    }
-
-    Button:focus {
-        text-style: none;
     }
 
     #options-list {

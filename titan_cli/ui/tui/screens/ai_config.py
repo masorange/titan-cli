@@ -5,12 +5,12 @@ Screen for managing AI providers (list, add, set default, test, delete).
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static, Button
+from textual.widgets import Static
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
 
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import DimText
+from titan_cli.ui.tui.widgets import DimText, Button
 from .base import BaseScreen
 
 
@@ -44,10 +44,6 @@ class ProviderCard(Container):
     ProviderCard .button-row {
         height: auto;
         margin-top: 1;
-    }
-
-    ProviderCard Button {
-        margin: 0 1 0 0;
     }
     """
 

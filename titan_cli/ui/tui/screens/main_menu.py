@@ -5,7 +5,7 @@ The primary navigation screen for Titan TUI.
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static, OptionList
+from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 
@@ -88,7 +88,6 @@ class MainMenuScreen(BaseScreen):
     def compose_content(self) -> ComposeResult:
         """Compose the main menu content."""
         with Container(id="menu-container"):
-            yield Static("🚀 TITAN CLI - Main Menu", id="menu-title")
 
             # Build menu options
             options = [

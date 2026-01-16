@@ -7,6 +7,7 @@ from .status_bar import StatusBarWidget
 from .header import HeaderWidget
 from .panel import Panel
 from .table import Table
+from .button import Button
 from .text import (
     Text,
     DimText,
@@ -25,6 +26,7 @@ __all__ = [
     "HeaderWidget",
     "Panel",
     "Table",
+    "Button",
     "Text",
     "DimText",
     "BoldText",
