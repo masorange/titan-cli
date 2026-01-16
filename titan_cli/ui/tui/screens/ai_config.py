@@ -19,6 +19,13 @@ class AIConfigScreen(BaseScreen):
     Screen for AI provider configuration and management.
     """
 
+    def __init__(self, config):
+        super().__init__(
+            config,
+            title=f"{Icons.SETTINGS} AI Configuration",
+            show_back=True
+        )
+
     BINDINGS = [
         Binding("escape", "back", "Back"),
     ]
@@ -102,13 +109,9 @@ class AIConfigScreen(BaseScreen):
 
     def handle_configure(self) -> None:
         """Handle Configure AI Provider action."""
-        from titan_cli.commands.ai import configure_ai_interactive
+        from .ai_config_wizard import AIConfigWizardScreen
 
-        # Suspend TUI to run interactive configuration
-        with self.app.suspend():
-            configure_ai_interactive()
-
-        self.app.notify("AI provider configuration completed", severity="information")
+        self.app.push_screen(AIConfigWizardScreen(self.config))
 
     def handle_test(self) -> None:
         """Handle Test AI Connection action."""
