@@ -20,7 +20,12 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-packages = [{include = "titan_cli"}]
+packages = [
+    {include = "titan_cli"},
+    {include = "titan_plugin_git", from = "plugins/titan-plugin-git"},
+    {include = "titan_plugin_github", from = "plugins/titan-plugin-github"},
+    {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"}
+]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0.0"
@@ -55,6 +60,11 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 titan = "titan_cli.cli:app"
+
+[tool.poetry.plugins."titan.plugins"]
+git = "titan_plugin_git.plugin:GitPlugin"
+github = "titan_plugin_github.plugin:GitHubPlugin"
+jira = "titan_plugin_jira.plugin:JiraPlugin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
