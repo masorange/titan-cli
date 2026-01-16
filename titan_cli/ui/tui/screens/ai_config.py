@@ -105,6 +105,7 @@ class TestConnectionModal(ModalScreen):
 
     async def _run_test(self) -> None:
         """Run the test asynchronously."""
+        import asyncio
         from titan_cli.core.secrets import SecretManager
         from titan_cli.ai.client import AIClient
         from titan_cli.ai.models import AIMessage
@@ -116,8 +117,9 @@ class TestConnectionModal(ModalScreen):
             # Initialize AIClient with the specific provider_id
             ai_client = AIClient(self.config.config.ai, secrets, provider_id=self.provider_id)
 
-            # Generate a simple test response
-            response = ai_client.generate(
+            # Run the blocking generate call in a thread to keep UI responsive
+            response = await asyncio.to_thread(
+                ai_client.generate,
                 messages=[AIMessage(role="user", content="Say 'Hello!' if you can hear me")],
                 max_tokens=200
             )
