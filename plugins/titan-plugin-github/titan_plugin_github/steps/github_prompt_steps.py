@@ -62,8 +62,7 @@ def prompt_for_pr_body_step(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("PR body already provided, skipping manual prompt.")
 
     try:
-        # TODO: Implement multiline input in Textual - for now use single line
-        body = ctx.textual.ask_text(msg.Prompts.ENTER_PR_BODY, default="")
+        body = ctx.textual.ask_multiline(msg.Prompts.ENTER_PR_BODY, default="")
         # Body can be empty
         return Success("PR body captured", metadata={"pr_body": body})
     except (KeyboardInterrupt, EOFError):
@@ -96,8 +95,7 @@ def prompt_for_issue_body_step(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("Issue body already provided, skipping manual prompt.")
 
     try:
-        # TODO: Implement multiline input in Textual - for now use single line
-        body = ctx.textual.ask_text(msg.Prompts.ENTER_ISSUE_BODY, default="")
+        body = ctx.textual.ask_multiline(msg.Prompts.ENTER_ISSUE_BODY, default="")
         # Body can be empty
         return Success("Issue body captured", metadata={"issue_body": body})
     except (KeyboardInterrupt, EOFError):

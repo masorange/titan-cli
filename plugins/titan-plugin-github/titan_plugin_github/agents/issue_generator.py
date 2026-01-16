@@ -273,22 +273,8 @@ Output format (REQUIRED - JSON):
         )
         response = self.generate(request)
 
-        # Temporary debug logging
-        import time
-        timestamp = time.time()
-        with open("/tmp/issue_ai_response.log", "a") as f:
-            f.write(f"\n\n[{timestamp}] ===== AI RESPONSE =====\n")
-            f.write(f"Content length: {len(response.content)}\n")
-            f.write(f"Full content:\n{response.content}\n")
-
         # Parse response using robust regex parsing
         category, title, body = self._parse_ai_response(response.content)
-
-        # Log parsed body
-        with open("/tmp/issue_ai_response.log", "a") as f:
-            f.write(f"\n[{timestamp}] ===== PARSED BODY =====\n")
-            f.write(f"Body length: {len(body)}\n")
-            f.write(f"Body content:\n{body}\n")
 
         category_info = self.categories[category]
         template_used = all_templates.get(category) is not None
