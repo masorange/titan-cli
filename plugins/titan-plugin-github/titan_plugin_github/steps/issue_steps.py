@@ -1,6 +1,7 @@
 import ast
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
+from titan_cli.ui.tui.widgets import Panel
 from ..agents.issue_generator import IssueGeneratorAgent
 
 def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -8,32 +9,54 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
     Use AI to suggest a title and description for a GitHub issue.
     Auto-categorizes and selects the appropriate template.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
     if not ctx.ai:
         return Skip("AI client not available")
-
-    if not ctx.ui:
-        return Error("UI components not available")
 
     issue_body_prompt = ctx.get("issue_body")
     if not issue_body_prompt:
         return Error("issue_body not found in context")
 
-    ctx.ui.text.info("Using AI to categorize and generate issue...")
+    ctx.textual.text("Using AI to categorize and generate issue...", markup="cyan")
 
     try:
-        issue_generator = IssueGeneratorAgent(ctx.ai)
-        result = issue_generator.generate_issue(issue_body_prompt)
+        # Get available labels from repository for smart mapping
+        available_labels = None
+        if ctx.github:
+            try:
+                available_labels = ctx.github.list_labels()
+            except Exception:
+                # If we can't get labels, continue without filtering
+                pass
+
+        # Get template directory from repo path
+        template_dir = None
+        if ctx.git:
+            from pathlib import Path
+            template_dir = Path(ctx.git.repo_path) / ".github" / "ISSUE_TEMPLATE"
+
+        issue_generator = IssueGeneratorAgent(ctx.ai, template_dir=template_dir)
+
+        with ctx.textual.loading("Generating issue with AI..."):
+            result = issue_generator.generate_issue(issue_body_prompt, available_labels=available_labels)
 
         # Show category detected
         category = result["category"]
         template_used = result.get("template_used", False)
 
-        if ctx.ui:
-            ctx.ui.text.success(f"Category detected: {category}")
-            if template_used:
-                ctx.ui.text.info(f"Using template: {category}.md")
-            else:
-                ctx.ui.text.warning(f"No template found for {category}, using default structure")
+        ctx.textual.mount(
+            Panel(
+                text=f"Category detected: {category}",
+                panel_type="success"
+            )
+        )
+
+        if template_used:
+            ctx.textual.text(f"Using template: {category}.md", markup="cyan")
+        else:
+            ctx.textual.text(f"No template found for {category}, using default structure", markup="yellow")
 
         ctx.set("issue_title", result["title"])
         ctx.set("issue_body", result["body"])
@@ -49,6 +72,9 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     """
     Create a new GitHub issue.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
     if not ctx.github:
         return Error("GitHub client not available")
 
@@ -82,19 +108,18 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     if not issue_body:
         return Error("issue_body not found in context")
 
-    # Validate that labels exist in GitHub repository
+    # Filter labels to only those that exist in the repository
     if labels and ctx.github:
         try:
             available_labels = ctx.github.list_labels()
-            invalid_labels = [label for label in labels if label not in available_labels]
-
-            if invalid_labels:
-                return Error(
-                    f"Invalid labels: {', '.join(invalid_labels)}. "
-                    f"Available labels: {', '.join(available_labels[:10])}"
-                )
+            # Filter labels to only include those that exist (case-insensitive)
+            filtered_labels = [
+                label for label in labels
+                if label.lower() in [av_label.lower() for av_label in available_labels]
+            ]
+            labels = filtered_labels
         except Exception:
-            # If we can't validate labels, continue anyway
+            # If we can't validate labels, continue with all labels anyway
             pass
 
     try:
@@ -103,6 +128,12 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
             body=issue_body,
             assignees=assignees,
             labels=labels,
+        )
+        ctx.textual.mount(
+            Panel(
+                text=f"Successfully created issue #{issue.number}",
+                panel_type="success"
+            )
         )
         return Success(
             f"Successfully created issue #{issue.number}",

@@ -59,6 +59,16 @@ class IssueGeneratorAgent(BaseAIAgent):
             }
         }
 
+        # Label aliases for mapping to different repository label conventions
+        self.label_aliases = {
+            "feature": ["feature", "enhancement", "new-feature", "feat"],
+            "improvement": ["improvement", "enhancement", "optimization", "perf"],
+            "bug": ["bug", "fix", "defect", "error"],
+            "refactor": ["refactor", "refactoring", "technical-debt", "tech-debt"],
+            "chore": ["chore", "maintenance", "housekeeping"],
+            "documentation": ["documentation", "docs", "doc"]
+        }
+
     def get_system_prompt(self) -> str:
         return """You are an expert at creating highly professional, descriptive, and useful GitHub issues.
 Your task is to:
@@ -115,19 +125,19 @@ Your task is to:
         if desc_length < 200 and lines <= 3 and code_blocks == 0:
             # Simple issue: brief request, quick fix
             complexity = "simple"
-            max_tokens = 1500
+            max_tokens = 3000  # Increased to ensure complete JSON
         elif desc_length < 500 and lines <= 10:
             # Moderate issue: standard feature or bug with some detail
             complexity = "moderate"
-            max_tokens = 2500
+            max_tokens = 4000  # Increased to ensure complete JSON
         elif desc_length < 1000 and lines <= 25:
             # Complex issue: detailed requirements, multiple aspects
             complexity = "complex"
-            max_tokens = 4000
+            max_tokens = 6000  # Increased to ensure complete JSON
         else:
             # Very complex: comprehensive spec, architectural changes
             complexity = "very_complex"
-            max_tokens = 6000
+            max_tokens = 8000  # Increased to ensure complete JSON
 
         return IssueSizeEstimation(
             complexity=complexity,
@@ -139,16 +149,49 @@ Your task is to:
         """
         Parse AI response to extract category, title, and body.
         Tries JSON parsing first, falls back to regex for robustness.
+        Handles incomplete JSON by attempting to fix it.
 
         Returns:
             Tuple of (category, title, body)
         """
         # Try JSON parsing first (more robust, avoids conflicts with user text)
         try:
-            # Try to find JSON in the content (might have markdown code blocks around it)
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                data = json.loads(json_match.group(0))
+            # Remove ONLY the outer markdown code block wrapper (```json ... ```)
+            # but preserve code blocks inside the JSON body content
+            cleaned_content = content.strip()
+
+            # Remove opening ```json or ``` if present at the start
+            if cleaned_content.startswith('```json'):
+                cleaned_content = cleaned_content[7:].lstrip()
+            elif cleaned_content.startswith('```'):
+                cleaned_content = cleaned_content[3:].lstrip()
+
+            # Remove closing ``` if present at the end
+            if cleaned_content.endswith('```'):
+                cleaned_content = cleaned_content[:-3].rstrip()
+
+            # Try to find JSON in the content (handle incomplete JSON)
+            json_match = re.search(r'\{[\s\S]*\}', cleaned_content)
+
+            # If no complete JSON found, try to fix incomplete JSON
+            if not json_match and cleaned_content.strip().startswith('{'):
+                # JSON might be incomplete (missing closing quote and brace)
+                json_str = cleaned_content.strip()
+                # Try to close the JSON properly
+                if not json_str.endswith('}'):
+                    # Close any unclosed string first
+                    if json_str.count('"') % 2 != 0:
+                        json_str = json_str + '"'
+                    # Then close the JSON object
+                    json_str = json_str + '\n}'
+            elif json_match:
+                json_str = json_match.group(0)
+            else:
+                json_str = None
+
+            if json_str:
+                data = json.loads(json_str)
+
                 category = data.get("category", "feature").lower()
                 title = data.get("title", "New issue")
                 body = data.get("body", "")
@@ -181,7 +224,40 @@ Your task is to:
 
         return category, title, body
 
-    def generate_issue(self, user_description: str) -> Dict[str, any]:
+    def _map_labels_to_available(self, category: str, available_labels: Optional[list] = None) -> list:
+        """
+        Map category labels to available repository labels using aliases.
+
+        Args:
+            category: The issue category
+            available_labels: List of labels available in the repository (optional)
+
+        Returns:
+            List of labels that exist in the repository, or default labels if no filtering
+        """
+        default_labels = self.categories.get(category, self.categories["feature"])["labels"]
+
+        # If no available_labels provided, return defaults (no filtering)
+        if available_labels is None:
+            return default_labels
+
+        # Get aliases for this category
+        aliases = self.label_aliases.get(category, [])
+
+        # Find matching labels in the repository
+        matched_labels = []
+        for alias in aliases:
+            # Case-insensitive matching
+            if alias.lower() in [label.lower() for label in available_labels]:
+                # Find the exact case from available_labels
+                matched_label = next(label for label in available_labels if label.lower() == alias.lower())
+                if matched_label not in matched_labels:
+                    matched_labels.append(matched_label)
+
+        # Fallback: if no matches found, return empty list (graceful degradation)
+        return matched_labels
+
+    def generate_issue(self, user_description: str, available_labels: Optional[list] = None) -> Dict[str, any]:
         """
         Generate a complete issue with auto-categorization in a single AI call.
 
@@ -213,9 +289,10 @@ Instructions:
 - Choose the most appropriate category based on the description
 - Follow the template structure for that category (if available)
 - Remove all HTML comments (<!-- -->)
-- Keep all section headers (##)
-- Fill in meaningful content for each section
-- If a section doesn't apply, write "N/A" or a brief note
+- Keep only section headers (##) that have meaningful content
+- IMPORTANT: Completely omit optional sections (marked with "Optional") if they don't apply or have no meaningful content
+- Never include a section header followed by just a language identifier (e.g., "python", "yaml") without actual code
+- Fill in meaningful content for each section you include
 - Preserve any code snippets exactly as provided in markdown code blocks
 - Use the correct conventional commit prefix for the title
 - Adjust detail level based on issue complexity ({estimation.complexity}):
@@ -242,14 +319,16 @@ Output format (REQUIRED - JSON):
         # Parse response using robust regex parsing
         category, title, body = self._parse_ai_response(response.content)
 
-        category_info = self.categories[category]
         template_used = all_templates.get(category) is not None
+
+        # Map labels to available repository labels (with fallback to empty list)
+        labels = self._map_labels_to_available(category, available_labels)
 
         return {
             "title": title,
             "body": body,
             "category": category,
-            "labels": category_info["labels"],
+            "labels": labels,
             "template_used": template_used,
             "tokens_used": response.tokens_used,
             "complexity": estimation.complexity

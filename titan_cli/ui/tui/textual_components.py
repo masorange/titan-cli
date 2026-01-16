@@ -10,8 +10,9 @@ import threading
 from typing import Optional, Callable
 from contextlib import contextmanager
 from textual.widget import Widget
-from textual.widgets import Input, LoadingIndicator, Static, Markdown
+from textual.widgets import Input, LoadingIndicator, Static, Markdown, TextArea
 from textual.containers import Container
+from textual.message import Message
 
 
 class PromptInput(Widget):
@@ -78,6 +79,101 @@ class PromptInput(Widget):
         """Handle input submission."""
         value = event.value
         self.on_submit_callback(value)
+
+
+class MultilineInput(TextArea):
+    """Custom TextArea that handles Enter for submission and Shift+Enter for new lines."""
+
+    class Submitted(Message):
+        """Message sent when the input is submitted."""
+        def __init__(self, sender: Widget, value: str):
+            super().__init__()
+            self.sender = sender
+            self.value = value
+
+    def _on_key(self, event) -> None:
+        """Intercept key events before TextArea processes them."""
+        from textual.events import Key
+
+        # Check if it's Enter without shift
+        if isinstance(event, Key) and event.key == "enter":
+            # Submit the input
+            self.post_message(self.Submitted(self, self.text))
+            event.prevent_default()
+            event.stop()
+            return
+
+        # For all other keys, let TextArea handle it
+        super()._on_key(event)
+
+
+class PromptTextArea(Widget):
+    """Widget wrapper for MultilineInput that handles multiline input submission."""
+
+    can_focus = True
+    can_focus_children = True
+
+    DEFAULT_CSS = """
+    PromptTextArea {
+        width: 100%;
+        height: auto;
+        padding: 1;
+        margin: 1 0;
+        background: $surface-lighten-1;
+        border: round $accent;
+    }
+
+    PromptTextArea > Static {
+        width: 100%;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    PromptTextArea > MultilineInput {
+        width: 100%;
+        height: auto;
+    }
+
+    PromptTextArea .hint-text {
+        width: 100%;
+        height: auto;
+        margin-top: 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, question: str, default: str, on_submit: Callable[[str], None], **kwargs):
+        super().__init__(**kwargs)
+        self.question = question
+        self.default = default
+        self.on_submit_callback = on_submit
+
+    def compose(self):
+        from textual.widgets import Static
+        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
+        yield MultilineInput(
+            text=self.default,
+            id="prompt-textarea",
+            soft_wrap=True
+        )
+        yield Static("[dim]Press Enter to submit, Shift+Enter for new line[/dim]", classes="hint-text")
+
+    def on_mount(self):
+        """Focus textarea when mounted and scroll into view."""
+        self.call_after_refresh(self._focus_textarea)
+
+    def _focus_textarea(self):
+        """Focus the textarea widget and scroll into view."""
+        try:
+            textarea = self.query_one(MultilineInput)
+            self.app.set_focus(textarea)
+            self.scroll_visible(animate=False)
+        except Exception:
+            pass
+
+    def on_multiline_input_submitted(self, message: MultilineInput.Submitted):
+        """Handle submission from MultilineInput."""
+        self.on_submit_callback(message.value)
 
 
 class TextualComponents:
@@ -253,6 +349,69 @@ class TextualComponents:
 
         return result_container["value"]
 
+    def ask_multiline(self, question: str, default: str = "") -> Optional[str]:
+        """
+        Ask user for multiline text input (blocks until user responds).
+
+        Args:
+            question: Question to ask
+            default: Default value
+
+        Returns:
+            User's multiline input text, or None if empty
+
+        Example:
+            body = ctx.textual.ask_multiline("Enter issue description:", default="")
+        """
+        # Event and result container for synchronization
+        result_event = threading.Event()
+        result_container = {"value": None}
+
+        def _mount_textarea():
+            # Handler when Ctrl+D is pressed
+            def on_submitted(value: str):
+                result_container["value"] = value
+
+                # Show confirmation (truncated preview for multiline)
+                preview = value.split('\n')[0][:50]
+                if len(value.split('\n')) > 1 or len(value) > 50:
+                    preview += "..."
+                self.output_widget.append_output(f"  → {preview}")
+
+                # Remove the textarea widget
+                textarea_widget.remove()
+
+                # Unblock the step
+                result_event.set()
+
+            # Create PromptTextArea widget that handles the submission
+            textarea_widget = PromptTextArea(
+                question=question,
+                default=default,
+                on_submit=on_submitted
+            )
+
+            # Mount the widget (it will auto-focus)
+            self.output_widget.mount(textarea_widget)
+
+        # Call from thread since executor runs in background thread
+        try:
+            self.app.call_from_thread(_mount_textarea)
+        except Exception:
+            # App is closing or worker was cancelled
+            return default
+
+        # BLOCK here until user responds (with timeout to allow cancellation)
+        # Wait in loop with timeout so we can be interrupted
+        while not result_event.is_set():
+            if result_event.wait(timeout=0.5):
+                break
+            # Check if app is still running
+            if not self.app.is_running:
+                return default
+
+        return result_container["value"]
+
     def ask_confirm(self, question: str, default: bool = True) -> bool:
         """
         Ask user for confirmation (Y/N).
@@ -338,6 +497,7 @@ class TextualComponents:
             exit_code = ctx.textual.launch_external_cli("claude", prompt="Fix this bug")
         """
         from titan_cli.external_cli.launcher import CLILauncher
+        from titan_cli.external_cli.configs import CLI_REGISTRY
 
         # Container for result (since we need to pass it from main thread back to worker)
         result_container = {"exit_code": None}
@@ -346,7 +506,13 @@ class TextualComponents:
         def _launch():
             # Suspend TUI, launch CLI, restore TUI
             with self.app.suspend():
-                launcher = CLILauncher(cli_name)
+                # Get CLI configuration for proper flag usage
+                config = CLI_REGISTRY.get(cli_name, {})
+                launcher = CLILauncher(
+                    cli_name,
+                    install_instructions=config.get("install_instructions"),
+                    prompt_flag=config.get("prompt_flag")
+                )
                 exit_code = launcher.launch(prompt=prompt, cwd=cwd)
                 result_container["exit_code"] = exit_code
 
