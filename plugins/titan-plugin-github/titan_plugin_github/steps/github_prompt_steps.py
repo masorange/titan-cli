@@ -108,14 +108,14 @@ def prompt_for_self_assign_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Asks the user if they want to assign the issue to themselves.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
     if not ctx.github:
         return Error("GitHub client not available")
 
-    if not ctx.views:
-        return Error("UI components not available")
-
     try:
-        if ctx.views.prompts.ask_confirm(msg.Prompts.ASSIGN_TO_SELF, default=True):
+        if ctx.textual.ask_confirm(msg.Prompts.ASSIGN_TO_SELF, default=True):
             current_user = ctx.github.get_current_user()
             assignees = ctx.get("assignees", [])
             if current_user not in assignees:
