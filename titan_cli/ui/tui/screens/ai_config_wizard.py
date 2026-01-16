@@ -801,13 +801,16 @@ class AIConfigWizardScreen(BaseScreen):
         """Save the AI provider configuration."""
         import tomli
         import tomli_w
+        import re
         from titan_cli.core.config import TitanConfig
         from titan_cli.core.secrets import SecretManager
 
         try:
-            # Generate provider ID from name
+            # Generate provider ID from name (clean to only allow valid characters)
             provider_name = self.wizard_data.get("provider_name", "")
+            # Replace spaces with hyphens, remove invalid characters
             provider_id = provider_name.lower().replace(" ", "-")
+            provider_id = re.sub(r'[^a-z0-9_-]', '', provider_id)
 
             # Load global config
             global_config_path = TitanConfig.GLOBAL_CONFIG
