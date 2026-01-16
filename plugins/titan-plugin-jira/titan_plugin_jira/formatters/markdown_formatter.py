@@ -65,7 +65,12 @@ class IssueAnalysisMarkdownFormatter:
             if not templates_dir.exists():
                 return None
 
-            env = Environment(loader=FileSystemLoader(str(templates_dir)))
+            # Enable autoescape to prevent XSS vulnerabilities (CWE-116)
+            # This ensures all template variables are HTML-escaped by default
+            env = Environment(
+                loader=FileSystemLoader(str(templates_dir)),
+                autoescape=True
+            )
             return env.get_template(template_name)
         except Exception:
             # Template not found or other error, fall back to built-in formatter
