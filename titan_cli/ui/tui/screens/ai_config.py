@@ -126,7 +126,7 @@ class AIConfigScreen(BaseScreen):
     #providers-grid {
         grid-size: 2;
         grid-gutter: 2;
-        width: 100%;
+        width: 70%;
         height: auto;
     }
 
