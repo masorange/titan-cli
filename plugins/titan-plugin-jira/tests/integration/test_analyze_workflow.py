@@ -278,11 +278,17 @@ def test_workflow_step_4_ai_analysis(workflow_context, mock_ai_client):
     # Assertions
     assert isinstance(result, Success)
     assert workflow_context.get("ai_analysis") is not None
-    assert "Issue Overview" in workflow_context.get("ai_analysis")
-    assert "Requirements Breakdown" in workflow_context.get("ai_analysis")
 
-    # Verify AI was called
-    mock_ai_client.generate.assert_called_once()
+    # Verify template was used (should contain template header)
+    ai_analysis = workflow_context.get("ai_analysis")
+    assert "# JIRA Issue Analysis" in ai_analysis
+
+    # Verify structured data was saved
+    structured = workflow_context.get("ai_analysis_structured")
+    assert structured is not None
+    assert "functional_requirements" in structured
+    assert "acceptance_criteria" in structured
+    assert "technical_approach" in structured
 
 
 def test_workflow_full_execution(workflow_context, mock_jira_client, mock_ai_client):
@@ -317,6 +323,8 @@ def test_workflow_full_execution(workflow_context, mock_jira_client, mock_ai_cli
     # Verify final state
     assert workflow_context.get("ai_analysis") is not None
     assert workflow_context.get("jira_issue").key == "ECAPP-123"
+    # Verify template header is present
+    assert "# JIRA Issue Analysis" in workflow_context.get("ai_analysis")
 
 
 def test_workflow_ai_not_available(workflow_context):
@@ -374,3 +382,241 @@ def test_workflow_invalid_issue_selection(workflow_context):
 
     # Should return error when no issue selected
     assert isinstance(result, Error)
+
+
+def test_formatter_with_template():
+    """Test that formatter uses Jinja2 template when available."""
+    from titan_plugin_jira.formatters import IssueAnalysisMarkdownFormatter
+    from titan_plugin_jira.agents.jira_agent import IssueAnalysis
+
+    # Create formatter with template
+    formatter = IssueAnalysisMarkdownFormatter(template_path="issue_analysis.md.j2")
+    assert formatter.template is not None
+
+    # Create sample analysis
+    analysis = IssueAnalysis(
+        functional_requirements=["FR1: User authentication", "FR2: Password reset"],
+        acceptance_criteria=["User can login", "User can reset password"],
+        technical_approach="Use JWT tokens for auth",
+        complexity_score="medium",
+        estimated_effort="3-5 days"
+    )
+
+    # Format the analysis
+    output = formatter.format(analysis)
+
+    # Verify template was used (contains template header)
+    assert "# JIRA Issue Analysis" in output
+    # Verify content is present
+    assert "FR1: User authentication" in output
+    assert "User can login" in output
+    assert "JWT tokens" in output
+
+
+def test_formatter_without_template():
+    """Test that formatter falls back to built-in when template not found."""
+    from titan_plugin_jira.formatters import IssueAnalysisMarkdownFormatter
+    from titan_plugin_jira.agents.jira_agent import IssueAnalysis
+
+    # Create formatter without template (will use fallback)
+    formatter = IssueAnalysisMarkdownFormatter(template_path="nonexistent.md.j2")
+    assert formatter.template is None  # Template should fail to load
+
+    # Create sample analysis
+    analysis = IssueAnalysis(
+        functional_requirements=["FR1: User authentication"],
+        acceptance_criteria=["User can login"],
+        technical_approach="Use JWT tokens",
+        complexity_score="medium"
+    )
+
+    # Format the analysis
+    output = formatter.format(analysis)
+
+    # Verify built-in formatter was used (uses ## headers, not # header)
+    assert output.startswith("\n## 1. Requirements Breakdown") or "## 1. Requirements Breakdown" in output
+    # Verify content is present with built-in format
+    assert "Requirements Breakdown" in output
+    assert "FR1: User authentication" in output
+    assert "Acceptance Criteria" in output
+
+
+def test_formatter_no_template_specified():
+    """Test that formatter uses built-in when no template specified."""
+    from titan_plugin_jira.formatters import IssueAnalysisMarkdownFormatter
+    from titan_plugin_jira.agents.jira_agent import IssueAnalysis
+
+    # Create formatter with no template
+    formatter = IssueAnalysisMarkdownFormatter()
+    assert formatter.template is None
+
+    # Create sample analysis
+    analysis = IssueAnalysis(
+        functional_requirements=["FR1: Test requirement"],
+        complexity_score="low"
+    )
+
+    # Format the analysis
+    output = formatter.format(analysis)
+
+    # Verify built-in formatter was used
+    assert "Requirements Breakdown" in output
+    assert "FR1: Test requirement" in output
+
+
+def test_agent_feature_flag_requirement_extraction(mock_ai_client, mock_jira_client):
+    """Test that enable_requirement_extraction flag controls requirement extraction."""
+    from titan_plugin_jira.agents.jira_agent import JiraAgent, IssueAnalysis
+    from titan_plugin_jira.agents.config_loader import JiraAgentConfig
+
+    # Create config with requirement extraction disabled
+    config = JiraAgentConfig(
+        name="JiraAgent",
+        enable_requirement_extraction=False,  # Disabled
+        enable_risk_analysis=True,
+        enable_subtask_suggestion=True,
+        enable_dependency_detection=True,
+        max_description_length=8000,
+        max_tokens=2000,
+        temperature=0.3
+    )
+
+    # Create agent with custom config
+    agent = JiraAgent(mock_ai_client, mock_jira_client)
+    agent.config = config  # Override config
+
+    # Analyze issue
+    analysis = agent.analyze_issue("TEST-123", include_subtasks=True)
+
+    # Verify requirements were NOT extracted (should be empty)
+    assert isinstance(analysis, IssueAnalysis)
+    assert len(analysis.functional_requirements) == 0
+    assert len(analysis.non_functional_requirements) == 0
+    assert len(analysis.acceptance_criteria) == 0
+
+
+def test_agent_feature_flag_risk_analysis(mock_ai_client, mock_jira_client):
+    """Test that enable_risk_analysis flag controls risk analysis."""
+    from titan_plugin_jira.agents.jira_agent import JiraAgent, IssueAnalysis
+    from titan_plugin_jira.agents.config_loader import JiraAgentConfig
+
+    # Create config with risk analysis disabled
+    config = JiraAgentConfig(
+        name="JiraAgent",
+        enable_requirement_extraction=True,
+        enable_risk_analysis=False,  # Disabled
+        enable_subtask_suggestion=True,
+        enable_dependency_detection=True,
+        max_description_length=8000,
+        max_tokens=2000,
+        temperature=0.3
+    )
+
+    # Create agent with custom config
+    agent = JiraAgent(mock_ai_client, mock_jira_client)
+    agent.config = config
+
+    # Analyze issue
+    analysis = agent.analyze_issue("TEST-123", include_subtasks=True)
+
+    # Verify risks were NOT analyzed (should be empty)
+    assert isinstance(analysis, IssueAnalysis)
+    assert len(analysis.risks) == 0
+    assert len(analysis.edge_cases) == 0
+    assert analysis.complexity_score is None
+    assert analysis.estimated_effort is None
+
+
+def test_agent_feature_flag_subtask_suggestion(mock_ai_client, mock_jira_client):
+    """Test that enable_subtask_suggestion flag controls subtask generation."""
+    from titan_plugin_jira.agents.jira_agent import JiraAgent, IssueAnalysis
+    from titan_plugin_jira.agents.config_loader import JiraAgentConfig
+
+    # Create config with subtask suggestion disabled
+    config = JiraAgentConfig(
+        name="JiraAgent",
+        enable_requirement_extraction=True,
+        enable_risk_analysis=True,
+        enable_subtask_suggestion=False,  # Disabled
+        enable_dependency_detection=True,
+        max_description_length=8000,
+        max_tokens=2000,
+        temperature=0.3
+    )
+
+    # Create agent with custom config
+    agent = JiraAgent(mock_ai_client, mock_jira_client)
+    agent.config = config
+
+    # Analyze issue WITH include_subtasks=True
+    analysis = agent.analyze_issue("TEST-123", include_subtasks=True)
+
+    # Verify subtasks were NOT generated (should be empty)
+    assert isinstance(analysis, IssueAnalysis)
+    assert len(analysis.suggested_subtasks) == 0
+
+
+def test_agent_feature_flag_dependency_detection(mock_ai_client, mock_jira_client):
+    """Test that enable_dependency_detection flag controls dependency detection."""
+    from titan_plugin_jira.agents.jira_agent import JiraAgent, IssueAnalysis
+    from titan_plugin_jira.agents.config_loader import JiraAgentConfig
+
+    # Create config with dependency detection disabled
+    config = JiraAgentConfig(
+        name="JiraAgent",
+        enable_requirement_extraction=True,
+        enable_risk_analysis=True,
+        enable_subtask_suggestion=True,
+        enable_dependency_detection=False,  # Disabled
+        max_description_length=8000,
+        max_tokens=2000,
+        temperature=0.3
+    )
+
+    # Create agent with custom config
+    agent = JiraAgent(mock_ai_client, mock_jira_client)
+    agent.config = config
+
+    # Analyze issue
+    analysis = agent.analyze_issue("TEST-123", include_subtasks=True)
+
+    # Verify dependencies were NOT detected (should be empty)
+    assert isinstance(analysis, IssueAnalysis)
+    assert len(analysis.dependencies) == 0
+
+
+def test_agent_feature_flags_all_disabled(mock_ai_client, mock_jira_client):
+    """Test that all feature flags can be disabled simultaneously."""
+    from titan_plugin_jira.agents.jira_agent import JiraAgent, IssueAnalysis
+    from titan_plugin_jira.agents.config_loader import JiraAgentConfig
+
+    # Create config with ALL features disabled
+    config = JiraAgentConfig(
+        name="JiraAgent",
+        enable_requirement_extraction=False,
+        enable_risk_analysis=False,
+        enable_subtask_suggestion=False,
+        enable_dependency_detection=False,
+        max_description_length=8000,
+        max_tokens=2000,
+        temperature=0.3
+    )
+
+    # Create agent with custom config
+    agent = JiraAgent(mock_ai_client, mock_jira_client)
+    agent.config = config
+
+    # Analyze issue
+    analysis = agent.analyze_issue("TEST-123", include_subtasks=True)
+
+    # Verify ALL features are disabled (empty analysis)
+    assert isinstance(analysis, IssueAnalysis)
+    assert len(analysis.functional_requirements) == 0
+    assert len(analysis.non_functional_requirements) == 0
+    assert len(analysis.acceptance_criteria) == 0
+    assert len(analysis.risks) == 0
+    assert len(analysis.edge_cases) == 0
+    assert len(analysis.dependencies) == 0
+    assert len(analysis.suggested_subtasks) == 0
+    assert analysis.complexity_score is None
+    assert analysis.estimated_effort is None
