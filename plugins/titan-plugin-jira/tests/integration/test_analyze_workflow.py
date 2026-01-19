@@ -474,7 +474,7 @@ def test_agent_feature_flag_requirement_extraction(mock_ai_client, mock_jira_cli
         name="JiraAgent",
         enable_requirement_extraction=False,  # Disabled
         enable_risk_analysis=True,
-        enable_subtask_suggestion=True,
+        enable_subtasks=True,
         enable_dependency_detection=True,
         max_description_length=8000,
         max_tokens=2000,
@@ -505,7 +505,7 @@ def test_agent_feature_flag_risk_analysis(mock_ai_client, mock_jira_client):
         name="JiraAgent",
         enable_requirement_extraction=True,
         enable_risk_analysis=False,  # Disabled
-        enable_subtask_suggestion=True,
+        enable_subtasks=True,
         enable_dependency_detection=True,
         max_description_length=8000,
         max_tokens=2000,
@@ -528,7 +528,7 @@ def test_agent_feature_flag_risk_analysis(mock_ai_client, mock_jira_client):
 
 
 def test_agent_feature_flag_subtask_suggestion(mock_ai_client, mock_jira_client):
-    """Test that enable_subtask_suggestion flag controls subtask generation."""
+    """Test that enable_subtasks flag controls subtask generation."""
     from titan_plugin_jira.agents.jira_agent import JiraAgent, IssueAnalysis
     from titan_plugin_jira.agents.config_loader import JiraAgentConfig
 
@@ -537,7 +537,7 @@ def test_agent_feature_flag_subtask_suggestion(mock_ai_client, mock_jira_client)
         name="JiraAgent",
         enable_requirement_extraction=True,
         enable_risk_analysis=True,
-        enable_subtask_suggestion=False,  # Disabled
+        enable_subtasks=False,  # Disabled
         enable_dependency_detection=True,
         max_description_length=8000,
         max_tokens=2000,
@@ -566,7 +566,7 @@ def test_agent_feature_flag_dependency_detection(mock_ai_client, mock_jira_clien
         name="JiraAgent",
         enable_requirement_extraction=True,
         enable_risk_analysis=True,
-        enable_subtask_suggestion=True,
+        enable_subtasks=True,
         enable_dependency_detection=False,  # Disabled
         max_description_length=8000,
         max_tokens=2000,
@@ -595,7 +595,7 @@ def test_agent_feature_flags_all_disabled(mock_ai_client, mock_jira_client):
         name="JiraAgent",
         enable_requirement_extraction=False,
         enable_risk_analysis=False,
-        enable_subtask_suggestion=False,
+        enable_subtasks=False,
         enable_dependency_detection=False,
         max_description_length=8000,
         max_tokens=2000,

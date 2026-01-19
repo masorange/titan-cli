@@ -74,7 +74,6 @@ Guidelines:
 [agent.features]
 enable_requirement_extraction = true
 enable_subtasks = true
-enable_subtask_suggestion = true      # Alias for enable_subtasks
 enable_risk_analysis = true           # Enable risk and complexity analysis
 enable_dependency_detection = true    # Enable dependency detection
 enable_acceptance_criteria = true     # Enable acceptance criteria extraction
