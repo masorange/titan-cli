@@ -7,7 +7,6 @@ Tests the sanitization function added in response to PR #74 Comment #7:
 directamente en el prompt sin sanitización."
 """
 
-import pytest
 from titan_plugin_jira.agents.prompts import JiraAgentPrompts
 
 

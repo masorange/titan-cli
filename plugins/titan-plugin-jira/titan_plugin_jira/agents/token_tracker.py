@@ -6,7 +6,7 @@ Addresses PR #74 comment: "Token Tracking Inconsistente"
 Provides consistent, transparent token usage tracking across all AI operations.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 from enum import Enum
 
@@ -210,9 +210,10 @@ class TokenTracker:
         Returns:
             True if within budget, False otherwise
         """
-        budget = self.budget.get_budget(operation)
+        
         # For simplicity, just check if we haven't exceeded total budget
         # Could implement more sophisticated per-operation tracking
+
         return self._total_tokens < (self.budget.base_max_tokens * 10)  # Allow 10x for multi-issue analysis
 
     def reset(self) -> None:

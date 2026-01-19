@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from .config_loader import load_agent_config
 from .response_parser import JiraAgentParser
-from .validators import IssueValidator, IssueValidationError
+from .validators import IssueValidator
 from .token_tracker import TokenTracker, TokenBudget, OperationType
 from .prompts import JiraAgentPrompts
 

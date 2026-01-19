@@ -3,6 +3,7 @@ Prompt user to select an issue from search results
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.ui.tui.widgets import Panel
 from ..messages import msg
 
 
@@ -17,12 +18,8 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         jira_issue_key (str): Selected issue key
         selected_issue (JiraTicket): Selected issue object
     """
-    if ctx.views:
-        ctx.views.step_header(
-            name="Select JIRA Issue",
-            step_type="plugin",
-            step_detail="jira.prompt_select_issue"
-        )
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Get issues from previous search
     issues = ctx.get("jira_issues")
@@ -32,42 +29,42 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     if len(issues) == 0:
         return Error(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
 
-    # Build choices list
-    choices = []
-    for issue in issues:
-        assignee = issue.assignee or "Unassigned"
-        # Format: "KEY [STATUS] Summary (Assignee | Type)"
-        choice = f"{issue.key} [{issue.status}] {issue.summary[:60]} ({assignee} | {issue.issue_type})"
-        choices.append(choice)
+    # Prompt user to select issue (issues already displayed in table from previous step)
+    ctx.textual.text("")
 
-    # Prompt user to select issue
-    if ctx.views:
-        # Ask for selection (issues already displayed in table from previous step)
-        if ctx.ui:
-            ctx.ui.spacer.small()
-
-        selected_index = ctx.views.prompts.ask_int(
+    try:
+        # Ask for selection using text input and validate
+        response = ctx.textual.ask_text(
             msg.Steps.PromptSelectIssue.ASK_ISSUE_NUMBER,
-            min_value=1,
-            max_value=len(choices)
+            default=""
         )
 
-        if selected_index is None:
+        if not response or not response.strip():
             return Error(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED)
+
+        # Validate it's a number
+        try:
+            selected_index = int(response.strip())
+        except ValueError:
+            return Error(f"Invalid input: '{response}' is not a number")
+
+        # Validate it's in range
+        if selected_index < 1 or selected_index > len(issues):
+            return Error(f"Invalid selection: must be between 1 and {len(issues)}")
 
         # Convert to 0-based index
         selected_issue = issues[selected_index - 1]
 
-        if ctx.ui:
-            ctx.ui.spacer.small()
-            ctx.ui.panel.print(
-                msg.Steps.PromptSelectIssue.ISSUE_SELECTION_CONFIRM.format(
+        ctx.textual.text("")
+        ctx.textual.mount(
+            Panel(
+                text=msg.Steps.PromptSelectIssue.ISSUE_SELECTION_CONFIRM.format(
                     key=selected_issue.key,
                     summary=selected_issue.summary
                 ),
                 panel_type="success"
             )
-            ctx.ui.spacer.small()
+        )
 
         return Success(
             msg.Steps.PromptSelectIssue.SELECT_SUCCESS.format(key=selected_issue.key),
@@ -76,8 +73,8 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
                 "selected_issue": selected_issue
             }
         )
-    else:
-        return Error(msg.Steps.PromptSelectIssue.UI_NOT_AVAILABLE)
+    except (KeyboardInterrupt, EOFError):
+        return Error("User cancelled issue selection")
 
 
 __all__ = ["prompt_select_issue_step"]
