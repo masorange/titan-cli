@@ -101,6 +101,14 @@ class SavedQueries:
     DONE_RECENTLY = "status = Done AND updated >= -7d ORDER BY updated DESC"
     """Issues completed in last 7 days"""
 
+    # ==================== RELEASE NOTES QUERIES ====================
+
+    RELEASE_NOTES = "fixVersion = {fix_version} AND project = {project} ORDER BY key ASC"
+    """Issues for a specific fixVersion (used for release notes generation)"""
+
+    UNRELEASED_ISSUES = "fixVersion IN unreleasedVersions({project}) AND project = {project} ORDER BY fixVersion DESC, key ASC"
+    """All issues in unreleased versions for a project"""
+
     @classmethod
     def get_all(cls) -> Dict[str, str]:
         """

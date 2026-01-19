@@ -122,14 +122,26 @@ class JiraPlugin(TitanPlugin):
         Returns a dictionary of available workflow steps.
         """
         from .steps.search_saved_query_step import search_saved_query_step
+        from .steps.search_issues_step import search_issues_step
         from .steps.prompt_select_issue_step import prompt_select_issue_step
+        from .steps.prompt_platform_step import prompt_platform_step
+        from .steps.prompt_fix_version_step import prompt_fix_version_step
+        from .steps.list_versions_step import list_versions_step
+        from .steps.prompt_select_version_step import prompt_select_version_step
         from .steps.get_issue_step import get_issue_step
         from .steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
+        from .steps.generate_release_notes_step import generate_release_notes
         return {
             "search_saved_query": search_saved_query_step,
+            "search_issues": search_issues_step,
             "prompt_select_issue": prompt_select_issue_step,
+            "prompt_platform": prompt_platform_step,
+            "prompt_fix_version": prompt_fix_version_step,
+            "list_versions": list_versions_step,
+            "prompt_select_version": prompt_select_version_step,
             "get_issue": get_issue_step,
             "ai_analyze_issue_requirements": ai_analyze_issue_requirements_step,
+            "generate_release_notes": generate_release_notes,
         }
 
     @property

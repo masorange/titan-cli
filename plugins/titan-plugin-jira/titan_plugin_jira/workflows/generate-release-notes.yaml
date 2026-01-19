@@ -1,0 +1,50 @@
+name: "Generate Release Notes"
+description: "Generate multi-brand weekly release notes from JIRA issues"
+
+params:
+  project_key: "ECAPP"
+
+steps:
+  - id: prompt_platform
+    name: "Select Platform"
+    plugin: jira
+    step: prompt_platform
+    description: "Prompt user to select platform (iOS or Android)"
+
+  - id: list_versions
+    name: "List Available Versions"
+    plugin: jira
+    step: list_versions
+    description: "Fetch available versions from JIRA project"
+    params:
+      project_key: "${project_key}"
+
+  - id: select_version
+    name: "Select Version"
+    plugin: jira
+    step: prompt_select_version
+    description: "Prompt user to select a version from the list"
+    requires:
+      - versions
+
+  - id: search_jira
+    name: "Search JIRA Issues"
+    plugin: jira
+    step: search_issues
+    description: "Query JIRA for issues in the specified fixVersion (uses RELEASE_NOTES saved query)"
+    requires:
+      - fix_version
+    params:
+      # Using centralized query from SavedQueries.RELEASE_NOTES:
+      # "fixVersion = {fix_version} AND project = {project} ORDER BY key ASC"
+      jql: 'fixVersion = "${fix_version}" AND project = ${project_key} ORDER BY key ASC'
+      max_results: 100
+
+  - id: generate_notes
+    name: "Generate Release Notes"
+    plugin: jira
+    step: generate_release_notes
+    description: "Process issues and generate formatted release notes"
+    requires:
+      - issues
+      - fix_version

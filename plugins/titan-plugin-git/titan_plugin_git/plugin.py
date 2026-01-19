@@ -102,6 +102,7 @@ class GitPlugin(TitanPlugin):
         """
         from .steps.branch_steps import get_current_branch_step, get_base_branch_step
         from .steps.ai_commit_message_step import ai_generate_commit_message
+        from .steps.ensure_release_branch_step import ensure_release_branch_step
 
         return {
             "get_status": get_git_status_step,
@@ -111,6 +112,7 @@ class GitPlugin(TitanPlugin):
             "get_current_branch": get_current_branch_step,
             "get_base_branch": get_base_branch_step,
             "ai_generate_commit_message": ai_generate_commit_message,
+            "ensure_release_branch": ensure_release_branch_step,
         }
 
     @property
