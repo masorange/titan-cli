@@ -3,7 +3,7 @@ AI-powered JIRA issue analysis step
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
-from rich.markdown import Markdown
+from titan_cli.ui.tui.widgets import Panel
 from ..messages import msg
 from ..agents import JiraAgent
 from ..formatters import IssueAnalysisMarkdownFormatter
@@ -29,38 +29,29 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
         ai_analysis (str): AI-generated analysis
         analysis_sections (dict): Structured analysis breakdown
     """
-    if ctx.views:
-        ctx.views.step_header(
-            name="AI Analyze Issue",
-            step_type="plugin",
-            step_detail="jira.ai_analyze_issue"
-        )
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Check if AI is available
     if not ctx.ai or not ctx.ai.is_available():
-        if ctx.ui:
-            ctx.ui.panel.print(msg.Steps.AIIssue.AI_NOT_CONFIGURED_SKIP, panel_type="info")
+        ctx.textual.mount(Panel(msg.Steps.AIIssue.AI_NOT_CONFIGURED_SKIP, panel_type="info"))
         return Skip(msg.Steps.AIIssue.AI_NOT_CONFIGURED)
 
     # Get issue to analyze
     issue = ctx.get("jira_issue") or ctx.get("selected_issue")
     if not issue:
-        if ctx.ui:
-            ctx.ui.panel.print(msg.Steps.AIIssue.NO_ISSUE_FOUND, panel_type="error")
+        ctx.textual.mount(Panel(msg.Steps.AIIssue.NO_ISSUE_FOUND, panel_type="error"))
         return Error(msg.Steps.AIIssue.NO_ISSUE_FOUND)
 
-    if ctx.ui:
-        ctx.ui.text.info(msg.Steps.AIIssue.ANALYZING)
-        ctx.ui.spacer.small()
-
-    # Create JiraAgent instance and analyze issue
-    jira_agent = JiraAgent(ctx.ai, ctx.jira)
-    analysis = jira_agent.analyze_issue(
-        issue_key=issue.key,
-        include_subtasks=True,
-        include_comments=False,
-        include_linked_issues=False
-    )
+    # Create JiraAgent instance and analyze issue with loading indicator
+    with ctx.textual.loading(msg.Steps.AIIssue.ANALYZING):
+        jira_agent = JiraAgent(ctx.ai, ctx.jira)
+        analysis = jira_agent.analyze_issue(
+            issue_key=issue.key,
+            include_subtasks=True,
+            include_comments=False,
+            include_linked_issues=False
+        )
 
     # Build formatted analysis for display
     # Use template from config if specified, otherwise use built-in formatter
@@ -69,23 +60,21 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
     ai_analysis = formatter.format(analysis)
 
     # Display analysis
-    if ctx.ui:
-        ctx.ui.spacer.small()
-        ctx.ui.text.title("AI Analysis Results")
-        ctx.ui.spacer.small()
+    ctx.textual.text("")
+    ctx.textual.text("AI Analysis Results", markup="bold cyan")
+    ctx.textual.text("")
 
-        # Show issue header
-        ctx.ui.text.subtitle(f"{issue.key}: {issue.summary}")
-        ctx.ui.text.body(f"Type: {issue.issue_type} | Status: {issue.status} | Priority: {issue.priority}", style="dim")
-        ctx.ui.spacer.small()
+    # Show issue header
+    ctx.textual.text(f"{issue.key}: {issue.summary}", markup="bold")
+    ctx.textual.text(f"Type: {issue.issue_type} | Status: {issue.status} | Priority: {issue.priority}", markup="dim")
+    ctx.textual.text("")
 
-        # Show AI analysis as markdown
-        ctx.ui.panel.print(Markdown(ai_analysis), title=None, panel_type="default")
-        ctx.ui.spacer.small()
+    # Show AI analysis as markdown
+    ctx.textual.markdown(ai_analysis)
 
-        # Show token usage
-        if analysis.total_tokens_used > 0:
-            ctx.ui.text.body(f"Tokens used: {analysis.total_tokens_used}", style="dim")
+    # Show token usage
+    if analysis.total_tokens_used > 0:
+        ctx.textual.text(f"Tokens used: {analysis.total_tokens_used}", markup="dim")
 
     # Save structured analysis to context
     ctx.set("ai_analysis_structured", {

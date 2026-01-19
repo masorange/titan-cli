@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from .config_loader import load_agent_config
 from .response_parser import JiraAgentParser
-from .validators import IssueValidator, IssueValidationError
+from .validators import IssueValidator
 from .token_tracker import TokenTracker, TokenBudget, OperationType
 from .prompts import JiraAgentPrompts
 
@@ -233,7 +233,7 @@ class JiraAgent(BaseAIAgent):
                     )
 
             # 5. Suggest subtasks (with AI error handling)
-            if include_subtasks and self.config.enable_subtask_suggestion:
+            if include_subtasks and self.config.enable_subtasks:
                 try:
                     subtask_result = self._suggest_subtasks(issue)
                     suggested_subtasks = subtask_result.get("subtasks", [])

@@ -180,6 +180,20 @@ def workflow_context(mock_jira_client, mock_ai_client, mock_ui_components, mock_
     ctx.ui = mock_ui_components
     ctx.views = mock_views
 
+    # Mock textual UI context (required by newer steps)
+    ctx.textual = MagicMock()
+    ctx.textual.mount = MagicMock()
+    ctx.textual.text = MagicMock()
+    ctx.textual.markdown = MagicMock()
+    ctx.textual.ask_confirm = MagicMock(return_value=True)
+    # ask_text returns "1" for issue selection (prompt_select_issue_step expects a number)
+    ctx.textual.ask_text = MagicMock(return_value="1")
+    # Mock loading as a context manager
+    loading_mock = MagicMock()
+    loading_mock.__enter__ = MagicMock(return_value=loading_mock)
+    loading_mock.__exit__ = MagicMock(return_value=None)
+    ctx.textual.loading = MagicMock(return_value=loading_mock)
+
     # Set workflow metadata
     ctx.workflow_name = "analyze-jira-issues"
     ctx.total_steps = 4
@@ -374,8 +388,8 @@ def test_workflow_invalid_issue_selection(workflow_context):
         create_mock_ticket(key="ECAPP-123", summary="Issue 1", status="Open")
     ]
 
-    # Mock user cancelling (ask_int returns None when cancelled)
-    workflow_context.views.prompts.ask_int.return_value = None
+    # Mock user cancelling (ask_text returns empty string when cancelled)
+    workflow_context.textual.ask_text.return_value = ""
     workflow_context.current_step = 2
 
     result = execute_step_with_metadata(prompt_select_issue_step, workflow_context)
@@ -474,7 +488,7 @@ def test_agent_feature_flag_requirement_extraction(mock_ai_client, mock_jira_cli
         name="JiraAgent",
         enable_requirement_extraction=False,  # Disabled
         enable_risk_analysis=True,
-        enable_subtask_suggestion=True,
+        enable_subtasks=True,
         enable_dependency_detection=True,
         max_description_length=8000,
         max_tokens=2000,
@@ -505,7 +519,7 @@ def test_agent_feature_flag_risk_analysis(mock_ai_client, mock_jira_client):
         name="JiraAgent",
         enable_requirement_extraction=True,
         enable_risk_analysis=False,  # Disabled
-        enable_subtask_suggestion=True,
+        enable_subtasks=True,
         enable_dependency_detection=True,
         max_description_length=8000,
         max_tokens=2000,
@@ -528,7 +542,7 @@ def test_agent_feature_flag_risk_analysis(mock_ai_client, mock_jira_client):
 
 
 def test_agent_feature_flag_subtask_suggestion(mock_ai_client, mock_jira_client):
-    """Test that enable_subtask_suggestion flag controls subtask generation."""
+    """Test that enable_subtasks flag controls subtask generation."""
     from titan_plugin_jira.agents.jira_agent import JiraAgent, IssueAnalysis
     from titan_plugin_jira.agents.config_loader import JiraAgentConfig
 
@@ -537,7 +551,7 @@ def test_agent_feature_flag_subtask_suggestion(mock_ai_client, mock_jira_client)
         name="JiraAgent",
         enable_requirement_extraction=True,
         enable_risk_analysis=True,
-        enable_subtask_suggestion=False,  # Disabled
+        enable_subtasks=False,  # Disabled
         enable_dependency_detection=True,
         max_description_length=8000,
         max_tokens=2000,
@@ -566,7 +580,7 @@ def test_agent_feature_flag_dependency_detection(mock_ai_client, mock_jira_clien
         name="JiraAgent",
         enable_requirement_extraction=True,
         enable_risk_analysis=True,
-        enable_subtask_suggestion=True,
+        enable_subtasks=True,
         enable_dependency_detection=False,  # Disabled
         max_description_length=8000,
         max_tokens=2000,
@@ -595,7 +609,7 @@ def test_agent_feature_flags_all_disabled(mock_ai_client, mock_jira_client):
         name="JiraAgent",
         enable_requirement_extraction=False,
         enable_risk_analysis=False,
-        enable_subtask_suggestion=False,
+        enable_subtasks=False,
         enable_dependency_detection=False,
         max_description_length=8000,
         max_tokens=2000,

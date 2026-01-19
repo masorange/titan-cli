@@ -185,14 +185,14 @@ class AIResponseParser:
             matched_text = match.group(1).strip()
 
             # Convert to expected type
-            if expected_type == list:
+            if expected_type is list:
                 # Split by list separator (e.g., "- item")
                 items = re.split(list_separator, matched_text)
                 items = [item.strip() for item in items if item.strip()]
                 result_data[field] = items
-            elif expected_type == str:
+            elif expected_type is str:
                 result_data[field] = matched_text
-            elif expected_type == int:
+            elif expected_type is int:
                 try:
                     result_data[field] = int(matched_text)
                 except ValueError:

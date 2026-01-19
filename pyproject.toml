@@ -49,3 +49,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+# Note: Plugin tests must be run separately to avoid conftest.py conflicts:
+#   - poetry run pytest plugins/titan-plugin-git/tests
+#   - poetry run pytest plugins/titan-plugin-github/tests
+#   - cd plugins/titan-plugin-jira && poetry run pytest
+# Or run all tests with: poetry run pytest tests/ plugins/titan-plugin-git/tests plugins/titan-plugin-github/tests

@@ -41,7 +41,6 @@ class JiraAgentConfig(BaseModel):
     # Features (Active)
     enable_requirement_extraction: bool = Field(True, description="Enable requirement extraction")
     enable_subtasks: bool = Field(True, description="Enable subtask suggestion")
-    enable_subtask_suggestion: bool = Field(True, description="Enable subtask suggestion (legacy, use enable_subtasks)")
     enable_risk_analysis: bool = Field(True, description="Enable risk analysis")
     enable_dependency_detection: bool = Field(True, description="Enable dependency detection")
     enable_acceptance_criteria: bool = Field(True, description="Enable acceptance criteria generation")
@@ -141,8 +140,7 @@ def load_agent_config(
         max_tokens=limits.get("max_tokens", agent_meta.get("max_tokens", 2000)),
         # Features (Active)
         enable_requirement_extraction=features.get("enable_requirement_extraction", True),
-        enable_subtasks=features.get("enable_subtasks", features.get("enable_subtask_suggestion", True)),
-        enable_subtask_suggestion=features.get("enable_subtask_suggestion", features.get("enable_subtasks", True)),
+        enable_subtasks=features.get("enable_subtasks", True),
         enable_risk_analysis=features.get("enable_risk_analysis", True),
         enable_dependency_detection=features.get("enable_dependency_detection", True),
         enable_acceptance_criteria=features.get("enable_acceptance_criteria", True),

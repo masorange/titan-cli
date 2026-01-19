@@ -6,10 +6,11 @@ Addresses PR #74 comment: "Token Tracking Inconsistente"
 Provides consistent, transparent token usage tracking across all AI operations.
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 from enum import Enum
 
+MAX_BUDGET_MULTIPLIER = 10
 
 class OperationType(Enum):
     """Types of AI operations that consume tokens."""
@@ -149,7 +150,7 @@ class TokenTracker:
         """Get list of operations that failed."""
         return [u for u in self.usage_history if not u.success]
 
-    def get_summary(self) -> Dict[str, any]:
+    def get_summary(self) -> Dict[str, Any]:
         """
         Get comprehensive usage summary.
 
@@ -210,10 +211,11 @@ class TokenTracker:
         Returns:
             True if within budget, False otherwise
         """
-        budget = self.budget.get_budget(operation)
+        
         # For simplicity, just check if we haven't exceeded total budget
         # Could implement more sophisticated per-operation tracking
-        return self._total_tokens < (self.budget.base_max_tokens * 10)  # Allow 10x for multi-issue analysis
+
+        return self._total_tokens < (self.budget.base_max_tokens * MAX_BUDGET_MULTIPLIER)  # Allow 10x for multi-issue analysis
 
     def reset(self) -> None:
         """Reset tracker (useful for new analysis session)."""
