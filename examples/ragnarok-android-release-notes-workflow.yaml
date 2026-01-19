@@ -1,0 +1,123 @@
+name: "Generate Release Notes (Android)"
+description: "Generate multi-brand weekly release notes and create files in Ragnarok Android project"
+
+params:
+  project_key: "ECAPP"
+  platform: "Android"
+  notes_directory: "docs/release-notes/android"  # Ruta aprendida
+
+steps:
+  # === JIRA Steps (reutilizables) ===
+
+  - id: prompt_platform
+    name: "Select Platform"
+    plugin: jira
+    step: prompt_platform
+    description: "Prompt user to select platform (iOS or Android)"
+
+  - id: list_versions
+    name: "List Available Versions"
+    plugin: jira
+    step: list_versions
+    description: "Fetch unreleased versions from JIRA project"
+    params:
+      project_key: "${project_key}"
+
+  - id: select_version
+    name: "Select Version"
+    plugin: jira
+    step: prompt_select_version
+    description: "Prompt user to select a version from the list"
+    requires:
+      - versions
+
+  # === Git Steps ===
+
+  - id: ensure_branch
+    name: "Ensure Release Notes Branch"
+    plugin: git
+    step: ensure_release_branch
+    description: "Create/switch to release-notes/{version} branch from develop"
+    requires:
+      - fix_version
+
+  # === JIRA Query ===
+
+  - id: search_jira
+    name: "Search JIRA Issues"
+    plugin: jira
+    step: search_issues
+    description: "Query JIRA for issues in the specified fixVersion"
+    requires:
+      - fix_version
+    params:
+      jql: 'fixVersion = "${fix_version}" AND project = ${project_key} ORDER BY key ASC'
+      max_results: 100
+
+  - id: generate_notes
+    name: "Generate Release Notes"
+    plugin: jira
+    step: generate_release_notes
+    description: "Process issues and generate formatted release notes"
+    requires:
+      - issues
+      - fix_version
+
+  # === File Operations (Project-Specific) ===
+
+  - id: discover_directory
+    name: "Discover Notes Directory"
+    command: |
+      # Buscar directorio de release notes si no está configurado
+      if [ ! -d "${notes_directory}" ]; then
+        # Buscar en ubicaciones comunes para Android
+        for dir in "app/docs/release-notes" "docs/release-notes" "ReleaseNotes"; do
+          if [ -d "$dir" ]; then
+            echo "NOTES_DIR=$dir"
+            exit 0
+          fi
+        done
+        echo "ERROR: No se encontró directorio de release notes"
+        exit 1
+      else
+        echo "NOTES_DIR=${notes_directory}"
+      fi
+    description: "Find release notes directory (auto-discover or use configured)"
+
+  - id: create_notes_file
+    name: "Create Release Notes File"
+    command: |
+      # Obtener directorio del step anterior
+      NOTES_DIR=$(echo "${discover_directory_output}" | grep NOTES_DIR | cut -d= -f2)
+
+      # Generar nombre de archivo siguiendo patrón existente
+      # Ejemplo: release-notes-26.4.0.md
+      FILENAME="release-notes-${fix_version}.md"
+      FILEPATH="$NOTES_DIR/$FILENAME"
+
+      # Crear archivo con contenido de release notes
+      echo "# Release Notes ${fix_version} - Android" > "$FILEPATH"
+      echo "" >> "$FILEPATH"
+      echo "**Fecha:** $(date +\"%Y-%m-%d\")" >> "$FILEPATH"
+      echo "**Versión:** ${fix_version}" >> "$FILEPATH"
+      echo "" >> "$FILEPATH"
+      echo "${release_notes}" >> "$FILEPATH"
+
+      echo "Created: $FILEPATH"
+    description: "Create markdown file with release notes"
+    requires:
+      - fix_version
+      - release_notes
+
+  # Android no tiene LatestPublishers.md, se omite ese step
+
+  - id: commit_changes
+    name: "Commit Release Notes"
+    plugin: git
+    step: commit
+    description: "Commit the release notes files"
+    params:
+      message: "docs: Add release notes for ${fix_version} (Android)"
+      add_all: true
+    requires:
+      - fix_version
