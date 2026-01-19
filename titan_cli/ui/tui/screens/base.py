@@ -93,7 +93,7 @@ class BaseScreen(Screen):
                 ai_info = f"{provider_name}/{model}"
 
         # Get project name directly from config
-        project_name = self.config.get_active_project() or "N/A"
+        project_name = self.config.get_project_name() or "N/A"
 
         # Update status bar
         status_bar.git_branch = git_branch
