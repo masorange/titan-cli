@@ -7,7 +7,7 @@ Provides consistent, transparent token usage tracking across all AI operations.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from enum import Enum
 
 
@@ -149,7 +149,7 @@ class TokenTracker:
         """Get list of operations that failed."""
         return [u for u in self.usage_history if not u.success]
 
-    def get_summary(self) -> Dict[str, any]:
+    def get_summary(self) -> Dict[str, Any]:
         """
         Get comprehensive usage summary.
 

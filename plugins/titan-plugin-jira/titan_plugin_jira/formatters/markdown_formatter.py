@@ -69,7 +69,7 @@ class IssueAnalysisMarkdownFormatter:
             # This ensures all template variables are HTML-escaped by default
             env = Environment(
                 loader=FileSystemLoader(str(templates_dir)),
-                autoescape=True
+                autoescape=False
             )
             return env.get_template(template_name)
         except Exception:

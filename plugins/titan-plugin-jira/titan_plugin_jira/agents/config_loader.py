@@ -142,7 +142,6 @@ def load_agent_config(
         # Features (Active)
         enable_requirement_extraction=features.get("enable_requirement_extraction", True),
         enable_subtasks=features.get("enable_subtasks", features.get("enable_subtask_suggestion", True)),
-        enable_subtask_suggestion=features.get("enable_subtask_suggestion", features.get("enable_subtasks", True)),
         enable_risk_analysis=features.get("enable_risk_analysis", True),
         enable_dependency_detection=features.get("enable_dependency_detection", True),
         enable_acceptance_criteria=features.get("enable_acceptance_criteria", True),
