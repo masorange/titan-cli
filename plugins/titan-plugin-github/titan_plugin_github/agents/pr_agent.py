@@ -259,7 +259,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
 
         request = AgentRequest(
             context=prompt,
-            max_tokens=200,
+            max_tokens=500,  # Increased from 200 to handle larger diffs
             system_prompt=self.config.commit_system_prompt  # Use specific commit prompt
         )
 
@@ -335,9 +335,20 @@ COMMIT_MESSAGE: <conventional commit message>"""
             max_chars=max_chars
         )
 
-        # Calculate tokens - allow enough for title + description
-        estimated_tokens = int(max_chars * 0.75) + 500
-        max_tokens = min(estimated_tokens, 8000)  # Cap at 8000 tokens
+        # Calculate max_tokens for OUTPUT (PR description generation)
+        # max_tokens controls the response length, not input length
+        # Scale based on PR size to provide appropriate detail level
+        if pr_size == "small":
+            max_tokens = 1500  # Brief summary + key changes
+        elif pr_size == "medium":
+            max_tokens = 3000  # Moderate detail
+        elif pr_size == "large":
+            max_tokens = 5000  # Comprehensive overview
+        else:  # very large
+            max_tokens = 8000  # Full context + migration notes
+
+        # Add buffer for title + formatting overhead
+        max_tokens = min(max_tokens + 500, 8000)
 
         # Generate with AI
         request = AgentRequest(

@@ -38,6 +38,9 @@ class Messages:
         SELECT_PROJECT_TITLE = "Select a project to initialize"
         RETURN_TO_MENU_PROMPT = "Press Enter to return to the main menu"
         RETURN_TO_MENU_PROMPT_CONFIRM = "Return to the main menu?"
+        BACK_CATEGORY = "Back"
+        RETURN_TO_MAIN_MENU = "Return to Main Menu"
+        RETURN_TO_PREVIOUS_MENU = "Return to Previous Menu"
         GOODBYE = "Goodbye!"
         INIT_PROJECT_TITLE = "Initializing Titan Project: [primary]{project_name}[/primary]"
 
@@ -298,6 +301,7 @@ class Messages:
         INVALID_PROMPT_TEMPLATE = "Invalid prompt_template: missing placeholder {e}"
         FAILED_TO_BUILD_PROMPT = "Failed to build prompt: {e}"
         CONFIRM_LAUNCH_ASSISTANT = "Would you like AI assistance to help fix these issues?"
+        SELECT_ASSISTANT_CLI = "Select which AI assistant to use"
         DECLINED_ASSISTANCE_STOPPED = "User declined AI assistance - workflow stopped"
         DECLINED_ASSISTANCE_SKIPPED = "User declined AI assistance"
         NO_ASSISTANT_CLI_FOUND = "No AI coding assistant CLI found"
@@ -309,14 +313,18 @@ class Messages:
     # ═══════════════════════════════════════════════════════════════
     # Code
     # ═══════════════════════════════════════════════════════════════
-    class Code:
-        """Claude Code CLI integration messages"""
-        HELP_TEXT = "Launch Claude Code CLI from anywhere in Titan."
-        NOT_INSTALLED = "Claude Code not installed"
-        INSTALL_INSTRUCTIONS = "Install: npm install -g @anthropic/claude-code"
-        LAUNCHING = "🤖 Launching Claude Code..."
+    class ExternalCLI:
+        """Generic messages for launching external CLIs."""
+        HELP_TEXT = "Launch an external CLI tool like Claude Code or Gemini CLI."
+        MENU_TITLE = "Launch External CLI"
+        AVAILABLE_CLIS_TITLE = "Available CLIs"
+        NO_CLIS_FOUND = "No configured CLI tools are available on your system."
+        INSTALL_SUGGESTION = "Please install Claude CLI or Gemini CLI and try again."
+        NOT_INSTALLED = "{cli_name} not installed"
+        INSTALL_INSTRUCTIONS = "See documentation for installation instructions for {cli_name}."
+        LAUNCHING = "Launching {cli_name}..."
         INITIAL_PROMPT = "Initial prompt: {prompt}"
-        INTERRUPTED = "\nClaude Code interrupted"
+        INTERRUPTED = "\n{cli_name} interrupted"
         RETURNED = "✓ Back in Titan CLI"
 
     # ═══════════════════════════════════════════════════════════════

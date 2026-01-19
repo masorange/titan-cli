@@ -19,6 +19,7 @@ from ..models import (
     PRSearchResult,
     PRMergeResult,
     PRComment as GitHubPRComment,
+    Issue,
 )
 from ..exceptions import (
     GitHubError,
@@ -791,23 +792,6 @@ class GitHubClient:
                 merged=False, message=msg.GitHub.UNEXPECTED_ERROR.format(error=e)
             )
 
-    def get_current_user(self) -> str:
-        """
-        Get current authenticated user
-
-        Returns:
-            GitHub username
-
-        Examples:
-            >>> username = client.get_current_user()
-            >>> print(f"Authenticated as {username}")
-        """
-        try:
-            output = self._run_gh_command(["api", "user", "--jq", ".login"])
-            return output.strip()
-        except GitHubAPIError:
-            return "unknown"
-
     def get_pr_comments(self, pr_number: int) -> List[GitHubPRComment]:
         """
         Get all comments for a PR (review comments + issue comments)
@@ -963,8 +947,25 @@ class GitHubClient:
                 )
             )
 
+    def get_current_user(self) -> str:
+        """
+        Get the currently authenticated GitHub username.
+
+        Returns:
+            GitHub username
+
+        Raises:
+            GitHubAPIError: If unable to get current user
+        """
+        try:
+            output = self._run_gh_command(["api", "user", "-q", ".login"])
+            return output.strip()
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to get current GitHub user: {e}")
+
     def create_pull_request(
-        self, title: str, body: str, base: str, head: str, draft: bool = False
+        self, title: str, body: str, base: str, head: str, draft: bool = False,
+        assignees: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Create a pull request
@@ -975,6 +976,7 @@ class GitHubClient:
             base: Base branch (e.g., "develop", "main")
             head: Head branch (feature branch)
             draft: Whether to create as draft PR
+            assignees: List of GitHub usernames to assign to the PR
 
         Returns:
             Dict with PR information including:
@@ -990,7 +992,8 @@ class GitHubClient:
             ...     title="feat: Add new feature",
             ...     body="Description of changes",
             ...     base="develop",
-            ...     head="feat/new-feature"
+            ...     head="feat/new-feature",
+            ...     assignees=["username"]
             ... )
             >>> print(f"Created PR #{pr['number']}: {pr['url']}")
         """
@@ -1010,6 +1013,11 @@ class GitHubClient:
 
             if draft:
                 args.append("--draft")
+
+            # Add assignees if provided
+            if assignees:
+                for assignee in assignees:
+                    args.extend(["--assignee", assignee])
 
             args.extend(self._get_repo_arg())
 
@@ -1033,3 +1041,65 @@ class GitHubClient:
             )
         except GitHubAPIError as e:
             raise GitHubAPIError(msg.GitHub.PR_CREATION_FAILED.format(error=e))
+
+    def create_issue(
+        self,
+        title: str,
+        body: str,
+        assignees: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> Issue:
+        """
+        Create a new GitHub issue.
+        """
+        try:
+            args = ["issue", "create", "--title", title, "--body", body]
+
+            if assignees:
+                for assignee in assignees:
+                    args.extend(["--assignee", assignee])
+            if labels:
+                for label in labels:
+                    args.extend(["--label", label])
+
+            args.extend(self._get_repo_arg())
+            output = self._run_gh_command(args)
+            issue_url = output.strip()
+            try:
+                issue_number = int(issue_url.strip().split("/")[-1])
+            except (ValueError, IndexError) as e:
+                raise GitHubAPIError(f"Failed to parse issue number from URL '{issue_url}': {e}")
+
+            # Fetch the issue to return the full object
+            issue_args = [
+                "issue",
+                "view",
+                str(issue_number),
+                "--json",
+                "number,title,body,state,author,labels,createdAt,updatedAt",
+            ] + self._get_repo_arg()
+            issue_output = self._run_gh_command(issue_args)
+            issue_data = json.loads(issue_output)
+            return Issue.from_dict(issue_data)
+
+        except (ValueError, json.JSONDecodeError) as e:
+            raise GitHubAPIError(f"Failed to parse issue data: {e}")
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to create issue: {e}")
+
+    def list_labels(self) -> List[str]:
+        """
+        List all labels in the repository.
+
+        Returns:
+            List of label names.
+        """
+        try:
+            args = ["label", "list", "--json", "name"] + self._get_repo_arg()
+            output = self._run_gh_command(args)
+            labels_data = json.loads(output)
+            return [label["name"] for label in labels_data]
+        except (ValueError, json.JSONDecodeError) as e:
+            raise GitHubAPIError(f"Failed to parse label data: {e}")
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to list labels: {e}")

@@ -30,7 +30,11 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
         analysis_sections (dict): Structured analysis breakdown
     """
     if ctx.views:
-        ctx.views.step_header("ai_analyze_issue", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="AI Analyze Issue",
+            step_type="plugin",
+            step_detail="jira.ai_analyze_issue"
+        )
 
     # Check if AI is available
     if not ctx.ai or not ctx.ai.is_available():
