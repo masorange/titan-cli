@@ -189,23 +189,25 @@ def format_markdown(grouped_issues: Dict[str, List[Dict]], descriptions: Dict[st
     """Format grouped issues into Markdown."""
     lines = []
 
-    # Process brands in fixed order
+    # Process ALL brands in fixed order (always show all brands)
     for emoji, brand in BRANDS_WITH_EMOJI:
         issues = grouped_issues.get(brand, [])
 
-        if not issues:
-            continue
-
         lines.append(f"*{emoji} {brand}*")
 
-        for issue in issues:
-            key = issue["key"]
-            description = descriptions.get(key, issue["summary"])
-            lines.append(f"- {description} ({key})")
+        if not issues:
+            # Show "Sin cambios" if no issues for this brand
+            lines.append("- Sin cambios")
+        else:
+            # Show all issues for this brand
+            for issue in issues:
+                key = issue["key"]
+                description = descriptions.get(key, issue["summary"])
+                lines.append(f"- {description} ({key})")
 
         lines.append("")  # Empty line between brands
 
-    # Add Marca Desconocida section if exists
+    # Add Marca Desconocida section only if exists
     unknown_issues = grouped_issues.get("Marca Desconocida", [])
     if unknown_issues:
         emoji, brand = UNKNOWN_BRAND
