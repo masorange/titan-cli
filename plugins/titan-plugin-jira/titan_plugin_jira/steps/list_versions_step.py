@@ -33,18 +33,101 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
             project_key: "ECAPP"
         ```
     """
+    if not ctx.jira:
+        return Error("JIRA client not available in context")
+
+    # Get project key (default to ECAPP)
+    project_key = ctx.get("project_key", "ECAPP")
+
+    # Textual TUI (new UI)
+    if ctx.textual:
+        from titan_cli.ui.tui.widgets import Panel
+
+        # Show fetching message
+        ctx.textual.text(f"Fetching versions for project: {project_key}", markup="dim")
+        ctx.textual.text("")
+
+        try:
+            # Get project details which includes versions
+            project = ctx.jira.get_project(project_key)
+            versions = project.get("versions", [])
+
+            if not versions:
+                ctx.textual.mount(
+                    Panel(
+                        f"No versions found for project {project_key}",
+                        panel_type="info"
+                    )
+                )
+                return Success(
+                    "No versions found",
+                    metadata={
+                        "versions": [],
+                        "versions_full": []
+                    }
+                )
+
+            # Filter only unreleased versions for release notes workflow
+            unreleased_versions = [v for v in versions if not v.get("released", False)]
+
+            # Sort unreleased by name descending (most recent first)
+            unreleased_versions.sort(key=lambda v: v.get("name", ""), reverse=True)
+
+            # Use only unreleased versions
+            sorted_versions = unreleased_versions
+
+            # Extract version names
+            version_names = [v.get("name", "") for v in sorted_versions]
+
+            # Show success panel
+            ctx.textual.mount(
+                Panel(
+                    f"Found {len(sorted_versions)} unreleased versions",
+                    panel_type="success"
+                )
+            )
+
+            # Show versions list
+            ctx.textual.text("")
+            ctx.textual.text("Unreleased Versions:", markup="bold cyan")
+            ctx.textual.text("")
+
+            for v in sorted_versions[:20]:  # Show first 20
+                name = v.get("name", "")
+                description = v.get("description", "")
+                desc_text = f" - {description[:50]}" if description else ""
+                ctx.textual.text(f"  • {name}{desc_text}", markup="cyan")
+
+            if len(sorted_versions) > 20:
+                ctx.textual.text(f"  ... and {len(sorted_versions) - 20} more", markup="dim")
+            ctx.textual.text("")
+
+            return Success(
+                f"Found {len(sorted_versions)} unreleased versions",
+                metadata={
+                    "versions": version_names,
+                    "versions_full": sorted_versions
+                }
+            )
+
+        except JiraAPIError as e:
+            error_msg = f"Failed to fetch versions: {e}"
+            ctx.textual.mount(Panel(error_msg, panel_type="error"))
+            return Error(error_msg)
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            error_msg = f"Unexpected error: {e}\n\nTraceback:\n{error_detail}"
+            ctx.textual.mount(Panel(error_msg, panel_type="error"))
+            return Error(error_msg)
+
+    # Rich UI (legacy)
     if ctx.views:
         ctx.views.step_header(
             name="List Project Versions",
             step_type="plugin",
             step_detail="jira.list_versions"
         )
-
-    if not ctx.jira:
-        return Error("JIRA client not available in context")
-
-    # Get project key (default to ECAPP)
-    project_key = ctx.get("project_key", "ECAPP")
 
     if ctx.ui:
         ctx.ui.spacer.small()
