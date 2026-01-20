@@ -71,6 +71,9 @@ def launch_tui():
                     # Initialize only the configured plugins (without reset)
                     self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
 
+                    # Reload workflow registry to reflect enabled/disabled plugins
+                    self.config.workflows.reload()
+
                     # Pop all screens except the base one, then push main menu
                     # WizardFlowScreen is still there, so we need to pop it too
                     # Stack after project wizard completes: [WizardFlowScreen]
@@ -109,6 +112,9 @@ def launch_tui():
 
                         # Initialize plugins with new config
                         self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
+
+                        # Reload workflow registry to reflect enabled/disabled plugins
+                        self.config.workflows.reload()
 
                         # Stack: [WizardFlowScreen]
                         # We want: [MainMenuScreen]
@@ -168,6 +174,9 @@ def launch_tui():
 
                     # Initialize only the configured plugins (without reset)
                     self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
+
+                    # Reload workflow registry to reflect enabled/disabled plugins
+                    self.config.workflows.reload()
 
                     # Pop this flow screen and show main menu
                     self.app.pop_screen()  # Remove ProjectWizardFlowScreen

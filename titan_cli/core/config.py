@@ -73,7 +73,8 @@ class TitanConfig:
         self._workflow_registry = WorkflowRegistry(
             project_root=workflow_path,
             plugin_registry=self.registry,
-            project_step_source=project_step_source
+            project_step_source=project_step_source,
+            config=self
         )
 
 

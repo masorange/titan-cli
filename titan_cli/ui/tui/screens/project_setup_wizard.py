@@ -541,12 +541,21 @@ class ProjectSetupWizardScreen(BaseScreen):
                 "plugins": {}
             }
 
-            # Add enabled plugins
-            for plugin_name in plugins_to_configure:
-                project_config_data["plugins"][plugin_name] = {
-                    "enabled": True,
-                    "config": {}
-                }
+            # Get all available plugins
+            all_plugins = self.config.registry.list_discovered()
+
+            # Add enabled plugins and disable non-selected ones
+            for plugin_name in all_plugins:
+                if plugin_name in plugins_to_configure:
+                    project_config_data["plugins"][plugin_name] = {
+                        "enabled": True,
+                        "config": {}
+                    }
+                else:
+                    # Explicitly disable plugins not selected for this project
+                    project_config_data["plugins"][plugin_name] = {
+                        "enabled": False
+                    }
 
             # Save initial project config
             with open(project_config_path, "wb") as f:
@@ -622,11 +631,20 @@ class ProjectSetupWizardScreen(BaseScreen):
                     "plugins": {}
                 }
 
-                # Add enabled plugins (though none were configured)
-                for plugin_name in enabled_plugins:
-                    project_config_data["plugins"][plugin_name] = {
-                        "enabled": True
-                    }
+                # Get all available plugins
+                all_plugins = self.config.registry.list_discovered()
+
+                # Add enabled/disabled plugins
+                for plugin_name in all_plugins:
+                    if plugin_name in enabled_plugins:
+                        project_config_data["plugins"][plugin_name] = {
+                            "enabled": True
+                        }
+                    else:
+                        # Explicitly disable plugins not selected
+                        project_config_data["plugins"][plugin_name] = {
+                            "enabled": False
+                        }
 
                 # Save project config
                 with open(project_config_path, "wb") as f:

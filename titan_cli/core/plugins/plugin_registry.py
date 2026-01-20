@@ -123,10 +123,30 @@ class PluginRegistry:
         """List all discovered plugins by name, regardless of load status."""
         return self._discovered_plugin_names
 
+    def list_enabled(self, config: Any) -> List[str]:
+        """
+        List plugins that are enabled in the current project configuration.
+
+        Args:
+            config: TitanConfig instance
+
+        Returns:
+            List of enabled plugin names
+        """
+        if not config or not config.config or not config.config.plugins:
+            return []
+
+        enabled = []
+        for plugin_name, plugin_config in config.config.plugins.items():
+            if hasattr(plugin_config, 'enabled') and plugin_config.enabled:
+                enabled.append(plugin_name)
+
+        return enabled
+
     def list_failed(self) -> Dict[str, Exception]:
         """
         List plugins that failed to load or initialize.
-        
+
         Returns:
             Dict mapping plugin name to error
         """
