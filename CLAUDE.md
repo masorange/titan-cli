@@ -98,36 +98,65 @@ pip install -e plugins/titan-plugin-jira
 
 ### Configuration
 
-Configuration is located at `~/.titan/config.toml`:
+Titan uses a two-level configuration system:
 
+1. **Global Configuration** (`~/.titan/config.toml`):
+   - AI provider settings (shared across all projects)
+   - Global preferences
+
+2. **Project Configuration** (`./.titan/config.toml` in each project):
+   - Project name and settings
+   - Plugin enablement (per project)
+   - Plugin configuration (per project)
+
+**Important:** Titan must be run from within a project directory. It no longer uses a global `project_root` setting.
+
+Example global config:
 ```toml
-[ai]
-provider = "anthropic"  # or "gemini"
+[ai.providers.default]
+name = "My Claude"
+type = "individual"
+provider = "anthropic"
 model = "claude-sonnet-4-5"
 
-[github]
-token = "ghp_..."
+[ai]
+default = "default"
+```
 
-[jira]
-base_url = "https://your-domain.atlassian.net"
-email = "user@example.com"
-api_token = "..."
+Example project config:
+```toml
+[project]
+name = "my-awesome-project"
+
+[plugins.git]
+enabled = true
+
+[plugins.github]
+enabled = true
 ```
 
 ## Main Commands
 
 ```bash
-# Launch interactive TUI
+# Launch interactive TUI (run from project directory)
+cd /path/to/your/project
 titan
 
-# Run specific workflow
-titan run <workflow-name>
+# First run will show:
+# 1. Global setup wizard (if ~/.titan/config.toml doesn't exist)
+# 2. Project setup wizard (if ./.titan/config.toml doesn't exist)
 
-# List available workflows
-titan list
+# After setup, the main menu will appear with options for:
+# - Workflows
+# - Plugin management
+# - AI configuration
+# - External CLI tools
 
-# Configure AI providers
-titan config ai
+# Legacy commands (Rich-based menu):
+titan menu              # Show legacy interactive menu
+titan run <workflow>    # Run specific workflow
+titan list              # List available workflows
+titan config ai         # Configure AI providers
 ```
 
 ## Current Project Status
@@ -160,8 +189,43 @@ titan config ai
 
 ## Current Branch
 
-**Branch**: `feat/analize_jira_textual`
+**Branch**: `master`
 **Main Branch**: `master`
+
+## Recent Architecture Changes
+
+### Project-Based Configuration (2026-01-19)
+
+Titan has been redesigned to work on a per-project basis:
+
+- **Removed**: Global `project_root` and `active_project` settings from `[core]` configuration
+- **New Flow**: Titan must be run from within a project directory
+- **Global Config**: Now only stores AI provider settings (shared across projects)
+- **Project Config**: Each project has its own `.titan/config.toml` with:
+  - Project name
+  - Enabled plugins
+  - Plugin-specific configuration
+
+### Setup Wizards
+
+Two new wizards guide users through initial setup:
+
+1. **Global Setup Wizard**: Runs on first launch (when `~/.titan/config.toml` doesn't exist)
+   - Welcome screen
+   - Optional AI configuration
+   - Creates global configuration
+
+2. **Project Setup Wizard**: Runs when Titan is launched in an unconfigured directory
+   - Detects project type (Git repo, etc.)
+   - Project naming
+   - Plugin selection
+   - Creates `.titan/config.toml` in project directory
+
+### Migration Notes
+
+- Old configurations with `[core]` settings will still load but those fields are ignored
+- The legacy Rich-based menu (`titan menu`) still uses the old architecture
+- The Textual TUI (`titan` or `titan tui`) uses the new project-based approach
 
 ## Additional Resources
 

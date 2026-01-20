@@ -12,6 +12,8 @@ from textual.containers import Container
 from titan_cli.ui.tui.icons import Icons
 from .base import BaseScreen
 
+from .cli_launcher import CLILauncherScreen
+from .ai_config import AIConfigScreen
 
 class MainMenuScreen(BaseScreen):
     """
@@ -92,7 +94,6 @@ class MainMenuScreen(BaseScreen):
             # Build menu options
             options = [
                 Option("🚀 Launch External CLI", id="cli"),
-                Option("📂 Project Management", id="projects"),
             ]
 
             # Only show Workflows if there are enabled plugins
@@ -131,8 +132,6 @@ class MainMenuScreen(BaseScreen):
 
     def handle_cli_action(self) -> None:
         """Handle Launch External CLI action."""
-        from .cli_launcher import CLILauncherScreen
-
         self.app.push_screen(CLILauncherScreen(self.config))
 
     def handle_projects_action(self) -> None:
@@ -151,8 +150,6 @@ class MainMenuScreen(BaseScreen):
 
     def handle_ai_config_action(self) -> None:
         """Handle AI Configuration action."""
-        from .ai_config import AIConfigScreen
-
         self.app.push_screen(AIConfigScreen(self.config))
 
     def handle_switch_project_action(self) -> None:

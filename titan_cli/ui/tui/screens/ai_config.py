@@ -339,6 +339,13 @@ class AIConfigScreen(BaseScreen):
         grid.remove_children()
 
         if not self.config.config.ai or not self.config.config.ai.providers:
+            # Remove any existing no-providers message first
+            try:
+                existing = self.query_one("#no-providers", Static)
+                existing.remove()
+            except Exception:
+                pass
+
             # Show no providers message
             grid.mount(Static(
                 "No AI providers configured yet.\n\n"

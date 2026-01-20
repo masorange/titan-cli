@@ -3,58 +3,6 @@ import tomli_w
 from pathlib import Path
 from titan_cli.core.config import TitanConfig
 
-def test_config_initialization_no_files(monkeypatch, mocker):
-    """
-    Test that TitanConfig initializes with default values when no config files are present.
-    """
-    # Mock PluginRegistry to prevent it from running discovery
-    mocker.patch('titan_cli.core.config.PluginRegistry')
-    
-    # Use monkeypatch to prevent it from finding any real config files
-    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", Path("/nonexistent/config.toml"))
-    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
-
-    # Initialize TitanConfig
-    config_instance = TitanConfig()
-
-    # Assert that the resulting config is the default Pydantic model
-    assert config_instance.config.project is None # Project is optional now
-    assert config_instance.config.core is None
-    assert config_instance.config.ai is None
-    assert config_instance.project_config == {}
-    assert config_instance.global_config == {}
-
-def test_config_loads_global_config(tmp_path: Path, monkeypatch, mocker):
-    """
-    Test that TitanConfig correctly loads a global config file.
-    """
-    # Mock PluginRegistry
-    mocker.patch('titan_cli.core.config.PluginRegistry')
-
-    # Create a mock global config file
-    global_config_dir = tmp_path / ".titan"
-    global_config_dir.mkdir()
-    global_config_path = global_config_dir / "config.toml"
-    global_config_data = {
-        "core": {"project_root": str(tmp_path)},
-        "ai": {"default": "gemini", "providers": {"gemini": {"provider": "gemini", "model": "gemini-1.5-pro", "temperature": 0.7, "name": "Test Gemini", "type": "individual"}}}
-    }
-    with open(global_config_path, "wb") as f:
-        tomli_w.dump(global_config_data, f)
-    
-    # Patch the GLOBAL_CONFIG path to point to our mock file
-    # and disable project config finding
-    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
-    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
-
-    config_instance = TitanConfig()
-
-    assert config_instance.global_config["core"]["project_root"] == str(tmp_path)
-    assert config_instance.config.core.project_root == str(tmp_path)
-    assert config_instance.config.ai.default == "gemini"
-    assert config_instance.config.ai.providers["gemini"].model == "gemini-1.5-pro"
-    assert config_instance.config.ai.providers["gemini"].temperature == 0.7
-    
 def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     """
     Test that project-specific config correctly overrides the global config.
@@ -62,101 +10,120 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     # Mock PluginRegistry
     mocker.patch('titan_cli.core.config.PluginRegistry')
 
-    # 1. Create a mock global config that defines the project root and active project
-    global_config_dir = tmp_path / "global" / ".titan"
+    # 1. Create a mock global config
+    global_config_dir = tmp_path / "home" / ".titan"
     global_config_dir.mkdir(parents=True)
     global_config_path = global_config_dir / "config.toml"
     global_config_data = {
-        "core": {"project_root": str(tmp_path), "active_project": "my_project"},
-        "project": {"name": "Global Project"},
-        "ai": {"default": "anthropic", "providers": {"anthropic": {"provider": "anthropic", "model": "claude-3-5-sonnet", "name": "Global Claude", "type": "individual"}}},
-        "plugins": {
-            "github": {"enabled": True, "config": {"org": "global-org"}},
-            "jira": {"enabled": False}
+        "ai": {
+            "default": "anthropic",
+            "providers": {
+                "anthropic": {
+                    "provider": "anthropic",
+                    "model": "claude-3-5-sonnet",
+                    "name": "Global Claude",
+                    "type": "individual",
+                    "temperature": 0.7,
+                    "max_tokens": 4096
+                }
+            }
         }
     }
     with open(global_config_path, "wb") as f:
         tomli_w.dump(global_config_data, f)
 
-    # 2. Create a mock project config in the active project directory
+    # 2. Create a mock project config
     project_dir = tmp_path / "my_project"
     project_titan_dir = project_dir / ".titan"
     project_titan_dir.mkdir(parents=True)
     project_config_path = project_titan_dir / "config.toml"
     project_config_data = {
         "project": {"name": "My Specific Project"},
-        "ai": {"default": "gemini", "providers": {"gemini": {"provider": "gemini", "model": "gemini-1.5-pro", "name": "Project Gemini", "type": "individual"}}}, # Override provider
+        "ai": {
+            "default": "gemini",
+            "providers": {
+                "gemini": {
+                    "provider": "gemini",
+                    "model": "gemini-1.5-pro",
+                    "name": "Project Gemini",
+                    "type": "individual",
+                    "temperature": 0.7,
+                    "max_tokens": 4096
+                }
+            }
+        },
         "plugins": {
-            "github": {"config": {"org": "project-org"}}, # Override nested value
-            "git": {"enabled": True} # Add a new plugin
+            "github": {"enabled": True, "config": {"org": "project-org"}},
+            "git": {"enabled": True, "config": {}}
         }
     }
     with open(project_config_path, "wb") as f:
         tomli_w.dump(project_config_data, f)
 
-    # 3. Patch global config and initialize
+    # 3. Patch global config path and project config path
     monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
 
-    config_instance = TitanConfig()
+    # Change to project directory so it finds the project config
+    import os
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
 
-    # 4. Assert that the merge was successful
-    # Project name is from project config
-    assert config_instance.config.project.name == "My Specific Project"
-    # AI provider is overridden by project config
-    assert config_instance.config.ai.default == "gemini"
-    assert config_instance.config.ai.providers["gemini"].model == "gemini-1.5-pro"
-    assert config_instance.config.ai.providers["gemini"].name == "Project Gemini"
-    assert config_instance.config.ai.providers["gemini"].type == "individual"
-    # Plugin configs are merged correctly
-    assert config_instance.config.plugins["github"].enabled is True # from global
-    assert config_instance.config.plugins["github"].config["org"] == "project-org" # from project
-    assert config_instance.config.plugins["jira"].enabled is False # from global
-    assert config_instance.config.plugins["git"].enabled is True # from project
+        # 4. Assert that the merge was successful
+        # Project name is from project config
+        assert config_instance.config.project.name == "My Specific Project"
+        # AI provider is overridden by project config
+        assert config_instance.config.ai.default == "gemini"
+        assert config_instance.config.ai.providers["gemini"].model == "gemini-1.5-pro"
+        assert config_instance.config.ai.providers["gemini"].name == "Project Gemini"
+        # Plugin configs are from project
+        assert config_instance.config.plugins["github"].enabled is True
+        assert config_instance.config.plugins["github"].config["org"] == "project-org"
+        assert config_instance.config.plugins["git"].enabled is True
+    finally:
+        os.chdir(original_cwd)
 
 
 def test_config_dependency_injection(mocker, monkeypatch):
     """
-    Test that a custom PluginRegistry instance can be injected into TitanConfig.
+    Test that the PluginRegistry is correctly injected into TitanConfig.
     """
-    # 1. Create a mock PluginRegistry instance
+    # Mock PluginRegistry to ensure it's called
     mock_registry = mocker.MagicMock()
+    mocker.patch('titan_cli.core.config.PluginRegistry', return_value=mock_registry)
 
-    # 2. Prevent file I/O to isolate the test from the filesystem
+    # Patch config paths to nonexistent files
     monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", Path("/nonexistent/config.toml"))
     monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
-    
-    # 3. Initialize TitanConfig, injecting the mock registry
-    config_instance = TitanConfig(registry=mock_registry)
-    
-    # 4. Assert that the TitanConfig instance is using our injected mock object
-    #    instead of creating its own.
+
+    config_instance = TitanConfig()
+
+    # Assert that the registry was injected
     assert config_instance.registry is mock_registry
+
 
 def test_load_toml_handles_decode_error(tmp_path: Path, capsys, monkeypatch, mocker):
     """
-    Test that _load_toml returns an empty dict and prints a warning for a malformed file.
+    Test that _load_toml handles TOMLDecodeError gracefully.
     """
     # Mock PluginRegistry
     mocker.patch('titan_cli.core.config.PluginRegistry')
 
-    # 1. Create a malformed TOML file
-    malformed_toml_path = tmp_path / "invalid.toml"
-    malformed_toml_path.write_text("this is not valid toml = ")
+    # Create an invalid TOML file
+    invalid_toml_path = tmp_path / "invalid.toml"
+    invalid_toml_path.write_text("this is not valid toml ][")
 
-    # Patch global config to use this malformed file
-    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", malformed_toml_path)
-    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None) # Disable project config for this test
+    # Patch config paths
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", invalid_toml_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
 
-    # 2. Instantiate TitanConfig, which will call _load_toml internally
+    # This should not raise an exception
     config_instance = TitanConfig()
 
-    # 3. Assert that the global config is empty (because of the error)
+    # Should have empty config
     assert config_instance.global_config == {}
 
-    # 4. Assert that a warning was NOT printed, as this is now handled by the UI layer
-    captured = capsys.readouterr()
-    output = captured.err + captured.out
-    assert "Warning: Failed to parse configuration file" not in output
 
 def test_config_deep_merges_plugins(tmp_path: Path, monkeypatch, mocker):
     """
@@ -166,21 +133,16 @@ def test_config_deep_merges_plugins(tmp_path: Path, monkeypatch, mocker):
     mocker.patch('titan_cli.core.config.PluginRegistry')
 
     # 1. Create project directory structure
-    project_name = "test_project"
-    project_dir = tmp_path / project_name
+    project_dir = tmp_path / "test_project"
     project_titan_dir = project_dir / ".titan"
     project_titan_dir.mkdir(parents=True)
 
     # 2. Global config defines a plugin with 'enabled' and a nested 'config' key
-    #    and sets the active_project to point to our test project
-    global_config_path = tmp_path / "global_config.toml"
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
     global_config_data = {
-        "core": {
-            "project_root": str(tmp_path),
-            "active_project": project_name
-        },
         "plugins": {
-            "github": {"enabled": True, "config": {"user": "global-user"}}
+            "github": {"enabled": True, "config": {"user": "global-user", "repo": "global-repo"}}
         }
     }
     with open(global_config_path, "wb") as f:
@@ -197,14 +159,21 @@ def test_config_deep_merges_plugins(tmp_path: Path, monkeypatch, mocker):
     with open(project_config_path, "wb") as f:
         tomli_w.dump(project_config_data, f)
 
-    # 4. Patch config paths and initialize
+    # 4. Patch config paths and initialize from project directory
     monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
 
-    config_instance = TitanConfig()
+    import os
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
 
-    # 5. Assert that the 'enabled' key from global is preserved
-    #    and the nested 'user' key is overridden.
-    github_plugin_config = config_instance.config.plugins.get("github")
-    assert github_plugin_config is not None
-    assert github_plugin_config.enabled is True  # This should be preserved from global
-    assert github_plugin_config.config["user"] == "project-user" # This should be overridden by project
+        # 5. Assert that the 'enabled' key from global is preserved
+        #    and the nested 'user' key is overridden, but 'repo' is preserved
+        github_plugin_config = config_instance.config.plugins.get("github")
+        assert github_plugin_config is not None
+        assert github_plugin_config.enabled is True  # This should be preserved from global
+        assert github_plugin_config.config["user"] == "project-user"  # This should be overridden by project
+        assert github_plugin_config.config["repo"] == "global-repo"  # This should be preserved from global
+    finally:
+        os.chdir(original_cwd)

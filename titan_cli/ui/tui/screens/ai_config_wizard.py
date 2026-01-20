@@ -153,7 +153,8 @@ class AIConfigWizardScreen(BaseScreen):
         super().__init__(
             config,
             title=f"{Icons.SETTINGS} Configure AI Provider",
-            show_back=True
+            show_back=True,
+            show_status_bar=False
         )
         self.current_step = 0
         self.wizard_data = {}
@@ -796,8 +797,12 @@ class AIConfigWizardScreen(BaseScreen):
         import tomli
         import tomli_w
         import re
+        import logging
         from titan_cli.core.config import TitanConfig
         from titan_cli.core.secrets import SecretManager
+
+        logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
+        logger.debug("AI wizard - save_configuration() called")
 
         try:
             # Generate provider ID from name (clean to only allow valid characters)
@@ -848,24 +853,30 @@ class AIConfigWizardScreen(BaseScreen):
                 global_config_data["ai"]["default"] = provider_id
 
             # Save to disk
+            logger.debug(f"AI wizard - Saving to {global_config_path}")
+            logger.debug(f"AI wizard - Config data: {global_config_data}")
             global_config_path.parent.mkdir(parents=True, exist_ok=True)
             with open(global_config_path, "wb") as f:
                 tomli_w.dump(global_config_data, f)
+            logger.debug("AI wizard - Config saved successfully")
 
             # Save API key to secrets
             secrets = SecretManager()
             api_key = self.wizard_data.get("api_key")
             secrets.set(f"{provider_id}_api_key", api_key, scope="user")
+            logger.debug("AI wizard - API key saved to secrets")
 
             # Show success message
             self.app.notify(f"AI provider '{provider_name}' configured successfully!", severity="information")
 
-            # Go back to AI config menu
-            self.action_back()
+            # Close wizard and trigger callback
+            logger.debug("AI wizard - Dismissing with result=True")
+            self.dismiss(result=True)
 
         except Exception as e:
+            logger.error(f"AI wizard - Error saving: {e}", exc_info=True)
             self.app.notify(f"Failed to save configuration: {e}", severity="error")
 
     def action_back(self) -> None:
-        """Go back to AI config menu."""
-        self.app.pop_screen()
+        """Cancel and go back."""
+        self.dismiss(result=False)
