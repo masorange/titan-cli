@@ -54,8 +54,23 @@ def launch_tui():
                 """Push the global wizard on mount."""
                 def on_project_wizard_complete(_=None):
                     """After project wizard completes, show main menu."""
-                    # Reload config after project setup
-                    self.config.load()
+                    # Reload project config without resetting plugins
+                    from titan_cli.core.secrets import SecretManager
+                    from titan_cli.core.models import TitanConfigModel
+
+                    self.config.project_config_path = Path.cwd() / ".titan" / "config.toml"
+                    self.config.project_config = self.config._load_toml(self.config.project_config_path)
+
+                    # Merge configs and update
+                    merged = self.config._merge_configs(self.config.global_config, self.config.project_config)
+                    self.config.config = TitanConfigModel(**merged)
+
+                    # Update secrets manager to use current project
+                    self.config.secrets = SecretManager(project_path=Path.cwd())
+
+                    # Initialize only the configured plugins (without reset)
+                    self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
+
                     # Pop all screens except the base one, then push main menu
                     # WizardFlowScreen is still there, so we need to pop it too
                     # Stack after project wizard completes: [WizardFlowScreen]
@@ -65,8 +80,8 @@ def launch_tui():
 
                 def on_global_wizard_complete(_=None):
                     """After global wizard completes, check for project config."""
-                    # Reload config after global setup
-                    self.config.load()
+                    # Reload global config
+                    self.config.global_config = self.config._load_toml(self.config._global_config_path)
 
                     # Check if project config exists
                     project_config_path = Path.cwd() / ".titan" / "config.toml"
@@ -78,7 +93,23 @@ def launch_tui():
                             on_project_wizard_complete
                         )
                     else:
-                        # Project is configured, pop WizardFlowScreen and show main menu
+                        # Project is configured, reload configs without resetting plugins
+                        from titan_cli.core.secrets import SecretManager
+                        from titan_cli.core.models import TitanConfigModel
+
+                        self.config.project_config_path = project_config_path
+                        self.config.project_config = self.config._load_toml(self.config.project_config_path)
+
+                        # Merge configs and update
+                        merged = self.config._merge_configs(self.config.global_config, self.config.project_config)
+                        self.config.config = TitanConfigModel(**merged)
+
+                        # Update secrets manager to use current project
+                        self.config.secrets = SecretManager(project_path=Path.cwd())
+
+                        # Initialize plugins with new config
+                        self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
+
                         # Stack: [WizardFlowScreen]
                         # We want: [MainMenuScreen]
                         self.app.pop_screen()  # Remove WizardFlowScreen
@@ -120,8 +151,24 @@ def launch_tui():
                 """Push the project wizard on mount."""
                 def on_project_wizard_complete(_=None):
                     """After project wizard completes, show main menu."""
-                    # Reload config after project setup
-                    self.config.load()
+                    # Reload project config without resetting plugins
+                    from pathlib import Path
+                    from titan_cli.core.secrets import SecretManager
+                    from titan_cli.core.models import TitanConfigModel
+
+                    self.config.project_config_path = Path.cwd() / ".titan" / "config.toml"
+                    self.config.project_config = self.config._load_toml(self.config.project_config_path)
+
+                    # Merge configs and update
+                    merged = self.config._merge_configs(self.config.global_config, self.config.project_config)
+                    self.config.config = TitanConfigModel(**merged)
+
+                    # Update secrets manager to use current project
+                    self.config.secrets = SecretManager(project_path=Path.cwd())
+
+                    # Initialize only the configured plugins (without reset)
+                    self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
+
                     # Pop this flow screen and show main menu
                     self.app.pop_screen()  # Remove ProjectWizardFlowScreen
                     self.app.push_screen(MainMenuScreen(self.config))

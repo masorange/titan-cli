@@ -61,7 +61,7 @@ class Icons:
 
     # General UI
     MENU = "☰"
-    SETTINGS = "⚙️"
+    SETTINGS = "⚙️ "
     SEARCH = "🔍"
     STAR = "⭐"
     CHECK = "✓"
