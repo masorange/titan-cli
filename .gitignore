@@ -140,3 +140,14 @@ venv.bak/
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Development artifacts (temporary docs and debug scripts)
+CHANGELOG_*.md
+FIX_*.md
+TESTING_*.md
+WORKSPACE_*.md
+debug_*.py
+test_*.py  # Only in root, not in tests/ directory
+
+# Plugin lock files (managed by Poetry at root level)
+plugins/*/poetry.lock
