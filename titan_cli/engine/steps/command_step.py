@@ -71,8 +71,11 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
 
         if stdout_output:
             # Print any output from the command
-            ctx.ui.text.body(stdout_output)
-        
+            if ctx.ui:
+                ctx.ui.text.body(stdout_output)
+            elif ctx.textual:
+                ctx.textual.text(stdout_output)
+
         if process.returncode != 0:
             error_message = f"Command failed with exit code {process.returncode}"
             if stderr_output:

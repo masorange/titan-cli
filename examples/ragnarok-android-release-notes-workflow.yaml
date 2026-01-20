@@ -4,16 +4,11 @@ description: "Generate multi-brand weekly release notes and create files in Ragn
 params:
   project_key: "ECAPP"
   platform: "Android"
-  notes_directory: "docs/release-notes/android"  # Ruta aprendida
+  notes_directory: "docs/release-notes"  # Android usa docs/release-notes
 
 steps:
   # === JIRA Steps (reutilizables) ===
-
-  - id: prompt_platform
-    name: "Select Platform"
-    plugin: jira
-    step: prompt_platform
-    description: "Prompt user to select platform (iOS or Android)"
+  # Note: prompt_platform step removed - platform is hardcoded in params
 
   - id: list_versions
     name: "List Available Versions"
@@ -111,13 +106,45 @@ steps:
 
   # Android no tiene LatestPublishers.md, se omite ese step
 
-  - id: commit_changes
-    name: "Commit Release Notes"
-    plugin: git
-    step: commit
-    description: "Commit the release notes files"
-    params:
-      message: "docs: Add release notes for ${fix_version} (Android)"
-      add_all: true
+  # === Prepare Commit and PR Data ===
+
+  - id: prepare_data
+    name: "Prepare Commit and PR Data"
+    plugin: jira
+    step: prepare_commit_pr_data
+    description: "Generate commit message and PR data using template"
     requires:
       - fix_version
+      - platform
+      - issues
+
+  # === Git Commit and Push ===
+
+  - id: commit_changes
+    name: "Create Git Commit"
+    plugin: git
+    step: create_git_commit
+    description: "Commit changes with message: 'docs: Add release notes for ${fix_version}'"
+    requires:
+      - commit_message
+      - file_path
+
+  - id: push_branch
+    name: "Push Branch to Remote"
+    plugin: git
+    step: create_git_push
+    description: "Push release-notes/${fix_version} branch to remote"
+    requires:
+      - commit_hash
+
+  # === Create PR ===
+
+  - id: create_pr
+    name: "Create Pull Request"
+    plugin: github
+    step: create_pr
+    description: "Create PR with title: 'notes: Add release notes for ${fix_version}'"
+    requires:
+      - pr_title
+      - pr_body
+      - pr_head_branch

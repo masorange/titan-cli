@@ -101,16 +101,72 @@ def group_issues_by_brand(issues: List[Dict[str, Any]]) -> Dict[str, List[Dict[s
     return grouped
 
 
+def clean_summary(summary: str) -> str:
+    """
+    Clean JIRA summary by removing unwanted prefixes and technical noise.
+
+    Examples of prefixes removed:
+    - Platform: [iOS], [Android], [iOS/Android]
+    - Brand: Yoigo:, Jazztel:, MASMOVIL:, etc.
+    - Technical: FIX:, HOTFIX:, FEATURE:, BUGFIX:, etc.
+    - Technical terms: "in class X", "method Y", "component Z"
+    - Internal field IDs: customfield_XXXXX
+    """
+    import re
+
+    # Remove ALL bracket prefixes at the start: [iOS], [Android], [E-999], [ECAPP-1234], etc.
+    # Also removes multiple consecutive brackets: [Android] [Llamaya]
+    # The + means "one or more" bracket patterns
+    summary = re.sub(r'^(?:\[.*?\]\s*)+', '', summary)
+
+    # Remove brand prefixes: "Yoigo:", "Jazztel:", "MASMOVIL:", etc.
+    brand_names = ['Yoigo', 'MASMOVIL', 'Jazztel', 'Lycamobile', 'Lebara', 'Llamaya', 'Guuk', 'Sweno']
+    for brand in brand_names:
+        summary = re.sub(rf'^{brand}:\s*', '', summary, flags=re.IGNORECASE)
+
+    # Remove technical prefixes: FIX:, HOTFIX:, FEATURE:, BUGFIX:, etc.
+    summary = re.sub(r'^(?:FIX|HOTFIX|FEATURE|BUGFIX|REFACTOR|CHORE|FEAT|DOCS|STYLE|TEST|PERF):\s*', '', summary, flags=re.IGNORECASE)
+
+    # Remove technical implementation details
+    # "in class X", "in method Y", "in component Z"
+    summary = re.sub(r'\s+in\s+(?:class|method|component|module|service|controller|manager)\s+\w+', '', summary, flags=re.IGNORECASE)
+
+    # Remove parenthetical technical notes
+    summary = re.sub(r'\s*\([^)]*(?:class|method|component|endpoint|API|field|model)[^)]*\)', '', summary, flags=re.IGNORECASE)
+
+    # Remove "for developers", "internal", "backend", etc.
+    summary = re.sub(r'\s*\((?:for developers|internal|backend|frontend|technical|dev only)\)', '', summary, flags=re.IGNORECASE)
+
+    # Remove internal field IDs: customfield_XXXXX, bankAccount field, etc.
+    summary = re.sub(r'\bcustomfield_\d+\b', 'internal field', summary, flags=re.IGNORECASE)
+    summary = re.sub(r'\bbankAccount\s+field\b', 'bank account field', summary, flags=re.IGNORECASE)
+
+    # Replace technical jargon with user-friendly English terms
+    # (AI will translate these to proper Spanish with correct grammar)
+    summary = re.sub(r'\banalytics\s+logger\b', 'analytics system', summary, flags=re.IGNORECASE)  # Specific pattern first
+    summary = re.sub(r'\blogger\b', 'analytics system', summary, flags=re.IGNORECASE)
+    summary = re.sub(r'\bendpoint\b', 'service', summary, flags=re.IGNORECASE)
+    summary = re.sub(r'\bAPI\s+call\b', 'service call', summary, flags=re.IGNORECASE)
+    summary = re.sub(r'\brefactor(?:ed|ing)?\b', 'improved', summary, flags=re.IGNORECASE)
+    summary = re.sub(r'\bOTP\s+validation\b', 'OTP code validation', summary, flags=re.IGNORECASE)
+
+    # Remove extra whitespace
+    summary = ' '.join(summary.split())
+
+    return summary.strip()
+
+
 def generate_ai_descriptions(ctx: WorkflowContext, grouped_issues: Dict[str, List[Dict]]) -> Dict[str, str]:
     """Generate AI descriptions for unique issues."""
     from titan_cli.ai.models import AIMessage
 
-    # Collect unique issues
+    # Collect unique issues (with cleaned summaries)
     unique_issues = {}
     for brand, issues in grouped_issues.items():
         for issue in issues:
             if issue["key"] not in unique_issues:
-                unique_issues[issue["key"]] = issue["summary"]
+                cleaned = clean_summary(issue["summary"])
+                unique_issues[issue["key"]] = cleaned
 
     if not unique_issues:
         return {}
@@ -121,28 +177,62 @@ def generate_ai_descriptions(ctx: WorkflowContext, grouped_issues: Dict[str, Lis
         for key, summary in unique_issues.items()
     ])
 
-    system_prompt = """You are an expert at transforming technical JIRA issue summaries into user-friendly Spanish release notes.
+    system_prompt = """You are an expert at transforming technical JIRA issue summaries into user-friendly Spanish release notes for end users.
 
 CRITICAL RULES:
-1. Use ONLY past participle form (participio pasado): "Añadida", "Bloqueado", "Creado", "Corregidos"
-2. Start with component/area: "Página de...", "Logger de...", "Funcionalidad de..."
-3. Keep descriptions concise (max 10 words)
-4. Avoid excessive technical terms
-5. Use noun forms when appropriate: "Actualización de...", "Mejora en..."
+1. TRANSLATE EVERYTHING TO SPANISH - Even if the input contains English words like "improved", "analytics system", "service", translate them properly
+2. Use ONLY past participle form (participio pasado): "Modificados", "Actualizados", "Corregida", "Añadida", "Eliminado", "Mejorado"
+3. Write for END USERS, not developers - focus on user-facing changes
+4. Use gender/number agreement: "Corregida la visualización", "Actualizados los campos", "Añadida la pantalla", "Mejorado el sistema"
+5. Remove ALL technical implementation details (class names, method names, internal IDs, technical jargon)
+6. Keep descriptions SHORT and clear (max 15 words) - only what users need to know
 
-CORRECT EXAMPLES:
-- "Bloqueado el acceso al recargador a usuarios pospago"
-- "Añadida nueva sección de consentimientos"
-- "Creado logger de analíticas"
-- "Corregidos errores en datos de contacto"
-- "Actualización de claves OTP"
+WHAT TO REMOVE:
+- Platform tags: [iOS], [Android] - already removed
+- Brand names: Yoigo:, Jazztel: - already removed
+- Technical prefixes: FIX:, HOTFIX: - already removed
+- Implementation details: "en la clase X", "método Y", "componente Z"
+- Internal IDs: "customfield_X", "bankAccount field", specific field names
+- Technical jargon: "endpoint", "API call", "refactor", "logger", "OTP validation"
+
+WHAT TO KEEP:
+- User-facing features: "nueva sección", "pantalla de autodiagnóstico"
+- User-visible changes: "productos de televisión", "facturas devueltas"
+- User benefits: "para permitir promociones adicionales", "para mejorar la conexión"
+
+CORRECT EXAMPLES (based on real release notes):
+- "Modificados los espacios promocionales para permitir promociones adicionales manuales"
+- "Actualizados los campos en la llamada de smartWifi"
+- "Corregida la visualización de los productos de televisión en tarifas y permanencias"
+- "Actualizado el CI para compilar con Xcode 26"
+- "Mejoras menores de rendimiento en iOS 26"
+- "Añadida la visualización del enlace de 'Más información' en la pantalla de consentimientos OpenGateWay"
+- "Corregido el bug que impedía cambiar el MSISDN con OTP en datos de contacto"
+- "Eliminado el campo bankAccount por operaciones de mantenimiento"
+- "Unificadas las claves con valores idénticos en POEditor"
+- "Añadido el pago de facturas devueltas"
+- "Añadida la pantalla de autodiagnóstico"
 
 INCORRECT EXAMPLES (DO NOT USE):
-- "Se añadió página..." (❌ preterite)
+- "Se añadió página..." (❌ preterite form)
 - "Hemos mejorado..." (❌ present perfect)
-- "Se implementó..." (❌ preterite)
+- "Se implementó..." (❌ preterite form)
+- "[iOS] Añadida página..." (❌ platform prefix)
+- "Yoigo: Corregido bug..." (❌ brand prefix)
+- "Actualizada la clase AuthManager para validar OTP" (❌ too technical - use: "Mejorada la validación de códigos OTP")
+- "Eliminado el campo customfield_11931" (❌ internal ID - use: "Actualización de campos internos")
+- "Refactorizado el logger de analíticas" (❌ technical - use: "Mejorado el sistema de analíticas")
+- "improved the analytics system" (❌ English - use: "Mejorado el sistema de analíticas")
+- "Update service configuration" (❌ English - use: "Actualizada la configuración del servicio")
 
-Return ONLY a JSON object mapping JIRA keys to Spanish descriptions. No explanations."""
+TRANSLATION EXAMPLES (English → Spanish):
+- "improved" → "Mejorado/Mejorada/Mejorados/Mejoradas" (with proper gender/number)
+- "analytics system" → "sistema de analíticas"
+- "service" → "servicio"
+- "internal field" → "campo interno"
+- "OTP code validation" → "validación de códigos OTP"
+
+Return ONLY a JSON object mapping JIRA keys to Spanish descriptions. No explanations, no markdown, just pure JSON."""
 
     user_prompt = f"""Transform these JIRA summaries into Spanish release note descriptions following the rules:
 
@@ -162,8 +252,20 @@ Return format:
                 ctx.ui.text.warning("⚠️  AI not available, using original JIRA summaries")
             return {key: summary for key, summary in unique_issues.items()}
 
-        messages = [AIMessage(role="user", content=user_prompt)]
-        response = ctx.ai.generate(messages, system=system_prompt, max_tokens=2000)
+        messages = [
+            AIMessage(role="system", content=system_prompt),
+            AIMessage(role="user", content=user_prompt)
+        ]
+
+        # Show loading indicator while AI processes (if Textual UI is available)
+        if ctx.textual:
+            with ctx.textual.loading("🤖 Generando descripciones con IA..."):
+                response = ctx.ai.generate(messages, max_tokens=2000)
+        else:
+            # Fallback for non-Textual UI (legacy Rich UI)
+            if ctx.ui:
+                ctx.ui.text.info("🤖 Generando descripciones con IA...")
+            response = ctx.ai.generate(messages, max_tokens=2000)
 
         # Parse JSON response
         content = response.content.strip()
@@ -202,7 +304,11 @@ def format_markdown(grouped_issues: Dict[str, List[Dict]], descriptions: Dict[st
             # Show all issues for this brand
             for issue in issues:
                 key = issue["key"]
-                description = descriptions.get(key, issue["summary"])
+                # Get AI description, fallback to cleaned summary if not available
+                description = descriptions.get(key)
+                if not description:
+                    # Fallback: clean the original summary
+                    description = clean_summary(issue["summary"])
                 lines.append(f"- {description} ({key})")
 
         lines.append("")  # Empty line between brands
@@ -215,7 +321,11 @@ def format_markdown(grouped_issues: Dict[str, List[Dict]], descriptions: Dict[st
 
         for issue in unknown_issues:
             key = issue["key"]
-            description = descriptions.get(key, issue["summary"])
+            # Get AI description, fallback to cleaned summary if not available
+            description = descriptions.get(key)
+            if not description:
+                # Fallback: clean the original summary
+                description = clean_summary(issue["summary"])
             lines.append(f"- {description} ({key})")
 
         lines.append("")

@@ -285,13 +285,14 @@ class GitClient:
         """
         self._run_command(["git", "branch", branch_name, start_point])
 
-    def commit(self, message: str, all: bool = False) -> str:
+    def commit(self, message: str, all: bool = False, files: List[str] = None) -> str:
         """
         Create a commit
 
         Args:
             message: Commit message
             all: Stage all modified and new files (`git add --all`)
+            files: List of specific files to commit (without staging first)
 
         Returns:
             Commit hash
@@ -301,6 +302,11 @@ class GitClient:
             self._run_command(["git", "add", "--all"])
 
         args = ["git", "commit", "-m", message]
+
+        # Add specific files to commit (git commit -m "msg" file1 file2)
+        if files:
+            args.extend(files)
+
         self._run_command(args)
 
         return self._run_command(["git", "rev-parse", "HEAD"])

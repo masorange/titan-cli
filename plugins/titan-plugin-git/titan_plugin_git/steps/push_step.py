@@ -23,9 +23,6 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the push was successful.
         Error: If the push operation fails.
     """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
     if not ctx.git:
         return Error(msg.Steps.Push.GIT_CLIENT_NOT_AVAILABLE)
 
@@ -46,12 +43,18 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.git.push(remote=remote_to_use, branch=branch_to_use, set_upstream=set_upstream)
 
         # Show success panel
-        ctx.textual.mount(
-            Panel(
-                text=f"Pushed to {remote_to_use}/{branch_to_use}",
+        if ctx.textual:
+            ctx.textual.mount(
+                Panel(
+                    text=f"Pushed to {remote_to_use}/{branch_to_use}",
+                    panel_type="success"
+                )
+            )
+        elif ctx.ui:
+            ctx.ui.panel.print(
+                f"Pushed to {remote_to_use}/{branch_to_use}",
                 panel_type="success"
             )
-        )
 
         return Success(
             message=msg.Git.PUSH_SUCCESS.format(remote=remote_to_use, branch=branch_to_use),

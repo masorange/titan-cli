@@ -443,6 +443,49 @@ class TextualComponents:
             # Invalid response, use default
             return default
 
+    def ask_choice(self, question: str, choices: list[str]) -> Optional[str]:
+        """
+        Ask user to select from a list of choices (numbered menu).
+
+        Args:
+            question: Question to ask
+            choices: List of string choices
+
+        Returns:
+            Selected choice string, or None if cancelled
+
+        Example:
+            version = ctx.textual.ask_choice(
+                "Select version:",
+                ["26.4.0", "26.3.0", "26.2.0"]
+            )
+        """
+        if not choices:
+            return None
+
+        # Display choices as numbered list
+        self.text(question, markup="bold cyan")
+        self.text("")
+        for i, choice in enumerate(choices, 1):
+            self.text(f"  {i}. {choice}", markup="dim")
+        self.text("")
+
+        # Ask for selection
+        while True:
+            response = self.ask_text("Enter number", default="")
+
+            if response is None or response.strip() == "":
+                return None  # Cancelled
+
+            try:
+                index = int(response.strip()) - 1
+                if 0 <= index < len(choices):
+                    return choices[index]
+                else:
+                    self.text(f"Invalid selection. Please enter 1-{len(choices)}", markup="yellow")
+            except ValueError:
+                self.text("Invalid input. Please enter a number", markup="yellow")
+
     @contextmanager
     def loading(self, message: str = "Loading..."):
         """

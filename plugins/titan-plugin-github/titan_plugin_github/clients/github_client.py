@@ -965,7 +965,7 @@ class GitHubClient:
 
     def create_pull_request(
         self, title: str, body: str, base: str, head: str, draft: bool = False,
-        assignees: Optional[List[str]] = None
+        assignees: Optional[List[str]] = None, labels: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Create a pull request
@@ -977,6 +977,7 @@ class GitHubClient:
             head: Head branch (feature branch)
             draft: Whether to create as draft PR
             assignees: List of GitHub usernames to assign to the PR
+            labels: List of label names to add to the PR
 
         Returns:
             Dict with PR information including:
@@ -993,37 +994,57 @@ class GitHubClient:
             ...     body="Description of changes",
             ...     base="develop",
             ...     head="feat/new-feature",
-            ...     assignees=["username"]
+            ...     assignees=["username"],
+            ...     labels=["release notes 📜"]
             ... )
             >>> print(f"Created PR #{pr['number']}: {pr['url']}")
         """
         try:
-            args = [
-                "pr",
-                "create",
-                "--base",
-                base,
-                "--head",
-                head,
-                "--title",
-                title,
-                "--body",
-                body,
-            ]
+            # Use temporary file for body to handle multiline content and special characters
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
+                f.write(body)
+                body_file = f.name
 
-            if draft:
-                args.append("--draft")
+            try:
+                args = [
+                    "pr",
+                    "create",
+                    "--base",
+                    base,
+                    "--head",
+                    head,
+                    "--title",
+                    title,
+                    "--body-file",
+                    body_file,
+                ]
 
-            # Add assignees if provided
-            if assignees:
-                for assignee in assignees:
-                    args.extend(["--assignee", assignee])
+                if draft:
+                    args.append("--draft")
 
-            args.extend(self._get_repo_arg())
+                # Add assignees if provided
+                if assignees:
+                    for assignee in assignees:
+                        args.extend(["--assignee", assignee])
 
-            # Run command and get PR URL
-            output = self._run_gh_command(args)
-            pr_url = output.strip()
+                # Add labels if provided
+                if labels:
+                    for label in labels:
+                        args.extend(["--label", label])
+
+                args.extend(self._get_repo_arg())
+
+                # Run command and get PR URL
+                output = self._run_gh_command(args)
+                pr_url = output.strip()
+            finally:
+                # Clean up temp file
+                import os
+                try:
+                    os.unlink(body_file)
+                except Exception:
+                    pass
 
             # Extract PR number from URL
             # URL format: https://github.com/owner/repo/pull/123
