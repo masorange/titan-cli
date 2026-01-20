@@ -101,22 +101,39 @@ def launch_tui():
 
     if not project_config_path.exists():
         # Project not configured: Launch project setup wizard
-        app = TitanApp(config=config)
+        # Create a wrapper screen similar to global wizard flow
+        from .screens.base import BaseScreen
+        from textual.app import ComposeResult
+        from textual.containers import Container
 
-        def on_project_wizard_complete(_=None):
-            """After project wizard completes, show main menu."""
-            # Reload config after project setup
-            config.load()
-            # Pop all screens except the last one, then push main menu
-            while len(app.screen_stack) > 1:
-                app.pop_screen()
-            app.push_screen(MainMenuScreen(config))
+        class ProjectWizardFlowScreen(BaseScreen):
+            """Temporary screen to manage project wizard flow."""
 
-        # Override on_mount to show project wizard with callback
-        def custom_on_mount():
-            app.push_screen(ProjectSetupWizardScreen(config, Path.cwd()), on_project_wizard_complete)
+            def __init__(self, config, *args, **kwargs):
+                super().__init__(config, title="Project Setup", show_back=False, *args, **kwargs)
 
-        app.on_mount = custom_on_mount
+            def compose_content(self) -> ComposeResult:
+                # This won't be used, we push wizard immediately
+                yield Container()
+
+            def on_mount(self) -> None:
+                """Push the project wizard on mount."""
+                def on_project_wizard_complete(_=None):
+                    """After project wizard completes, show main menu."""
+                    # Reload config after project setup
+                    self.config.load()
+                    # Pop this flow screen and show main menu
+                    self.app.pop_screen()  # Remove ProjectWizardFlowScreen
+                    self.app.push_screen(MainMenuScreen(self.config))
+
+                # Push project wizard
+                self.app.push_screen(
+                    ProjectSetupWizardScreen(self.config, Path.cwd()),
+                    on_project_wizard_complete
+                )
+
+        # Create app with the flow screen
+        app = TitanApp(config=config, initial_screen=ProjectWizardFlowScreen(config))
         app.run()
         return
 

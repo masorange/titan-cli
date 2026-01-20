@@ -5,8 +5,8 @@ Wizard for configuring a new Titan project in the current directory.
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static, OptionList, Input
-from textual.widgets.option_list import Option
+from textual.widgets import Static, Input, SelectionList
+from textual.widgets.selection_list import Selection
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
 from pathlib import Path
@@ -121,19 +121,11 @@ class ProjectSetupWizardScreen(BaseScreen):
         align: right middle;
     }
 
-    #options-list {
+    #plugins-selection {
         height: auto;
         margin-top: 1;
         margin-bottom: 2;
         border: solid $accent;
-    }
-
-    #options-list > .option-list--option {
-        padding: 1;
-    }
-
-    #options-list > .option-list--option-highlighted {
-        padding: 1;
     }
 
     Input {
@@ -355,32 +347,29 @@ class ProjectSetupWizardScreen(BaseScreen):
         )
         body_widget.mount(plugin_info)
 
-        # Create a checklist-style option list
-        # For now, we'll use OptionList and track selections manually
-        # In the future, we could create a custom widget for checkboxes
-        options = []
+        # Create a SelectionList with checkboxes
+        selections = []
         for plugin_name in installed_plugins:
-            label = f"☐ {plugin_name}"
-            if plugin_name in auto_enable:
-                label = f"☑ {plugin_name} (recommended)"
-            options.append(Option(label, id=plugin_name))
+            # Auto-select recommended plugins
+            initial_state = plugin_name in auto_enable
+            selections.append(Selection(plugin_name, plugin_name, initial_state))
 
-        if options:
-            options_list = OptionList(*options, id="options-list")
-            body_widget.mount(options_list)
+        if selections:
+            selection_list = SelectionList(*selections, id="plugins-selection")
+            body_widget.mount(selection_list)
 
             # Store auto-enabled plugins
             self.wizard_data["auto_enabled_plugins"] = auto_enable
 
             # Add instructions
             instructions = DimText(
-                "\n\nNote: Select a plugin and press Enter to toggle it.\n"
-                "You can select multiple plugins."
+                "\n\nUse Space to toggle plugins, Enter to continue.\n"
+                "Multiple plugins can be selected."
             )
             body_widget.mount(instructions)
 
-            # Focus the options list
-            self.call_after_refresh(lambda: options_list.focus())
+            # Focus the selection list
+            self.call_after_refresh(lambda: selection_list.focus())
 
     def load_complete_step(self, title_widget: Static, body_widget: Container) -> None:
         """Load Setup Complete step."""
@@ -420,36 +409,6 @@ class ProjectSetupWizardScreen(BaseScreen):
             "  • Install additional plugins\n"
         )
         body_widget.mount(next_steps)
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        """Handle option selection in plugin list - toggle selection."""
-        step = self.steps[self.current_step]
-
-        # Only toggle for select_plugins step
-        if step["id"] == "select_plugins":
-            # Toggle the plugin selection
-            plugin_id = event.option.id
-            enabled_plugins = self.wizard_data.get("enabled_plugins", [])
-
-            if plugin_id in enabled_plugins:
-                enabled_plugins.remove(plugin_id)
-                # Update label to unchecked
-                new_label = f"☐ {plugin_id}"
-            else:
-                enabled_plugins.append(plugin_id)
-                # Update label to checked
-                new_label = f"☑ {plugin_id}"
-
-            self.wizard_data["enabled_plugins"] = enabled_plugins
-
-            # Update the option label
-            options_list = self.query_one("#options-list", OptionList)
-            option_index = event.option_index
-            # Remove and re-add option with new label
-            options_list.remove_option_at_index(option_index)
-            options_list.add_option(Option(new_label, id=plugin_id), index=option_index)
-            # Re-highlight the option
-            options_list.highlighted = option_index
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle Enter key in input fields - auto-advance to next step."""
@@ -505,11 +464,17 @@ class ProjectSetupWizardScreen(BaseScreen):
                 return False
 
         elif step["id"] == "select_plugins":
-            # Get enabled plugins (already saved during selection)
-            # Initialize with auto-enabled if not already set
-            if "enabled_plugins" not in self.wizard_data:
-                self.wizard_data["enabled_plugins"] = self.wizard_data.get("auto_enabled_plugins", [])
-            return True
+            # Get enabled plugins from SelectionList
+            try:
+                selection_list = self.query_one("#plugins-selection", SelectionList)
+                # Get the selected values (plugin names)
+                enabled_plugins = list(selection_list.selected)
+                self.wizard_data["enabled_plugins"] = enabled_plugins
+                return True
+            except Exception:
+                # If no SelectionList found (no plugins available), that's OK
+                self.wizard_data["enabled_plugins"] = []
+                return True
 
         return True
 
