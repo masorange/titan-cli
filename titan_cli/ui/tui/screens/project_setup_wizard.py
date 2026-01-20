@@ -139,6 +139,14 @@ class ProjectSetupWizardScreen(BaseScreen):
         border: solid $accent;
     }
 
+    #plugins-selection > .selection-list--option {
+        padding: 1 2;
+    }
+
+    #plugins-selection > .selection-list--option-highlighted {
+        padding: 1 2;
+    }
+
     Input {
         width: 100%;
         margin-top: 1;
@@ -157,11 +165,13 @@ class ProjectSetupWizardScreen(BaseScreen):
         super().__init__(
             config,
             title=f"{Icons.SETTINGS} Project Setup",
-            show_back=False
+            show_back=False,
+            show_status_bar=False
         )
         self.project_path = project_path
         self.current_step = 0
         self.wizard_data = {}
+        self._mounted = False
 
         # Detect if it's a git repository
         self.is_git_repo = (project_path / ".git").exists()
@@ -204,7 +214,9 @@ class ProjectSetupWizardScreen(BaseScreen):
 
     def on_mount(self) -> None:
         """Load the first step when mounted."""
-        self.load_step(0)
+        if not self._mounted:
+            self._mounted = True
+            self.load_step(0)
 
     def load_step(self, step_index: int) -> None:
         """Load content for the given step."""
@@ -332,13 +344,22 @@ class ProjectSetupWizardScreen(BaseScreen):
 
         # Add description
         description = Text(
-            "Select which plugins to enable for this project.\n\n"
-            "You can change these settings later from the main menu."
+            "Select which plugins to enable for this project.\n"
         )
         body_widget.mount(description)
 
+        # Required plugins info
+        required_info = BoldText(
+            "\nRequired: git, github (mandatory for all projects)\n"
+        )
+        body_widget.mount(required_info)
+
+        optional_info = DimText(
+            "Optional: jira (configure if you use Jira)\n"
+        )
+        body_widget.mount(optional_info)
+
         # Get available plugins
-        # Check which plugins are installed globally
         logger.debug(f"load_select_plugins_step - Registry has {len(self.config.registry._plugins)} plugins: {list(self.config.registry._plugins.keys())}")
         installed_plugins = self.config.registry.list_discovered()
         logger.debug(f"Discovered plugins: {installed_plugins}")
@@ -352,35 +373,24 @@ class ProjectSetupWizardScreen(BaseScreen):
             body_widget.mount(no_plugins)
             return
 
-        # Build plugin options
-        # Automatically suggest enabling Git plugin if it's a git repo
-        auto_enable = []
-        if self.is_git_repo and "git" in installed_plugins:
-            auto_enable.append("git")
-
-        plugin_info = DimText(
-            f"\nAvailable plugins ({len(installed_plugins)} installed):\n"
-        )
-        body_widget.mount(plugin_info)
+        # Required plugins
+        required_plugins = ["git", "github"]
 
         # Create a SelectionList with checkboxes
         selections = []
         for plugin_name in installed_plugins:
-            # Auto-select recommended plugins
-            initial_state = plugin_name in auto_enable
+            # Pre-select required plugins
+            initial_state = plugin_name in required_plugins
             selections.append(Selection(plugin_name, plugin_name, initial_state))
 
         if selections:
             selection_list = SelectionList(*selections, id="plugins-selection")
             body_widget.mount(selection_list)
 
-            # Store auto-enabled plugins
-            self.wizard_data["auto_enabled_plugins"] = auto_enable
-
             # Add instructions
             instructions = DimText(
-                "\n\nUse Space to toggle plugins, Enter to continue.\n"
-                "Multiple plugins can be selected."
+                "\n\nUse Space to toggle optional plugins, Enter to continue.\n"
+                "Note: git and github must remain selected."
             )
             body_widget.mount(instructions)
 
@@ -497,15 +507,26 @@ class ProjectSetupWizardScreen(BaseScreen):
                 logger.debug(f"Raw selected type: {type(raw_selected)}, value: {raw_selected}")
 
                 enabled_plugins = [str(item) for item in raw_selected]
-                self.wizard_data["enabled_plugins"] = enabled_plugins
 
+                # Validate that required plugins are selected
+                required_plugins = ["git", "github"]
+                missing_required = [p for p in required_plugins if p not in enabled_plugins]
+
+                if missing_required:
+                    self.app.notify(
+                        f"Required plugins must be selected: {', '.join(missing_required)}",
+                        severity="warning"
+                    )
+                    return False
+
+                self.wizard_data["enabled_plugins"] = enabled_plugins
                 logger.debug(f"Selected {len(enabled_plugins)} plugins: {enabled_plugins}")
 
                 return True
             except Exception as e:
                 logger.error(f"Error getting plugins: {e}")
-                self.wizard_data["enabled_plugins"] = []
-                return True
+                self.app.notify("Error selecting plugins", severity="error")
+                return False
 
         return True
 

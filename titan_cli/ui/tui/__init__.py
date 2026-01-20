@@ -83,8 +83,15 @@ def launch_tui():
 
                 def on_global_wizard_complete(_=None):
                     """After global wizard completes, check for project config."""
+                    from titan_cli.core.models import TitanConfigModel
+
                     # Reload global config
                     self.config.global_config = self.config._load_toml(self.config._global_config_path)
+
+                    # Update config.config with the new global config
+                    # (merge with empty project config since we don't have one yet)
+                    merged = self.config._merge_configs(self.config.global_config, {})
+                    self.config.config = TitanConfigModel(**merged)
 
                     # Check if project config exists
                     project_config_path = Path.cwd() / ".titan" / "config.toml"

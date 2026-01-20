@@ -124,10 +124,12 @@ class GlobalSetupWizardScreen(BaseScreen):
         super().__init__(
             config,
             title=f"{Icons.SETTINGS} Titan Setup Wizard",
-            show_back=False
+            show_back=False,
+            show_status_bar=False
         )
         self.current_step = 0
         self.wizard_data = {}
+        self._mounted = False
 
         # Define all wizard steps
         self.steps = [
@@ -165,7 +167,9 @@ class GlobalSetupWizardScreen(BaseScreen):
 
     def on_mount(self) -> None:
         """Load the first step when mounted."""
-        self.load_step(0)
+        if not self._mounted:
+            self._mounted = True
+            self.load_step(0)
 
     def load_step(self, step_index: int) -> None:
         """Load content for the given step."""
@@ -281,10 +285,22 @@ class GlobalSetupWizardScreen(BaseScreen):
             # Launch AI configuration wizard
             from .ai_config_wizard import AIConfigWizardScreen
 
-            def on_ai_wizard_complete(_=None):
+            def on_ai_wizard_complete(result=None):
                 """Callback when AI wizard is dismissed."""
-                # Move to complete step after AI wizard completes
-                self.load_step(self.current_step + 1)
+                import logging
+                logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
+                logger.debug(f"AI wizard complete with result={result}")
+
+                # Only proceed if AI was configured successfully
+                if result is True:
+                    logger.debug(f"AI configured successfully, moving to step {self.current_step + 1}")
+                    self.load_step(self.current_step + 1)
+                else:
+                    logger.debug("AI wizard cancelled, staying on current step")
+                    self.app.notify(
+                        "AI configuration is required to use Titan. Please configure an AI provider.",
+                        severity="warning"
+                    )
 
             self.app.push_screen(AIConfigWizardScreen(self.config), on_ai_wizard_complete)
             return
@@ -311,6 +327,7 @@ class GlobalSetupWizardScreen(BaseScreen):
 
     def complete_setup(self) -> None:
         """Complete the global setup."""
+        import tomli
         import tomli_w
         from titan_cli.core.config import TitanConfig
 
@@ -319,14 +336,17 @@ class GlobalSetupWizardScreen(BaseScreen):
             global_config_path = TitanConfig.GLOBAL_CONFIG
             global_config_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Create minimal global config
-            global_config_data = {
-                "version": "1.0",
-                # AI config will be added by the AI wizard if user chose to configure
-                # Plugins will be added when user enables them in projects
-            }
+            # Load existing global config (AI wizard may have already written to it)
+            global_config_data = {}
+            if global_config_path.exists():
+                with open(global_config_path, "rb") as f:
+                    global_config_data = tomli.load(f)
 
-            # Save global config
+            # Ensure version is set
+            if "version" not in global_config_data:
+                global_config_data["version"] = "1.0"
+
+            # Save global config (preserving any AI configuration)
             with open(global_config_path, "wb") as f:
                 tomli_w.dump(global_config_data, f)
 

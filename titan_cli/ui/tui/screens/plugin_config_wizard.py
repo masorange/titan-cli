@@ -143,7 +143,8 @@ class PluginConfigWizardScreen(BaseScreen):
         super().__init__(
             config,
             title=f"{Icons.SETTINGS} Configure {plugin_name}",
-            show_back=False
+            show_back=False,
+            show_status_bar=False
         )
         self.plugin_name = plugin_name
         self.current_step = 0
