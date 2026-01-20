@@ -50,8 +50,7 @@ class GitPlugin(TitanPlugin):
         # Initialize client with validated configuration
         self._client = GitClient(
             main_branch=validated_config.main_branch,
-            default_remote=validated_config.default_remote,
-            protected_branches=validated_config.protected_branches
+            default_remote=validated_config.default_remote
         )
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:

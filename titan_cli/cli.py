@@ -157,7 +157,7 @@ def _show_switch_project_menu(prompts: PromptsRenderer, text: TextRenderer, conf
     menu_builder = DynamicMenu(title="Select Active Project", emoji="📂")
     projects_cat = menu_builder.add_category("Projects")
 
-    current_active_project = config.get_active_project()
+    current_active_project = config.get_project_name()
 
     for project_path in configured_projects:
         project_name = project_path.name
@@ -544,7 +544,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                 # For secrets, check if already exists in keychain
                 if is_secret:
                     # Try to get from keychain with project-specific key
-                    project_name = config.get_active_project()
+                    project_name = config.get_project_name()
                     secret_key = f"{plugin_name}_{field_name}"
                     keychain_key = f"{project_name}_{secret_key}" if project_name else secret_key
 
@@ -608,7 +608,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
 
             # Save secrets to user keychain (secure, per-project)
             # Use project name in key to support multiple projects
-            project_name = config.get_active_project()
+            project_name = config.get_project_name()
             for secret_key, secret_value in secrets_to_save.items():
                 # Format: projectname_pluginname_fieldname (e.g., titan-cli_jira_api_token)
                 keychain_key = f"{project_name}_{secret_key}" if project_name else secret_key
@@ -626,7 +626,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
 
     def toggle_plugins_handler():
         """Handles enabling/disabling plugins for the current project."""
-        if not config.get_active_project() or not config.project_config_path:
+        if not config.get_project_name() or not config.project_config_path:
             text.error("No active project selected. Please use 'Switch Project' first.")
             return
 
@@ -732,7 +732,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
         global_cat.add_item("List Installed Plugins", "List all globally installed plugins.", "list")
 
         # Project-specific Actions (only if there's an active project)
-        active_project_name = config.get_active_project()
+        active_project_name = config.get_project_name()
         if active_project_name:
             project_cat = submenu_builder.add_category(f"Current Project ({active_project_name})")
             project_cat.add_item("Enable/Disable Plugins", "Enable or disable plugins for the current project.", "toggle")
@@ -1103,7 +1103,7 @@ def show_interactive_menu():
         status_bar.project_name = status_bar_info.get('project_name') or "N/A"
 
         # Get active project and append to subtitle if available
-        active_project = config.get_active_project()
+        active_project = config.get_project_name()
         subtitle = f"Development Tools Orchestrator v{cli_version}"
         if active_project:
             subtitle += f" | 📂 {active_project}"

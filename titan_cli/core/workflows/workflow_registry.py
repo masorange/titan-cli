@@ -47,7 +47,8 @@ class WorkflowRegistry:
         self,
         project_root: Path,
         plugin_registry: PluginRegistry,
-        project_step_source: ProjectStepSource
+        project_step_source: ProjectStepSource,
+        config: Any = None
     ):
         """
         Initialize the WorkflowRegistry.
@@ -56,10 +57,12 @@ class WorkflowRegistry:
             project_root: Root path of the current project.
             plugin_registry: Registry of installed plugins.
             project_step_source: Source for discovering project-specific steps.
+            config: TitanConfig instance (optional, for filtering by enabled plugins).
         """
         self.project_root = project_root
         self.plugin_registry = plugin_registry
         self._project_step_source = project_step_source
+        self._config = config
 
         # Define the base path for system workflows, assuming it's in the root of the package
         # (e.g., titan_cli/workflows). The path is constructed relative to this file's location.
@@ -99,14 +102,19 @@ class WorkflowRegistry:
 
         workflows: List[WorkflowInfo] = []
         seen_names = set()
-        installed_plugins = set(self.plugin_registry.list_installed())
+
+        # Use enabled plugins if config is available, otherwise fall back to installed
+        if self._config:
+            available_plugins = set(self.plugin_registry.list_enabled(self._config))
+        else:
+            available_plugins = set(self.plugin_registry.list_installed())
 
         for source in self._sources:
             try:
                 for workflow_info in source.discover():
                     if workflow_info.name not in seen_names:
-                        # Check if all required plugins for this workflow are installed
-                        if workflow_info.required_plugins.issubset(installed_plugins):
+                        # Check if all required plugins for this workflow are available (enabled)
+                        if workflow_info.required_plugins.issubset(available_plugins):
                             workflows.append(workflow_info)
                             seen_names.add(workflow_info.name)
             except Exception:
