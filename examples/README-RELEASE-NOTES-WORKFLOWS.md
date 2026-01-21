@@ -2,6 +2,30 @@
 
 This guide explains how to set up the release notes generation workflow for Ragnarok iOS and Android projects.
 
+## 📋 Prerequisites
+
+**IMPORTANT**: Titan CLI uses a **project-based configuration system**. You **must** run Titan from within the project directory:
+
+```bash
+# ✅ CORRECT - Run from project directory
+cd /path/to/ragnarok-ios
+titan run release-notes-ios
+
+# ❌ WRONG - Don't run from titan-cli directory
+cd /path/to/titan-cli
+titan run release-notes-ios  # This won't work!
+```
+
+### Key Changes in Titan v0.2.0 (PR #110)
+
+- ❌ **Removed**: Global `project_root` and `active_project` settings from `[core]`
+- ✅ **New**: Each project has its own `.titan/config.toml`
+- ✅ **New**: Titan uses current working directory (`Path.cwd()`) as project root
+- ✅ **Global config** (`~/.titan/config.toml`): Now only stores AI provider settings (shared across projects)
+- ✅ **Project config** (`./.titan/config.toml`): Stores project-specific settings and plugin configuration
+
+**Migration Note**: Old configurations with `[core]` settings will still load but those fields are ignored.
+
 ## ⚠️ Important Note
 
 The release notes workflows are **project-specific** and designed exclusively for Ragnarok iOS/Android projects. They are **NOT** included in the Titan CLI plugin because they:
@@ -11,6 +35,29 @@ The release notes workflows are **project-specific** and designed exclusively fo
 - Have hardcoded conventions for iOS/Android directories
 
 These workflows exist **only as templates** in `examples/` and must be copied to each project's `.titan/workflows/` directory.
+
+## How It Works (Project-Based Model)
+
+```
+titan-cli/                          ragnarok-ios/
+├── examples/                       ├── .titan/
+│   └── ragnarok-ios-...yaml  ─────>│   ├── config.toml         (Project config)
+│       (Template only)             │   └── workflows/
+                                    │       └── release-notes-ios.yaml
+~/.titan/                           │
+└── config.toml                     └── ReleaseNotes/
+    (Global AI config only)             └── 26.4.0.md  (Generated)
+
+When you run:
+  $ cd ragnarok-ios
+  $ titan run release-notes-ios
+
+Titan loads:
+  1. Global config: ~/.titan/config.toml (AI providers)
+  2. Project config: ./titan/config.toml (plugins, JIRA, GitHub)
+  3. Project workflows: ./.titan/workflows/*.yaml
+  4. Working directory: $(pwd) = ragnarok-ios
+```
 
 ## Architecture
 
