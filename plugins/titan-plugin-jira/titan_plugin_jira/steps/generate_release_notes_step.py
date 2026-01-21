@@ -69,13 +69,18 @@ def group_issues_by_brand(issues: List[Dict[str, Any]]) -> Dict[str, List[Dict[s
     grouped["Marca Desconocida"] = []
 
     for issue in issues:
+        fields = issue.get("fields", {})
         key = issue.get("key", "")
-        summary = issue.get("fields", {}).get("summary", "")
+        summary = fields.get("summary", "")
+        description = fields.get("description", "")
+        components = [c.get("name", "") for c in fields.get("components", [])]
         affected_brands = extract_affected_brands(issue)
 
         issue_data = {
             "key": key,
             "summary": summary,
+            "description": description,
+            "components": components,
         }
 
         # If "All", add to all 8 brands
@@ -160,24 +165,41 @@ def generate_ai_descriptions(ctx: WorkflowContext, grouped_issues: Dict[str, Lis
     """Generate AI descriptions for unique issues."""
     from titan_cli.ai.models import AIMessage
 
-    # Collect unique issues (with cleaned summaries)
+    # Collect unique issues (with full context)
     unique_issues = {}
     for brand, issues in grouped_issues.items():
         for issue in issues:
             if issue["key"] not in unique_issues:
-                cleaned = clean_summary(issue["summary"])
-                unique_issues[issue["key"]] = cleaned
+                cleaned_summary = clean_summary(issue["summary"])
+                description = issue.get("description", "")
+                components = issue.get("components", [])
+
+                unique_issues[issue["key"]] = {
+                    "summary": cleaned_summary,
+                    "description": description[:500] if description else "",  # Limit to 500 chars
+                    "components": ", ".join(components) if components else "N/A"
+                }
 
     if not unique_issues:
         return {}
 
-    # Build prompt
-    issues_list = "\n".join([
-        f"- {key}: {summary}"
-        for key, summary in unique_issues.items()
+    # Build prompt with enhanced context
+    issues_list = "\n\n".join([
+        f"**{key}**\n"
+        f"Summary: {data['summary']}\n"
+        f"Description: {data['description'] or 'N/A'}\n"
+        f"Components: {data['components']}"
+        for key, data in unique_issues.items()
     ])
 
     system_prompt = """You are an expert at transforming technical JIRA issue summaries into user-friendly Spanish release notes for end users.
+
+You will receive JIRA issues with:
+- Summary (cleaned technical summary)
+- Description (first 500 chars of issue description)
+- Components (affected modules/areas)
+
+Use ALL available context to produce accurate translations that reflect the true purpose of each change.
 
 CRITICAL RULES:
 1. TRANSLATE EVERYTHING TO SPANISH - Even if the input contains English words like "improved", "analytics system", "service", translate them properly
@@ -186,6 +208,7 @@ CRITICAL RULES:
 4. Use gender/number agreement: "Corregida la visualización", "Actualizados los campos", "Añadida la pantalla", "Mejorado el sistema"
 5. Remove ALL technical implementation details (class names, method names, internal IDs, technical jargon)
 6. Keep descriptions SHORT and clear (max 15 words) - only what users need to know
+7. USE THE DESCRIPTION AND COMPONENTS to understand the TRUE PURPOSE of the change - don't rely only on the summary
 
 WHAT TO REMOVE:
 - Platform tags: [iOS], [Android] - already removed
@@ -234,11 +257,13 @@ TRANSLATION EXAMPLES (English → Spanish):
 
 Return ONLY a JSON object mapping JIRA keys to Spanish descriptions. No explanations, no markdown, just pure JSON."""
 
-    user_prompt = f"""Transform these JIRA summaries into Spanish release note descriptions following the rules:
+    user_prompt = f"""Transform these JIRA issues into Spanish release note descriptions following the rules.
+
+Use the Summary, Description, and Components to understand the TRUE PURPOSE of each change:
 
 {issues_list}
 
-Return format:
+Return format (ONLY JSON, no markdown):
 {{
   "ECAPP-12154": "Bloqueado el acceso...",
   "ECAPP-12058": "Añadida nueva sección...",
@@ -250,7 +275,7 @@ Return format:
             # Fallback to original summaries
             if ctx.ui:
                 ctx.ui.text.warning("⚠️  AI not available, using original JIRA summaries")
-            return {key: summary for key, summary in unique_issues.items()}
+            return {key: data["summary"] for key, data in unique_issues.items()}
 
         messages = [
             AIMessage(role="system", content=system_prompt),
@@ -284,7 +309,7 @@ Return format:
             ctx.ui.text.info("ℹ️  Using original JIRA summaries as fallback")
 
         # Fallback to original summaries
-        return {key: summary for key, summary in unique_issues.items()}
+        return {key: data["summary"] for key, data in unique_issues.items()}
 
 
 def format_markdown(grouped_issues: Dict[str, List[Dict]], descriptions: Dict[str, str]) -> str:
@@ -313,22 +338,23 @@ def format_markdown(grouped_issues: Dict[str, List[Dict]], descriptions: Dict[st
 
         lines.append("")  # Empty line between brands
 
-    # Add Marca Desconocida section only if exists
-    unknown_issues = grouped_issues.get("Marca Desconocida", [])
-    if unknown_issues:
-        emoji, brand = UNKNOWN_BRAND
-        lines.append(f"*{emoji} {brand}*")
-
-        for issue in unknown_issues:
-            key = issue["key"]
-            # Get AI description, fallback to cleaned summary if not available
-            description = descriptions.get(key)
-            if not description:
-                # Fallback: clean the original summary
-                description = clean_summary(issue["summary"])
-            lines.append(f"- {description} ({key})")
-
-        lines.append("")
+    # FILTRADO: No incluir "Marca Desconocida" en release notes
+    # Estos issues no tienen marca asignada en JIRA y deben clasificarse manualmente
+    # o corregirse en JIRA antes de incluirse en release notes
+    #
+    # unknown_issues = grouped_issues.get("Marca Desconocida", [])
+    # if unknown_issues:
+    #     emoji, brand = UNKNOWN_BRAND
+    #     lines.append(f"*{emoji} {brand}*")
+    #
+    #     for issue in unknown_issues:
+    #         key = issue["key"]
+    #         description = descriptions.get(key)
+    #         if not description:
+    #             description = clean_summary(issue["summary"])
+    #         lines.append(f"- {description} ({key})")
+    #
+    #     lines.append("")
 
     return "\n".join(lines)
 
