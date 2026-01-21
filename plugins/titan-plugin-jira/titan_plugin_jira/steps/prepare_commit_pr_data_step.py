@@ -217,25 +217,6 @@ Este PR añade las release notes para la versión **{fix_version}**.
         ctx.ui.text.info(f"📄 PR Body Length: {len(pr_body)} chars")
         ctx.ui.panel.print(f"PR Body Preview:\n{pr_body[:300]}...", panel_type="info")
 
-    # Debug: Show full PR body before setting in context
-    if ctx.textual:
-        ctx.textual.text("", markup="dim")
-        ctx.textual.text("=" * 80, markup="dim")
-        ctx.textual.text("FULL PR BODY:", markup="bold yellow")
-        ctx.textual.text(pr_body, markup="dim")
-        ctx.textual.text("=" * 80, markup="dim")
-        ctx.textual.text("", markup="dim")
-
-    # DEBUG: Save pr_body to temp file for inspection
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='_pr_body.md', delete=False) as f:
-        f.write(pr_body)
-        temp_file = f.name
-    if ctx.ui:
-        ctx.ui.text.info(f"🐛 DEBUG: PR body saved to {temp_file}")
-    elif ctx.textual:
-        ctx.textual.text(f"🐛 DEBUG: PR body saved to {temp_file}", markup="yellow")
-
     # Set data in context for git and github plugins to use
     ctx.set("commit_message", commit_message)
     ctx.set("pr_title", pr_title)
