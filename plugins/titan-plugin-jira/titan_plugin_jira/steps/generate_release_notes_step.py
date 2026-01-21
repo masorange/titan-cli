@@ -5,6 +5,7 @@ Generate multi-brand release notes from JIRA issues.
 import json
 from typing import Dict, List, Any
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from ..messages import msg
 
 
 # Brand configuration
@@ -274,7 +275,7 @@ Return format (ONLY JSON, no markdown):
         if not ctx.ai:
             # Fallback to original summaries
             if ctx.ui:
-                ctx.ui.text.warning("⚠️  AI not available, using original JIRA summaries")
+                ctx.ui.text.warning(msg.Steps.ReleaseNotes.AI_NOT_AVAILABLE)
             return {key: data["summary"] for key, data in unique_issues.items()}
 
         messages = [
@@ -305,8 +306,8 @@ Return format (ONLY JSON, no markdown):
 
     except Exception as e:
         if ctx.ui:
-            ctx.ui.text.warning(f"⚠️  AI generation failed: {e}")
-            ctx.ui.text.info("ℹ️  Using original JIRA summaries as fallback")
+            ctx.ui.text.warning(msg.Steps.ReleaseNotes.AI_GENERATION_FAILED.format(error=str(e)))
+            ctx.ui.text.info(msg.Steps.ReleaseNotes.USING_FALLBACK_SUMMARIES)
 
         # Fallback to original summaries
         return {key: data["summary"] for key, data in unique_issues.items()}
@@ -379,10 +380,10 @@ def generate_release_notes(ctx: WorkflowContext) -> WorkflowResult:
     fix_version = ctx.get("fix_version", "unknown")
 
     if not issues:
-        return Error("No JIRA issues found to generate release notes")
+        return Error(msg.Steps.ReleaseNotes.NO_ISSUES_FOUND)
 
     if ctx.ui:
-        ctx.ui.text.info(f"📋 Processing {len(issues)} issues for version {fix_version}")
+        ctx.ui.text.info(msg.Steps.ReleaseNotes.PROCESSING_ISSUES.format(count=len(issues), version=fix_version))
 
     # Group issues by brand
     grouped_issues = group_issues_by_brand(issues)
@@ -391,11 +392,11 @@ def generate_release_notes(ctx: WorkflowContext) -> WorkflowResult:
     brand_counts = {brand: len(issues) for brand, issues in grouped_issues.items() if issues}
 
     if ctx.ui:
-        ctx.ui.text.info(f"🏷️  Grouped into {len(brand_counts)} brands")
+        ctx.ui.text.info(msg.Steps.ReleaseNotes.GROUPED_BRANDS.format(count=len(brand_counts)))
 
     # Generate AI descriptions
     if ctx.ui:
-        ctx.ui.text.info("🤖 Generating AI descriptions...")
+        ctx.ui.text.info(msg.Steps.ReleaseNotes.GENERATING_AI_DESCRIPTIONS)
 
     descriptions = generate_ai_descriptions(ctx, grouped_issues)
 
@@ -405,8 +406,8 @@ def generate_release_notes(ctx: WorkflowContext) -> WorkflowResult:
     # Display result
     if ctx.ui:
         ctx.ui.panel.print("\n" + markdown, panel_type="success", title=f"Release Notes - {fix_version}")
-        ctx.ui.text.success("\n✅ Release notes generated successfully!")
-        ctx.ui.text.info("📋 Copy the markdown above and paste it into your release notes")
+        ctx.ui.text.success(f"\n{msg.Steps.ReleaseNotes.SUCCESS}")
+        ctx.ui.text.info(msg.Steps.ReleaseNotes.COPY_INSTRUCTIONS)
 
     # Store in context
     ctx.set("release_notes", markdown)
