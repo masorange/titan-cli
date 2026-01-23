@@ -5,13 +5,15 @@ The primary navigation screen for Titan TUI.
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static, OptionList
+from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 
 from titan_cli.ui.tui.icons import Icons
 from .base import BaseScreen
 
+from .cli_launcher import CLILauncherScreen
+from .ai_config import AIConfigScreen
 
 class MainMenuScreen(BaseScreen):
     """
@@ -43,6 +45,7 @@ class MainMenuScreen(BaseScreen):
         background: $surface-lighten-1;
         border: solid $primary;
         margin: 1;
+        padding: 1 0;
     }
 
     #menu-title {
@@ -87,12 +90,10 @@ class MainMenuScreen(BaseScreen):
     def compose_content(self) -> ComposeResult:
         """Compose the main menu content."""
         with Container(id="menu-container"):
-            yield Static("🚀 TITAN CLI - Main Menu", id="menu-title")
 
             # Build menu options
             options = [
                 Option("🚀 Launch External CLI", id="cli"),
-                Option("📂 Project Management", id="projects"),
             ]
 
             # Only show Workflows if there are enabled plugins
@@ -131,8 +132,6 @@ class MainMenuScreen(BaseScreen):
 
     def handle_cli_action(self) -> None:
         """Handle Launch External CLI action."""
-        from .cli_launcher import CLILauncherScreen
-
         self.app.push_screen(CLILauncherScreen(self.config))
 
     def handle_projects_action(self) -> None:
@@ -151,7 +150,7 @@ class MainMenuScreen(BaseScreen):
 
     def handle_ai_config_action(self) -> None:
         """Handle AI Configuration action."""
-        self.app.notify("AI configuration - Coming soon!")
+        self.app.push_screen(AIConfigScreen(self.config))
 
     def handle_switch_project_action(self) -> None:
         """Handle Switch Project action."""

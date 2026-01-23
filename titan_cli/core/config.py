@@ -7,7 +7,6 @@ from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry, ProjectStepSource
 from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
-from ..messages import msg
 
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
@@ -38,51 +37,19 @@ class TitanConfig:
     def load(self):
         """
         Reloads the entire configuration from disk, including global config
-        and the config for the currently active project.
+        and the project config from the current working directory.
         """
-        had_invalid_active_project = False
-        # Load global config first to find project_root and active_project
+        # Load global config
         self.global_config = self._load_toml(self._global_config_path)
-        
-        # Temporarily validate global to access core settings
-        temp_global_model = TitanConfigModel(**self.global_config)
-        
-        active_project_name = None
-        project_root_str = None
-        
-        if temp_global_model.core:
-            project_root_str = temp_global_model.core.project_root
-            active_project_name = temp_global_model.core.active_project
 
-        # Set project_root
-        if project_root_str:
-            self._project_root = Path(project_root_str)
-        else:
-            self._project_root = Path.cwd()
+        # Set project root to current working directory
+        self._project_root = Path.cwd()
+        self._active_project_path = Path.cwd()
 
-        # Determine the project config path
-        self.project_config_path = None
-        if active_project_name:
-            active_project_path = self._project_root / active_project_name
-            # An active project must have its config file directly within its path.
-            # We don't search up the tree, because that could incorrectly find a parent
-            # project's config or the global config.
-            expected_config_path = active_project_path / ".titan" / "config.toml"
+        # Look for project config in current directory
+        self.project_config_path = self._find_project_config(Path.cwd())
 
-            if expected_config_path.is_file():
-                self.project_config_path = expected_config_path
-                self._active_project_path = active_project_path
-            else:
-                # The configured active project is invalid. Unset it.
-                if 'core' in self.global_config and 'active_project' in self.global_config['core']:
-                    del self.global_config['core']['active_project']
-                active_project_name = None
-                self._active_project_path = None
-                had_invalid_active_project = True
-        else:
-            self._active_project_path = None
-
-        # Load project config
+        # Load project config if it exists
         self.project_config = self._load_toml(self.project_config_path)
 
         # Merge and validate final config
@@ -90,38 +57,25 @@ class TitanConfig:
         self.config = TitanConfigModel(**merged)
 
         # Re-initialize dependencies that depend on the final config
-        # Use active_project_path for secrets if available, otherwise project_root
-        secrets_path = self._active_project_path if self._active_project_path and self._active_project_path.is_dir() else self._project_root
-        self.secrets = SecretManager(project_path=secrets_path if secrets_path and secrets_path.is_dir() else None)
-        
+        # Use current working directory for secrets
+        secrets_path = Path.cwd()
+        self.secrets = SecretManager(project_path=secrets_path if secrets_path.is_dir() else None)
+
         # Reset and re-initialize plugins
         self.registry.reset()
         self.registry.initialize_plugins(config=self, secrets=self.secrets)
         self._plugin_warnings = self.registry.list_failed()
 
         # Re-initialize WorkflowRegistry
-        # Use active_project_path for workflows if available, otherwise project_root
-        workflow_path = self._active_project_path if self._active_project_path else self._project_root
+        # Use current working directory for workflows
+        workflow_path = Path.cwd()
         project_step_source = ProjectStepSource(project_root=workflow_path)
         self._workflow_registry = WorkflowRegistry(
             project_root=workflow_path,
             plugin_registry=self.registry,
-            project_step_source=project_step_source
+            project_step_source=project_step_source,
+            config=self
         )
-
-        if had_invalid_active_project:
-            try:
-                self._save_global_config()
-            except ConfigWriteError as e:
-                import warnings
-                warnings.warn(msg.Config.SAVE_GLOBAL_CONFIG_FAILED_UNSET.format(e=e), RuntimeWarning)
-            
-            # Store warning to show later
-            import warnings
-            warnings.warn(
-                msg.Config.ACTIVE_PROJECT_INVALID.format(project_name=active_project_name),
-                RuntimeWarning
-            )
 
 
     def _find_project_config(self, start_path: Optional[Path] = None) -> Optional[Path]:
@@ -230,11 +184,6 @@ class TitanConfig:
         """Access to workflow registry."""
         return self._workflow_registry
 
-    def get_project_root(self) -> Optional[str]:
-        """Returns the configured project root, or None if not set."""
-        if self.config and self.config.core and self.config.core.project_root:
-            return self.config.core.project_root
-        return None
 
     def get_enabled_plugins(self) -> List[str]:
         """Get list of enabled plugins"""
@@ -249,29 +198,11 @@ class TitanConfig:
         """Get list of failed or misconfigured plugins."""
         return self._plugin_warnings
 
-    def get_active_project(self) -> Optional[str]:
-        """Get currently active project name from global config."""
-        if self.config and self.config.core and self.config.core.active_project:
-            return self.config.core.active_project
+    def get_project_name(self) -> Optional[str]:
+        """Get the current project name from project config."""
+        if self.config and self.config.project:
+            return self.config.project.name
         return None
-
-    def set_active_project(self, project_name: str):
-        """Set active project and save to global config."""
-        if self.config.core:
-            self.config.core.active_project = project_name
-            self._save_global_config()
-        # If core config doesn't exist, we might need to create it
-        # For now, we assume it exists if we are setting an active project.
-
-    def get_active_project_path(self) -> Optional[Path]:
-        """Get path to active project."""
-        active_project_name = self.get_active_project()
-        project_root_str = self.get_project_root()
-
-        if not active_project_name or not project_root_str:
-            return None
-
-        return Path(project_root_str) / active_project_name
 
     def _save_global_config(self):
         """Saves the current state of the global config to disk."""
@@ -290,10 +221,12 @@ class TitanConfig:
             except Exception:
                 pass
 
+        # Save only AI configuration to global config
+        # Project-specific settings are stored in project's .titan/config.toml
         config_to_save = self.config.model_dump(exclude_none=True)
 
-        if 'core' in config_to_save:
-            existing_global_config['core'] = config_to_save['core']
+        if 'ai' in config_to_save:
+            existing_global_config['ai'] = config_to_save['ai']
 
         try:
             with open(self._global_config_path, "wb") as f:
@@ -331,13 +264,8 @@ class TitanConfig:
                 model = provider_config.model or "default"
                 ai_info = f"{provider_name}/{model}"
 
-        # Extract project name
-        project_name = None
-        active_project = self.get_active_project()
-        if active_project:
-            project_name = active_project
-        elif self._project_root and self._project_root != Path.cwd():
-            project_name = self._project_root.name
+        # Extract project name from project config
+        project_name = self.get_project_name()
 
         return {
             'ai_info': ai_info,

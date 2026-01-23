@@ -160,14 +160,12 @@ class WorkflowExecutionScreen(BaseScreen):
     def _execute_workflow(self) -> None:
         """Execute the workflow in a background thread."""
         try:
-            # Change to project directory if specified
-            if self.config.active_project_path:
-                os.chdir(self.config.active_project_path)
+            # We're already in the project directory (current working directory)
+            # No need to change directory
 
-            # Create secret manager
-            secrets = SecretManager(
-                project_path=self.config.active_project_path or self.config.project_root
-            )
+            # Create secret manager for current project
+            from pathlib import Path
+            secrets = SecretManager(project_path=Path.cwd())
 
             # Build workflow context (without UI - executor handles messaging)
             ctx_builder = WorkflowContextBuilder(

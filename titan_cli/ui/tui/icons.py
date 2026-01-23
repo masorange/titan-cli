@@ -18,15 +18,15 @@ class Icons:
     SUCCESS = "✅"
     ERROR = "❌"
     WARNING = "⚠️"
-    INFO = "ℹ️"
+    INFO = "ℹ️ "
     QUESTION = "❓"
 
     # Progress states
-    PENDING = "⏸️"
+    PENDING = "⏸️ "
     RUNNING = "⏳"
     COMPLETED = SUCCESS  # Alias
     FAILED = ERROR  # Alias
-    SKIPPED = "⏭️"
+    SKIPPED = "⏭️ "
 
     # Workflow & execution
     WORKFLOW = "⚡"
@@ -61,7 +61,7 @@ class Icons:
 
     # General UI
     MENU = "☰"
-    SETTINGS = "⚙️"
+    SETTINGS = "⚙️ "
     SEARCH = "🔍"
     STAR = "⭐"
     CHECK = "✓"

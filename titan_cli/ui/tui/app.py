@@ -40,12 +40,14 @@ class TitanApp(App):
         Binding("?", "help", "Help"),
     ]
 
-    def __init__(self, config: TitanConfig = None, **kwargs):
+    def __init__(self, config: TitanConfig = None, initial_screen=None, **kwargs):
         """
         Initialize the Titan TUI application.
 
         Args:
             config: TitanConfig instance. If None, creates a new one.
+            initial_screen: Initial screen to show. If None, shows MainMenuScreen.
+                          Can be a screen instance or a callable that returns a screen.
         """
         super().__init__(**kwargs)
 
@@ -55,13 +57,22 @@ class TitanApp(App):
             config = TitanConfig(registry=plugin_registry)
 
         self.config = config
+        self._initial_screen = initial_screen
         self.title = "Titan CLI"
         self.sub_title = "Development Tools Orchestrator"
 
     def on_mount(self) -> None:
-        """Initialize app and show main menu."""
-        # Push main menu screen
-        self.push_screen(MainMenuScreen(self.config))
+        """Initialize app and show initial screen."""
+        if self._initial_screen is not None:
+            # Use custom initial screen
+            if callable(self._initial_screen):
+                screen = self._initial_screen()
+            else:
+                screen = self._initial_screen
+            self.push_screen(screen)
+        else:
+            # Default: show main menu
+            self.push_screen(MainMenuScreen(self.config))
 
     async def launch_external_cli(self, cli_name: str, prompt: str = None) -> int:
         """
