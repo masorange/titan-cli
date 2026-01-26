@@ -2,7 +2,6 @@
 Save release notes markdown to file with correct naming convention.
 """
 
-import os
 from pathlib import Path
 from datetime import datetime
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
@@ -102,7 +101,7 @@ def save_release_notes_file_step(ctx: WorkflowContext) -> WorkflowResult:
         was_auto_detected = ctx.params.get("notes_directory") is None
         if was_auto_detected:
             if structure.release_notes_dir:
-                ctx.textual.text(f"✓ Directorio existente encontrado", markup="green")
+                ctx.textual.text("✓ Directorio existente encontrado", markup="green")
             else:
                 ctx.textual.text(f"📝 Creando directorio según convención {structure.project_type.value}", markup="yellow")
         ctx.textual.text("")

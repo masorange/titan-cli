@@ -3,8 +3,7 @@ Tests for prepare_commit_pr_data_step.
 """
 
 import pytest
-from unittest.mock import Mock, patch
-from pathlib import Path
+from unittest.mock import Mock
 
 from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Success, Error
@@ -416,6 +415,9 @@ class TestPrepareCommitPRDataStep:
         # Execute
         result = prepare_commit_pr_data_step(mock_context)
 
+        # Assert
+        assert isinstance(result, Success)
+
         # Assert template content
         pr_body_calls = [call for call in mock_context.set.call_args_list if call[0][0] == "pr_body"]
         pr_body = pr_body_calls[0][0][1]
@@ -449,6 +451,8 @@ class TestPrepareCommitPRDataStep:
         result = prepare_commit_pr_data_step(mock_context)
 
         # Assert
+        assert isinstance(result, Success)
+
         pr_body_calls = [call for call in mock_context.set.call_args_list if call[0][0] == "pr_body"]
         pr_body = pr_body_calls[0][0][1]
 
@@ -477,6 +481,8 @@ class TestPrepareCommitPRDataStep:
         result = prepare_commit_pr_data_step(mock_context)
 
         # Assert
+        assert isinstance(result, Success)
+
         pr_body_calls = [call for call in mock_context.set.call_args_list if call[0][0] == "pr_body"]
         pr_body = pr_body_calls[0][0][1]
 
@@ -505,6 +511,8 @@ class TestPrepareCommitPRDataStep:
         result = prepare_commit_pr_data_step(mock_context)
 
         # Assert
+        assert isinstance(result, Success)
+
         pr_body_calls = [call for call in mock_context.set.call_args_list if call[0][0] == "pr_body"]
         pr_body = pr_body_calls[0][0][1]
 
@@ -541,6 +549,8 @@ class TestPrepareCommitPRDataStep:
         result = prepare_commit_pr_data_step(mock_context)
 
         # Assert
+        assert isinstance(result, Success)
+
         pr_body_calls = [call for call in mock_context.set.call_args_list if call[0][0] == "pr_body"]
         pr_body = pr_body_calls[0][0][1]
 

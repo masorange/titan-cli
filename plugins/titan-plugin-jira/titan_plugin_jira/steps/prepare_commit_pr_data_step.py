@@ -115,7 +115,7 @@ Este PR añade las release notes para la versión **{fix_version}**.
 
 🤖 **Generado automáticamente** por Titan CLI
 """
-    except Exception as e:
+    except Exception:
         # Fallback on error
         pr_body = f"""# Release Notes {fix_version}
 

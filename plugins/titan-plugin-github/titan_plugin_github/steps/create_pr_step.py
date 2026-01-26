@@ -66,7 +66,7 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text("=" * 80, markup="yellow")
         ctx.textual.text("", markup="dim")
     elif ctx.ui:
-        ctx.ui.text.info(f"DEBUG: PR Data from Context")
+        ctx.ui.text.info("DEBUG: PR Data from Context")
         ctx.ui.text.info(f"  pr_title: {title}")
         ctx.ui.text.info(f"  pr_body length: {len(body) if body else 0} chars")
         ctx.ui.text.info(f"  pr_head_branch: {head}")

@@ -2,7 +2,6 @@
 Ensure we're on a release notes branch, creating it if necessary.
 """
 
-import re
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 
 
