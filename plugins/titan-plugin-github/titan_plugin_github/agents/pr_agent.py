@@ -184,7 +184,7 @@ class PRAgent(BaseAIAgent):
             branch_diff = self.git.get_branch_diff(base_branch, head_branch)
 
             if branch_diff and commits:
-                # Read PR template (safe - returns None on error)
+                # Read PR template (uses embedded default if file not found)
                 template = self._read_pr_template()
 
                 # Generate PR description (with AI error handling)
@@ -398,9 +398,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
         if len(diff) > max_diff:
             diff_preview += "\n\n... (diff truncated for brevity)"
 
-        # Build prompt based on template availability
-        if template:
-            return f"""Analyze this branch and generate a professional pull request following the EXACT template structure.
+        # Build prompt with template (always available - either from file or embedded default)
+        return f"""Analyze this branch and generate a professional pull request following the EXACT template structure.
 
 ## Branch Information
 - Head branch: {head_branch}
@@ -439,37 +438,6 @@ TITLE: <conventional commit title>
 
 DESCRIPTION:
 <template-based description - MAX {max_chars} chars total>"""
-        else:
-            return f"""Analyze this branch and generate a professional pull request.
-
-## Branch Information
-- Head branch: {head_branch}
-- Base branch: {base_branch}
-- Total commits: {len(commits)}
-
-## Commits in Branch
-{commits_text}
-
-## Branch Diff Preview
-```diff
-{diff_preview}
-```
-
-## Instructions (No template available - use standard format)
-Generate a Pull Request appropriate for a {pr_size} PR:
-1. **Title**: Follow conventional commits (type(scope): description), be clear and descriptive
-   - Examples: "feat(auth): add OAuth2 integration with Google provider", "fix(api): resolve race condition in cache invalidation"
-2. **Description**: CRITICAL - Maximum {max_chars} characters. Detail level based on PR size:
-   - Small ({pr_size}): Brief summary (1-2 sentences) + key changes (2-3 bullets)
-   - Medium: What changed (2-3 sentences) + why (1-2 sentences) + key changes (4-5 bullets)
-   - Large: Comprehensive overview + architecture changes + migration notes + testing strategy
-   - Very Large: Full context + breaking changes + upgrade guide + examples
-
-Format your response EXACTLY like this:
-TITLE: <conventional commit title>
-
-DESCRIPTION:
-<description matching PR size - MAX {max_chars} chars>"""
 
     def _parse_pr_response(self, content: str, max_chars: int) -> tuple[str, str]:
         """
@@ -502,33 +470,55 @@ DESCRIPTION:
 
         return title, description
 
-    def _read_pr_template(self) -> Optional[str]:
+    def _read_pr_template(self) -> str:
         """
-        Read PR template if it exists.
+        Read PR template if configured, otherwise use embedded default.
 
-        Uses pr_template_path from GitHub plugin configuration if available,
-        otherwise falls back to default location.
+        Only reads from file if pr_template_path is explicitly configured.
+        If not configured or file doesn't exist, uses embedded default template.
 
         Returns:
-            Template content or None
+            Template content (never None - uses embedded default if needed)
         """
-        # Get template path from config or use default
-        template_path = ".github/pull_request_template.md"  # Default
-
+        # Check if template path is configured
         if self.github and hasattr(self.github, 'config'):
             config_path = self.github.config.pr_template_path
-            if config_path:  # Use config path if provided (not empty string)
-                template_path = config_path
+            if config_path:  # Template path is configured
+                path = Path(config_path)
+                if path.exists():
+                    try:
+                        with open(path, "r") as f:
+                            return f.read()
+                    except Exception:
+                        pass  # Fall through to default template
 
-        path = Path(template_path)
-        if not path.exists():
-            return None
+        # No template configured or file not found - use embedded default
+        return self._get_default_template()
 
-        try:
-            with open(path, "r") as f:
-                return f.read()
-        except Exception:
-            return None
+    def _get_default_template(self) -> str:
+        """
+        Get the default PR template when no file exists.
+
+        This template provides a structured format that adapts to PR size
+        and encourages comprehensive documentation.
+
+        Returns:
+            Default markdown template
+        """
+        return """## Summary
+Brief overview of what changed and why.
+
+## Changes Made
+- Key change 1
+- Key change 2
+- Key change 3
+
+## Testing
+How to verify these changes work.
+
+## Additional Notes
+Any additional context, screenshots, or breaking changes.
+"""
 
 
 @dataclass
