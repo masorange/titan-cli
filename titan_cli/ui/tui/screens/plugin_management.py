@@ -8,7 +8,7 @@ Screen for managing installed plugins:
 """
 
 from textual.app import ComposeResult
-from textual.widgets import OptionList
+from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
@@ -20,8 +20,6 @@ from titan_cli.ui.tui.widgets import (
     DimText,
     BoldText,
     BoldPrimaryText,
-    SuccessText,
-    ErrorText,
 )
 from .base import BaseScreen
 from .plugin_config_wizard import PluginConfigWizardScreen
@@ -109,6 +107,16 @@ class PluginManagementScreen(BaseScreen):
 
     #details-content > * {
         margin: 0;
+    }
+
+    #details-content Horizontal {
+        height: auto;
+        width: 100%;
+        layout: horizontal;
+    }
+
+    #details-content Horizontal > * {
+        height: auto;
     }
 
     .button-container {
@@ -217,7 +225,7 @@ class PluginManagementScreen(BaseScreen):
         if not plugin_name or plugin_name == "none":
             self._show_no_plugin_selected()
             return
-
+        
         # Get plugin info
         is_enabled = self.config.is_plugin_enabled(plugin_name)
         plugin = self.config.registry._plugins.get(plugin_name)
@@ -228,28 +236,28 @@ class PluginManagementScreen(BaseScreen):
 
         # Plugin name
         details.mount(BoldPrimaryText(plugin_name))
+        details.mount(Text(""))
 
         # Status
-        status_container = Horizontal()
-        details.mount(status_container)
-        status_container.mount(BoldText("Status: "))
         if is_enabled:
-            status_container.mount(SuccessText("Enabled"))
+            details.mount(Static("[bold]Status:[/bold] [green]Enabled[/green]"))
         else:
-            status_container.mount(ErrorText("Disabled"))
+            details.mount(Static("[bold]Status:[/bold] [red]Disabled[/red]"))
 
         # Plugin metadata
         if plugin:
             if hasattr(plugin, '__doc__') and plugin.__doc__:
                 details.mount(Text(""))  # Spacer
                 details.mount(BoldText("Description:"))
-                details.mount(DimText(plugin.__doc__.strip()))
+                # Clean docstring: remove indentation from each line
+                lines = plugin.__doc__.strip().split('\n')
+                clean_lines = [line.strip() for line in lines if line.strip()]
+                clean_desc = '\n'.join(clean_lines)
+                details.mount(DimText(clean_desc))
+                details.mount(Text(""))
 
             if hasattr(plugin, 'version'):
-                version_container = Horizontal()
-                details.mount(version_container)
-                version_container.mount(BoldText("Version: "))
-                version_container.mount(Text(plugin.version))
+                details.mount(Static(f"[bold]Version:[/bold] {plugin.version}"))
 
         # Check if plugin has configuration schema
         has_config = False

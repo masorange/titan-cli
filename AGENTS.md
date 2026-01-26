@@ -348,7 +348,6 @@ model = "claude-sonnet-4"
 enabled = true
 config.main_branch = "develop" # All projects will use 'develop' by default
 config.default_remote = "origin"
-config.protected_branches = ["develop", "main"]
 
 # Project config (.titan/config.toml)
 [project]
@@ -376,7 +375,6 @@ class PluginConfig(BaseModel):
 class GitPluginConfig(BaseModel):
     main_branch: str = Field("main", description="Main/default branch name")
     default_remote: str = Field("origin", description="Default remote name")
-    protected_branches: List[str] = Field(default_factory=list, description="Protected branches")
 
 class GitHubPluginConfig(BaseModel):
     """Configuration for GitHub plugin."""

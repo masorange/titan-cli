@@ -8,7 +8,6 @@ enabled = true
 [plugins.git.config]
 main_branch = "master"
 default_remote = "origin"
-protected_branches = []
 
 [plugins.github]
 enabled = true
