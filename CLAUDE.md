@@ -152,11 +152,9 @@ titan
 # - AI configuration
 # - External CLI tools
 
-# Legacy commands (Rich-based menu):
-titan menu              # Show legacy interactive menu
-titan run <workflow>    # Run specific workflow
-titan list              # List available workflows
-titan config ai         # Configure AI providers
+# Other commands:
+titan version           # Show version
+titan tui               # Explicitly launch TUI
 ```
 
 ## Current Project Status
@@ -224,8 +222,7 @@ Two new wizards guide users through initial setup:
 ### Migration Notes
 
 - Old configurations with `[core]` settings will still load but those fields are ignored
-- The legacy Rich-based menu (`titan menu`) still uses the old architecture
-- The Textual TUI (`titan` or `titan tui`) uses the new project-based approach
+- The application uses exclusively the Textual TUI framework for all user interaction
 
 ## Additional Resources
 

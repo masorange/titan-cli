@@ -4,16 +4,13 @@ import keyring
 from pathlib import Path
 from typing import Optional, Literal
 from dotenv import load_dotenv
-from ..ui.components.typography import TextRenderer
-from ..ui.views.prompts import PromptsRenderer
-from ..messages import msg
 
 ScopeType = Literal["env", "project", "user"]
 
 class SecretManager:
     """
     Manages secrets with a 3-level cascade:
-    
+
     1. Environment variables (HIGHEST - CI/CD)
     2. Project secrets (.titan/secrets.env - team-shared)
     3. System keyring (USER - personal credentials)
@@ -32,12 +29,12 @@ class SecretManager:
     def get(self, key: str, namespace: str = "titan") -> Optional[str]:
         """
         Get secret with cascading priority
-        
+
         Priority:
         1. Environment variable (e.g., GITHUB_TOKEN, includes project secrets loaded at init)
         2. System keyring (user-level)
         3. None
-        
+
         Note: Project secrets (.titan/secrets.env) are loaded
         into environment on init, so they are checked in step 1.
         """
@@ -65,7 +62,7 @@ class SecretManager:
     ):
         """
         Set secret
-        
+
         Args:
             key: Secret key (e.g., "anthropic_api_key")
             value: Secret value
@@ -83,10 +80,8 @@ class SecretManager:
             # Store in system keyring (most secure)
             try:
                 keyring.set_password(namespace, key, value)
-            except Exception as e:
+            except Exception:
                 # Fallback to project scope if keyring fails (common on macOS with unsigned apps)
-                text = TextRenderer()
-                text.warning(msg.Secrets.KEYRING_FALLBACK.format(e=e))
                 # Recursively call with project scope
                 self.set(key, value, scope="project")
 
@@ -144,30 +139,3 @@ class SecretManager:
             # Write back
             with open(secrets_file, "w") as f:
                 f.writelines(filtered)
-
-    def prompt_and_set(
-        self,
-        key: str,
-        prompt_text: str,
-        scope: ScopeType = "user",
-        namespace: str = "titan"
-    ) -> Optional[str]:
-        """
-        Interactively prompt for secret and store it
-        
-        Returns:
-            The entered value or None if cancelled
-        """
-        text = TextRenderer()
-        prompts = PromptsRenderer(text_renderer=text)
-
-        try:
-            value = prompts.ask_text(prompt_text, password=True)  # Hidden input
-            if value:
-                self.set(key, value, namespace=namespace, scope=scope)
-                text.success(msg.Projects.SECRET_SAVED.format(key=key, scope=scope))
-                return value
-            return None
-        except (EOFError, KeyboardInterrupt):
-            text.warning(msg.Secrets.AI_SETUP_CANCELLED) 
-            return None

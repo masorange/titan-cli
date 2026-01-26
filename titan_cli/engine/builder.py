@@ -9,8 +9,6 @@ from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.models import AIConfig
 from titan_cli.core.secrets import SecretManager
 from .context import WorkflowContext
-from .ui_container import UIComponents
-from .views_container import UIViews
 from titan_cli.ai.client import AIClient
 from titan_cli.ai.exceptions import AIConfigurationError
 
@@ -24,7 +22,6 @@ class WorkflowContextBuilder:
         secrets = SecretManager()
         ai_config = AIConfig(provider="anthropic", model="claude-3-haiku-20240307")
         ctx = WorkflowContextBuilder(plugin_registry, secrets, ai_config) \\
-            .with_ui() \\
             .with_ai() \\
             .build()
     """
@@ -47,49 +44,11 @@ class WorkflowContextBuilder:
         self._secrets = secrets
         self._ai_config = ai_config
 
-        # UI containers
-        self._ui: Optional[UIComponents] = None
-        self._views: Optional[UIViews] = None
-
         # Service clients
         self._ai = None
         self._git = None
         self._github = None
         self._jira = None
-
-    def with_ui(
-        self,
-        ui: Optional[UIComponents] = None,
-        views: Optional[UIViews] = None,
-        git_status: Optional[Any] = None,
-        ai_info: Optional[str] = None,
-        project_name: Optional[str] = None,
-    ) -> WorkflowContextBuilder:
-        """
-        Add UI components and views.
-
-        Args:
-            ui: Optional UIComponents (auto-created if None)
-            views: Optional UIViews (auto-created if None)
-            git_status: Optional GitStatus for status bar
-            ai_info: Optional AI provider/model info for status bar
-            project_name: Optional project name for status bar
-
-        Returns:
-            Builder instance
-        """
-        # Create or inject UIComponents
-        self._ui = ui or UIComponents.create()
-
-        # Create or inject UIViews
-        self._views = views or UIViews.create(
-            self._ui,
-            git_status=git_status,
-            ai_info=ai_info,
-            project_name=project_name,
-        )
-
-        return self
 
     def with_ai(self, ai_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
@@ -193,8 +152,6 @@ class WorkflowContextBuilder:
         return WorkflowContext(
             secrets=self._secrets,
             plugin_manager=self._plugin_registry,
-            ui=self._ui,
-            views=self._views,
             ai=self._ai,
             git=self._git,
             github=self._github,
