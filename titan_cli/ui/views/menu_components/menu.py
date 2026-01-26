@@ -6,6 +6,7 @@ from .menu_models import Menu
 from ...components.typography import TextRenderer
 from ...components.spacer import SpacerRenderer
 from ...console import get_console
+from ..status_bar import StatusBarRenderer
 
 class MenuRenderer:
     """Renders a Menu object to the console."""
@@ -15,24 +16,29 @@ class MenuRenderer:
         console: Optional[Console] = None,
         text_renderer: Optional[TextRenderer] = None,
         spacer_renderer: Optional[SpacerRenderer] = None,
+        status_bar_renderer: Optional[StatusBarRenderer] = None,
     ):
         self.console = console or get_console()
         self.text = text_renderer or TextRenderer(console=self.console)
         self.spacer = spacer_renderer or SpacerRenderer(console=self.console)
+        self.status_bar = status_bar_renderer or StatusBarRenderer(
+            table_renderer=None, text_renderer=self.text
+        )
 
     def render(self, menu: Menu) -> None:
         """
         Renders the complete menu to the console with theme-aware styling.
-        
-        Displays:
+
+        Displays:n
         - Menu title with emoji
         - Categories with their emoji and items
         - Numbered items with descriptions
         - Optional tip at the bottom
-        
+        - Status bar at the very bottom (if enabled)
+
         Args:
             menu: The Menu object to render.
-            
+
         Example:
             >>> menu = Menu(title="Main Menu", emoji="🚀", ...)
             >>> renderer = MenuRenderer()

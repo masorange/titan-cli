@@ -1,5 +1,7 @@
 # plugins/titan-plugin-git/titan_plugin_git/plugin.py
 import shutil
+from typing import Optional
+from pathlib import Path
 from titan_cli.core.plugins.models import GitPluginConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig # Needed for type hinting
@@ -48,8 +50,7 @@ class GitPlugin(TitanPlugin):
         # Initialize client with validated configuration
         self._client = GitClient(
             main_branch=validated_config.main_branch,
-            default_remote=validated_config.default_remote,
-            protected_branches=validated_config.protected_branches
+            default_remote=validated_config.default_remote
         )
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:
@@ -110,3 +111,10 @@ class GitPlugin(TitanPlugin):
             "get_base_branch": get_base_branch_step,
             "ai_generate_commit_message": ai_generate_commit_message,
         }
+
+    @property
+    def workflows_path(self) -> Optional[Path]:
+        """
+        Returns the path to the workflows directory for this plugin.
+        """
+        return Path(__file__).parent / "workflows"

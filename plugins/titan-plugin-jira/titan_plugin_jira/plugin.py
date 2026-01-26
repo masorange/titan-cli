@@ -63,7 +63,7 @@ class JiraPlugin(TitanPlugin):
         # Get API token from secrets
         # Try multiple secret keys for backwards compatibility
         # Priority: project-specific → plugin-specific → env var → email-specific
-        project_name = config.get_active_project()
+        project_name = config.get_project_name()
         project_key = f"{project_name}_jira_api_token" if project_name else None
 
         api_token = (

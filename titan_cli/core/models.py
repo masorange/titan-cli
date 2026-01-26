@@ -41,20 +41,12 @@ class AIConfig(BaseModel):
             raise ValueError("Cannot set a default provider when no providers are configured.")
         return values
 
-class CoreConfig(BaseModel):
-    """
-    Represents core Titan CLI settings, typically defined in the global config.
-    """
-    project_root: Optional[str] = Field(None, description="Absolute path to the root directory containing all user projects.")
-    active_project: Optional[str] = Field(None, description="Name of the currently active project.")
-
 class TitanConfigModel(BaseModel):
     """
     The main Pydantic model for the entire Titan CLI configuration.
     This model validates the merged configuration from global and project sources.
     """
     project: Optional[ProjectConfig] = Field(None, description="Project-specific configuration.")
-    core: Optional[CoreConfig] = Field(None, description="Core Titan CLI settings.")
     ai: Optional[AIConfig] = Field(None, description="AI provider configuration.")
     plugins: Dict[str, PluginConfig] = Field(default_factory=dict, description="Dictionary of plugin configurations.")
 

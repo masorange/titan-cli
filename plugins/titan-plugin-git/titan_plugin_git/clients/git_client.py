@@ -666,13 +666,20 @@ class GitClient:
 
     def get_uncommitted_diff(self) -> str:
         """
-        Get diff of all uncommitted changes (staged + unstaged).
+        Get diff of all uncommitted changes (staged + unstaged + untracked).
+
+        Uses git add --intent-to-add to make untracked files visible in the diff
+        without actually staging their content.
 
         Returns:
             Diff output as string
         """
         try:
-            # git diff HEAD shows all changes vs last commit (staged + unstaged)
+            # Add untracked files to index without staging content
+            # This makes new files visible to git diff HEAD
+            self._run_command(["git", "add", "--intent-to-add", "."], check=False)
+
+            # git diff HEAD shows all changes vs last commit (staged + unstaged + untracked)
             return self._run_command(["git", "diff", "HEAD"], check=False)
         except GitCommandError:
             return ""

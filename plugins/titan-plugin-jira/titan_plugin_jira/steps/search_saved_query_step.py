@@ -3,6 +3,7 @@ Search JIRA issues using saved query from utils registry
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.ui.tui.widgets import Panel, Table
 from ..exceptions import JiraAPIError
 from ..messages import msg
 from ..utils import SAVED_QUERIES, IssueSorter
@@ -53,19 +54,17 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             project: "ECAPP"
         ```
     """
-    if ctx.views:
-        ctx.views.step_header("search_saved_query", ctx.current_step, ctx.total_steps)
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     if not ctx.jira:
-        if ctx.ui:
-            ctx.ui.panel.print(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, panel_type="error")
+        ctx.textual.mount(Panel(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, panel_type="error"))
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
 
     # Get query name
     query_name = ctx.get("query_name")
     if not query_name:
-        if ctx.ui:
-            ctx.ui.panel.print(msg.Steps.Search.QUERY_NAME_REQUIRED, panel_type="error")
+        ctx.textual.mount(Panel(msg.Steps.Search.QUERY_NAME_REQUIRED, panel_type="error"))
         return Error(msg.Steps.Search.QUERY_NAME_REQUIRED)
 
     # Get all predefined queries from utils
@@ -103,8 +102,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             error_msg += "\n\n" + msg.Steps.Search.ADD_CUSTOM_HINT + "\n"
             error_msg += msg.Steps.Search.CUSTOM_QUERY_EXAMPLE
 
-        if ctx.ui:
-            ctx.ui.panel.print(error_msg, panel_type="error")
+        ctx.textual.mount(Panel(error_msg, panel_type="error"))
         return Error(error_msg)
 
     jql = all_queries[query_name]
@@ -121,8 +119,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
         if not project:
             error_msg = msg.Steps.Search.PROJECT_REQUIRED.format(query_name=query_name, jql=jql)
-            if ctx.ui:
-                ctx.ui.panel.print(error_msg, panel_type="error")
+            ctx.textual.mount(Panel(error_msg, panel_type="error"))
             return Error(error_msg)
 
         jql = jql.format(project=project)
@@ -131,29 +128,26 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     is_custom = query_name in custom_queries
     source_label = "Custom" if is_custom else "Predefined"
 
-    if ctx.ui:
-        ctx.ui.spacer.small()
-        ctx.ui.text.subtitle(f"Using {source_label} Query: {query_name}")
-        ctx.ui.text.body(f"  JQL: {jql}", style="dim")
-        ctx.ui.spacer.small()
+    ctx.textual.text("")
+    ctx.textual.text(f"Using {source_label} Query: {query_name}", markup="bold")
+    ctx.textual.text(f"  JQL: {jql}", markup="dim")
+    ctx.textual.text("")
 
     # Get max results
     max_results = ctx.get("max_results", 50)
 
     try:
-        # Execute search
-        if ctx.ui:
-            ctx.ui.text.info("Searching...")
-
-        issues = ctx.jira.search_tickets(jql=jql, max_results=max_results)
+        # Execute search with loading indicator
+        with ctx.textual.loading("Searching JIRA issues..."):
+            issues = ctx.jira.search_tickets(jql=jql, max_results=max_results)
 
         if not issues:
-            if ctx.ui:
-                ctx.ui.panel.print(
-                    f"No issues found for query: {query_name}",
+            ctx.textual.mount(
+                Panel(
+                    text=f"No issues found for query: {query_name}",
                     panel_type="info"
                 )
-                ctx.ui.spacer.small()
+            )
             return Success(
                 "No issues found",
                 metadata={
@@ -164,59 +158,61 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             )
 
         # Show results
-        if ctx.ui:
-            ctx.ui.panel.print(
-                f"Found {len(issues)} issues",
+        ctx.textual.mount(
+            Panel(
+                text=f"Found {len(issues)} issues",
                 panel_type="success"
             )
-            ctx.ui.spacer.small()
+        )
+        ctx.textual.text("")
 
-            # Show detailed table
-            ctx.ui.text.subtitle("Found Issues:")
-            ctx.ui.spacer.small()
+        # Show detailed table
+        ctx.textual.text("Found Issues:", markup="bold")
+        ctx.textual.text("")
 
-            try:
-                # Sort issues intelligently
-                sorter = IssueSorter()
-                sorted_issues = sorter.sort(issues)
+        try:
+            # Sort issues intelligently
+            sorter = IssueSorter()
+            sorted_issues = sorter.sort(issues)
 
-                # Prepare table data with row numbers for selection
-                headers = ["#", "Key", "Status", "Summary", "Assignee", "Type", "Priority"]
-                rows = []
-                for i, issue in enumerate(sorted_issues, 1):
-                    assignee = issue.assignee or "Unassigned"
-                    status = issue.status or "Unknown"
-                    priority = issue.priority or "Unknown"
-                    issue_type = issue.issue_type or "Unknown"
-                    summary = (issue.summary or "No summary")[:60]
+            # Prepare table data with row numbers for selection
+            headers = ["#", "Key", "Status", "Summary", "Assignee", "Type", "Priority"]
+            rows = []
+            for i, issue in enumerate(sorted_issues, 1):
+                assignee = issue.assignee or "Unassigned"
+                status = issue.status or "Unknown"
+                priority = issue.priority or "Unknown"
+                issue_type = issue.issue_type or "Unknown"
+                summary = (issue.summary or "No summary")[:60]
 
-                    rows.append([
-                        str(i),
-                        issue.key,
-                        status,
-                        summary,
-                        assignee,
-                        issue_type,
-                        priority
-                    ])
+                rows.append([
+                    str(i),
+                    issue.key,
+                    status,
+                    summary,
+                    assignee,
+                    issue_type,
+                    priority
+                ])
 
-                # Render and print table
-                ctx.ui.table.print_table(
+            # Render table using textual widget
+            ctx.textual.mount(
+                Table(
                     headers=headers,
                     rows=rows,
                     title=f"Issues (sorted by {sorter.get_sort_description()})"
                 )
-                ctx.ui.spacer.small()
+            )
 
-                # Use sorted issues for downstream steps
-                issues = sorted_issues
-            except Exception as e:
-                # If table rendering fails, show error but continue with raw issue list
-                ctx.ui.text.error(f"Error rendering table: {e}")
-                ctx.ui.text.info(f"Found {len(issues)} issues (showing raw data)")
-                for i, issue in enumerate(issues, 1):
-                    ctx.ui.text.body(f"{i}. {issue.key} - {getattr(issue, 'summary', 'N/A')}")
-                ctx.ui.spacer.small()
+            # Use sorted issues for downstream steps
+            issues = sorted_issues
+        except Exception as e:
+            # If table rendering fails, show error but continue with raw issue list
+            ctx.textual.text(f"Error rendering table: {e}", markup="red")
+            ctx.textual.text(f"Found {len(issues)} issues (showing raw data)", markup="cyan")
+            for i, issue in enumerate(issues, 1):
+                ctx.textual.text(f"{i}. {issue.key} - {getattr(issue, 'summary', 'N/A')}")
+            ctx.textual.text("")
 
         return Success(
             f"Found {len(issues)} issues using query: {query_name}",
@@ -229,15 +225,13 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
     except JiraAPIError as e:
         error_msg = f"JIRA search failed: {e}"
-        if ctx.ui:
-            ctx.ui.panel.print(error_msg, panel_type="error")
+        ctx.textual.mount(Panel(error_msg, panel_type="error"))
         return Error(error_msg)
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()
         error_msg = f"Unexpected error: {e}\n\nTraceback:\n{error_detail}"
-        if ctx.ui:
-            ctx.ui.panel.print(error_msg, panel_type="error")
+        ctx.textual.mount(Panel(error_msg, panel_type="error"))
         return Error(error_msg)
 
 

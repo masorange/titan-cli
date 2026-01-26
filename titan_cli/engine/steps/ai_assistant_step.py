@@ -8,13 +8,14 @@ Can be used after linting, testing, builds, or any step that produces
 errors or context that could benefit from AI assistance.
 """
 
-import json # Moved this import to the top
+import json 
 
 from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, Skip, WorkflowResult
-from titan_cli.utils.claude_integration import ClaudeCodeLauncher
-from titan_cli.messages import msg # Added msg import
+from titan_cli.external_cli.launcher import CLILauncher
+from titan_cli.external_cli.configs import CLI_REGISTRY
+from titan_cli.messages import msg
 
 
 def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
@@ -26,7 +27,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         prompt_template: str - Template for the prompt (use {context} placeholder)
         ask_confirmation: bool - Whether to ask user before launching (default: True)
         fail_on_decline: bool - If True, return Error when user declines (default: False)
-        cli_preference: str - Which CLI to use: "claude-code", "auto" (default: "auto")
+        cli_preference: str - Which CLI to use: "claude", "gemini", "auto" (default: "auto")
 
     Example workflow usage:
         - id: ai-help
@@ -39,7 +40,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             fail_on_decline: true
           on_error: fail
     """
-    if not ctx.ui:
+    if not ctx.textual:
         return Error(msg.AIAssistant.UI_CONTEXT_NOT_AVAILABLE)
 
     # Get parameters
@@ -48,6 +49,11 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     ask_confirmation = step.params.get("ask_confirmation", True)
     fail_on_decline = step.params.get("fail_on_decline", False)
     cli_preference = step.params.get("cli_preference", "auto")
+
+    # Validate cli_preference
+    VALID_CLI_PREFERENCES = {"auto", "claude", "gemini"}
+    if cli_preference not in VALID_CLI_PREFERENCES:
+        return Error(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}")
 
     # Validate required parameters
     if not context_key:
@@ -78,8 +84,8 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
 
     # Ask for confirmation if needed
     if ask_confirmation:
-        ctx.ui.spacer.small()
-        should_launch = ctx.views.prompts.ask_confirm(
+        ctx.textual.text("")  # spacing
+        should_launch = ctx.textual.ask_confirm(
             msg.AIAssistant.CONFIRM_LAUNCH_ASSISTANT,
             default=True
         )
@@ -89,36 +95,89 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
     # Determine which CLI to use
-    launcher = None
-    cli_name = None
+    cli_to_launch = None
 
-    if cli_preference in ("claude-code", "auto"):
-        if ClaudeCodeLauncher.is_available():
-            launcher = ClaudeCodeLauncher
-            cli_name = "Claude Code"
+    preferred_clis = []
+    if cli_preference == "auto":
+        preferred_clis = list(CLI_REGISTRY.keys())
+    else:
+        preferred_clis = [cli_preference]
+    
+    available_launchers = {}
+    for cli_name in preferred_clis:
+        config = CLI_REGISTRY.get(cli_name)
+        if config:
+            launcher = CLILauncher(
+                cli_name=cli_name,
+                install_instructions=config.get("install_instructions"),
+                prompt_flag=config.get("prompt_flag")
+            )
+            if launcher.is_available():
+                available_launchers[cli_name] = launcher
 
-    # TODO: Add support for other CLIs (Cursor, Windsurf, etc.) when configured
-
-    if not launcher:
-        ctx.ui.text.warning(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND)
-        ctx.ui.text.body(msg.Code.INSTALL_INSTRUCTIONS, style="dim")
+    if not available_launchers:
+        from titan_cli.ui.tui.widgets import Panel
+        ctx.textual.mount(Panel(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND, panel_type="warning"))
         return Skip(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND)
 
+    if len(available_launchers) == 1:
+        cli_to_launch = list(available_launchers.keys())[0]
+    else:
+        # Show available CLIs with numbers
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(msg.AIAssistant.SELECT_ASSISTANT_CLI, markup="bold cyan")
+
+        cli_options = list(available_launchers.keys())
+        for idx, cli_name in enumerate(cli_options, 1):
+            display_name = CLI_REGISTRY[cli_name].get("display_name", cli_name)
+            ctx.textual.text(f"  {idx}. {display_name}")
+
+        ctx.textual.text("")  # spacing
+        choice_str = ctx.textual.ask_text("Select option (or press Enter to cancel):", default="")
+
+        if not choice_str or choice_str.strip() == "":
+            return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
+
+        try:
+            choice_idx = int(choice_str.strip()) - 1
+            if 0 <= choice_idx < len(cli_options):
+                cli_to_launch = cli_options[choice_idx]
+            else:
+                ctx.textual.text("Invalid option selected", markup="red")
+                return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
+        except ValueError:
+            ctx.textual.text("Invalid input - must be a number", markup="red")
+            return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
+
+    # Validate selection
+    if cli_to_launch not in available_launchers:
+        return Error(f"Unknown CLI to launch: {cli_to_launch}")
+
+    cli_name = CLI_REGISTRY[cli_to_launch].get("display_name", cli_to_launch)
+
     # Launch the CLI
-    ctx.ui.spacer.small()
-    ctx.ui.text.info(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name))
-    # Using msg.AIAssistant.PROMPT_PREVIEW for consistency
+    from titan_cli.ui.tui.widgets import Panel
+    ctx.textual.text("")  # spacing
+    ctx.textual.text(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name), markup="cyan")
+
+    # Show prompt preview
     prompt_preview_text = msg.AIAssistant.PROMPT_PREVIEW.format(
         prompt_preview=f"{prompt[:100]}..." if len(prompt) > 100 else prompt
     )
-    ctx.ui.text.body(prompt_preview_text, style="dim")
-    ctx.ui.spacer.small()
+    ctx.textual.text(prompt_preview_text, markup="dim")
+    ctx.textual.text("")  # spacing
 
     project_root = ctx.get("project_root", ".")
-    exit_code = launcher.launch(prompt=prompt, cwd=project_root)
 
-    ctx.ui.spacer.small()
-    ctx.ui.text.success(msg.AIAssistant.BACK_IN_TITAN)
+    # Launch CLI and suspend TUI while it runs
+    exit_code = ctx.textual.launch_external_cli(
+        cli_name=cli_to_launch,
+        prompt=prompt,
+        cwd=project_root
+    )
+
+    ctx.textual.text("")  # spacing
+    ctx.textual.mount(Panel(msg.AIAssistant.BACK_IN_TITAN, panel_type="success"))
 
     if exit_code != 0:
         return Error(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code))

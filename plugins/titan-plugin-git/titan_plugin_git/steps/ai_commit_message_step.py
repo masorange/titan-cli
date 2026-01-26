@@ -1,6 +1,7 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/ai_commit_message_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_plugin_git.messages import msg
+from titan_cli.ui.tui.widgets import Panel
 
 
 def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
@@ -25,18 +26,17 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the operation fails.
         Skip: If no changes, AI not configured, or user declined.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header("ai_commit_message", ctx.current_step, ctx.total_steps)
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        if ctx.ui:
-            ctx.ui.panel.print(
-                msg.Steps.AICommitMessage.AI_NOT_CONFIGURED,
+        ctx.textual.mount(
+            Panel(
+                text=msg.Steps.AICommitMessage.AI_NOT_CONFIGURED,
                 panel_type="info"
             )
-            ctx.ui.spacer.small()
+        )
         return Skip(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
 
     # Get git client
@@ -46,18 +46,17 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
     # Get git status
     git_status = ctx.get('git_status')
     if not git_status or git_status.is_clean:
-        if ctx.ui:
-            ctx.ui.panel.print(
-                msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT,
+        ctx.textual.mount(
+            Panel(
+                text=msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT,
                 panel_type="info"
             )
-            ctx.ui.spacer.small()
+        )
         return Skip(msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT)
 
     try:
         # Get diff of uncommitted changes
-        if ctx.ui:
-            ctx.ui.text.info(msg.Steps.AICommitMessage.ANALYZING_CHANGES)
+        ctx.textual.text(msg.Steps.AICommitMessage.ANALYZING_CHANGES, markup="dim")
 
         # Get diff of all uncommitted changes
         diff_text = ctx.git.get_uncommitted_diff()
@@ -70,9 +69,9 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         all_files = git_status.modified_files + git_status.untracked_files + git_status.staged_files
         files_summary = "\n".join([f"  - {f}" for f in all_files]) if all_files else "(checking diff)"
 
-        # Limit diff size to avoid token overflow (keep first 4000 chars)
-        diff_preview = diff_text[:4000] if len(diff_text) > 4000 else diff_text
-        if len(diff_text) > 4000:
+        # Limit diff size to avoid token overflow (keep first 8000 chars)
+        diff_preview = diff_text[:8000] if len(diff_text) > 8000 else diff_text
+        if len(diff_text) > 8000:
             diff_preview += f"\n\n{msg.Steps.AICommitMessage.DIFF_TRUNCATED}"
 
         prompt = f"""Analyze these code changes and generate a conventional commit message.
@@ -90,24 +89,24 @@ Generate ONE single-line conventional commit message following this EXACT format
 - type(scope): description
 - Types: feat, fix, refactor, docs, test, chore, style, perf
 - Scope: area affected (e.g., auth, api, ui)
-- Description: clear summary in imperative mood (be descriptive but concise)
+- Description: clear summary in imperative mood (be descriptive, concise, and at least 5 words long)
 - NO line breaks, NO body, NO additional explanation
 
 Examples (notice they are all one line):
 - feat(auth): add OAuth2 integration with Google provider
 - fix(api): resolve race condition in cache invalidation
 - refactor(ui): simplify menu component and remove unused props
+- refactor(workflows): add support for nested workflow execution
 
 Return ONLY the single-line commit message, absolutely nothing else."""
 
-        if ctx.ui:
-            ctx.ui.text.info(msg.Steps.AICommitMessage.GENERATING_MESSAGE)
-
-        # Call AI
+        # Call AI with loading indicator
         from titan_cli.ai.models import AIMessage
 
         messages = [AIMessage(role="user", content=prompt)]
-        response = ctx.ai.generate(messages, max_tokens=300, temperature=0.7)
+
+        with ctx.textual.loading(msg.Steps.AICommitMessage.GENERATING_MESSAGE):
+            response = ctx.ai.generate(messages, max_tokens=1024, temperature=0.7)
 
         commit_message = response.content.strip()
 
@@ -117,33 +116,43 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         commit_message = commit_message.split('\n')[0].strip()
 
         # Show preview to user
-        if ctx.ui:
-            ctx.ui.spacer.small()
-            ctx.ui.text.subtitle(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE)
-            ctx.ui.text.body(f"  {commit_message}", style="bold cyan")
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE, markup="bold")
+        ctx.textual.text(f"  {commit_message}", markup="bold cyan")
 
-            # Warn if message is too long
-            if len(commit_message) > 72:
-                ctx.ui.text.warning(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=len(commit_message)))
+        # Warn if message is too long
+        if len(commit_message) > 72:
+            ctx.textual.text(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=len(commit_message)), markup="yellow")
 
-            ctx.ui.spacer.small()
+        ctx.textual.text("")  # spacing
 
-            # Ask user if they want to use it
-            use_ai = ctx.views.prompts.ask_confirm(
-                msg.Steps.AICommitMessage.CONFIRM_USE_MESSAGE,
-                default=True
-            )
+        # Ask user if they want to use it
+        use_ai = ctx.textual.ask_confirm(
+            msg.Steps.AICommitMessage.CONFIRM_USE_MESSAGE,
+            default=True
+        )
 
-            if not use_ai:
-                return Skip(msg.Steps.AICommitMessage.USER_DECLINED)
+        if not use_ai:
+            try:
+                manual_message = ctx.textual.ask_text(msg.Prompts.ENTER_COMMIT_MESSAGE)
+                if not manual_message:
+                    return Error(msg.Steps.Commit.COMMIT_MESSAGE_REQUIRED)
+
+                # Overwrite the metadata to ensure the manual message is used
+                return Success(
+                    message=msg.Steps.Prompt.COMMIT_MESSAGE_CAPTURED,
+                    metadata={"commit_message": manual_message}
+                )
+            except (KeyboardInterrupt, EOFError):
+                return Error(msg.Steps.Prompt.USER_CANCELLED)
 
         # Show success panel
-        if ctx.ui:
-            ctx.ui.panel.print(
-                "AI commit message generated successfully",
+        ctx.textual.mount(
+            Panel(
+                text="AI commit message generated successfully",
                 panel_type="success"
             )
-            ctx.ui.spacer.small()
+        )
 
         # Success - save to context
         return Success(
@@ -152,9 +161,8 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         )
 
     except Exception as e:
-        if ctx.ui:
-            ctx.ui.text.warning(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
-            ctx.ui.text.info(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL)
+        ctx.textual.text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e), markup="yellow")
+        ctx.textual.text(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL, markup="dim")
 
         return Skip(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
 

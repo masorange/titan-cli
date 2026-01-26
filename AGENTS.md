@@ -697,6 +697,83 @@ personal_response = personal_client.generate(messages)
 
 ---
 
+## ⚡ External CLI Integration
+
+Titan CLI provides a generic system for launching external command-line tools like `claude` or `gemini`. This is managed through a centralized registry that makes adding new CLIs easy and maintainable.
+
+### Core Components
+
+- **`CLILauncher` (`utils/cli_launcher.py`):** A generic class that handles checking for a CLI's availability (`is_available()`) and launching it with the correct arguments. It can handle CLIs that take prompts as positional arguments or via a specific flag (e.g., `-i`).
+
+- **`CLI_REGISTRY` (`utils/cli_configs.py`):** A centralized dictionary that stores the configuration for all supported external CLIs. This is the single source of truth for CLI configurations.
+
+### How to Add a New CLI
+
+To add support for a new external CLI, follow these two steps:
+
+**1. Update the CLI Registry**
+
+Open `titan_cli/utils/cli_configs.py` and add a new entry to the `CLI_REGISTRY` dictionary.
+
+The key for the new entry should be the command-line name of the tool (e.g., `"my-cool-cli"`). The value is a dictionary with the following keys:
+
+- `display_name` (str): The user-friendly name that will be shown in menus.
+- `install_instructions` (Optional[str]): A message explaining how to install the tool. If `None`, a generic message will be used.
+- `prompt_flag` (Optional[str]): The flag used to pass an initial prompt while keeping the session interactive. If the tool takes the prompt as a positional argument, set this to `None`.
+
+**Example:**
+
+```python
+# titan_cli/utils/cli_configs.py
+
+CLI_REGISTRY = {
+    "claude": {
+        "display_name": "Claude CLI",
+        "install_instructions": "Install: npm install -g @anthropic/claude-code",
+        "prompt_flag": None  # Uses positional argument
+    },
+    "gemini": {
+        "display_name": "Gemini CLI",
+        "install_instructions": None, # No specific instruction
+        "prompt_flag": "-i"    # Uses -i flag for prompts
+    },
+    # Add your new CLI here
+    "my-cool-cli": {
+        "display_name": "My Cool CLI",
+        "install_instructions": "pip install my-cool-cli",
+        "prompt_flag": "--prompt"
+    }
+}
+```
+
+**2. Update Menus (If applicable)**
+
+The system is designed to be automatic. Once you add a CLI to the registry, it will automatically appear in two places:
+
+- **The main interactive menu:** The "Launch External CLI" submenu dynamically shows all available CLIs from the registry.
+- **The `ai_code_assistant` workflow step:** If `cli_preference` is set to `"auto"`, this step will detect all available CLIs from the registry and prompt the user to choose if more than one is found.
+
+If you want to add a direct top-level command for your new CLI (like `titan my-cool-cli`), you can add it to `titan_cli/commands/cli.py`:
+
+```python
+# titan_cli/commands/cli.py
+
+# ... (imports)
+
+@cli_app.command("my-cool-cli")
+def launch_my_cool_cli(
+    prompt: Optional[str] = typer.Argument(None, help="Initial prompt for My Cool CLI.")
+):
+    """
+    Launch My Cool CLI.
+    """
+    launch_cli_tool("my-cool-cli", prompt)
+```
+
+That's it! By centralizing the configuration, the rest of the system adapts automatically.
+
+---
+
 ## 📋 Code Style & Conventions
 
 ### Python Style
@@ -1409,9 +1486,13 @@ Steps use this metadata to show standardized headers:
 
 ```python
 def my_step(ctx: WorkflowContext) -> WorkflowResult:
-    # Show header: [1/7] my_step
+    # Show header with step type and detail
     if ctx.views:
-        ctx.views.step_header("my_step", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="My Step",
+            step_type="plugin",
+            step_detail="myplugin.my_step"
+        )
 
     # ... rest of step
 ```
@@ -1482,9 +1563,13 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If an error occurs.
         Skip: If step is not applicable.
     """
-    # 1. Show step header (uses metadata injected by executor)
+    # 1. Show step header
     if ctx.views:
-        ctx.views.step_header("my_step", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="My Step",
+            step_type="plugin",
+            step_detail="myplugin.my_step"
+        )
 
     # 2. Validate inputs
     my_input = ctx.get("my_input_variable")
@@ -1947,7 +2032,11 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # ✅ 1. Show step header
     if ctx.views:
-        ctx.views.step_header("my_step", ctx.current_step, ctx.total_steps)
+        ctx.views.step_header(
+            name="My Step",
+            step_type="plugin",
+            step_detail="myplugin.my_step"
+        )
 
     # ✅ 2. Validate requirements
     if not ctx.git:
@@ -1987,7 +2076,11 @@ ctx.ui.spacer.small()
 
 **Views (composition allowed):**
 ```python
-ctx.views.step_header("step_name", ctx.current_step, ctx.total_steps)
+ctx.views.step_header(
+    name="Step Name",
+    step_type="plugin",
+    step_detail="myplugin.step_name"
+)
 ctx.views.prompts.ask_confirm("Continue?", default=True)
 ctx.views.prompts.ask_text("Enter value:")
 ```

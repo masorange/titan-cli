@@ -8,7 +8,6 @@ Titan projects in the configured project root.
 import typer
 from pathlib import Path
 
-from ..core.config import TitanConfig
 from ..core.discovery import discover_projects
 from ..ui.components.typography import TextRenderer
 from ..ui.components.spacer import SpacerRenderer
@@ -23,9 +22,9 @@ def projects_callback():
 
 
 @projects_app.command("list")
-def list_projects():
+def list_projects(directory: Path = typer.Argument(None, help="Directory to scan for projects (default: current directory)")):
     """
-    List discovered Titan projects in the configured project root.
+    List discovered Titan projects in a directory.
     Categorizes projects as configured (with .titan/config.toml)
     and unconfigured (git repos without .titan/config.toml).
     """
@@ -36,14 +35,11 @@ def list_projects():
     text.title("Project Discovery")
     spacer.line()
 
-    config = TitanConfig()
-    project_root = None
-    if config.config.core and config.config.core.project_root:
-        project_root = Path(config.config.core.project_root)
+    # Use current directory if no directory specified
+    project_root = directory if directory else Path.cwd()
 
-    if not project_root or (project_root and not project_root.is_dir()):
-        text.error("Project root not configured or does not exist.")
-        text.info("Please run 'titan init' to set your project root.", show_emoji=False)
+    if not project_root.is_dir():
+        text.error(f"Directory does not exist: {project_root}")
         raise typer.Exit(1)
 
     text.body(f"Scanning for projects in: [primary]{project_root}[/primary]")

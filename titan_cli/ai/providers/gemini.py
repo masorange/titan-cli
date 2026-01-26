@@ -10,12 +10,14 @@ from ..exceptions import AIProviderAPIError
 from ..constants import get_default_model
 
 try:
-    import google.generativeai as genai
+    import google.genai as genai
     import google.auth
-    from google.generativeai.types import GenerationConfig # Import GenerationConfig
+    from google.genai.types import GenerateContentConfig
     GEMINI_AVAILABLE = True
-except ImportError:
+    GEMINI_IMPORT_ERROR = None
+except ImportError as e:
     GEMINI_AVAILABLE = False
+    GEMINI_IMPORT_ERROR = str(e)
     
 # For custom endpoint support
 import requests
@@ -30,7 +32,7 @@ class GeminiProvider(AIProvider):
     - OAuth via gcloud (Application Default Credentials)
 
     Requires:
-    - pip install google-generativeai google-auth
+    - pip install google-genai google-auth
     - API key from https://makersuite.google.com/app/apikey
     - OR: gcloud auth application-default login
 
@@ -61,26 +63,27 @@ class GeminiProvider(AIProvider):
                 )
             # No additional setup needed, will use requests directly
         else:
-            # Standard Google Gemini endpoint - use google-generativeai library
+            # Standard Google Gemini endpoint - use google-genai library
             if not GEMINI_AVAILABLE:
-                raise AIProviderAPIError(
-                    "google-generativeai not installed.\n"
-                    "Install with: poetry add google-generativeai google-auth"
-                )
+                error_msg = "google-genai not installed.\n"
+                if GEMINI_IMPORT_ERROR:
+                    error_msg += f"Import error: {GEMINI_IMPORT_ERROR}\n"
+                error_msg += "Install with: poetry add google-genai google-auth"
+                raise AIProviderAPIError(error_msg)
 
             if self.use_oauth:
-                # Use Application Default Credentials
+                # Use Application Default Credentials with Client, assuming Vertex AI context for OAuth
                 try:
-                    google.auth.default()
-                    # Gemini will use ADC automatically
+                    google.auth.default() # This is for ADC
+                    self._genai_client = genai.Client(vertexai=True)
                 except Exception as e:
                     raise AIProviderAPIError(
-                        f"Failed to get Google Cloud credentials: {e}\n"
+                        f"Failed to get Google Cloud credentials for Vertex AI: {e}\n"
                         "Run: gcloud auth application-default login"
                     )
             else:
-                # Use API key with official Google endpoint
-                genai.configure(api_key=api_key)
+                # Use API key with Client for official Google endpoint
+                self._genai_client = genai.Client(api_key=api_key)
 
     def generate(self, request: AIRequest) -> AIResponse:
         """
@@ -188,28 +191,29 @@ class GeminiProvider(AIProvider):
             # Convert messages to Gemini format
             gemini_messages = self._convert_messages(request.messages)
 
-            # Get model
-            model = genai.GenerativeModel(self.model)
-
             # Prepare generation config
-            generation_config = GenerationConfig(
+            config = GenerateContentConfig(
                 temperature=request.temperature,
-                max_output_tokens=request.max_tokens
+                maxOutputTokens=request.max_tokens
             )
 
             # Generate response
             if len(gemini_messages) == 1 and gemini_messages[0].get("role") == "user":
                 # Single message - use generate_content
-                response = model.generate_content(
-                    gemini_messages[0]["parts"],
-                    generation_config=generation_config
+                response = self._genai_client.models.generate_content(
+                    model=self.model,
+                    contents=gemini_messages[0]["parts"],
+                    config=config
                 )
             else:
                 # Multiple messages - use chat
-                chat = model.start_chat(history=gemini_messages[:-1] if len(gemini_messages) > 1 else [])
-                response = chat.send_message(
-                    gemini_messages[-1]["parts"],
-                    generation_config=generation_config
+                chat_session = self._genai_client.chats.create(
+                    model=self.model,
+                    history=gemini_messages[:-1] if len(gemini_messages) > 1 else [],
+                    config=config
+                )
+                response = chat_session.send_message(
+                    gemini_messages[-1]["parts"]
                 )
 
             # Extract text

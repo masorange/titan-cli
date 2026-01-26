@@ -16,26 +16,40 @@ class PluginRegistry:
 
     def discover(self):
         """Discover all installed Titan plugins."""
+        import logging
+        logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
+
         discovered = entry_points(group='titan.plugins')
         self._discovered_plugin_names = [ep.name for ep in discovered]
+        logger.debug(f"PluginRegistry.discover() - Found {len(self._discovered_plugin_names)} plugins: {self._discovered_plugin_names}")
+
         for ep in discovered:
             try:
+                logger.debug(f"Loading plugin: {ep.name}")
                 plugin_class = ep.load()
                 if not issubclass(plugin_class, TitanPlugin):
                     raise TypeError("Plugin class must inherit from TitanPlugin")
                 self._plugins[ep.name] = plugin_class()
+                logger.debug(f"Successfully loaded plugin: {ep.name}")
             except Exception as e:
+                logger.error(f"Failed to load plugin {ep.name}: {e}", exc_info=True)
                 error = PluginLoadError(plugin_name=ep.name, original_exception=e)
                 self._failed_plugins[ep.name] = error
+
+        logger.debug(f"PluginRegistry.discover() - Loaded {len(self._plugins)} plugins successfully")
+        logger.debug(f"PluginRegistry.discover() - Failed {len(self._failed_plugins)} plugins: {list(self._failed_plugins.keys())}")
 
     def initialize_plugins(self, config: Any, secrets: Any) -> None:
         """
         Initializes all discovered plugins in dependency order.
-        
+
         Args:
             config: TitanConfig instance
             secrets: SecretManager instance
         """
+        import logging
+        logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
+
         # Create a copy of plugin names to iterate over, as _plugins might change
         plugins_to_initialize = list(self._plugins.keys())
         initialized = set()
@@ -63,7 +77,7 @@ class PluginRegistry:
                                 original_exception=f"Dependency '{dep_name}' failed to load/initialize."
                             )
                             self._failed_plugins[name] = error
-                            del self._plugins[name]
+                            # Don't delete from _plugins - keep it available for configuration
                             dependencies_met = False
                             break
                         else:
@@ -77,12 +91,15 @@ class PluginRegistry:
 
                 # Initialize the plugin if dependencies are met
                 try:
+                    logger.debug(f"Initializing plugin: {name}")
                     plugin.initialize(config, secrets)
                     initialized.add(name)
+                    logger.debug(f"Successfully initialized plugin: {name}")
                 except Exception as e:
+                    logger.error(f"Failed to initialize plugin {name}: {e}", exc_info=True)
                     error = PluginInitializationError(plugin_name=name, original_exception=e)
                     self._failed_plugins[name] = error
-                    del self._plugins[name] # Remove from active plugins
+                    # Don't delete from _plugins - keep it available for configuration
 
             plugins_to_initialize = next_pass_plugins
             if len(plugins_to_initialize) == remaining_plugins_count and remaining_plugins_count > 0:
@@ -106,10 +123,30 @@ class PluginRegistry:
         """List all discovered plugins by name, regardless of load status."""
         return self._discovered_plugin_names
 
+    def list_enabled(self, config: Any) -> List[str]:
+        """
+        List plugins that are enabled in the current project configuration.
+
+        Args:
+            config: TitanConfig instance
+
+        Returns:
+            List of enabled plugin names
+        """
+        if not config or not config.config or not config.config.plugins:
+            return []
+
+        enabled = []
+        for plugin_name, plugin_config in config.config.plugins.items():
+            if hasattr(plugin_config, 'enabled') and plugin_config.enabled:
+                enabled.append(plugin_name)
+
+        return enabled
+
     def list_failed(self) -> Dict[str, Exception]:
         """
         List plugins that failed to load or initialize.
-        
+
         Returns:
             Dict mapping plugin name to error
         """

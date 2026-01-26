@@ -21,7 +21,7 @@ from titan_cli.commands.init import init_app
 from titan_cli.commands.projects import projects_app, list_projects
 from titan_cli.commands.ai import ai_app
 from titan_cli.commands.plugins import plugins_app
-from titan_cli.commands.code import code_app, launch_code
+from titan_cli.commands.cli import cli_app
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.errors import ConfigWriteError
@@ -29,6 +29,8 @@ from titan_cli.core.discovery import discover_projects
 from titan_cli.ui.components.typography import TextRenderer
 from titan_cli.ui.components.spacer import SpacerRenderer
 from titan_cli.ui.views.prompts import PromptsRenderer
+from titan_cli.ui.views.menu_components.menu import MenuRenderer
+from titan_cli.ui.views.status_bar import StatusBarRenderer
 from titan_cli.core.project_init import initialize_project
 from titan_cli.ui.views.menu_components.dynamic_menu import DynamicMenu
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
@@ -54,7 +56,7 @@ app.add_typer(init_app)
 app.add_typer(projects_app)
 app.add_typer(ai_app)
 app.add_typer(plugins_app)
-app.add_typer(code_app)
+app.add_typer(cli_app)
 
 
 # --- Helper function for version retrieval ---
@@ -127,7 +129,7 @@ def _show_submenu(
         action_category = submenu_builder.add_category("Actions")
         for action_name, action_desc, action_id in actions["actions"]:
             action_category.add_item(action_name, action_desc, action_id)
-        submenu_builder.add_category("Back").add_item("Return to Main Menu", "", "back")
+        submenu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_MAIN_MENU, "", "back")
 
         choice_item = prompts.ask_menu(submenu_builder.to_menu())
         if not choice_item or choice_item.action == "back":
@@ -155,7 +157,7 @@ def _show_switch_project_menu(prompts: PromptsRenderer, text: TextRenderer, conf
     menu_builder = DynamicMenu(title="Select Active Project", emoji="📂")
     projects_cat = menu_builder.add_category("Projects")
 
-    current_active_project = config.get_active_project()
+    current_active_project = config.get_project_name()
 
     for project_path in configured_projects:
         project_name = project_path.name
@@ -181,6 +183,40 @@ def _show_switch_project_menu(prompts: PromptsRenderer, text: TextRenderer, conf
             config.load()
         except ConfigWriteError as e:
             text.error(str(e))
+
+
+def _show_cli_submenu(prompts: PromptsRenderer, text: TextRenderer):
+    """Shows the submenu for launching external CLIs."""
+    from titan_cli.external_cli.configs import CLI_REGISTRY
+    from titan_cli.external_cli.launcher import CLILauncher
+    from titan_cli.external_cli.helper import launch_cli_tool
+
+    while True:
+        submenu_builder = DynamicMenu(title=msg.ExternalCLI.MENU_TITLE, emoji="🚀")
+        action_category = submenu_builder.add_category(msg.ExternalCLI.AVAILABLE_CLIS_TITLE)
+        
+        available_clis = []
+        for cli_name, config in CLI_REGISTRY.items():
+            if CLILauncher(cli_name).is_available():
+                display_name = config.get("display_name", cli_name)
+                action_category.add_item(display_name, f"Launch {display_name}", cli_name)
+                available_clis.append(cli_name)
+
+        if not available_clis:
+            text.warning(msg.ExternalCLI.NO_CLIS_FOUND)
+            text.body(msg.ExternalCLI.INSTALL_SUGGESTION, style="dim")
+            return
+
+        submenu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_MAIN_MENU, "", "back")
+
+        choice_item = prompts.ask_menu(submenu_builder.to_menu())
+        if not choice_item or choice_item.action == "back":
+            break
+
+        launch_cli_tool(choice_item.action, prompt=None)
+
+        prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+
 
 def _show_projects_submenu(prompts: PromptsRenderer, text: TextRenderer, config: TitanConfig):
     """Shows the submenu for project management."""
@@ -261,7 +297,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     plugin_data["package_name"] # The action is the package name for pipx
                 )
             
-            menu_builder.add_category("Back").add_item("Return to Previous Menu", "", "back")
+            menu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_PREVIOUS_MENU, "", "back")
 
             choice = prompts.ask_menu(menu_builder.to_menu(), allow_quit=False)
 
@@ -431,15 +467,9 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
             field_type = field_schema.get("type")
             description = field_schema.get("description", "")
             field_format = field_schema.get("format", "")
-            current_value = current_plugin_config.get(field_name, field_schema.get("default"))
+            default_value = field_schema.get("default")
+            current_value = current_plugin_config.get(field_name, default_value)
             is_required = field_name in schema.get("required", [])
-
-            # Skip fields that have defaults and are not required
-            # (they will use their default values from the model)
-            has_default = "default" in field_schema
-            if not is_required and has_default and field_name not in current_plugin_config:
-                # Use default value, don't prompt
-                continue
 
             # Detect if this is a secret field (by name pattern or format)
             is_secret = (
@@ -455,12 +485,42 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                 prompt_text += f" ({description})"
             if is_required:
                 prompt_text += " [required]"
+            elif default_value is not None:
+                # Show default value for optional fields
+                if field_type == "boolean":
+                    prompt_text += f" [default: {default_value}]"
+                elif field_type == "string" and default_value:
+                    prompt_text += f" [default: {default_value}]"
+                elif field_type == "integer":
+                    prompt_text += f" [default: {default_value}]"
 
             # Simple type handling
             if field_type == "boolean":
-                new_value = prompts.ask_confirm(prompt_text, default=bool(current_value) if current_value is not None else False)
+                # Determine default for prompt (avoid type coercion issues)
+                if current_value is not None:
+                    prompt_default = current_value
+                elif default_value is not None:
+                    prompt_default = default_value
+                else:
+                    prompt_default = False
+
+                new_value = prompts.ask_confirm(prompt_text, default=prompt_default)
+                # If user accepts default and field is optional with a default, skip adding it
+                if not is_required and default_value is not None and new_value == default_value:
+                    continue
             elif field_type == "integer":
-                new_value = prompts.ask_int(prompt_text, default=int(current_value) if current_value is not None else None)
+                # Determine default for prompt
+                if current_value is not None:
+                    prompt_default = int(current_value)
+                elif default_value is not None:
+                    prompt_default = int(default_value)
+                else:
+                    prompt_default = None
+
+                new_value = prompts.ask_int(prompt_text, default=prompt_default)
+                # If user accepts default and field is optional with a default, skip adding it
+                if not is_required and default_value is not None and new_value == default_value:
+                    continue
             elif field_type == "array" and field_schema.get("items", {}).get("type") == "string":
                 current_list = current_value or []
                 text.body(prompt_text)
@@ -471,12 +531,20 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     new_value = [item.strip() for item in new_value_str.split(",")]
                 else:
                     new_value = current_list
+                # If user accepts default and field is optional with a default, skip adding it
+                # For arrays, compare sorted to ignore order
+                if not is_required and default_value is not None:
+                    if isinstance(new_value, list) and isinstance(default_value, list):
+                        if sorted(new_value) == sorted(default_value):
+                            continue
+                    elif new_value == default_value:
+                        continue
             else:  # Default to string
                 default_val = str(current_value) if current_value is not None else ""
                 # For secrets, check if already exists in keychain
                 if is_secret:
                     # Try to get from keychain with project-specific key
-                    project_name = config.get_active_project()
+                    project_name = config.get_project_name()
                     secret_key = f"{plugin_name}_{field_name}"
                     keychain_key = f"{project_name}_{secret_key}" if project_name else secret_key
 
@@ -493,11 +561,26 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
 
                 # Ask for value (hidden if secret)
                 new_value = prompts.ask_text(prompt_text, default=default_val if not is_secret else "", password=is_secret)
-                if new_value is None or (not new_value and is_required):
+
+                # Handle empty input
+                if new_value is None or not new_value:
                     if is_required:
                         text.error(f"Field '{field_name}' is required.")
                         return False
+                    # For optional fields, if left blank and there's a default, skip adding it
+                    # (the model will use its default value)
+                    if default_value is not None:
+                        continue
                     new_value = ""
+
+                # If user enters a value that matches the default for an optional field, skip adding it
+                # Normalize strings by stripping whitespace before comparison
+                if not is_required and default_value is not None:
+                    if isinstance(new_value, str) and isinstance(default_value, str):
+                        if new_value.strip() == str(default_value).strip():
+                            continue
+                    elif new_value == default_value:
+                        continue
 
             # Store secrets separately
             if is_secret and new_value:
@@ -525,7 +608,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
 
             # Save secrets to user keychain (secure, per-project)
             # Use project name in key to support multiple projects
-            project_name = config.get_active_project()
+            project_name = config.get_project_name()
             for secret_key, secret_value in secrets_to_save.items():
                 # Format: projectname_pluginname_fieldname (e.g., titan-cli_jira_api_token)
                 keychain_key = f"{project_name}_{secret_key}" if project_name else secret_key
@@ -543,7 +626,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
 
     def toggle_plugins_handler():
         """Handles enabling/disabling plugins for the current project."""
-        if not config.get_active_project() or not config.project_config_path:
+        if not config.get_project_name() or not config.project_config_path:
             text.error("No active project selected. Please use 'Switch Project' first.")
             return
 
@@ -570,7 +653,7 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
                     plugin_name
                 )
 
-            menu_builder.add_category("Back").add_item("Return to Previous Menu", "", "back")
+            menu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_PREVIOUS_MENU, "", "back")
             choice = prompts.ask_menu(menu_builder.to_menu(), allow_quit=False)
 
             if not choice or choice.action == "back":
@@ -649,12 +732,12 @@ def _show_plugin_management_menu(prompts: PromptsRenderer, text: TextRenderer, c
         global_cat.add_item("List Installed Plugins", "List all globally installed plugins.", "list")
 
         # Project-specific Actions (only if there's an active project)
-        active_project_name = config.get_active_project()
+        active_project_name = config.get_project_name()
         if active_project_name:
             project_cat = submenu_builder.add_category(f"Current Project ({active_project_name})")
             project_cat.add_item("Enable/Disable Plugins", "Enable or disable plugins for the current project.", "toggle")
 
-        submenu_builder.add_category("Back").add_item("Return to Main Menu", "", "back")
+        submenu_builder.add_category(msg.Interactive.BACK_CATEGORY).add_item(msg.Interactive.RETURN_TO_MAIN_MENU, "", "back")
 
         choice_item = prompts.ask_menu(submenu_builder.to_menu(), allow_quit=False)
         if not choice_item or choice_item.action == "back":
@@ -734,111 +817,107 @@ def _show_ai_config_submenu(prompts: PromptsRenderer, text: TextRenderer, config
 
 def _handle_run_workflow_action(config: TitanConfig, text: TextRenderer, spacer: SpacerRenderer, prompts: PromptsRenderer):
     """Handle the 'run workflow' menu action."""
-    text.title("Run a Workflow")
-    spacer.line()
-
-    # Reload config to ensure latest changes (e.g., GitHub repo settings) are picked up
-    config.load()
-    available_workflows = config.workflows.discover()
-    if not available_workflows:
-        text.info("No workflows found.")
+    while True:
+        text.title("Run a Workflow")
         spacer.line()
-        prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
-        return
 
-    workflow_menu_builder = DynamicMenu(title="Select a workflow to run", emoji="⚡")
-    workflow_cat_idx = workflow_menu_builder.add_category("Available Workflows")
-    for wf_info in available_workflows:
-        workflow_cat_idx.add_item(wf_info.name, f"({wf_info.source}) {wf_info.description}", wf_info.name)
-    workflow_menu_builder.add_category("Cancel").add_item("Back to Main Menu", "Return without running a workflow.", "cancel")
+        # Reload config to ensure latest changes are picked up
+        config.load()
+        available_workflows = config.workflows.discover()
+        if not available_workflows:
+            text.info("No workflows found.")
+            spacer.line()
+            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+            return
 
-    workflow_menu = workflow_menu_builder.to_menu()
+        workflow_menu_builder = DynamicMenu(title="Select a workflow to run", emoji="⚡")
+        workflow_cat_idx = workflow_menu_builder.add_category("Available Workflows")
+        for wf_info in available_workflows:
+            workflow_cat_idx.add_item(wf_info.name, f"({wf_info.source}) {wf_info.description}", wf_info.name)
+        workflow_menu_builder.add_category("Cancel").add_item("Back to Main Menu", "Return without running a workflow.", "cancel")
 
-    try:
-        chosen_workflow_item = prompts.ask_menu(workflow_menu, allow_quit=False)
-    except (KeyboardInterrupt, EOFError):
-        chosen_workflow_item = None
-
-    spacer.line()
-
-    if chosen_workflow_item and chosen_workflow_item.action != "cancel":
-        selected_workflow_name = chosen_workflow_item.action
-        original_cwd = os.getcwd() # Moved assignment before the try block
+        workflow_menu = workflow_menu_builder.to_menu()
 
         try:
-            parsed_workflow = config.workflows.get_workflow(selected_workflow_name)
-            if not parsed_workflow:
-                text.error(f"Failed to load workflow '{selected_workflow_name}'.")
-                spacer.line()
-                prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
-                return
+            chosen_workflow_item = prompts.ask_menu(workflow_menu, allow_quit=False)
+        except (KeyboardInterrupt, EOFError):
+            chosen_workflow_item = None
 
-            # Show workflow info panel and ask for confirmation
-            panel = PanelRenderer()
-            if not _show_workflow_info_panel(parsed_workflow, panel, spacer, prompts):
-                spacer.line()
-                prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
-                return
+        spacer.line()
 
-            spacer.line()
-            text.info("✨ Executing workflow...")
-            spacer.small()
-
-            # Change to active project directory for workflow execution
-            if config.active_project_path:
-                os.chdir(config.active_project_path)
-                text.body(f"Working directory: {config.active_project_path}", style="dim")
-                spacer.small()
-
-            # Build execution context
-            secrets = SecretManager(project_path=config.active_project_path or config.project_root)
-
-            ui = UIComponents(
-                text=text,
-                panel=panel,
-                table=TableRenderer(),
-                spacer=spacer
-            )
-
-            ctx_builder = WorkflowContextBuilder(
-                plugin_registry=config.registry,
-                secrets=secrets,
-                ai_config=config.config.ai
-            )
-            ctx_builder.with_ui(ui=ui)
-            ctx_builder.with_ai()  # Initialize AI client
-
-            # Add registered plugins to context
-            for plugin_name in config.registry.list_installed():
-                plugin = config.registry.get_plugin(plugin_name)
-                if plugin:
-                    client = plugin.get_client()
-                    if hasattr(ctx_builder, f"with_{plugin_name}"):
-                        getattr(ctx_builder, f"with_{plugin_name}")(client)
-
-            execution_context = ctx_builder.build()
-            executor = WorkflowExecutor(config.registry, config.workflows)
+        if chosen_workflow_item and chosen_workflow_item.action != "cancel":
+            selected_workflow_name = chosen_workflow_item.action
+            original_cwd = os.getcwd()
 
             try:
-                # Execute workflow (steps handle their own UI)
+                parsed_workflow = config.workflows.get_workflow(selected_workflow_name)
+                if not parsed_workflow:
+                    text.error(f"Failed to load workflow '{selected_workflow_name}'.")
+                    continue # Loop back to menu
+
+                # Show workflow info panel and ask for confirmation
+                if not _show_workflow_info_panel(parsed_workflow, PanelRenderer(), spacer, prompts):
+                    continue # Loop back to menu if user cancels
+
+                spacer.line()
+                text.info("✨ Executing workflow...")
+                spacer.small()
+
+                if config.active_project_path:
+                    os.chdir(config.active_project_path)
+                    text.body(f"Working directory: {config.active_project_path}", style="dim")
+                    spacer.small()
+
+                secrets = SecretManager(project_path=config.active_project_path or config.project_root)
+                
+                ui_components = UIComponents(
+                    text=text,
+                    panel=PanelRenderer(),
+                    table=TableRenderer(),
+                    spacer=spacer
+                )
+                
+                ctx_builder = WorkflowContextBuilder(
+                    plugin_registry=config.registry,
+                    secrets=secrets,
+                    ai_config=config.config.ai
+                )
+                ctx_builder.with_ui(ui=ui_components)
+                ctx_builder.with_ai()
+                
+                # Add registered plugins to context
+                for plugin_name in config.registry.list_installed():
+                    plugin = config.registry.get_plugin(plugin_name)
+                    if plugin and hasattr(ctx_builder, f"with_{plugin_name}"):
+                        try:
+                            client = plugin.get_client()
+                            getattr(ctx_builder, f"with_{plugin_name}")(client)
+                        except Exception:
+                            # Plugin client initialization failed (e.g., missing credentials).
+                            # This is acceptable - workflow steps using this plugin will
+                            # fail gracefully with a clear error message when they try to access it.
+                            # We don't stop execution here to allow workflows that don't need
+                            # this plugin to run successfully.
+                            pass
+
+                execution_context = ctx_builder.build()
+                executor = WorkflowExecutor(config.registry, config.workflows)
+
                 executor.execute(parsed_workflow, execution_context)
+
+            except (WorkflowNotFoundError, WorkflowExecutionError) as e:
+                text.error(str(e))
+            except Exception as e:
+                text.error(f"An unexpected error occurred: {type(e).__name__} - {e}")
             finally:
-                # Always restore original working directory
-                os.chdir(original_cwd)
+                os.chdir(original_cwd) # Always restore
 
-        except (WorkflowNotFoundError, WorkflowExecutionError) as e:
-            text.error(str(e))
-            # Restore directory on error too
-            if config.active_project_path:
-                os.chdir(original_cwd)
-        except Exception as e:
-            text.error(f"An unexpected error occurred: {type(e).__name__} - {e}")
-            # Restore directory on error too
-            if config.active_project_path:
-                os.chdir(original_cwd)
-
-    spacer.line()
-    prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+            spacer.line()
+            text.info("Workflow execution finished. Returning to workflow list...")
+            spacer.line()
+        else:
+            # User chose to cancel or exited prompt
+            break
 
 
 def _show_workflow_info_panel(workflow, panel: PanelRenderer, spacer: SpacerRenderer, prompts: PromptsRenderer) -> bool:
@@ -854,24 +933,76 @@ def _show_workflow_info_panel(workflow, panel: PanelRenderer, spacer: SpacerRend
     Returns:
         bool: True if user wants to execute, False to cancel
     """
-    # Build list of steps
+    # Build visually enhanced list of steps
     steps_list_parts = []
+
     for i, step in enumerate(workflow.steps):
-        step_name = step.get("name") or step.get("id")
-        if not step_name:
-            step_name = f"Hook: {step.get('hook')}" if step.get('hook') else "unnamed"
-        steps_list_parts.append(f"  {i+1}. {step_name}")
+        step_id = step.get("id", "")
+        step_name = step.get("name") or step_id
+
+        # Determine step type and icon
+        if step.get("hook"):
+            # Hook injection point
+            icon = "⚡"
+            step_type = f"[dim]hook:[/dim] {step.get('hook')}"
+            step_display = f"{icon} {step_type}"
+        elif step.get("workflow"):
+            # Nested workflow
+            icon = "🔄"
+            workflow_name = step.get("workflow")
+            step_type = f"[cyan]workflow:[/cyan] {workflow_name}"
+            step_display = f"{icon} {step_name}\n      [dim]{step_type}[/dim]"
+        elif step.get("plugin") and step.get("step"):
+            # Plugin step
+            icon = "🔧"
+            plugin = step.get("plugin")
+            plugin_step = step.get("step")
+            step_type = f"[blue]{plugin}[/blue].[dim]{plugin_step}[/dim]"
+            step_display = f"{icon} {step_name}\n      [dim]{step_type}[/dim]"
+        elif step.get("command"):
+            # Command step
+            icon = "💻"
+            command = step.get("command")
+            # Truncate long commands
+            command_preview = command[:50] + "..." if len(command) > 50 else command
+            step_display = f"{icon} {step_name}\n      [dim]$ {command_preview}[/dim]"
+        else:
+            # Unknown/fallback
+            icon = "❓"
+            step_display = f"{icon} {step_name}"
+
+        # Add step number and content
+        steps_list_parts.append(f"  [bold]{i+1}.[/bold] {step_display}")
+
     steps_list = "\n".join(steps_list_parts)
 
     # Use only the first line of the description
     description = workflow.description.split('\n')[0] if workflow.description else ""
 
-    content = f"{description}\n\nSteps:\n{steps_list}"
+    # Build metadata section
+    metadata_parts = []
+    if workflow.source:
+        metadata_parts.append(f"[dim]Source:[/dim] {workflow.source}")
+    if workflow.params:
+        param_count = len(workflow.params)
+        metadata_parts.append(f"[dim]Parameters:[/dim] {param_count} configured")
+
+    metadata = "\n".join(metadata_parts) if metadata_parts else ""
+
+    # Compose final content
+    content_parts = []
+    if description:
+        content_parts.append(description)
+    if metadata:
+        content_parts.append(f"\n{metadata}")
+    content_parts.append(f"\n[bold]Steps:[/bold]\n{steps_list}")
+
+    content = "\n".join(content_parts)
 
     panel.print(
         content,
         panel_type="info",
-        title=f"Workflow: {workflow.name}"
+        title=f"📋 Workflow: {workflow.name}"
     )
     spacer.small()
 
@@ -888,8 +1019,8 @@ def show_interactive_menu():
     The menu loops after each action until the user chooses to exit.
     """
     text = TextRenderer()
-    prompts = PromptsRenderer(text_renderer=text)
     spacer = SpacerRenderer()
+    table = TableRenderer()
 
     # This is the entry point for interactive mode.
     # We create a single PluginRegistry that will be passed to the config.
@@ -898,6 +1029,44 @@ def show_interactive_menu():
 
     # Initial config load
     config = TitanConfig(registry=plugin_registry)
+
+    # Get status bar info from config
+    status_bar_info = config.get_status_bar_info()
+
+    # Try to get git status
+    git_status = None
+    try:
+        git_plugin = config.registry.get_plugin("git")
+        if git_plugin and git_plugin.is_available():
+            git_client = git_plugin.get_client()
+            git_status = git_client.get_status()
+    except Exception:
+        # Git not available or not a repository, that's fine
+        pass
+
+    # Create status bar renderer
+    status_bar = StatusBarRenderer(
+        table_renderer=table,
+        text_renderer=text,
+        git_status=git_status,
+        ai_info=status_bar_info.get('ai_info'),
+        project_name=status_bar_info.get('project_name'),
+    )
+
+    # Create menu renderer with status bar
+    menu_renderer = MenuRenderer(
+        console=text.console,
+        text_renderer=text,
+        status_bar_renderer=status_bar,
+    )
+
+    # Create prompts renderer with the menu renderer
+    prompts = PromptsRenderer(
+        text_renderer=text, 
+        menu_renderer=menu_renderer,
+        status_bar_renderer=status_bar,
+        table_renderer=table
+    )
 
     # Check for project_root and prompt if not set (only runs once)
     project_root = config.get_project_root()
@@ -914,8 +1083,27 @@ def show_interactive_menu():
         config.load()
         cli_version = get_version()
 
+        # Update status bar info
+        status_bar_info = config.get_status_bar_info()
+
+        # Update git status
+        try:
+            git_plugin = config.registry.get_plugin("git")
+            if git_plugin and git_plugin.is_available():
+                git_client = git_plugin.get_client()
+                git_status = git_client.get_status()
+            else:
+                git_status = None
+        except Exception:
+            git_status = None
+
+        # Update status bar with new info
+        status_bar.git_status = git_status
+        status_bar.ai_info = status_bar_info.get('ai_info') or "N/A"
+        status_bar.project_name = status_bar_info.get('project_name') or "N/A"
+
         # Get active project and append to subtitle if available
-        active_project = config.get_active_project()
+        active_project = config.get_project_name()
         subtitle = f"Development Tools Orchestrator v{cli_version}"
         if active_project:
             subtitle += f" | 📂 {active_project}"
@@ -925,7 +1113,7 @@ def show_interactive_menu():
         
         # Build and show the main menu
         menu_builder = DynamicMenu(title=msg.Interactive.MAIN_MENU_TITLE, emoji="🚀")
-        menu_builder.add_top_level_item("Launch Claude Code", "Open an interactive session with Claude Code CLI.", "code")
+        menu_builder.add_top_level_item("Launch External CLI", "Open an interactive session with an external CLI.", "cli")
         menu_builder.add_top_level_item("Project Management", "List, configure, or initialize projects.", "projects")
 
         # Only show Workflows if there are enabled plugins
@@ -952,10 +1140,8 @@ def show_interactive_menu():
         if choice_item:
             choice_action = choice_item.action
 
-        if choice_action == "code":
-            launch_code(prompt=None)
-            spacer.line()
-            prompts.ask_confirm(msg.Interactive.RETURN_TO_MENU_PROMPT_CONFIRM, default=True)
+        if choice_action == "cli":
+            _show_cli_submenu(prompts, text)
 
         elif choice_action == "projects":
             _show_projects_submenu(prompts, text, config)
@@ -983,7 +1169,9 @@ def show_interactive_menu():
 def main(ctx: typer.Context):
     """Titan CLI - Main entry point"""
     if ctx.invoked_subcommand is None:
-        show_interactive_menu()
+        # Launch TUI by default
+        from titan_cli.ui.tui import launch_tui
+        launch_tui()
 
 
 @app.command()
@@ -991,3 +1179,17 @@ def version():
     """Show Titan CLI version."""
     cli_version = get_version()
     typer.echo(msg.CLI.VERSION.format(version=cli_version))
+
+
+@app.command()
+def tui():
+    """Launch Titan in TUI mode (Textual interface)."""
+    from titan_cli.ui.tui import launch_tui
+    launch_tui()
+
+
+@app.command()
+def menu():
+    """Launch the legacy interactive menu (Rich-based)."""
+    show_interactive_menu()
+    

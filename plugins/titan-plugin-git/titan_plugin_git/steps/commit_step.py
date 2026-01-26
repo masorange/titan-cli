@@ -3,6 +3,7 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.engine.results import Skip
 from titan_plugin_git.exceptions import GitClientError, GitCommandError
 from titan_plugin_git.messages import msg
+from titan_cli.ui.tui.widgets import Panel
 
 
 def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -27,19 +28,18 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If the GitClient is not available, or the commit operation fails.
         Skip: If there are no changes to commit or a commit was already created.
     """
-    # Show step header
-    if ctx.views:
-        ctx.views.step_header("create_commit", ctx.current_step, ctx.total_steps)
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     # Skip if there's nothing to commit
     git_status = ctx.data.get("git_status")
     if git_status and git_status.is_clean:
-        if ctx.ui:
-            ctx.ui.panel.print(
-                msg.Steps.Commit.WORKING_DIRECTORY_CLEAN,
+        ctx.textual.mount(
+            Panel(
+                text=msg.Steps.Commit.WORKING_DIRECTORY_CLEAN,
                 panel_type="info"
             )
-            ctx.ui.spacer.small()
+        )
         return Skip(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
 
     if not ctx.git:
@@ -47,12 +47,12 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
 
     commit_message = ctx.get('commit_message')
     if not commit_message:
-        if ctx.ui:
-            ctx.ui.panel.print(
-                msg.Steps.Commit.NO_COMMIT_MESSAGE,
+        ctx.textual.mount(
+            Panel(
+                text=msg.Steps.Commit.NO_COMMIT_MESSAGE,
                 panel_type="info"
             )
-            ctx.ui.spacer.small()
+        )
         return Skip(msg.Steps.Commit.NO_COMMIT_MESSAGE)
         
     all_files = ctx.get('all_files', True)
@@ -61,12 +61,12 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
         commit_hash = ctx.git.commit(message=commit_message, all=all_files)
 
         # Show success panel
-        if ctx.ui:
-            ctx.ui.panel.print(
-                f"Commit created: {commit_hash[:7]}",
+        ctx.textual.mount(
+            Panel(
+                text=f"Commit created: {commit_hash[:7]}",
                 panel_type="success"
             )
-            ctx.ui.spacer.small()
+        )
 
         return Success(
             message=msg.Steps.Commit.COMMIT_SUCCESS.format(commit_hash=commit_hash),
