@@ -44,18 +44,6 @@ class WorkflowExecutor:
         ctx.workflow_name = workflow.name
         ctx.total_steps = len([s for s in workflow.steps if not s.get("hook")])
 
-        if ctx.ui:
-            # Show workflow banner
-            ctx.ui.spacer.line()
-            ctx.ui.text.styled_text(("═" * 60, "bold cyan"))
-            ctx.ui.text.styled_text((f"  🚀 {workflow.name}", "bold cyan"))
-            if workflow.description:
-                ctx.ui.text.styled_text((f"  {workflow.description}", "dim"))
-            if workflow.source:
-                ctx.ui.text.styled_text((f"  Source: {workflow.source}", "dim italic"))
-            ctx.ui.text.styled_text(("═" * 60, "bold cyan"))
-            ctx.ui.spacer.small()
-
         ctx.enter_workflow(workflow.name)
         try:
             step_index = 0
@@ -88,33 +76,9 @@ class WorkflowExecutor:
 
                 # Handle step result
                 if is_error(step_result):
-                    if ctx.ui:
-                        # Show error panel for the failed step
-                        ctx.ui.spacer.small()
-                        ctx.ui.panel.print(
-                            f"Step failed: {step_result.message}",
-                            panel_type="error",
-                            title=f"❌ {step_name}"
-                        )
-                        ctx.ui.spacer.small()
-
                     if step_config.on_error == "fail":
-                        if ctx.ui:
-                            # Show workflow failure banner
-                            ctx.ui.spacer.small()
-                            ctx.ui.text.styled_text(("═" * 60, "bold red"))
-                            ctx.ui.text.styled_text((f"  ❌ Workflow Failed: {workflow.name}", "bold red"))
-                            ctx.ui.text.styled_text((f"  Failed at step: {step_name}", "red"))
-                            if step_result.message:
-                                ctx.ui.text.styled_text((f"  Error: {step_result.message}", "dim"))
-                            ctx.ui.text.styled_text(("═" * 60, "bold red"))
-                            ctx.ui.spacer.line()
                         return Error(f"Workflow failed at step '{step_name}'", step_result.exception)
-                    else:
-                        # on_error == "continue" - show warning but continue
-                        if ctx.ui:
-                            ctx.ui.text.styled_text(("  ⚠️  Continuing despite error (on_error: continue)", "yellow"))
-                            ctx.ui.spacer.small()
+                    # else: on_error == "continue" - continue to next step
                 elif is_skip(step_result):
                     if step_result.metadata:
                         ctx.data.update(step_result.metadata)
@@ -125,12 +89,6 @@ class WorkflowExecutor:
         finally:
             ctx.exit_workflow(workflow.name)
 
-        if ctx.ui:
-            ctx.ui.spacer.small()
-            ctx.ui.text.styled_text(("═" * 60, "bold green"))
-            ctx.ui.text.styled_text((f"  ✅ Workflow Completed: {workflow.name}", "bold green"))
-            ctx.ui.text.styled_text(("═" * 60, "bold green"))
-            ctx.ui.spacer.line()
         return Success(f"Workflow '{workflow.name}' finished.", {})
 
     def _execute_workflow_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
@@ -145,11 +103,6 @@ class WorkflowExecutor:
                 return Error(f"Nested workflow '{workflow_name}' not found.")
         except Exception as e:
             return Error(f"Failed to load workflow '{workflow_name}': {e}", e)
-
-        if ctx.ui:
-            # Add indentation based on workflow nesting depth
-            indent = "  " * len(ctx._workflow_stack)
-            ctx.ui.text.info(f"{indent}→ Running nested workflow: {sub_workflow.name}")
 
         # We recursively call the main execute method.
         # Pass a copy of the context data to isolate it if needed, but for now, we share it.

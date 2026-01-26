@@ -13,7 +13,6 @@ packages = [{include = "titan_cli"}]
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0.0"
 typer = ">=0.20.0,<1.0.0"
-rich = ">=14.2.0,<15.0.0"
 tomli = ">=2.0.0,<3.0.0"
 pydantic = ">=2.0.0,<3.0.0"
 "tomli-w" = ">=1.0.0,<2.0.0"
