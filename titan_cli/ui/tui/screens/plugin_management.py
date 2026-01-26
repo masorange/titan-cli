@@ -99,20 +99,15 @@ class PluginManagementScreen(BaseScreen):
         width: 100%;
     }
 
-    #details-content Text,
-    #spacer-1, #spacer-2, #spacer-3, #spacer-4, #spacer-5, #spacer-6 {
+    #details-content Text {
         height: 1;
     }
 
-    #config-values {
-        height: auto;
+    #details-content > * {
+        margin: 0;
     }
 
-    #config-values DimText {
-        height: auto;
-    }
-
-    #button-container {
+    .button-container {
         height: auto;
         min-height: 5;
         width: 100%;
@@ -122,7 +117,7 @@ class PluginManagementScreen(BaseScreen):
         align: right middle;
     }
 
-    #button-container Button {
+    .button-container Button {
         margin-left: 1;
     }
     """
@@ -151,29 +146,7 @@ class PluginManagementScreen(BaseScreen):
                 right_panel.border_title = "Plugin Details"
                 with right_panel:
                     with VerticalScroll(id="plugin-details"):
-                        with Container(id="details-content"):
-                            yield BoldPrimaryText("", id="plugin-name")
-                            yield Horizontal(id="status-row")
-                            yield Text("", id="spacer-1")
-                            yield BoldText("", id="description-title")
-                            yield DimText("", id="description-text")
-                            yield Text("", id="spacer-2")
-                            yield Horizontal(id="version-row")
-                            yield Text("", id="spacer-3")
-                            yield DimText("", id="config-support")
-                            yield Text("", id="spacer-4")
-                            yield BoldText("", id="config-title")
-                            yield Container(id="config-values")
-                            yield Text("", id="spacer-5")
-                            yield BoldText("", id="actions-title")
-                            yield DimText("", id="action-1")
-                            yield DimText("", id="action-2")
-                            yield Text("", id="spacer-6")
-                            yield Horizontal(
-                                Button("Enable/Disable", variant="default", id="toggle-button"),
-                                Button("Configure", variant="primary", id="configure-button"),
-                                id="button-container"
-                            )
+                        yield Container(id="details-content")
 
 
     def on_mount(self) -> None:
@@ -221,30 +194,11 @@ class PluginManagementScreen(BaseScreen):
 
     def _show_no_plugin_selected(self) -> None:
         """Display message when no plugin is selected."""
-        # Hide all widgets
-        self.query_one("#plugin-name").update("No plugins installed.")
-        self.query_one("#status-row").display = False
-        self.query_one("#spacer-1").display = False
-        self.query_one("#description-title").display = False
-        self.query_one("#description-text").update("Plugins are automatically discovered from installed packages.")
-        self.query_one("#description-text").display = True
-        self.query_one("#spacer-2").display = False
-        self.query_one("#version-row").display = False
-        self.query_one("#spacer-3").display = False
-        self.query_one("#config-support").display = False
-        self.query_one("#spacer-4").display = False
-        self.query_one("#config-title").display = False
-        self.query_one("#config-values").display = False
-        self.query_one("#spacer-5").display = False
-        self.query_one("#actions-title").display = False
-        self.query_one("#action-1").display = False
-        self.query_one("#action-2").display = False
-        self.query_one("#spacer-6").display = False
-        self.query_one("#button-container").display = False
+        details = self.query_one("#details-content", Container)
+        details.remove_children()
 
-        # Disable buttons
-        self.query_one("#toggle-button", Button).disabled = True
-        self.query_one("#configure-button", Button).disabled = True
+        details.mount(DimText("No plugins installed."))
+        details.mount(DimText("Plugins are automatically discovered from installed packages."))
 
     def _show_plugin_details(self, plugin_name: str) -> None:
         """Display details for the selected plugin."""
@@ -252,51 +206,38 @@ class PluginManagementScreen(BaseScreen):
             self._show_no_plugin_selected()
             return
 
-        # Enable buttons
-        self.query_one("#toggle-button", Button).disabled = False
-        self.query_one("#configure-button", Button).disabled = False
-
         # Get plugin info
         is_enabled = self.config.is_plugin_enabled(plugin_name)
         plugin = self.config.registry._plugins.get(plugin_name)
 
+        # Clear and rebuild details
+        details = self.query_one("#details-content", Container)
+        details.remove_children()
+
         # Plugin name
-        self.query_one("#plugin-name").update(plugin_name)
-        self.query_one("#plugin-name").display = True
+        details.mount(BoldPrimaryText(plugin_name))
 
         # Status
-        status_row = self.query_one("#status-row", Horizontal)
-        status_row.remove_children()
-        status_row.mount(BoldText("Status: "))
+        status_container = Horizontal()
+        details.mount(status_container)
+        status_container.mount(BoldText("Status: "))
         if is_enabled:
-            status_row.mount(SuccessText("Enabled"))
+            status_container.mount(SuccessText("Enabled"))
         else:
-            status_row.mount(ErrorText("Disabled"))
-        status_row.display = True
+            status_container.mount(ErrorText("Disabled"))
 
-        # Description
-        if plugin and hasattr(plugin, '__doc__') and plugin.__doc__:
-            self.query_one("#spacer-1").display = True
-            self.query_one("#description-title").update("Description:")
-            self.query_one("#description-title").display = True
-            self.query_one("#description-text").update(plugin.__doc__.strip())
-            self.query_one("#description-text").display = True
-        else:
-            self.query_one("#spacer-1").display = False
-            self.query_one("#description-title").display = False
-            self.query_one("#description-text").display = False
+        # Plugin metadata
+        if plugin:
+            if hasattr(plugin, '__doc__') and plugin.__doc__:
+                details.mount(Text(""))  # Spacer
+                details.mount(BoldText("Description:"))
+                details.mount(DimText(plugin.__doc__.strip()))
 
-        # Version
-        if plugin and hasattr(plugin, 'version'):
-            self.query_one("#spacer-2").display = True
-            version_row = self.query_one("#version-row", Horizontal)
-            version_row.remove_children()
-            version_row.mount(BoldText("Version: "))
-            version_row.mount(Text(plugin.version))
-            version_row.display = True
-        else:
-            self.query_one("#spacer-2").display = False
-            self.query_one("#version-row").display = False
+            if hasattr(plugin, 'version'):
+                version_container = Horizontal()
+                details.mount(version_container)
+                version_container.mount(BoldText("Version: "))
+                version_container.mount(Text(plugin.version))
 
         # Check if plugin has configuration schema
         has_config = False
@@ -308,53 +249,40 @@ class PluginManagementScreen(BaseScreen):
             except Exception:
                 pass
 
-        self.query_one("#spacer-3").display = True
+        details.mount(Text(""))  # Spacer
         if has_config:
-            self.query_one("#config-support").update("✓ This plugin supports configuration")
+            details.mount(DimText("✓ This plugin supports configuration"))
         else:
-            self.query_one("#config-support").update("✗ This plugin has no configuration options")
-        self.query_one("#config-support").display = True
+            details.mount(DimText("✗ This plugin has no configuration options"))
 
         # Show current configuration if enabled
-        config_values = self.query_one("#config-values", Container)
-        config_values.remove_children()
-
         if is_enabled and self.config.config and self.config.config.plugins:
             plugin_cfg = self.config.config.plugins.get(plugin_name)
             if plugin_cfg and plugin_cfg.config:
-                self.query_one("#spacer-4").display = True
-                self.query_one("#config-title").update("Current Configuration:")
-                self.query_one("#config-title").display = True
-
+                details.mount(Text(""))  # Spacer
+                details.mount(BoldText("Current Configuration:"))
                 for key, value in plugin_cfg.config.items():
                     # Don't show secrets
                     if any(secret in key.lower() for secret in ['token', 'password', 'secret', 'api_key']):
-                        config_values.mount(DimText(f"  {key}: ••••••••"))
+                        details.mount(DimText(f"  {key}: ••••••••"))
                     else:
-                        config_values.mount(DimText(f"  {key}: {value}"))
-                config_values.display = True
-            else:
-                self.query_one("#spacer-4").display = False
-                self.query_one("#config-title").display = False
-                config_values.display = False
-        else:
-            self.query_one("#spacer-4").display = False
-            self.query_one("#config-title").display = False
-            config_values.display = False
+                        details.mount(DimText(f"  {key}: {value}"))
 
         # Actions
-        self.query_one("#spacer-5").display = True
-        self.query_one("#actions-title").update("Actions:")
-        self.query_one("#actions-title").display = True
+        details.mount(Text(""))  # Spacer
+        details.mount(BoldText("Actions:"))
         action_verb = "disable" if is_enabled else "enable"
-        self.query_one("#action-1").update(f"  Press e to {action_verb} this plugin")
-        self.query_one("#action-1").display = True
-        self.query_one("#action-2").update("  Press c to configure this plugin")
-        self.query_one("#action-2").display = True
+        details.mount(DimText(f"  Press e to {action_verb} this plugin"))
+        details.mount(DimText("  Press c to configure this plugin"))
 
         # Buttons
-        self.query_one("#spacer-6").display = True
-        self.query_one("#button-container").display = True
+        details.mount(Text(""))  # Spacer
+        button_container = Horizontal(
+            Button("Enable/Disable", variant="default", id="toggle-button"),
+            Button("Configure", variant="primary", id="configure-button"),
+            classes="button-container"
+        )
+        details.mount(button_container)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
