@@ -1,25 +1,25 @@
-# Guía de Instalación y Uso - Titan CLI
+# Installation and Usage Guide - Titan CLI
 
-**Versión**: v0.1.0
-**Fecha**: 2026-01-20
+**Version**: v0.1.0
+**Date**: 2026-01-20
 
 ---
 
-## ✅ Instalación Completada
+## Installation Completed
 
-Titan CLI ya está instalado globalmente con pipx y puede ejecutarse desde cualquier directorio.
+Titan CLI is already installed globally with pipx and can be executed from any directory.
 
-### Ubicaciones:
+### Locations:
 
 ```bash
-# Comando titan
+# Titan command
 which titan
 # → /Users/rpedraza/.local/bin/titan
 
-# Entorno virtual de pipx
+# Pipx virtual environment
 ~/.local/pipx/venvs/titan-cli/
 
-# Plugins instalados
+# Installed plugins
 ~/.local/pipx/venvs/titan-cli/lib/python3.13/site-packages/
 ├── titan_plugin_git/
 ├── titan_plugin_github/
@@ -28,77 +28,77 @@ which titan
 
 ---
 
-## 🚀 Cómo Usar Titan CLI
+## How to Use Titan CLI
 
-### Modelo Basado en Proyectos
+### Project-Based Model
 
-**IMPORTANTE**: Titan CLI ahora funciona con un modelo basado en proyectos. Debes ejecutarlo **desde el directorio del proyecto**:
+**IMPORTANT**: Titan CLI now works with a project-based model. You must execute it **from within the project directory**:
 
 ```bash
-# ✅ CORRECTO
+# CORRECT
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
-titan  # Lanza el TUI
+titan  # Launches the TUI
 
-# ❌ INCORRECTO
+# INCORRECT
 cd /Users/rpedraza/Documents/MasMovil/titan-cli
-titan  # No encontrará los workflows del proyecto
+titan  # Won't find project workflows
 ```
 
-### Comandos Principales
+### Main Commands
 
-#### 1. **Lanzar el TUI (Textual Interface)**
+#### 1. **Launch TUI (Textual Interface)**
 
 ```bash
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
-titan  # O titan tui
+titan  # Or titan tui
 ```
 
-**Qué hace**:
-- Muestra menú interactivo con todas las opciones
-- Permite ejecutar workflows
-- Configurar plugins
-- Gestionar AI providers
+**What it does**:
+- Shows interactive menu with all options
+- Allows workflow execution
+- Plugin configuration
+- AI provider management
 
-#### 2. **Ejecutar Workflow (desde TUI)**
+#### 2. **Execute Workflow (from TUI)**
 
 ```bash
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
-titan  # Abre TUI
-# Navegar con flechas → Seleccionar "Workflows" → "release-notes-ios"
+titan  # Opens TUI
+# Navigate with arrows → Select "Workflows" → "release-notes-ios"
 ```
 
-#### 3. **Modo Legacy (Rich Menu)**
+#### 3. **Legacy Mode (Rich Menu)**
 
 ```bash
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 titan menu
 ```
 
-**Nota**: El modo legacy todavía usa el sistema antiguo de configuración.
+**Note**: Legacy mode still uses the old configuration system.
 
-#### 4. **Comandos de Configuración**
+#### 4. **Configuration Commands**
 
 ```bash
-# Ver versión
+# View version
 titan version
 
-# Configurar AI providers
+# Configure AI providers
 titan ai
 
-# Gestionar plugins
+# Manage plugins
 titan plugins
 
-# Inicializar configuración global
+# Initialize global configuration
 titan init
 ```
 
 ---
 
-## 📁 Estructura de Configuración
+## Configuration Structure
 
 ### Global Config (`~/.titan/config.toml`)
 
-**Solo almacena configuración de AI providers** (compartida entre proyectos):
+**Only stores AI provider configuration** (shared across projects):
 
 ```toml
 [ai.providers.default]
@@ -111,9 +111,9 @@ model = "claude-sonnet-4-5"
 default = "default"
 ```
 
-### Project Config (`.titan/config.toml` en cada proyecto)
+### Project Config (`.titan/config.toml` in each project)
 
-**Configuración específica del proyecto** (plugins, JIRA, GitHub):
+**Project-specific configuration** (plugins, JIRA, GitHub):
 
 ```toml
 # ragnarok-ios/.titan/config.toml
@@ -142,7 +142,7 @@ protected_branches = ["develop"]
 
 ### Project Workflows (`.titan/workflows/*.yaml`)
 
-**Workflows específicos del proyecto**:
+**Project-specific workflows**:
 
 ```yaml
 # ragnarok-ios/.titan/workflows/release-notes-ios.yaml
@@ -163,194 +163,194 @@ steps:
 
 ---
 
-## 🎯 Ejemplo Completo: Generar Release Notes
+## Complete Example: Generate Release Notes
 
-### Para Ragnarok iOS
+### For Ragnarok iOS
 
 ```bash
-# 1. Ir al proyecto
+# 1. Navigate to project
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 
-# 2. Verificar que existe la configuración
+# 2. Verify configuration exists
 ls -la .titan/config.toml
 ls -la .titan/workflows/release-notes-ios.yaml
 
-# 3. Lanzar Titan
+# 3. Launch Titan
 titan
 
-# 4. En el TUI:
-#    - Navegar con ↑↓ a "Workflows"
-#    - Presionar Enter
-#    - Seleccionar "release-notes-ios"
-#    - Presionar Enter
-#    - Seguir las instrucciones en pantalla
+# 4. In the TUI:
+#    - Navigate with ↑↓ to "Workflows"
+#    - Press Enter
+#    - Select "release-notes-ios"
+#    - Press Enter
+#    - Follow on-screen instructions
 
-# 5. El workflow:
-#    - Listará versiones de JIRA
-#    - Pedirá seleccionar versión (ej: 26.4.0)
-#    - Creará branch: release-notes/26.4.0
-#    - Consultará issues de JIRA
-#    - Generará release notes con AI
-#    - Mostrará preview y pedirá confirmación
-#    - Creará archivo: ReleaseNotes/release-notes-26.4.0.md
-#    - Hará commit y push
-#    - Creará Pull Request
+# 5. The workflow will:
+#    - List JIRA versions
+#    - Prompt to select version (e.g., 26.4.0)
+#    - Create branch: release-notes/26.4.0
+#    - Query JIRA issues
+#    - Generate release notes with AI
+#    - Show preview and ask for confirmation
+#    - Create file: ReleaseNotes/release-notes-26.4.0.md
+#    - Commit and push
+#    - Create Pull Request
 ```
 
-### Para Ragnarok Android
+### For Ragnarok Android
 
 ```bash
-# 1. Ir al proyecto
+# 1. Navigate to project
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-android
 
-# 2. Lanzar Titan
+# 2. Launch Titan
 titan
 
-# 3. Ejecutar workflow "release-notes-android"
-#    - Crea archivo en: docs/release-notes/release-notes-26.4.0.md
+# 3. Execute "release-notes-android" workflow
+#    - Creates file at: docs/release-notes/release-notes-26.4.0.md
 ```
 
 ---
 
-## 🔄 Actualizar Titan CLI
+## Update Titan CLI
 
-Cuando hagas cambios en el código de titan-cli:
+When making changes to titan-cli code:
 
 ```bash
 cd /Users/rpedraza/Documents/MasMovil/titan-cli
 
-# Reinstalar titan-cli
+# Reinstall titan-cli
 pipx install --force .
 
-# Reinstalar plugins
+# Reinstall plugins
 pipx inject --force titan-cli \
   ./plugins/titan-plugin-git \
   ./plugins/titan-plugin-github \
   ./plugins/titan-plugin-jira
 
-# Verificar
+# Verify
 titan version
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "No workflows found"
 
-**Causa**: No estás en el directorio del proyecto o falta `.titan/workflows/`
+**Cause**: Not in project directory or missing `.titan/workflows/`
 
-**Solución**:
+**Solution**:
 ```bash
-# Verificar ubicación
+# Verify location
 pwd
-# Debe ser: /Users/rpedraza/Documents/MasMovil/ragnarok-ios
+# Should be: /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 
-# Verificar workflows
+# Verify workflows
 ls -la .titan/workflows/
 ```
 
 ### "Plugin not initialized"
 
-**Causa**: Falta configuración del plugin en `.titan/config.toml`
+**Cause**: Missing plugin configuration in `.titan/config.toml`
 
-**Solución**:
+**Solution**:
 ```bash
-# Verificar config
+# Verify config
 cat .titan/config.toml
 
-# Debe tener:
+# Should have:
 # [plugins.jira]
 # enabled = true
 ```
 
 ### "JIRA authentication failed"
 
-**Causa**: Falta JIRA_API_TOKEN
+**Cause**: Missing JIRA_API_TOKEN
 
-**Solución**:
+**Solution**:
 ```bash
-# Configurar token
-titan menu  # O titan ai
-# Seguir wizard de configuración
+# Configure token
+titan menu  # Or titan ai
+# Follow configuration wizard
 ```
 
 ### "Command not found: titan"
 
-**Causa**: PATH no incluye ~/.local/bin
+**Cause**: PATH doesn't include ~/.local/bin
 
-**Solución**:
+**Solution**:
 ```bash
-# Verificar PATH
-echo $PATH | grep -q ".local/bin" && echo "✅ OK" || echo "❌ Falta .local/bin"
+# Verify PATH
+echo $PATH | grep -q ".local/bin" && echo "OK" || echo "Missing .local/bin"
 
-# Agregar a PATH (si falta)
+# Add to PATH (if missing)
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
 ---
 
-## 📊 Comparación: Antes vs Ahora
+## Comparison: Before vs Now
 
-### Antes (versión antigua)
+### Before (old version)
 
 ```bash
-# Configuración global con active_project
+# Global config with active_project
 ~/.titan/config.toml:
   [core]
   project_root = "/Users/rpedraza/Documents/MasMovil"
   active_project = "ragnarok-ios"
 
-# Ejecutar desde cualquier lugar
+# Execute from anywhere
 cd /tmp
-titan workflow run release-notes-ios  # Funcionaba
+titan workflow run release-notes-ios  # Worked
 ```
 
-### Ahora (v0.2.0 - PR #110)
+### Now (v0.2.0 - PR #110)
 
 ```bash
-# Sin configuración global de proyectos
+# No global project configuration
 ~/.titan/config.toml:
   [ai.providers.default]
   provider = "anthropic"
 
-# Cada proyecto tiene su config
+# Each project has its own config
 ragnarok-ios/.titan/config.toml:
   [project]
   name = "ragnarok-ios"
 
-# DEBES estar en el proyecto
+# MUST be in the project
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
-titan  # ✅ Funciona
+titan  # Works
 
 cd /tmp
-titan  # ❌ No encuentra workflows
+titan  # Doesn't find workflows
 ```
 
 ---
 
-## 🎓 Recursos
+## Resources
 
-- **Documentación**: `/Users/rpedraza/Documents/MasMovil/titan-cli/CLAUDE.md`
-- **Ejemplos de workflows**: `/Users/rpedraza/Documents/MasMovil/titan-cli/examples/`
-- **Setup de proyectos**: `/Users/rpedraza/Documents/MasMovil/titan-cli/SETUP_RAGNAROK_PROJECTS.md`
-
----
-
-## ✅ Checklist de Verificación
-
-Antes de usar Titan en un proyecto:
-
-- [ ] Existe `.titan/config.toml` en el proyecto
-- [ ] Existe `.titan/workflows/*.yaml` en el proyecto
-- [ ] Plugins habilitados en `.titan/config.toml`
-- [ ] Secrets configurados (JIRA_API_TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY)
-- [ ] Estás en el directorio correcto (`pwd` muestra el proyecto)
-- [ ] `titan version` funciona
+- **Documentation**: `/Users/rpedraza/Documents/MasMovil/titan-cli/CLAUDE.md`
+- **Workflow Examples**: `/Users/rpedraza/Documents/MasMovil/titan-cli/examples/`
+- **Project Setup**: `/Users/rpedraza/Documents/MasMovil/titan-cli/SETUP_RAGNAROK_PROJECTS.md`
 
 ---
 
-**Actualizado**: 2026-01-20
-**Por**: Instalación con pipx
-**Versión de Titan**: v0.1.0
+## Verification Checklist
+
+Before using Titan in a project:
+
+- [ ] `.titan/config.toml` exists in the project
+- [ ] `.titan/workflows/*.yaml` exists in the project
+- [ ] Plugins enabled in `.titan/config.toml`
+- [ ] Secrets configured (JIRA_API_TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY)
+- [ ] You're in the correct directory (`pwd` shows the project)
+- [ ] `titan version` works
+
+---
+
+**Last updated**: 2026-01-20
+**By**: Pipx installation
+**Titan version**: v0.1.0

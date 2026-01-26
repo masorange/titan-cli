@@ -285,12 +285,12 @@ Return format (ONLY JSON, no markdown):
 
         # Show loading indicator while AI processes (if Textual UI is available)
         if ctx.textual:
-            with ctx.textual.loading("🤖 Generando descripciones con IA..."):
+            with ctx.textual.loading(msg.Steps.ReleaseNotes.GENERATING_AI_DESCRIPTIONS):
                 response = ctx.ai.generate(messages, max_tokens=2000)
         else:
             # Fallback for non-Textual UI (legacy Rich UI)
             if ctx.ui:
-                ctx.ui.text.info("🤖 Generando descripciones con IA...")
+                ctx.ui.text.info(msg.Steps.ReleaseNotes.GENERATING_AI_DESCRIPTIONS)
             response = ctx.ai.generate(messages, max_tokens=2000)
 
         # Parse JSON response

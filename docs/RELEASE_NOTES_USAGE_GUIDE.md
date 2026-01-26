@@ -1,97 +1,97 @@
-# Release Notes Workflow - Guía de Uso Paso a Paso
+# Release Notes Workflow - Step-by-Step Usage Guide
 
-Guía práctica para usar el workflow de release notes desde Titan CLI.
+Practical guide for using the release notes workflow from Titan CLI.
 
 ---
 
-## 🚀 Setup Inicial (Solo una vez por proyecto)
+## Initial Setup (Once per project)
 
-### Paso 1: Navegar al proyecto
+### Step 1: Navigate to project
 
 ```bash
-# Para iOS
+# For iOS
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 
-# O para Android
+# Or for Android
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-android
 ```
 
-### Paso 2: Copiar el workflow
+### Step 2: Copy the workflow
 
-**Opción A: Copiar manualmente**
+**Option A: Copy manually**
 
 ```bash
-# Crear directorio si no existe
+# Create directory if it doesn't exist
 mkdir -p .titan/workflows
 
-# Copiar template correspondiente
-# Para iOS:
+# Copy corresponding template
+# For iOS:
 cp /Users/rpedraza/Documents/MasMovil/titan-cli/examples/ragnarok-ios-release-notes-workflow.yaml \
    .titan/workflows/generate-release-notes.yaml
 
-# Para Android:
+# For Android:
 cp /Users/rpedraza/Documents/MasMovil/titan-cli/examples/ragnarok-android-release-notes-workflow.yaml \
    .titan/workflows/generate-release-notes.yaml
 ```
 
-**Opción B: Desde Titan CLI**
+**Option B: From Titan CLI**
 
 ```bash
-# Listar workflows disponibles en titan-cli
+# List available workflows in titan-cli
 titan workflow list
 
-# Copiar a proyecto local
+# Copy to local project
 titan workflow copy generate-release-notes-ios .titan/workflows/generate-release-notes.yaml
 ```
 
-### Paso 3: Encontrar el directorio de release notes
+### Step 3: Find the release notes directory
 
 ```bash
-# Buscar dónde están los archivos de release notes actuales
+# Search for current release notes files
 find . -name "release-notes-*.md" -o -name "ReleaseNotes*.md"
 
-# Ejemplo de output:
+# Example output:
 # ./docs/release-notes/ios/release-notes-26.3.0.md
 # ./docs/release-notes/ios/release-notes-26.2.0.md
 ```
 
-**Toma nota de la ruta del directorio** (ejemplo: `docs/release-notes/ios`)
+**Take note of the directory path** (example: `docs/release-notes/ios`)
 
-### Paso 4: Configurar el workflow
+### Step 4: Configure the workflow
 
 ```bash
-# Editar el workflow
+# Edit the workflow
 vim .titan/workflows/generate-release-notes.yaml
 
-# O con VS Code
+# Or with VS Code
 code .titan/workflows/generate-release-notes.yaml
 ```
 
-**Actualizar estos parámetros:**
+**Update these parameters:**
 
 ```yaml
 params:
-  project_key: "ECAPP"           # ✅ Ya configurado
-  platform: "iOS"                # ✅ Ya configurado (o "Android")
-  notes_directory: "docs/release-notes/ios"  # ⚠️ CAMBIAR AQUÍ
+  project_key: "ECAPP"           # Already configured
+  platform: "iOS"                # Already configured (or "Android")
+  notes_directory: "docs/release-notes/ios"  # CHANGE HERE
 ```
 
-**Reemplaza `docs/release-notes/ios` con la ruta que encontraste en el Paso 3.**
+**Replace `docs/release-notes/ios` with the path you found in Step 3.**
 
-### Paso 5: Verificar LatestPublishers.md (Solo iOS)
+### Step 5: Verify LatestPublishers.md (iOS Only)
 
 ```bash
-# Buscar el archivo
+# Find the file
 find . -name "LatestPublishers.md"
 
-# Ejemplo:
+# Example:
 # ./docs/LatestPublishers.md
 
-# Ver contenido
+# View content
 cat docs/LatestPublishers.md
 ```
 
-**Debe tener este formato:**
+**Must have this format:**
 
 ```markdown
 # Latest Publishers
@@ -99,17 +99,17 @@ cat docs/LatestPublishers.md
 | Publisher | Latest Version |
 |-----------|----------------|
 | Roberto Pedraza | [3 - 26.3.0]  |
-| Otro Usuario    | [2 - 26.2.0]  |
+| Other User      | [2 - 26.2.0]  |
 ```
 
-**Verificar que tu nombre de Git coincide:**
+**Verify your Git name matches:**
 
 ```bash
 git config user.name
-# Debe aparecer en la tabla de LatestPublishers.md
+# Must appear in the LatestPublishers.md table
 ```
 
-Si no existe el archivo, créalo:
+If the file doesn't exist, create it:
 
 ```bash
 cat > docs/LatestPublishers.md << 'EOF'
@@ -123,56 +123,56 @@ EOF
 
 ---
 
-## ✅ Verificación del Setup
+## Setup Verification
 
 ```bash
-# 1. Verificar que el workflow existe
+# 1. Verify the workflow exists
 ls -la .titan/workflows/generate-release-notes.yaml
 
-# 2. Verificar que Titan lo detecta
+# 2. Verify Titan detects it
 titan workflow list
-# Debe aparecer "generate-release-notes" en la lista
+# Should display "generate-release-notes" in the list
 
-# 3. Verificar plugins necesarios
+# 3. Verify required plugins
 titan plugins list
-# Debe mostrar: jira, git (ambos con ✓)
+# Should show: jira, git (both with checkmark)
 
-# 4. Verificar configuración de JIRA
+# 4. Verify JIRA configuration
 cat ~/.titan/config.toml | grep -A 5 "\[jira\]"
 
-# 5. Verificar API key de AI
+# 5. Verify AI API key
 cat ~/.titan/config.toml | grep -A 3 "\[ai\]"
 ```
 
 ---
 
-## 🎯 Uso del Workflow
+## Workflow Usage
 
-### Opción 1: Desde Titan CLI
+### Option 1: From Titan CLI
 
 ```bash
-# Navegar al proyecto
+# Navigate to project
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 
-# Ejecutar workflow
+# Execute workflow
 titan workflow run generate-release-notes
 ```
 
-### Opción 2: Desde Claude Code (Recomendado)
+### Option 2: From Claude Code (Recommended)
 
 ```bash
-# Navegar al proyecto
+# Navigate to project
 cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 
-# Ejecutar skill
+# Execute skill
 /generate-release-notes
 ```
 
 ---
 
-## 📋 Flujo Interactivo Completo
+## Complete Interactive Flow
 
-### 1️⃣ Selección de Plataforma
+### 1. Platform Selection
 
 ```
 ┌─ Select Platform ──────────────────────────────────┐
@@ -186,11 +186,11 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**Acción:** Escribe `1` (para iOS) o `2` (para Android) y presiona Enter
+**Action:** Type `1` (for iOS) or `2` (for Android) and press Enter
 
 ---
 
-### 2️⃣ Listado de Versiones
+### 2. Version Listing
 
 ```
 ┌─ List Available Versions ──────────────────────────┐
@@ -207,11 +207,11 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**El workflow busca automáticamente versiones unreleased en JIRA.**
+**The workflow automatically searches for unreleased versions in JIRA.**
 
 ---
 
-### 3️⃣ Selección de Versión
+### 3. Version Selection
 
 ```
 ┌─ Select Version ───────────────────────────────────┐
@@ -230,11 +230,11 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**Acción:** Escribe el número de la versión que quieres (ejemplo: `3` para 26.4.0)
+**Action:** Type the number of the version you want (example: `3` for 26.4.0)
 
 ---
 
-### 4️⃣ Gestión de Rama Git
+### 4. Git Branch Management
 
 ```
 ┌─ Ensure Release Notes Branch ─────────────────────┐
@@ -254,9 +254,9 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**Automático - no requiere acción.**
+**Automatic - no action required.**
 
-**Si ya estás en la rama correcta:**
+**If already on the correct branch:**
 
 ```
 ┌─ Ensure Release Notes Branch ─────────────────────┐
@@ -272,7 +272,7 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 
 ---
 
-### 5️⃣ Búsqueda de Issues en JIRA
+### 5. JIRA Issue Search
 
 ```
 ┌─ Search JIRA Issues ───────────────────────────────┐
@@ -286,19 +286,19 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 │ ✓ Found 15 issues                                  │
 │                                                     │
 │ Issues Retrieved:                                  │
-│   • ECAPP-12154: Bloquear recargador pospago       │
-│   • ECAPP-12058: Nueva sección consentimientos     │
-│   • ECAPP-12215: Correcciones de textos           │
+│   • ECAPP-12154: Block postpaid recharger          │
+│   • ECAPP-12058: New consents section              │
+│   • ECAPP-12215: Text corrections                 │
 │   ... and 12 more                                  │
 │                                                     │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Automático - no requiere acción.**
+**Automatic - no action required.**
 
 ---
 
-### 6️⃣ Generación de Release Notes con AI
+### 6. AI Release Notes Generation
 
 ```
 ┌─ Generate Release Notes ──────────────────────────┐
@@ -322,11 +322,11 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**Automático - la AI transforma los summaries a español.**
+**Automatic - AI transforms summaries to Spanish.**
 
 ---
 
-### 7️⃣ Creación de Archivo
+### 7. File Creation
 
 ```
 ┌─ Create Release Notes File ───────────────────────┐
@@ -340,11 +340,11 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**Automático - crea el archivo .md en el directorio configurado.**
+**Automatic - creates the .md file in configured directory.**
 
 ---
 
-### 8️⃣ Actualización de LatestPublishers (Solo iOS)
+### 8. LatestPublishers Update (iOS Only)
 
 ```
 ┌─ Update LatestPublishers.md (iOS Only) ───────────┐
@@ -359,11 +359,11 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**Automático - actualiza la tabla con tu nombre y la versión.**
+**Automatic - updates table with your name and version.**
 
 ---
 
-### 9️⃣ Commit de Cambios
+### 9. Changes Commit
 
 ```
 ┌─ Commit Release Notes ────────────────────────────┐
@@ -380,16 +380,16 @@ cd /Users/rpedraza/Documents/MasMovil/ragnarok-ios
 └─────────────────────────────────────────────────────┘
 ```
 
-**Automático - commitea los cambios con mensaje estándar.**
+**Automatic - commits changes with standard message.**
 
 ---
 
-## 🎉 Resultado Final
+## Final Result
 
-### Archivos Creados/Modificados
+### Created/Modified Files
 
 ```bash
-# Ver cambios
+# View changes
 git status
 
 # Output:
@@ -398,7 +398,7 @@ git status
 #   modified:   docs/LatestPublishers.md
 #   new file:   docs/release-notes/ios/release-notes-26.4.0.md
 
-# Ver commit
+# View commit
 git log -1
 
 # Output:
@@ -409,7 +409,7 @@ git log -1
 #     docs: Add release notes for 26.4.0
 ```
 
-### Ver Contenido del Archivo
+### View File Content
 
 ```bash
 cat docs/release-notes/ios/release-notes-26.4.0.md
@@ -420,8 +420,8 @@ cat docs/release-notes/ios/release-notes-26.4.0.md
 ```markdown
 # Release Notes 26.4.0 - iOS
 
-**Fecha:** 2026-01-19
-**Versión:** 26.4.0
+**Date:** 2026-01-19
+**Version:** 26.4.0
 
 *🟣 Yoigo*
 - Bloqueado el acceso al recargador a usuarios pospago (ECAPP-12154)
@@ -434,7 +434,7 @@ cat docs/release-notes/ios/release-notes-26.4.0.md
 ...
 ```
 
-### Ver LatestPublishers Actualizado
+### View Updated LatestPublishers
 
 ```bash
 cat docs/LatestPublishers.md
@@ -447,21 +447,21 @@ cat docs/LatestPublishers.md
 
 | Publisher | Latest Version |
 |-----------|----------------|
-| Roberto Pedraza | [4 - 26.4.0]   |  👈 Actualizado
-| Otro Usuario    | [3 - 26.3.0]   |
+| Roberto Pedraza | [4 - 26.4.0]   |  # Updated
+| Other User      | [3 - 26.3.0]   |
 ```
 
 ---
 
-## 🔄 Próximos Pasos (Manual)
+## Next Steps (Manual)
 
-### Opción 1: Push directo (si tienes permisos)
+### Option 1: Direct push (if you have permissions)
 
 ```bash
-# Push de la rama
+# Push the branch
 git push -u origin release-notes/26.4.0
 
-# Crear PR desde GitHub UI o gh CLI
+# Create PR from GitHub UI or gh CLI
 gh pr create \
   --title "docs: Release notes for 26.4.0" \
   --body "Generated release notes for version 26.4.0" \
@@ -469,9 +469,9 @@ gh pr create \
   --head release-notes/26.4.0
 ```
 
-### Opción 2: Workflow completo con PR (automatizado)
+### Option 2: Full workflow with PR (automated)
 
-Agregar al workflow un step final:
+Add a final step to the workflow:
 
 ```yaml
 - id: create_pr
@@ -488,91 +488,91 @@ Agregar al workflow un step final:
 
 ---
 
-## 🐛 Troubleshooting Común
+## Common Troubleshooting
 
 ### Error: "Workflow not found"
 
 ```bash
-# Verificar que el workflow existe
+# Verify workflow exists
 ls .titan/workflows/generate-release-notes.yaml
 
-# Si no existe, volver al Paso 2 del Setup
+# If it doesn't exist, go back to Setup Step 2
 ```
 
 ### Error: "JIRA client not available"
 
 ```bash
-# Verificar configuración JIRA
+# Verify JIRA configuration
 titan plugins list | grep jira
 
-# Configurar JIRA si no está
+# Configure JIRA if not set up
 titan plugins configure jira
 ```
 
 ### Error: "Git client not available"
 
 ```bash
-# Verificar Git instalado
+# Verify Git is installed
 which git
 
-# Verificar plugin
+# Verify plugin
 titan plugins list | grep git
 ```
 
 ### Error: "No unreleased versions found"
 
-**Causas posibles:**
-1. Todas las versiones ya fueron released en JIRA
-2. No tienes permisos para ver versiones
-3. Proyecto JIRA incorrecto
+**Possible causes:**
+1. All versions have already been released in JIRA
+2. You don't have permissions to view versions
+3. Incorrect JIRA project
 
-**Solución:**
+**Solution:**
 ```bash
-# Verificar en JIRA web que existen versiones unreleased
+# Verify in JIRA web that unreleased versions exist
 # URL: https://jira.masmovil.com/projects/ECAPP/versions
 ```
 
-### Error al crear archivo: "Directory not found"
+### Error creating file: "Directory not found"
 
 ```bash
-# Verificar que el directorio existe
+# Verify directory exists
 ls -la docs/release-notes/ios
 
-# Si no existe, crearlo
+# If it doesn't exist, create it
 mkdir -p docs/release-notes/ios
 
-# Actualizar workflow con la ruta correcta
+# Update workflow with correct path
 vim .titan/workflows/generate-release-notes.yaml
 ```
 
-### Rama ya existe
+### Branch already exists
 
 ```bash
-# Ver ramas locales
+# View local branches
 git branch | grep release-notes
 
-# Borrar rama vieja si es necesario
+# Delete old branch if necessary
 git branch -D release-notes/26.4.0
 
-# Ejecutar workflow de nuevo
+# Execute workflow again
 ```
 
 ---
 
-## 📊 Ejemplo de Sesión Completa
+## Complete Session Example
 
 ```bash
-# 1. Navegar al proyecto
+# 1. Navigate to project
 $ cd ~/Documents/MasMovil/ragnarok-ios
 
-# 2. Ejecutar workflow
+# 2. Execute workflow
 $ /generate-release-notes
 
-# 3. Interacción
+# 3. Interaction
 Select platform: 1 (iOS)
 Select version: 3 (26.4.0)
 
-# 4. El workflow se ejecuta...
+# 4. Workflow executes...
 ✓ Created branch release-notes/26.4.0
 ✓ Found 15 issues in JIRA
 ✓ Generated AI descriptions
@@ -580,62 +580,62 @@ Select version: 3 (26.4.0)
 ✓ Updated LatestPublishers.md
 ✓ Commit created: abc1234
 
-# 5. Verificar resultado
+# 5. Verify result
 $ git status
 On branch release-notes/26.4.0
 nothing to commit, working tree clean
 
 $ ls docs/release-notes/ios/
-release-notes-26.4.0.md  ✅
+release-notes-26.4.0.md  ✓
 
-# 6. Push y PR
+# 6. Push and PR
 $ git push -u origin release-notes/26.4.0
 $ gh pr create --title "docs: Release notes for 26.4.0" --base develop
 
-# 7. ✅ Done!
+# 7. Done!
 ```
 
 ---
 
-## 🎓 Tips & Best Practices
+## Tips & Best Practices
 
-### 1. Verificar antes de ejecutar
+### 1. Verify before executing
 
 ```bash
-# Ver qué rama estás
+# View current branch
 git branch --show-current
 
-# Ver si hay cambios sin commitear
+# Check for uncommitted changes
 git status
 ```
 
-### 2. Dry-run primero
+### 2. Dry-run first
 
-Ejecuta con una versión de prueba para verificar que todo funciona.
+Execute with a test version to verify everything works.
 
-### 3. Revisar release notes generadas
+### 3. Review generated release notes
 
 ```bash
-# Antes de hacer push, revisar el contenido
+# Before pushing, review content
 cat docs/release-notes/ios/release-notes-26.4.0.md
 
-# Editar si es necesario
+# Edit if necessary
 vim docs/release-notes/ios/release-notes-26.4.0.md
 
-# Ammend commit si editaste
+# Amend commit if edited
 git add .
 git commit --amend --no-edit
 ```
 
-### 4. Backup de LatestPublishers
+### 4. LatestPublishers backup
 
 ```bash
-# Antes de ejecutar workflow (primera vez)
+# Before executing workflow (first time)
 cp docs/LatestPublishers.md docs/LatestPublishers.md.bak
 ```
 
 ---
 
-**¿Listo para empezar?** Sigue el Setup Inicial y luego ejecuta `/generate-release-notes`!
+**Ready to start?** Follow the Initial Setup and then execute `/generate-release-notes`!
 
-**Última actualización:** 2026-01-19
+**Last updated:** 2026-01-19

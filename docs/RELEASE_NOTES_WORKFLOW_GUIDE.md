@@ -1,27 +1,27 @@
-# Release Notes Workflow - Guía de Implementación
+# Release Notes Workflow - Implementation Guide
 
-Guía completa para implementar el workflow automatizado de release notes en proyectos Ragnarok (iOS y Android).
-
----
-
-## 📋 Resumen
-
-El workflow automatiza:
-
-1. ✅ **Gestión de rama Git** - Crea/cambia a rama `release-notes/{version}` desde `develop`
-2. ✅ **Consulta JIRA** - Busca issues del fixVersion usando queries centralizadas
-3. ✅ **Generación AI** - Crea release notes multi-brand en español
-4. ✅ **Creación de archivos** - Genera `.md` siguiendo nomenclatura del proyecto
-5. ✅ **Actualización iOS** - Modifica `LatestPublishers.md` con versión y usuario
-6. ✅ **Commit automático** - Commitea cambios con mensaje estándar
+Complete guide to implement the automated release notes workflow in Ragnarok projects (iOS and Android).
 
 ---
 
-## 🚀 Implementación por Proyecto
+## Summary
 
-### Paso 1: Copiar Workflow al Proyecto
+The workflow automates:
 
-**Para iOS:**
+1. **Git branch management** - Creates/switches to `release-notes/{version}` branch from `develop`
+2. **JIRA query** - Searches issues for fixVersion using centralized queries
+3. **AI generation** - Creates multi-brand release notes in Spanish
+4. **File creation** - Generates `.md` following project nomenclature
+5. **iOS update** - Modifies `LatestPublishers.md` with version and user
+6. **Automatic commit** - Commits changes with standard message
+
+---
+
+## Implementation by Project
+
+### Step 1: Copy Workflow to Project
+
+**For iOS:**
 ```bash
 cd /path/to/ragnarok-ios
 mkdir -p .titan/workflows
@@ -29,7 +29,7 @@ cp /path/to/titan-cli/examples/ragnarok-ios-release-notes-workflow.yaml \
    .titan/workflows/generate-release-notes.yaml
 ```
 
-**Para Android:**
+**For Android:**
 ```bash
 cd /path/to/ragnarok-android
 mkdir -p .titan/workflows
@@ -39,34 +39,34 @@ cp /path/to/titan-cli/examples/ragnarok-android-release-notes-workflow.yaml \
 
 ---
 
-### Paso 2: Configurar Rutas del Proyecto
+### Step 2: Configure Project Paths
 
-Editar `.titan/workflows/generate-release-notes.yaml` y actualizar parámetros:
+Edit `.titan/workflows/generate-release-notes.yaml` and update parameters:
 
 ```yaml
 params:
   project_key: "ECAPP"
-  platform: "iOS"  # o "Android"
-  notes_directory: "docs/release-notes/ios"  # ⚠️ ACTUALIZAR con ruta real
+  platform: "iOS"  # or "Android"
+  notes_directory: "docs/release-notes/ios"  # UPDATE with actual path
 ```
 
-**Cómo encontrar la ruta correcta:**
+**How to find the correct path:**
 
 ```bash
-# Buscar directorios de release notes
+# Search for release notes directories
 find . -type d -name "*release*" -o -name "*ReleaseNotes*"
 
-# Buscar archivos .md de release notes existentes
+# Search for existing release notes .md files
 find . -name "release-notes-*.md"
 ```
 
 ---
 
-### Paso 3: Configurar LatestPublishers.md (Solo iOS)
+### Step 3: Configure LatestPublishers.md (iOS Only)
 
-**Ubicación típica:** `docs/LatestPublishers.md`
+**Typical location:** `docs/LatestPublishers.md`
 
-**Formato esperado:**
+**Expected format:**
 ```markdown
 # Latest Publishers
 
@@ -76,46 +76,46 @@ find . -name "release-notes-*.md"
 | Jane Smith| [3 - 26.3.0]   |
 ```
 
-El workflow actualizará automáticamente la línea del usuario que ejecuta el comando.
+The workflow will automatically update the line for the user executing the command.
 
-**Verificar nombre de usuario Git:**
+**Verify Git username:**
 ```bash
 git config user.name
-# Debe coincidir con el nombre en LatestPublishers.md
+# Must match the name in LatestPublishers.md
 ```
 
 ---
 
-## 🎯 Uso del Workflow
+## Workflow Usage
 
-### Ejecución
+### Execution
 
 ```bash
-cd /path/to/ragnarok-ios  # o ragnarok-android
+cd /path/to/ragnarok-ios  # or ragnarok-android
 titan workflow run generate-release-notes
 ```
 
-O desde Claude Code:
+Or from Claude Code:
 ```bash
 /generate-release-notes
 ```
 
-### Flujo Interactivo
+### Interactive Flow
 
-1. **Seleccionar plataforma** → iOS o Android
-2. **Listar versiones** → Muestra versiones unreleased de JIRA
-3. **Seleccionar versión** → Menú numerado (1, 2, 3...)
-4. **Crear/cambiar rama** → `release-notes/26.4.0`
-5. **Buscar issues** → Query JIRA con fixVersion
-6. **Generar notas** → AI transforma summaries a español
-7. **Descubrir directorio** → Busca o usa configurado
-8. **Crear archivo** → `release-notes-26.4.0.md`
-9. **Actualizar LatestPublishers** → Solo iOS
+1. **Select platform** → iOS or Android
+2. **List versions** → Shows unreleased JIRA versions
+3. **Select version** → Numbered menu (1, 2, 3...)
+4. **Create/switch branch** → `release-notes/26.4.0`
+5. **Search issues** → JIRA query with fixVersion
+6. **Generate notes** → AI transforms summaries to Spanish
+7. **Discover directory** → Searches or uses configured path
+8. **Create file** → `release-notes-26.4.0.md`
+9. **Update LatestPublishers** → iOS only
 10. **Commit** → `docs: Add release notes for 26.4.0`
 
 ---
 
-## 📁 Estructura de Archivos Generados
+## Generated File Structure
 
 ### iOS
 
@@ -124,8 +124,8 @@ ragnarok-ios/
 ├── docs/
 │   ├── release-notes/
 │   │   └── ios/
-│   │       └── release-notes-26.4.0.md  ✅ Nuevo
-│   └── LatestPublishers.md              ✅ Actualizado
+│   │       └── release-notes-26.4.0.md  # New
+│   └── LatestPublishers.md              # Updated
 └── .titan/
     └── workflows/
         └── generate-release-notes.yaml
@@ -138,7 +138,7 @@ ragnarok-android/
 ├── docs/
 │   └── release-notes/
 │       └── android/
-│           └── release-notes-26.4.0.md  ✅ Nuevo
+│           └── release-notes-26.4.0.md  # New
 └── .titan/
     └── workflows/
         └── generate-release-notes.yaml
@@ -146,22 +146,22 @@ ragnarok-android/
 
 ---
 
-## 🔧 Personalización del Workflow
+## Workflow Customization
 
-### Cambiar Patrón de Nombre de Archivo
+### Change File Name Pattern
 
-Editar step `create_notes_file`:
+Edit `create_notes_file` step:
 
 ```yaml
 - id: create_notes_file
   command: |
-    # Cambiar patrón aquí
-    FILENAME="release-notes-${fix_version}.md"  # Patrón actual
-    # FILENAME="RN-${fix_version}.md"          # Alternativa
-    # FILENAME="v${fix_version}-notes.md"      # Alternativa
+    # Change pattern here
+    FILENAME="release-notes-${fix_version}.md"  # Current pattern
+    # FILENAME="RN-${fix_version}.md"          # Alternative
+    # FILENAME="v${fix_version}-notes.md"      # Alternative
 ```
 
-### Cambiar Formato del Archivo
+### Change File Format
 
 ```yaml
 - id: create_notes_file
@@ -169,11 +169,11 @@ Editar step `create_notes_file`:
     cat > "$FILEPATH" << 'EOF'
 # Release Notes ${fix_version} - iOS
 
-**Fecha:** $(date +"%Y-%m-%d")
-**Versión:** ${fix_version}
+**Date:** $(date +"%Y-%m-%d")
+**Version:** ${fix_version}
 **Build:** TBD
 
-## Cambios
+## Changes
 
 ${release_notes}
 
@@ -185,7 +185,7 @@ ${release_notes}
 EOF
 ```
 
-### Agregar Validaciones
+### Add Validations
 
 ```yaml
 - id: validate_directory
@@ -200,48 +200,48 @@ EOF
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Error: "Git client not available"
 
-**Solución:**
+**Solution:**
 ```bash
-# Verificar que Git está instalado
+# Verify Git is installed
 which git
 
-# Verificar configuración de Titan
+# Verify Titan configuration
 titan plugins list | grep git
 ```
 
 ### Error: "JIRA client not available"
 
-**Solución:**
+**Solution:**
 ```bash
-# Verificar configuración JIRA
+# Verify JIRA configuration
 titan plugins list | grep jira
 
-# Verificar credenciales
+# Verify credentials
 cat ~/.titan/config.toml | grep jira
 ```
 
-### Error: "No se encontró directorio de release notes"
+### Error: "Release notes directory not found"
 
-**Solución:**
-1. Buscar directorio real:
+**Solution:**
+1. Search for actual directory:
    ```bash
    find . -name "release-notes-*.md"
    ```
 
-2. Actualizar parámetro en workflow:
+2. Update parameter in workflow:
    ```yaml
    params:
-     notes_directory: "ruta/real/encontrada"
+     notes_directory: "actual/path/found"
    ```
 
 ### Error: "LatestPublishers.md not found"
 
-**Para iOS** (archivo requerido):
-1. Crear archivo si no existe:
+**For iOS** (required file):
+1. Create file if it doesn't exist:
    ```bash
    mkdir -p docs
    cat > docs/LatestPublishers.md << 'EOF'
@@ -253,35 +253,35 @@ cat ~/.titan/config.toml | grep jira
    EOF
    ```
 
-**Para Android** (archivo opcional):
-- El workflow muestra WARNING pero continúa
+**For Android** (optional file):
+- Workflow shows WARNING but continues
 
-### Rama incorrecta
+### Incorrect Branch
 
-Si el workflow crea rama desde rama incorrecta:
+If workflow creates branch from wrong branch:
 
 ```bash
-# Borrar rama incorrecta
+# Delete incorrect branch
 git branch -D release-notes/26.4.0
 
-# Cambiar a develop y actualizar
+# Switch to develop and update
 git checkout develop
 git pull
 
-# Ejecutar workflow de nuevo
+# Execute workflow again
 ```
 
 ---
 
-## 📊 Ejemplo de Salida
+## Output Example
 
-### Archivo Generado (release-notes-26.4.0.md)
+### Generated File (release-notes-26.4.0.md)
 
 ```markdown
 # Release Notes 26.4.0 - iOS
 
-**Fecha:** 2026-01-19
-**Versión:** 26.4.0
+**Date:** 2026-01-19
+**Version:** 26.4.0
 
 *🟣 Yoigo*
 - Bloqueado el acceso al recargador a usuarios pospago (ECAPP-12154)
@@ -295,18 +295,18 @@ git pull
 - Bloqueado el acceso al recargador a usuarios pospago (ECAPP-12154)
 ```
 
-### LatestPublishers.md Actualizado
+### Updated LatestPublishers.md
 
 ```markdown
 # Latest Publishers
 
 | Publisher | Latest Version |
 |-----------|----------------|
-| Roberto Pedraza | [4 - 26.4.0]   |  ✅ Actualizado
+| Roberto Pedraza | [4 - 26.4.0]   |  # Updated
 | Jane Smith     | [3 - 26.3.0]   |
 ```
 
-### Commit Creado
+### Created Commit
 
 ```
 commit abc1234567890def
@@ -321,7 +321,7 @@ Date:   Sun Jan 19 15:30:00 2026
 
 ---
 
-## 🔄 Integración con CI/CD
+## CI/CD Integration
 
 ### GitHub Actions
 
@@ -362,29 +362,29 @@ jobs:
 
 ---
 
-## 📚 Referencias
+## References
 
-- [Workflow Examples](../examples/) - Ejemplos completos de workflows
-- [JIRA Plugin](../plugins/titan-plugin-jira/) - Plugin JIRA con steps
-- [Git Plugin](../plugins/titan-plugin-git/) - Plugin Git con steps
-- [Saved Queries](../plugins/titan-plugin-jira/titan_plugin_jira/utils/saved_queries.py) - JQLs centralizadas
-
----
-
-## ✅ Checklist de Implementación
-
-- [ ] Workflow copiado a `.titan/workflows/generate-release-notes.yaml`
-- [ ] Parámetro `notes_directory` actualizado con ruta correcta
-- [ ] Directorio de release notes existe en el proyecto
-- [ ] (iOS) `LatestPublishers.md` existe y tiene formato correcto
-- [ ] (iOS) Nombre de usuario Git coincide con LatestPublishers.md
-- [ ] Plugins JIRA y Git configurados
-- [ ] Credenciales JIRA disponibles
-- [ ] API Key de AI configurada (Claude o Gemini)
-- [ ] Probado workflow con versión de prueba
-- [ ] Commit generado correctamente
+- [Workflow Examples](../examples/) - Complete workflow examples
+- [JIRA Plugin](../plugins/titan-plugin-jira/) - JIRA plugin with steps
+- [Git Plugin](../plugins/titan-plugin-git/) - Git plugin with steps
+- [Saved Queries](../plugins/titan-plugin-jira/titan_plugin_jira/utils/saved_queries.py) - Centralized JQLs
 
 ---
 
-**Última actualización:** 2026-01-19
-**Versión:** 1.0.0
+## Implementation Checklist
+
+- [ ] Workflow copied to `.titan/workflows/generate-release-notes.yaml`
+- [ ] `notes_directory` parameter updated with correct path
+- [ ] Release notes directory exists in project
+- [ ] (iOS) `LatestPublishers.md` exists and has correct format
+- [ ] (iOS) Git username matches LatestPublishers.md
+- [ ] JIRA and Git plugins configured
+- [ ] JIRA credentials available
+- [ ] AI API Key configured (Claude or Gemini)
+- [ ] Workflow tested with test version
+- [ ] Commit generated correctly
+
+---
+
+**Last updated:** 2026-01-19
+**Version:** 1.0.0

@@ -1,19 +1,19 @@
-# Setup Rápido - Ragnarok iOS/Android
+# Quick Setup - Ragnarok iOS/Android
 
-Instrucciones para configurar los workflows de release notes en los proyectos Ragnarok.
+Instructions to configure the release notes workflows in Ragnarok projects.
 
-## Para Ragnarok iOS
+## For Ragnarok iOS
 
 ```bash
-# 1. Ir al proyecto
+# 1. Navigate to project
 cd /path/to/ragnarok-ios
 
-# 2. Copiar workflow
+# 2. Copy workflow
 mkdir -p .titan/workflows
 cp /path/to/titan-cli/examples/ragnarok-ios-release-notes-workflow.yaml \
    .titan/workflows/generate-release-notes-ios.yaml
 
-# 3. Crear configuración
+# 3. Create configuration
 cat > .titan/config.toml << 'TOML'
 [project]
 name = "Ragnarok iOS"
@@ -36,32 +36,32 @@ default = "anthropic"
 model = "claude-sonnet-4-5"
 TOML
 
-# 4. Configurar secrets
+# 4. Configure secrets
 titan config secrets set JIRA_API_TOKEN
 titan config secrets set GITHUB_TOKEN
 titan config secrets set ANTHROPIC_API_KEY
 
-# 5. Verificar
+# 5. Verify
 titan workflow list
-# Debe mostrar SOLO: generate-release-notes-ios
+# Should display ONLY: generate-release-notes-ios
 
-# 6. Ejecutar (ejemplo)
+# 6. Execute (example)
 titan workflow run generate-release-notes-ios
-# Crea: ReleaseNotes/release-notes-{version}.md
+# Creates: ReleaseNotes/release-notes-{version}.md
 ```
 
-## Para Ragnarok Android
+## For Ragnarok Android
 
 ```bash
-# 1. Ir al proyecto
+# 1. Navigate to project
 cd /path/to/ragnarok-android
 
-# 2. Copiar workflow
+# 2. Copy workflow
 mkdir -p .titan/workflows
 cp /path/to/titan-cli/examples/ragnarok-android-release-notes-workflow.yaml \
    .titan/workflows/generate-release-notes-android.yaml
 
-# 3. Crear configuración
+# 3. Create configuration
 cat > .titan/config.toml << 'TOML'
 [project]
 name = "Ragnarok Android"
@@ -84,52 +84,52 @@ default = "anthropic"
 model = "claude-sonnet-4-5"
 TOML
 
-# 4. Configurar secrets
+# 4. Configure secrets
 titan config secrets set JIRA_API_TOKEN
 titan config secrets set GITHUB_TOKEN
 titan config secrets set ANTHROPIC_API_KEY
 
-# 5. Verificar
+# 5. Verify
 titan workflow list
-# Debe mostrar SOLO: generate-release-notes-android
+# Should display ONLY: generate-release-notes-android
 
-# 6. Ejecutar (ejemplo)
+# 6. Execute (example)
 titan workflow run generate-release-notes-android
-# Crea: docs/release-notes/release-notes-{version}.md
+# Creates: docs/release-notes/release-notes-{version}.md
 ```
 
-## Tokens/Secrets Requeridos
+## Required Tokens/Secrets
 
 ### JIRA_API_TOKEN
-1. Ir a: https://id.atlassian.com/manage-profile/security/api-tokens
-2. Crear nuevo token
-3. Copiar y pegar cuando `titan config secrets set` lo pida
+1. Go to: https://id.atlassian.com/manage-profile/security/api-tokens
+2. Create new token
+3. Copy and paste when `titan config secrets set` prompts
 
 ### GITHUB_TOKEN
-1. Ir a: https://github.com/settings/tokens
-2. Crear "Personal access token (classic)"
-3. Permisos necesarios: `repo`, `workflow`
-4. Copiar y pegar cuando `titan config secrets set` lo pida
+1. Go to: https://github.com/settings/tokens
+2. Create "Personal access token (classic)"
+3. Required permissions: `repo`, `workflow`
+4. Copy and paste when `titan config secrets set` prompts
 
 ### ANTHROPIC_API_KEY
-1. Ir a: https://console.anthropic.com/settings/keys
-2. Crear nueva API key
-3. Copiar y pegar cuando `titan config secrets set` lo pida
+1. Go to: https://console.anthropic.com/settings/keys
+2. Create new API key
+3. Copy and paste when `titan config secrets set` prompts
 
-## Verificación Post-Setup
+## Post-Setup Verification
 
 ### iOS
 ```bash
 cd /path/to/ragnarok-ios
 
-# Debe existir
+# Must exist
 ls -la .titan/config.toml
 ls -la .titan/workflows/generate-release-notes-ios.yaml
 
-# Debe mostrar solo 1 workflow
+# Should display only 1 workflow
 titan workflow list
 
-# Debe listar plugins activos
+# Should list active plugins
 titan plugins doctor
 ```
 
@@ -137,36 +137,36 @@ titan plugins doctor
 ```bash
 cd /path/to/ragnarok-android
 
-# Debe existir
+# Must exist
 ls -la .titan/config.toml
 ls -la .titan/workflows/generate-release-notes-android.yaml
 
-# Debe mostrar solo 1 workflow
+# Should display only 1 workflow
 titan workflow list
 
-# Debe listar plugins activos
+# Should list active plugins
 titan plugins doctor
 ```
 
 ## Troubleshooting
 
 ### "No workflows found"
-- Verificar que el archivo `.titan/workflows/*.yaml` existe
-- Verificar que el nombre del workflow coincide en el archivo YAML
+- Verify that `.titan/workflows/*.yaml` file exists
+- Verify that workflow name matches in the YAML file
 
 ### "Plugin not initialized"
-- Ejecutar: `titan plugins doctor` para ver qué plugin falta
-- Instalar plugins faltantes desde Titan CLI
+- Run: `titan plugins doctor` to see which plugin is missing
+- Install missing plugins from Titan CLI
 
 ### "JIRA authentication failed"
-- Verificar que JIRA_API_TOKEN está configurado correctamente
-- Verificar que email y base_url son correctos en config.toml
+- Verify that JIRA_API_TOKEN is configured correctly
+- Verify that email and base_url are correct in config.toml
 
 ### "GitHub authentication failed"
-- Verificar que GITHUB_TOKEN tiene permisos `repo` y `workflow`
-- Verificar que owner y repo son correctos en config.toml
+- Verify that GITHUB_TOKEN has `repo` and `workflow` permissions
+- Verify that owner and repo are correct in config.toml
 
-## Estructura de Archivos Final
+## Final File Structure
 
 ### iOS
 ```
@@ -176,8 +176,8 @@ ragnarok-ios/
 │   └── workflows/
 │       └── generate-release-notes-ios.yaml
 ├── ReleaseNotes/
-│   └── release-notes-26.4.0.md  # Generado por workflow
-└── ... (código del proyecto)
+│   └── release-notes-26.4.0.md  # Generated by workflow
+└── ... (project code)
 ```
 
 ### Android
@@ -189,10 +189,10 @@ ragnarok-android/
 │       └── generate-release-notes-android.yaml
 ├── docs/
 │   └── release-notes/
-│       └── release-notes-26.4.0.md  # Generado por workflow
-└── ... (código del proyecto)
+│       └── release-notes-26.4.0.md  # Generated by workflow
+└── ... (project code)
 ```
 
 ---
 
-**Actualizado**: 2026-01-20
+**Last updated**: 2026-01-20
