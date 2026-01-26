@@ -76,7 +76,11 @@ class PluginManagementScreen(BaseScreen):
     #left-panel OptionList {
         height: 100%;
         width: 100%;
-        padding: 1 0;
+        padding: 1;
+    }
+
+    #left-panel OptionList > .option-list--option {
+        padding: 1;
     }
 
     #right-panel {
@@ -185,7 +189,15 @@ class PluginManagementScreen(BaseScreen):
             self._show_plugin_details(self.selected_plugin)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        """Handle plugin selection."""
+        """Handle plugin selection (Enter key)."""
+        if event.option.id == "none":
+            return
+
+        self.selected_plugin = event.option.id
+        self._show_plugin_details(self.selected_plugin)
+
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        """Handle plugin highlight change (arrow keys navigation)."""
         if event.option.id == "none":
             return
 
