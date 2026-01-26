@@ -502,16 +502,24 @@ DESCRIPTION:
 
         return title, description
 
-    def _read_pr_template(self, template_path: str = ".github/pull_request_template.md") -> Optional[str]:
+    def _read_pr_template(self) -> Optional[str]:
         """
         Read PR template if it exists.
 
-        Args:
-            template_path: Path to the template file
+        Uses pr_template_path from GitHub plugin configuration if available,
+        otherwise falls back to default location.
 
         Returns:
             Template content or None
         """
+        # Get template path from config or use default
+        template_path = ".github/pull_request_template.md"  # Default
+
+        if self.github and hasattr(self.github, 'config'):
+            config_path = self.github.config.pr_template_path
+            if config_path:  # Use config path if provided (not empty string)
+                template_path = config_path
+
         path = Path(template_path)
         if not path.exists():
             return None

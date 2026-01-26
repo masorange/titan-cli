@@ -17,7 +17,7 @@ enabled = true
 repo_owner = "masmovil"
 repo_name = "titan-cli"
 default_branch = "master"
-pr_template_path = ""
+pr_template_path = ".github/pull_request_template.md"
 auto_assign_prs = true
 
 [plugins.jira]
