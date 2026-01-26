@@ -10,6 +10,7 @@ from .workflow_execution import WorkflowExecutionScreen
 from .global_setup_wizard import GlobalSetupWizardScreen
 from .project_setup_wizard import ProjectSetupWizardScreen
 from .plugin_config_wizard import PluginConfigWizardScreen
+from .plugin_management import PluginManagementScreen
 
 __all__ = [
     "BaseScreen",
@@ -19,4 +20,5 @@ __all__ = [
     "GlobalSetupWizardScreen",
     "ProjectSetupWizardScreen",
     "PluginConfigWizardScreen",
+    "PluginManagementScreen",
 ]

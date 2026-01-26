@@ -19,7 +19,7 @@ class GitHubPluginConfig(BaseModel):
     repo_owner: str = Field(..., description="GitHub repository owner (user or organization).")
     repo_name: str = Field(..., description="GitHub repository name.")
     default_branch: str = Field(None, description="Default branch to use (e.g., 'main', 'develop').")
-    pr_template_path: str = Field(None, description="Path to PR template file within the repository.")
+    pr_template_path: str = Field(None, description="Path to PR template file relative to repository root (e.g., '.github/pull_request_template.md', 'docs/PR_TEMPLATE.md'). Defaults to '.github/pull_request_template.md'.")
     auto_assign_prs: bool = Field(True, description="Automatically assign PRs to the author.")
 
 
