@@ -67,7 +67,7 @@ class CLILauncherScreen(BaseScreen):
     """
 
     def __init__(self, config):
-        super().__init__(config)
+        super().__init__(config, show_back=True)
         self.available_clis = self._get_available_clis()
 
     def _get_available_clis(self) -> dict:
