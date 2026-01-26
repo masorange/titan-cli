@@ -7,6 +7,8 @@ import typer
 import importlib.metadata
 
 from titan_cli.messages import msg
+from titan_cli.ui.tui import launch_tui
+
 
 
 # Main Typer Application
@@ -29,7 +31,6 @@ def main(ctx: typer.Context):
     """Titan CLI - Main entry point"""
     if ctx.invoked_subcommand is None:
         # Launch TUI by default
-        from titan_cli.ui.tui import launch_tui
         launch_tui()
 
 
@@ -43,5 +44,4 @@ def version():
 @app.command()
 def tui():
     """Launch Titan in TUI mode (Textual interface)."""
-    from titan_cli.ui.tui import launch_tui
     launch_tui()
