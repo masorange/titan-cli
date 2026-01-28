@@ -14,17 +14,19 @@ from pathlib import Path
 
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import Text, DimText, Button, BoldText
+from titan_cli.utils.autoupdate import is_dev_install
 from .base import BaseScreen
 
-# Setup debug logging
-debug_log = Path("/tmp/titan_wizard_debug.log")
-logging.basicConfig(
-    filename=str(debug_log),
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filemode='w'
-)
+# Setup debug logging (only in development)
 logger = logging.getLogger(__name__)
+if is_dev_install():
+    debug_log = Path("/tmp/titan_wizard_debug.log")
+    logging.basicConfig(
+        filename=str(debug_log),
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        filemode='w'
+    )
 
 
 class StepIndicator(Static):
