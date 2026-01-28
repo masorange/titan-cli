@@ -114,6 +114,20 @@ class JiraClient:
         except requests.exceptions.RequestException as e:
             raise JiraAPIError(f"Request failed: {e}")
 
+    # ==================== USER OPERATIONS ====================
+
+    def get_current_user(self) -> Dict[str, Any]:
+        """
+        Get current authenticated user information.
+
+        Returns:
+            User information including displayName, emailAddress, accountId, etc.
+
+        Raises:
+            JiraAPIError: If authentication fails or API request fails
+        """
+        return self._make_request('GET', 'myself')
+
     # ==================== TICKET OPERATIONS ====================
 
     def get_ticket(self, ticket_key: str, expand: Optional[List[str]] = None) -> JiraTicket:
@@ -615,7 +629,16 @@ class JiraClient:
 
         Returns:
             Created subtask
+
+        Raises:
+            JiraAPIError: If no default project is configured
         """
+        if not self.project_key:
+            raise JiraAPIError(
+                "No default project configured. "
+                "Please set default_project in JIRA plugin configuration."
+            )
+
         # Get subtask issue type
         issue_types = self.get_issue_types()
         subtask_type = next((it for it in issue_types if it.subtask), None)
