@@ -8,7 +8,6 @@ enabled = true
 [plugins.git.config]
 main_branch = "master"
 default_remote = "origin"
-protected_branches = []
 
 [plugins.github]
 enabled = true
@@ -17,8 +16,7 @@ enabled = true
 repo_owner = "masmovil"
 repo_name = "titan-cli"
 default_branch = "master"
-default_reviewers = []
-pr_template_path = ""
+pr_template_path = ".github/pull_request_template.md"
 auto_assign_prs = true
 
 [plugins.jira]

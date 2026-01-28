@@ -6,8 +6,6 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
 from titan_cli.core.secrets import SecretManager
-from .ui_container import UIComponents
-from .views_container import UIViews
 
 
 @dataclass
@@ -18,18 +16,10 @@ class WorkflowContext:
     Provides:
     - Dependency injection (clients, services)
     - Shared data storage between steps
-    - UI components (organized by level)
+    - Textual TUI components
     - Access to secrets
 
     UI Architecture:
-        ctx.ui.text      # Basic components (Rich wrappers)
-        ctx.ui.panel
-        ctx.ui.table
-        ctx.ui.spacer
-
-        ctx.views.prompts  # Composed views
-        ctx.views.menu
-
         ctx.textual.text     # Textual TUI components
         ctx.textual.panel
         ctx.textual.spacer
@@ -38,10 +28,6 @@ class WorkflowContext:
 
     # Core dependencies
     secrets: SecretManager
-
-    # UI (two-level architecture)
-    ui: Optional[UIComponents] = None
-    views: Optional[UIViews] = None
 
     # Textual TUI components (for TUI mode)
     textual: Optional[Any] = None

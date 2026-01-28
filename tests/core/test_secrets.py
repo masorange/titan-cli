@@ -1,24 +1,14 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import os
 
 from titan_cli.core.secrets import SecretManager
-from titan_cli.messages import msg
 
 # Fixture for a temporary project path
 @pytest.fixture
 def tmp_project_path(tmp_path):
     (tmp_path / ".titan").mkdir()
     return tmp_path
-
-# Fixture for mocking UI components (TextRenderer, PromptsRenderer)
-@pytest.fixture
-def mock_ui_components():
-    with patch('titan_cli.core.secrets.TextRenderer') as mock_text, \
-         patch('titan_cli.core.secrets.PromptsRenderer') as mock_prompts:
-        mock_prompts_instance = MagicMock()
-        mock_prompts.return_value = mock_prompts_instance
-        yield mock_text.return_value, mock_prompts_instance
 
 # Fixture for mocking os.environ
 @pytest.fixture
@@ -151,26 +141,3 @@ def test_delete_project_scope_secret_not_found(tmp_project_path):
         content = f.read()
     assert "OTHER_KEY='other_value'" in content # Content should be unchanged
 
-# --- Test prompt_and_set method ---
-def test_prompt_and_set_success(mock_ui_components, mock_keyring):
-    mock_text, mock_prompts = mock_ui_components
-    mock_prompts.ask_text.return_value = "my-secret-value"
-    
-    sm = SecretManager()
-    value = sm.prompt_and_set("test_key", "Enter secret:", scope="user")
-    
-    assert value == "my-secret-value"
-    mock_prompts.ask_text.assert_called_once_with("Enter secret:", password=True)
-    mock_keyring[1].assert_called_once_with("titan", "test_key", "my-secret-value")
-    mock_text.success.assert_called_once_with(msg.Projects.SECRET_SAVED.format(key="test_key", scope="user"))
-
-def test_prompt_and_set_cancelled(mock_ui_components, mock_keyring):
-    mock_text, mock_prompts = mock_ui_components
-    mock_prompts.ask_text.side_effect = KeyboardInterrupt # Simulate cancellation
-    
-    sm = SecretManager()
-    value = sm.prompt_and_set("test_key", "Enter secret:", scope="user")
-    
-    assert value is None
-    mock_keyring[1].assert_not_called()
-    mock_text.warning.assert_called_once_with(msg.Secrets.AI_SETUP_CANCELLED)

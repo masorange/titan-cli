@@ -35,8 +35,7 @@ class GitClient:
         self,
         repo_path: str = ".",
         main_branch: str = "main",
-        default_remote: str = "origin",
-        protected_branches: list[str] = None
+        default_remote: str = "origin"
     ):
         """
         Initialize Git client
@@ -45,12 +44,10 @@ class GitClient:
             repo_path: Path to git repository (default: current directory)
             main_branch: Main branch name (from config)
             default_remote: Default remote name (from config)
-            protected_branches: List of protected branches (from config)
         """
         self.repo_path = repo_path
         self.main_branch = main_branch
         self.default_remote = default_remote
-        self.protected_branches = protected_branches or [main_branch]
         self._original_branch: Optional[str] = None
         self._stash_message: Optional[str] = None
         self._stashed: bool = False
@@ -328,18 +325,6 @@ class GitClient:
         Update current branch from the configured main branch.
         """
         self.update_branch(self.main_branch, self.default_remote)
-
-    def is_protected_branch(self, branch: str) -> bool:
-        """
-        Check if branch is protected.
-        
-        Args:
-            branch: Branch name
-        
-        Returns:
-            True if branch is in protected list
-        """
-        return branch in self.protected_branches
 
     def safe_delete_branch(self, branch: str, force: bool = False) -> bool:
         """

@@ -141,7 +141,7 @@ def test_create_pr_workflow_e2e(mock_titan_config, create_pr_workflow_yaml):
         plugin_registry=mock_titan_config.registry,
         secrets=MagicMock(spec=SecretManager),
         ai_config=None
-    ).with_ui().build()
+    ).build()
 
     # 2. Act
     # ----------------
