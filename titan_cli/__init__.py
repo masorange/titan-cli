@@ -1,3 +1,5 @@
 """Titan CLI - Modular development tools orchestrator."""
 
-__version__ = "0.1.1"
+from importlib.metadata import version
+
+__version__ = version("titan-cli")
