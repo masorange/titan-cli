@@ -22,11 +22,11 @@ class Icons:
     QUESTION = "❓"
 
     # Progress states
-    PENDING = "⏸️ "
+    PENDING = "⏸ "  # Sin variation selector para mejor compatibilidad
     RUNNING = "⏳"
     COMPLETED = SUCCESS  # Alias
     FAILED = ERROR  # Alias
-    SKIPPED = "⏭️ "
+    SKIPPED = "⏭ "  # Sin variation selector para mejor compatibilidad
 
     # Workflow & execution
     WORKFLOW = "⚡"
@@ -61,7 +61,7 @@ class Icons:
 
     # General UI
     MENU = "☰"
-    SETTINGS = "⚙️ "
+    SETTINGS = "⚙️ "  # Mantener con selector, no se usa en StepIndicator
     SEARCH = "🔍"
     STAR = "⭐"
     CHECK = "✓"
