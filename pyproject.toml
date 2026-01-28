@@ -1,14 +1,31 @@
 [tool.poetry]
 name = "titan-cli"
 version = "0.1.0"
-description = "Extensible CLI workflow orchestrator"
+description = "Modular development tools orchestrator - Streamline your workflows with AI integration and intuitive terminal UI"
 authors = ["finxo <finxeto@gmail.com>", "r-pedraza <raulpedrazaleon@gmail.com>"]
-maintainers = []
+maintainers = ["r-pedraza <raulpedrazaleon@gmail.com>"]
 readme = "README.md"
-keywords = []
-classifiers = []
+homepage = "https://github.com/masmovil/titan-cli"
+repository = "https://github.com/masmovil/titan-cli"
+documentation = "https://github.com/masmovil/titan-cli"
+license = "MIT"
+keywords = ["cli", "workflow", "orchestrator", "automation", "devtools", "ai"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 
-packages = [{include = "titan_cli"}]
+packages = [
+    {include = "titan_cli"},
+    {include = "titan_plugin_git", from = "plugins/titan-plugin-git"},
+    {include = "titan_plugin_github", from = "plugins/titan-plugin-github"},
+    {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"}
+]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0.0"
@@ -21,13 +38,11 @@ python-dotenv = ">=1.2.1,<2.0.0"
 anthropic = ">=0.75.0,<0.76.0"
 google-genai = "^1.58.0"
 google-auth = ">=2.43.0,<3.0.0"
-
-titan-plugin-git = {path = "plugins/titan-plugin-git", develop = true}
-titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}
-titan-plugin-jira = {path = "plugins/titan-plugin-jira", develop = true}
-pyyaml = "^6.0.3"
-jinja2 = "^3.1.6"
-textual = "^1.0.0"
+pyyaml = ">=6.0.3,<7.0.0"
+jinja2 = ">=3.1.4,<4.0.0"
+textual = ">=1.0.0,<2.0.0"
+requests = ">=2.31.0,<3.0.0"
+packaging = ">=23.0,<25.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
@@ -35,6 +50,10 @@ pytest-mock = "^3.12"
 pytest-cov = "^4.1"
 ruff = "^0.14.9"
 pytest-json-report = "^1.5.0"
+# Plugin path dependencies for development (editable installs)
+titan-plugin-git = {path = "plugins/titan-plugin-git", develop = true}
+titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}
+titan-plugin-jira = {path = "plugins/titan-plugin-jira", develop = true}
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -42,6 +61,12 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 titan = "titan_cli.cli:app"
+titan-dev = "titan_cli.cli:app"
+
+[tool.poetry.plugins."titan.plugins"]
+git = "titan_plugin_git.plugin:GitPlugin"
+github = "titan_plugin_github.plugin:GitHubPlugin"
+jira = "titan_plugin_jira.plugin:JiraPlugin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

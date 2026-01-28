@@ -4,10 +4,11 @@ Titan CLI - Main CLI application
 Combines all tool commands into a single CLI interface.
 """
 import typer
-import importlib.metadata
 
+from titan_cli import __version__
 from titan_cli.messages import msg
 from titan_cli.ui.tui import launch_tui
+from titan_cli.utils.autoupdate import check_for_updates, get_update_message
 
 
 
@@ -22,14 +23,25 @@ app = typer.Typer(
 
 # --- Helper function for version retrieval ---
 def get_version() -> str:
-    """Retrieves the package version from pyproject.toml."""
-    return importlib.metadata.version("titan-cli")
+    """Retrieves the package version."""
+    return __version__
 
 
 @app.callback()
 def main(ctx: typer.Context):
     """Titan CLI - Main entry point"""
     if ctx.invoked_subcommand is None:
+        # Check for updates (non-blocking, silent on errors)
+        try:
+            update_info = check_for_updates()
+            message = get_update_message(update_info)
+            if message:
+                typer.echo(message)
+                typer.echo()  # Empty line for spacing
+        except Exception:
+            # Silently ignore update check failures
+            pass
+
         # Launch TUI by default
         launch_tui()
 
