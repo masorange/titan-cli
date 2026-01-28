@@ -108,7 +108,7 @@ def perform_update() -> Dict[str, any]:
     # Try pipx first (recommended)
     try:
         subprocess.check_call(
-            ["pipx", "upgrade", "titan-cli"],
+            ["pipx", "upgrade", "--force", "titan-cli"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
