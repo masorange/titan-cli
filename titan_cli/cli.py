@@ -8,7 +8,7 @@ import typer
 from titan_cli import __version__
 from titan_cli.messages import msg
 from titan_cli.ui.tui import launch_tui
-from titan_cli.utils.autoupdate import check_for_updates, get_update_message
+from titan_cli.utils.autoupdate import check_for_updates, perform_update
 
 
 
@@ -34,10 +34,32 @@ def main(ctx: typer.Context):
         # Check for updates (non-blocking, silent on errors)
         try:
             update_info = check_for_updates()
-            message = get_update_message(update_info)
-            if message:
-                typer.echo(message)
-                typer.echo()  # Empty line for spacing
+            if update_info["update_available"]:
+                current = update_info["current_version"]
+                latest = update_info["latest_version"]
+
+                typer.echo(f"🔔 Update available: v{current} → v{latest}")
+                typer.echo()
+
+                # Ask user if they want to update
+                if typer.confirm("Would you like to update now?", default=True):
+                    typer.echo("⏳ Updating Titan CLI...")
+                    result = perform_update()
+
+                    if result["success"]:
+                        typer.echo(f"✅ Successfully updated to v{latest} using {result['method']}")
+                        typer.echo("🔄 Please restart Titan to use the new version")
+                        typer.echo()
+                        # Exit so user can restart
+                        raise typer.Exit(0)
+                    else:
+                        typer.echo(f"❌ Update failed: {result['error']}")
+                        typer.echo("   Please try manually: pipx upgrade titan-cli")
+                        typer.echo()
+                        # Continue to TUI even if update fails
+                else:
+                    typer.echo("⏭  Skipping update. Run 'pipx upgrade titan-cli' to update later.")
+                    typer.echo()
         except Exception:
             # Silently ignore update check failures
             pass
