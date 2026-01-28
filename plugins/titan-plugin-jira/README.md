@@ -16,7 +16,9 @@ This plugin is installed automatically with Titan CLI when configured with JIRA 
 
 ## Configuration
 
-Configure in `.titan/config.toml`:
+### Global Configuration (Required)
+
+Configure your JIRA credentials in `~/.titan/config.toml` (user-level):
 
 ```toml
 [plugins.jira]

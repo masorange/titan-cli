@@ -14,6 +14,7 @@ from .base import BaseScreen
 
 from .cli_launcher import CLILauncherScreen
 from .ai_config import AIConfigScreen
+from .plugin_management import PluginManagementScreen
 
 class MainMenuScreen(BaseScreen):
     """
@@ -146,7 +147,7 @@ class MainMenuScreen(BaseScreen):
 
     def handle_plugin_management_action(self) -> None:
         """Handle Plugin Management action."""
-        self.app.notify("Plugin management - Coming soon!")
+        self.app.push_screen(PluginManagementScreen(self.config))
 
     def handle_ai_config_action(self) -> None:
         """Handle AI Configuration action."""

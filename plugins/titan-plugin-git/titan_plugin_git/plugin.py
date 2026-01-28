@@ -11,7 +11,6 @@ from .exceptions import GitClientError
 from .messages import msg
 from .steps.status_step import get_git_status_step
 from .steps.commit_step import create_git_commit_step
-from .steps.prompt_step import prompt_for_commit_message_step
 from .steps.push_step import create_git_push_step
 
 
@@ -105,7 +104,6 @@ class GitPlugin(TitanPlugin):
         return {
             "get_status": get_git_status_step,
             "create_commit": create_git_commit_step,
-            "prompt_for_commit_message": prompt_for_commit_message_step,
             "push": create_git_push_step,
             "get_current_branch": get_current_branch_step,
             "get_base_branch": get_base_branch_step,
