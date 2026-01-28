@@ -50,17 +50,18 @@ class JiraClient:
             JIRA Server/Next uses Basic Auth with Personal Access Token.
             For JIRA Cloud: API tokens can be created at https://id.atlassian.com/manage/api-tokens
         """
+        # Validate before processing
+        if not base_url:
+            raise JiraAPIError("JIRA base URL not provided")
+
+        if not api_token:
+            raise JiraAPIError("JIRA API token not provided")
+
         self.base_url = base_url.rstrip("/")
         self.email = email
         self.api_token = api_token
         self.project_key = project_key
         self.timeout = timeout
-
-        if not self.api_token:
-            raise JiraAPIError("JIRA API token not provided")
-
-        if not self.base_url:
-            raise JiraAPIError("JIRA base URL not provided")
 
         if not self.email:
             raise JiraAPIError("JIRA user email not provided")
