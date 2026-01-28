@@ -66,7 +66,7 @@ class JiraClient:
             raise JiraAPIError("JIRA user email not provided")
 
         self.session = requests.Session()
-        # Use Bearer Token Authentication (OAuth 2.0) for JIRA API
+        # Use Bearer Auth for JIRA Server/Next with Personal Access Token
         self.session.headers.update({
             "Accept": "application/json",
             "Authorization": f"Bearer {self.api_token}"
@@ -113,6 +113,20 @@ class JiraClient:
 
         except requests.exceptions.RequestException as e:
             raise JiraAPIError(f"Request failed: {e}")
+
+    # ==================== USER OPERATIONS ====================
+
+    def get_current_user(self) -> Dict[str, Any]:
+        """
+        Get current authenticated user information.
+
+        Returns:
+            User information including displayName, emailAddress, accountId, etc.
+
+        Raises:
+            JiraAPIError: If authentication fails or API request fails
+        """
+        return self._make_request('GET', 'myself')
 
     # ==================== TICKET OPERATIONS ====================
 

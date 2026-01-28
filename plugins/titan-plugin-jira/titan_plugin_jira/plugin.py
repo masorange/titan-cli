@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypedDict, List
+from pydantic import ValidationError
 from titan_cli.core.plugins.models import JiraPluginConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
@@ -7,6 +8,16 @@ from titan_cli.core.secrets import SecretManager
 from .clients.jira_client import JiraClient
 from .exceptions import JiraConfigurationError, JiraClientError
 from .messages import msg
+
+
+class TokenValidationResult(TypedDict):
+    """Result of token validation."""
+    valid: bool
+    error: Optional[str]
+    user: Optional[str]
+    email: Optional[str]
+    token_source: dict
+    warnings: List[str]
 
 
 class JiraPlugin(TitanPlugin):
@@ -45,20 +56,11 @@ class JiraPlugin(TitanPlugin):
         plugin_config_data = self._get_plugin_config(config)
 
         # Validate configuration using Pydantic model
-        validated_config = JiraPluginConfig(**plugin_config_data)
-
-        # Validate required credentials
-        if not validated_config.base_url:
-            raise JiraConfigurationError(
-                "JIRA base_url not configured. "
-                "Please add [plugins.jira.config] section with base_url in ~/.titan/config.toml"
-            )
-
-        if not validated_config.email:
-            raise JiraConfigurationError(
-                "JIRA email not configured. "
-                "Please add [plugins.jira.config] section with email in ~/.titan/config.toml"
-            )
+        # Pydantic validators will check base_url and email during construction
+        try:
+            validated_config = JiraPluginConfig(**plugin_config_data)
+        except ValidationError as e:
+            raise JiraConfigurationError(str(e)) from e
 
         # Get API token from secrets
         # Try multiple secret keys for backwards compatibility
@@ -94,9 +96,6 @@ class JiraPlugin(TitanPlugin):
         self._token_source = self._identify_token_source(
             secrets, project_name, validated_config.email, api_token
         )
-
-        # Store warning if no default project is configured
-        self._has_default_project = validated_config.default_project is not None
 
     def _identify_token_source(
         self, secrets: SecretManager, project_name: Optional[str],
@@ -141,27 +140,24 @@ class JiraPlugin(TitanPlugin):
                 "details": "Token source could not be identified"
             }
 
-    def validate_token(self) -> dict:
+    @property
+    def has_default_project(self) -> bool:
+        """Check if a default project is configured."""
+        return hasattr(self, '_client') and self._client.project_key is not None
+
+    def validate_token(self) -> TokenValidationResult:
         """
         Validate that the current token works by making a test API call.
 
         Also checks configuration completeness and returns warnings.
 
         Returns:
-            Dict with validation results:
-                {
-                    "valid": bool,
-                    "error": Optional[str],
-                    "user": Optional[str],
-                    "email": Optional[str],
-                    "token_source": dict,
-                    "warnings": List[str]
-                }
+            TokenValidationResult with validation results
         """
         warnings = []
 
         # Check if default project is configured
-        if not getattr(self, '_has_default_project', False):
+        if not self.has_default_project:
             warnings.append(
                 "No default_project configured. "
                 "Some operations (like create_subtask) will fail without a project."
@@ -179,7 +175,7 @@ class JiraPlugin(TitanPlugin):
 
         try:
             # Test token with /rest/api/2/myself endpoint
-            myself = self._client._make_request('GET', 'myself')
+            myself = self._client.get_current_user()
             return {
                 "valid": True,
                 "error": None,

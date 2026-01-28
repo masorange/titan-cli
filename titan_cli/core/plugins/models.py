@@ -1,5 +1,5 @@
 # titan_cli/core/plugins/models.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional
 
 class PluginConfig(BaseModel):
@@ -39,3 +39,29 @@ class JiraPluginConfig(BaseModel):
     timeout: int = Field(30, description="Request timeout in seconds")
     enable_cache: bool = Field(True, description="Enable caching for API responses")
     cache_ttl: int = Field(300, description="Cache time-to-live in seconds")
+
+    @field_validator('base_url')
+    @classmethod
+    def validate_base_url(cls, v):
+        """Validate base_url is configured and properly formatted."""
+        if not v:
+            raise ValueError(
+                "JIRA base_url not configured. "
+                "Please add [plugins.jira.config] section with base_url in ~/.titan/config.toml"
+            )
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError("base_url must start with http:// or https://")
+        return v.rstrip('/')  # Normalize trailing slash
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v):
+        """Validate email is configured and has valid format."""
+        if not v:
+            raise ValueError(
+                "JIRA email not configured. "
+                "Please add [plugins.jira.config] section with email in ~/.titan/config.toml"
+            )
+        if '@' not in v:
+            raise ValueError("email must be a valid email address")
+        return v.lower()  # Normalize email to lowercase
