@@ -1798,7 +1798,7 @@ syntax = ["tree-sitter (>=0.23.0) ; python_version >= \"3.9\"", "tree-sitter-bas
 
 [[package]]
 name = "titan-plugin-git"
-version = "0.1.0"
+version = "1.0.0"
 description = "Git plugin for Titan CLI"
 optional = false
 python-versions = ">=3.10"
@@ -1812,7 +1812,7 @@ url = "plugins/titan-plugin-git"
 
 [[package]]
 name = "titan-plugin-github"
-version = "0.1.0"
+version = "1.0.0"
 description = "Titan CLI plugin for GitHub integration."
 optional = false
 python-versions = ">=3.10"
@@ -2094,4 +2094,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0.0"
-content-hash = "2650bd362f958f6a93ec5ca86466a10dbaa7d69cfbedf3f8d8e085fa56b910f0"
+content-hash = "a1becd8788e71f8593e94b22a61fdcf72fa0db2f194fcd651f88a80edcaca0c2"
