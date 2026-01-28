@@ -106,7 +106,7 @@ jobs:
       url: https://pypi.org/project/titan-cli/${{ github.event.inputs.version }}/
     permissions:
       contents: read      # Only read access, no write
-      id-token: write     # For PyPI trusted publishing (optional)
+      # id-token: write removed - using API token instead of trusted publishing
 
     steps:
       - name: Download artifacts
