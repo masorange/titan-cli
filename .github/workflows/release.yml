@@ -1,59 +1,136 @@
-name: Release
+name: Release to PyPI
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0, 1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release?'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
-  publish-pypi:
-    name: Publish to PyPI
+  release:
     runs-on: ubuntu-latest
+    environment:
+      name: pypi-release
+      url: https://pypi.org/project/titan-cli/${{ github.event.inputs.version }}/
+    permissions:
+      contents: write  # For creating releases and tags
+      id-token: write  # For PyPI trusted publishing (optional)
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install build tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install build twine
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.7.1
+          virtualenvs-create: true
+          virtualenvs-in-project: true
 
-      - name: Build package
-        run: python -m build
+      - name: Verify version matches
+        run: |
+          PYPROJECT_VERSION=$(poetry version -s)
+          INPUT_VERSION="${{ github.event.inputs.version }}"
+
+          if [ "$PYPROJECT_VERSION" != "$INPUT_VERSION" ]; then
+            echo "❌ Version mismatch!"
+            echo "   pyproject.toml: $PYPROJECT_VERSION"
+            echo "   Input version:  $INPUT_VERSION"
+            echo ""
+            echo "Please update version in pyproject.toml and titan_cli/__init__.py first"
+            exit 1
+          fi
+
+          echo "✅ Version verified: $PYPROJECT_VERSION"
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Run tests
+        run: poetry run pytest tests/ -v --tb=short
+        continue-on-error: false
+
+      - name: Build distribution
+        run: poetry build
+
+      - name: Verify build artifacts
+        run: |
+          ls -lh dist/
+          echo "📦 Built packages:"
+          ls dist/
+
+          # Verify wheel contains plugins
+          echo ""
+          echo "🔍 Checking wheel contents for plugins..."
+          unzip -l dist/titan_cli-${{ github.event.inputs.version }}-py3-none-any.whl | grep -E "titan_plugin_(git|github|jira)" | head -5
+
+      - name: Generate release notes
+        run: |
+          poetry run python scripts/generate_release_notes.py \
+            --version "${{ github.event.inputs.version }}" \
+            --output release_notes.md
+
+          echo "📝 Generated release notes:"
+          cat release_notes.md
 
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: python -m twine upload dist/*.whl dist/*.tar.gz
+        run: |
+          pip install twine
+          python -m twine upload dist/*.whl dist/*.tar.gz --skip-existing
 
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: publish-pypi
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create Release
+          # Check if tag exists
+          if git rev-parse "v${{ github.event.inputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ github.event.inputs.version }} already exists, skipping"
+          else
+            git tag -a "v${{ github.event.inputs.version }}" -m "Release v${{ github.event.inputs.version }}"
+            git push origin "v${{ github.event.inputs.version }}"
+          fi
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: v${{ github.event.inputs.version }}
+          body_path: release_notes.md
           draft: false
-          prerelease: false
-          generate_release_notes: true
-          body: |
-            ## Installation
-
-            ```bash
-            pipx install titan-cli
-            ```
-
-            See [INSTALL.md](https://github.com/masmovil/titan-cli/blob/main/INSTALL.md) for more details.
+          prerelease: ${{ github.event.inputs.prerelease }}
+          files: |
+            dist/titan_cli-${{ github.event.inputs.version }}-py3-none-any.whl
+            dist/titan_cli-${{ github.event.inputs.version }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post-release summary
+        run: |
+          echo "## 🎉 Release Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: v${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **PyPI**: https://pypi.org/project/titan-cli/${{ github.event.inputs.version }}/" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Release**: https://github.com/${{ github.repository }}/releases/tag/v${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Installation" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "pipx install titan-cli==${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
