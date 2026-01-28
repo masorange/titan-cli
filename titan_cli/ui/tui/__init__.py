@@ -32,8 +32,9 @@ def launch_tui():
 
     if not global_config_path.exists():
         # First-time setup: Launch global setup wizard
+        # Skip plugin initialization until after setup completes
         plugin_registry = PluginRegistry()
-        config = TitanConfig(registry=plugin_registry)
+        config = TitanConfig(registry=plugin_registry, skip_plugin_init=True)
 
         # We'll create a special wrapper screen that handles the wizard flow
         from .screens.base import BaseScreen
@@ -136,15 +137,13 @@ def launch_tui():
         app.run()
         return
 
-    # Global config exists, initialize normally
-    plugin_registry = PluginRegistry()
-    config = TitanConfig(registry=plugin_registry)
-
-    # Check if project config exists in current directory
+    # Global config exists, check if project config exists in current directory
     project_config_path = Path.cwd() / ".titan" / "config.toml"
 
     if not project_config_path.exists():
-        # Project not configured: Launch project setup wizard
+        # Project not configured: Skip plugin initialization until after setup
+        plugin_registry = PluginRegistry()
+        config = TitanConfig(registry=plugin_registry, skip_plugin_init=True)
         # Create a wrapper screen similar to global wizard flow
         from .screens.base import BaseScreen
         from textual.app import ComposeResult
@@ -200,6 +199,8 @@ def launch_tui():
         app.run()
         return
 
-    # Both global and project configs exist: Run normally
+    # Both global and project configs exist: Initialize normally with plugins
+    plugin_registry = PluginRegistry()
+    config = TitanConfig(registry=plugin_registry)  # Plugins will initialize here
     app = TitanApp(config=config)
     app.run()

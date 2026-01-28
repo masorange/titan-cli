@@ -16,7 +16,8 @@ class TitanConfig:
     def __init__(
         self,
         registry: Optional[PluginRegistry] = None,
-        global_config_path: Optional[Path] = None
+        global_config_path: Optional[Path] = None,
+        skip_plugin_init: bool = False
     ):
         # Core dependencies
         self.registry = registry or PluginRegistry()
@@ -32,12 +33,15 @@ class TitanConfig:
         self._global_config_path = global_config_path or self.GLOBAL_CONFIG
 
         # Initial load
-        self.load()
+        self.load(skip_plugin_init=skip_plugin_init)
 
-    def load(self):
+    def load(self, skip_plugin_init: bool = False):
         """
         Reloads the entire configuration from disk, including global config
         and the project config from the current working directory.
+
+        Args:
+            skip_plugin_init: If True, skip plugin initialization. Useful during setup wizards.
         """
         # Load global config
         self.global_config = self._load_toml(self._global_config_path)
@@ -61,10 +65,11 @@ class TitanConfig:
         secrets_path = Path.cwd()
         self.secrets = SecretManager(project_path=secrets_path if secrets_path.is_dir() else None)
 
-        # Reset and re-initialize plugins
-        self.registry.reset()
-        self.registry.initialize_plugins(config=self, secrets=self.secrets)
-        self._plugin_warnings = self.registry.list_failed()
+        # Reset and re-initialize plugins (unless skipped during setup)
+        if not skip_plugin_init:
+            self.registry.reset()
+            self.registry.initialize_plugins(config=self, secrets=self.secrets)
+            self._plugin_warnings = self.registry.list_failed()
 
         # Re-initialize WorkflowRegistry
         # Use current working directory for workflows

@@ -155,6 +155,9 @@ titan
 # Other commands:
 titan version           # Show version
 titan tui               # Explicitly launch TUI
+
+# Development (from repo):
+poetry run titan        # Run from source
 ```
 
 ## Current Project Status

@@ -17,16 +17,16 @@ class Icons:
     # Status indicators
     SUCCESS = "✅"
     ERROR = "❌"
-    WARNING = "⚠️"
-    INFO = "ℹ️ "
+    WARNING = "⚠ "
+    INFO = "ℹ "
     QUESTION = "❓"
 
     # Progress states
-    PENDING = "⏸️ "
+    PENDING = "⏸ "
     RUNNING = "⏳"
     COMPLETED = SUCCESS  # Alias
     FAILED = ERROR  # Alias
-    SKIPPED = "⏭️ "
+    SKIPPED = "⏭ "
 
     # Workflow & execution
     WORKFLOW = "⚡"
@@ -51,8 +51,8 @@ class Icons:
     # Git & VCS
     GIT_BRANCH = "🌿"
     GIT_COMMIT = "💾"
-    GIT_PULL = "⬇️"
-    GIT_PUSH = "⬆️"
+    GIT_PULL = "⬇ "
+    GIT_PUSH = "⬆ "
 
     # AI & Automation
     AI = "🤖"
@@ -61,7 +61,7 @@ class Icons:
 
     # General UI
     MENU = "☰"
-    SETTINGS = "⚙️ "
+    SETTINGS = "⚙ "
     SEARCH = "🔍"
     STAR = "⭐"
     CHECK = "✓"
