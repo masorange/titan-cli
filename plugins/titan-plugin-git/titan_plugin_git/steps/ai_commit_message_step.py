@@ -115,6 +115,18 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         # Take only the first line if AI returned multiple lines
         commit_message = commit_message.split('\n')[0].strip()
 
+        # Ensure subject starts with capital letter (conventional commits requirement)
+        # Format: type(scope): Description
+        if ':' in commit_message:
+            parts = commit_message.split(':', 1)
+            if len(parts) == 2:
+                prefix = parts[0]  # type(scope)
+                subject = parts[1].strip()  # description
+                # Capitalize first letter of subject
+                if subject and subject[0].islower():
+                    subject = subject[0].upper() + subject[1:]
+                commit_message = f"{prefix}: {subject}"
+
         # Show preview to user
         ctx.textual.text("")  # spacing
         ctx.textual.text(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE, markup="bold")
