@@ -420,8 +420,9 @@ COMMIT_MESSAGE: <conventional commit message>"""
 ```
 
 ## CRITICAL Instructions
-1. **Title**: Follow conventional commits (type(scope): description), be clear and descriptive
-   - Examples: "feat(auth): add OAuth2 integration with Google provider", "fix(api): resolve race condition in cache invalidation"
+1. **Title**: Follow conventional commits (type(scope): Description), be clear and descriptive
+   - Start description with CAPITAL letter (imperative mood)
+   - Examples: "feat(auth): Add OAuth2 integration with Google provider", "fix(api): Resolve race condition in cache invalidation"
 
 2. **Description**: MUST follow the template structure above but keep it under {max_chars} characters total
    - Fill in the template sections (Summary, Type of Change, Changes Made, etc.)
@@ -459,6 +460,18 @@ DESCRIPTION:
 
         # Clean up title
         title = title.strip('"').strip("'")
+
+        # Ensure title subject starts with capital letter (conventional commits requirement)
+        # Format: type(scope): Description
+        if ':' in title:
+            parts = title.split(':', 1)
+            if len(parts) == 2:
+                prefix = parts[0]  # type(scope)
+                subject = parts[1].strip()  # description
+                # Capitalize first letter of subject
+                if subject and subject[0].islower():
+                    subject = subject[0].upper() + subject[1:]
+                title = f"{prefix}: {subject}"
 
         # Truncate description if needed (but not title)
         if len(description) > max_chars:

@@ -86,17 +86,17 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
 
 ## CRITICAL Instructions
 Generate ONE single-line conventional commit message following this EXACT format:
-- type(scope): description
+- type(scope): Description
 - Types: feat, fix, refactor, docs, test, chore, style, perf
 - Scope: area affected (e.g., auth, api, ui)
-- Description: clear summary in imperative mood (be descriptive, concise, and at least 5 words long)
+- Description: clear summary in imperative mood, starting with CAPITAL letter (be descriptive, concise, and at least 5 words long)
 - NO line breaks, NO body, NO additional explanation
 
-Examples (notice they are all one line):
-- feat(auth): add OAuth2 integration with Google provider
-- fix(api): resolve race condition in cache invalidation
-- refactor(ui): simplify menu component and remove unused props
-- refactor(workflows): add support for nested workflow execution
+Examples (notice they start with capital letter and are all one line):
+- feat(auth): Add OAuth2 integration with Google provider
+- fix(api): Resolve race condition in cache invalidation
+- refactor(ui): Simplify menu component and remove unused props
+- refactor(workflows): Add support for nested workflow execution
 
 Return ONLY the single-line commit message, absolutely nothing else."""
 
@@ -114,6 +114,18 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         commit_message = commit_message.strip('"').strip("'").strip()
         # Take only the first line if AI returned multiple lines
         commit_message = commit_message.split('\n')[0].strip()
+
+        # Ensure subject starts with capital letter (conventional commits requirement)
+        # Format: type(scope): Description
+        if ':' in commit_message:
+            parts = commit_message.split(':', 1)
+            if len(parts) == 2:
+                prefix = parts[0]  # type(scope)
+                subject = parts[1].strip()  # description
+                # Capitalize first letter of subject
+                if subject and subject[0].islower():
+                    subject = subject[0].upper() + subject[1:]
+                commit_message = f"{prefix}: {subject}"
 
         # Show preview to user
         ctx.textual.text("")  # spacing
