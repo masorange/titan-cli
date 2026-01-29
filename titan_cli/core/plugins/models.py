@@ -30,15 +30,43 @@ class JiraPluginConfig(BaseModel):
     Credentials (base_url, email, api_token) should be configured at global level (~/.titan/config.toml).
     Project-specific settings (default_project) can override at project level (.titan/config.toml).
     """
-    base_url: Optional[str] = Field(None, description="JIRA instance URL (e.g., 'https://jira.company.com')")
-    email: Optional[str] = Field(None, description="User email for authentication")
+    base_url: Optional[str] = Field(
+        None,
+        description="JIRA instance URL (e.g., 'https://jira.company.com')",
+        json_schema_extra={"config_scope": "global"}
+    )
+    email: Optional[str] = Field(
+        None,
+        description="User email for authentication",
+        json_schema_extra={"config_scope": "global"}
+    )
     # api_token is stored in secrets, not in config.toml
     # It appears in the JSON schema for interactive configuration but is optional in the model
-    api_token: Optional[str] = Field(None, description="JIRA API token (Personal Access Token)", json_schema_extra={"format": "password", "required_in_schema": True})
-    default_project: Optional[str] = Field(None, description="Default JIRA project key (e.g., 'ECAPP', 'PROJ')")
-    timeout: int = Field(30, description="Request timeout in seconds")
-    enable_cache: bool = Field(True, description="Enable caching for API responses")
-    cache_ttl: int = Field(300, description="Cache time-to-live in seconds")
+    api_token: Optional[str] = Field(
+        None,
+        description="JIRA API token (Personal Access Token)",
+        json_schema_extra={"format": "password", "required_in_schema": True}
+    )
+    default_project: Optional[str] = Field(
+        None,
+        description="Default JIRA project key (e.g., 'ECAPP', 'PROJ')",
+        json_schema_extra={"config_scope": "project"}
+    )
+    timeout: int = Field(
+        30,
+        description="Request timeout in seconds",
+        json_schema_extra={"config_scope": "global"}
+    )
+    enable_cache: bool = Field(
+        True,
+        description="Enable caching for API responses",
+        json_schema_extra={"config_scope": "global"}
+    )
+    cache_ttl: int = Field(
+        300,
+        description="Cache time-to-live in seconds",
+        json_schema_extra={"config_scope": "global"}
+    )
 
     @field_validator('base_url')
     @classmethod
