@@ -282,7 +282,7 @@ class AIConfigScreen(BaseScreen):
     def __init__(self, config):
         super().__init__(
             config,
-            title=f"{Icons.SETTINGS} AI Configuration",
+            title=f"{Icons.AI_CONFIG} AI Configuration",
             show_back=True
         )
 

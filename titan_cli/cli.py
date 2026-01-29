@@ -3,6 +3,8 @@ Titan CLI - Main CLI application
 
 Combines all tool commands into a single CLI interface.
 """
+import os
+import sys
 import typer
 
 from titan_cli import __version__
