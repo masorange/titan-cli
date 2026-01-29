@@ -376,6 +376,126 @@ COMMIT_MESSAGE: <conventional commit message>"""
         }
 
 
+    def _is_release_notes_pr(
+        self,
+        commits: list[str],
+        head_branch: str,
+        diff: str
+    ) -> bool:
+        """
+        Detect if this is a release notes PR.
+
+        Detection criteria:
+        1. Branch name contains "release" or "notes"
+        2. Commits contain "release notes" pattern
+        3. Diff contains markdown files with release notes content
+
+        Returns:
+            True if release notes PR, False otherwise
+        """
+        # Check branch name
+        branch_lower = head_branch.lower()
+        if "release" in branch_lower or "notes" in branch_lower:
+            return True
+
+        # Check commits for release notes patterns
+        for commit in commits:
+            commit_lower = commit.lower()
+            if "release notes" in commit_lower or "release note" in commit_lower:
+                return True
+
+        # Check diff for .md files with release notes markers
+        if diff:
+            diff_lower = diff.lower()
+            # Look for markdown files AND release notes markers (brand emojis, version patterns)
+            has_md = ".md" in diff_lower
+            has_brand_markers = any(brand in diff for brand in ["🟣", "🟡", "🔴", "🔵", "🟤", "🟠", "🟢", "⚪️"])
+            if has_md and has_brand_markers:
+                return True
+
+        return False
+
+    def _build_release_notes_pr_prompt(
+        self,
+        commits: list[str],
+        diff: str,
+        head_branch: str,
+        base_branch: str,
+        max_chars: int
+    ) -> str:
+        """
+        Build prompt for release notes PR (simplified format).
+
+        Release notes PRs have a simpler structure:
+        - Title: "docs: Release notes X.X.X Platform"
+        - Body: Just the release notes content with a header
+
+        No "How to review", "Test plan", or other sections needed.
+        """
+        # Prepare commits text
+        commits_text = "\n".join([f"  - {c}" for c in commits[:self.config.max_commits_to_analyze]])
+        if len(commits) > self.config.max_commits_to_analyze:
+            commits_text += f"\n  ... and {len(commits) - self.config.max_commits_to_analyze} more commits"
+
+        # Limit diff size
+        max_diff = self.config.max_diff_size
+        diff_preview = diff[:max_diff] if diff else "No diff available"
+        if len(diff) > max_diff:
+            diff_preview += "\n\n... (diff truncated for brevity)"
+
+        return f"""Analyze this branch and generate a release notes pull request.
+
+## Branch Information
+- Head branch: {head_branch}
+- Base branch: {base_branch}
+- Total commits: {len(commits)}
+
+## Commits in Branch
+{commits_text}
+
+## Branch Diff Preview
+```diff
+{diff_preview}
+```
+
+## CRITICAL Instructions for Release Notes PR
+
+This is a RELEASE NOTES pull request. Use a simplified format:
+
+1. **Title**: Extract version and platform from commits/diff, format as:
+   - "docs: Release notes X.X.X iOS"
+   - "docs: Release notes X.X.X Android"
+   - Example: "docs: Release notes 26.4.0 iOS"
+
+2. **Description**: SIMPLE format with ONLY a header and the release notes content
+   - Start with: "# Release notes X.X.X Platform"
+   - Then include the FULL release notes content from the diff
+   - DO NOT add sections like "How to review this PR", "Test plan", "Summary", etc.
+   - ONLY the header + release notes content
+
+3. **Maximum length**: {max_chars} characters total
+
+**Example format:**
+```markdown
+# Release notes 26.4.0 iOS
+
+*🟣 Yoigo*
+- Modificados los espacios promocionales...
+- Actualizados los campos...
+
+*🟡 MASMOVIL*
+- Modificados los espacios promocionales...
+...
+```
+
+Format your response EXACTLY like this:
+TITLE: docs: Release notes X.X.X Platform
+
+DESCRIPTION:
+# Release notes X.X.X Platform
+
+<full release notes content from diff - MAX {max_chars} chars>"""
+
     def _build_pr_prompt(
         self,
         commits: list[str],
@@ -387,6 +507,17 @@ COMMIT_MESSAGE: <conventional commit message>"""
         max_chars: int
     ) -> str:
         """Build the prompt for PR generation."""
+        # Detect if this is a release notes PR
+        if self._is_release_notes_pr(commits, head_branch, diff):
+            return self._build_release_notes_pr_prompt(
+                commits=commits,
+                diff=diff,
+                head_branch=head_branch,
+                base_branch=base_branch,
+                max_chars=max_chars
+            )
+
+        # Standard PR prompt (existing logic)
         # Prepare commits text
         commits_text = "\n".join([f"  - {c}" for c in commits[:self.config.max_commits_to_analyze]])
         if len(commits) > self.config.max_commits_to_analyze:

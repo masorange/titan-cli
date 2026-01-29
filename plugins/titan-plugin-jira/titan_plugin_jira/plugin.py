@@ -243,14 +243,40 @@ class JiraPlugin(TitanPlugin):
         Returns a dictionary of available workflow steps.
         """
         from .steps.search_saved_query_step import search_saved_query_step
+        from .steps.search_issues_step import search_issues_step
         from .steps.prompt_select_issue_step import prompt_select_issue_step
+        from .steps.prompt_platform_step import prompt_platform_step
+        from .steps.prompt_fix_version_step import prompt_fix_version_step
+        from .steps.list_versions_step import list_versions_step
+        from .steps.prompt_select_version_step import prompt_select_version_step
         from .steps.get_issue_step import get_issue_step
         from .steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
+        from .steps.generate_release_notes_step import generate_release_notes
+        from .steps.confirm_release_notes_step import confirm_release_notes_step
+        from .steps.confirm_commit_step import confirm_commit_step
+        from .steps.confirm_create_pr_step import confirm_create_pr_step
+        from .steps.confirm_commit_and_pr_step import confirm_commit_and_pr_step
+        from .steps.save_release_notes_file_step import save_release_notes_file_step
+        from .steps.prepare_commit_pr_data_step import prepare_commit_pr_data_step
+        from .steps.normalize_version_step import normalize_version_step
         return {
             "search_saved_query": search_saved_query_step,
+            "search_issues": search_issues_step,
             "prompt_select_issue": prompt_select_issue_step,
+            "prompt_platform": prompt_platform_step,
+            "prompt_fix_version": prompt_fix_version_step,
+            "list_versions": list_versions_step,
+            "prompt_select_version": prompt_select_version_step,
             "get_issue": get_issue_step,
             "ai_analyze_issue_requirements": ai_analyze_issue_requirements_step,
+            "generate_release_notes": generate_release_notes,
+            "confirm_release_notes": confirm_release_notes_step,
+            "confirm_commit": confirm_commit_step,
+            "confirm_create_pr": confirm_create_pr_step,
+            "confirm_commit_and_pr": confirm_commit_and_pr_step,
+            "save_release_notes_file": save_release_notes_file_step,
+            "prepare_commit_pr_data": prepare_commit_pr_data_step,
+            "normalize_version": normalize_version_step,
         }
 
     @property

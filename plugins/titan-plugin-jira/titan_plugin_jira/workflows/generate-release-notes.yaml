@@ -1,0 +1,119 @@
+name: "Generate Release Notes"
+description: "Generate multi-brand weekly release notes from JIRA issues and create PR"
+
+params:
+  project_key: "ECAPP"
+  base_branch: "develop"
+
+steps:
+  # Step 1: Select platform (iOS or Android)
+  - id: prompt_platform
+    name: "Select Platform"
+    plugin: jira
+    step: prompt_platform
+
+  # Step 2: Prompt for version or select from list
+  - id: prompt_version
+    name: "Enter Fix Version"
+    plugin: jira
+    step: prompt_fix_version
+
+  # Step 3: Normalize version format (YY.W → YY.W.0)
+  - id: normalize_version
+    name: "Normalize Version Format"
+    plugin: jira
+    step: normalize_version
+    requires:
+      - fix_version
+
+  # Step 4: Search JIRA for issues with fixVersion
+  - id: search_issues
+    name: "Search JIRA Issues"
+    plugin: jira
+    step: search_issues
+    requires:
+      - fix_version
+    params:
+      jql: 'fixVersion = "${fix_version}" AND project = ${project_key} ORDER BY key ASC'
+      max_results: 100
+
+  # Step 5: Generate release notes with AI
+  - id: generate_notes
+    name: "Generate Release Notes"
+    plugin: jira
+    step: generate_release_notes
+    requires:
+      - issues
+      - platform
+
+  # Step 6: Show and confirm release notes
+  - id: confirm_notes
+    name: "Review Release Notes"
+    plugin: jira
+    step: confirm_release_notes
+    requires:
+      - release_notes
+
+  # Step 7: Save release notes to file
+  - id: save_file
+    name: "Save Release Notes File"
+    plugin: jira
+    step: save_release_notes_file
+    requires:
+      - release_notes
+      - platform
+      - fix_version
+
+  # Step 8: Ensure we're on release-notes/{version} branch
+  - id: ensure_branch
+    name: "Ensure Release Branch"
+    plugin: git
+    step: ensure_release_branch
+    requires:
+      - fix_version
+
+  # Step 9: Prepare commit message and PR data
+  - id: prepare_data
+    name: "Prepare Commit and PR Data"
+    plugin: jira
+    step: prepare_commit_pr_data
+    requires:
+      - fix_version
+      - platform
+      - issues
+
+  # Step 10: Confirm commit and PR creation
+  - id: confirm_commit_pr
+    name: "Confirm Commit and PR"
+    plugin: jira
+    step: confirm_commit_and_pr
+    requires:
+      - commit_message
+      - pr_title
+      - pr_body
+
+  # Step 11: Create commit
+  - id: commit_changes
+    name: "Create Commit"
+    plugin: git
+    step: create_commit
+    requires:
+      - commit_message
+
+  # Step 12: Push to remote
+  - id: push_branch
+    name: "Push Branch"
+    plugin: git
+    step: push
+    requires:
+      - release_branch
+
+  # Step 13: Create pull request
+  - id: create_pr
+    name: "Create Pull Request"
+    plugin: github
+    step: create_pr
+    requires:
+      - pr_title
+      - pr_body
+      - pr_head_branch

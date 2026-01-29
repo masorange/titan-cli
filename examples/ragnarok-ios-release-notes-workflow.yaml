@@ -1,0 +1,174 @@
+name: "Generate Release Notes (iOS)"
+description: "Generate multi-brand weekly release notes and create files in Ragnarok iOS project"
+
+params:
+  project_key: "ECAPP"
+  platform: "iOS"
+  notes_directory: "ReleaseNotes"  # Ruta donde se crean las release notes
+
+steps:
+  # === JIRA Steps (reutilizables) ===
+  # Note: prompt_platform step removed - platform is hardcoded in params
+
+  - id: list_versions
+    name: "List Available Versions"
+    plugin: jira
+    step: list_versions
+    description: "Fetch unreleased versions from JIRA project"
+    params:
+      project_key: "${project_key}"
+
+  - id: select_version
+    name: "Select Version"
+    plugin: jira
+    step: prompt_select_version
+    description: "Prompt user to select a version from the list"
+    requires:
+      - versions
+
+  # === Git Steps ===
+
+  - id: ensure_branch
+    name: "Ensure Release Notes Branch"
+    plugin: git
+    step: ensure_release_branch
+    description: "Create/switch to release-notes/{version} branch from develop"
+    requires:
+      - fix_version
+
+  # === JIRA Query ===
+
+  - id: search_jira
+    name: "Search JIRA Issues"
+    plugin: jira
+    step: search_issues
+    description: "Query JIRA for issues in the specified fixVersion"
+    requires:
+      - fix_version
+    params:
+      jql: 'fixVersion = "${fix_version}" AND project = ${project_key} ORDER BY key ASC'
+      max_results: 100
+
+  - id: generate_notes
+    name: "Generate Release Notes"
+    plugin: jira
+    step: generate_release_notes
+    description: "Process issues and generate formatted release notes"
+    requires:
+      - issues
+      - fix_version
+
+  # === File Operations (Project-Specific) ===
+
+  - id: discover_directory
+    name: "Discover Notes Directory"
+    command: |
+      # Buscar directorio de release notes si no está configurado
+      if [ ! -d "${notes_directory}" ]; then
+        # Buscar en ubicaciones comunes para iOS
+        for dir in "docs/release-notes" "Documentation/ReleaseNotes" "ReleaseNotes"; do
+          if [ -d "$dir" ]; then
+            echo "NOTES_DIR=$dir"
+            exit 0
+          fi
+        done
+        echo "ERROR: No se encontró directorio de release notes"
+        exit 1
+      else
+        echo "NOTES_DIR=${notes_directory}"
+      fi
+    description: "Find release notes directory (auto-discover or use configured)"
+
+  - id: create_notes_file
+    name: "Create Release Notes File"
+    command: |
+      # Obtener directorio del step anterior
+      NOTES_DIR=$(echo "${discover_directory_output}" | grep NOTES_DIR | cut -d= -f2)
+
+      # Generar nombre de archivo siguiendo patrón existente
+      # Ejemplo: release-notes-26.4.0.md
+      FILENAME="release-notes-${fix_version}.md"
+      FILEPATH="$NOTES_DIR/$FILENAME"
+
+      # Crear archivo con contenido de release notes
+      echo "# Release Notes ${fix_version} - iOS" > "$FILEPATH"
+      echo "" >> "$FILEPATH"
+      echo "**Fecha:** $(date +\"%Y-%m-%d\")" >> "$FILEPATH"
+      echo "**Versión:** ${fix_version}" >> "$FILEPATH"
+      echo "" >> "$FILEPATH"
+      echo "${release_notes}" >> "$FILEPATH"
+
+      echo "Created: $FILEPATH"
+    description: "Create markdown file with release notes"
+    requires:
+      - fix_version
+      - release_notes
+
+  - id: update_latest_publishers
+    name: "Update LatestPublishers.md (iOS Only)"
+    command: |
+      # Archivo LatestPublishers.md específico de iOS
+      PUBLISHERS_FILE="docs/LatestPublishers.md"
+
+      if [ ! -f "$PUBLISHERS_FILE" ]; then
+        echo "WARNING: LatestPublishers.md not found, skipping"
+        exit 0
+      fi
+
+      # Detectar usuario (nombre de git)
+      USER_NAME=$(git config user.name)
+
+      # Extraer semana del año de la versión (26.4.0 -> semana 4)
+      WEEK=$(echo "${fix_version}" | cut -d. -f2)
+
+      # Actualizar línea del usuario con la nueva versión
+      # Buscar línea que contenga el nombre del usuario y actualizar
+      sed -i.bak "s/\($USER_NAME.*\)\[.*\]/\1[$WEEK - ${fix_version}]/" "$PUBLISHERS_FILE"
+
+      echo "Updated LatestPublishers.md for $USER_NAME (Week $WEEK)"
+    description: "Update LatestPublishers.md with version for current user"
+    requires:
+      - fix_version
+
+  # === Prepare Commit and PR Data ===
+
+  - id: prepare_data
+    name: "Prepare Commit and PR Data"
+    plugin: jira
+    step: prepare_commit_pr_data
+    description: "Generate commit message and PR data using template"
+    requires:
+      - fix_version
+      - platform
+      - issues
+
+  # === Git Commit and Push ===
+
+  - id: commit_changes
+    name: "Create Git Commit"
+    plugin: git
+    step: create_git_commit
+    description: "Commit changes with message: 'docs: Add release notes for ${fix_version}'"
+    requires:
+      - commit_message
+      - file_path
+
+  - id: push_branch
+    name: "Push Branch to Remote"
+    plugin: git
+    step: create_git_push
+    description: "Push release-notes/${fix_version} branch to remote"
+    requires:
+      - commit_hash
+
+  # === Create PR ===
+
+  - id: create_pr
+    name: "Create Pull Request"
+    plugin: github
+    step: create_pr
+    description: "Create PR with title: 'notes: Add release notes for ${fix_version}'"
+    requires:
+      - pr_title
+      - pr_body
+      - pr_head_branch

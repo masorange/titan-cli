@@ -17,8 +17,9 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     Projects can override or add custom queries in .titan/config.toml under [jira.saved_queries].
 
     Inputs (from ctx.data):
-        query_name (str): Name of saved query (e.g., "my_bugs", "team_bugs")
-        project (str, optional): Project key for parameterized queries (e.g., "ECAPP")
+        query_name (str): Name of saved query (e.g., "my_bugs", "team_bugs", "release_notes")
+        project (str, optional): Project key for queries with {project} parameter (e.g., "ECAPP")
+        fix_version (str, optional): Fix version for queries with {fix_version} parameter (e.g., "26.4.0")
         max_results (int, optional): Maximum number of results (default: 50)
 
     Outputs (saved to ctx.data):
@@ -36,6 +37,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
         Priority: critical_issues, high_priority, blocked_issues
         Time: updated_today, created_this_week, recent_bugs
         Status: todo_issues, in_progress_all, done_recently
+        Release: release_notes, unreleased_issues
 
     Example usage in workflow:
         ```yaml
@@ -52,6 +54,15 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
           params:
             query_name: "team_bugs"
             project: "ECAPP"
+
+        # For queries with {fix_version} parameter:
+        - id: search_release
+          plugin: jira
+          step: search_saved_query
+          params:
+            query_name: "release_notes"
+            project: "ECAPP"
+            fix_version: "26.4.0"
         ```
     """
     if not ctx.textual:
@@ -109,8 +120,12 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Get parameters for query formatting
     project = ctx.get("project")
+    fix_version = ctx.get("fix_version")
 
-    # Format query if it has parameters
+    # Prepare format parameters
+    format_params = {}
+
+    # Handle project parameter
     if "{project}" in jql:
         if not project:
             # Try to use default project from JIRA client
@@ -122,7 +137,21 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.mount(Panel(error_msg, panel_type="error"))
             return Error(error_msg)
 
-        jql = jql.format(project=project)
+        format_params["project"] = project
+
+    # Handle fix_version parameter (for release notes queries)
+    if "{fix_version}" in jql:
+        if not fix_version:
+            error_msg = f"Query '{query_name}' requires a 'fix_version' parameter.\nJQL template: {jql}"
+            if ctx.ui:
+                ctx.ui.panel.print(error_msg, panel_type="error")
+            return Error(error_msg)
+
+        format_params["fix_version"] = fix_version
+
+    # Format query with all parameters
+    if format_params:
+        jql = jql.format(**format_params)
 
     # Show which query is being used
     is_custom = query_name in custom_queries
