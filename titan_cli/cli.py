@@ -54,8 +54,14 @@ def main(ctx: typer.Context):
                         typer.echo("🔄 Relaunching Titan with new version...")
                         typer.echo()
 
-                        # Relaunch titan using subprocess (safer than os.execv)
-                        subprocess.run([sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:])
+                        # Relaunch titan using subprocess
+                        # Note: sys.executable and sys.argv are controlled by the Python runtime,
+                        # not user input, so this is safe from command injection
+                        subprocess.run(
+                            [sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:],
+                            shell=False,  # Explicitly disable shell to prevent injection
+                            check=False   # Don't raise on non-zero exit
+                        )
                         raise typer.Exit(0)
                     else:
                         typer.echo(f"❌ Update failed: {result['error']}")
