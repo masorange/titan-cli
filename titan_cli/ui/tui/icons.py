@@ -17,8 +17,8 @@ class Icons:
     # Status indicators
     SUCCESS = "✅"
     ERROR = "❌"
-    WARNING = "⚠ "
-    INFO = "ℹ "
+    WARNING = "🟡"
+    INFO = "🔵"
     QUESTION = "❓"
 
     # Progress states
