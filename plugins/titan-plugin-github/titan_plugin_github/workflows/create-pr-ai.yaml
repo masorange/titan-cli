@@ -19,6 +19,11 @@ steps:
     plugin: git
     step: get_current_branch
 
+  - id: branch_diff_summary
+    name: "Show Branch Changes Summary"
+    plugin: git
+    step: show_branch_diff_summary
+
   # AI generates PR title and description from branch commits
   - id: ai_pr_description
     name: "AI PR Description"

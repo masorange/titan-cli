@@ -12,6 +12,11 @@ steps:
     plugin: git
     step: get_status
 
+  - id: diff_summary
+    name: "Show Changes Summary"
+    plugin: git
+    step: show_uncommitted_diff_summary
+
   - id: ai_commit_message
     name: "AI Commit Message"
     plugin: git
