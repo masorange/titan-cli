@@ -96,7 +96,7 @@ def test_create_git_commit_step_success():
     assert is_success(result)
     assert result.message == f"Commit created successfully: {expected_commit_hash}"
     assert result.metadata['commit_hash'] == expected_commit_hash
-    mock_git_client.commit.assert_called_once_with(message="Test commit message", all=True)
+    mock_git_client.commit.assert_called_once_with(message="Test commit message", all=True, no_verify=False)
 
 def test_create_git_commit_step_skip_if_clean():
     """
