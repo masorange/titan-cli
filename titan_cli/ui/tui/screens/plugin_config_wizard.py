@@ -494,22 +494,43 @@ class PluginConfigWizardScreen(BaseScreen):
 
         try:
             project_cfg_path = self.config.project_config_path
+            global_cfg_path = self.config._global_config_path
+
             if not project_cfg_path:
                 self.app.notify("No project config found", severity="error")
                 return
 
+            # Load existing configs
             project_cfg_dict = {}
             if project_cfg_path.exists():
                 with open(project_cfg_path, "rb") as f:
                     project_cfg_dict = tomli.load(f)
 
-            plugins_table = project_cfg_dict.setdefault("plugins", {})
-            plugin_specific_table = plugins_table.setdefault(self.plugin_name, {})
-            plugin_config_table = plugin_specific_table.setdefault("config", {})
+            global_cfg_dict = {}
+            if global_cfg_path.exists():
+                with open(global_cfg_path, "rb") as f:
+                    global_cfg_dict = tomli.load(f)
 
-            # Separate secrets from regular config
+            # Prepare plugin tables
+            project_plugins_table = project_cfg_dict.setdefault("plugins", {})
+            project_plugin_table = project_plugins_table.setdefault(self.plugin_name, {})
+            project_config_table = project_plugin_table.setdefault("config", {})
+
+            global_plugins_table = global_cfg_dict.setdefault("plugins", {})
+            global_plugin_table = global_plugins_table.setdefault(self.plugin_name, {})
+            global_config_table = global_plugin_table.setdefault("config", {})
+
+            # Get field metadata from schema
+            field_scopes = {}
+            if self.schema and "properties" in self.schema:
+                for field_name, field_info in self.schema["properties"].items():
+                    scope = field_info.get("config_scope", "project")  # Default to project
+                    field_scopes[field_name] = scope
+
+            # Separate secrets and config by scope
             secrets_to_save = {}
-            config_values = {}
+            global_config_values = {}
+            project_config_values = {}
 
             for field_name, value in self.config_data.items():
                 if isinstance(value, dict) and value.get("_is_secret"):
@@ -524,14 +545,24 @@ class PluginConfigWizardScreen(BaseScreen):
                     else:
                         secrets_to_save[secret_key] = value["_value"]
                 else:
-                    config_values[field_name] = value
+                    # Route to global or project based on field scope
+                    scope = field_scopes.get(field_name, "project")
+                    if scope == "global":
+                        global_config_values[field_name] = value
+                    else:
+                        project_config_values[field_name] = value
 
-            # Update config
-            plugin_config_table.update(config_values)
+            # Update configs
+            project_config_table.update(project_config_values)
+            global_config_table.update(global_config_values)
 
-            # Write config file
+            # Write config files
             with open(project_cfg_path, "wb") as f:
                 tomli_w.dump(project_cfg_dict, f)
+
+            if global_config_values:  # Only write global if there are global values
+                with open(global_cfg_path, "wb") as f:
+                    tomli_w.dump(global_cfg_dict, f)
 
             # Save secrets
             project_name = self.config.get_project_name()

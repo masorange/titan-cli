@@ -20,10 +20,19 @@ class PluginRegistry:
         logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
 
         discovered = entry_points(group='titan.plugins')
-        self._discovered_plugin_names = [ep.name for ep in discovered]
+
+        # Deduplicate entry points (can happen in dev mode with editable installs)
+        seen = {}
+        unique_eps = []
+        for ep in discovered:
+            if ep.name not in seen:
+                seen[ep.name] = ep
+                unique_eps.append(ep)
+
+        self._discovered_plugin_names = [ep.name for ep in unique_eps]
         logger.debug(f"PluginRegistry.discover() - Found {len(self._discovered_plugin_names)} plugins: {self._discovered_plugin_names}")
 
-        for ep in discovered:
+        for ep in unique_eps:
             try:
                 logger.debug(f"Loading plugin: {ep.name}")
                 plugin_class = ep.load()
