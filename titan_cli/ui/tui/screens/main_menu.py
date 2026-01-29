@@ -108,7 +108,7 @@ class MainMenuScreen(BaseScreen):
             options.extend(
                 [
                     Option(f"{Icons.PLUGIN} Plugin Management", id="plugin_management"),
-                    Option(f"{Icons.SETTINGS}  AI Configuration", id="ai_config"),
+                    Option(f"{Icons.AI_CONFIG}  AI Configuration", id="ai_config"),
                 ]
             )
 

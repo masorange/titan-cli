@@ -63,6 +63,12 @@ class PluginRegistry:
                 if name in initialized:
                     continue
 
+                # Skip plugins that are disabled in configuration
+                if not config.is_plugin_enabled(name):
+                    logger.debug(f"Skipping disabled plugin: {name}")
+                    initialized.add(name)  # Mark as processed so we don't retry
+                    continue
+
                 plugin = self._plugins[name]
                 dependencies_met = True
                 

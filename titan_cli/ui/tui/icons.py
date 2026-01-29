@@ -17,8 +17,8 @@ class Icons:
     # Status indicators
     SUCCESS = "✅"
     ERROR = "❌"
-    WARNING = "⚠ "
-    INFO = "ℹ "
+    WARNING = "🟡"
+    INFO = "🔵"
     QUESTION = "❓"
 
     # Progress states
@@ -56,6 +56,7 @@ class Icons:
 
     # AI & Automation
     AI = "🤖"
+    AI_CONFIG = "🧠"
     ROBOT = "🤖"
     SPARKLES = "✨"
 

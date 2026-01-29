@@ -47,7 +47,7 @@ class StatusBarWidget(Widget):
 
     StatusBarWidget #branch-info {
         text-align: left;
-        color: blue;
+        color: cyan;
     }
 
     StatusBarWidget #ai-info {

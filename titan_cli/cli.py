@@ -3,6 +3,8 @@ Titan CLI - Main CLI application
 
 Combines all tool commands into a single CLI interface.
 """
+import subprocess
+import sys
 import typer
 
 from titan_cli import __version__
@@ -31,7 +33,7 @@ def get_version() -> str:
 def main(ctx: typer.Context):
     """Titan CLI - Main entry point"""
     if ctx.invoked_subcommand is None:
-        # Check for updates (non-blocking, silent on errors)
+        # Check for updates BEFORE launching TUI
         try:
             update_info = check_for_updates()
             if update_info["update_available"]:
@@ -44,13 +46,22 @@ def main(ctx: typer.Context):
                 # Ask user if they want to update
                 if typer.confirm("Would you like to update now?", default=True):
                     typer.echo("⏳ Updating Titan CLI...")
+                    typer.echo()
                     result = perform_update()
 
                     if result["success"]:
                         typer.echo(f"✅ Successfully updated to v{latest} using {result['method']}")
-                        typer.echo("🔄 Please restart Titan to use the new version")
+                        typer.echo("🔄 Relaunching Titan with new version...")
                         typer.echo()
-                        # Exit so user can restart
+
+                        # Relaunch titan using subprocess
+                        # Note: sys.executable and sys.argv are controlled by the Python runtime,
+                        # not user input, so this is safe from command injection
+                        subprocess.run(
+                            [sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:],
+                            shell=False,  # Explicitly disable shell to prevent injection
+                            check=False   # Don't raise on non-zero exit
+                        )
                         raise typer.Exit(0)
                     else:
                         typer.echo(f"❌ Update failed: {result['error']}")
@@ -64,7 +75,7 @@ def main(ctx: typer.Context):
             # Silently ignore update check failures
             pass
 
-        # Launch TUI by default
+        # Launch TUI (only if no update or update was declined/failed)
         launch_tui()
 
 

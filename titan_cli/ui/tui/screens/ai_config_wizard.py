@@ -152,7 +152,7 @@ class AIConfigWizardScreen(BaseScreen):
     def __init__(self, config):
         super().__init__(
             config,
-            title=f"{Icons.SETTINGS} Configure AI Provider",
+            title=f"{Icons.AI_CONFIG} Configure AI Provider",
             show_back=True,
             show_status_bar=False
         )
