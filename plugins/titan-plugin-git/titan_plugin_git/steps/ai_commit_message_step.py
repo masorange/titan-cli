@@ -86,17 +86,17 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
 
 ## CRITICAL Instructions
 Generate ONE single-line conventional commit message following this EXACT format:
-- type(scope): description
+- type(scope): Description
 - Types: feat, fix, refactor, docs, test, chore, style, perf
 - Scope: area affected (e.g., auth, api, ui)
-- Description: clear summary in imperative mood (be descriptive, concise, and at least 5 words long)
+- Description: clear summary in imperative mood, starting with CAPITAL letter (be descriptive, concise, and at least 5 words long)
 - NO line breaks, NO body, NO additional explanation
 
-Examples (notice they are all one line):
-- feat(auth): add OAuth2 integration with Google provider
-- fix(api): resolve race condition in cache invalidation
-- refactor(ui): simplify menu component and remove unused props
-- refactor(workflows): add support for nested workflow execution
+Examples (notice they start with capital letter and are all one line):
+- feat(auth): Add OAuth2 integration with Google provider
+- fix(api): Resolve race condition in cache invalidation
+- refactor(ui): Simplify menu component and remove unused props
+- refactor(workflows): Add support for nested workflow execution
 
 Return ONLY the single-line commit message, absolutely nothing else."""
 

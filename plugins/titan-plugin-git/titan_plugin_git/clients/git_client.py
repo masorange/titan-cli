@@ -282,13 +282,14 @@ class GitClient:
         """
         self._run_command(["git", "branch", branch_name, start_point])
 
-    def commit(self, message: str, all: bool = False) -> str:
+    def commit(self, message: str, all: bool = False, no_verify: bool = False) -> str:
         """
         Create a commit
 
         Args:
             message: Commit message
             all: Stage all modified and new files (`git add --all`)
+            no_verify: Skip pre-commit and commit-msg hooks
 
         Returns:
             Commit hash
@@ -298,6 +299,8 @@ class GitClient:
             self._run_command(["git", "add", "--all"])
 
         args = ["git", "commit", "-m", message]
+        if no_verify:
+            args.append("--no-verify")
         self._run_command(args)
 
         return self._run_command(["git", "rev-parse", "HEAD"])

@@ -18,6 +18,7 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
         git_status (GitStatus): The git status object, used to check if the working directory is clean.
         commit_message (str): The message for the commit.
         all_files (bool, optional): Whether to commit all modified and new files. Defaults to True.
+        no_verify (bool, optional): Skip pre-commit and commit-msg hooks. Defaults to False.
         commit_hash (str, optional): If present, indicates a commit was already created.
 
     Outputs (saved to ctx.data):
@@ -54,11 +55,12 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
             )
         )
         return Skip(msg.Steps.Commit.NO_COMMIT_MESSAGE)
-        
+
     all_files = ctx.get('all_files', True)
+    no_verify = ctx.get('no_verify', False)
 
     try:
-        commit_hash = ctx.git.commit(message=commit_message, all=all_files)
+        commit_hash = ctx.git.commit(message=commit_message, all=all_files, no_verify=no_verify)
 
         # Show success panel
         ctx.textual.mount(
