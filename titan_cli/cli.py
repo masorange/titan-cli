@@ -3,7 +3,7 @@ Titan CLI - Main CLI application
 
 Combines all tool commands into a single CLI interface.
 """
-import os
+import subprocess
 import sys
 import typer
 
@@ -54,8 +54,9 @@ def main(ctx: typer.Context):
                         typer.echo("🔄 Relaunching Titan with new version...")
                         typer.echo()
 
-                        # Relaunch titan with the same arguments
-                        os.execv(sys.executable, [sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:])
+                        # Relaunch titan using subprocess (safer than os.execv)
+                        subprocess.run([sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:])
+                        raise typer.Exit(0)
                     else:
                         typer.echo(f"❌ Update failed: {result['error']}")
                         typer.echo("   Please try manually: pipx upgrade titan-cli")
