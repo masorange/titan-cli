@@ -1,6 +1,5 @@
 # plugins/titan-plugin-github/titan_plugin_github/steps/create_pr_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
-from titan_cli.ui.tui.widgets import Panel
 from ..exceptions import GitHubAPIError
 from ..messages import msg
 
@@ -33,10 +32,17 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Create Pull Request")
+
     # 1. Get GitHub client from context
     if not ctx.github:
+        ctx.textual.text("GitHub client is not available in the workflow context.", markup="red")
+        ctx.textual.end_step("error")
         return Error("GitHub client is not available in the workflow context.")
     if not ctx.git:
+        ctx.textual.text("Git client is not available in the workflow context.", markup="red")
+        ctx.textual.end_step("error")
         return Error("Git client is not available in the workflow context.")
 
     # 2. Get required data from context and client config
@@ -47,6 +53,8 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     is_draft = ctx.get("pr_is_draft", False)  # Default to not a draft
 
     if not all([title, base, head]):
+        ctx.textual.text("Missing required context for creating a pull request: pr_title, pr_head_branch.", markup="red")
+        ctx.textual.end_step("error")
         return Error(
             "Missing required context for creating a pull request: pr_title, pr_head_branch."
         )
@@ -63,24 +71,26 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # 4. Call the client method
     try:
+        ctx.textual.text(f"Creating pull request '{title}' from {head} to {base}...", markup="dim")
         pr = ctx.github.create_pull_request(
             title=title, body=body, base=base, head=head, draft=is_draft, assignees=assignees
         )
-        ctx.textual.mount(
-            Panel(
-                text=msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]),
-                panel_type="success"
-            )
-        )
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]), markup="green")
 
         # 4. Return Success with PR info
+        ctx.textual.end_step("success")
         return Success(
             "Pull request created successfully.",
             metadata={"pr_number": pr["number"], "pr_url": pr["url"]},
         )
     except GitHubAPIError as e:
+        ctx.textual.text(f"Failed to create pull request: {e}", markup="red")
+        ctx.textual.end_step("error")
         return Error(f"Failed to create pull request: {e}")
     except Exception as e:
+        ctx.textual.text(f"An unexpected error occurred while creating the pull request: {e}", markup="red")
+        ctx.textual.end_step("error")
         return Error(
             f"An unexpected error occurred while creating the pull request: {e}"
         )

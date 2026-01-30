@@ -8,7 +8,7 @@ Can be used after linting, testing, builds, or any step that produces
 errors or context that could benefit from AI assistance.
 """
 
-import json 
+import json
 
 from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
@@ -43,6 +43,9 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     if not ctx.textual:
         return Error(msg.AIAssistant.UI_CONTEXT_NOT_AVAILABLE)
 
+    # Begin step container - use step name from workflow
+    ctx.textual.begin_step(step.name or "AI Code Assistant")
+
     # Get parameters
     context_key = step.params.get("context_key")
     prompt_template = step.params.get("prompt_template", "{context}")
@@ -53,17 +56,32 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     # Validate cli_preference
     VALID_CLI_PREFERENCES = {"auto", "claude", "gemini"}
     if cli_preference not in VALID_CLI_PREFERENCES:
+        ctx.textual.text(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}", markup="red")
+        ctx.textual.end_step("error")
         return Error(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}")
 
     # Validate required parameters
     if not context_key:
+        ctx.textual.text(msg.AIAssistant.CONTEXT_KEY_REQUIRED, markup="red")
+        ctx.textual.end_step("error")
         return Error(msg.AIAssistant.CONTEXT_KEY_REQUIRED)
 
     # Get context data
     context_data = ctx.data.get(context_key)
     if not context_data:
-        # No context to work with - skip silently
-        return Skip(msg.AIAssistant.NO_DATA_IN_CONTEXT.format(context_key=context_key))
+        # No context to work with - skip silently with user-friendly message
+        # Infer what we're skipping based on step name
+        step_name = step.name or "AI Code Assistant"
+        if "lint" in step_name.lower():
+            friendly_msg = "No linting issues found - skipping AI assistance"
+        elif "test" in step_name.lower():
+            friendly_msg = "No test failures found - skipping AI assistance"
+        else:
+            friendly_msg = "No issues to fix - skipping AI assistance"
+
+        ctx.textual.text(friendly_msg, markup="dim")
+        ctx.textual.end_step("skip")
+        return Skip(friendly_msg)
 
     # Clear the context data immediately to prevent contamination of subsequent steps
     if context_key in ctx.data:
@@ -78,8 +96,12 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             context_str = json.dumps(context_data, indent=2)
             prompt = prompt_template.format(context=context_str)
     except KeyError as e:
+        ctx.textual.text(msg.AIAssistant.INVALID_PROMPT_TEMPLATE.format(e=e), markup="red")
+        ctx.textual.end_step("error")
         return Error(msg.AIAssistant.INVALID_PROMPT_TEMPLATE.format(e=e))
     except Exception as e:
+        ctx.textual.text(msg.AIAssistant.FAILED_TO_BUILD_PROMPT.format(e=e), markup="red")
+        ctx.textual.end_step("error")
         return Error(msg.AIAssistant.FAILED_TO_BUILD_PROMPT.format(e=e))
 
     # Ask for confirmation if needed
@@ -91,7 +113,11 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         )
         if not should_launch:
             if fail_on_decline:
+                ctx.textual.text(msg.AIAssistant.DECLINED_ASSISTANCE_STOPPED, markup="yellow")
+                ctx.textual.end_step("error")
                 return Error(msg.AIAssistant.DECLINED_ASSISTANCE_STOPPED)
+            ctx.textual.text(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED, markup="dim")
+            ctx.textual.end_step("skip")
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
     # Determine which CLI to use
@@ -116,8 +142,8 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
                 available_launchers[cli_name] = launcher
 
     if not available_launchers:
-        from titan_cli.ui.tui.widgets import Panel
-        ctx.textual.mount(Panel(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND, panel_type="warning"))
+        ctx.textual.text(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND, markup="yellow")
+        ctx.textual.end_step("skip")
         return Skip(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND)
 
     if len(available_launchers) == 1:
@@ -136,6 +162,8 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         choice_str = ctx.textual.ask_text("Select option (or press Enter to cancel):", default="")
 
         if not choice_str or choice_str.strip() == "":
+            ctx.textual.text(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED, markup="dim")
+            ctx.textual.end_step("skip")
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
         try:
@@ -144,19 +172,22 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
                 cli_to_launch = cli_options[choice_idx]
             else:
                 ctx.textual.text("Invalid option selected", markup="red")
+                ctx.textual.end_step("skip")
                 return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
         except ValueError:
             ctx.textual.text("Invalid input - must be a number", markup="red")
+            ctx.textual.end_step("skip")
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
     # Validate selection
     if cli_to_launch not in available_launchers:
+        ctx.textual.text(f"Unknown CLI to launch: {cli_to_launch}", markup="red")
+        ctx.textual.end_step("error")
         return Error(f"Unknown CLI to launch: {cli_to_launch}")
 
     cli_name = CLI_REGISTRY[cli_to_launch].get("display_name", cli_to_launch)
 
     # Launch the CLI
-    from titan_cli.ui.tui.widgets import Panel
     ctx.textual.text("")  # spacing
     ctx.textual.text(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name), markup="cyan")
 
@@ -177,9 +208,13 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     )
 
     ctx.textual.text("")  # spacing
-    ctx.textual.mount(Panel(msg.AIAssistant.BACK_IN_TITAN, panel_type="success"))
+    ctx.textual.text(msg.AIAssistant.BACK_IN_TITAN, markup="green")
 
     if exit_code != 0:
+        ctx.textual.text(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code), markup="yellow")
+        ctx.textual.end_step("error")
         return Error(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code))
 
+    ctx.textual.text(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code), markup="green")
+    ctx.textual.end_step("success")
     return Success(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code), metadata={"ai_exit_code": exit_code})

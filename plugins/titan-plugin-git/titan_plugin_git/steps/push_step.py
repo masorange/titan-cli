@@ -2,7 +2,6 @@
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_plugin_git.exceptions import GitCommandError
 from titan_plugin_git.messages import msg
-from titan_cli.ui.tui.widgets import Panel
 
 def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -30,6 +29,9 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.git:
         return Error(msg.Steps.Push.GIT_CLIENT_NOT_AVAILABLE)
 
+    # Begin step container
+    ctx.textual.begin_step("Push changes to remote")
+
     # Get params from context
     remote = ctx.get('remote')
     branch = ctx.get('branch')
@@ -51,23 +53,21 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         if push_tags:
             ctx.git.push(remote=remote_to_use, tags=True)
 
-        # Show success panel
+        # Show success message
         success_msg = f"Pushed to {remote_to_use}/{branch_to_use}"
         if push_tags:
             success_msg += " (with tags)"
 
-        ctx.textual.mount(
-            Panel(
-                text=success_msg,
-                panel_type="success"
-            )
-        )
+        ctx.textual.text(success_msg, markup="green")
 
+        ctx.textual.end_step("success")
         return Success(
             message=msg.Git.PUSH_SUCCESS.format(remote=remote_to_use, branch=branch_to_use),
             metadata={"pr_head_branch": branch_to_use}
         )
     except GitCommandError as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Push.PUSH_FAILED.format(e=e))
     except Exception as e:
+        ctx.textual.end_step("error")
         return Error(msg.Git.UNEXPECTED_ERROR.format(e=e))

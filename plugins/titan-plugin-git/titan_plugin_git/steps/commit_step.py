@@ -3,7 +3,6 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.engine.results import Skip
 from titan_plugin_git.exceptions import GitClientError, GitCommandError
 from titan_plugin_git.messages import msg
-from titan_cli.ui.tui.widgets import Panel
 
 
 def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -32,28 +31,24 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Create Commit")
+
     # Skip if there's nothing to commit
     git_status = ctx.data.get("git_status")
     if git_status and git_status.is_clean:
-        ctx.textual.mount(
-            Panel(
-                text=msg.Steps.Commit.WORKING_DIRECTORY_CLEAN,
-                panel_type="info"
-            )
-        )
+        ctx.textual.text(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN, markup="dim")
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
 
     if not ctx.git:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.GIT_CLIENT_NOT_AVAILABLE)
 
     commit_message = ctx.get('commit_message')
     if not commit_message:
-        ctx.textual.mount(
-            Panel(
-                text=msg.Steps.Commit.NO_COMMIT_MESSAGE,
-                panel_type="info"
-            )
-        )
+        ctx.textual.text(msg.Steps.Commit.NO_COMMIT_MESSAGE, markup="dim")
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.Commit.NO_COMMIT_MESSAGE)
 
     all_files = ctx.get('all_files', True)
@@ -62,21 +57,20 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     try:
         commit_hash = ctx.git.commit(message=commit_message, all=all_files, no_verify=no_verify)
 
-        # Show success panel
-        ctx.textual.mount(
-            Panel(
-                text=f"Commit created: {commit_hash[:7]}",
-                panel_type="success"
-            )
-        )
+        # Show success message
+        ctx.textual.text(f"Commit created: {commit_hash[:7]}", markup="green")
 
+        ctx.textual.end_step("success")
         return Success(
             message=msg.Steps.Commit.COMMIT_SUCCESS.format(commit_hash=commit_hash),
             metadata={"commit_hash": commit_hash}
         )
     except GitClientError as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.CLIENT_ERROR_DURING_COMMIT.format(e=e))
     except GitCommandError as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.COMMAND_FAILED_DURING_COMMIT.format(e=e))
     except Exception as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.UNEXPECTED_ERROR_DURING_COMMIT.format(e=e))

@@ -209,6 +209,46 @@ class TextualComponents:
         """
         self.app = app
         self.output_widget = output_widget
+        self._active_step_container = None
+
+    def begin_step(self, step_name: str) -> None:
+        """
+        Begin a new step by creating a StepContainer.
+
+        Args:
+            step_name: Name of the step
+        """
+        from titan_cli.ui.tui.widgets import StepContainer
+
+        def _create_container():
+            container = StepContainer(step_name=step_name)
+            self.output_widget.mount(container)
+            self._active_step_container = container
+
+        try:
+            self.app.call_from_thread(_create_container)
+        except Exception:
+            pass
+
+    def end_step(self, result_type: str) -> None:
+        """
+        End the current step by updating its container color.
+
+        Args:
+            result_type: One of 'success', 'skip', 'error'
+        """
+        if not self._active_step_container:
+            return
+
+        def _update_container():
+            if self._active_step_container:
+                self._active_step_container.set_result(result_type)
+                self._active_step_container = None
+
+        try:
+            self.app.call_from_thread(_update_container)
+        except Exception:
+            pass
 
     def mount(self, widget: Widget) -> None:
         """
@@ -222,7 +262,9 @@ class TextualComponents:
             ctx.textual.mount(Panel("Success!", panel_type="success"))
         """
         def _mount():
-            self.output_widget.mount(widget)
+            # Mount to active step container if it exists, otherwise to output widget
+            target = self._active_step_container if self._active_step_container else self.output_widget
+            target.mount(widget)
 
         # call_from_thread already blocks until the function completes
         try:
@@ -244,10 +286,20 @@ class TextualComponents:
             ctx.textual.text("Done!")
         """
         def _append():
-            if markup:
-                self.output_widget.append_output(f"[{markup}]{text}[/{markup}]")
+            # If there's an active step container, append to it; otherwise to output widget
+            if self._active_step_container:
+                from textual.widgets import Static
+                if markup:
+                    widget = Static(f"[{markup}]{text}[/{markup}]")
+                else:
+                    widget = Static(text)
+                widget.styles.height = "auto"
+                self._active_step_container.mount(widget)
             else:
-                self.output_widget.append_output(text)
+                if markup:
+                    self.output_widget.append_output(f"[{markup}]{text}[/{markup}]")
+                else:
+                    self.output_widget.append_output(text)
 
         # call_from_thread already blocks until the function completes
         try:
@@ -276,8 +328,9 @@ class TextualComponents:
         md_widget.styles.margin = (0, 0, 1, 0)
 
         def _mount():
-            # Mount markdown to output
-            self.output_widget.mount(md_widget)
+            # Mount to active step container if it exists, otherwise to output widget
+            target = self._active_step_container if self._active_step_container else self.output_widget
+            target.mount(md_widget)
             # Trigger autoscroll after mounting
             self.output_widget._scroll_to_end()
 

@@ -3,7 +3,6 @@ Get JIRA issue details step
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
-from titan_cli.ui.tui.widgets import Panel
 from ..exceptions import JiraAPIError
 from ..messages import msg
 
@@ -26,15 +25,20 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Get Full Issue Details")
+
     # Check if JIRA client is available
     if not ctx.jira:
-        ctx.textual.mount(Panel(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, panel_type="error"))
+        ctx.textual.text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, markup="red")
+        ctx.textual.end_step("error")
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
 
     # Get issue key
     issue_key = ctx.get("jira_issue_key")
     if not issue_key:
-        ctx.textual.mount(Panel("JIRA issue key is required", panel_type="error"))
+        ctx.textual.text("JIRA issue key is required", markup="red")
+        ctx.textual.end_step("error")
         return Error("JIRA issue key is required")
 
     # Get optional expand fields
@@ -46,12 +50,8 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
             issue = ctx.jira.get_ticket(ticket_key=issue_key, expand=expand)
 
         # Show success
-        ctx.textual.mount(
-            Panel(
-                text=msg.Steps.GetIssue.GET_SUCCESS.format(issue_key=issue_key),
-                panel_type="success"
-            )
-        )
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(msg.Steps.GetIssue.GET_SUCCESS.format(issue_key=issue_key), markup="green")
 
         # Show issue details
         ctx.textual.text(f"  Title: {issue.summary}", markup="cyan")
@@ -60,6 +60,7 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text(f"  Assignee: {issue.assignee or 'Unassigned'}")
         ctx.textual.text("")
 
+        ctx.textual.end_step("success")
         return Success(
             msg.Steps.GetIssue.GET_SUCCESS.format(issue_key=issue_key),
             metadata={"jira_issue": issue}
@@ -68,14 +69,17 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     except JiraAPIError as e:
         if e.status_code == 404:
             error_msg = msg.Steps.GetIssue.ISSUE_NOT_FOUND.format(issue_key=issue_key)
-            ctx.textual.mount(Panel(error_msg, panel_type="error"))
+            ctx.textual.text(error_msg, markup="red")
+            ctx.textual.end_step("error")
             return Error(error_msg)
         error_msg = msg.Steps.GetIssue.GET_FAILED.format(e=e)
-        ctx.textual.mount(Panel(error_msg, panel_type="error"))
+        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.end_step("error")
         return Error(error_msg)
     except Exception as e:
         error_msg = f"Unexpected error getting issue: {e}"
-        ctx.textual.mount(Panel(error_msg, panel_type="error"))
+        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.end_step("error")
         return Error(error_msg)
 
 

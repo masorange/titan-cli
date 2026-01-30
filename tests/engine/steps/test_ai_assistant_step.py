@@ -70,8 +70,9 @@ class TestExecuteAIAssistantStep(unittest.TestCase):
     def test_no_cli_available(self, mock_which):
         result = execute_ai_assistant_step(self.mock_step, self.mock_ctx)
         self.assertIsInstance(result, Skip)
-        # Verify that a warning panel was mounted
-        self.mock_ctx.textual.mount.assert_called_once()
+        # Verify that step container was started and ended
+        self.mock_ctx.textual.begin_step.assert_called_once()
+        self.mock_ctx.textual.end_step.assert_called_once_with("skip")
 
     @patch('shutil.which', side_effect=lambda cli: '/usr/bin/claude' if cli == 'claude' else None)
     def test_one_cli_available(self, mock_which):

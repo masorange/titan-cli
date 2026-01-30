@@ -6,7 +6,6 @@ Uses PRAgent to analyze branch context and generate PR content.
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
-from titan_cli.ui.tui.widgets import Panel
 
 from ..agents import PRAgent
 from ..messages import msg
@@ -43,23 +42,24 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("AI PR Description")
+
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        ctx.textual.mount(
-            Panel(
-                text=msg.GitHub.AI.AI_NOT_CONFIGURED,
-                panel_type="info"
-            )
-        )
+        ctx.textual.text(msg.GitHub.AI.AI_NOT_CONFIGURED, markup="dim")
+        ctx.textual.end_step("skip")
         return Skip(msg.GitHub.AI.AI_NOT_CONFIGURED)
 
     # Get Git client
     if not ctx.git:
+        ctx.textual.end_step("error")
         return Error(msg.GitHub.AI.GIT_CLIENT_NOT_AVAILABLE)
 
     # Get branch info
     head_branch = ctx.get("pr_head_branch")
     if not head_branch:
+        ctx.textual.end_step("error")
         return Error(msg.GitHub.AI.MISSING_PR_HEAD_BRANCH)
 
     base_branch = ctx.git.main_branch
@@ -88,12 +88,8 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Check if PR content was generated (need commits in branch)
         if not analysis.pr_title or not analysis.pr_body:
-            ctx.textual.mount(
-                Panel(
-                    text="No commits found in branch to generate PR description.",
-                    panel_type="info"
-                )
-            )
+            ctx.textual.text("No commits found in branch to generate PR description.", markup="dim")
+            ctx.textual.end_step("skip")
             return Skip("No commits found for PR generation")
 
         # Show PR size info
@@ -137,15 +133,8 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
 
         if not use_ai_pr:
             ctx.textual.text(msg.GitHub.AI.AI_SUGGESTION_REJECTED, markup="yellow")
+            ctx.textual.end_step("skip")
             return Skip("User rejected AI-generated PR")
-
-        # Show success panel
-        ctx.textual.mount(
-            Panel(
-                text="AI generated PR description successfully",
-                panel_type="success"
-            )
-        )
 
         # Success - save to context
         metadata = {
@@ -155,6 +144,7 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             "pr_size": analysis.pr_size
         }
 
+        ctx.textual.end_step("success")
         return Success(
             msg.GitHub.AI.AI_GENERATED_PR_DESCRIPTION_SUCCESS,
             metadata=metadata
@@ -165,6 +155,7 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e), markup="yellow")
         ctx.textual.text(msg.GitHub.AI.FALLBACK_TO_MANUAL, markup="dim")
 
+        ctx.textual.end_step("skip")
         return Skip(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
 
 

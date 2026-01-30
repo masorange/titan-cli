@@ -7,7 +7,6 @@ from titan_cli.engine import (
 )
 from titan_cli.messages import msg as global_msg
 from ..messages import msg
-from titan_cli.ui.tui.widgets import Panel
 
 def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -23,37 +22,35 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the status was retrieved successfully.
         Error: If the GitClient is not available or the git command fails.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
     if not ctx.git:
         return Error(msg.Steps.Status.GIT_CLIENT_NOT_AVAILABLE)
+
+    # Begin step container
+    ctx.textual.begin_step("Check Git Status")
 
     try:
         status = ctx.git.get_status()
 
-        if not ctx.textual:
-            return Error("Textual UI context is not available for this step.")
-
-        # If there are uncommitted changes, show warning panel
+        # If there are uncommitted changes, show text (border will be green on success)
         if not status.is_clean:
-            ctx.textual.mount(
-                Panel(
-                    text=global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING,
-                    panel_type="warning"
-                )
-            )
+            ctx.textual.text(global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING, markup="yellow")
             message = msg.Steps.Status.STATUS_RETRIEVED_WITH_UNCOMMITTED
         else:
-            # Show success panel for clean working directory
-            ctx.textual.mount(
-                Panel(
-                    text=msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN,
-                    panel_type="success"
-                )
-            )
+            # Show text for clean working directory (border will be green)
+            ctx.textual.text(msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN, markup="green")
             message = msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN
+
+        # End step container with success
+        ctx.textual.end_step("success")
 
         return Success(
             message=message,
             metadata={"git_status": status}
         )
     except Exception as e:
+        # End step container with error
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Status.FAILED_TO_GET_STATUS.format(e=e))

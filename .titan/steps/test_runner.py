@@ -5,7 +5,7 @@ from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
 from titan_cli.engine.utils import get_poetry_venv_env
-from titan_cli.ui.tui.widgets import Table, Panel
+from titan_cli.ui.tui.widgets import Table
 from titan_cli.ui.tui.icons import Icons
 
 # Constants for display limits
@@ -20,12 +20,16 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Run Tests")
+
     project_root = ctx.get("project_root", ".")
     report_path = Path(project_root) / ".report.json"
 
     # Get poetry venv environment for consistency with other steps
     venv_env = get_poetry_venv_env(cwd=project_root)
     if not venv_env:
+        ctx.textual.end_step("error")
         return Error("Could not determine poetry virtual environment for pytest.")
 
     ctx.textual.text("Running tests with pytest...", markup="dim")
@@ -41,12 +45,14 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     
     # Read the report
     if not report_path.exists():
+        ctx.textual.end_step("error")
         return Error(f"Pytest JSON report not found at {report_path}. Pytest output:\n{result.stderr}")
 
     try:
         with open(report_path) as f:
             report = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
+        ctx.textual.end_step("error")
         return Error(f"Failed to read or parse pytest JSON report: {e}")
     finally:
         # Clean up the report file
@@ -81,7 +87,8 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
 
     # --- Handle Failures ---
     if failed_count == 0:
-        ctx.textual.mount(Panel("All tests passed!", panel_type="success"))
+        ctx.textual.text("All tests passed!", markup="green")
+        ctx.textual.end_step("success")
         return Success("All tests passed")
 
     ctx.textual.text(f"{failed_count} test(s) failed", markup="yellow")
@@ -120,6 +127,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
         failures_text += f"Test: {failure.get('nodeid', 'Unknown Test')}\n"
         failures_text += f"Error:\n  {failure.get('call', {}).get('longrepr', 'N/A')}\n\n"
 
+    ctx.textual.end_step("success")
     return Success(
         message="Tests completed with failures",
         metadata={"step_output": failures_text}
