@@ -328,8 +328,9 @@ class TextualComponents:
         md_widget.styles.margin = (0, 0, 1, 0)
 
         def _mount():
-            # Mount markdown to output
-            self.output_widget.mount(md_widget)
+            # Mount to active step container if it exists, otherwise to output widget
+            target = self._active_step_container if self._active_step_container else self.output_widget
+            target.mount(md_widget)
             # Trigger autoscroll after mounting
             self.output_widget._scroll_to_end()
 
