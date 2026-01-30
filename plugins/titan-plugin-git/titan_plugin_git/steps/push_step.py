@@ -47,11 +47,13 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         if not ctx.git.branch_exists_on_remote(branch=branch_to_use, remote=remote_to_use):
             set_upstream = True
 
-        ctx.git.push(remote=remote_to_use, branch=branch_to_use, set_upstream=set_upstream)
-
-        # Push tags if requested
-        if push_tags:
-            ctx.git.push(remote=remote_to_use, tags=True)
+        # Push branch (and tags if requested)
+        ctx.git.push(
+            remote=remote_to_use,
+            branch=branch_to_use,
+            set_upstream=set_upstream,
+            tags=push_tags
+        )
 
         # Show success message
         success_msg = f"Pushed to {remote_to_use}/{branch_to_use}"
@@ -66,8 +68,12 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
             metadata={"pr_head_branch": branch_to_use}
         )
     except GitCommandError as e:
+        error_msg = msg.Steps.Push.PUSH_FAILED.format(e=e)
+        ctx.textual.text(error_msg, markup="red")
         ctx.textual.end_step("error")
-        return Error(msg.Steps.Push.PUSH_FAILED.format(e=e))
+        return Error(error_msg)
     except Exception as e:
+        error_msg = msg.Git.UNEXPECTED_ERROR.format(e=e)
+        ctx.textual.text(error_msg, markup="red")
         ctx.textual.end_step("error")
-        return Error(msg.Git.UNEXPECTED_ERROR.format(e=e))
+        return Error(error_msg)

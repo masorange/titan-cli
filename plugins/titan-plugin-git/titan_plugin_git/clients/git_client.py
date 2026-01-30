@@ -350,7 +350,7 @@ class GitClient:
         self._run_command(["git", "branch", delete_arg, branch])
         return True
 
-    def push(self, remote: str = "origin", branch: Optional[str] = None, set_upstream: bool = False) -> None:
+    def push(self, remote: str = "origin", branch: Optional[str] = None, set_upstream: bool = False, tags: bool = False) -> None:
         """
         Push to remote
 
@@ -358,12 +358,16 @@ class GitClient:
             remote: Remote name
             branch: Branch to push (default: current)
             set_upstream: Set upstream tracking
+            tags: Push tags to remote (use --tags flag)
         """
         args = ["git", "push"]
 
         if set_upstream:
             args.append("-u")
-            
+
+        if tags:
+            args.append("--tags")
+
         args.append(remote)
 
         if branch:
@@ -773,3 +777,74 @@ class GitClient:
             # Command failed, likely no remote 'origin' or not a git repo
             pass
         return None, None
+
+    def create_tag(self, tag_name: str, message: str, ref: str = "HEAD") -> None:
+        """
+        Create an annotated tag
+
+        Args:
+            tag_name: Name of the tag
+            message: Tag annotation message
+            ref: Reference to tag (default: HEAD)
+
+        Raises:
+            GitCommandError: If tag creation fails
+        """
+        self._run_command(["git", "tag", "-a", tag_name, "-m", message, ref])
+
+    def delete_tag(self, tag_name: str) -> None:
+        """
+        Delete a local tag
+
+        Args:
+            tag_name: Name of the tag to delete
+
+        Raises:
+            GitCommandError: If tag deletion fails
+        """
+        self._run_command(["git", "tag", "-d", tag_name])
+
+    def tag_exists(self, tag_name: str) -> bool:
+        """
+        Check if a tag exists locally
+
+        Args:
+            tag_name: Name of the tag to check
+
+        Returns:
+            True if tag exists, False otherwise
+        """
+        try:
+            self._run_command(["git", "tag", "-l", tag_name], check=False)
+            tags = self._run_command(["git", "tag", "-l", tag_name]).strip()
+            return tags == tag_name
+        except GitCommandError:
+            return False
+
+    def list_tags(self) -> List[str]:
+        """
+        List all tags in the repository
+
+        Returns:
+            List of tag names
+        """
+        try:
+            output = self._run_command(["git", "tag", "-l"])
+            if output.strip():
+                return [tag.strip() for tag in output.split('\n') if tag.strip()]
+            return []
+        except GitCommandError:
+            return []
+
+    def is_protected_branch(self, branch: str) -> bool:
+        """
+        Check if a branch is protected (main, master, develop, etc.)
+
+        Args:
+            branch: Branch name to check
+
+        Returns:
+            True if branch is protected
+        """
+        protected_branches = ["main", "master", "develop", "production", "staging"]
+        return branch.lower() in protected_branches
