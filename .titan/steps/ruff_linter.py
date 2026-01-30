@@ -26,9 +26,13 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Run Ruff Linter")
+
     project_root = ctx.get("project_root", ".") # Fallback to current dir
     venv_env = get_poetry_venv_env(cwd=project_root)
     if not venv_env:
+        ctx.textual.end_step("error")
         return Error("Could not determine poetry virtual environment for ruff.")
 
     # 1. Scan before fix
@@ -44,6 +48,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     try:
         errors_before = json.loads(result_before.stdout) if result_before.stdout else []
     except json.JSONDecodeError:
+        ctx.textual.end_step("error")
         return Error(f"Failed to parse initial ruff output as JSON.\n{result_before.stdout}")
 
 
@@ -68,6 +73,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     try:
         errors_after = json.loads(result_after.stdout) if result_after.stdout else []
     except json.JSONDecodeError:
+        ctx.textual.end_step("error")
         return Error(f"Failed to parse final ruff output as JSON.\n{result_after.stdout}")
 
     # 4. Show summary
@@ -79,6 +85,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
 
     if not errors_after:
         ctx.textual.text("All linting issues resolved!", markup="green")
+        ctx.textual.end_step("success")
         return Success("Linting passed")
 
     # 5. Show remaining errors
@@ -121,10 +128,12 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
                 errors_text += f"  Docs: {error['url']}\n"
 
         # Return Success with errors in metadata for next step to consume
+        ctx.textual.end_step("success")
         return Success(
             message=f"Linting complete: {fixed_count} auto-fixed, {len(errors_after)} need manual attention",
             metadata={"step_output": errors_text}
         )
 
     # All issues resolved
+    ctx.textual.end_step("success")
     return Success("Linting passed - all issues resolved!")

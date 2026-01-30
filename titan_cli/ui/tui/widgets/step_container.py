@@ -42,6 +42,10 @@ class StepContainer(VerticalScroll):
     StepContainer.error {
         border: round $error;
     }
+
+    StepContainer > Static {
+        color: initial;
+    }
     """
 
     def __init__(self, step_name: str, **kwargs):
