@@ -153,7 +153,7 @@ def generate_release_notes(version: str, from_tag: Optional[str] = None) -> str:
 
     # Build release notes
     lines = [
-        f"# Titan CLI v{version}",
+        f"# Titan CLI {version}",
         "",
     ]
 
@@ -257,7 +257,7 @@ def generate_release_notes(version: str, from_tag: Optional[str] = None) -> str:
         lines.extend([
             "## 📝 Full Changelog",
             "",
-            f"**Compare**: [{from_tag}...v{version}](https://github.com/masmovil/titan-cli/compare/{from_tag}...v{version})",
+            f"**Compare**: [{from_tag}...{version}](https://github.com/masmovil/titan-cli/compare/{from_tag}...{version})",
             "",
         ])
 
@@ -279,9 +279,9 @@ def main():
     from_tag = args.from_tag or get_last_tag()
 
     if from_tag:
-        print(f"Generating release notes v{version} (changes since {from_tag})...", flush=True)
+        print(f"Generating release notes {version} (changes since {from_tag})...", flush=True)
     else:
-        print(f"Generating release notes v{version} (all commits)...", flush=True)
+        print(f"Generating release notes {version} (all commits)...", flush=True)
 
     # Generate release notes
     notes = generate_release_notes(version, from_tag)

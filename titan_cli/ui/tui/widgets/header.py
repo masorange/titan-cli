@@ -10,6 +10,7 @@ from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.message import Message
 
+from titan_cli import __version__
 from titan_cli.ui.tui.icons import Icons
 
 
@@ -73,17 +74,33 @@ class HeaderWidget(Widget):
     }
     """
 
-    def __init__(self, title: str = "Titan CLI", show_back: bool = True, **kwargs):
+    def __init__(self, title: str = "Titan CLI", show_back: bool = True, show_version: bool = False, **kwargs):
         """
         Initialize header widget.
 
         Args:
             title: Title to display in header
             show_back: Whether to show back button
+            show_version: Whether to show version in title
         """
         super().__init__(**kwargs)
-        self.title = title
         self.show_back = show_back
+        self.show_version = show_version
+
+        # Add version to title if requested and available
+        if show_version:
+            try:
+                # Only show version if we can get it from installed package
+                version_str = __version__
+                if version_str and version_str != "unknown":
+                    self.title = f"{title} {version_str}"
+                else:
+                    self.title = title
+            except Exception:
+                # If we can't get version, just show title without version
+                self.title = title
+        else:
+            self.title = title
 
     def compose(self) -> ComposeResult:
         """Compose the header with back button and title."""

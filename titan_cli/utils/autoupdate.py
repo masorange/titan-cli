@@ -150,6 +150,6 @@ def get_update_message(update_info: Dict[str, any]) -> Optional[str]:
     latest = update_info["latest_version"]
 
     return (
-        f"🔔 Update available: v{current} → v{latest}\n"
+        f"🔔 Update available: {current} → {latest}\n"
         f"   Run 'pipx upgrade titan-cli' to update"
     )

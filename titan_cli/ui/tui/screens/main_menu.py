@@ -30,6 +30,10 @@ class MainMenuScreen(BaseScreen):
     - Exit
     """
 
+    def __init__(self, config, **kwargs):
+        """Initialize main menu with version in header."""
+        super().__init__(config, title="Titan CLI", show_back=False, show_version=True, **kwargs)
+
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("escape", "quit", "Quit"),

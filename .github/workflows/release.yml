@@ -3,7 +3,7 @@ name: Release to PyPI
 on:
   push:
     tags:
-      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       version:
@@ -39,9 +39,9 @@ jobs:
       - name: Get version
         id: get-version
         run: |
-          # Extract version from tag (v0.1.2 -> 0.1.2) or use manual input
+          # Extract version from tag (0.1.2) or use manual input
           if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
+            VERSION=${GITHUB_REF#refs/tags/}
             echo "Version from tag: $VERSION"
           else
             VERSION="${{ github.event.inputs.version }}"
@@ -166,18 +166,18 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # Check if tag exists
-          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-            echo "Tag v$VERSION already exists, skipping"
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists, skipping"
           else
-            git tag -a "v$VERSION" -m "Release v$VERSION"
-            git push origin "v$VERSION"
+            git tag -a "$VERSION" -m "Release $VERSION"
+            git push origin "$VERSION"
           fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ needs.build-and-test.outputs.version }}
-          name: v${{ needs.build-and-test.outputs.version }}
+          tag_name: ${{ needs.build-and-test.outputs.version }}
+          name: ${{ needs.build-and-test.outputs.version }}
           body_path: release_notes.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease || false }}
@@ -192,9 +192,9 @@ jobs:
           VERSION="${{ needs.build-and-test.outputs.version }}"
           echo "## 🎉 Release Complete!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: v$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
           echo "- **PyPI**: https://pypi.org/project/titan-cli/$VERSION/" >> $GITHUB_STEP_SUMMARY
-          echo "- **GitHub Release**: https://github.com/${{ github.repository }}/releases/tag/v$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Release**: https://github.com/${{ github.repository }}/releases/tag/$VERSION" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Installation" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY

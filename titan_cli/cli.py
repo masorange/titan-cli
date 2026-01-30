@@ -40,7 +40,7 @@ def main(ctx: typer.Context):
                 current = update_info["current_version"]
                 latest = update_info["latest_version"]
 
-                typer.echo(f"🔔 Update available: v{current} → v{latest}")
+                typer.echo(f"🔔 Update available: {current} → {latest}")
                 typer.echo()
 
                 # Ask user if they want to update
@@ -50,7 +50,7 @@ def main(ctx: typer.Context):
                     result = perform_update()
 
                     if result["success"]:
-                        typer.echo(f"✅ Successfully updated to v{latest} using {result['method']}")
+                        typer.echo(f"✅ Successfully updated to {latest} using {result['method']}")
                         typer.echo("🔄 Relaunching Titan with new version...")
                         typer.echo()
 

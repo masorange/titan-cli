@@ -35,7 +35,7 @@ class BaseScreen(Screen):
     }
     """
 
-    def __init__(self, config: TitanConfig, title: str = "Titan CLI", show_back: bool = False, show_status_bar: bool = True, **kwargs):
+    def __init__(self, config: TitanConfig, title: str = "Titan CLI", show_back: bool = False, show_status_bar: bool = True, show_version: bool = False, **kwargs):
         """
         Initialize base screen.
 
@@ -44,17 +44,19 @@ class BaseScreen(Screen):
             title: Title to display in header
             show_back: Whether to show back button in header
             show_status_bar: Whether to show status bar at bottom
+            show_version: Whether to show version in header title
         """
         super().__init__(**kwargs)
         self.config = config
         self.screen_title = title
         self.show_back = show_back
         self.show_status_bar = show_status_bar
+        self.show_version = show_version
 
     def compose(self) -> ComposeResult:
         """Compose the base screen layout."""
         # Header with title and optional back button
-        yield HeaderWidget(title=self.screen_title, show_back=self.show_back)
+        yield HeaderWidget(title=self.screen_title, show_back=self.show_back, show_version=self.show_version)
 
         # Content area - subclasses define this
         yield from self.compose_content()
