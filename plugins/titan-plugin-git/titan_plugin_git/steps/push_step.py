@@ -2,7 +2,6 @@
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_plugin_git.exceptions import GitCommandError
 from titan_plugin_git.messages import msg
-from titan_cli.ui.tui.widgets import Panel
 
 def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -54,17 +53,12 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         if push_tags:
             ctx.git.push(remote=remote_to_use, tags=True)
 
-        # Show success panel
+        # Show success message
         success_msg = f"Pushed to {remote_to_use}/{branch_to_use}"
         if push_tags:
             success_msg += " (with tags)"
 
-        ctx.textual.mount(
-            Panel(
-                text=success_msg,
-                panel_type="success"
-            )
-        )
+        ctx.textual.text(success_msg, markup="green")
 
         ctx.textual.end_step("success")
         return Success(

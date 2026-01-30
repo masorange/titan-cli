@@ -28,12 +28,7 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         stat_output = ctx.git._run_command(["git", "diff", "--stat", "HEAD"])
 
         if not stat_output or not stat_output.strip():
-            ctx.textual.mount(
-                Panel(
-                    text="No uncommitted changes to show",
-                    panel_type="info"
-                )
-            )
+            ctx.textual.text("No uncommitted changes to show", markup="dim")
             ctx.textual.end_step("success")
             return Success("No changes")
 
