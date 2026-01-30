@@ -3,7 +3,6 @@ AI-powered JIRA issue analysis step
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
-from titan_cli.ui.tui.widgets import Panel
 from ..messages import msg
 from ..agents import JiraAgent
 from ..formatters import IssueAnalysisMarkdownFormatter
@@ -32,15 +31,20 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("AI Analyze Issue")
+
     # Check if AI is available
     if not ctx.ai or not ctx.ai.is_available():
-        ctx.textual.mount(Panel(msg.Steps.AIIssue.AI_NOT_CONFIGURED_SKIP, panel_type="info"))
+        ctx.textual.text(msg.Steps.AIIssue.AI_NOT_CONFIGURED_SKIP, markup="dim")
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.AIIssue.AI_NOT_CONFIGURED)
 
     # Get issue to analyze
     issue = ctx.get("jira_issue") or ctx.get("selected_issue")
     if not issue:
-        ctx.textual.mount(Panel(msg.Steps.AIIssue.NO_ISSUE_FOUND, panel_type="error"))
+        ctx.textual.text(msg.Steps.AIIssue.NO_ISSUE_FOUND, markup="red")
+        ctx.textual.end_step("error")
         return Error(msg.Steps.AIIssue.NO_ISSUE_FOUND)
 
     # Create JiraAgent instance and analyze issue with loading indicator
@@ -90,6 +94,7 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
         "estimated_effort": analysis.estimated_effort
     })
 
+    ctx.textual.end_step("success")
     return Success(
         "AI analysis completed",
         metadata={
