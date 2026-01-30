@@ -47,16 +47,23 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         if not ctx.git.branch_exists_on_remote(branch=branch_to_use, remote=remote_to_use):
             set_upstream = True
 
-        # Push branch (and tags if requested)
-        ctx.git.push(
-            remote=remote_to_use,
-            branch=branch_to_use,
-            set_upstream=set_upstream,
-            tags=push_tags
-        )
+        # Build loading message
+        loading_msg = f"Pushing to {remote_to_use}/{branch_to_use}"
+        if push_tags:
+            loading_msg += " (with tags)"
+        loading_msg += "..."
+
+        # Push branch (and tags if requested) with loading indicator
+        with ctx.textual.loading(loading_msg):
+            ctx.git.push(
+                remote=remote_to_use,
+                branch=branch_to_use,
+                set_upstream=set_upstream,
+                tags=push_tags
+            )
 
         # Show success message
-        success_msg = f"Pushed to {remote_to_use}/{branch_to_use}"
+        success_msg = f"✓ Pushed to {remote_to_use}/{branch_to_use}"
         if push_tags:
             success_msg += " (with tags)"
 
