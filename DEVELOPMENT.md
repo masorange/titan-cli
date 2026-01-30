@@ -10,42 +10,209 @@
 
 ### Prerequisites
 
-- Python 3.9+
-- pipx
+- Python 3.10+
+- Poetry (for dependency management)
+- pipx (recommended for production install)
 
-### Installation for Development
+### Two-Environment Setup (Recommended)
+
+To contribute to Titan CLI while still using a stable version for your daily work, you should maintain **two separate environments**:
+
+1. **Production**: Stable version installed via pipx (`titan`)
+2. **Development**: Local repository for testing changes (`titan-dev`)
+
+#### Step 1: Install Production Version (Optional but Recommended)
+
+```bash
+# Install stable version for daily use
+pipx install titan-cli
+
+# Verify
+titan --version
+```
+
+#### Step 2: Clone and Setup Development Environment
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/titan-cli.git
+git clone https://github.com/masmovil/titan-cli.git
 cd titan-cli
 
-# 2. Install titan-cli in editable mode
-pipx install -e .
+# 2. Install dependencies with Poetry
+poetry install --with dev
 
-# 3. Verify installation
-titan --help
+# 3. Create an alias for development version
+# Add this to your ~/.bashrc or ~/.zshrc:
+alias titan-dev='poetry -C /path/to/titan-cli run python -m titan_cli.cli'
+
+# Or create a symlink (alternative approach)
+# sudo ln -s /path/to/titan-cli/.venv/bin/python /usr/local/bin/titan-dev
+
+# 4. Verify development version
+titan-dev --version
+```
+
+#### Step 3: Testing Your Changes
+
+```bash
+# Use titan-dev to test your changes
+cd ~/your-project
+titan-dev  # Launches TUI with your local changes
+
+# Use titan for stable daily work
+cd ~/your-project
+titan      # Launches stable version from pipx
+```
+
+### Alternative: Single Development Environment
+
+If you only want to develop and don't need a stable version:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/masmovil/titan-cli.git
+cd titan-cli
+
+# 2. Install dependencies
+poetry install --with dev
+
+# 3. Run directly with Poetry
+poetry run titan
+
+# Or activate the virtual environment
+poetry shell
+titan
 ```
 
 ### Initial Configuration
 
-After installation, configure Titan for your projects:
+When you run Titan (either `titan` or `titan-dev`) for the first time:
 
 ```bash
-# 1. Navigate to your projects directory (parent of all your projects)
-cd ~/projects  # or wherever you keep your projects
+# 1. Navigate to any project directory
+cd ~/your-project
 
-# 2. Launch Titan interactive menu
-titan
+# 2. Launch Titan
+titan-dev  # or titan
 
-# 3. Follow the setup wizard:
-#    - Set project root (e.g., ~/projects)
-#    - Configure a project from the "Project Management" menu
-#    - Install plugins from the "Plugin Management" menu
-#      (plugins will be installed from local ./plugins/ directory automatically)
+# 3. Follow the setup wizards:
+#    - Global setup (only once): Configure AI providers
+#    - Project setup (per project): Enable plugins, set project name
 ```
 
-**Note:** With editable installation (`-e` flag), Titan will automatically detect local plugins in the repository and install them from there. No need to manually inject plugins.
+**Note:** Titan uses a project-based configuration. Each project has its own `.titan/config.toml` file. The global config (`~/.titan/config.toml`) only stores AI provider settings.
+
+---
+
+## 🧪 Testing and Contributing
+
+### Running Tests
+
+```bash
+# Run all core tests
+poetry run pytest tests/
+
+# Run plugin tests individually (to avoid conftest conflicts)
+poetry run pytest plugins/titan-plugin-git/tests
+poetry run pytest plugins/titan-plugin-github/tests
+cd plugins/titan-plugin-jira && poetry run pytest
+
+# Run with coverage
+poetry run pytest tests/ --cov=titan_cli --cov-report=html
+
+# Run specific test file
+poetry run pytest tests/test_config.py -v
+```
+
+### Code Quality
+
+```bash
+# Run linter
+poetry run ruff check .
+
+# Auto-fix issues
+poetry run ruff check . --fix
+
+# Format code
+poetry run ruff format .
+```
+
+### Making Changes
+
+1. **Create a feature branch**
+   ```bash
+   git checkout -b feat/your-feature-name
+   # or
+   git checkout -b fix/your-bug-fix
+   ```
+
+2. **Make your changes** using `titan-dev` for testing
+
+3. **Run tests** to ensure nothing broke
+   ```bash
+   poetry run pytest tests/
+   ```
+
+4. **Commit with conventional commits**
+   ```bash
+   git commit -m "feat(ui): add new component for X"
+   # or
+   git commit -m "fix(git): resolve issue with branch detection"
+   ```
+
+5. **Push and create PR**
+   ```bash
+   git push origin feat/your-feature-name
+   ```
+
+### Conventional Commit Format
+
+We use conventional commits for automatic changelog generation:
+
+- `feat(scope): description` - New features
+- `fix(scope): description` - Bug fixes
+- `docs(scope): description` - Documentation changes
+- `refactor(scope): description` - Code refactoring
+- `chore(scope): description` - Maintenance tasks
+- `test(scope): description` - Test changes
+- `perf(scope): description` - Performance improvements
+
+**Scopes**: `ui`, `git`, `github`, `jira`, `core`, `cli`, `config`, `engine`, `workflows`
+
+### Development Tips
+
+**Avoiding Conflicts Between `titan` and `titan-dev`:**
+
+- Both versions use the same global config (`~/.titan/config.toml`) ✅ This is fine
+- Each project has its own `.titan/config.toml` ✅ This is fine
+- User workflows in `~/.titan/` are shared ✅ Be careful when testing user workflows
+- Use different projects or branches when testing breaking changes
+
+**Quick Development Workflow:**
+
+```bash
+# 1. Make code changes in your editor
+vim titan_cli/ui/components/panel.py
+
+# 2. Test immediately without reinstalling
+titan-dev
+
+# 3. No need to rebuild or reinstall - Poetry runs directly from source
+```
+
+**Debugging:**
+
+```bash
+# Add breakpoints in code with pdb
+import pdb; pdb.set_trace()
+
+# Run with verbose output
+titan-dev --help  # Add debug logging in code as needed
+
+# Check what version is running
+titan-dev version  # Should show version from pyproject.toml
+titan version      # Should show installed version from pipx
+```
 
 ---
 
