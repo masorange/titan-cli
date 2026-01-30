@@ -4,7 +4,7 @@ from typing import Optional, List
 import tomli
 from .models import TitanConfigModel
 from .plugins.plugin_registry import PluginRegistry
-from .workflows import WorkflowRegistry, ProjectStepSource
+from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
 from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
 
@@ -75,10 +75,12 @@ class TitanConfig:
         # Use current working directory for workflows
         workflow_path = Path.cwd()
         project_step_source = ProjectStepSource(project_root=workflow_path)
+        user_step_source = UserStepSource()
         self._workflow_registry = WorkflowRegistry(
             project_root=workflow_path,
             plugin_registry=self.registry,
             project_step_source=project_step_source,
+            user_step_source=user_step_source,
             config=self
         )
 

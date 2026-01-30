@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
-from titan_cli.core.workflows.project_step_source import ProjectStepSource, StepFunction
+from titan_cli.core.workflows.project_step_source import ProjectStepSource, UserStepSource, StepFunction
 
 from .workflow_sources import (
     WorkflowSource,
@@ -48,6 +48,7 @@ class WorkflowRegistry:
         project_root: Path,
         plugin_registry: PluginRegistry,
         project_step_source: ProjectStepSource,
+        user_step_source: UserStepSource = None,
         config: Any = None
     ):
         """
@@ -57,11 +58,13 @@ class WorkflowRegistry:
             project_root: Root path of the current project.
             plugin_registry: Registry of installed plugins.
             project_step_source: Source for discovering project-specific steps.
+            user_step_source: Source for discovering user-specific steps (~/.titan/steps/).
             config: TitanConfig instance (optional, for filtering by enabled plugins).
         """
         self.project_root = project_root
         self.plugin_registry = plugin_registry
         self._project_step_source = project_step_source
+        self._user_step_source = user_step_source
         self._config = config
 
         # Define the base path for system workflows, assuming it's in the root of the package
@@ -415,5 +418,13 @@ class WorkflowRegistry:
         Retrieves a loaded project step function by its name from the project step source.
         """
         return self._project_step_source.get_step(step_name)
+
+    def get_user_step(self, step_name: str) -> Optional[StepFunction]:
+        """
+        Retrieves a loaded user step function by its name from the user step source.
+        """
+        if self._user_step_source:
+            return self._user_step_source.get_step(step_name)
+        return None
 
 

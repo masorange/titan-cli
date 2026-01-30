@@ -128,6 +128,11 @@ class WorkflowExecutor:
             step_func = self._workflow_registry.get_project_step(step_func_name)
             if not step_func:
                 return Error(f"Project step '{step_func_name}' not found in '.titan/steps/'.", WorkflowExecutionError(f"Project step '{step_func_name}' not found"))
+        elif plugin_name == "user":
+            # Handle virtual 'user' plugin for user-specific steps
+            step_func = self._workflow_registry.get_user_step(step_func_name)
+            if not step_func:
+                return Error(f"User step '{step_func_name}' not found in '~/.titan/steps/'.", WorkflowExecutionError(f"User step '{step_func_name}' not found"))
         elif plugin_name == "core":
             # Handle virtual 'core' plugin for built-in core steps
             step_func = self.CORE_STEPS.get(step_func_name)
@@ -160,7 +165,7 @@ class WorkflowExecutor:
                 # Plugin and project steps receive only ctx (params are in ctx.data)
                 return step_func(ctx)
         except Exception as e:
-            error_source = f"plugin '{plugin_name}'" if plugin_name not in ("project", "core") else f"{plugin_name} step"
+            error_source = f"plugin '{plugin_name}'" if plugin_name not in ("project", "user", "core") else f"{plugin_name} step"
             return Error(f"Error executing step '{step_func_name}' from {error_source}: {e}", e)
 
 

@@ -12,6 +12,7 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         remote (str, optional): The name of the remote to push to. Defaults to the client's default remote.
         branch (str, optional): The name of the branch to push. Defaults to the current branch.
         set_upstream (bool, optional): Whether to set the upstream tracking branch. Defaults to False.
+        push_tags (bool, optional): Whether to push tags along with the branch. Defaults to False.
 
     Requires:
         ctx.git: An initialized GitClient.
@@ -33,6 +34,7 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
     remote = ctx.get('remote')
     branch = ctx.get('branch')
     set_upstream = ctx.get('set_upstream', False)
+    push_tags = ctx.get('push_tags', False)
 
     # Use defaults from the GitClient if not provided in the context
     remote_to_use = remote or ctx.git.default_remote
@@ -45,10 +47,18 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
 
         ctx.git.push(remote=remote_to_use, branch=branch_to_use, set_upstream=set_upstream)
 
+        # Push tags if requested
+        if push_tags:
+            ctx.git.push(remote=remote_to_use, tags=True)
+
         # Show success panel
+        success_msg = f"Pushed to {remote_to_use}/{branch_to_use}"
+        if push_tags:
+            success_msg += " (with tags)"
+
         ctx.textual.mount(
             Panel(
-                text=f"Pushed to {remote_to_use}/{branch_to_use}",
+                text=success_msg,
                 panel_type="success"
             )
         )
