@@ -1,7 +1,6 @@
 import ast
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
-from titan_cli.ui.tui.widgets import Panel
 from ..agents.issue_generator import IssueGeneratorAgent
 
 def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -12,14 +11,21 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Categorize and Generate Issue")
+
     if not ctx.ai:
+        ctx.textual.text("AI client not available", markup="dim")
+        ctx.textual.end_step("skip")
         return Skip("AI client not available")
 
     issue_body_prompt = ctx.get("issue_body")
     if not issue_body_prompt:
+        ctx.textual.text("issue_body not found in context", markup="red")
+        ctx.textual.end_step("error")
         return Error("issue_body not found in context")
 
-    ctx.textual.text("Using AI to categorize and generate issue...", markup="cyan")
+    ctx.textual.text("Using AI to categorize and generate issue...", markup="dim")
 
     try:
         # Get available labels from repository for smart mapping
@@ -46,12 +52,8 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
         category = result["category"]
         template_used = result.get("template_used", False)
 
-        ctx.textual.mount(
-            Panel(
-                text=f"Category detected: {category}",
-                panel_type="success"
-            )
-        )
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(f"Category detected: {category}", markup="green")
 
         if template_used:
             ctx.textual.text(f"Using template: {category}.md", markup="cyan")
@@ -63,8 +65,11 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
         ctx.set("issue_category", category)
         ctx.set("labels", result["labels"])
 
+        ctx.textual.end_step("success")
         return Success(f"AI-generated issue ({category}) created successfully")
     except Exception as e:
+        ctx.textual.text(f"Failed to generate issue: {e}", markup="red")
+        ctx.textual.end_step("error")
         return Error(f"Failed to generate issue: {e}")
 
 
@@ -75,7 +80,12 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Create Issue")
+
     if not ctx.github:
+        ctx.textual.text("GitHub client not available", markup="red")
+        ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
     issue_title = ctx.get("issue_title")
@@ -103,9 +113,13 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
         labels = []
 
     if not issue_title:
+        ctx.textual.text("issue_title not found in context", markup="red")
+        ctx.textual.end_step("error")
         return Error("issue_title not found in context")
 
     if not issue_body:
+        ctx.textual.text("issue_body not found in context", markup="red")
+        ctx.textual.end_step("error")
         return Error("issue_body not found in context")
 
     # Filter labels to only those that exist in the repository
@@ -123,21 +137,21 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
             pass
 
     try:
+        ctx.textual.text(f"Creating issue: {issue_title}...", markup="dim")
         issue = ctx.github.create_issue(
             title=issue_title,
             body=issue_body,
             assignees=assignees,
             labels=labels,
         )
-        ctx.textual.mount(
-            Panel(
-                text=f"Successfully created issue #{issue.number}",
-                panel_type="success"
-            )
-        )
+        ctx.textual.text("")  # spacing
+        ctx.textual.text(f"Successfully created issue #{issue.number}", markup="green")
+        ctx.textual.end_step("success")
         return Success(
             f"Successfully created issue #{issue.number}",
             metadata={"issue": issue}
         )
     except Exception as e:
+        ctx.textual.text(f"Failed to create issue: {e}", markup="red")
+        ctx.textual.end_step("error")
         return Error(f"Failed to create issue: {e}")

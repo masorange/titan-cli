@@ -8,10 +8,15 @@ def preview_and_confirm_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Preview and Confirm Issue")
+
     issue_title = ctx.get("issue_title")
     issue_body = ctx.get("issue_body")
 
     if not issue_title or not issue_body:
+        ctx.textual.text("issue_title or issue_body not found in context", markup="red")
+        ctx.textual.end_step("error")
         return Error("issue_title or issue_body not found in context")
 
     # Show preview header
@@ -33,8 +38,14 @@ def preview_and_confirm_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         if not ctx.textual.ask_confirm("Use this AI-generated issue?", default=True):
+            ctx.textual.text("User rejected AI-generated issue", markup="yellow")
+            ctx.textual.end_step("error")
             return Error("User rejected AI-generated issue")
     except (KeyboardInterrupt, EOFError):
+        ctx.textual.text("User cancelled operation", markup="red")
+        ctx.textual.end_step("error")
         return Error("User cancelled operation")
 
+    ctx.textual.text("User confirmed AI-generated issue", markup="green")
+    ctx.textual.end_step("success")
     return Success("User confirmed AI-generated issue")
