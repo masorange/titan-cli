@@ -38,28 +38,40 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text("Changes summary:", markup="bold")
         ctx.textual.text("")  # spacing
 
-        # Parse and colorize the output
+        # Parse lines to find max filename length for alignment
+        file_lines = []
+        summary_lines = []
+        max_filename_len = 0
+
         for line in stat_output.split('\n'):
             if not line.strip():
                 continue
 
-            # Color the +/- bars
             if '|' in line:
-                # Split into filename and stats
                 parts = line.split('|')
                 filename = parts[0].strip()
                 stats = '|'.join(parts[1:]) if len(parts) > 1 else ''
-
-                # Replace + with green and - with red
-                stats = stats.replace('+', '[green]+[/green]')
-                stats = stats.replace('-', '[red]-[/red]')
-
-                ctx.textual.text(f"  {filename} | {stats}")
+                file_lines.append((filename, stats))
+                max_filename_len = max(max_filename_len, len(filename))
             else:
-                # Summary line (e.g., "4 files changed, 117 insertions(+)")
-                colored_line = line.replace('(+)', '[green](+)[/green]')
-                colored_line = colored_line.replace('(-)', '[red](-)[/red]')
-                ctx.textual.text(f"  {colored_line}", markup="dim")
+                summary_lines.append(line)
+
+        # Display aligned file changes
+        for filename, stats in file_lines:
+            # Pad filename to align pipes
+            padded_filename = filename.ljust(max_filename_len)
+
+            # Replace + with green and - with red
+            stats = stats.replace('+', '[green]+[/green]')
+            stats = stats.replace('-', '[red]-[/red]')
+
+            ctx.textual.text(f"  {padded_filename} | {stats}")
+
+        # Display summary lines
+        for line in summary_lines:
+            colored_line = line.replace('(+)', '[green](+)[/green]')
+            colored_line = colored_line.replace('(-)', '[red](-)[/red]')
+            ctx.textual.text(f"  {colored_line}", markup="dim")
 
         ctx.textual.text("")  # spacing
 
@@ -115,28 +127,40 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text(f"Changes in {head_branch} vs {base_branch}:", markup="bold")
         ctx.textual.text("")  # spacing
 
-        # Parse and colorize the output
+        # Parse lines to find max filename length for alignment
+        file_lines = []
+        summary_lines = []
+        max_filename_len = 0
+
         for line in stat_output.split('\n'):
             if not line.strip():
                 continue
 
-            # Color the +/- bars
             if '|' in line:
-                # Split into filename and stats
                 parts = line.split('|')
                 filename = parts[0].strip()
                 stats = '|'.join(parts[1:]) if len(parts) > 1 else ''
-
-                # Replace + with green and - with red
-                stats = stats.replace('+', '[green]+[/green]')
-                stats = stats.replace('-', '[red]-[/red]')
-
-                ctx.textual.text(f"  {filename} | {stats}")
+                file_lines.append((filename, stats))
+                max_filename_len = max(max_filename_len, len(filename))
             else:
-                # Summary line (e.g., "4 files changed, 117 insertions(+)")
-                colored_line = line.replace('(+)', '[green](+)[/green]')
-                colored_line = colored_line.replace('(-)', '[red](-)[/red]')
-                ctx.textual.text(f"  {colored_line}", markup="dim")
+                summary_lines.append(line)
+
+        # Display aligned file changes
+        for filename, stats in file_lines:
+            # Pad filename to align pipes
+            padded_filename = filename.ljust(max_filename_len)
+
+            # Replace + with green and - with red
+            stats = stats.replace('+', '[green]+[/green]')
+            stats = stats.replace('-', '[red]-[/red]')
+
+            ctx.textual.text(f"  {padded_filename} | {stats}")
+
+        # Display summary lines
+        for line in summary_lines:
+            colored_line = line.replace('(+)', '[green](+)[/green]')
+            colored_line = colored_line.replace('(-)', '[red](-)[/red]')
+            ctx.textual.text(f"  {colored_line}", markup="dim")
 
         ctx.textual.text("")  # spacing
 
