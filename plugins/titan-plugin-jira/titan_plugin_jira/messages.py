@@ -101,6 +101,18 @@ class Messages:
             ISSUE_SELECTION_CONFIRM: str = "Selected: {key} - {summary}"
             SELECT_SUCCESS: str = "Selected issue: {key}"
 
+        class ReleaseNotes:
+            """Release notes generation step messages"""
+            AI_NOT_AVAILABLE: str = "AI not available, using original JIRA summaries"
+            AI_GENERATION_FAILED: str = "AI generation failed: {error}"
+            USING_FALLBACK_SUMMARIES: str = "Using original JIRA summaries as fallback"
+            PROCESSING_ISSUES: str = "Processing {count} issues for version {version}"
+            GROUPED_BRANDS: str = "Grouped into {count} brands"
+            GENERATING_AI_DESCRIPTIONS: str = "Generating AI descriptions..."
+            SUCCESS: str = "Release notes generated successfully!"
+            COPY_INSTRUCTIONS: str = "Copy the markdown above and paste it into your release notes"
+            NO_ISSUES_FOUND: str = "No JIRA issues found to generate release notes"
+
     class JIRA:
         """JIRA-specific messages"""
         AUTHENTICATION_FAILED: str = "JIRA authentication failed. Check your API token."
