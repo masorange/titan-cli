@@ -20,6 +20,9 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.git:
         return Error(msg.Steps.Push.GIT_CLIENT_NOT_AVAILABLE)
 
+    # Begin step container
+    ctx.textual.begin_step("Show Changes Summary")
+
     try:
         # Get diff stat for uncommitted changes
         stat_output = ctx.git._run_command(["git", "diff", "--stat", "HEAD"])
@@ -31,6 +34,7 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
                     panel_type="info"
                 )
             )
+            ctx.textual.end_step("success")
             return Success("No changes")
 
         # Show the stat summary with colors
@@ -75,10 +79,14 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
 
         ctx.textual.text("")  # spacing
 
+        # End step container with success
+        ctx.textual.end_step("success")
+
         return Success("Diff summary displayed")
 
     except Exception as e:
         # Don't fail the workflow, just skip
+        ctx.textual.end_step("skip")
         return Skip(f"Could not show diff summary: {e}")
 
 

@@ -8,6 +8,7 @@ from .header import HeaderWidget
 from .panel import Panel
 from .table import Table
 from .button import Button
+from .step_container import StepContainer
 from .text import (
     Text,
     DimText,
@@ -27,6 +28,7 @@ __all__ = [
     "Panel",
     "Table",
     "Button",
+    "StepContainer",
     "Text",
     "DimText",
     "BoldText",

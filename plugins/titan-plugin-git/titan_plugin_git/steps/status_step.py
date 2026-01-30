@@ -23,14 +23,17 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the status was retrieved successfully.
         Error: If the GitClient is not available or the git command fails.
     """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
     if not ctx.git:
         return Error(msg.Steps.Status.GIT_CLIENT_NOT_AVAILABLE)
 
+    # Begin step container
+    ctx.textual.begin_step("Check Git Status")
+
     try:
         status = ctx.git.get_status()
-
-        if not ctx.textual:
-            return Error("Textual UI context is not available for this step.")
 
         # If there are uncommitted changes, show warning panel
         if not status.is_clean:
@@ -51,9 +54,14 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
             )
             message = msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN
 
+        # End step container with success
+        ctx.textual.end_step("success")
+
         return Success(
             message=message,
             metadata={"git_status": status}
         )
     except Exception as e:
+        # End step container with error
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Status.FAILED_TO_GET_STATUS.format(e=e))

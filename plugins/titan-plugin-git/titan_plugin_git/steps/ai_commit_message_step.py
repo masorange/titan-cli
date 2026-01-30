@@ -29,6 +29,9 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("AI Commit Message")
+
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
         ctx.textual.mount(
@@ -37,10 +40,12 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
                 panel_type="info"
             )
         )
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
 
     # Get git client
     if not ctx.git:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.AICommitMessage.GIT_CLIENT_NOT_AVAILABLE)
 
     # Get git status
@@ -52,6 +57,7 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
                 panel_type="info"
             )
         )
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT)
 
     try:
@@ -62,6 +68,7 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         diff_text = ctx.git.get_uncommitted_diff()
 
         if not diff_text or diff_text.strip() == "":
+            ctx.textual.end_step("skip")
             return Skip(msg.Steps.AICommitMessage.NO_UNCOMMITTED_CHANGES)
 
         # Build AI prompt
@@ -148,14 +155,17 @@ Return ONLY the single-line commit message, absolutely nothing else."""
             try:
                 manual_message = ctx.textual.ask_text(msg.Prompts.ENTER_COMMIT_MESSAGE)
                 if not manual_message:
+                    ctx.textual.end_step("error")
                     return Error(msg.Steps.Commit.COMMIT_MESSAGE_REQUIRED)
 
                 # Overwrite the metadata to ensure the manual message is used
+                ctx.textual.end_step("success")
                 return Success(
                     message=msg.Steps.Prompt.COMMIT_MESSAGE_CAPTURED,
                     metadata={"commit_message": manual_message}
                 )
             except (KeyboardInterrupt, EOFError):
+                ctx.textual.end_step("error")
                 return Error(msg.Steps.Prompt.USER_CANCELLED)
 
         # Show success panel
@@ -167,6 +177,7 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         )
 
         # Success - save to context
+        ctx.textual.end_step("success")
         return Success(
             msg.Steps.AICommitMessage.SUCCESS_MESSAGE,
             metadata={"commit_message": commit_message}
@@ -176,6 +187,7 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         ctx.textual.text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e), markup="yellow")
         ctx.textual.text(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL, markup="dim")
 
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
 
 

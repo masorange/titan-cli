@@ -504,7 +504,6 @@ class WorkflowExecutionContent(Widget):
     def handle_event(self, message) -> None:
         """Handle workflow events generically."""
         from titan_cli.ui.tui.textual_workflow_executor import TextualWorkflowExecutor
-        from titan_cli.ui.tui.widgets import Panel
 
         if isinstance(message, TextualWorkflowExecutor.WorkflowStarted):
             # Track nested workflow depth
@@ -513,31 +512,16 @@ class WorkflowExecutionContent(Widget):
             self.append_output(f"\n[bold cyan]🚀 Starting workflow: {message.workflow_name}[/bold cyan]")
 
         elif isinstance(message, TextualWorkflowExecutor.StepStarted):
-            # Format differently for nested workflows
-            if self._workflow_depth > 0:
-                # Nested workflow: show with indentation, no step number
-                indent = "  " * self._workflow_depth
-                self.append_output(f"[cyan]{indent}→ Step {message.step_index}: {message.step_name}[/cyan]")
-            else:
-                # Top-level workflow: show with step number
-                self.append_output(f"[cyan]→ Step {message.step_index}: {message.step_name}[/cyan]")
+            # StepContainer now handles step titles, so we don't display anything here
+            pass
 
         elif isinstance(message, TextualWorkflowExecutor.StepCompleted):
-            # Apply indentation for nested workflows
-            if self._workflow_depth > 0:
-                indent = "  " * self._workflow_depth
-                self.append_output(f"[green]{indent}{Icons.SUCCESS} Completed: {message.step_name}[/green]\n")
-            else:
-                self.append_output(f"[green]{Icons.SUCCESS} Completed: {message.step_name}[/green]\n")
+            # StepContainer now handles step completion (green border), so we don't display anything here
+            pass
 
         elif isinstance(message, TextualWorkflowExecutor.StepFailed):
-            # Mount error panel
-            try:
-                self.mount(Panel(f"Failed: {message.step_name} - {message.error_message}", panel_type="error"))
-                self._scroll_to_end()
-            except Exception:
-                pass
-
+            # StepContainer now handles step failures (red border), so we don't display the panel
+            # Only show "continuing despite error" message if on_error is "continue"
             if message.on_error == "continue":
                 indent = "  " * self._workflow_depth if self._workflow_depth > 0 else ""
                 self.append_output(f"[yellow]{indent}   {Icons.WARNING}  Continuing despite error[/yellow]\n")
@@ -545,12 +529,8 @@ class WorkflowExecutionContent(Widget):
                 self.append_output("")
 
         elif isinstance(message, TextualWorkflowExecutor.StepSkipped):
-            # Mount warning panel for skipped steps
-            try:
-                self.mount(Panel(f"Skipped: {message.step_name}", panel_type="warning"))
-                self._scroll_to_end()
-            except Exception:
-                pass
+            # StepContainer now handles step skips (yellow border), so we don't display the panel
+            pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowCompleted):
             # Track nested workflow depth

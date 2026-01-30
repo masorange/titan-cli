@@ -32,6 +32,9 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    # Begin step container
+    ctx.textual.begin_step("Create Commit")
+
     # Skip if there's nothing to commit
     git_status = ctx.data.get("git_status")
     if git_status and git_status.is_clean:
@@ -41,9 +44,11 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
                 panel_type="info"
             )
         )
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
 
     if not ctx.git:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.GIT_CLIENT_NOT_AVAILABLE)
 
     commit_message = ctx.get('commit_message')
@@ -54,6 +59,7 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
                 panel_type="info"
             )
         )
+        ctx.textual.end_step("skip")
         return Skip(msg.Steps.Commit.NO_COMMIT_MESSAGE)
 
     all_files = ctx.get('all_files', True)
@@ -70,13 +76,17 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
             )
         )
 
+        ctx.textual.end_step("success")
         return Success(
             message=msg.Steps.Commit.COMMIT_SUCCESS.format(commit_hash=commit_hash),
             metadata={"commit_hash": commit_hash}
         )
     except GitClientError as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.CLIENT_ERROR_DURING_COMMIT.format(e=e))
     except GitCommandError as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.COMMAND_FAILED_DURING_COMMIT.format(e=e))
     except Exception as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Commit.UNEXPECTED_ERROR_DURING_COMMIT.format(e=e))

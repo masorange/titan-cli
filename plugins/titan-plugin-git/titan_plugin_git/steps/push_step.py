@@ -30,6 +30,9 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.git:
         return Error(msg.Steps.Push.GIT_CLIENT_NOT_AVAILABLE)
 
+    # Begin step container
+    ctx.textual.begin_step("Push changes to remote")
+
     # Get params from context
     remote = ctx.get('remote')
     branch = ctx.get('branch')
@@ -63,11 +66,14 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
             )
         )
 
+        ctx.textual.end_step("success")
         return Success(
             message=msg.Git.PUSH_SUCCESS.format(remote=remote_to_use, branch=branch_to_use),
             metadata={"pr_head_branch": branch_to_use}
         )
     except GitCommandError as e:
+        ctx.textual.end_step("error")
         return Error(msg.Steps.Push.PUSH_FAILED.format(e=e))
     except Exception as e:
+        ctx.textual.end_step("error")
         return Error(msg.Git.UNEXPECTED_ERROR.format(e=e))
