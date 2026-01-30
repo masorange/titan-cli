@@ -54,14 +54,23 @@ def main(ctx: typer.Context):
                         typer.echo("🔄 Relaunching Titan with new version...")
                         typer.echo()
 
-                        # Relaunch titan using subprocess
-                        # Note: sys.executable and sys.argv are controlled by the Python runtime,
-                        # not user input, so this is safe from command injection
-                        subprocess.run(
-                            [sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:],
-                            shell=False,  # Explicitly disable shell to prevent injection
-                            check=False   # Don't raise on non-zero exit
-                        )
+                        # Relaunch titan using the titan command directly
+                        # This ensures we use the updated version from pipx/pip, not the current Python env
+                        import shutil
+                        titan_cmd = shutil.which("titan")
+                        if titan_cmd:
+                            subprocess.run(
+                                [titan_cmd] + sys.argv[1:],
+                                shell=False,  # Explicitly disable shell to prevent injection
+                                check=False   # Don't raise on non-zero exit
+                            )
+                        else:
+                            # Fallback to module execution if titan command not found
+                            subprocess.run(
+                                [sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:],
+                                shell=False,
+                                check=False
+                            )
                         raise typer.Exit(0)
                     else:
                         typer.echo(f"❌ Update failed: {result['error']}")
