@@ -36,15 +36,21 @@ class WorkflowFilterService:
             plugin_name = wf_info.source.split(":", 1)[1]
             return plugin_name.capitalize()
 
-        # For project/user workflows, check which plugin they use
-        if wf_info.source in ["project", "user"]:
+        # User workflows always go to "Personal" category
+        if wf_info.source == "user":
+            return "Personal"
+
+        # For project workflows, check which plugin they use
+        if wf_info.source == "project":
             if wf_info.required_plugins:
-                # Use the first required plugin (most workflows use only one)
-                primary_plugin = sorted(wf_info.required_plugins)[0]
-                return primary_plugin.capitalize()
-            else:
-                # No plugin dependencies, it's a custom workflow
-                return "Custom"
+                # Filter out core/project pseudo-plugins
+                real_plugins = [p for p in wf_info.required_plugins if p not in ["core", "project"]]
+                if real_plugins:
+                    # Use the first real plugin
+                    primary_plugin = sorted(real_plugins)[0]
+                    return primary_plugin.capitalize()
+            # No plugin dependencies, it's a custom workflow
+            return "Custom"
 
         # Fallback for other sources
         return wf_info.source.capitalize()

@@ -45,7 +45,7 @@ def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRe
     steps = config.get("steps", [])
     if isinstance(steps, list):
         for step in steps:
-            if isinstance(step, dict) and "plugin" in step and step["plugin"] not in ["core", "project"]:
+            if isinstance(step, dict) and "plugin" in step and step["plugin"] not in ["core", "project", "user"]:
                 required_plugins.add(step["plugin"])
 
     # Check 'extends' field for plugin dependencies

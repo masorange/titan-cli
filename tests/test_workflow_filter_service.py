@@ -63,7 +63,8 @@ class TestWorkflowFilterService:
         )
 
         result = WorkflowFilterService.detect_plugin_name(wf)
-        assert result == "Jira"
+        # User workflows always go to "Personal" category
+        assert result == "Personal"
 
     def test_group_by_plugin(self):
         """Test grouping workflows by plugin."""

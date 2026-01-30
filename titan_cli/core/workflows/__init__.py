@@ -10,7 +10,7 @@ Similar to plugins system, but for workflows:
 from .workflow_registry import WorkflowRegistry, ParsedWorkflow
 from .workflow_sources import WorkflowInfo
 from .workflow_exceptions import WorkflowNotFoundError, WorkflowExecutionError
-from .project_step_source import ProjectStepSource
+from .project_step_source import ProjectStepSource, UserStepSource
 
 __all__ = [
     "WorkflowRegistry",
@@ -19,4 +19,5 @@ __all__ = [
     "WorkflowNotFoundError",
     "WorkflowExecutionError",
     "ProjectStepSource",
+    "UserStepSource",
 ]
