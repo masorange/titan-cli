@@ -253,9 +253,6 @@ class JiraPlugin(TitanPlugin):
         from .steps.prompt_platform_step import prompt_platform_step
         from .steps.normalize_version_step import normalize_version_step
         from .steps.list_versions_step import list_versions_step
-        from .steps.confirm_commit_and_pr_step import confirm_commit_and_pr_step
-        from .steps.confirm_commit_step import confirm_commit_step
-        from .steps.confirm_create_pr_step import confirm_create_pr_step
         return {
             "search_saved_query": search_saved_query_step,
             "prompt_select_issue": prompt_select_issue_step,
@@ -268,9 +265,6 @@ class JiraPlugin(TitanPlugin):
             "prompt_platform": prompt_platform_step,
             "normalize_version": normalize_version_step,
             "list_versions": list_versions_step,
-            "confirm_commit_and_pr": confirm_commit_and_pr_step,
-            "confirm_commit": confirm_commit_step,
-            "confirm_create_pr": confirm_create_pr_step,
         }
 
     @property

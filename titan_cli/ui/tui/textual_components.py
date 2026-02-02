@@ -36,6 +36,7 @@ class TextualComponents:
             ctx.textual.dim_text("Fetching data...")
             ctx.textual.success_text("Operation completed!")
             ctx.textual.error_text("Failed to connect")
+            ctx.textual.bold_primary_text("AI Analysis Results")
 
             # Append plain text
             ctx.textual.text("Processing...")
@@ -58,7 +59,7 @@ class TextualComponents:
 
     def begin_step(self, step_name: str) -> None:
         """
-        Begin a new step by creating a StepContainer.
+        Begin a new step by creating a StepContainer and auto-scrolling to it.
 
         Args:
             step_name: Name of the step
@@ -69,6 +70,8 @@ class TextualComponents:
             container = StepContainer(step_name=step_name)
             self.output_widget.mount(container)
             self._active_step_container = container
+            # Auto-scroll to show the new step
+            self.output_widget._scroll_to_end()
 
         try:
             self.app.call_from_thread(_create_container)
@@ -283,6 +286,21 @@ class TextualComponents:
         """
         from titan_cli.ui.tui.widgets import BoldText
         widget = BoldText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def bold_primary_text(self, text: str) -> None:
+        """
+        Append bold text with primary theme color.
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.bold_primary_text("AI Analysis Results")
+        """
+        from titan_cli.ui.tui.widgets import BoldPrimaryText
+        widget = BoldPrimaryText(text)
         widget.styles.height = "auto"
         self.mount(widget)
 
