@@ -9,5 +9,5 @@ __all__ = [
     "SavedQueries",
     "SAVED_QUERIES",
     "IssueSorter",
-    "IssueSortConfig"
+    "IssueSortConfig",
 ]

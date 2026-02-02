@@ -31,6 +31,7 @@ class BaseStepSource:
     def discover(self) -> List[StepInfo]:
         """
         Discovers all available step files in the project's .titan/steps directory.
+        Supports subdirectories (e.g., .titan/steps/jira/step.py).
         """
         if self._step_info_cache is not None:
             return self._step_info_cache
@@ -40,18 +41,18 @@ class BaseStepSource:
             return []
 
         discovered = []
-        for step_file in self._steps_dir.glob("*.py"):
-            if step_file.name not in self.EXCLUDED_FILES:
+        for step_file in self._steps_dir.glob("**/*.py"):
+            if step_file.name not in self.EXCLUDED_FILES and not any(part.startswith("__") for part in step_file.parts):
                 step_name = step_file.stem
                 discovered.append(StepInfo(name=step_name, path=step_file))
-        
+
         self._step_info_cache = discovered
         return discovered
 
     def get_step(self, step_name: str) -> Optional[StepFunction]:
         """
         Retrieves a step function by name, loading it from its file if necessary.
-        Searches all Python files in the directory for the function.
+        Searches all Python files in the directory (including subdirectories) for the function.
         """
         if step_name in self._step_function_cache:
             return self._step_function_cache[step_name]
@@ -59,9 +60,9 @@ class BaseStepSource:
         if not self._steps_dir.is_dir():
             return None
 
-        # Search all Python files for the function
-        for step_file in self._steps_dir.glob("*.py"):
-            if step_file.name in self.EXCLUDED_FILES:
+        # Search all Python files (including subdirectories) for the function
+        for step_file in self._steps_dir.glob("**/*.py"):
+            if step_file.name in self.EXCLUDED_FILES or any(part.startswith("__") for part in step_file.parts):
                 continue
 
             try:
