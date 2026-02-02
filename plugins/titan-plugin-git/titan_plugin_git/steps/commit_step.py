@@ -37,7 +37,7 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     # Skip if there's nothing to commit
     git_status = ctx.data.get("git_status")
     if git_status and git_status.is_clean:
-        ctx.textual.text(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN, markup="dim")
+        ctx.textual.dim_text(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
         ctx.textual.end_step("skip")
         return Skip(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
 

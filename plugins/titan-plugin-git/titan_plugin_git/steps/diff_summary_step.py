@@ -24,16 +24,16 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         # Get diff stat for uncommitted changes
-        stat_output = ctx.git._run_command(["git", "diff", "--stat", "HEAD"])
+        stat_output = ctx.git.get_uncommitted_diff_stat()
 
         if not stat_output or not stat_output.strip():
-            ctx.textual.text("No uncommitted changes to show", markup="dim")
+            ctx.textual.dim_text("No uncommitted changes to show")
             ctx.textual.end_step("success")
             return Success("No changes")
 
         # Show the stat summary with colors
         ctx.textual.text("")  # spacing
-        ctx.textual.text("Changes summary:", markup="bold")
+        ctx.textual.bold_text("Changes summary:")
         ctx.textual.text("")  # spacing
 
         # Parse lines to find max filename length for alignment
@@ -69,7 +69,7 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         for line in summary_lines:
             colored_line = line.replace('(+)', '[green](+)[/green]')
             colored_line = colored_line.replace('(-)', '[red](-)[/red]')
-            ctx.textual.text(f"  {colored_line}", markup="dim")
+            ctx.textual.dim_text(f"  {colored_line}")
 
         ctx.textual.text("")  # spacing
 
@@ -104,13 +104,13 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Show Branch Changes Summary")
 
     if not ctx.git:
-        ctx.textual.text(msg.Steps.Push.GIT_CLIENT_NOT_AVAILABLE, markup="red")
+        ctx.textual.error_text(msg.Steps.Push.GIT_CLIENT_NOT_AVAILABLE)
         ctx.textual.end_step("error")
         return Error(msg.Steps.Push.GIT_CLIENT_NOT_AVAILABLE)
 
     head_branch = ctx.get("pr_head_branch")
     if not head_branch:
-        ctx.textual.text("No head branch specified", markup="dim")
+        ctx.textual.dim_text("No head branch specified")
         ctx.textual.end_step("skip")
         return Skip("No head branch specified")
 
@@ -118,18 +118,16 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         # Get diff stat between branches
-        stat_output = ctx.git._run_command([
-            "git", "diff", "--stat", f"{base_branch}...{head_branch}"
-        ])
+        stat_output = ctx.git.get_branch_diff_stat(base_branch, head_branch)
 
         if not stat_output or not stat_output.strip():
-            ctx.textual.text(f"No changes between {base_branch} and {head_branch}", markup="dim")
+            ctx.textual.dim_text(f"No changes between {base_branch} and {head_branch}")
             ctx.textual.end_step("success")
             return Success("No changes")
 
         # Show the stat summary with colors
         ctx.textual.text("")  # spacing
-        ctx.textual.text(f"Changes in {head_branch} vs {base_branch}:", markup="bold")
+        ctx.textual.bold_text(f"Changes in {head_branch} vs {base_branch}:")
         ctx.textual.text("")  # spacing
 
         # Parse lines to find max filename length for alignment
@@ -165,7 +163,7 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         for line in summary_lines:
             colored_line = line.replace('(+)', '[green](+)[/green]')
             colored_line = colored_line.replace('(-)', '[red](-)[/red]')
-            ctx.textual.text(f"  {colored_line}", markup="dim")
+            ctx.textual.dim_text(f"  {colored_line}")
 
         ctx.textual.text("")  # spacing
 
@@ -174,7 +172,7 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
 
     except Exception as e:
         # Don't fail the workflow, just skip
-        ctx.textual.text(f"Could not show branch diff summary: {e}", markup="yellow")
+        ctx.textual.warning_text(f"Could not show branch diff summary: {e}")
         ctx.textual.end_step("skip")
         return Skip(f"Could not show branch diff summary: {e}")
 

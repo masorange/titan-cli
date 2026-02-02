@@ -72,7 +72,7 @@ def get_base_branch_step(ctx: WorkflowContext) -> WorkflowResult:
     try:
         base_branch = ctx.git.main_branch
         success_msg = msg.Steps.Branch.GET_BASE_BRANCH_SUCCESS.format(branch=base_branch)
-        ctx.textual.text(success_msg, markup="green")
+        ctx.textual.success_text(success_msg)
         ctx.textual.end_step("success")
         return Success(
             success_msg,
@@ -80,6 +80,6 @@ def get_base_branch_step(ctx: WorkflowContext) -> WorkflowResult:
         )
     except Exception as e:
         error_msg = msg.Steps.Branch.GET_BASE_BRANCH_FAILED.format(e=e)
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg, exception=e)
