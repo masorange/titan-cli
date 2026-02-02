@@ -60,7 +60,7 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         if push_tags:
             success_msg += " (with tags)"
 
-        ctx.textual.text(success_msg, markup="green")
+        ctx.textual.success_text(success_msg)
 
         ctx.textual.end_step("success")
         return Success(
@@ -69,11 +69,11 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         )
     except GitCommandError as e:
         error_msg = msg.Steps.Push.PUSH_FAILED.format(e=e)
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
     except Exception as e:
         error_msg = msg.Git.UNEXPECTED_ERROR.format(e=e)
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)

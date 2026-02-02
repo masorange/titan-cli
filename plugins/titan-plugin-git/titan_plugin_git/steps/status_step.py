@@ -36,11 +36,11 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # If there are uncommitted changes, show text (border will be green on success)
         if not status.is_clean:
-            ctx.textual.text(global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING, markup="yellow")
+            ctx.textual.warning_text(global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING)
             message = msg.Steps.Status.STATUS_RETRIEVED_WITH_UNCOMMITTED
         else:
             # Show text for clean working directory (border will be green)
-            ctx.textual.text(msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN, markup="green")
+            ctx.textual.success_text(msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN)
             message = msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN
 
         # End step container with success
