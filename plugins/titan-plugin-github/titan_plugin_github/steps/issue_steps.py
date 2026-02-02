@@ -2,6 +2,7 @@ import ast
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
 from ..agents.issue_generator import IssueGeneratorAgent
+from pathlib import Path
 
 def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -15,18 +16,17 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
     ctx.textual.begin_step("Categorize and Generate Issue")
 
     if not ctx.ai:
-        ctx.textual.text("AI client not available", markup="dim")
+        ctx.textual.dim_text("AI client not available")
         ctx.textual.end_step("skip")
         return Skip("AI client not available")
 
     issue_body_prompt = ctx.get("issue_body")
     if not issue_body_prompt:
-        ctx.textual.text("issue_body not found in context", markup="red")
+        ctx.textual.error_text("issue_body not found in context")
         ctx.textual.end_step("error")
         return Error("issue_body not found in context")
 
-    ctx.textual.text("Using AI to categorize and generate issue...", markup="dim")
-
+    ctx.textual.dim_text("Using AI to categorize and generate issue...")
     try:
         # Get available labels from repository for smart mapping
         available_labels = None
@@ -40,7 +40,6 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
         # Get template directory from repo path
         template_dir = None
         if ctx.git:
-            from pathlib import Path
             template_dir = Path(ctx.git.repo_path) / ".github" / "ISSUE_TEMPLATE"
 
         issue_generator = IssueGeneratorAgent(ctx.ai, template_dir=template_dir)
@@ -53,12 +52,12 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
         template_used = result.get("template_used", False)
 
         ctx.textual.text("")  # spacing
-        ctx.textual.text(f"Category detected: {category}", markup="green")
+        ctx.textual.success_text(f"Category detected: {category}")
 
         if template_used:
-            ctx.textual.text(f"Using template: {category}.md", markup="cyan")
+            ctx.textual.success_text(f"Using template: {category}.md")
         else:
-            ctx.textual.text(f"No template found for {category}, using default structure", markup="yellow")
+            ctx.textual.warning_text(f"No template found for {category}, using default structure")
 
         ctx.set("issue_title", result["title"])
         ctx.set("issue_body", result["body"])
@@ -68,7 +67,7 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
         ctx.textual.end_step("success")
         return Success(f"AI-generated issue ({category}) created successfully")
     except Exception as e:
-        ctx.textual.text(f"Failed to generate issue: {e}", markup="red")
+        ctx.textual.error_text(f"Failed to generate issue: {e}")
         ctx.textual.end_step("error")
         return Error(f"Failed to generate issue: {e}")
 
@@ -84,7 +83,7 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Create Issue")
 
     if not ctx.github:
-        ctx.textual.text("GitHub client not available", markup="red")
+        ctx.textual.error_text("GitHub client not available")
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
@@ -113,12 +112,12 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
         labels = []
 
     if not issue_title:
-        ctx.textual.text("issue_title not found in context", markup="red")
+        ctx.textual.error_text("issue_title not found in context")
         ctx.textual.end_step("error")
         return Error("issue_title not found in context")
 
     if not issue_body:
-        ctx.textual.text("issue_body not found in context", markup="red")
+        ctx.textual.error_text("issue_body not found in context")
         ctx.textual.end_step("error")
         return Error("issue_body not found in context")
 
@@ -137,7 +136,7 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
             pass
 
     try:
-        ctx.textual.text(f"Creating issue: {issue_title}...", markup="dim")
+        ctx.textual.dim_text(f"Creating issue: {issue_title}...")
         issue = ctx.github.create_issue(
             title=issue_title,
             body=issue_body,
@@ -145,13 +144,13 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
             labels=labels,
         )
         ctx.textual.text("")  # spacing
-        ctx.textual.text(f"Successfully created issue #{issue.number}", markup="green")
+        ctx.textual.success_text(f"Successfully created issue #{issue.number}")
         ctx.textual.end_step("success")
         return Success(
             f"Successfully created issue #{issue.number}",
             metadata={"issue": issue}
         )
     except Exception as e:
-        ctx.textual.text(f"Failed to create issue: {e}", markup="red")
+        ctx.textual.error_text(f"Failed to create issue: {e}")
         ctx.textual.end_step("error")
         return Error(f"Failed to create issue: {e}")

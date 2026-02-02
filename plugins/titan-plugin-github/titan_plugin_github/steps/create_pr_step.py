@@ -37,11 +37,11 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # 1. Get GitHub client from context
     if not ctx.github:
-        ctx.textual.text("GitHub client is not available in the workflow context.", markup="red")
+        ctx.textual.error_text("GitHub client is not available in the workflow context.")
         ctx.textual.end_step("error")
         return Error("GitHub client is not available in the workflow context.")
     if not ctx.git:
-        ctx.textual.text("Git client is not available in the workflow context.", markup="red")
+        ctx.textual.error_text("Git client is not available in the workflow context.")
         ctx.textual.end_step("error")
         return Error("Git client is not available in the workflow context.")
 
@@ -53,7 +53,7 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     is_draft = ctx.get("pr_is_draft", False)  # Default to not a draft
 
     if not all([title, base, head]):
-        ctx.textual.text("Missing required context for creating a pull request: pr_title, pr_head_branch.", markup="red")
+        ctx.textual.error_text("Missing required context for creating a pull request: pr_title, pr_head_branch.")
         ctx.textual.end_step("error")
         return Error(
             "Missing required context for creating a pull request: pr_title, pr_head_branch."
@@ -71,12 +71,12 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # 4. Call the client method
     try:
-        ctx.textual.text(f"Creating pull request '{title}' from {head} to {base}...", markup="dim")
+        ctx.textual.dim_text(f"Creating pull request '{title}' from {head} to {base}...")
         pr = ctx.github.create_pull_request(
             title=title, body=body, base=base, head=head, draft=is_draft, assignees=assignees
         )
         ctx.textual.text("")  # spacing
-        ctx.textual.text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]), markup="green")
+        ctx.textual.success_text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]))
 
         # 4. Return Success with PR info
         ctx.textual.end_step("success")
@@ -85,11 +85,11 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
             metadata={"pr_number": pr["number"], "pr_url": pr["url"]},
         )
     except GitHubAPIError as e:
-        ctx.textual.text(f"Failed to create pull request: {e}", markup="red")
+        ctx.textual.error_text(f"Failed to create pull request: {e}")
         ctx.textual.end_step("error")
         return Error(f"Failed to create pull request: {e}")
     except Exception as e:
-        ctx.textual.text(f"An unexpected error occurred while creating the pull request: {e}", markup="red")
+        ctx.textual.error_text(f"An unexpected error occurred while creating the pull request: {e}")
         ctx.textual.end_step("error")
         return Error(
             f"An unexpected error occurred while creating the pull request: {e}"
