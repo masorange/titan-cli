@@ -19,26 +19,29 @@ class TextualComponents:
     """
     Textual UI utilities for workflow steps.
 
+    All text styling uses the theme system for consistent colors across themes.
+
     Steps can use these utilities to:
     - Display panels with consistent styling
-    - Mount custom widgets to the output panel
-    - Append simple text with markup
+    - Append text with theme-based styling
     - Request user input interactively
+    - Mount custom widgets to the output panel
 
     Example:
         def my_step(ctx):
-            # Show a panel (recommended)
+            # Show a panel
             ctx.textual.panel("Warning message", panel_type="warning")
 
-            # Append inline text
-            ctx.textual.text("Analyzing changes...")
+            # Append styled text (uses theme system)
+            ctx.textual.dim_text("Fetching data...")
+            ctx.textual.success_text("Operation completed!")
+            ctx.textual.error_text("Failed to connect")
+
+            # Append plain text
+            ctx.textual.text("Processing...")
 
             # Ask for input
             response = ctx.textual.ask_confirm("Continue?", default=True)
-
-            # Mount custom widgets (advanced)
-            from titan_cli.ui.tui.widgets import DimText
-            ctx.textual.mount(DimText("Additional details..."))
     """
 
     def __init__(self, app, output_widget):
@@ -115,33 +118,28 @@ class TextualComponents:
             # App is closing or worker was cancelled
             pass
 
-    def text(self, text: str, markup: str = "") -> None:
+    def text(self, text: str) -> None:
         """
-        Append inline text with optional Rich markup.
+        Append plain text without styling.
+
+        For styled text, use specific methods: dim_text(), success_text(), etc.
 
         Args:
             text: Text to append
-            markup: Optional Rich markup style (e.g., "cyan", "bold green")
 
         Example:
-            ctx.textual.text("Analyzing changes...", markup="cyan")
-            ctx.textual.text("Done!")
+            ctx.textual.text("Processing...")
+            ctx.textual.text("")  # Empty line
         """
         def _append():
             # If there's an active step container, append to it; otherwise to output widget
             if self._active_step_container:
                 from textual.widgets import Static
-                if markup:
-                    widget = Static(f"[{markup}]{text}[/{markup}]")
-                else:
-                    widget = Static(text)
+                widget = Static(text)
                 widget.styles.height = "auto"
                 self._active_step_container.mount(widget)
             else:
-                if markup:
-                    self.output_widget.append_output(f"[{markup}]{text}[/{markup}]")
-                else:
-                    self.output_widget.append_output(text)
+                self.output_widget.append_output(text)
 
         # call_from_thread already blocks until the function completes
         try:
@@ -197,6 +195,96 @@ class TextualComponents:
         """
         panel_widget = Panel(text=text, panel_type=panel_type)
         self.mount(panel_widget)
+
+    def dim_text(self, text: str) -> None:
+        """
+        Append dim/muted text (uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.dim_text("Fetching versions for project: ECAPP")
+        """
+        from titan_cli.ui.tui.widgets import DimText
+        widget = DimText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def success_text(self, text: str) -> None:
+        """
+        Append success text (green, uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.success_text("Commit created: abc1234")
+        """
+        from titan_cli.ui.tui.widgets import SuccessText
+        widget = SuccessText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def error_text(self, text: str) -> None:
+        """
+        Append error text (red, uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.error_text("Failed to connect to API")
+        """
+        from titan_cli.ui.tui.widgets import ErrorText
+        widget = ErrorText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def warning_text(self, text: str) -> None:
+        """
+        Append warning text (yellow, uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.warning_text("This action will overwrite existing files")
+        """
+        from titan_cli.ui.tui.widgets import WarningText
+        widget = WarningText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def primary_text(self, text: str) -> None:
+        """
+        Append primary colored text (uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.primary_text("Processing items...")
+        """
+        from titan_cli.ui.tui.widgets import PrimaryText
+        widget = PrimaryText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def bold_text(self, text: str) -> None:
+        """
+        Append bold text.
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.bold_text("Important: Read carefully")
+        """
+        from titan_cli.ui.tui.widgets import BoldText
+        widget = BoldText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
 
     def ask_text(self, question: str, default: str = "") -> Optional[str]:
         """

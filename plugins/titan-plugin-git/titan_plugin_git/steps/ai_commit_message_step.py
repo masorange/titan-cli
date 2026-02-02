@@ -33,7 +33,7 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        ctx.textual.text(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED, markup="dim")
+        ctx.textual.dim_text(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
         ctx.textual.end_step("skip")
         return Skip(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
 
