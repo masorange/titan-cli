@@ -9,6 +9,9 @@ from .panel import Panel
 from .table import Table
 from .button import Button
 from .step_container import StepContainer
+from .multiline_input import MultilineInput
+from .prompt_input import PromptInput
+from .prompt_textarea import PromptTextArea
 from .text import (
     Text,
     DimText,
@@ -29,6 +32,9 @@ __all__ = [
     "Table",
     "Button",
     "StepContainer",
+    "MultilineInput",
+    "PromptInput",
+    "PromptTextArea",
     "Text",
     "DimText",
     "BoldText",

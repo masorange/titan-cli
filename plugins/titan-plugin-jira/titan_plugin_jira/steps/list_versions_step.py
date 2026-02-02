@@ -41,8 +41,6 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Textual TUI (new UI)
     if ctx.textual:
-        from titan_cli.ui.tui.widgets import Panel
-
         # Show fetching message
         ctx.textual.text(f"Fetching versions for project: {project_key}", markup="dim")
         ctx.textual.text("")
@@ -53,18 +51,11 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
             versions = project.get("versions", [])
 
             if not versions:
-                ctx.textual.mount(
-                    Panel(
-                        f"No versions found for project {project_key}",
-                        panel_type="info"
-                    )
+                ctx.textual.panel(
+                    f"No versions found for project {project_key}", panel_type="info"
                 )
                 return Success(
-                    "No versions found",
-                    metadata={
-                        "versions": [],
-                        "versions_full": []
-                    }
+                    "No versions found", metadata={"versions": [], "versions_full": []}
                 )
 
             # Filter only unreleased versions for release notes workflow
@@ -80,11 +71,10 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
             version_names = [v.get("name", "") for v in sorted_versions]
 
             # Show success panel
-            ctx.textual.mount(
-                Panel(
-                    f"Found {len(sorted_versions)} unreleased versions",
-                    panel_type="success"
-                )
+            ctx.textual.text("")
+            ctx.textual.panel(
+                f"Found {len(sorted_versions)} unreleased versions",
+                panel_type="success",
             )
 
             # Show versions list
@@ -99,26 +89,26 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.text(f"  • {name}{desc_text}", markup="cyan")
 
             if len(sorted_versions) > 20:
-                ctx.textual.text(f"  ... and {len(sorted_versions) - 20} more", markup="dim")
+                ctx.textual.text(
+                    f"  ... and {len(sorted_versions) - 20} more", markup="dim"
+                )
             ctx.textual.text("")
 
             return Success(
                 f"Found {len(sorted_versions)} unreleased versions",
-                metadata={
-                    "versions": version_names,
-                    "versions_full": sorted_versions
-                }
+                metadata={"versions": version_names, "versions_full": sorted_versions},
             )
 
         except JiraAPIError as e:
             error_msg = f"Failed to fetch versions: {e}"
-            ctx.textual.mount(Panel(error_msg, panel_type="error"))
+            ctx.textual.panel(error_msg, panel_type="error")
             return Error(error_msg)
         except Exception as e:
             import traceback
+
             error_detail = traceback.format_exc()
             error_msg = f"Unexpected error: {e}\n\nTraceback:\n{error_detail}"
-            ctx.textual.mount(Panel(error_msg, panel_type="error"))
+            ctx.textual.panel(error_msg, panel_type="error")
             return Error(error_msg)
 
     # Rich UI (legacy)
@@ -126,7 +116,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.views.step_header(
             name="List Project Versions",
             step_type="plugin",
-            step_detail="jira.list_versions"
+            step_detail="jira.list_versions",
         )
 
     if ctx.ui:
@@ -145,16 +135,11 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
         if not versions:
             if ctx.ui:
                 ctx.ui.panel.print(
-                    f"No versions found for project {project_key}",
-                    panel_type="info"
+                    f"No versions found for project {project_key}", panel_type="info"
                 )
                 ctx.ui.spacer.small()
             return Success(
-                "No versions found",
-                metadata={
-                    "versions": [],
-                    "versions_full": []
-                }
+                "No versions found", metadata={"versions": [], "versions_full": []}
             )
 
         # Filter only unreleased versions for release notes workflow
@@ -173,7 +158,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
         if ctx.ui:
             ctx.ui.panel.print(
                 f"Found {len(sorted_versions)} unreleased versions",
-                panel_type="success"
+                panel_type="success",
             )
             ctx.ui.spacer.small()
 
@@ -188,15 +173,14 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.ui.text.body(f"  • {name}{desc_text}", style="cyan")
 
             if len(sorted_versions) > 20:
-                ctx.ui.text.body(f"  ... and {len(sorted_versions) - 20} more", style="dim")
+                ctx.ui.text.body(
+                    f"  ... and {len(sorted_versions) - 20} more", style="dim"
+                )
             ctx.ui.spacer.small()
 
         return Success(
             f"Found {len(sorted_versions)} unreleased versions",
-            metadata={
-                "versions": version_names,
-                "versions_full": sorted_versions
-            }
+            metadata={"versions": version_names, "versions_full": sorted_versions},
         )
 
     except JiraAPIError as e:
@@ -206,6 +190,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error(error_msg)
     except Exception as e:
         import traceback
+
         error_detail = traceback.format_exc()
         error_msg = f"Unexpected error: {e}\n\nTraceback:\n{error_detail}"
         if ctx.ui:

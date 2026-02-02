@@ -7,7 +7,13 @@ from typing import Dict, List, Any
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from ..messages import msg
 
+class Brand :
+    """Represents a brand with emoji and name."""
+    def __init__(self, emoji: str, name: str):
+        self.emoji = emoji
+        self.name = name
 
+        
 # Brand configuration
 BRANDS_WITH_EMOJI = [
     ("🟣", "Yoigo"),

@@ -7,196 +7,38 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 """
 
 import threading
-from typing import Optional, Callable
+from typing import Optional
 from contextlib import contextmanager
 from textual.widget import Widget
-from textual.widgets import Input, LoadingIndicator, Static, Markdown, TextArea
+from textual.widgets import LoadingIndicator, Static, Markdown
 from textual.containers import Container
-from textual.message import Message
-
-
-class PromptInput(Widget):
-    """Widget wrapper for Input that handles submission events."""
-
-    # Allow this widget and its children to receive focus
-    can_focus = True
-    can_focus_children = True
-
-    DEFAULT_CSS = """
-    PromptInput {
-        width: 100%;
-        height: auto;
-        padding: 1;
-        margin: 1 0;
-        background: $surface-lighten-1;
-        border: round $accent;
-    }
-
-    PromptInput > Static {
-        width: 100%;
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    PromptInput > Input {
-        width: 100%;
-    }
-    """
-
-    def __init__(self, question: str, default: str, placeholder: str, on_submit: Callable[[str], None], **kwargs):
-        super().__init__(**kwargs)
-        self.question = question
-        self.default = default
-        self.placeholder = placeholder
-        self.on_submit_callback = on_submit
-
-    def compose(self):
-        from textual.widgets import Static
-        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
-        yield Input(
-            value=self.default,
-            placeholder=self.placeholder,
-            id="prompt-input"
-        )
-
-    def on_mount(self):
-        """Focus input when mounted and scroll into view."""
-        # Use call_after_refresh to ensure widget tree is ready
-        self.call_after_refresh(self._focus_input)
-
-    def _focus_input(self):
-        """Focus the input widget and scroll into view."""
-        try:
-            input_widget = self.query_one(Input)
-            # Use app.set_focus() to force focus change from steps-panel
-            self.app.set_focus(input_widget)
-            # Scroll to make this widget visible
-            self.scroll_visible(animate=False)
-        except Exception:
-            pass
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle input submission."""
-        value = event.value
-        self.on_submit_callback(value)
-
-
-class MultilineInput(TextArea):
-    """Custom TextArea that handles Enter for submission and Shift+Enter for new lines."""
-
-    class Submitted(Message):
-        """Message sent when the input is submitted."""
-        def __init__(self, sender: Widget, value: str):
-            super().__init__()
-            self.sender = sender
-            self.value = value
-
-    def _on_key(self, event) -> None:
-        """Intercept key events before TextArea processes them."""
-        from textual.events import Key
-
-        # Check if it's Enter without shift
-        if isinstance(event, Key) and event.key == "enter":
-            # Submit the input
-            self.post_message(self.Submitted(self, self.text))
-            event.prevent_default()
-            event.stop()
-            return
-
-        # For all other keys, let TextArea handle it
-        super()._on_key(event)
-
-
-class PromptTextArea(Widget):
-    """Widget wrapper for MultilineInput that handles multiline input submission."""
-
-    can_focus = True
-    can_focus_children = True
-
-    DEFAULT_CSS = """
-    PromptTextArea {
-        width: 100%;
-        height: auto;
-        padding: 1;
-        margin: 1 0;
-        background: $surface-lighten-1;
-        border: round $accent;
-    }
-
-    PromptTextArea > Static {
-        width: 100%;
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    PromptTextArea > MultilineInput {
-        width: 100%;
-        height: auto;
-    }
-
-    PromptTextArea .hint-text {
-        width: 100%;
-        height: auto;
-        margin-top: 1;
-        color: $text-muted;
-    }
-    """
-
-    def __init__(self, question: str, default: str, on_submit: Callable[[str], None], **kwargs):
-        super().__init__(**kwargs)
-        self.question = question
-        self.default = default
-        self.on_submit_callback = on_submit
-
-    def compose(self):
-        from textual.widgets import Static
-        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
-        yield MultilineInput(
-            text=self.default,
-            id="prompt-textarea",
-            soft_wrap=True
-        )
-        yield Static("[dim]Press Enter to submit, Shift+Enter for new line[/dim]", classes="hint-text")
-
-    def on_mount(self):
-        """Focus textarea when mounted and scroll into view."""
-        self.call_after_refresh(self._focus_textarea)
-
-    def _focus_textarea(self):
-        """Focus the textarea widget and scroll into view."""
-        try:
-            textarea = self.query_one(MultilineInput)
-            self.app.set_focus(textarea)
-            self.scroll_visible(animate=False)
-        except Exception:
-            pass
-
-    def on_multiline_input_submitted(self, message: MultilineInput.Submitted):
-        """Handle submission from MultilineInput."""
-        self.on_submit_callback(message.value)
+from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea
 
 
 class TextualComponents:
     """
     Textual UI utilities for workflow steps.
 
-    Steps import widgets directly (Panel, DimText, etc.) and use these utilities to:
-    - Mount widgets to the output panel
+    Steps can use these utilities to:
+    - Display panels with consistent styling
+    - Mount custom widgets to the output panel
     - Append simple text with markup
     - Request user input interactively
 
     Example:
-        from titan_cli.ui.tui.widgets import Panel, DimText
-
         def my_step(ctx):
-            # Mount a panel widget
-            ctx.textual.mount(Panel("Warning message", panel_type="warning"))
+            # Show a panel (recommended)
+            ctx.textual.panel("Warning message", panel_type="warning")
 
             # Append inline text
             ctx.textual.text("Analyzing changes...")
 
             # Ask for input
             response = ctx.textual.ask_confirm("Continue?", default=True)
+
+            # Mount custom widgets (advanced)
+            from titan_cli.ui.tui.widgets import DimText
+            ctx.textual.mount(DimText("Additional details..."))
     """
 
     def __init__(self, app, output_widget):
@@ -340,6 +182,21 @@ class TextualComponents:
         except Exception:
             # App is closing or worker was cancelled
             pass
+
+    def panel(self, text: str, panel_type: str = "info") -> None:
+        """
+        Show a panel with consistent styling.
+
+        Args:
+            text: Text to display in the panel
+            panel_type: Type of panel - "info", "success", "warning", or "error"
+
+        Example:
+            ctx.textual.panel("Operation completed successfully!", panel_type="success")
+            ctx.textual.panel("Warning: This action cannot be undone", panel_type="warning")
+        """
+        panel_widget = Panel(text=text, panel_type=panel_type)
+        self.mount(panel_widget)
 
     def ask_text(self, question: str, default: str = "") -> Optional[str]:
         """
