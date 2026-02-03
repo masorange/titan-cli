@@ -1,177 +1,98 @@
 """
 Text Widgets
 
-Reusable text widgets with theme-based styling.
+Canonical text widgets with theme-based styling for use across the entire application.
+
+All screens, steps, and core components should use these widgets to ensure consistent
+styling that automatically adapts to the active theme.
+
+Widgets:
+- Text: Plain text without styling
+- DimText: Muted/dimmed text
+- BoldText: Bold text
+- SuccessText: Success/green color (uses $success theme variable)
+- ErrorText: Error/red color (uses $error theme variable)
+- WarningText: Warning/yellow color (uses $warning theme variable)
+- PrimaryText: Primary theme color (uses $primary theme variable)
+- BoldPrimaryText: Bold text with primary color
+- ItalicText: Italic text
+- DimItalicText: Dim italic text
+
+Usage in screens/core:
+    from titan_cli.ui.tui.widgets import DimText, SuccessText
+    self.mount(DimText("Loading..."))
+    self.mount(SuccessText("Completed!"))
+
+Usage in workflow steps via TextualComponents:
+    ctx.textual.dim_text("Loading...")
+    ctx.textual.success_text("Completed!")
+
+Note: All styling is defined globally in theme.py (TITAN_THEME_CSS).
+Widget classes are used to apply the correct CSS selectors.
 """
 from textual.widgets import Static
 
 
-# Shared CSS for all text styling - DRY principle
-SHARED_TEXT_CSS = """
-.dim, DimText, DimItalicText {
-    color: $text-muted;
-}
-
-.bold, BoldText, BoldPrimaryText {
-    text-style: bold;
-}
-
-.italic, ItalicText, DimItalicText {
-    text-style: italic;
-}
-
-.primary, PrimaryText, BoldPrimaryText {
-    color: $primary;
-}
-
-.success, SuccessText {
-    color: $success;
-}
-
-.error, ErrorText {
-    color: $error;
-}
-
-.warning, WarningText {
-    color: $warning;
-}
-"""
-
-
 class Text(Static):
     """
-    Reusable text widget with dynamic styling via CSS classes.
+    Plain text widget without styling.
+
+    For styled text, use specialized widgets:
+    - DimText: Muted/dimmed text
+    - BoldText: Bold text
+    - SuccessText: Success/green color
+    - ErrorText: Error/red color
+    - WarningText: Warning/yellow color
+    - PrimaryText: Primary theme color
+    - ItalicText: Italic text
 
     Usage:
-        # Create with initial style
-        text = Text("Hello", style="bold")
-
-        # Change style dynamically
-        text.set_style("error")
-
-        # Combine multiple styles
-        text = Text("Hello", style="bold primary")
-
-    Available styles:
-        - dim: Muted/dimmed text
-        - bold: Bold text
-        - italic: Italic text
-        - primary: Primary color
-        - success: Success/green color
-        - error: Error/red color
-        - warning: Warning/yellow color
+        text = Text("Hello, world!")
     """
-
-    DEFAULT_CSS = SHARED_TEXT_CSS
-
-    def __init__(self, renderable="", *, style: str = "", **kwargs):
-        """
-        Initialize text widget.
-
-        Args:
-            renderable: Text content
-            style: Space-separated style classes (e.g., "bold primary")
-            **kwargs: Additional Static arguments
-        """
-        # Add style classes to existing classes
-        if style:
-            existing_classes = kwargs.get("classes", "")
-            if existing_classes:
-                kwargs["classes"] = f"{existing_classes} {style}"
-            else:
-                kwargs["classes"] = style
-
-        super().__init__(renderable, **kwargs)
-
-    def set_style(self, *styles: str) -> None:
-        """
-        Set the text style(s), removing previous styles.
-
-        Args:
-            *styles: One or more style names to apply
-
-        Example:
-            text.set_style("bold", "error")
-        """
-        # Remove all style classes
-        for cls in ["dim", "bold", "italic", "primary", "success", "error", "warning"]:
-            self.remove_class(cls)
-
-        # Add new styles
-        for style in styles:
-            if style:
-                self.add_class(style)
-
-    def add_style(self, *styles: str) -> None:
-        """
-        Add style(s) to the text without removing existing ones.
-
-        Args:
-            *styles: One or more style names to add
-
-        Example:
-            text.add_style("italic")
-        """
-        for style in styles:
-            if style:
-                self.add_class(style)
-
-    def remove_style(self, *styles: str) -> None:
-        """
-        Remove style(s) from the text.
-
-        Args:
-            *styles: One or more style names to remove
-
-        Example:
-            text.remove_style("bold")
-        """
-        for style in styles:
-            if style:
-                self.remove_class(style)
+    pass
 
 
-# Convenience widgets - use shared CSS
+# Styled text widgets - styling defined globally in theme.py
 class DimText(Static):
     """Text widget with dim/muted styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class BoldText(Static):
     """Text widget with bold styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class PrimaryText(Static):
     """Text widget with primary color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class BoldPrimaryText(Static):
     """Text widget with bold primary color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class SuccessText(Static):
     """Text widget with success/green color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class ErrorText(Static):
     """Text widget with error/red color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class WarningText(Static):
     """Text widget with warning/yellow color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class ItalicText(Static):
     """Text widget with italic styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class DimItalicText(Static):
     """Text widget with dim italic styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass

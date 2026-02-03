@@ -37,7 +37,7 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     # Skip if there's nothing to commit
     git_status = ctx.data.get("git_status")
     if git_status and git_status.is_clean:
-        ctx.textual.text(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN, markup="dim")
+        ctx.textual.dim_text(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
         ctx.textual.end_step("skip")
         return Skip(msg.Steps.Commit.WORKING_DIRECTORY_CLEAN)
 
@@ -47,7 +47,7 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
 
     commit_message = ctx.get('commit_message')
     if not commit_message:
-        ctx.textual.text(msg.Steps.Commit.NO_COMMIT_MESSAGE, markup="dim")
+        ctx.textual.dim_text(msg.Steps.Commit.NO_COMMIT_MESSAGE)
         ctx.textual.end_step("skip")
         return Skip(msg.Steps.Commit.NO_COMMIT_MESSAGE)
 
@@ -58,7 +58,7 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
         commit_hash = ctx.git.commit(message=commit_message, all=all_files, no_verify=no_verify)
 
         # Show success message
-        ctx.textual.text(f"Commit created: {commit_hash[:7]}", markup="green")
+        ctx.textual.success_text(f"Commit created: {commit_hash[:7]}")
 
         ctx.textual.end_step("success")
         return Success(

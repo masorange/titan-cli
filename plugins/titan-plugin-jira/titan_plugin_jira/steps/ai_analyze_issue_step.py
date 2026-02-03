@@ -36,14 +36,14 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Check if AI is available
     if not ctx.ai or not ctx.ai.is_available():
-        ctx.textual.text(msg.Steps.AIIssue.AI_NOT_CONFIGURED_SKIP, markup="dim")
+        ctx.textual.dim_text(msg.Steps.AIIssue.AI_NOT_CONFIGURED_SKIP)
         ctx.textual.end_step("skip")
         return Skip(msg.Steps.AIIssue.AI_NOT_CONFIGURED)
 
     # Get issue to analyze
     issue = ctx.get("jira_issue") or ctx.get("selected_issue")
     if not issue:
-        ctx.textual.text(msg.Steps.AIIssue.NO_ISSUE_FOUND, markup="red")
+        ctx.textual.error_text(msg.Steps.AIIssue.NO_ISSUE_FOUND)
         ctx.textual.end_step("error")
         return Error(msg.Steps.AIIssue.NO_ISSUE_FOUND)
 
@@ -65,12 +65,12 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Display analysis
     ctx.textual.text("")
-    ctx.textual.text("AI Analysis Results", markup="bold cyan")
+    ctx.textual.bold_primary_text("AI Analysis Results")
     ctx.textual.text("")
 
     # Show issue header
-    ctx.textual.text(f"{issue.key}: {issue.summary}", markup="bold")
-    ctx.textual.text(f"Type: {issue.issue_type} | Status: {issue.status} | Priority: {issue.priority}", markup="dim")
+    ctx.textual.bold_text(f"{issue.key}: {issue.summary}")
+    ctx.textual.dim_text(f"Type: {issue.issue_type} | Status: {issue.status} | Priority: {issue.priority}")
     ctx.textual.text("")
 
     # Show AI analysis as markdown
@@ -78,7 +78,7 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Show token usage
     if analysis.total_tokens_used > 0:
-        ctx.textual.text(f"Tokens used: {analysis.total_tokens_used}", markup="dim")
+        ctx.textual.dim_text(f"Tokens used: {analysis.total_tokens_used}")
 
     # Save structured analysis to context
     ctx.set("ai_analysis_structured", {

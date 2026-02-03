@@ -36,7 +36,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Could not determine poetry virtual environment for ruff.")
 
     # 1. Scan before fix
-    ctx.textual.text("Running initial ruff scan...", markup="dim")
+    ctx.textual.dim_text("Running initial ruff scan...")
     result_before = subprocess.run(
         ["ruff", "check", ".", "--output-format=json"],
         capture_output=True,
@@ -53,7 +53,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
 
 
     # 2. Auto-fix
-    ctx.textual.text("Applying auto-fixes...", markup="dim")
+    ctx.textual.dim_text("Applying auto-fixes...")
     subprocess.run(
         ["ruff", "check", ".", "--fix", "--quiet"],
         capture_output=True,
@@ -62,7 +62,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     # 3. Scan after fix
-    ctx.textual.text("Running final ruff scan...", markup="dim")
+    ctx.textual.dim_text("Running final ruff scan...")
     result_after = subprocess.run(
         ["ruff", "check", ".", "--output-format=json"],
         capture_output=True,
@@ -81,16 +81,16 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     fixed_count = len(errors_before) - len(errors_after)
 
     if fixed_count > 0:
-        ctx.textual.text(f"Auto-fixed {fixed_count} issue(s)", markup="green")
+        ctx.textual.success_text(f"Auto-fixed {fixed_count} issue(s)")
 
     if not errors_after:
-        ctx.textual.text("All linting issues resolved!", markup="green")
+        ctx.textual.success_text("All linting issues resolved!")
         ctx.textual.end_step("success")
         return Success("Linting passed")
 
     # 5. Show remaining errors
     if errors_after:
-        ctx.textual.text(f"{len(errors_after)} issue(s) require manual fix:", markup="yellow")
+        ctx.textual.warning_text(f"{len(errors_after)} issue(s) require manual fix:")
         ctx.textual.text("")  # spacing
 
         # Prepare data for the table

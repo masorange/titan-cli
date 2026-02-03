@@ -7,193 +7,39 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 """
 
 import threading
-from typing import Optional, Callable
+from typing import Optional
 from contextlib import contextmanager
 from textual.widget import Widget
-from textual.widgets import Input, LoadingIndicator, Static, Markdown, TextArea
+from textual.widgets import LoadingIndicator, Static, Markdown
 from textual.containers import Container
-from textual.message import Message
-
-
-class PromptInput(Widget):
-    """Widget wrapper for Input that handles submission events."""
-
-    # Allow this widget and its children to receive focus
-    can_focus = True
-    can_focus_children = True
-
-    DEFAULT_CSS = """
-    PromptInput {
-        width: 100%;
-        height: auto;
-        padding: 1;
-        margin: 1 0;
-        background: $surface-lighten-1;
-        border: round $accent;
-    }
-
-    PromptInput > Static {
-        width: 100%;
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    PromptInput > Input {
-        width: 100%;
-    }
-    """
-
-    def __init__(self, question: str, default: str, placeholder: str, on_submit: Callable[[str], None], **kwargs):
-        super().__init__(**kwargs)
-        self.question = question
-        self.default = default
-        self.placeholder = placeholder
-        self.on_submit_callback = on_submit
-
-    def compose(self):
-        from textual.widgets import Static
-        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
-        yield Input(
-            value=self.default,
-            placeholder=self.placeholder,
-            id="prompt-input"
-        )
-
-    def on_mount(self):
-        """Focus input when mounted and scroll into view."""
-        # Use call_after_refresh to ensure widget tree is ready
-        self.call_after_refresh(self._focus_input)
-
-    def _focus_input(self):
-        """Focus the input widget and scroll into view."""
-        try:
-            input_widget = self.query_one(Input)
-            # Use app.set_focus() to force focus change from steps-panel
-            self.app.set_focus(input_widget)
-            # Scroll to make this widget visible
-            self.scroll_visible(animate=False)
-        except Exception:
-            pass
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle input submission."""
-        value = event.value
-        self.on_submit_callback(value)
-
-
-class MultilineInput(TextArea):
-    """Custom TextArea that handles Enter for submission and Shift+Enter for new lines."""
-
-    class Submitted(Message):
-        """Message sent when the input is submitted."""
-        def __init__(self, sender: Widget, value: str):
-            super().__init__()
-            self.sender = sender
-            self.value = value
-
-    def _on_key(self, event) -> None:
-        """Intercept key events before TextArea processes them."""
-        from textual.events import Key
-
-        # Check if it's Enter without shift
-        if isinstance(event, Key) and event.key == "enter":
-            # Submit the input
-            self.post_message(self.Submitted(self, self.text))
-            event.prevent_default()
-            event.stop()
-            return
-
-        # For all other keys, let TextArea handle it
-        super()._on_key(event)
-
-
-class PromptTextArea(Widget):
-    """Widget wrapper for MultilineInput that handles multiline input submission."""
-
-    can_focus = True
-    can_focus_children = True
-
-    DEFAULT_CSS = """
-    PromptTextArea {
-        width: 100%;
-        height: auto;
-        padding: 1;
-        margin: 1 0;
-        background: $surface-lighten-1;
-        border: round $accent;
-    }
-
-    PromptTextArea > Static {
-        width: 100%;
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    PromptTextArea > MultilineInput {
-        width: 100%;
-        height: auto;
-    }
-
-    PromptTextArea .hint-text {
-        width: 100%;
-        height: auto;
-        margin-top: 1;
-        color: $text-muted;
-    }
-    """
-
-    def __init__(self, question: str, default: str, on_submit: Callable[[str], None], **kwargs):
-        super().__init__(**kwargs)
-        self.question = question
-        self.default = default
-        self.on_submit_callback = on_submit
-
-    def compose(self):
-        from textual.widgets import Static
-        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
-        yield MultilineInput(
-            text=self.default,
-            id="prompt-textarea",
-            soft_wrap=True
-        )
-        yield Static("[dim]Press Enter to submit, Shift+Enter for new line[/dim]", classes="hint-text")
-
-    def on_mount(self):
-        """Focus textarea when mounted and scroll into view."""
-        self.call_after_refresh(self._focus_textarea)
-
-    def _focus_textarea(self):
-        """Focus the textarea widget and scroll into view."""
-        try:
-            textarea = self.query_one(MultilineInput)
-            self.app.set_focus(textarea)
-            self.scroll_visible(animate=False)
-        except Exception:
-            pass
-
-    def on_multiline_input_submitted(self, message: MultilineInput.Submitted):
-        """Handle submission from MultilineInput."""
-        self.on_submit_callback(message.value)
+from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea
 
 
 class TextualComponents:
     """
     Textual UI utilities for workflow steps.
 
-    Steps import widgets directly (Panel, DimText, etc.) and use these utilities to:
-    - Mount widgets to the output panel
-    - Append simple text with markup
+    All text styling uses the theme system for consistent colors across themes.
+
+    Steps can use these utilities to:
+    - Display panels with consistent styling
+    - Append text with theme-based styling
     - Request user input interactively
+    - Mount custom widgets to the output panel
 
     Example:
-        from titan_cli.ui.tui.widgets import Panel, DimText
-
         def my_step(ctx):
-            # Mount a panel widget
-            ctx.textual.mount(Panel("Warning message", panel_type="warning"))
+            # Show a panel
+            ctx.textual.panel("Warning message", panel_type="warning")
 
-            # Append inline text
-            ctx.textual.text("Analyzing changes...")
+            # Append styled text (uses theme system)
+            ctx.textual.dim_text("Fetching data...")
+            ctx.textual.success_text("Operation completed!")
+            ctx.textual.error_text("Failed to connect")
+            ctx.textual.bold_primary_text("AI Analysis Results")
+
+            # Append plain text
+            ctx.textual.text("Processing...")
 
             # Ask for input
             response = ctx.textual.ask_confirm("Continue?", default=True)
@@ -213,7 +59,7 @@ class TextualComponents:
 
     def begin_step(self, step_name: str) -> None:
         """
-        Begin a new step by creating a StepContainer.
+        Begin a new step by creating a StepContainer and auto-scrolling to it.
 
         Args:
             step_name: Name of the step
@@ -224,6 +70,8 @@ class TextualComponents:
             container = StepContainer(step_name=step_name)
             self.output_widget.mount(container)
             self._active_step_container = container
+            # Auto-scroll to show the new step
+            self.output_widget._scroll_to_end()
 
         try:
             self.app.call_from_thread(_create_container)
@@ -273,33 +121,28 @@ class TextualComponents:
             # App is closing or worker was cancelled
             pass
 
-    def text(self, text: str, markup: str = "") -> None:
+    def text(self, text: str) -> None:
         """
-        Append inline text with optional Rich markup.
+        Append plain text without styling.
+
+        For styled text, use specific methods: dim_text(), success_text(), etc.
 
         Args:
             text: Text to append
-            markup: Optional Rich markup style (e.g., "cyan", "bold green")
 
         Example:
-            ctx.textual.text("Analyzing changes...", markup="cyan")
-            ctx.textual.text("Done!")
+            ctx.textual.text("Processing...")
+            ctx.textual.text("")  # Empty line
         """
         def _append():
             # If there's an active step container, append to it; otherwise to output widget
             if self._active_step_container:
                 from textual.widgets import Static
-                if markup:
-                    widget = Static(f"[{markup}]{text}[/{markup}]")
-                else:
-                    widget = Static(text)
+                widget = Static(text)
                 widget.styles.height = "auto"
                 self._active_step_container.mount(widget)
             else:
-                if markup:
-                    self.output_widget.append_output(f"[{markup}]{text}[/{markup}]")
-                else:
-                    self.output_widget.append_output(text)
+                self.output_widget.append_output(text)
 
         # call_from_thread already blocks until the function completes
         try:
@@ -340,6 +183,126 @@ class TextualComponents:
         except Exception:
             # App is closing or worker was cancelled
             pass
+
+    def panel(self, text: str, panel_type: str = "info") -> None:
+        """
+        Show a panel with consistent styling.
+
+        Args:
+            text: Text to display in the panel
+            panel_type: Type of panel - "info", "success", "warning", or "error"
+
+        Example:
+            ctx.textual.panel("Operation completed successfully!", panel_type="success")
+            ctx.textual.panel("Warning: This action cannot be undone", panel_type="warning")
+        """
+        panel_widget = Panel(text=text, panel_type=panel_type)
+        self.mount(panel_widget)
+
+    def dim_text(self, text: str) -> None:
+        """
+        Append dim/muted text (uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.dim_text("Fetching versions for project: ECAPP")
+        """
+        from titan_cli.ui.tui.widgets import DimText
+        widget = DimText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def success_text(self, text: str) -> None:
+        """
+        Append success text (green, uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.success_text("Commit created: abc1234")
+        """
+        from titan_cli.ui.tui.widgets import SuccessText
+        widget = SuccessText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def error_text(self, text: str) -> None:
+        """
+        Append error text (red, uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.error_text("Failed to connect to API")
+        """
+        from titan_cli.ui.tui.widgets import ErrorText
+        widget = ErrorText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def warning_text(self, text: str) -> None:
+        """
+        Append warning text (yellow, uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.warning_text("This action will overwrite existing files")
+        """
+        from titan_cli.ui.tui.widgets import WarningText
+        widget = WarningText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def primary_text(self, text: str) -> None:
+        """
+        Append primary colored text (uses theme system).
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.primary_text("Processing items...")
+        """
+        from titan_cli.ui.tui.widgets import PrimaryText
+        widget = PrimaryText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def bold_text(self, text: str) -> None:
+        """
+        Append bold text.
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.bold_text("Important: Read carefully")
+        """
+        from titan_cli.ui.tui.widgets import BoldText
+        widget = BoldText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
+
+    def bold_primary_text(self, text: str) -> None:
+        """
+        Append bold text with primary theme color.
+
+        Args:
+            text: Text to display
+
+        Example:
+            ctx.textual.bold_primary_text("AI Analysis Results")
+        """
+        from titan_cli.ui.tui.widgets import BoldPrimaryText
+        widget = BoldPrimaryText(text)
+        widget.styles.height = "auto"
+        self.mount(widget)
 
     def ask_text(self, question: str, default: str = "") -> Optional[str]:
         """

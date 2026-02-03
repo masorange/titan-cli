@@ -26,12 +26,12 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     # Get issues from previous search
     issues = ctx.get("jira_issues")
     if not issues:
-        ctx.textual.text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE, markup="red")
+        ctx.textual.error_text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
         ctx.textual.end_step("error")
         return Error(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
 
     if len(issues) == 0:
-        ctx.textual.text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE, markup="red")
+        ctx.textual.error_text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
         ctx.textual.end_step("error")
         return Error(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
 
@@ -46,7 +46,7 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
         if not response or not response.strip():
-            ctx.textual.text(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED, markup="red")
+            ctx.textual.error_text(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED)
             ctx.textual.end_step("error")
             return Error(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED)
 
@@ -54,13 +54,13 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         try:
             selected_index = int(response.strip())
         except ValueError:
-            ctx.textual.text(f"Invalid input: '{response}' is not a number", markup="red")
+            ctx.textual.error_text(f"Invalid input: '{response}' is not a number")
             ctx.textual.end_step("error")
             return Error(f"Invalid input: '{response}' is not a number")
 
         # Validate it's in range
         if selected_index < 1 or selected_index > len(issues):
-            ctx.textual.text(f"Invalid selection: must be between 1 and {len(issues)}", markup="red")
+            ctx.textual.error_text(f"Invalid selection: must be between 1 and {len(issues)}")
             ctx.textual.end_step("error")
             return Error(f"Invalid selection: must be between 1 and {len(issues)}")
 
@@ -68,12 +68,11 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         selected_issue = issues[selected_index - 1]
 
         ctx.textual.text("")
-        ctx.textual.text(
+        ctx.textual.success_text(
             msg.Steps.PromptSelectIssue.ISSUE_SELECTION_CONFIRM.format(
                 key=selected_issue.key,
                 summary=selected_issue.summary
-            ),
-            markup="green"
+            )
         )
 
         ctx.textual.end_step("success")
@@ -85,7 +84,7 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
             }
         )
     except (KeyboardInterrupt, EOFError):
-        ctx.textual.text("User cancelled issue selection", markup="red")
+        ctx.textual.error_text("User cancelled issue selection")
         ctx.textual.end_step("error")
         return Error("User cancelled issue selection")
 

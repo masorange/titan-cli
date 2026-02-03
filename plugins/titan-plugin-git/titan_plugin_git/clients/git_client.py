@@ -282,7 +282,7 @@ class GitClient:
         """
         self._run_command(["git", "branch", branch_name, start_point])
 
-    def commit(self, message: str, all: bool = False, no_verify: bool = False) -> str:
+    def commit(self, message: str, all: bool = False, no_verify: bool = True) -> str:
         """
         Create a commit
 
@@ -731,6 +731,39 @@ class GitClient:
         try:
             return self._run_command(
                 ["git", "diff", f"{base_branch}...{head_branch}"],
+                check=False
+            )
+        except GitCommandError:
+            return ""
+
+    def get_uncommitted_diff_stat(self) -> str:
+        """
+        Get diff stat summary of uncommitted changes (git diff --stat HEAD).
+
+        Returns a summary showing files changed, insertions, and deletions.
+
+        Returns:
+            Diff stat output as string
+        """
+        try:
+            return self._run_command(["git", "diff", "--stat", "HEAD"], check=False)
+        except GitCommandError:
+            return ""
+
+    def get_branch_diff_stat(self, base_branch: str, head_branch: str) -> str:
+        """
+        Get diff stat summary between two branches.
+
+        Args:
+            base_branch: Base branch name
+            head_branch: Head branch name
+
+        Returns:
+            Diff stat output as string
+        """
+        try:
+            return self._run_command(
+                ["git", "diff", "--stat", f"{base_branch}...{head_branch}"],
                 check=False
             )
         except GitCommandError:
