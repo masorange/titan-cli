@@ -146,16 +146,16 @@ class WorkflowExecutionScreen(BaseScreen):
                 thread=True
             )
 
-        except (WorkflowNotFoundError, WorkflowExecutionError):
-            pass
-            # TODO Create empty error screen
-            # self._update_workflow_info(f"[red]Error: {e}[/red]")
-        except Exception:
-            pass
-            # TODO Create empty error screen
-            # self._update_workflow_info(
-            #     f"[red]Unexpected error: {type(e).__name__} - {e}[/red]"
-            # )
+        except (WorkflowNotFoundError, WorkflowExecutionError) as e:
+            self._output(f"[red]{Icons.ERROR} Error loading workflow: {e}[/red]")
+            self._output("[dim]Press ESC or Q to return[/dim]")
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            self._output(f"[red]{Icons.ERROR} Unexpected error loading workflow:[/red]")
+            self._output(f"[red]{type(e).__name__}: {e}[/red]")
+            self._output(f"[dim]{error_details}[/dim]")
+            self._output("[dim]Press ESC or Q to return[/dim]")
 
     def _execute_workflow(self) -> None:
         """Execute the workflow in a background thread."""

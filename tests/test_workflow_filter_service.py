@@ -25,8 +25,22 @@ class TestWorkflowFilterService:
         result = WorkflowFilterService.detect_plugin_name(wf)
         assert result == "Github"
 
+    def test_detect_plugin_name_from_project_with_single_plugin(self):
+        """Test detecting plugin name from project workflow with single required plugin."""
+        wf = WorkflowInfo(
+            name="test-workflow",
+            source="project",
+            description="Test workflow",
+            path=Path("/path/to/workflow.yaml"),
+            required_plugins={"github"}
+        )
+
+        result = WorkflowFilterService.detect_plugin_name(wf)
+        # Single plugin should be categorized under that plugin
+        assert result == "Github"
+
     def test_detect_plugin_name_from_project_with_required_plugins(self):
-        """Test detecting plugin name from project workflow with required plugins."""
+        """Test detecting plugin name from project workflow with multiple required plugins."""
         wf = WorkflowInfo(
             name="test-workflow",
             source="project",
@@ -36,8 +50,8 @@ class TestWorkflowFilterService:
         )
 
         result = WorkflowFilterService.detect_plugin_name(wf)
-        # Should return first in sorted order
-        assert result == "Github"
+        # Multiple plugins should be categorized as "Project"
+        assert result == "Project"
 
     def test_detect_plugin_name_from_project_without_plugins(self):
         """Test detecting plugin name from project workflow without plugins."""

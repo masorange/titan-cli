@@ -567,6 +567,22 @@ class PluginConfigWizardScreen(BaseScreen):
             # Save secrets
             project_name = self.config.get_project_name()
             for secret_key, secret_value in secrets_to_save.items():
+                # Clean up old secrets for this key to avoid conflicts
+                # This prevents accumulation of stale tokens from previous configurations
+                if self.plugin_name == "jira" and "api_token" in secret_key:
+                    # Delete all possible old JIRA token variants
+                    old_keys = [
+                        secret_key,  # Generic: jira_api_token
+                        f"{project_name}_{secret_key}" if project_name else None,  # Project-specific
+                    ]
+                    for old_key in old_keys:
+                        if old_key:
+                            try:
+                                self.config.secrets.delete(old_key, scope="user")
+                            except Exception:
+                                pass  # Ignore errors if key doesn't exist
+
+                # Save the new secret
                 keychain_key = f"{project_name}_{secret_key}" if project_name else secret_key
                 self.config.secrets.set(keychain_key, secret_value, scope="user")
 
