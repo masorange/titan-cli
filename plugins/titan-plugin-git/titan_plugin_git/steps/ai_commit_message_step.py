@@ -45,13 +45,13 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
     # Get git status
     git_status = ctx.get('git_status')
     if not git_status or git_status.is_clean:
-        ctx.textual.text(msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT, markup="dim")
+        ctx.textual.dim_text(msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT)
         ctx.textual.end_step("skip")
         return Skip(msg.Steps.AICommitMessage.NO_CHANGES_TO_COMMIT)
 
     try:
         # Get diff of uncommitted changes
-        ctx.textual.text(msg.Steps.AICommitMessage.ANALYZING_CHANGES, markup="dim")
+        ctx.textual.dim_text(msg.Steps.AICommitMessage.ANALYZING_CHANGES)
 
         # Get diff of all uncommitted changes
         diff_text = ctx.git.get_uncommitted_diff()
@@ -125,12 +125,12 @@ Return ONLY the single-line commit message, absolutely nothing else."""
 
         # Show preview to user
         ctx.textual.text("")  # spacing
-        ctx.textual.text(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE, markup="bold")
-        ctx.textual.text(f"  {commit_message}", markup="bold cyan")
+        ctx.textual.bold_text(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE)
+        ctx.textual.bold_primary_text(f"  {commit_message}")
 
         # Warn if message is too long
         if len(commit_message) > 72:
-            ctx.textual.text(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=len(commit_message)), markup="yellow")
+            ctx.textual.warning_text(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=len(commit_message)))
 
         ctx.textual.text("")  # spacing
 
@@ -165,8 +165,8 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         )
 
     except Exception as e:
-        ctx.textual.text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e), markup="yellow")
-        ctx.textual.text(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL, markup="dim")
+        ctx.textual.warning_text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
+        ctx.textual.dim_text(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL)
 
         ctx.textual.end_step("skip")
         return Skip(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))

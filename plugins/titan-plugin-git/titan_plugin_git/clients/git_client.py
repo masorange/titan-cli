@@ -282,7 +282,7 @@ class GitClient:
         """
         self._run_command(["git", "branch", branch_name, start_point])
 
-    def commit(self, message: str, all: bool = False, no_verify: bool = False) -> str:
+    def commit(self, message: str, all: bool = False, no_verify: bool = True) -> str:
         """
         Create a commit
 

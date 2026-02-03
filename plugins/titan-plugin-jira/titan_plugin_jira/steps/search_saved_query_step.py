@@ -61,14 +61,14 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Search Open Issues")
 
     if not ctx.jira:
-        ctx.textual.text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, markup="red")
+        ctx.textual.error_text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
         ctx.textual.end_step("error")
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
 
     # Get query name
     query_name = ctx.get("query_name")
     if not query_name:
-        ctx.textual.text(msg.Steps.Search.QUERY_NAME_REQUIRED, markup="red")
+        ctx.textual.error_text(msg.Steps.Search.QUERY_NAME_REQUIRED)
         ctx.textual.end_step("error")
         return Error(msg.Steps.Search.QUERY_NAME_REQUIRED)
 
@@ -107,7 +107,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             error_msg += "\n\n" + msg.Steps.Search.ADD_CUSTOM_HINT + "\n"
             error_msg += msg.Steps.Search.CUSTOM_QUERY_EXAMPLE
 
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
 
@@ -125,7 +125,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
         if not project:
             error_msg = msg.Steps.Search.PROJECT_REQUIRED.format(query_name=query_name, jql=jql)
-            ctx.textual.text(error_msg, markup="red")
+            ctx.textual.error_text(error_msg)
             ctx.textual.end_step("error")
             return Error(error_msg)
 
@@ -136,8 +136,8 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     source_label = "Custom" if is_custom else "Predefined"
 
     ctx.textual.text("")
-    ctx.textual.text(f"Using {source_label} Query: {query_name}", markup="bold")
-    ctx.textual.text(f"  JQL: {jql}", markup="dim")
+    ctx.textual.bold_text(f"Using {source_label} Query: {query_name}")
+    ctx.textual.dim_text(f"  JQL: {jql}")
     ctx.textual.text("")
 
     # Get max results
@@ -149,7 +149,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             issues = ctx.jira.search_tickets(jql=jql, max_results=max_results)
 
         if not issues:
-            ctx.textual.text(f"No issues found for query: {query_name}", markup="dim")
+            ctx.textual.dim_text(f"No issues found for query: {query_name}")
             ctx.textual.end_step("success")
             return Success(
                 "No issues found",
@@ -162,11 +162,11 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Show results
         ctx.textual.text("")  # spacing
-        ctx.textual.text(f"Found {len(issues)} issues", markup="green")
+        ctx.textual.success_text(f"Found {len(issues)} issues")
         ctx.textual.text("")
 
         # Show detailed table
-        ctx.textual.text("Found Issues:", markup="bold")
+        ctx.textual.bold_text("Found Issues:")
         ctx.textual.text("")
 
         try:
@@ -207,8 +207,8 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             issues = sorted_issues
         except Exception as e:
             # If table rendering fails, show error but continue with raw issue list
-            ctx.textual.text(f"Error rendering table: {e}", markup="red")
-            ctx.textual.text(f"Found {len(issues)} issues (showing raw data)", markup="cyan")
+            ctx.textual.error_text(f"Error rendering table: {e}")
+            ctx.textual.primary_text(f"Found {len(issues)} issues (showing raw data)")
             for i, issue in enumerate(issues, 1):
                 ctx.textual.text(f"{i}. {issue.key} - {getattr(issue, 'summary', 'N/A')}")
             ctx.textual.text("")
@@ -225,14 +225,14 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
     except JiraAPIError as e:
         error_msg = f"JIRA search failed: {e}"
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()
         error_msg = f"Unexpected error: {e}\n\nTraceback:\n{error_detail}"
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
 

@@ -30,14 +30,14 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Check if JIRA client is available
     if not ctx.jira:
-        ctx.textual.text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT, markup="red")
+        ctx.textual.error_text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
         ctx.textual.end_step("error")
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
 
     # Get issue key
     issue_key = ctx.get("jira_issue_key")
     if not issue_key:
-        ctx.textual.text("JIRA issue key is required", markup="red")
+        ctx.textual.error_text("JIRA issue key is required")
         ctx.textual.end_step("error")
         return Error("JIRA issue key is required")
 
@@ -51,10 +51,10 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Show success
         ctx.textual.text("")  # spacing
-        ctx.textual.text(msg.Steps.GetIssue.GET_SUCCESS.format(issue_key=issue_key), markup="green")
+        ctx.textual.success_text(msg.Steps.GetIssue.GET_SUCCESS.format(issue_key=issue_key))
 
         # Show issue details
-        ctx.textual.text(f"  Title: {issue.summary}", markup="cyan")
+        ctx.textual.primary_text(f"  Title: {issue.summary}")
         ctx.textual.text(f"  Status: {issue.status}")
         ctx.textual.text(f"  Type: {issue.issue_type}")
         ctx.textual.text(f"  Assignee: {issue.assignee or 'Unassigned'}")
@@ -69,16 +69,16 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     except JiraAPIError as e:
         if e.status_code == 404:
             error_msg = msg.Steps.GetIssue.ISSUE_NOT_FOUND.format(issue_key=issue_key)
-            ctx.textual.text(error_msg, markup="red")
+            ctx.textual.error_text(error_msg)
             ctx.textual.end_step("error")
             return Error(error_msg)
         error_msg = msg.Steps.GetIssue.GET_FAILED.format(e=e)
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
     except Exception as e:
         error_msg = f"Unexpected error getting issue: {e}"
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
 

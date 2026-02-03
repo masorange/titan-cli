@@ -17,8 +17,8 @@ $success: #50fa7b;           /* Green */
 $info: #8be9fd;              /* Cyan */
 
 /* Backgrounds */
-$surface: #282a36;           
-$surface-lighten-1: #343746; 
+$surface: #282a36;
+$surface-lighten-1: #343746;
 $surface-lighten-2: #44475a;
 
 /* Text Colors */
@@ -27,9 +27,9 @@ $text-muted: #6272a4;        /* Comment */
 $text-disabled: #44475a;     /* Disabled */
 
 /* Banner gradient colors */
-$banner-start: #6272a4;      
-$banner-mid: #bd93f9;        
-$banner-end: #ff79c6;     
+$banner-start: #6272a4;
+$banner-mid: #bd93f9;
+$banner-end: #ff79c6;
 
 /* Base widget styles */
 .title {
@@ -68,6 +68,35 @@ $banner-end: #ff79c6;
 
 .info-text {
     color: $info;
+}
+
+/* Text widget styles (from widgets/text.py) */
+.dim, DimText, DimItalicText {
+    color: $text-muted;
+}
+
+.bold, BoldText, BoldPrimaryText {
+    text-style: bold;
+}
+
+.italic, ItalicText, DimItalicText {
+    text-style: italic;
+}
+
+.primary, PrimaryText, BoldPrimaryText {
+    color: $primary;
+}
+
+.success, SuccessText {
+    color: $success;
+}
+
+.error, ErrorText {
+    color: $error;
+}
+
+.warning, WarningText {
+    color: $warning;
 }
 
 /* Global scrollbar styles - applies to all widgets */

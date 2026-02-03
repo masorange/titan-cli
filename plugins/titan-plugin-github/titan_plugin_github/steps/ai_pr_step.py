@@ -119,7 +119,7 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text("")  # spacing
 
         # Show description
-        ctx.textual.bold_text(msg.GitHub.AI.DESCRIPTION_LABEL, markup="bold")
+        ctx.textual.bold_text(msg.GitHub.AI.DESCRIPTION_LABEL)
         # Render markdown in a scrollable container
         ctx.textual.markdown(analysis.pr_body)
 

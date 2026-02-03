@@ -56,13 +56,13 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     # Validate cli_preference
     VALID_CLI_PREFERENCES = {"auto", "claude", "gemini"}
     if cli_preference not in VALID_CLI_PREFERENCES:
-        ctx.textual.text(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}", markup="red")
+        ctx.textual.error_text(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}")
         ctx.textual.end_step("error")
         return Error(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}")
 
     # Validate required parameters
     if not context_key:
-        ctx.textual.text(msg.AIAssistant.CONTEXT_KEY_REQUIRED, markup="red")
+        ctx.textual.error_text(msg.AIAssistant.CONTEXT_KEY_REQUIRED)
         ctx.textual.end_step("error")
         return Error(msg.AIAssistant.CONTEXT_KEY_REQUIRED)
 
@@ -79,7 +79,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         else:
             friendly_msg = "No issues to fix - skipping AI assistance"
 
-        ctx.textual.text(friendly_msg, markup="dim")
+        ctx.textual.dim_text(friendly_msg)
         ctx.textual.end_step("skip")
         return Skip(friendly_msg)
 
@@ -96,11 +96,11 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             context_str = json.dumps(context_data, indent=2)
             prompt = prompt_template.format(context=context_str)
     except KeyError as e:
-        ctx.textual.text(msg.AIAssistant.INVALID_PROMPT_TEMPLATE.format(e=e), markup="red")
+        ctx.textual.error_text(msg.AIAssistant.INVALID_PROMPT_TEMPLATE.format(e=e))
         ctx.textual.end_step("error")
         return Error(msg.AIAssistant.INVALID_PROMPT_TEMPLATE.format(e=e))
     except Exception as e:
-        ctx.textual.text(msg.AIAssistant.FAILED_TO_BUILD_PROMPT.format(e=e), markup="red")
+        ctx.textual.error_text(msg.AIAssistant.FAILED_TO_BUILD_PROMPT.format(e=e))
         ctx.textual.end_step("error")
         return Error(msg.AIAssistant.FAILED_TO_BUILD_PROMPT.format(e=e))
 
@@ -113,10 +113,10 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         )
         if not should_launch:
             if fail_on_decline:
-                ctx.textual.text(msg.AIAssistant.DECLINED_ASSISTANCE_STOPPED, markup="yellow")
+                ctx.textual.warning_text(msg.AIAssistant.DECLINED_ASSISTANCE_STOPPED)
                 ctx.textual.end_step("error")
                 return Error(msg.AIAssistant.DECLINED_ASSISTANCE_STOPPED)
-            ctx.textual.text(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED, markup="dim")
+            ctx.textual.dim_text(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
             ctx.textual.end_step("skip")
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
@@ -142,7 +142,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
                 available_launchers[cli_name] = launcher
 
     if not available_launchers:
-        ctx.textual.text(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND, markup="yellow")
+        ctx.textual.warning_text(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND)
         ctx.textual.end_step("skip")
         return Skip(msg.AIAssistant.NO_ASSISTANT_CLI_FOUND)
 
@@ -151,7 +151,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     else:
         # Show available CLIs with numbers
         ctx.textual.text("")  # spacing
-        ctx.textual.text(msg.AIAssistant.SELECT_ASSISTANT_CLI, markup="bold cyan")
+        ctx.textual.bold_primary_text(msg.AIAssistant.SELECT_ASSISTANT_CLI)
 
         cli_options = list(available_launchers.keys())
         for idx, cli_name in enumerate(cli_options, 1):
@@ -162,7 +162,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         choice_str = ctx.textual.ask_text("Select option (or press Enter to cancel):", default="")
 
         if not choice_str or choice_str.strip() == "":
-            ctx.textual.text(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED, markup="dim")
+            ctx.textual.dim_text(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
             ctx.textual.end_step("skip")
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
@@ -171,17 +171,17 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             if 0 <= choice_idx < len(cli_options):
                 cli_to_launch = cli_options[choice_idx]
             else:
-                ctx.textual.text("Invalid option selected", markup="red")
+                ctx.textual.error_text("Invalid option selected")
                 ctx.textual.end_step("skip")
                 return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
         except ValueError:
-            ctx.textual.text("Invalid input - must be a number", markup="red")
+            ctx.textual.error_text("Invalid input - must be a number")
             ctx.textual.end_step("skip")
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
     # Validate selection
     if cli_to_launch not in available_launchers:
-        ctx.textual.text(f"Unknown CLI to launch: {cli_to_launch}", markup="red")
+        ctx.textual.error_text(f"Unknown CLI to launch: {cli_to_launch}")
         ctx.textual.end_step("error")
         return Error(f"Unknown CLI to launch: {cli_to_launch}")
 
@@ -189,13 +189,13 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
 
     # Launch the CLI
     ctx.textual.text("")  # spacing
-    ctx.textual.text(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name), markup="cyan")
+    ctx.textual.primary_text(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name))
 
     # Show prompt preview
     prompt_preview_text = msg.AIAssistant.PROMPT_PREVIEW.format(
         prompt_preview=f"{prompt[:100]}..." if len(prompt) > 100 else prompt
     )
-    ctx.textual.text(prompt_preview_text, markup="dim")
+    ctx.textual.dim_text(prompt_preview_text)
     ctx.textual.text("")  # spacing
 
     project_root = ctx.get("project_root", ".")
@@ -208,13 +208,13 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     )
 
     ctx.textual.text("")  # spacing
-    ctx.textual.text(msg.AIAssistant.BACK_IN_TITAN, markup="green")
+    ctx.textual.success_text(msg.AIAssistant.BACK_IN_TITAN)
 
     if exit_code != 0:
-        ctx.textual.text(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code), markup="yellow")
+        ctx.textual.warning_text(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code))
         ctx.textual.end_step("error")
         return Error(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code))
 
-    ctx.textual.text(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code), markup="green")
+    ctx.textual.success_text(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code))
     ctx.textual.end_step("success")
     return Success(msg.AIAssistant.ASSISTANT_EXITED_WITH_CODE.format(cli_name=cli_name, exit_code=exit_code), metadata={"ai_exit_code": exit_code})

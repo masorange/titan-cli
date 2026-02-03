@@ -67,7 +67,7 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
             assignees = [current_user]
         except GitHubAPIError as e:
             # Log warning but continue without assignee
-            ctx.textual.text(f"Could not get current user for auto-assign: {e}", markup="yellow")
+            ctx.textual.warning_text(f"Could not get current user for auto-assign: {e}")
 
     # 4. Call the client method
     try:

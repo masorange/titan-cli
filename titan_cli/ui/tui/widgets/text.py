@@ -26,40 +26,11 @@ Usage in screens/core:
 Usage in workflow steps via TextualComponents:
     ctx.textual.dim_text("Loading...")
     ctx.textual.success_text("Completed!")
+
+Note: All styling is defined globally in theme.py (TITAN_THEME_CSS).
+Widget classes are used to apply the correct CSS selectors.
 """
 from textual.widgets import Static
-
-
-# Shared CSS for all text styling - DRY principle
-SHARED_TEXT_CSS = """
-.dim, DimText, DimItalicText {
-    color: $text-muted;
-}
-
-.bold, BoldText, BoldPrimaryText {
-    text-style: bold;
-}
-
-.italic, ItalicText, DimItalicText {
-    text-style: italic;
-}
-
-.primary, PrimaryText, BoldPrimaryText {
-    color: $primary;
-}
-
-.success, SuccessText {
-    color: $success;
-}
-
-.error, ErrorText {
-    color: $error;
-}
-
-.warning, WarningText {
-    color: $warning;
-}
-"""
 
 
 class Text(Static):
@@ -81,47 +52,47 @@ class Text(Static):
     pass
 
 
-# Convenience widgets - use shared CSS
+# Styled text widgets - styling defined globally in theme.py
 class DimText(Static):
     """Text widget with dim/muted styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class BoldText(Static):
     """Text widget with bold styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class PrimaryText(Static):
     """Text widget with primary color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class BoldPrimaryText(Static):
     """Text widget with bold primary color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class SuccessText(Static):
     """Text widget with success/green color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class ErrorText(Static):
     """Text widget with error/red color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class WarningText(Static):
     """Text widget with warning/yellow color."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class ItalicText(Static):
     """Text widget with italic styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass
 
 
 class DimItalicText(Static):
     """Text widget with dim italic styling."""
-    DEFAULT_CSS = SHARED_TEXT_CSS
+    pass

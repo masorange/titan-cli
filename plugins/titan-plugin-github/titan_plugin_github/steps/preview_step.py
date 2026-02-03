@@ -25,7 +25,7 @@ def preview_and_confirm_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.text("")  # spacing
 
     # Show title
-    ctx.textual.text("Title:", markup="bold")
+    ctx.textual.bold_text("Title:")
     ctx.textual.primary_text(f"  {issue_title}")
     ctx.textual.text("")  # spacing
 

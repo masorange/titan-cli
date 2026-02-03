@@ -24,14 +24,14 @@ def get_current_branch_step(ctx: WorkflowContext) -> WorkflowResult:
 
     if not ctx.git:
         error_msg = msg.Steps.Status.GIT_CLIENT_NOT_AVAILABLE
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
 
     try:
         current_branch = ctx.git.get_current_branch()
         success_msg = msg.Steps.Branch.GET_CURRENT_BRANCH_SUCCESS.format(branch=current_branch)
-        ctx.textual.text(success_msg, markup="green")
+        ctx.textual.success_text(success_msg)
         ctx.textual.end_step("success")
         return Success(
             success_msg,
@@ -39,7 +39,7 @@ def get_current_branch_step(ctx: WorkflowContext) -> WorkflowResult:
         )
     except Exception as e:
         error_msg = msg.Steps.Branch.GET_CURRENT_BRANCH_FAILED.format(e=e)
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg, exception=e)
 
@@ -65,7 +65,7 @@ def get_base_branch_step(ctx: WorkflowContext) -> WorkflowResult:
 
     if not ctx.git:
         error_msg = msg.Steps.Status.GIT_CLIENT_NOT_AVAILABLE
-        ctx.textual.text(error_msg, markup="red")
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
 

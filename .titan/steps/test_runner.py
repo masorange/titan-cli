@@ -32,7 +32,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("Could not determine poetry virtual environment for pytest.")
 
-    ctx.textual.text("Running tests with pytest...", markup="dim")
+    ctx.textual.dim_text("Running tests with pytest...")
 
     # Run pytest with JSON report enabled, using the venv environment
     result = subprocess.run(
@@ -87,11 +87,11 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
 
     # --- Handle Failures ---
     if failed_count == 0:
-        ctx.textual.text("All tests passed!", markup="green")
+        ctx.textual.success_text("All tests passed!")
         ctx.textual.end_step("success")
         return Success("All tests passed")
 
-    ctx.textual.text(f"{failed_count} test(s) failed", markup="yellow")
+    ctx.textual.warning_text(f"{failed_count} test(s) failed")
     ctx.textual.text("")  # spacing
 
     failures = [test for test in report.get("tests", []) if test.get("outcome") == "failed"]
