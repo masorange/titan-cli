@@ -45,10 +45,12 @@ class WorkflowFilterService:
             if wf_info.required_plugins:
                 # Filter out core/project pseudo-plugins
                 real_plugins = [p for p in wf_info.required_plugins if p not in ["core", "project"]]
-                if real_plugins:
-                    # Use the first real plugin
-                    primary_plugin = sorted(real_plugins)[0]
-                    return primary_plugin.capitalize()
+                # If workflow uses multiple plugins, treat as custom/project workflow
+                if len(real_plugins) > 1:
+                    return "Project"
+                elif len(real_plugins) == 1:
+                    # Single plugin dependency
+                    return real_plugins[0].capitalize()
             # No plugin dependencies, it's a custom workflow
             return "Custom"
 

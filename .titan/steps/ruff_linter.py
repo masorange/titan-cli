@@ -32,24 +32,45 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     project_root = ctx.get("project_root", ".") # Fallback to current dir
     venv_env = get_poetry_venv_env(cwd=project_root)
     if not venv_env:
+        ctx.textual.text("")
+        ctx.textual.error_text("Could not determine poetry virtual environment for ruff")
+        ctx.textual.dim_text("Make sure poetry is installed and this is a poetry project")
         ctx.textual.end_step("error")
         return Error("Could not determine poetry virtual environment for ruff.")
 
     # 1. Scan before fix
     ctx.textual.dim_text("Running initial ruff scan...")
-    result_before = subprocess.run(
-        ["ruff", "check", ".", "--output-format=json"],
-        capture_output=True,
-        text=True,
-        cwd=project_root,
-        env=venv_env
-    )
+    try:
+        result_before = subprocess.run(
+            ["ruff", "check", ".", "--output-format=json"],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+            env=venv_env
+        )
+    except FileNotFoundError as e:
+        ctx.textual.text("")
+        ctx.textual.error_text(f"Failed to run ruff: {e}")
+        ctx.textual.dim_text("Make sure ruff is installed")
+        ctx.textual.dim_text("Try running: poetry install")
+        ctx.textual.end_step("error")
+        return Error(f"ruff command not found: {e}")
 
     try:
         errors_before = json.loads(result_before.stdout) if result_before.stdout else []
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        ctx.textual.text("")
+        ctx.textual.error_text(f"Failed to parse initial ruff output as JSON: {e}")
+        ctx.textual.text("")
+        if result_before.stdout:
+            ctx.textual.dim_text("STDOUT:")
+            ctx.textual.dim_text(result_before.stdout[:500])
+        if result_before.stderr:
+            ctx.textual.dim_text("STDERR:")
+            ctx.textual.dim_text(result_before.stderr[:500])
+        ctx.textual.dim_text(f"Return code: {result_before.returncode}")
         ctx.textual.end_step("error")
-        return Error(f"Failed to parse initial ruff output as JSON.\n{result_before.stdout}")
+        return Error("Failed to parse ruff output as JSON")
 
 
     # 2. Auto-fix

@@ -109,6 +109,27 @@ class GitClient:
         """
         return self._run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
 
+    def get_current_commit(self) -> str:
+        """
+        Get current commit SHA (HEAD)
+
+        Returns:
+            Full SHA of current commit
+        """
+        return self._run_command(["git", "rev-parse", "HEAD"])
+
+    def get_commit_sha(self, ref: str) -> str:
+        """
+        Get commit SHA for any git ref (branch, tag, remote branch, etc.)
+
+        Args:
+            ref: Git reference (e.g., "HEAD", "develop", "origin/main", "v1.0.0")
+
+        Returns:
+            Full SHA of the commit
+        """
+        return self._run_command(["git", "rev-parse", ref])
+
     def get_status(self) -> GitStatus:
         """
         Get repository status
@@ -390,12 +411,13 @@ class GitClient:
 
         self._run_command(args)
 
-    def fetch(self, remote: str = "origin", all: bool = False) -> None:
+    def fetch(self, remote: str = "origin", branch: Optional[str] = None, all: bool = False) -> None:
         """
         Fetch from remote
 
         Args:
             remote: Remote name
+            branch: Specific branch to fetch (optional)
             all: Fetch from all remotes
         """
         args = ["git", "fetch"]
@@ -404,6 +426,8 @@ class GitClient:
             args.append("--all")
         else:
             args.append(remote)
+            if branch:
+                args.append(branch)
 
         self._run_command(args)
 
