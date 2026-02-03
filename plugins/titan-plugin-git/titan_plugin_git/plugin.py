@@ -101,6 +101,11 @@ class GitPlugin(TitanPlugin):
         from .steps.branch_steps import get_current_branch_step, get_base_branch_step
         from .steps.ai_commit_message_step import ai_generate_commit_message
         from .steps.diff_summary_step import show_uncommitted_diff_summary, show_branch_diff_summary
+        from .steps.save_current_branch_step import save_current_branch_step
+        from .steps.restore_original_branch_step import restore_original_branch_step
+        from .steps.checkout_step import checkout_branch_step
+        from .steps.pull_step import pull_step
+        from .steps.create_branch_step import create_branch_step
 
         return {
             "get_status": get_git_status_step,
@@ -111,6 +116,11 @@ class GitPlugin(TitanPlugin):
             "ai_generate_commit_message": ai_generate_commit_message,
             "show_uncommitted_diff_summary": show_uncommitted_diff_summary,
             "show_branch_diff_summary": show_branch_diff_summary,
+            "save_current_branch": save_current_branch_step,
+            "restore_original_branch": restore_original_branch_step,
+            "checkout": checkout_branch_step,
+            "pull": pull_step,
+            "create_branch": create_branch_step,
         }
 
     @property
