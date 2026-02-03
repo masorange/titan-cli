@@ -14,7 +14,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
     sorted by name in descending order (most recent first).
 
     Inputs (from ctx.data):
-        project_key (str, optional): Project key (defaults to ECAPP)
+        project_key (str, optional): Project key. If not provided, uses default_project from JIRA plugin config.
 
     Outputs (saved to ctx.data):
         versions (list): List of unreleased version names
@@ -22,7 +22,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Returns:
         Success: Unreleased versions listed
-        Error: Failed to fetch versions
+        Error: Failed to fetch versions or project_key not configured
 
     Example usage in workflow:
         ```yaml
@@ -30,7 +30,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
           plugin: jira
           step: list_versions
           params:
-            project_key: "ECAPP"
+            project_key: "MYPROJECT"
         ```
     """
     if not ctx.textual:
@@ -42,8 +42,18 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
     # Begin step container
     ctx.textual.begin_step("List Project Versions")
 
-    # Get project key (default to ECAPP)
-    project_key = ctx.get("project_key", "ECAPP")
+    # Get project key from context or fall back to default_project from JIRA client
+    project_key = ctx.get("project_key")
+    if not project_key:
+        # Try to use default project from JIRA client config
+        if hasattr(ctx.jira, 'project_key') and ctx.jira.project_key:
+            project_key = ctx.jira.project_key
+            ctx.textual.dim_text(f"Using default project from JIRA config: {project_key}")
+        else:
+            ctx.textual.error_text("project_key is required but not provided")
+            ctx.textual.dim_text("Set project_key in workflow params or configure default_project in JIRA plugin")
+            ctx.textual.end_step("error")
+            return Error("project_key is required. Provide it in workflow params or configure default_project in JIRA plugin.")
 
     # Show fetching message
     ctx.textual.dim_text(f"Fetching versions for project: {project_key}")
