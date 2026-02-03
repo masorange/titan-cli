@@ -15,8 +15,8 @@ def mock_secret_manager():
 def test_prompt_for_issue_body_step(mock_secret_manager):
     # Arrange
     ctx = WorkflowContext(secrets=mock_secret_manager, data={})
-    ctx.views = MagicMock()
-    ctx.views.prompts.ask_multiline.return_value = "Test issue body"
+    ctx.textual = MagicMock()
+    ctx.textual.ask_multiline.return_value = "Test issue body"
 
     # Act
     result = prompt_for_issue_body_step(ctx)
@@ -25,6 +25,8 @@ def test_prompt_for_issue_body_step(mock_secret_manager):
     # Assert
     assert isinstance(result, Success)
     assert ctx.get("issue_body") == "Test issue body"
+    ctx.textual.begin_step.assert_called_once()
+    ctx.textual.end_step.assert_called_once_with("success")
 
 @patch("titan_plugin_github.steps.issue_steps.IssueGeneratorAgent")
 def test_ai_suggest_issue_title_and_body(MockIssueGeneratorAgent, mock_secret_manager):
@@ -41,7 +43,7 @@ def test_ai_suggest_issue_title_and_body(MockIssueGeneratorAgent, mock_secret_ma
     }
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
     ctx.ai = MagicMock()
-    ctx.ui = MagicMock()
+    ctx.textual = MagicMock()
 
     # Act
     result = ai_suggest_issue_title_and_body_step(ctx)
@@ -69,7 +71,7 @@ def test_ai_suggest_issue_title_and_body_bug_category(mock_secret_manager):
         }
         ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Something is broken"})
         ctx.ai = MagicMock()
-        ctx.ui = MagicMock()
+        ctx.textual = MagicMock()
 
         # Act
         result = ai_suggest_issue_title_and_body_step(ctx)
@@ -94,7 +96,7 @@ def test_ai_suggest_issue_title_and_body_without_template(mock_secret_manager):
         }
         ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Update deps"})
         ctx.ai = MagicMock()
-        ctx.ui = MagicMock()
+        ctx.textual = MagicMock()
 
         # Act
         result = ai_suggest_issue_title_and_body_step(ctx)
@@ -107,10 +109,8 @@ def test_ai_suggest_issue_title_and_body_without_template(mock_secret_manager):
 def test_preview_and_confirm_issue_step(mock_secret_manager):
     # Arrange
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_title": "Test Title", "issue_body": "Test Body"})
-    ctx.ui = MagicMock()
-    ctx.views = MagicMock()
-    ctx.console = MagicMock()
-    ctx.views.prompts.ask_confirm.return_value = True
+    ctx.textual = MagicMock()
+    ctx.textual.ask_confirm.return_value = True
 
     # Act
     result = preview_and_confirm_issue_step(ctx)
@@ -122,9 +122,9 @@ def test_prompt_for_self_assign_step(mock_secret_manager):
     # Arrange
     ctx = WorkflowContext(secrets=mock_secret_manager, data={})
     ctx.github = MagicMock()
-    ctx.views = MagicMock()
+    ctx.textual = MagicMock()
     ctx.github.get_current_user.return_value = "testuser"
-    ctx.views.prompts.ask_confirm.return_value = True
+    ctx.textual.ask_confirm.return_value = True
 
     # Act
     result = prompt_for_self_assign_step(ctx)
@@ -152,6 +152,7 @@ def test_create_issue_step(MockGitHubClient, mock_secret_manager):
 
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_title": "Test Title", "issue_body": "Test Body", "assignees": ["testuser"], "labels": ["bug"]})
     ctx.github = mock_github_client
+    ctx.textual = MagicMock()
 
     # Act
     result = create_issue_steps(ctx)
@@ -195,6 +196,7 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
             }
         )
         ctx.github = mock_github_client
+        ctx.textual = MagicMock()
 
         # Act
         result = create_issue_steps(ctx)
@@ -293,7 +295,7 @@ def test_ai_suggest_issue_when_ai_client_fails(MockIssueGeneratorAgent, mock_sec
 
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
     ctx.ai = MagicMock()
-    ctx.ui = MagicMock()
+    ctx.textual = MagicMock()
 
     # Act
     result = ai_suggest_issue_title_and_body_step(ctx)
@@ -316,7 +318,7 @@ def test_ai_suggest_issue_with_malformed_response(MockIssueGeneratorAgent, mock_
 
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
     ctx.ai = MagicMock()
-    ctx.ui = MagicMock()
+    ctx.textual = MagicMock()
 
     # Act
     result = ai_suggest_issue_title_and_body_step(ctx)
@@ -327,10 +329,19 @@ def test_ai_suggest_issue_with_malformed_response(MockIssueGeneratorAgent, mock_
 
 @patch("titan_plugin_github.clients.github_client.GitHubClient")
 def test_create_issue_with_invalid_labels(MockGitHubClient, mock_secret_manager):
-    """Test behavior when labels don't exist in repository"""
+    """Test behavior when labels don't exist in repository - they should be filtered out"""
     # Arrange
     mock_github_client = MockGitHubClient()
     mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]
+    mock_issue = Issue(
+        number=3,
+        title="Test Title",
+        body="Test Body",
+        state="OPEN",
+        author=User(login="testuser"),
+        labels=[],  # No labels since invalid ones were filtered
+    )
+    mock_github_client.create_issue.return_value = mock_issue
 
     ctx = WorkflowContext(
         secrets=mock_secret_manager,
@@ -342,14 +353,21 @@ def test_create_issue_with_invalid_labels(MockGitHubClient, mock_secret_manager)
         }
     )
     ctx.github = mock_github_client
+    ctx.textual = MagicMock()
 
     # Act
     result = create_issue_steps(ctx)
 
     # Assert
-    assert isinstance(result, Error)
-    assert "Invalid labels" in result.message
-    assert "invalid-label" in result.message or "nonexistent" in result.message
+    # The step should succeed but filter out invalid labels
+    assert isinstance(result, Success)
+    # Verify create_issue was called with empty labels (invalid ones filtered)
+    mock_github_client.create_issue.assert_called_once_with(
+        title="Test Title",
+        body="Test Body",
+        assignees=[],
+        labels=[],  # Invalid labels filtered out
+    )
 
 @patch("titan_plugin_github.clients.github_client.GitHubClient")
 def test_create_issue_when_github_api_fails(MockGitHubClient, mock_secret_manager):
@@ -369,6 +387,7 @@ def test_create_issue_when_github_api_fails(MockGitHubClient, mock_secret_manage
         }
     )
     ctx.github = mock_github_client
+    ctx.textual = MagicMock()
 
     # Act
     result = create_issue_steps(ctx)
