@@ -29,24 +29,45 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     # Get poetry venv environment for consistency with other steps
     venv_env = get_poetry_venv_env(cwd=project_root)
     if not venv_env:
+        ctx.textual.text("")
+        ctx.textual.error_text("Could not determine poetry virtual environment for pytest")
+        ctx.textual.dim_text("Make sure poetry is installed and this is a poetry project")
         ctx.textual.end_step("error")
         return Error("Could not determine poetry virtual environment for pytest.")
 
     ctx.textual.dim_text("Running tests with pytest...")
 
     # Run pytest with JSON report enabled, using the venv environment
-    result = subprocess.run(
-        ["pytest", "--json-report", f"--json-report-file={report_path}"],
-        capture_output=True,
-        text=True,
-        cwd=project_root,
-        env=venv_env
-    )
+    try:
+        result = subprocess.run(
+            ["pytest", "--json-report", f"--json-report-file={report_path}"],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+            env=venv_env
+        )
+    except FileNotFoundError as e:
+        ctx.textual.text("")
+        ctx.textual.error_text(f"Failed to run pytest: {e}")
+        ctx.textual.dim_text("Make sure pytest and pytest-json-report are installed")
+        ctx.textual.dim_text("Try running: poetry install")
+        ctx.textual.end_step("error")
+        return Error(f"pytest command not found: {e}")
     
     # Read the report
     if not report_path.exists():
+        ctx.textual.text("")
+        ctx.textual.error_text(f"Pytest JSON report not found at {report_path}")
+        ctx.textual.text("")
+        if result.stdout:
+            ctx.textual.dim_text("STDOUT:")
+            ctx.textual.dim_text(result.stdout[:500])
+        if result.stderr:
+            ctx.textual.dim_text("STDERR:")
+            ctx.textual.dim_text(result.stderr[:500])
+        ctx.textual.dim_text(f"Return code: {result.returncode}")
         ctx.textual.end_step("error")
-        return Error(f"Pytest JSON report not found at {report_path}. Pytest output:\n{result.stderr}")
+        return Error("Pytest JSON report not found. Check pytest installation and --json-report plugin.")
 
     try:
         with open(report_path) as f:

@@ -522,13 +522,9 @@ class WorkflowExecutionContent(Widget):
             pass
 
         elif isinstance(message, TextualWorkflowExecutor.StepFailed):
-            # StepContainer now handles step failures (red border), so we don't display the panel
-            # Only show "continuing despite error" message if on_error is "continue"
-            if message.on_error == "continue":
-                indent = "  " * self._workflow_depth if self._workflow_depth > 0 else ""
-                self.append_output(f"[yellow]{indent}   {Icons.WARNING}  Continuing despite error[/yellow]\n")
-            else:
-                self.append_output("")
+            # Steps handle their own error display via ctx.textual
+            # Executor only coordinates execution, no visual output needed
+            pass
 
         elif isinstance(message, TextualWorkflowExecutor.StepSkipped):
             # StepContainer now handles step skips (yellow border), so we don't display the panel
@@ -568,7 +564,7 @@ class WorkflowExecutionContent(Widget):
                 pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
-            # Show error toast for workflow failure
+            # Steps handle their own error display via ctx.textual
+            # Just show a simple notification without duplicating the error message
             self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)
-            self.append_output(f"[red]{message.error_message}[/red]")
 
