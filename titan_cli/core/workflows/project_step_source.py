@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Callable, Dict, Any, Optional, List
 from dataclasses import dataclass
@@ -89,11 +90,54 @@ class BaseStepSource:
 class ProjectStepSource(BaseStepSource):
     """
     Discovers and loads Python step functions from a project's .titan/steps/ directory.
+    Supports relative imports by properly setting module __package__ attribute.
     """
     def __init__(self, project_root: Path):
         steps_dir = project_root / ".titan" / "steps"
         super().__init__(steps_dir)
         self._project_root = project_root
+        self._titan_dir = project_root / ".titan"
+
+        # Add .titan directory to sys.path to enable absolute imports
+        titan_dir_str = str(self._titan_dir)
+        if titan_dir_str not in sys.path:
+            sys.path.insert(0, titan_dir_str)
+
+    def get_step(self, step_name: str) -> Optional[StepFunction]:
+        """
+        Retrieves a step function by name.
+        Project steps should use absolute imports from .titan/ as the root.
+        """
+        if step_name in self._step_function_cache:
+            return self._step_function_cache[step_name]
+
+        if not self._steps_dir.is_dir():
+            return None
+
+        # Search all Python files for the function
+        for step_file in self._steps_dir.glob("**/*.py"):
+            if step_file.name in self.EXCLUDED_FILES or any(part.startswith("__") for part in step_file.parts):
+                continue
+
+            try:
+                # Use a unique module name to avoid conflicts
+                module_name = f"_titan_step_{step_file.stem}_{id(step_file)}"
+                spec = importlib.util.spec_from_file_location(module_name, step_file)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+
+                    # Look for the function
+                    step_func = getattr(module, step_name, None)
+                    if callable(step_func):
+                        self._step_function_cache[step_name] = step_func
+                        return step_func
+
+            except Exception:
+                # Continue searching other files
+                continue
+
+        return None
 
 
 class UserStepSource(BaseStepSource):
