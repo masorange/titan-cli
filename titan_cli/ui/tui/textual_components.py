@@ -7,12 +7,12 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 """
 
 import threading
-from typing import Optional
+from typing import Optional, List, Any
 from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
 from textual.containers import Container
-from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea
+from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption
 
 
 class TextualComponents:
@@ -458,6 +458,68 @@ class TextualComponents:
         else:
             # Invalid response, use default
             return default
+
+    def ask_multiselect(
+        self,
+        question: str,
+        options: List[SelectionOption],
+    ) -> List[Any]:
+        """
+        Ask user to select multiple options from a list using checkboxes.
+
+        Args:
+            question: Question to display
+            options: List of SelectionOption instances
+
+        Returns:
+            List of selected values (the 'value' field from SelectionOption)
+
+        Example:
+            from titan_cli.ui.tui.widgets import SelectionOption
+
+            options = [
+                SelectionOption(value="option1", label="First Option", selected=True),
+                SelectionOption(value="option2", label="Second Option", selected=True),
+                SelectionOption(value="option3", label="Third Option", selected=False),
+            ]
+
+            selected = ctx.textual.ask_multiselect(
+                "Select options to include:",
+                options
+            )
+            # selected might be ["option1", "option2"] if user didn't change anything
+        """
+        result_container = {"result": None, "ready": threading.Event()}
+
+        def on_submit(selected_values: List[Any]):
+            result_container["result"] = selected_values
+            result_container["ready"].set()
+
+        # Create and mount the selection widget
+        selection_widget = PromptSelectionList(
+            question=question,
+            options=options,
+            on_submit=on_submit
+        )
+
+        self.mount(selection_widget)
+
+        # Wait for user to submit
+        result_container["ready"].wait()
+
+        # Remove the widget
+        def _remove():
+            try:
+                selection_widget.remove()
+            except Exception:
+                pass
+
+        try:
+            self.app.call_from_thread(_remove)
+        except Exception:
+            pass
+
+        return result_container["result"]
 
     @contextmanager
     def loading(self, message: str = "Loading..."):
