@@ -51,7 +51,7 @@ class PromptTextArea(Widget):
             id="prompt-textarea",
             soft_wrap=True
         )
-        yield DimText("Press Ctrl+Enter to submit, Enter for new line")
+        yield DimText("Press Ctrl+D to submit, Enter for new line")
 
     def on_mount(self):
         """Focus textarea when mounted and set default text."""
