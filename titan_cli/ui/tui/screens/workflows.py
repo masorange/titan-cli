@@ -16,6 +16,7 @@ from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterServi
 from titan_cli.core.workflows.workflow_sources import WorkflowInfo
 from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
 from titan_cli.ui.tui.icons import Icons
+from titan_cli.ui.tui.widgets import StyledOption
 from .base import BaseScreen
 
 class WorkflowsScreen(BaseScreen):
@@ -170,11 +171,14 @@ class WorkflowsScreen(BaseScreen):
             workflows_to_show = workflows
 
         for wf_info in workflows_to_show:
-            label = f"{wf_info.name.capitalize()}"
-            description = f"{wf_info.description}"
-            options.append(
-                Option(f"{label}\n[dim]{description}[/dim]", id=wf_info.name)
+            styled_opt = StyledOption(
+                id=wf_info.name,
+                title=wf_info.name.capitalize(),
+                description=wf_info.description
             )
+            # Convert StyledOption to Option with markup
+            prompt = f"[bold]{styled_opt.title}[/bold]\n[dim]{styled_opt.description}[/dim]"
+            options.append(Option(prompt, id=styled_opt.id))
 
         return options if options else [Option("No workflows found", id="none", disabled=True)]
 
