@@ -54,20 +54,22 @@ class PromptTextArea(Widget):
     def compose(self):
         yield Static(f"[bold cyan]{self.question}[/bold cyan]")
         yield MultilineInput(
-            text=self.default,
             id="prompt-textarea",
             soft_wrap=True
         )
         yield Static("[dim]Press Enter to submit, Shift+Enter for new line[/dim]", classes="hint-text")
 
     def on_mount(self):
-        """Focus textarea when mounted and scroll into view."""
-        self.call_after_refresh(self._focus_textarea)
+        """Focus textarea when mounted and set default text."""
+        self.call_after_refresh(self._setup_textarea)
 
-    def _focus_textarea(self):
-        """Focus the textarea widget and scroll into view."""
+    def _setup_textarea(self):
+        """Set default text, focus the textarea widget and scroll into view."""
         try:
             textarea = self.query_one(MultilineInput)
+            # Set default text AFTER mounting (TextArea doesn't accept text in constructor)
+            if self.default:
+                textarea.text = self.default
             self.app.set_focus(textarea)
             self.scroll_visible(animate=False)
         except Exception:
