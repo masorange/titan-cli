@@ -19,17 +19,15 @@ class MultilineInput(TextArea):
             self.sender = sender
             self.value = value
 
-    def _on_key(self, event) -> None:
+    def on_key(self, event) -> None:
         """Intercept key events before TextArea processes them."""
-        from textual.events import Key
-
-        # Check if it's Enter without shift
-        if isinstance(event, Key) and event.key == "enter":
+        # Check if it's Enter WITHOUT shift
+        if event.key == "enter" and not event.shift:
             # Submit the input
             self.post_message(self.Submitted(self, self.text))
             event.prevent_default()
             event.stop()
             return
 
-        # For all other keys, let TextArea handle it
-        super()._on_key(event)
+        # For Shift+Enter and all other keys, let TextArea handle it normally
+        # (Shift+Enter will create a new line, handled by TextArea)
