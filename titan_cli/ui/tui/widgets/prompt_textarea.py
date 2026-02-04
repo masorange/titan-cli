@@ -6,8 +6,8 @@ Widget wrapper for MultilineInput that handles multiline input submission.
 
 from typing import Callable
 from textual.widget import Widget
-from textual.widgets import Static
 from .multiline_input import MultilineInput
+from .text import BoldText, DimText
 
 
 class PromptTextArea(Widget):
@@ -26,7 +26,8 @@ class PromptTextArea(Widget):
         border: round $accent;
     }
 
-    PromptTextArea > Static {
+    PromptTextArea > BoldText,
+    PromptTextArea > DimText {
         width: 100%;
         height: auto;
         margin-bottom: 1;
@@ -35,13 +36,6 @@ class PromptTextArea(Widget):
     PromptTextArea > MultilineInput {
         width: 100%;
         height: auto;
-    }
-
-    PromptTextArea .hint-text {
-        width: 100%;
-        height: auto;
-        margin-top: 1;
-        color: $text-muted;
     }
     """
 
@@ -52,12 +46,12 @@ class PromptTextArea(Widget):
         self.on_submit_callback = on_submit
 
     def compose(self):
-        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
+        yield BoldText(self.question)
         yield MultilineInput(
             id="prompt-textarea",
             soft_wrap=True
         )
-        yield Static("[dim]Press Enter to submit, Shift+Enter for new line[/dim]", classes="hint-text")
+        yield DimText("Press Ctrl+Enter to submit, Enter for new line")
 
     def on_mount(self):
         """Focus textarea when mounted and set default text."""

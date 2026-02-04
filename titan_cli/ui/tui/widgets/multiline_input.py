@@ -10,10 +10,10 @@ from textual.message import Message
 
 
 class MultilineInput(TextArea):
-    """Custom TextArea that handles Enter for submission and Shift+Enter for new lines."""
+    """Custom TextArea that handles Ctrl+Enter for submission and Enter for new lines."""
 
     BINDINGS = [
-        ("enter", "submit", "Submit"),
+        ("ctrl+j", "submit", "Submit"),  # Ctrl+Enter often comes as Ctrl+J
     ]
 
     class Submitted(Message):
@@ -24,5 +24,5 @@ class MultilineInput(TextArea):
             self.value = value
 
     def action_submit(self) -> None:
-        """Submit the input (triggered by Enter)."""
+        """Submit the input (triggered by Ctrl+Enter)."""
         self.post_message(self.Submitted(self, self.text))
