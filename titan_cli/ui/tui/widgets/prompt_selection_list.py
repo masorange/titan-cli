@@ -7,8 +7,9 @@ Widget wrapper for SelectionList that handles multi-selection with checkboxes.
 from typing import Callable, List, Any
 from dataclasses import dataclass
 from textual.widget import Widget
-from textual.widgets import SelectionList, Static
+from textual.widgets import SelectionList
 from textual.widgets.selection_list import Selection
+from .text import BoldText, DimText
 
 
 @dataclass
@@ -48,7 +49,8 @@ class PromptSelectionList(Widget):
         border: round $accent;
     }
 
-    PromptSelectionList > Static {
+    PromptSelectionList > BoldText,
+    PromptSelectionList > DimText {
         width: 100%;
         height: auto;
         margin-bottom: 1;
@@ -91,10 +93,10 @@ class PromptSelectionList(Widget):
 
     def compose(self):
         # Question text
-        yield Static(f"[bold cyan]{self.question}[/bold cyan]")
+        yield BoldText(self.question)
 
         # Instructions
-        yield Static("[dim]Use Space to toggle, Enter to continue[/dim]")
+        yield DimText("↑/↓: Navegar  │  Space: Seleccionar/Deseleccionar  │  Enter: Continuar")
 
         # Create Selection objects for SelectionList
         selections = [
@@ -129,9 +131,13 @@ class PromptSelectionList(Widget):
         # Don't handle automatically - wait for explicit submission
         pass
 
-    def on_key(self, event) -> None:
-        """Handle Enter key to submit selection."""
+    async def on_key(self, event) -> None:
+        """Intercept Enter key before it reaches SelectionList."""
         if event.key == "enter":
+            # Stop propagation FIRST to prevent SelectionList from handling it
+            event.stop()
+            event.prevent_default()
+
             try:
                 selection_list = self.query_one(SelectionList)
                 # Get indices of selected items
@@ -140,7 +146,5 @@ class PromptSelectionList(Widget):
                 selected_values = [self.options[i].value for i in selected_indices]
                 # Call the callback with selected values
                 self.on_submit_callback(selected_values)
-                event.prevent_default()
-                event.stop()
             except Exception:
                 pass
