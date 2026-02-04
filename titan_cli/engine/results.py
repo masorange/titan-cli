@@ -68,8 +68,33 @@ class Skip:
     metadata: Optional[dict[str, Any]] = None
 
 
+@dataclass(frozen=True)
+class Exit:
+    """
+    Exit the entire workflow early (not an error).
+
+    Use when the workflow should stop because it's not needed:
+    - No changes to commit
+    - Nothing to do
+    - Preconditions not met
+
+    This exits the ENTIRE workflow, not just the current step.
+
+    Attributes:
+        message: Why the workflow is exiting (required)
+        metadata: Metadata to auto-merge into ctx.data
+
+    Examples:
+        >>> if not has_changes:
+        >>>     return Exit("No changes to commit")
+        >>> return Exit("Already up to date", metadata={"status": "clean"})
+    """
+    message: str
+    metadata: Optional[dict[str, Any]] = None
+
+
 # Type alias for workflow results
-WorkflowResult = Union[Success, Error, Skip]
+WorkflowResult = Union[Success, Error, Skip, Exit]
 
 
 # ============================================================================
@@ -89,3 +114,8 @@ def is_error(result: WorkflowResult) -> bool:
 def is_skip(result: WorkflowResult) -> bool:
     """Check if result is Skip."""
     return isinstance(result, Skip)
+
+
+def is_exit(result: WorkflowResult) -> bool:
+    """Check if result is Exit."""
+    return isinstance(result, Exit)

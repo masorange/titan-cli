@@ -5,12 +5,13 @@ hooks:
   - before_commit  # Hook for linting/testing
 
 steps:
-  - hook: before_commit  # This is where injected steps will run
-
+  # Check for changes FIRST - exits workflow if nothing to commit
   - id: git_status
     name: "Check Git Status"
     plugin: git
     step: get_status
+
+  - hook: before_commit  # This is where injected steps will run
 
   - id: diff_summary
     name: "Show Changes Summary"
@@ -26,7 +27,7 @@ steps:
     name: "Create Commit"
     plugin: git
     step: create_commit
-  
+
   - id: push
     name: "Push changes to remote"
     plugin: git
