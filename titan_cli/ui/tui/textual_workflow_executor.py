@@ -14,7 +14,7 @@ from titan_cli.core.workflows.workflow_registry import WorkflowRegistry
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.engine.results import WorkflowResult, Success, Error, is_error, is_skip
+from titan_cli.engine.results import WorkflowResult, Success, Error, is_error, is_skip, is_exit
 from titan_cli.engine.steps.command_step import execute_command_step as execute_external_command_step
 from titan_cli.engine.steps.ai_assistant_step import execute_ai_assistant_step
 
@@ -238,7 +238,27 @@ class TextualWorkflowExecutor:
                     step_result = Error(f"An unexpected error occurred in step '{step_name}': {e}", e)
 
                 # Handle step result
-                if is_error(step_result):
+                if is_exit(step_result):
+                    # Exit workflow immediately (not an error)
+                    if step_result.metadata:
+                        ctx.data.update(step_result.metadata)
+
+                    # Post completion message
+                    self._post_message_sync(
+                        self.StepCompleted(
+                            step_index=step_index,
+                            step_id=step_id,
+                            step_name=step_name
+                        )
+                    )
+
+                    # Post workflow completed message and exit
+                    self._post_message_sync(
+                        self.WorkflowCompleted(workflow_name=workflow.name)
+                    )
+                    return Success(step_result.message, step_result.metadata)
+
+                elif is_error(step_result):
                     self._post_message_sync(
                         self.StepFailed(
                             step_index=step_index,
