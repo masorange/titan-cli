@@ -51,9 +51,9 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
     with ctx.textual.loading(msg.Steps.AIIssue.ANALYZING):
         jira_agent = JiraAgent(ctx.ai, ctx.jira)
         analysis = jira_agent.analyze_issue(
-            issue_key=issue.key,
-            include_subtasks=True,
-            include_comments=False,
+            # issue_key=issue.key,
+            # include_subtasks=True,
+            # include_comments=False,
             include_linked_issues=False
         )
 
