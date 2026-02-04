@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
 from textual.containers import Container
-from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption
+from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption, PromptChoice, ChoiceOption
 
 
 class TextualComponents:
@@ -511,6 +511,68 @@ class TextualComponents:
         def _remove():
             try:
                 selection_widget.remove()
+            except Exception:
+                pass
+
+        try:
+            self.app.call_from_thread(_remove)
+        except Exception:
+            pass
+
+        return result_container["result"]
+
+    def ask_choice(
+        self,
+        question: str,
+        options: List[ChoiceOption],
+    ) -> Any:
+        """
+        Ask user to select one option from multiple choices using buttons.
+
+        Args:
+            question: Question to display
+            options: List of ChoiceOption instances
+
+        Returns:
+            The selected value (the 'value' field from ChoiceOption)
+
+        Example:
+            from titan_cli.ui.tui.widgets import ChoiceOption
+
+            options = [
+                ChoiceOption(value="use", label="Use as-is", variant="primary"),
+                ChoiceOption(value="edit", label="Edit", variant="default"),
+                ChoiceOption(value="reject", label="Reject", variant="error"),
+            ]
+
+            choice = ctx.textual.ask_choice(
+                "What would you like to do with this PR description?",
+                options
+            )
+            # choice might be "use", "edit", or "reject"
+        """
+        result_container = {"result": None, "ready": threading.Event()}
+
+        def on_select(selected_value: Any):
+            result_container["result"] = selected_value
+            result_container["ready"].set()
+
+        # Create and mount the choice widget
+        choice_widget = PromptChoice(
+            question=question,
+            options=options,
+            on_select=on_select
+        )
+
+        self.mount(choice_widget)
+
+        # Wait for user to select
+        result_container["ready"].wait()
+
+        # Remove the widget
+        def _remove():
+            try:
+                choice_widget.remove()
             except Exception:
                 pass
 

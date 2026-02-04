@@ -125,22 +125,81 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
 
         ctx.textual.text("")  # spacing
 
-        # Single confirmation for both title and description
-        use_ai_pr = ctx.textual.ask_confirm(
-            msg.GitHub.AI.CONFIRM_USE_AI_PR,
-            default=True
+        # Ask user what to do with the AI suggestion
+        from titan_cli.ui.tui.widgets import ChoiceOption
+
+        options = [
+            ChoiceOption(value="use", label="Use as-is", variant="primary"),
+            ChoiceOption(value="edit", label="Edit", variant="default"),
+            ChoiceOption(value="reject", label="Reject", variant="error"),
+        ]
+
+        choice = ctx.textual.ask_choice(
+            "What would you like to do with this PR description?",
+            options
         )
 
-        if not use_ai_pr:
+        # Handle user choice
+        if choice == "reject":
             ctx.textual.warning_text(msg.GitHub.AI.AI_SUGGESTION_REJECTED)
             ctx.textual.end_step("skip")
             return Skip("User rejected AI-generated PR")
 
+        # Store initial values
+        pr_title = analysis.pr_title
+        pr_body = analysis.pr_body
+
+        if choice == "edit":
+            # Edit loop: allow user to edit until they confirm
+            while True:
+                ctx.textual.text("")
+                ctx.textual.dim_text("Edit the PR content below (first line = title, rest = description)")
+
+                # Combine title and body as markdown for editing
+                combined_markdown = f"{pr_title}\n\n{pr_body}"
+
+                # Ask user to edit
+                edited_content = ctx.textual.ask_multiline(
+                    "Edit PR content:",
+                    default=combined_markdown
+                )
+
+                if not edited_content or not edited_content.strip():
+                    ctx.textual.warning_text("PR content cannot be empty")
+                    ctx.textual.end_step("skip")
+                    return Skip("Empty PR content")
+
+                # Parse: first line = title, rest = body
+                lines = edited_content.strip().split("\n", 1)
+                pr_title = lines[0].strip()
+                pr_body = lines[1].strip() if len(lines) > 1 else ""
+
+                # Show final preview
+                ctx.textual.text("")
+                ctx.textual.bold_text("Final Preview:")
+                ctx.textual.text("")
+                ctx.textual.bold_text("Title:")
+                ctx.textual.primary_text(f"  {pr_title}")
+                ctx.textual.text("")
+                ctx.textual.bold_text("Description:")
+                ctx.textual.markdown(pr_body)
+                ctx.textual.text("")
+
+                # Confirm
+                confirmed = ctx.textual.ask_confirm(
+                    "Use this PR content?",
+                    default=True
+                )
+
+                if confirmed:
+                    break
+                # If not confirmed, loop back to edit
+
         # Success - save to context
         metadata = {
             "ai_generated": True,
-            "pr_title": analysis.pr_title,
-            "pr_body": analysis.pr_body,
+            "pr_title": pr_title,
+            "pr_body": pr_body,
             "pr_size": analysis.pr_size
         }
 

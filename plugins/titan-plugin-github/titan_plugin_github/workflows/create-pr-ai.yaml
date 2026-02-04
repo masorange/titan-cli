@@ -25,23 +25,13 @@ steps:
     step: show_branch_diff_summary
 
   # AI generates PR title and description from branch commits
+  # User can choose to use as-is, edit, or reject
   - id: ai_pr_description
     name: "AI PR Description"
     plugin: github
     step: ai_suggest_pr_description
 
   - hook: before_push
-
-  # Fallback to manual prompts if AI was rejected
-  - id: prompt_pr_title
-    name: "Prompt for PR Title"
-    plugin: github
-    step: prompt_for_pr_title
-
-  - id: prompt_pr_body
-    name: "Prompt for PR Body"
-    plugin: github
-    step: prompt_for_pr_body
 
   - id: create_pr
     name: "Create Pull Request"
