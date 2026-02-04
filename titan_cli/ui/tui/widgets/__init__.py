@@ -13,6 +13,7 @@ from .multiline_input import MultilineInput
 from .prompt_input import PromptInput
 from .prompt_textarea import PromptTextArea
 from .prompt_selection_list import PromptSelectionList, SelectionOption
+from .prompt_choice import PromptChoice, ChoiceOption
 from .styled_option_list import StyledOptionList, StyledOption
 from .text import (
     Text,
@@ -39,6 +40,8 @@ __all__ = [
     "PromptTextArea",
     "PromptSelectionList",
     "SelectionOption",
+    "PromptChoice",
+    "ChoiceOption",
     "StyledOptionList",
     "StyledOption",
     "Text",

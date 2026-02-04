@@ -3,7 +3,8 @@ from titan_cli.engine import (
     WorkflowContext,
     WorkflowResult,
     Success,
-    Error
+    Error,
+    Exit
 )
 from titan_cli.messages import msg as global_msg
 from ..messages import msg
@@ -12,6 +13,10 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Retrieves the current git status and saves it to the context.
 
+    Behavior:
+        - If there are uncommitted changes: Returns Success and continues workflow
+        - If working directory is clean: Returns Exit (stops workflow - nothing to commit)
+
     Requires:
         ctx.git: An initialized GitClient.
 
@@ -19,7 +24,8 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
         git_status (GitStatus): The full git status object, which includes the `is_clean` flag.
 
     Returns:
-        Success: If the status was retrieved successfully.
+        Success: If there are changes to commit (workflow continues)
+        Exit: If working directory is clean (workflow stops - nothing to commit)
         Error: If the GitClient is not available or the git command fails.
     """
     if not ctx.textual:
@@ -34,22 +40,26 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
     try:
         status = ctx.git.get_status()
 
-        # If there are uncommitted changes, show text (border will be green on success)
+        # If there are uncommitted changes, continue with workflow
         if not status.is_clean:
             ctx.textual.warning_text(global_msg.Workflow.UNCOMMITTED_CHANGES_WARNING)
             message = msg.Steps.Status.STATUS_RETRIEVED_WITH_UNCOMMITTED
+            ctx.textual.end_step("success")
+
+            return Success(
+                message=message,
+                metadata={"git_status": status}
+            )
         else:
-            # Show text for clean working directory (border will be green)
+            # Working directory is clean - exit workflow (nothing to commit)
             ctx.textual.success_text(msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN)
-            message = msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN
+            ctx.textual.text("")
+            ctx.textual.dim_text("Nothing to commit. Skipping workflow.")
+            ctx.textual.end_step("success")
 
-        # End step container with success
-        ctx.textual.end_step("success")
+            # Exit workflow early (not an error)
+            return Exit("No changes to commit", metadata={"git_status": status})
 
-        return Success(
-            message=message,
-            metadata={"git_status": status}
-        )
     except Exception as e:
         # End step container with error
         ctx.textual.end_step("error")

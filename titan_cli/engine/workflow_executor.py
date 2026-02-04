@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 from titan_cli.core.workflows import ParsedWorkflow
 from titan_cli.core.workflows.workflow_exceptions import WorkflowExecutionError
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.engine.results import WorkflowResult, Success, Error, is_error, is_skip
+from titan_cli.engine.results import WorkflowResult, Success, Error, is_error, is_skip, is_exit
 from titan_cli.core.workflows.workflow_registry import WorkflowRegistry
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.workflows.models import WorkflowStepModel
@@ -75,7 +75,12 @@ class WorkflowExecutor:
                     step_result = Error(f"An unexpected error occurred in step '{step_name}': {e}", e)
 
                 # Handle step result
-                if is_error(step_result):
+                if is_exit(step_result):
+                    # Exit immediately - workflow is done (not an error)
+                    if step_result.metadata:
+                        ctx.data.update(step_result.metadata)
+                    return Success(step_result.message, step_result.metadata)
+                elif is_error(step_result):
                     if step_config.on_error == "fail":
                         return Error(f"Workflow failed at step '{step_name}'", step_result.exception)
                     # else: on_error == "continue" - continue to next step

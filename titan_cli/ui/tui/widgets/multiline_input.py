@@ -10,7 +10,7 @@ from textual.message import Message
 
 
 class MultilineInput(TextArea):
-    """Custom TextArea that handles Enter for submission and Shift+Enter for new lines."""
+    """Custom TextArea that handles Ctrl+Enter for submission and Enter for new lines."""
 
     class Submitted(Message):
         """Message sent when the input is submitted."""
@@ -20,16 +20,13 @@ class MultilineInput(TextArea):
             self.value = value
 
     def _on_key(self, event) -> None:
-        """Intercept key events before TextArea processes them."""
-        from textual.events import Key
-
-        # Check if it's Enter without shift
-        if isinstance(event, Key) and event.key == "enter":
-            # Submit the input
+        """Intercept key events at low level before TextArea processes them."""
+        # Use Ctrl+D for submit (standard in many CLI tools)
+        if event.key == "ctrl+d":
             self.post_message(self.Submitted(self, self.text))
             event.prevent_default()
             event.stop()
             return
 
-        # For all other keys, let TextArea handle it
+        # Let TextArea handle everything else (Enter creates new lines)
         super()._on_key(event)
