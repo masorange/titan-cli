@@ -252,9 +252,17 @@ class TextualWorkflowExecutor:
                         )
                     )
 
+                    # Calculate is_nested before exiting workflow
+                    # (check if there are parent workflows in the stack)
+                    is_nested = len(ctx._workflow_stack) > 1  # >1 because current workflow is still in stack
+
                     # Post workflow completed message and exit
                     self._post_message_sync(
-                        self.WorkflowCompleted(workflow_name=workflow.name)
+                        self.WorkflowCompleted(
+                            workflow_name=workflow.name,
+                            message=step_result.message,
+                            is_nested=is_nested
+                        )
                     )
                     return Success(step_result.message, step_result.metadata)
 
