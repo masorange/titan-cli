@@ -51,17 +51,19 @@ class Panel(Widget):
     }
     """
 
-    def __init__(self, text: str, panel_type: str = "info", **kwargs):
+    def __init__(self, text: str, panel_type: str = "info", show_icon: bool = True, **kwargs):
         """
         Initialize panel.
 
         Args:
             text: Text to display
             panel_type: Type of panel (info, success, warning, error)
+            show_icon: Whether to show the icon (default: True)
         """
         super().__init__(**kwargs)
         self.text = text
         self.panel_type = panel_type
+        self.show_icon = show_icon
 
         # Add CSS class based on type
         self.add_class(panel_type)
@@ -77,5 +79,12 @@ class Panel(Widget):
         }
 
         icon = icons.get(self.panel_type, Icons.INFO)
+
+        # Format text with or without icon
+        if self.show_icon and icon:
+            text = f"{icon} {self.text}"
+        else:
+            text = self.text
+
         with Container():
-            yield Label(f"{icon} {self.text}")
+            yield Label(text)
