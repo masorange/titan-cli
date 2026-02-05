@@ -64,6 +64,19 @@ class PromptTextArea(Widget):
             # Set default text AFTER mounting (TextArea doesn't accept text in constructor)
             if self.default:
                 textarea.text = self.default
+                # TextArea needs a refresh to recalculate content after text change
+                # Call focus/scroll after that refresh
+                self.call_after_refresh(self._focus_and_scroll)
+            else:
+                # No default text, focus immediately
+                self._focus_and_scroll()
+        except Exception:
+            pass
+
+    def _focus_and_scroll(self):
+        """Focus and scroll the textarea after it has processed the text."""
+        try:
+            textarea = self.query_one(MultilineInput)
             self.app.set_focus(textarea)
             self.scroll_visible(animate=False)
         except Exception:
