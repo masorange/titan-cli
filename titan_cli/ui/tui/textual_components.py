@@ -121,6 +121,24 @@ class TextualComponents:
             # App is closing or worker was cancelled
             pass
 
+    def scroll_to_end(self) -> None:
+        """
+        Scroll to the end of the output widget.
+
+        Useful for ensuring user sees newly added content in steps with lots of output.
+
+        Example:
+            ctx.textual.markdown(large_content)
+            ctx.textual.scroll_to_end()  # Ensure user sees what comes next
+        """
+        def _scroll():
+            self.output_widget._scroll_to_end()
+
+        try:
+            self.app.call_from_thread(_scroll)
+        except Exception:
+            pass
+
     def text(self, text: str) -> None:
         """
         Append plain text without styling.

@@ -123,6 +123,9 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         # Render markdown in a scrollable container
         ctx.textual.markdown(analysis.pr_body)
 
+        # Scroll to show the choice buttons below
+        ctx.textual.scroll_to_end()
+
         ctx.textual.text("")  # spacing
 
         # Ask user what to do with the AI suggestion
@@ -164,6 +167,9 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                     default=combined_markdown
                 )
 
+                # Scroll to show what comes next after editing
+                ctx.textual.scroll_to_end()
+
                 if not edited_content or not edited_content.strip():
                     ctx.textual.warning_text("PR content cannot be empty")
                     ctx.textual.end_step("skip")
@@ -184,6 +190,9 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.bold_text("Description:")
                 ctx.textual.markdown(pr_body)
                 ctx.textual.text("")
+
+                # Scroll to show the confirm question below
+                ctx.textual.scroll_to_end()
 
                 # Confirm
                 confirmed = ctx.textual.ask_confirm(
