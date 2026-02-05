@@ -146,6 +146,111 @@ exit_code = ctx.textual.launch_external_cli(
 
 ---
 
+## Scroll Behavior Guidelines
+
+### Overview
+
+The Textual TUI uses a three-layer scroll management system to ensure consistent and predictable scrolling behavior.
+
+### Rules
+
+**1. Widgets NEVER auto-scroll**
+
+Custom widgets (Panel, Markdown, Table, etc.) must NOT call scroll methods internally. This prevents:
+- Conflicts between multiple widgets trying to control scroll position
+- Unpredictable "tug of war" scroll behavior
+- Widgets interrupting user's scroll position
+
+```python
+# ❌ BAD - Widget calling scroll
+def markdown(self, markdown_text: str):
+    md_widget = Markdown(markdown_text)
+    target.mount(md_widget)
+    self.output_widget._scroll_to_end()  # DON'T DO THIS
+
+# ✅ GOOD - Widget just mounts, no scroll
+def markdown(self, markdown_text: str):
+    md_widget = Markdown(markdown_text)
+    target.mount(md_widget)
+    # Screen handles scroll when step completes
+```
+
+**2. Steps CAN manually scroll (rarely needed)**
+
+Only use `ctx.textual.scroll_to_end()` in specific cases:
+- Step displays very large content (exceeds full screen height)
+- AND needs to immediately show an interactive widget below it
+- User would otherwise need to manually scroll to see the next action
+
+```python
+# ✅ GOOD - Manual scroll for large content with interactive widget after
+def ai_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
+    # Show large PR description
+    ctx.textual.markdown(large_pr_body)
+
+    # Scroll so user sees the choice buttons below
+    ctx.textual.scroll_to_end()
+
+    # User now sees the interactive widget
+    choice = ctx.textual.ask_choice("What would you like to do?", options)
+```
+
+```python
+# ❌ BAD - Unnecessary manual scroll
+def simple_step(ctx: WorkflowContext) -> WorkflowResult:
+    ctx.textual.text("Processing...")
+    ctx.textual.scroll_to_end()  # Not needed - screen will scroll when step ends
+    return Success("Done")
+```
+
+**3. Screen ALWAYS auto-scrolls on step completion**
+
+The workflow execution screen automatically scrolls to the bottom when:
+- A step calls `ctx.textual.end_step()`
+- This is the default behavior - no action needed from step developers
+- Happens even if step already scrolled manually (redundant but safe)
+
+### When to Use Manual Scroll
+
+Use `ctx.textual.scroll_to_end()` only when ALL of these are true:
+
+1. ✅ Content displayed is VERY large (multiple screen heights)
+2. ✅ An interactive widget (ask_text, ask_confirm, ask_choice) comes immediately after
+3. ✅ User needs to see the widget to continue the workflow
+4. ✅ Without scroll, user would be stuck scrolling manually before they can interact
+
+### Examples
+
+**Example 1: Good use of manual scroll**
+```python
+# Large markdown preview + edit workflow
+ctx.textual.markdown(very_large_pr_description)  # Multiple screens tall
+ctx.textual.scroll_to_end()  # User needs to see buttons below
+choice = ctx.textual.ask_choice("Use/Edit/Reject?", options)
+
+if choice == "edit":
+    edited = ctx.textual.ask_multiline("Edit content:", default=content)
+    ctx.textual.scroll_to_end()  # After editing, show preview below
+    ctx.textual.markdown(edited_preview)
+    ctx.textual.scroll_to_end()  # Show confirmation button
+    confirmed = ctx.textual.ask_confirm("Use this?")
+```
+
+**Example 2: No manual scroll needed**
+```python
+# Small/medium content - let screen handle it
+ctx.textual.text("Processing...")
+ctx.textual.mount(Panel("Result: Success", panel_type="success"))
+# Screen will auto-scroll when step ends
+return Success("Done")
+```
+
+### Default Approach
+
+**When in doubt, DON'T use manual scroll.** Let the screen handle it automatically. Manual scroll is only for exceptional cases with very large content and immediate user interaction.
+
+---
+
 ## Available Widgets
 
 ### Location
@@ -456,4 +561,4 @@ def fetch_data_step(ctx: WorkflowContext) -> WorkflowResult:
 
 ---
 
-**Last updated**: 2026-01-19
+**Last updated**: 2026-02-05
