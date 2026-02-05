@@ -257,7 +257,7 @@ def generate_release_notes(version: str, from_tag: Optional[str] = None) -> str:
         lines.extend([
             "## 📝 Full Changelog",
             "",
-            f"**Compare**: [{from_tag}...v{version}](https://github.com/masmovil/titan-cli/compare/{from_tag}...v{version})",
+            f"**Compare**: [{from_tag}...{version}](https://github.com/masmovil/titan-cli/compare/{from_tag}...{version})",
             "",
         ])
 
