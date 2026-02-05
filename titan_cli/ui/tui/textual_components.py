@@ -174,8 +174,7 @@ class TextualComponents:
             # Mount to active step container if it exists, otherwise to output widget
             target = self._active_step_container if self._active_step_container else self.output_widget
             target.mount(md_widget)
-            # Trigger autoscroll after mounting
-            self.output_widget._scroll_to_end()
+            # Note: Screen handles auto-scroll when step completes, not here
 
         # call_from_thread already blocks until the function completes
         try:
