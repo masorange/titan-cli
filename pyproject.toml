@@ -2,8 +2,7 @@
 name = "titan-cli"
 version = "0.1.5"
 description = "Modular development tools orchestrator - Streamline your workflows with AI integration and intuitive terminal UI"
-authors = ["finxo <finxeto@gmail.com>", "r-pedraza <raulpedrazaleon@gmail.com>"]
-maintainers = ["r-pedraza <raulpedrazaleon@gmail.com>"]
+authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
 readme = "README.md"
 homepage = "https://github.com/masmovil/titan-cli"
 repository = "https://github.com/masmovil/titan-cli"

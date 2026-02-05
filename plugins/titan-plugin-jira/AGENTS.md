@@ -492,4 +492,4 @@ For JIRA Cloud, you would need:
 ---
 
 **Last Updated**: 2025-12-12
-**Maintainers**: @finxeto, @raulpedrazaleon
+**Maintainers**: MasOrange Apps Team (apps-management-stores@masorange.es)
