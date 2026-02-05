@@ -51,6 +51,28 @@ This guide includes:
 - Available widgets (Panel, Table, etc.)
 - Complete usage examples
 - Code file references
+- Scroll behavior guidelines
+
+### Scroll Behavior Guidelines
+
+**IMPORTANT: Scroll management rules for consistent UX**
+
+1. **Widgets NEVER auto-scroll**
+   - Custom widgets (Panel, Markdown, etc.) must NOT call scroll methods
+   - Prevents conflicts and unpredictable scroll behavior
+
+2. **Steps CAN manually scroll (rarely)**
+   - Only use `ctx.textual.scroll_to_end()` when:
+     - Step displays very large content (exceeds full screen)
+     - AND needs to show interactive widget immediately after
+   - Example: Large PR description → scroll → show Use/Edit/Reject buttons
+
+3. **Screen ALWAYS auto-scrolls on step completion**
+   - Happens automatically when `ctx.textual.end_step()` is called
+   - Default behavior - no action needed from step developers
+   - Redundant if step already scrolled, but safe
+
+**Default approach:** Don't use manual scroll - let the screen handle it automatically.
 
 ### Plugins
 
@@ -235,4 +257,4 @@ Two new wizards guide users through initial setup:
 
 ---
 
-**Last updated**: 2026-01-19
+**Last updated**: 2026-02-05
