@@ -2153,4 +2153,4 @@ poetry run titan preview workflow my-workflow
 ---
 
 **Last Updated**: 2025-12-09
-**Maintainers**: @finxeto, @raulpedrazaleon
+**Maintainers**: MasOrange Apps Team (apps-management-stores@masorange.es)

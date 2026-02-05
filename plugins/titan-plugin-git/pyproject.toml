@@ -2,7 +2,7 @@
 name = "titan-plugin-git"
 version = "1.0.0"
 description = "Git plugin for Titan CLI"
-authors = ["Team Titan CLI"]
+authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
 packages = [{include = "titan_plugin_git"}]
 
 [tool.poetry.dependencies]
