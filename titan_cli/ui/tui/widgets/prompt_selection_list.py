@@ -96,7 +96,7 @@ class PromptSelectionList(Widget):
         yield BoldText(self.question)
 
         # Instructions
-        yield DimText("↑/↓: Navegar  │  Space: Seleccionar/Deseleccionar  │  Enter: Continuar")
+        yield DimText("↑/↓: Navigate  │  Space: Select/Deselect  │  Enter: Continue")
 
         # Create Selection objects for SelectionList
         selections = [

@@ -201,19 +201,21 @@ class TextualComponents:
             # App is closing or worker was cancelled
             pass
 
-    def panel(self, text: str, panel_type: str = "info") -> None:
+    def panel(self, text: str, panel_type: str = "info", show_icon: bool = True) -> None:
         """
         Show a panel with consistent styling.
 
         Args:
             text: Text to display in the panel
             panel_type: Type of panel - "info", "success", "warning", or "error"
+            show_icon: Whether to show the type icon (default: True)
 
         Example:
             ctx.textual.panel("Operation completed successfully!", panel_type="success")
             ctx.textual.panel("Warning: This action cannot be undone", panel_type="warning")
+            ctx.textual.panel("Info without icon", panel_type="info", show_icon=False)
         """
-        panel_widget = Panel(text=text, panel_type=panel_type)
+        panel_widget = Panel(text=text, panel_type=panel_type, show_icon=show_icon)
         self.mount(panel_widget)
 
     def dim_text(self, text: str) -> None:
