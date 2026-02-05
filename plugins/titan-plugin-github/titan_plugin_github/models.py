@@ -264,13 +264,17 @@ class PRComment:
             avatar_url=user_data.get("avatar_url")
         )
 
+        # GitHub API can return line, original_line, or start_line
+        # Try them in order of preference
+        line = data.get("line") or data.get("original_line") or data.get("start_line")
+
         return cls(
             id=data.get("id", 0),
             body=data.get("body", ""),
             user=user,
             created_at=data.get("created_at", ""),
             path=data.get("path"),
-            line=data.get("line"),
+            line=line,
             diff_hunk=data.get("diff_hunk"),
             pull_request_review_id=data.get("pull_request_review_id"),
             in_reply_to_id=data.get("in_reply_to_id"),

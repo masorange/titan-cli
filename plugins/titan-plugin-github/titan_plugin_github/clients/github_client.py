@@ -332,13 +332,13 @@ class GitHubClient:
                 "pr",
                 "list",
                 "--author",
-                " @me",
+                "@me",
                 "--state",
                 state,
                 "--limit",
                 str(max_results),
                 "--json",
-                "number,title,author,updatedAt,labels,isDraft,state",
+                "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName",
             ] + self._get_repo_arg()
 
             output = self._run_gh_command(args)
