@@ -328,11 +328,14 @@ class GitHubClient:
             >>> print(f"You have {result.total} open PRs")
         """
         try:
+            # Get current user login
+            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
+            current_user = user_output.strip()
+
+            # List all PRs (--author @me doesn't work with --json, it's a gh CLI bug)
             args = [
                 "pr",
                 "list",
-                "--author",
-                "@me",
                 "--state",
                 state,
                 "--limit",
@@ -342,9 +345,15 @@ class GitHubClient:
             ] + self._get_repo_arg()
 
             output = self._run_gh_command(args)
-            data = json.loads(output)
+            all_prs = json.loads(output)
 
-            return PRSearchResult.from_list(data)
+            # Filter to only PRs authored by current user
+            my_prs = [
+                pr for pr in all_prs
+                if pr.get("author") and pr["author"].get("login") == current_user
+            ]
+
+            return PRSearchResult.from_list(my_prs)
 
         except json.JSONDecodeError as e:
             raise GitHubAPIError(
