@@ -376,6 +376,20 @@ COMMIT_MESSAGE: <conventional commit message>"""
         }
 
 
+    def _is_i18n_change(self, diff: str) -> bool:
+        """Detect if this is primarily an i18n/localization change."""
+        i18n_patterns = [
+            'strings.xml',  # Android
+            '/locales/',    # General i18n
+            '/i18n/',       # General i18n
+            '/translations/', # General
+            '.po',          # gettext
+            'messages.',    # Rails/i18n
+            '/lang/',       # Laravel/PHP
+            'locale.',      # Various frameworks
+        ]
+        return any(pattern in diff.lower() for pattern in i18n_patterns)
+
     def _build_pr_prompt(
         self,
         commits: list[str],
@@ -398,8 +412,22 @@ COMMIT_MESSAGE: <conventional commit message>"""
         if len(diff) > max_diff:
             diff_preview += "\n\n... (diff truncated for brevity)"
 
+        # Detect special change types and add context
+        special_context = ""
+        if self._is_i18n_change(diff):
+            special_context = """
+**IMPORTANT - Localization/i18n Changes Detected:**
+This PR modifies localization/translation files. When analyzing:
+- Focus on WHAT user-facing text changed (use key/id names as hints for location)
+- Explain WHY the text changed (typo fix, UX improvement, rebranding, etc.)
+- Look at commit messages for business context
+- If the same change appears across multiple language files, treat it as ONE logical change
+- Describe the change from a user perspective, not just "updated strings"
+
+"""
+
         # Build prompt with template (always available - either from file or embedded default)
-        return f"""Analyze this branch and generate a professional pull request following the EXACT template structure.
+        return f"""{special_context}Analyze this branch and generate a professional pull request following the EXACT template structure.
 
 ## Branch Information
 - Head branch: {head_branch}
@@ -472,10 +500,6 @@ DESCRIPTION:
                 if subject and subject[0].islower():
                     subject = subject[0].upper() + subject[1:]
                 title = f"{prefix}: {subject}"
-
-        # Truncate description if needed (but not title)
-        if len(description) > max_chars:
-            description = description[:max_chars - 3] + "..."
 
         # Validate description
         if not description or len(description.strip()) < 10:

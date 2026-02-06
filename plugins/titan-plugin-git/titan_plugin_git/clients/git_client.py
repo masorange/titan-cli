@@ -746,15 +746,16 @@ class GitClient:
         Get diff between two branches.
 
         Args:
-            base_branch: Base branch name
+            base_branch: Base branch name (will be compared against origin/{base_branch})
             head_branch: Head branch name
 
         Returns:
             Diff output as string
         """
         try:
+            # Always compare against remote to ensure we're comparing against latest
             return self._run_command(
-                ["git", "diff", f"{base_branch}...{head_branch}"],
+                ["git", "diff", f"{self.default_remote}/{base_branch}...{head_branch}"],
                 check=False
             )
         except GitCommandError:
@@ -779,15 +780,16 @@ class GitClient:
         Get diff stat summary between two branches.
 
         Args:
-            base_branch: Base branch name
+            base_branch: Base branch name (will be compared against origin/{base_branch})
             head_branch: Head branch name
 
         Returns:
             Diff stat output as string
         """
         try:
+            # Always compare against remote to ensure we're comparing against latest
             return self._run_command(
-                ["git", "diff", "--stat", f"{base_branch}...{head_branch}"],
+                ["git", "diff", "--stat", f"{self.default_remote}/{base_branch}...{head_branch}"],
                 check=False
             )
         except GitCommandError:
@@ -798,16 +800,17 @@ class GitClient:
         Get list of commits in head_branch that are not in base_branch.
 
         Args:
-            base_branch: Base branch name
+            base_branch: Base branch name (will be compared against origin/{base_branch})
             head_branch: Head branch name
 
         Returns:
             List of commit messages
         """
         try:
+            # Always compare against remote to ensure we're comparing against latest
             output = self._run_command([
                 "git", "log",
-                f"{base_branch}..{head_branch}",
+                f"{self.default_remote}/{base_branch}..{head_branch}",
                 "--pretty=format:%s"
             ])
             if output.strip():
