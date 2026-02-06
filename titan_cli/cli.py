@@ -50,17 +50,17 @@ def main(ctx: typer.Context):
                     result = perform_update()
 
                     if result["success"]:
-                        typer.echo(f"✅ Successfully updated to v{latest} using {result['method']}")
+                        installed_version = result.get("installed_version", latest)
+                        typer.echo(f"✅ Successfully updated to v{installed_version} using {result['method']}")
                         typer.echo("🔄 Relaunching Titan with new version...")
                         typer.echo()
 
-                        # Relaunch titan using subprocess
-                        # Note: sys.executable and sys.argv are controlled by the Python runtime,
-                        # not user input, so this is safe from command injection
+                        # Relaunch titan
+                        # Use 'titan' command directly (works for both pipx and pip)
                         subprocess.run(
-                            [sys.executable, "-m", "titan_cli.cli"] + sys.argv[1:],
-                            shell=False,  # Explicitly disable shell to prevent injection
-                            check=False   # Don't raise on non-zero exit
+                            ["titan"] + sys.argv[1:],
+                            shell=False,
+                            check=False
                         )
                         raise typer.Exit(0)
                     else:

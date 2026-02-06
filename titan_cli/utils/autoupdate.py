@@ -96,41 +96,110 @@ def perform_update() -> Dict[str, any]:
         {
             "success": bool,
             "method": str,  # "pipx" or "pip"
+            "installed_version": Optional[str],  # Version actually installed
             "error": Optional[str]
         }
     """
     result = {
         "success": False,
         "method": None,
+        "installed_version": None,
         "error": None
     }
 
     # Try pipx first (recommended)
     try:
-        subprocess.check_call(
+        # Run upgrade
+        proc = subprocess.run(
             ["pipx", "upgrade", "--force", "titan-cli"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            capture_output=True,
+            text=True,
+            timeout=60
         )
-        result["success"] = True
-        result["method"] = "pipx"
-        return result
-    except (FileNotFoundError, subprocess.CalledProcessError):
+
+        # Check if upgrade was successful
+        if proc.returncode == 0:
+            # Verify installed version
+            installed_version = _get_installed_version_pipx()
+            if installed_version:
+                result["success"] = True
+                result["method"] = "pipx"
+                result["installed_version"] = installed_version
+                return result
+            else:
+                result["error"] = "Could not verify installed version"
+                return result
+        else:
+            # pipx failed, try pip as fallback
+            pass
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         pass  # Try pip as fallback
 
     # Fallback to pip
     try:
-        subprocess.check_call(
+        proc = subprocess.run(
             [sys.executable, "-m", "pip", "install", "--upgrade", "titan-cli"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            capture_output=True,
+            text=True,
+            timeout=60
         )
-        result["success"] = True
-        result["method"] = "pip"
+
+        if proc.returncode == 0:
+            installed_version = _get_installed_version_pip()
+            if installed_version:
+                result["success"] = True
+                result["method"] = "pip"
+                result["installed_version"] = installed_version
+                return result
+            else:
+                result["error"] = "Could not verify installed version"
+                return result
+        else:
+            result["error"] = f"Update failed: {proc.stderr}"
+            return result
+    except subprocess.TimeoutExpired:
+        result["error"] = "Update timed out"
         return result
-    except subprocess.CalledProcessError as e:
-        result["error"] = f"Update failed: {e}"
-        return result
+
+
+def _get_installed_version_pipx() -> Optional[str]:
+    """Get installed version of titan-cli from pipx."""
+    try:
+        proc = subprocess.run(
+            ["pipx", "list", "--short"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if proc.returncode == 0:
+            # Output format: "titan-cli 0.1.9"
+            for line in proc.stdout.splitlines():
+                if line.startswith("titan-cli"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return parts[1]
+    except Exception:
+        pass
+    return None
+
+
+def _get_installed_version_pip() -> Optional[str]:
+    """Get installed version of titan-cli from pip."""
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "show", "titan-cli"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if proc.returncode == 0:
+            # Look for "Version: 0.1.9"
+            for line in proc.stdout.splitlines():
+                if line.startswith("Version:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return None
 
 
 def get_update_message(update_info: Dict[str, any]) -> Optional[str]:
