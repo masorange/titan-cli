@@ -137,7 +137,7 @@ def group_commits(commits: List[Commit]) -> dict:
 def format_commit(commit: Commit) -> str:
     """Format a commit for release notes."""
     scope_str = f"**{commit.scope}**: " if commit.scope else ""
-    return f"- {scope_str}{commit.message} ([`{commit.hash}`](https://github.com/masmovil/titan-cli/commit/{commit.hash}))"
+    return f"- {scope_str}{commit.message} ([`{commit.hash}`](https://github.com/masorange/titan-cli/commit/{commit.hash}))"
 
 
 def generate_release_notes(version: str, from_tag: Optional[str] = None) -> str:
@@ -257,7 +257,7 @@ def generate_release_notes(version: str, from_tag: Optional[str] = None) -> str:
         lines.extend([
             "## 📝 Full Changelog",
             "",
-            f"**Compare**: [{from_tag}...{version}](https://github.com/masmovil/titan-cli/compare/{from_tag}...{version})",
+            f"**Compare**: [{from_tag}...{version}](https://github.com/masorange/titan-cli/compare/{from_tag}...{version})",
             "",
         ])
 

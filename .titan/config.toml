@@ -13,7 +13,7 @@ default_remote = "origin"
 enabled = true
 
 [plugins.github.config]
-repo_owner = "masmovil"
+repo_owner = "masorange"
 repo_name = "titan-cli"
 default_branch = "master"
 pr_template_path = ".github/pull_request_template.md"
