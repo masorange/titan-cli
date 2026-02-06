@@ -29,7 +29,7 @@ titan --version
 
 ```bash
 # Clone repository
-git clone https://github.com/masmovil/titan-cli.git
+git clone https://github.com/masorange/titan-cli.git
 cd titan-cli
 
 # Install with Poetry (editable mode)
@@ -83,7 +83,7 @@ Configure during first setup or later via the TUI settings.
 
 - **Contributing**: See [DEVELOPMENT.md](DEVELOPMENT.md)
 - **AI Agent Guide**: See [CLAUDE.md](CLAUDE.md)
-- **Release History**: See [GitHub Releases](https://github.com/masmovil/titan-cli/releases)
+- **Release History**: See [GitHub Releases](https://github.com/masorange/titan-cli/releases)
 
 ## 🤝 Contributing
 
