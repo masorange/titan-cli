@@ -101,6 +101,19 @@ class BaseScreen(Screen):
         status_bar.ai_info = ai_info
         status_bar.project_name = project_name
 
+    def on_resume(self) -> None:
+        """Called when screen is resumed (e.g., after another screen is dismissed)."""
+        # Refresh status bar with latest config values
+        if self.show_status_bar:
+            try:
+                # Reload config from disk to get latest changes
+                self.config.load()
+
+                status_bar = self.query_one("#status-bar", StatusBarWidget)
+                self._update_status_bar(status_bar)
+            except Exception:
+                pass  # Status bar might not be mounted yet
+
     def on_header_widget_back_pressed(self, message: HeaderWidget.BackPressed) -> None:
         """Handle back button press from header."""
         self.action_go_back()

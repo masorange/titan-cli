@@ -11,7 +11,7 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
 
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import Text, DimText, Button
+from titan_cli.ui.tui.widgets import Text, DimText, BoldText, Button, Panel
 from .base import BaseScreen
 
 
@@ -160,6 +160,7 @@ class AIConfigWizardScreen(BaseScreen):
         self.wizard_data = {}
 
         # Define all wizard steps
+        # Note: API Key comes before Model to support dynamic model fetching
         self.steps = [
             {"id": "type", "title": "Configuration Type"},
             {"id": "base_url", "title": "Base URL"},
@@ -376,12 +377,111 @@ class AIConfigWizardScreen(BaseScreen):
         title_widget.update("Select Model")
         body_widget.remove_children()
 
-        # Get provider to show relevant models
+        config_type = self.wizard_data.get("config_type", "")
+        base_url = self.wizard_data.get("base_url", "")
         provider = self.wizard_data.get("provider", "")
 
+        # Check if this is LLM Tools corporate config
+        from titan_cli.ai.llm_tools import is_llm_tools_url
+
+        if config_type == "corporate" and is_llm_tools_url(base_url):
+            self._load_llm_tools_model_selection(body_widget, provider, base_url)
+        else:
+            self._load_manual_model_input(body_widget, provider)
+
+    def _load_llm_tools_model_selection(
+        self, body_widget: Container, provider: str, base_url: str
+    ) -> None:
+        """Load model selection for LLM Tools with dynamic API fetch."""
+        from titan_cli.ai.llm_tools import fetch_available_models
+        from titan_cli.ui.tui.widgets import StyledOptionList, StyledOption
+
+        # Get API key (already entered in previous step)
+        api_key = self.wizard_data.get("api_key", "")
+
+        if not api_key:
+            # This shouldn't happen since API Key step comes before Model step
+            body_widget.mount(
+                Panel(
+                    "API key not found. Please go back and enter your API key.",
+                    panel_type="error",
+                )
+            )
+            return
+
+        # Add description
+        body_widget.mount(Text("Fetching available models from LLM Tools..."))
+        body_widget.mount(DimText(""))
+
+        # Show loading indicator
+        loading_widget = DimText("Loading models...")
+        body_widget.mount(loading_widget)
+
+        try:
+            # Fetch models from API with provider filter
+            models = fetch_available_models(
+                base_url=base_url, api_key=api_key, provider_filter=provider
+            )
+
+            # Clear loading message
+            body_widget.remove_children()
+
+            if not models:
+                # No models found for this provider
+                body_widget.mount(
+                    Panel(
+                        f"No models found for provider '{provider}' in LLM Tools.\n\n"
+                        "You can enter a model name manually.",
+                        panel_type="info",
+                    )
+                )
+                self._load_manual_model_input(body_widget, provider)
+                return
+
+            # Add header with better spacing
+            provider_name = "Claude" if provider == "anthropic" else "Gemini"
+            body_widget.mount(BoldText(f"Available {provider_name} models from LLM Tools"))
+            body_widget.mount(DimText("Select a model from the list below."))
+            body_widget.mount(Text(""))  # Empty line for spacing
+
+            # Create options from fetched models
+            # Use empty description since API doesn't provide any
+            styled_options = [
+                StyledOption(
+                    id=model.id,
+                    title=model.id,
+                    description="",  # API doesn't provide descriptions
+                )
+                for model in models
+            ]
+
+            # Add option list
+            option_list = StyledOptionList(*styled_options, id="llm-tools-model-list")
+            body_widget.mount(option_list)
+
+            # Focus the list
+            self.call_after_refresh(lambda: option_list.focus())
+
+        except Exception as e:
+            # Fallback to manual input if API fails
+            body_widget.remove_children()
+
+            body_widget.mount(
+                Panel(
+                    f"Could not fetch models from LLM Tools API.\n\n"
+                    f"Error: {str(e)}\n\n"
+                    "You can enter a model name manually below.",
+                    panel_type="warning",
+                )
+            )
+            body_widget.mount(Text(""))  # Spacing
+            self._load_manual_model_input(body_widget, provider)
+
+    def _load_manual_model_input(self, body_widget: Container, provider: str) -> None:
+        """Load manual model input (current behavior)."""
         # Add description
         description = Text(
-            "Select or enter the model to use.\n\n"
+            "Enter the model to use.\n\n"
             "You can choose from popular models or enter a custom model name."
         )
         body_widget.mount(description)
@@ -410,12 +510,13 @@ class AIConfigWizardScreen(BaseScreen):
 
         # Add input field with default model
         from titan_cli.ai.constants import get_default_model
-        default_model = self.wizard_data.get("model", get_default_model(provider) if provider else "")
+
+        default_model = self.wizard_data.get(
+            "model", get_default_model(provider) if provider else ""
+        )
 
         input_widget = Input(
-            value=default_model,
-            placeholder="Enter model name...",
-            id="model-input"
+            value=default_model, placeholder="Enter model name...", id="model-input"
         )
         input_widget.styles.margin = (2, 0, 0, 0)
         body_widget.mount(input_widget)
@@ -645,8 +746,8 @@ class AIConfigWizardScreen(BaseScreen):
                 selected_option = options_list.get_option_at_index(options_list.highlighted)
                 self.wizard_data["config_type"] = selected_option.id
                 return True
-            except Exception:
-                self.app.notify("Please select a configuration type", severity="error")
+            except Exception as e:
+                self.app.notify(f"Error selecting type: {e}", severity="error")
                 return False
 
         elif step["id"] == "base_url":
@@ -708,21 +809,36 @@ class AIConfigWizardScreen(BaseScreen):
                 return False
 
         elif step["id"] == "model":
-            # Get model from input
+            # Check if using LLM Tools selection or manual input
             try:
-                input_widget = self.query_one("#model-input", Input)
-                model = input_widget.value.strip()
+                # Try to get from option list first (LLM Tools)
+                from titan_cli.ui.tui.widgets import StyledOptionList
 
-                # Validate model
-                if not model:
-                    self.app.notify("Please enter a model name", severity="warning")
+                option_list = self.query_one("#llm-tools-model-list", StyledOptionList)
+                model_id = option_list.get_selected_id()
+
+                if not model_id:
+                    self.app.notify("Please select a model", severity="warning")
                     return False
 
-                self.wizard_data["model"] = model
+                self.wizard_data["model"] = model_id
                 return True
+
             except Exception:
-                self.app.notify("Please enter a valid model name", severity="error")
-                return False
+                # Fallback to manual input
+                try:
+                    input_widget = self.query_one("#model-input", Input)
+                    model = input_widget.value.strip()
+
+                    if not model:
+                        self.app.notify("Please enter a model name", severity="warning")
+                        return False
+
+                    self.wizard_data["model"] = model
+                    return True
+                except Exception:
+                    self.app.notify("Could not get model selection", severity="error")
+                    return False
 
         elif step["id"] == "name":
             # Get provider name from input

@@ -54,6 +54,13 @@ class StyledOptionList(OptionList):
         option_list = StyledOptionList(*options)
     """
 
+    DEFAULT_CSS = """
+    StyledOptionList > .option-list--option {
+        padding: 1 2;
+        margin-bottom: 1;
+    }
+    """
+
     def __init__(self, *options: StyledOption, **kwargs):
         """
         Initialize StyledOptionList with styled options.
@@ -105,3 +112,20 @@ class StyledOptionList(OptionList):
         # Add new options
         for opt in options:
             self.add_styled_option(opt)
+
+    def get_selected_id(self) -> str | None:
+        """
+        Get the ID of the currently highlighted option.
+
+        Returns:
+            The ID of the highlighted option, or None if nothing is highlighted
+        """
+        if self.highlighted is None:
+            return None
+
+        # Get the highlighted option
+        option = self.get_option_at_index(self.highlighted)
+        if option is None:
+            return None
+
+        return option.id

@@ -494,5 +494,9 @@ class AIConfigScreen(BaseScreen):
             self.app.notify(f"Failed to delete provider: {e}", severity="error")
 
     def action_back(self) -> None:
-        """Go back to main menu."""
-        self.app.pop_screen()
+        """Go back to main menu (ESC key)."""
+        self.dismiss()
+
+    def action_go_back(self) -> None:
+        """Go back to main menu (Back button)."""
+        self.dismiss()
