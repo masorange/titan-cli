@@ -9,6 +9,7 @@ from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 
+from titan_cli import __version__
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import StatusBarWidget
 from .base import BaseScreen
@@ -30,6 +31,15 @@ class MainMenuScreen(BaseScreen):
     - Switch Project
     - Exit
     """
+
+    def __init__(self, config, **kwargs):
+        """Initialize main menu with version in title."""
+        super().__init__(
+            config,
+            title=f"Titan CLI v{__version__}",
+            show_back=False,
+            **kwargs
+        )
 
     BINDINGS = [
         ("q", "quit", "Quit"),

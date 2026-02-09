@@ -332,22 +332,40 @@ class TextualComponents:
             default: Default value
 
         Returns:
-            User's input text, or None if empty
+            User's input text, or None if empty (or if cancelled)
+
+        Raises:
+            KeyboardInterrupt: If user presses Escape to cancel
 
         Example:
             message = ctx.textual.ask_text("Enter commit message:", default="")
         """
         # Event and result container for synchronization
         result_event = threading.Event()
-        result_container = {"value": None}
+        result_container = {"value": None, "cancelled": False}
 
         def _mount_input():
             # Handler when Enter is pressed
             def on_submitted(value: str):
                 result_container["value"] = value
+                result_container["cancelled"] = False
 
                 # Show what user entered (confirmation)
                 self.output_widget.append_output(f"  → {value}")
+
+                # Remove the input widget
+                input_widget.remove()
+
+                # Unblock the step
+                result_event.set()
+
+            # Handler when Escape is pressed
+            def on_cancelled():
+                result_container["value"] = None
+                result_container["cancelled"] = True
+
+                # Show cancellation message
+                self.output_widget.append_output("  [dim](cancelled)[/dim]")
 
                 # Remove the input widget
                 input_widget.remove()
@@ -359,8 +377,9 @@ class TextualComponents:
             input_widget = PromptInput(
                 question=question,
                 default=default,
-                placeholder="Type here and press Enter...",
-                on_submit=on_submitted
+                placeholder="Type here and press Enter... (Esc to cancel)",
+                on_submit=on_submitted,
+                on_cancel=on_cancelled
             )
 
             # Mount the widget (it will auto-focus)
@@ -381,6 +400,10 @@ class TextualComponents:
             # Check if app is still running
             if not self.app.is_running:
                 return default
+
+        # Check if user cancelled
+        if result_container.get("cancelled", False):
+            raise KeyboardInterrupt("User cancelled input")
 
         return result_container["value"]
 
@@ -555,6 +578,9 @@ class TextualComponents:
         Returns:
             The selected value (the 'value' field from ChoiceOption)
 
+        Raises:
+            KeyboardInterrupt: If user presses Escape to cancel
+
         Example:
             from titan_cli.ui.tui.widgets import ChoiceOption
 
@@ -570,17 +596,24 @@ class TextualComponents:
             )
             # choice might be "use", "edit", or "reject"
         """
-        result_container = {"result": None, "ready": threading.Event()}
+        result_container = {"result": None, "cancelled": False, "ready": threading.Event()}
 
         def on_select(selected_value: Any):
             result_container["result"] = selected_value
+            result_container["cancelled"] = False
+            result_container["ready"].set()
+
+        def on_cancel():
+            result_container["result"] = None
+            result_container["cancelled"] = True
             result_container["ready"].set()
 
         # Create and mount the choice widget
         choice_widget = PromptChoice(
             question=question,
             options=options,
-            on_select=on_select
+            on_select=on_select,
+            on_cancel=on_cancel
         )
 
         self.mount(choice_widget)
@@ -599,6 +632,10 @@ class TextualComponents:
             self.app.call_from_thread(_remove)
         except Exception:
             pass
+
+        # Check if user cancelled
+        if result_container.get("cancelled", False):
+            raise KeyboardInterrupt("User cancelled choice")
 
         return result_container["result"]
 

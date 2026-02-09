@@ -4,10 +4,11 @@ PromptChoice Widget
 Widget for selecting a single option from multiple choices using buttons.
 """
 
-from typing import Callable, List, Any
+from typing import Callable, List, Any, Optional
 from dataclasses import dataclass
 from textual.widget import Widget
 from textual.containers import Horizontal
+from textual import events
 from .text import BoldText, DimText
 from .button import Button
 
@@ -85,6 +86,7 @@ class PromptChoice(Widget):
         question: str,
         options: List[ChoiceOption],
         on_select: Callable[[Any], None],
+        on_cancel: Optional[Callable[[], None]] = None,
         **kwargs
     ):
         """
@@ -94,11 +96,13 @@ class PromptChoice(Widget):
             question: Question to display above the buttons
             options: List of ChoiceOption instances
             on_select: Callback that receives the selected value
+            on_cancel: Optional callback when user presses Escape
         """
         super().__init__(**kwargs)
         self.question = question
         self.options = options
         self.on_select_callback = on_select
+        self.on_cancel_callback = on_cancel
 
     def compose(self):
         # Question text
@@ -136,3 +140,12 @@ class PromptChoice(Widget):
             self.scroll_visible(animate=False)
         except Exception:
             pass
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key press events."""
+        if event.key == "escape":
+            # User pressed Escape - cancel the choice
+            if self.on_cancel_callback:
+                self.on_cancel_callback()
+            event.stop()
+            event.prevent_default()
