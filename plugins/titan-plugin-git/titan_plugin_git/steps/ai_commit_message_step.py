@@ -33,9 +33,9 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        ctx.textual.dim_text(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
-        ctx.textual.end_step("skip")
-        return Skip(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
+        ctx.textual.error_text(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
+        ctx.textual.end_step("error")
+        return Error(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
 
     # Get git client
     if not ctx.git:
@@ -165,11 +165,10 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         )
 
     except Exception as e:
-        ctx.textual.warning_text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
-        ctx.textual.dim_text(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL)
+        ctx.textual.error_text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
 
-        ctx.textual.end_step("skip")
-        return Skip(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
+        ctx.textual.end_step("error")
+        return Error(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
 
 
 # Export for plugin registration
