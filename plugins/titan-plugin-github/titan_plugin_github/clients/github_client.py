@@ -965,7 +965,7 @@ class GitHubClient:
 
     def create_pull_request(
         self, title: str, body: str, base: str, head: str, draft: bool = False,
-        assignees: Optional[List[str]] = None
+        assignees: Optional[List[str]] = None, reviewers: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Create a pull request
@@ -977,6 +977,7 @@ class GitHubClient:
             head: Head branch (feature branch)
             draft: Whether to create as draft PR
             assignees: List of GitHub usernames to assign to the PR
+            reviewers: List of GitHub usernames or team slugs to request review from
 
         Returns:
             Dict with PR information including:
@@ -993,7 +994,8 @@ class GitHubClient:
             ...     body="Description of changes",
             ...     base="develop",
             ...     head="feat/new-feature",
-            ...     assignees=["username"]
+            ...     assignees=["username"],
+            ...     reviewers=["team-slug", "username2"]
             ... )
             >>> print(f"Created PR #{pr['number']}: {pr['url']}")
         """
@@ -1018,6 +1020,11 @@ class GitHubClient:
             if assignees:
                 for assignee in assignees:
                     args.extend(["--assignee", assignee])
+
+            # Add reviewers if provided
+            if reviewers:
+                for reviewer in reviewers:
+                    args.extend(["--reviewer", reviewer])
 
             args.extend(self._get_repo_arg())
 

@@ -60,8 +60,8 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
     # 3. Determine assignees if auto-assign is enabled
-    assignees = None
-    if ctx.github.config.auto_assign_prs:
+    assignees = ctx.get("pr_assignees")
+    if not assignees and ctx.github.config.auto_assign_prs:
         try:
             current_user = ctx.github.get_current_user()
             assignees = [current_user]
@@ -69,11 +69,15 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
             # Log warning but continue without assignee
             ctx.textual.warning_text(f"Could not get current user for auto-assign: {e}")
 
+    # Get reviewers from context (if provided)
+    reviewers = ctx.get("pr_reviewers")
+
     # 4. Call the client method
     try:
         ctx.textual.dim_text(f"Creating pull request '{title}' from {head} to {base}...")
         pr = ctx.github.create_pull_request(
-            title=title, body=body, base=base, head=head, draft=is_draft, assignees=assignees
+            title=title, body=body, base=base, head=head, draft=is_draft,
+            assignees=assignees, reviewers=reviewers
         )
         ctx.textual.text("")  # spacing
         ctx.textual.success_text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]))

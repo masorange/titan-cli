@@ -44,7 +44,8 @@ def remove_worktree(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("error")
             return Error("Missing required parameter: path")
 
-        force = ctx.get("force", False)
+        # Default to force=True for cleanup (we want to remove even if dirty)
+        force = ctx.get("force", True)
 
         # Check if path exists
         if not os.path.exists(worktree_path):

@@ -129,8 +129,25 @@ def worktree_push(ctx: WorkflowContext) -> WorkflowResult:
             return Error("Missing required parameter: worktree_path")
 
         remote = ctx.get("remote", "origin")
-        branch = ctx.get("branch")
+        branch = ctx.get("branch") or ctx.get("release_branch") or ctx.get("pr_head_branch")
         set_upstream = ctx.get("set_upstream", True)
+
+        # If no branch specified, auto-detect from worktree
+        if not branch:
+            try:
+                result = ctx.git.run_in_worktree(worktree_path, ["git", "branch", "--show-current"])
+                branch = result.strip()
+                if branch:
+                    ctx.textual.dim_text(f"Auto-detected branch: {branch}")
+            except Exception as e:
+                ctx.textual.error_text(f"Could not detect branch in worktree: {e}")
+                ctx.textual.end_step("error")
+                return Error(f"Could not detect branch in worktree: {e}")
+
+        if not branch:
+            ctx.textual.error_text("No branch specified and could not auto-detect")
+            ctx.textual.end_step("error")
+            return Error("No branch to push")
 
         # Build push command
         push_args = ["git", "push"]
@@ -139,9 +156,7 @@ def worktree_push(ctx: WorkflowContext) -> WorkflowResult:
             push_args.append("-u")
 
         push_args.append(remote)
-
-        if branch:
-            push_args.append(branch)
+        push_args.append(branch)  # Always specify branch
 
         # Display info
         ctx.textual.text("")
