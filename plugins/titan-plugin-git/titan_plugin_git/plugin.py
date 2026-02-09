@@ -106,6 +106,9 @@ class GitPlugin(TitanPlugin):
         from .steps.checkout_step import checkout_branch_step
         from .steps.pull_step import pull_step
         from .steps.create_branch_step import create_branch_step
+        from .steps.create_worktree_step import create_worktree
+        from .steps.remove_worktree_step import remove_worktree
+        from .steps.worktree_command_step import worktree_commit, worktree_push
 
         return {
             "get_status": get_git_status_step,
@@ -121,6 +124,11 @@ class GitPlugin(TitanPlugin):
             "checkout": checkout_branch_step,
             "pull": pull_step,
             "create_branch": create_branch_step,
+            # Worktree operations
+            "create_worktree": create_worktree,
+            "remove_worktree": remove_worktree,
+            "worktree_commit": worktree_commit,
+            "worktree_push": worktree_push,
         }
 
     @property

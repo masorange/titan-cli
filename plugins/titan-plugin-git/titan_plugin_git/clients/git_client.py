@@ -908,3 +908,123 @@ class GitClient:
         """
         protected_branches = ["main", "master", "develop", "production", "staging"]
         return branch.lower() in protected_branches
+
+    # ===== Worktree Operations =====
+
+    def create_worktree(self, path: str, branch: str, create_branch: bool = False) -> None:
+        """
+        Create a new worktree at the specified path.
+
+        Args:
+            path: Path where to create the worktree
+            branch: Branch to checkout in the worktree
+            create_branch: If True, create the branch (git worktree add -b)
+
+        Raises:
+            GitCommandError: If worktree creation fails
+        """
+        args = ["git", "worktree", "add"]
+
+        if create_branch:
+            args.extend(["-b", branch])
+
+        args.append(path)
+
+        if not create_branch:
+            args.append(branch)
+
+        self._run_command(args)
+
+    def remove_worktree(self, path: str, force: bool = False) -> None:
+        """
+        Remove a worktree.
+
+        Args:
+            path: Path to the worktree to remove
+            force: Force removal even if worktree is dirty
+
+        Raises:
+            GitCommandError: If worktree removal fails
+        """
+        args = ["git", "worktree", "remove", path]
+
+        if force:
+            args.append("--force")
+
+        self._run_command(args)
+
+    def list_worktrees(self) -> List[dict]:
+        """
+        List all worktrees.
+
+        Returns:
+            List of dictionaries with worktree info (path, branch, commit)
+        """
+        try:
+            output = self._run_command(["git", "worktree", "list", "--porcelain"])
+
+            worktrees = []
+            current_worktree = {}
+
+            for line in output.splitlines():
+                line = line.strip()
+                if not line:
+                    if current_worktree:
+                        worktrees.append(current_worktree)
+                        current_worktree = {}
+                    continue
+
+                if line.startswith("worktree "):
+                    current_worktree["path"] = line.split("worktree ", 1)[1]
+                elif line.startswith("HEAD "):
+                    current_worktree["commit"] = line.split("HEAD ", 1)[1]
+                elif line.startswith("branch "):
+                    current_worktree["branch"] = line.split("branch ", 1)[1].replace("refs/heads/", "")
+                elif line == "bare":
+                    current_worktree["bare"] = True
+                elif line == "detached":
+                    current_worktree["detached"] = True
+
+            # Add last worktree if exists
+            if current_worktree:
+                worktrees.append(current_worktree)
+
+            return worktrees
+        except GitCommandError:
+            return []
+
+    def run_in_worktree(self, worktree_path: str, args: List[str]) -> str:
+        """
+        Run a git command in a specific worktree.
+
+        Args:
+            worktree_path: Path to the worktree
+            args: Command arguments (including 'git')
+
+        Returns:
+            Command stdout as string
+
+        Raises:
+            subprocess.CalledProcessError: If command fails (with stderr in exception)
+        """
+        # Use git -C <path> to run command in worktree
+        if args[0] == "git":
+            args = ["git", "-C", worktree_path] + args[1:]
+
+        try:
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            # Re-raise with stderr attached for better error messages
+            # stderr is already a string (text=True)
+            raise subprocess.CalledProcessError(
+                e.returncode,
+                e.cmd,
+                output=e.stdout,
+                stderr=e.stderr
+            )
