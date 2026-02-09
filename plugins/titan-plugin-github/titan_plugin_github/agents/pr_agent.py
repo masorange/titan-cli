@@ -385,14 +385,32 @@ COMMIT_MESSAGE: <conventional commit message>"""
     def _is_i18n_change(self, diff: str) -> bool:
         """Detect if this is primarily an i18n/localization change."""
         i18n_patterns = [
+            # Mobile
             'strings.xml',  # Android
+            'localizable.strings',  # iOS
+            '.strings',     # iOS general
+            '.stringsdict', # iOS pluralization
+            '.arb',         # Flutter/Dart
+
+            # JavaScript/TypeScript ecosystem
             '/locales/',    # General i18n
             '/i18n/',       # General i18n
             '/translations/', # General
-            '.po',          # gettext
+            '/locale/',     # Common variants
+
+            # Backend frameworks
+            '.po',          # gettext (Python, PHP)
+            '.pot',         # gettext template
             'messages.',    # Rails/i18n
             '/lang/',       # Laravel/PHP
             'locale.',      # Various frameworks
+            '.properties',  # Java resource bundles
+            '.resx',        # .NET resources
+
+            # Config files (when in i18n context)
+            'i18n.json',
+            'i18n.yml',
+            'i18n.yaml',
         ]
         return any(pattern in diff.lower() for pattern in i18n_patterns)
 
