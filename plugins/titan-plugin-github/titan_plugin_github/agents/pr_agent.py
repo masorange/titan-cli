@@ -15,7 +15,7 @@ from typing import Optional
 
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from .config_loader import load_agent_config
-from ..utils import calculate_pr_size
+from ..utils import calculate_pr_size, is_i18n_change
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -382,20 +382,6 @@ COMMIT_MESSAGE: <conventional commit message>"""
         }
 
 
-    def _is_i18n_change(self, diff: str) -> bool:
-        """Detect if this is primarily an i18n/localization change."""
-        i18n_patterns = [
-            'strings.xml',  # Android
-            '/locales/',    # General i18n
-            '/i18n/',       # General i18n
-            '/translations/', # General
-            '.po',          # gettext
-            'messages.',    # Rails/i18n
-            '/lang/',       # Laravel/PHP
-            'locale.',      # Various frameworks
-        ]
-        return any(pattern in diff.lower() for pattern in i18n_patterns)
-
     def _build_pr_prompt(
         self,
         commits: list[str],
@@ -421,7 +407,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
 
         # Detect special change types and add context
         special_context = ""
-        if self._is_i18n_change(diff):
+        if is_i18n_change(diff):
             special_context = """
 **IMPORTANT - Localization/i18n Changes Detected:**
 This PR modifies localization/translation files. When analyzing:
