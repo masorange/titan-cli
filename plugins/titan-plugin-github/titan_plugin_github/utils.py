@@ -11,6 +11,38 @@ DEFAULT_MAX_FILES_IN_DIFF = 50
 DEFAULT_MAX_COMMITS_TO_ANALYZE = 15
 
 
+# i18n/localization file patterns for detection
+# Used to identify PRs that primarily contain translation/localization changes
+I18N_FILE_PATTERNS = [
+    # Mobile
+    'strings.xml',  # Android
+    'localizable.strings',  # iOS
+    '.strings',     # iOS general
+    '.stringsdict', # iOS pluralization
+    '.arb',         # Flutter/Dart
+
+    # JavaScript/TypeScript ecosystem
+    '/locales/',    # General i18n
+    '/i18n/',       # General i18n
+    '/translations/', # General
+    '/locale/',     # Common variants
+
+    # Backend frameworks
+    '.po',          # gettext (Python, PHP)
+    '.pot',         # gettext template
+    'messages.',    # Rails/i18n
+    '/lang/',       # Laravel/PHP
+    'locale.',      # Various frameworks
+    '.properties',  # Java resource bundles
+    '.resx',        # .NET resources
+
+    # Config files (when in i18n context)
+    'i18n.json',
+    'i18n.yml',
+    'i18n.yaml',
+]
+
+
 @dataclass
 class PRSizeEstimation:
     """
@@ -26,6 +58,29 @@ class PRSizeEstimation:
     max_chars: int
     files_changed: int
     diff_lines: int
+
+
+def is_i18n_change(diff: str) -> bool:
+    """
+    Detect if a diff primarily contains i18n/localization changes.
+
+    Analyzes the diff content to identify patterns that indicate
+    translation or localization file modifications.
+
+    Args:
+        diff: The git diff to analyze
+
+    Returns:
+        True if the diff appears to be primarily i18n/localization changes
+
+    Examples:
+        >>> diff = "diff --git a/locales/es.json b/locales/es.json"
+        >>> is_i18n_change(diff)
+        True
+    """
+    if not diff:
+        return False
+    return any(pattern in diff.lower() for pattern in I18N_FILE_PATTERNS)
 
 
 def calculate_pr_size(diff: str) -> PRSizeEstimation:
@@ -80,4 +135,9 @@ def calculate_pr_size(diff: str) -> PRSizeEstimation:
     )
 
 
-__all__ = ["calculate_pr_size", "PRSizeEstimation"]
+__all__ = [
+    "calculate_pr_size",
+    "PRSizeEstimation",
+    "is_i18n_change",
+    "I18N_FILE_PATTERNS",
+]
