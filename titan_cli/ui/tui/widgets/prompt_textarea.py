@@ -4,8 +4,9 @@ PromptTextArea Widget
 Widget wrapper for MultilineInput that handles multiline input submission.
 """
 
-from typing import Callable
+from typing import Callable, Optional
 from textual.widget import Widget
+from textual import events
 from .multiline_input import MultilineInput
 from .text import BoldText, DimText
 
@@ -39,11 +40,12 @@ class PromptTextArea(Widget):
     }
     """
 
-    def __init__(self, question: str, default: str, on_submit: Callable[[str], None], **kwargs):
+    def __init__(self, question: str, default: str, on_submit: Callable[[str], None], on_cancel: Optional[Callable[[], None]] = None, **kwargs):
         super().__init__(**kwargs)
         self.question = question
         self.default = default
         self.on_submit_callback = on_submit
+        self.on_cancel_callback = on_cancel
 
     def compose(self):
         yield BoldText(self.question)
@@ -85,3 +87,12 @@ class PromptTextArea(Widget):
     def on_multiline_input_submitted(self, message: MultilineInput.Submitted):
         """Handle submission from MultilineInput."""
         self.on_submit_callback(message.value)
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key press events."""
+        if event.key == "escape":
+            # User pressed Escape - cancel the input
+            if self.on_cancel_callback:
+                self.on_cancel_callback()
+            event.stop()
+            event.prevent_default()
