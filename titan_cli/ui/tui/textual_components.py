@@ -416,19 +416,23 @@ class TextualComponents:
             default: Default value
 
         Returns:
-            User's multiline input text, or None if empty
+            User's multiline input text, or None if empty (or if cancelled)
+
+        Raises:
+            KeyboardInterrupt: If user presses Escape to cancel
 
         Example:
             body = ctx.textual.ask_multiline("Enter issue description:", default="")
         """
         # Event and result container for synchronization
         result_event = threading.Event()
-        result_container = {"value": None}
+        result_container = {"value": None, "cancelled": False}
 
         def _mount_textarea():
             # Handler when Ctrl+D is pressed
             def on_submitted(value: str):
                 result_container["value"] = value
+                result_container["cancelled"] = False
 
                 # Show confirmation (truncated preview for multiline)
                 preview = value.split('\n')[0][:50]
@@ -442,11 +446,26 @@ class TextualComponents:
                 # Unblock the step
                 result_event.set()
 
+            # Handler when Escape is pressed
+            def on_cancelled():
+                result_container["value"] = None
+                result_container["cancelled"] = True
+
+                # Show cancellation message
+                self.output_widget.append_output("  [dim](cancelled)[/dim]")
+
+                # Remove the textarea widget
+                textarea_widget.remove()
+
+                # Unblock the step
+                result_event.set()
+
             # Create PromptTextArea widget that handles the submission
             textarea_widget = PromptTextArea(
                 question=question,
                 default=default,
-                on_submit=on_submitted
+                on_submit=on_submitted,
+                on_cancel=on_cancelled
             )
 
             # Mount the widget (it will auto-focus)
@@ -467,6 +486,10 @@ class TextualComponents:
             # Check if app is still running
             if not self.app.is_running:
                 return default
+
+        # Check if user cancelled
+        if result_container.get("cancelled", False):
+            raise KeyboardInterrupt("User cancelled multiline input")
 
         return result_container["value"]
 

@@ -100,7 +100,8 @@ class PRAgent(BaseAIAgent):
         self,
         head_branch: str,
         base_branch: Optional[str] = None,
-        auto_stage: bool = False
+        auto_stage: bool = False,
+        additional_context: Optional[dict] = None
     ) -> PRAnalysis:
         """
         Analyze the complete branch context and create an execution plan.
@@ -116,6 +117,7 @@ class PRAgent(BaseAIAgent):
             head_branch: The branch to analyze
             base_branch: Base branch for comparison (defaults to main branch)
             auto_stage: Whether to analyze unstaged changes
+            additional_context: Optional project-specific context (e.g., JIRA issues, test users)
 
         Returns:
             PRAnalysis with complete plan (gracefully handles errors)
@@ -194,7 +196,8 @@ class PRAgent(BaseAIAgent):
                         diff=branch_diff,
                         head_branch=head_branch,
                         base_branch=base_branch,
-                        template=template
+                        template=template,
+                        additional_context=additional_context
                     )
 
                     pr_title = pr_result["title"]
@@ -292,7 +295,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
         diff: str,
         head_branch: str,
         base_branch: str,
-        template: Optional[str]
+        template: Optional[str],
+        additional_context: Optional[dict] = None
     ) -> dict:
         """
         Generate PR title and description using AI.
@@ -303,6 +307,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
             head_branch: Head branch name
             base_branch: Base branch name
             template: Optional PR template
+            additional_context: Optional project-specific context
 
         Returns:
             Dict with keys: title, body, pr_size, files_changed, lines_changed, tokens_used
@@ -332,7 +337,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
             base_branch=base_branch,
             template=template,
             pr_size=pr_size,
-            max_chars=max_chars
+            max_chars=max_chars,
+            additional_context=additional_context
         )
 
         # Calculate max_tokens for OUTPUT (PR description generation)
@@ -398,7 +404,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
         base_branch: str,
         template: Optional[str],
         pr_size: str,
-        max_chars: int
+        max_chars: int,
+        additional_context: Optional[dict] = None
     ) -> str:
         """Build the prompt for PR generation."""
         # Prepare commits text
@@ -426,8 +433,19 @@ This PR modifies localization/translation files. When analyzing:
 
 """
 
+        # Format additional context (project-specific info)
+        project_context = ""
+        if additional_context:
+            project_context = "\n<project_context>\n"
+            for key, value in additional_context.items():
+                if value:  # Only include non-empty values
+                    # Sanitize: limit length and basic validation
+                    sanitized_value = str(value)[:500]  # Max 500 chars per field
+                    project_context += f"{key}: {sanitized_value}\n"
+            project_context += "</project_context>\n\n"
+
         # Build prompt with template (always available - either from file or embedded default)
-        return f"""{special_context}Analyze this branch and generate a professional pull request following the EXACT template structure.
+        return f"""{special_context}{project_context}Analyze this branch and generate a professional pull request following the EXACT template structure.
 
 ## Branch Information
 - Head branch: {head_branch}
@@ -450,9 +468,17 @@ This PR modifies localization/translation files. When analyzing:
 ## CRITICAL Instructions
 1. **Title**: Follow conventional commits (type(scope): Description), be clear and descriptive
    - Start description with CAPITAL letter (imperative mood)
-   - Examples: "feat(auth): Add OAuth2 integration with Google provider", "fix(api): Resolve race condition in cache invalidation"
+   - **If <project_context> contains issue IDs** (e.g., jira_issues, issue_ids, tickets), include them in the title BEFORE the description:
+     * Format: `type(scope): ISSUE-1, ISSUE-2 Description`
+     * Example: `feat(auth): PROJ-1234, PROJ-5678 Add OAuth2 integration`
+   - Examples without issues: "feat(auth): Add OAuth2 integration with Google provider", "fix(api): Resolve race condition in cache invalidation"
 
-2. **Description**: MUST follow the template structure above but keep it under {max_chars} characters total
+2. **Project Context**: If <project_context> is provided above, incorporate information into appropriate sections:
+   - **Issue IDs** (jira_issues, etc.): Include in TITLE (see instruction 1) AND in the body if the template has a section for it (e.g., "Related Issues", "JIRA", etc.)
+   - **test_info**: Add to the "Testing" or "Test plan" section (users, credentials, steps)
+   - **related_pr**: Add to "Additional Notes" or similar section
+
+3. **Description**: MUST follow the template structure above but keep it under {max_chars} characters total
    - Fill in the template sections (Summary, Type of Change, Changes Made, etc.)
    - Mark checkboxes appropriately with [x]
    - Adjust detail level based on PR size ({pr_size}):

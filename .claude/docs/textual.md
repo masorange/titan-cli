@@ -5,6 +5,7 @@ This guide explains how to create workflow steps using the Textual TUI framework
 ## Table of Contents
 
 - [Basic Structure](#basic-structure)
+- [Common Pitfalls](#common-pitfalls)
 - [TextualComponents API](#textualcomponents-api)
 - [Available Widgets](#available-widgets)
 - [Complete Examples](#complete-examples)
@@ -52,6 +53,86 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:
 3. **Loading Indicators**: Use context managers for long operations
 4. **Textual Widgets**: Import widgets from `titan_cli.ui.tui.widgets`
 5. **Thread-Safe**: All UI communication is automatically thread-safe
+
+---
+
+## Common Pitfalls
+
+### ⚠️ Step Function Naming
+
+**CRITICAL**: The function name must EXACTLY match the `step:` field in your workflow YAML.
+
+#### Example from Project Steps
+
+**Project structure**:
+```
+.titan/
+├── steps/
+│   ├── github/
+│   │   └── capture_pr_context.py  # Contains function
+│   └── android/
+│       └── detekt_check.py
+└── workflows/
+    └── create-pr-ai.yaml
+```
+
+**Function definition** (`.titan/steps/github/capture_pr_context.py`):
+```python
+def capture_pr_context(ctx: WorkflowContext) -> WorkflowResult:  # ← Function name
+    """Capture PR context."""
+    ...
+
+__all__ = ["capture_pr_context"]  # ← Must match
+```
+
+**Workflow reference** (`.titan/workflows/create-pr-ai.yaml`):
+```yaml
+hooks:
+  before_pr_generation:
+    - id: capture-context
+      name: "Capture PR Context"
+      plugin: project
+      step: capture_pr_context  # ← Must match function name EXACTLY
+```
+
+#### Common Mistakes
+
+❌ **DON'T DO THIS**:
+```python
+# Function name has _step suffix
+def capture_pr_context_step(ctx):  # ← Wrong!
+    ...
+```
+```yaml
+step: capture_pr_context  # ← Won't find the function
+```
+
+❌ **OR THIS**:
+```python
+def capture_pr_context(ctx):  # ← Function name
+    ...
+```
+```yaml
+step: capture_pr_context_step  # ← Wrong! Extra _step suffix
+```
+
+✅ **CORRECT**:
+```python
+def capture_pr_context(ctx):  # ← Exact match
+    ...
+```
+```yaml
+step: capture_pr_context  # ← Exact match
+```
+
+#### Why This Happens
+
+The `ProjectStepSource` searches for functions by name using Python's `getattr()`:
+```python
+step_func = getattr(module, step_name, None)  # Looks for exact name
+```
+
+**Rule**: Function name = step name. No suffixes, no prefixes, exact match.
 
 ---
 
