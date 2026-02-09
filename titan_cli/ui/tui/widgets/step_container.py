@@ -3,54 +3,44 @@ Step Container Widget
 
 A container that groups all output from a workflow step, with a titled border
 that changes color based on the step result (success, skip, error).
+
+Now uses PanelContainer as base for consistent theming.
 """
-from textual.containers import VerticalScroll
+from .panel_container import PanelContainer
 
 
-class StepContainer(VerticalScroll):
+class StepContainer(PanelContainer):
     """
     Container for step output with colored border and title.
 
     The border color changes based on step result:
-    - Running: cyan (default)
-    - Success: green
-    - Skip: yellow
-    - Error: red
+    - Running: info (cyan/accent)
+    - Success: success (green)
+    - Skip: warning (yellow)
+    - Error: error (red)
+
+    Inherits from PanelContainer for consistent styling.
     """
 
     DEFAULT_CSS = """
-    StepContainer {
-        width: 100%;
-        height: auto;
-        border: round $accent;
-        padding: 1 2;
-        margin: 1 0;
-    }
-
     StepContainer.running {
         border: round $accent;
-    }
-
-    StepContainer.success {
-        border: round $success;
     }
 
     StepContainer.skip {
         border: round $warning;
     }
-
-    StepContainer.error {
-        border: round $error;
-    }
-
-    StepContainer > Static {
-        color: initial;
-    }
     """
 
     def __init__(self, step_name: str, **kwargs):
-        super().__init__(**kwargs)
-        self.border_title = step_name
+        """
+        Initialize step container.
+
+        Args:
+            step_name: Name of the step (shown in border title)
+        """
+        # Initialize with 'info' variant (cyan border for running state)
+        super().__init__(variant="info", title=step_name, **kwargs)
         self.add_class("running")
 
     def set_result(self, result_type: str):
@@ -60,11 +50,18 @@ class StepContainer(VerticalScroll):
         Args:
             result_type: One of 'success', 'skip', 'error'
         """
-        # Remove all result classes
-        self.remove_class("running", "success", "skip", "error")
+        # Remove running class
+        self.remove_class("running")
 
-        # Add the new result class
-        if result_type in ["success", "skip", "error"]:
-            self.add_class(result_type)
+        # Map step results to PanelContainer variants
+        if result_type == "success":
+            self.set_variant("success")
+        elif result_type == "skip":
+            # Add skip class for yellow border
+            self.add_class("skip")
+        elif result_type == "error":
+            self.set_variant("error")
         else:
+            # Default to running state
+            self.set_variant("info")
             self.add_class("running")

@@ -2,9 +2,10 @@
 Steps for reviewing and addressing PR comments.
 """
 import re
+import threading
 from typing import List, Optional
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
-from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
+from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, CommentThread
 from ..models import PRComment
 
 
@@ -355,58 +356,40 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     for thread_idx, thread in enumerate(comment_threads):
         # thread[0] is the main comment
         comment = thread[0]
-        # Display comment info
-        ctx.textual.text("")
-        ctx.textual.bold_text(f"Thread {thread_idx + 1} of {len(comment_threads)}")
-        ctx.textual.text("")
 
-        # Show comment author and date
-        ctx.textual.dim_text(f"From: {comment.user.login} • {comment.created_at}")
+        # Prepare comment body with file/line info if it's a review comment
+        comment_body_parts = []
 
-        # Show file and line if it's a review comment
         if comment.is_review_comment and comment.path:
             line_info = f"Line {comment.line}" if comment.line else "General file comment"
-            ctx.textual.dim_text(f"File: {comment.path} • {line_info}")
-            ctx.textual.text("")
+            comment_body_parts.append(f"**File:** `{comment.path}` • {line_info}\n")
 
             # Show diff context if available
             if comment.diff_hunk:
-                ctx.textual.bold_text("Code Context:")
+                comment_body_parts.append("**Code Context:**")
                 # Parse and format diff hunk to show context with highlighted line
                 formatted_code = _format_diff_hunk(comment.diff_hunk, comment.line)
-                ctx.textual.markdown(formatted_code)
-                ctx.textual.text("")
+                comment_body_parts.append(formatted_code)
+                comment_body_parts.append("")
             elif comment.line:
                 # No diff hunk but we have a line number
-                ctx.textual.dim_text(f"(Comment on line {comment.line}, no code context available)")
-                ctx.textual.text("")
+                comment_body_parts.append(f"_(Comment on line {comment.line}, no code context available)_\n")
 
-        # Show comment body
-        ctx.textual.bold_text("Comment:")
+        # Add comment body
         if comment.body and comment.body.strip():
-            ctx.textual.markdown(comment.body)
-        else:
-            ctx.textual.dim_text("(empty comment)")
-        ctx.textual.text("")
+            comment_body_parts.append(comment.body)
 
-        # Show replies in the thread if any
+        # Add replies if any
         if len(thread) > 1:
-            ctx.textual.dim_text(f"💬 {len(thread) - 1} repl{'y' if len(thread) == 2 else 'ies'}:")
-            ctx.textual.text("")
+            comment_body_parts.append(f"\n💬 **{len(thread) - 1} repl{'y' if len(thread) == 2 else 'ies'}:**\n")
             for reply in thread[1:]:
-                ctx.textual.dim_text(f"  └─ {reply.user.login} • {reply.created_at}")
-                # Handle empty bodies (common with some bots)
-                reply_body = reply.body.strip() if reply.body else ""
-                if reply_body:
-                    ctx.textual.text(f"     {reply_body}")
-                else:
-                    ctx.textual.dim_text("     (empty comment)")
-                ctx.textual.text("")
+                reply_body = reply.body.strip() if reply.body else "_(empty comment)_"
+                comment_body_parts.append(f"└─ **{reply.user.login}** • {reply.created_at}")
+                comment_body_parts.append(f"   {reply_body}\n")
 
-        # Scroll to show options below
-        ctx.textual.scroll_to_end()
+        full_body = "\n".join(comment_body_parts) if comment_body_parts else None
 
-        # Ask user what to do
+        # Prepare action options
         options = [
             ChoiceOption(value="reply", label="Reply manually", variant="primary"),
             ChoiceOption(value="ai_suggest", label="Get AI suggestion", variant="default"),
@@ -420,10 +403,32 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 ChoiceOption(value="exit", label="Exit review", variant="error")
             )
 
-        choice = ctx.textual.ask_choice(
-            "What would you like to do?",
-            options
+        # Result container for callback
+        result_container = {}
+        result_event = threading.Event()
+
+        def on_choice_selected(value):
+            result_container["choice"] = value
+            result_event.set()
+
+        # Create and mount CommentThread widget
+        thread_widget = CommentThread(
+            author=comment.user.login,
+            date=str(comment.created_at),
+            body=full_body,
+            thread_number=f"Thread {thread_idx + 1} of {len(comment_threads)}",
+            is_outdated=False,  # Could check comment.original_position vs position
+            options=options,
+            on_select=on_choice_selected
         )
+
+        ctx.textual.text("")
+        ctx.textual.mount(thread_widget)
+        ctx.textual.scroll_to_end()
+
+        # Wait for user selection
+        result_event.wait()
+        choice = result_container.get("choice")
 
         # Handle user choice
         if choice == "exit":

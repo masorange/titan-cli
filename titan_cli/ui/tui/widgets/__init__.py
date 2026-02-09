@@ -6,9 +6,11 @@ Reusable Textual widgets for the Titan TUI.
 from .status_bar import StatusBarWidget
 from .header import HeaderWidget
 from .panel import Panel
+from .panel_container import PanelContainer
 from .table import Table
 from .button import Button
 from .step_container import StepContainer
+from .comment_thread import CommentThread
 from .multiline_input import MultilineInput
 from .prompt_input import PromptInput
 from .prompt_textarea import PromptTextArea
@@ -33,9 +35,11 @@ __all__ = [
     "StatusBarWidget",
     "HeaderWidget",
     "Panel",
+    "PanelContainer",
     "Table",
     "Button",
     "StepContainer",
+    "CommentThread",
     "MultilineInput",
     "PromptInput",
     "PromptTextArea",
