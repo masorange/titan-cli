@@ -17,6 +17,9 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
         pr_body (str, optional): The body/description of the pull request.
         pr_head_branch (str): The branch with the new changes.
         pr_is_draft (bool, optional): Whether to create the PR as a draft. Defaults to False.
+        pr_reviewers (list, optional): List of GitHub usernames or team slugs to request review from.
+        pr_excluded_reviewers (list, optional): List of GitHub usernames to exclude from team expansion.
+        pr_labels (list, optional): List of label names to add to the PR.
 
     Configuration (from ctx.github.config):
         auto_assign_prs (bool): If True, automatically assigns the PR to the current GitHub user.
@@ -72,12 +75,19 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     # Get reviewers from context (if provided)
     reviewers = ctx.get("pr_reviewers")
 
+    # Get excluded reviewers from context (if provided)
+    excluded_reviewers = ctx.get("pr_excluded_reviewers")
+
+    # Get labels from context (if provided)
+    labels = ctx.get("pr_labels")
+
     # 4. Call the client method
     try:
         ctx.textual.dim_text(f"Creating pull request '{title}' from {head} to {base}...")
         pr = ctx.github.create_pull_request(
             title=title, body=body, base=base, head=head, draft=is_draft,
-            assignees=assignees, reviewers=reviewers
+            assignees=assignees, reviewers=reviewers, labels=labels,
+            excluded_reviewers=excluded_reviewers
         )
         ctx.textual.text("")  # spacing
         ctx.textual.success_text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]))
