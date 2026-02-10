@@ -11,6 +11,7 @@ from .table import Table
 from .button import Button
 from .step_container import StepContainer
 from .comment_thread import CommentThread
+from .code_block import CodeBlock
 from .multiline_input import MultilineInput
 from .prompt_input import PromptInput
 from .prompt_textarea import PromptTextArea
@@ -40,6 +41,7 @@ __all__ = [
     "Button",
     "StepContainer",
     "CommentThread",
+    "CodeBlock",
     "MultilineInput",
     "PromptInput",
     "PromptTextArea",
