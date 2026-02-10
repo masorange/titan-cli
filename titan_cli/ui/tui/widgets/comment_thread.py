@@ -117,5 +117,24 @@ class CommentThread(PanelContainer):
                 on_select=self.on_select_callback
             )
 
+    def on_mount(self) -> None:
+        """Scroll to show this comment thread fully after it's mounted."""
+        # Use call_after_refresh to ensure all content is rendered first
+        self.call_after_refresh(self._scroll_to_show_buttons)
+
+    def _scroll_to_show_buttons(self) -> None:
+        """Find main scroll container and scroll to end to show action buttons."""
+        try:
+            # Find the workflow-execution-panel (main scroll container)
+            parent = self.parent
+            while parent:
+                if hasattr(parent, 'id') and parent.id == "workflow-execution-panel":
+                    # Scroll to end to show buttons
+                    parent.scroll_end(animate=False)
+                    break
+                parent = parent.parent
+        except Exception:
+            pass
+
 
 __all__ = ["CommentThread"]

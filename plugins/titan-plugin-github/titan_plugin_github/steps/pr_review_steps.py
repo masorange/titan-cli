@@ -431,7 +431,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
         ctx.textual.text("")
         ctx.textual.mount(thread_widget)
-        ctx.textual.scroll_to_end()
+        # No manual scroll - PromptChoice inside CommentThread will auto-scroll when mounted
 
         # Wait for user selection
         result_event.wait()
@@ -545,8 +545,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.markdown(ai_response)
                 ctx.textual.text("")
 
-                # Scroll to show buttons
-                ctx.textual.scroll_to_end()
+                # No manual scroll - PromptChoice will auto-scroll when mounted
 
                 # Ask what to do with suggestion
                 ai_options = [
