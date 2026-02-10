@@ -76,11 +76,11 @@ class PromptTextArea(Widget):
             pass
 
     def _focus_and_scroll(self):
-        """Focus and scroll the textarea after it has processed the text."""
+        """Focus the textarea after it has processed the text."""
         try:
             textarea = self.query_one(MultilineInput)
             self.app.set_focus(textarea)
-            self.scroll_visible(animate=False)
+            # Don't auto-scroll - user is already viewing this area
         except Exception:
             pass
 
