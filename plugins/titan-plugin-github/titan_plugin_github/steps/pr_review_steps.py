@@ -4,7 +4,7 @@ Steps for reviewing and addressing PR comments.
 import re
 import threading
 from typing import List, Optional
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, CommentThread
 from ..models import PRComment
 
@@ -127,8 +127,8 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
 
         if not result.prs:
             ctx.textual.dim_text("You don't have any open PRs.")
-            ctx.textual.end_step("skip")
-            return Skip("No open PRs found")
+            ctx.textual.end_step("success")
+            return Exit("No open PRs found")
 
         # Create options from PRs
         options = []
@@ -150,7 +150,7 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
         if not selected:
             ctx.textual.warning_text("No PR selected")
             ctx.textual.end_step("skip")
-            return Skip("User cancelled PR selection")
+            return Exit("User cancelled PR selection")
 
         # selected is already the PR number (int)
         pr_number = selected
@@ -225,7 +225,7 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         if not all_comments:
             ctx.textual.dim_text(f"No unresolved comments found for PR #{pr_number}")
             ctx.textual.end_step("skip")
-            return Skip("No unresolved comments")
+            return Exit("No unresolved comments")
 
         # Get top-level comments (threads to review)
         top_level_comments = [c for c in all_comments if not c.in_reply_to_id]
