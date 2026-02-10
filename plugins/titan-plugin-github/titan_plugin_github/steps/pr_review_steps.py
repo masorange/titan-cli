@@ -222,6 +222,26 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         with ctx.textual.loading(f"Fetching comments for PR #{pr_number}..."):
             all_comments = ctx.github.get_pr_comments(pr_number, include_resolved=False)
 
+        # Filter out bot comments and empty/JSON-only comments
+        filtered_comments = []
+        for comment in all_comments:
+            # Skip bot comments (codecov, ThorBot, etc.)
+            if comment.user and comment.user.login and 'bot' in comment.user.login.lower():
+                continue
+
+            # Skip comments with empty body
+            if not comment.body or not comment.body.strip():
+                continue
+
+            # Skip comments that are just JSON (coverage reports, etc.)
+            body_stripped = comment.body.strip()
+            if body_stripped.startswith('{') and body_stripped.endswith('}'):
+                continue
+
+            filtered_comments.append(comment)
+
+        all_comments = filtered_comments
+
         if not all_comments:
             ctx.textual.dim_text(f"No unresolved comments found for PR #{pr_number}")
             ctx.textual.end_step("skip")

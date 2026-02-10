@@ -9,8 +9,9 @@ from datetime import datetime
 from textual.app import ComposeResult
 from textual.widgets import Markdown
 from .panel_container import PanelContainer
-from .text import DimText, Text, DimItalicText
+from .text import BoldText, DimText, Text, DimItalicText
 from .prompt_choice import PromptChoice, ChoiceOption
+from textual.containers import Horizontal
 
 
 class CommentThread(PanelContainer):
@@ -92,11 +93,8 @@ class CommentThread(PanelContainer):
             # If parsing fails, use as-is
             pass
 
-        # Author and date (without "From:" prefix)
-        meta_text = f"{self.author} • {formatted_date}"
-        if self.is_outdated:
-            meta_text += " (outdated)"
-        yield DimText(meta_text)
+        # Author and date in one line
+        yield self._metadata_container(formatted_date)
 
         # Comment body - use Markdown to render content
         if self.body and self.body.strip():
@@ -136,5 +134,22 @@ class CommentThread(PanelContainer):
         except Exception:
             pass
 
+    def _metadata_container(self, formatted_date: str) -> Horizontal:
+        """Create a container for author and date metadata."""
+        # Create widgets first
+        author_widget = BoldText(f"{self.author}")
+        author_widget.styles.width = "auto"
+
+        date_text = f" • {formatted_date}"
+        if self.is_outdated:
+            date_text += " (outdated)"
+        date_widget = DimText(date_text)
+        date_widget.styles.width = "auto"
+
+        # Create container with children
+        container = Horizontal(author_widget, date_widget)
+        container.styles.height = "auto"
+
+        return container
 
 __all__ = ["CommentThread"]
