@@ -24,6 +24,9 @@ steps:
     plugin: git
     step: show_branch_diff_summary
 
+  # Hook for project-specific context capture
+  - hook: before_pr_generation
+
   # AI generates PR title and description from branch commits
   # User can choose to use as-is, edit, or reject
   - id: ai_pr_description

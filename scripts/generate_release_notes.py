@@ -74,12 +74,12 @@ def parse_commit(commit_line: str) -> Optional[Commit]:
     """
     Parse a conventional commit message.
 
-    Format: type(scope): message
+    Format: type: message
     Examples:
-        feat(ui): add new button
+        feat: add new button
         fix: resolve crash on startup
         feat!: breaking change
-        refactor(core)!: major refactor
+        refactor!: major refactor
     """
     parts = commit_line.split("|||")
     if len(parts) < 2:
@@ -137,7 +137,7 @@ def group_commits(commits: List[Commit]) -> dict:
 def format_commit(commit: Commit) -> str:
     """Format a commit for release notes."""
     scope_str = f"**{commit.scope}**: " if commit.scope else ""
-    return f"- {scope_str}{commit.message} ([`{commit.hash}`](https://github.com/masmovil/titan-cli/commit/{commit.hash}))"
+    return f"- {scope_str}{commit.message} ([`{commit.hash}`](https://github.com/masorange/titan-cli/commit/{commit.hash}))"
 
 
 def generate_release_notes(version: str, from_tag: Optional[str] = None) -> str:
@@ -257,7 +257,7 @@ def generate_release_notes(version: str, from_tag: Optional[str] = None) -> str:
         lines.extend([
             "## 📝 Full Changelog",
             "",
-            f"**Compare**: [{from_tag}...{version}](https://github.com/masmovil/titan-cli/compare/{from_tag}...{version})",
+            f"**Compare**: [{from_tag}...{version}](https://github.com/masorange/titan-cli/compare/{from_tag}...{version})",
             "",
         ])
 

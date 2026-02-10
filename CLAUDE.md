@@ -53,6 +53,38 @@ This guide includes:
 - Code file references
 - Scroll behavior guidelines
 
+### Common Pitfalls ⚠️
+
+**1. Step Function Naming Mismatch**
+
+The function name in your Python file MUST match the `step:` field in the YAML workflow exactly.
+
+❌ **WRONG**:
+```python
+# File: .titan/steps/my_step.py
+def my_step_function(ctx: WorkflowContext) -> WorkflowResult:
+    ...
+```
+```yaml
+# Workflow YAML
+- plugin: project
+  step: my_step  # ← This won't find the function!
+```
+
+✅ **CORRECT**:
+```python
+# File: .titan/steps/my_step.py
+def my_step(ctx: WorkflowContext) -> WorkflowResult:  # ← Exact match
+    ...
+```
+```yaml
+# Workflow YAML
+- plugin: project
+  step: my_step  # ← Found!
+```
+
+**Convention**: Don't add `_step` suffix to function names in project steps. The function name IS the step name.
+
 ### Scroll Behavior Guidelines
 
 **IMPORTANT: Scroll management rules for consistent UX**

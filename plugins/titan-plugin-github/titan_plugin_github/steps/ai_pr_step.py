@@ -78,12 +78,16 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             github_client=ctx.github
         )
 
+        # Get project-specific additional context (if provided by hook)
+        additional_context = ctx.get("pr_additional_context")
+
         # Use PRAgent to analyze and generate PR content with loading indicator
         with ctx.textual.loading(msg.GitHub.AI.GENERATING_PR_DESCRIPTION):
             analysis = pr_agent.analyze_and_plan(
                 head_branch=head_branch,
                 base_branch=base_branch,
-                auto_stage=False  # Only analyze branch commits, not uncommitted changes
+                auto_stage=False,  # Only analyze branch commits, not uncommitted changes
+                additional_context=additional_context
             )
 
         # Check if PR content was generated (need commits in branch)
@@ -122,9 +126,6 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.bold_text(msg.GitHub.AI.DESCRIPTION_LABEL)
         # Render markdown in a scrollable container
         ctx.textual.markdown(analysis.pr_body)
-
-        # Scroll to show the choice buttons below
-        ctx.textual.scroll_to_end()
 
         ctx.textual.text("")  # spacing
 
@@ -167,9 +168,6 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                     default=combined_markdown
                 )
 
-                # Scroll to show what comes next after editing
-                ctx.textual.scroll_to_end()
-
                 if not edited_content or not edited_content.strip():
                     ctx.textual.warning_text("PR content cannot be empty")
                     ctx.textual.end_step("skip")
@@ -190,9 +188,6 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.bold_text("Description:")
                 ctx.textual.markdown(pr_body)
                 ctx.textual.text("")
-
-                # Scroll to show the confirm question below
-                ctx.textual.scroll_to_end()
 
                 # Confirm
                 confirmed = ctx.textual.ask_confirm(

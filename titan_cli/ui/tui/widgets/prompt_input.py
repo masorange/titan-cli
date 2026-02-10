@@ -4,9 +4,10 @@ PromptInput Widget
 Widget wrapper for Input that handles submission events.
 """
 
-from typing import Callable
+from typing import Callable, Optional
 from textual.widget import Widget
 from textual.widgets import Input, Static
+from textual import events
 
 
 class PromptInput(Widget):
@@ -37,12 +38,13 @@ class PromptInput(Widget):
     }
     """
 
-    def __init__(self, question: str, default: str, placeholder: str, on_submit: Callable[[str], None], **kwargs):
+    def __init__(self, question: str, default: str, placeholder: str, on_submit: Callable[[str], None], on_cancel: Optional[Callable[[], None]] = None, **kwargs):
         super().__init__(**kwargs)
         self.question = question
         self.default = default
         self.placeholder = placeholder
         self.on_submit_callback = on_submit
+        self.on_cancel_callback = on_cancel
 
     def compose(self):
         yield Static(f"[bold cyan]{self.question}[/bold cyan]")
@@ -72,3 +74,12 @@ class PromptInput(Widget):
         """Handle input submission."""
         value = event.value
         self.on_submit_callback(value)
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key press events."""
+        if event.key == "escape":
+            # User pressed Escape - cancel the input
+            if self.on_cancel_callback:
+                self.on_cancel_callback()
+            event.stop()
+            event.prevent_default()

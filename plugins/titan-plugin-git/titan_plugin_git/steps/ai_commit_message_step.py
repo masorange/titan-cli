@@ -8,7 +8,7 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
     Generate a commit message using AI based on the current changes.
 
     Uses AI to analyze the diff of uncommitted changes and generate a
-    conventional commit message (type(scope): description).
+    conventional commit message (type: description).
 
     Requires:
         ctx.git: An initialized GitClient.
@@ -33,9 +33,9 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
 
     # Check if AI is configured
     if not ctx.ai or not ctx.ai.is_available():
-        ctx.textual.dim_text(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
-        ctx.textual.end_step("skip")
-        return Skip(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
+        ctx.textual.error_text(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
+        ctx.textual.end_step("error")
+        return Error(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
 
     # Get git client
     if not ctx.git:
@@ -82,17 +82,16 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
 
 ## CRITICAL Instructions
 Generate ONE single-line conventional commit message following this EXACT format:
-- type(scope): Description
+- type: Description
 - Types: feat, fix, refactor, docs, test, chore, style, perf
-- Scope: area affected (e.g., auth, api, ui)
 - Description: clear summary in imperative mood, starting with CAPITAL letter (be descriptive, concise, and at least 5 words long)
 - NO line breaks, NO body, NO additional explanation
 
 Examples (notice they start with capital letter and are all one line):
-- feat(auth): Add OAuth2 integration with Google provider
-- fix(api): Resolve race condition in cache invalidation
-- refactor(ui): Simplify menu component and remove unused props
-- refactor(workflows): Add support for nested workflow execution
+- feat: Add OAuth2 integration with Google provider
+- fix: Resolve race condition in cache invalidation
+- refactor: Simplify menu component and remove unused props
+- refactor: Add support for nested workflow execution
 
 Return ONLY the single-line commit message, absolutely nothing else."""
 
@@ -112,11 +111,11 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         commit_message = commit_message.split('\n')[0].strip()
 
         # Ensure subject starts with capital letter (conventional commits requirement)
-        # Format: type(scope): Description
+        # Format: type: Description
         if ':' in commit_message:
             parts = commit_message.split(':', 1)
             if len(parts) == 2:
-                prefix = parts[0]  # type(scope)
+                prefix = parts[0]  # type
                 subject = parts[1].strip()  # description
                 # Capitalize first letter of subject
                 if subject and subject[0].islower():
@@ -165,11 +164,10 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         )
 
     except Exception as e:
-        ctx.textual.warning_text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
-        ctx.textual.dim_text(msg.Steps.AICommitMessage.FALLBACK_TO_MANUAL)
+        ctx.textual.error_text(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
 
-        ctx.textual.end_step("skip")
-        return Skip(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
+        ctx.textual.end_step("error")
+        return Error(msg.Steps.AICommitMessage.GENERATION_FAILED.format(e=e))
 
 
 # Export for plugin registration

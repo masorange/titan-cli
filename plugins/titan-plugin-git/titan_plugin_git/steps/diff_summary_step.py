@@ -115,19 +115,20 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No head branch specified")
 
     base_branch = ctx.git.main_branch
+    remote = ctx.git.default_remote
 
     try:
-        # Get diff stat between branches
+        # Get diff stat between branches (compares against origin/base_branch)
         stat_output = ctx.git.get_branch_diff_stat(base_branch, head_branch)
 
         if not stat_output or not stat_output.strip():
-            ctx.textual.dim_text(f"No changes between {base_branch} and {head_branch}")
+            ctx.textual.dim_text(f"No changes between {remote}/{base_branch} and {head_branch}")
             ctx.textual.end_step("success")
             return Success("No changes")
 
         # Show the stat summary with colors
         ctx.textual.text("")  # spacing
-        ctx.textual.bold_text(f"Changes in {head_branch} vs {base_branch}:")
+        ctx.textual.bold_text(f"Changes in {head_branch} vs {remote}/{base_branch}:")
         ctx.textual.text("")  # spacing
 
         # Parse lines to find max filename length for alignment

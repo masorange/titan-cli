@@ -23,7 +23,7 @@ git push origin v1.0.0
 
 ### Step 2: Create GitHub Release
 
-1. Go to: https://github.com/masmovil/titan-cli/releases/new
+1. Go to: https://github.com/masorange/titan-cli/releases/new
 2. **Tag:** `v1.0.0`
 3. **Title:** `v1.0.0 - First Stable Release`
 4. **Description:**
@@ -51,7 +51,7 @@ python3 -m pip install --user pipx
 python3 -m pipx ensurepath
 
 # Install Titan CLI
-pipx install https://github.com/masmovil/titan-cli/releases/download/v1.0.0/titan_cli-1.0.0-py3-none-any.whl
+pipx install https://github.com/masorange/titan-cli/releases/download/v1.0.0/titan_cli-1.0.0-py3-none-any.whl
 
 # Verify installation
 titan version
@@ -108,14 +108,14 @@ Share this with your team:
 ### Option A: Direct URL Install
 
 ```bash
-pipx install https://github.com/masmovil/titan-cli/releases/download/v1.0.0/titan_cli-1.0.0-py3-none-any.whl
+pipx install https://github.com/masorange/titan-cli/releases/download/v1.0.0/titan_cli-1.0.0-py3-none-any.whl
 ```
 
 ### Option B: Download + Install
 
 ```bash
 # 1. Download wheel
-curl -LO https://github.com/masmovil/titan-cli/releases/download/v1.0.0/titan_cli-1.0.0-py3-none-any.whl
+curl -LO https://github.com/masorange/titan-cli/releases/download/v1.0.0/titan_cli-1.0.0-py3-none-any.whl
 
 # 2. Install
 pipx install titan_cli-1.0.0-py3-none-any.whl

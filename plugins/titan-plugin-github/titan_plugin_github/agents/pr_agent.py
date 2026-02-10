@@ -15,7 +15,7 @@ from typing import Optional
 
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from .config_loader import load_agent_config
-from ..utils import calculate_pr_size
+from ..utils import calculate_pr_size, is_i18n_change
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -100,7 +100,8 @@ class PRAgent(BaseAIAgent):
         self,
         head_branch: str,
         base_branch: Optional[str] = None,
-        auto_stage: bool = False
+        auto_stage: bool = False,
+        additional_context: Optional[dict] = None
     ) -> PRAnalysis:
         """
         Analyze the complete branch context and create an execution plan.
@@ -116,6 +117,7 @@ class PRAgent(BaseAIAgent):
             head_branch: The branch to analyze
             base_branch: Base branch for comparison (defaults to main branch)
             auto_stage: Whether to analyze unstaged changes
+            additional_context: Optional project-specific context (e.g., JIRA issues, test users)
 
         Returns:
             PRAnalysis with complete plan (gracefully handles errors)
@@ -194,7 +196,8 @@ class PRAgent(BaseAIAgent):
                         diff=branch_diff,
                         head_branch=head_branch,
                         base_branch=base_branch,
-                        template=template
+                        template=template,
+                        additional_context=additional_context
                     )
 
                     pr_title = pr_result["title"]
@@ -254,6 +257,8 @@ class PRAgent(BaseAIAgent):
 {diff_preview}
 ```
 
+Use format: type: Description (e.g., "feat: Add user authentication", "fix: Resolve memory leak")
+
 Format your response EXACTLY like this:
 COMMIT_MESSAGE: <conventional commit message>"""
 
@@ -292,7 +297,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
         diff: str,
         head_branch: str,
         base_branch: str,
-        template: Optional[str]
+        template: Optional[str],
+        additional_context: Optional[dict] = None
     ) -> dict:
         """
         Generate PR title and description using AI.
@@ -303,6 +309,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
             head_branch: Head branch name
             base_branch: Base branch name
             template: Optional PR template
+            additional_context: Optional project-specific context
 
         Returns:
             Dict with keys: title, body, pr_size, files_changed, lines_changed, tokens_used
@@ -332,7 +339,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
             base_branch=base_branch,
             template=template,
             pr_size=pr_size,
-            max_chars=max_chars
+            max_chars=max_chars,
+            additional_context=additional_context
         )
 
         # Calculate max_tokens for OUTPUT (PR description generation)
@@ -384,7 +392,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
         base_branch: str,
         template: Optional[str],
         pr_size: str,
-        max_chars: int
+        max_chars: int,
+        additional_context: Optional[dict] = None
     ) -> str:
         """Build the prompt for PR generation."""
         # Prepare commits text
@@ -398,8 +407,33 @@ COMMIT_MESSAGE: <conventional commit message>"""
         if len(diff) > max_diff:
             diff_preview += "\n\n... (diff truncated for brevity)"
 
+        # Detect special change types and add context
+        special_context = ""
+        if is_i18n_change(diff):
+            special_context = """
+**IMPORTANT - Localization/i18n Changes Detected:**
+This PR modifies localization/translation files. When analyzing:
+- Focus on WHAT user-facing text changed (use key/id names as hints for location)
+- Explain WHY the text changed (typo fix, UX improvement, rebranding, etc.)
+- Look at commit messages for business context
+- If the same change appears across multiple language files, treat it as ONE logical change
+- Describe the change from a user perspective, not just "updated strings"
+
+"""
+
+        # Format additional context (project-specific info)
+        project_context = ""
+        if additional_context:
+            project_context = "\n<project_context>\n"
+            for key, value in additional_context.items():
+                if value:  # Only include non-empty values
+                    # Sanitize: limit length and basic validation
+                    sanitized_value = str(value)[:500]  # Max 500 chars per field
+                    project_context += f"{key}: {sanitized_value}\n"
+            project_context += "</project_context>\n\n"
+
         # Build prompt with template (always available - either from file or embedded default)
-        return f"""Analyze this branch and generate a professional pull request following the EXACT template structure.
+        return f"""{special_context}{project_context}Analyze this branch and generate a professional pull request following the EXACT template structure.
 
 ## Branch Information
 - Head branch: {head_branch}
@@ -420,11 +454,19 @@ COMMIT_MESSAGE: <conventional commit message>"""
 ```
 
 ## CRITICAL Instructions
-1. **Title**: Follow conventional commits (type(scope): Description), be clear and descriptive
+1. **Title**: Follow conventional commits (type: Description), be clear and descriptive
    - Start description with CAPITAL letter (imperative mood)
-   - Examples: "feat(auth): Add OAuth2 integration with Google provider", "fix(api): Resolve race condition in cache invalidation"
+   - **If <project_context> contains issue IDs** (e.g., jira_issues, issue_ids, tickets), include them in the title BEFORE the description:
+     * Format: `type: ISSUE-1, ISSUE-2 Description`
+     * Example: `feat: PROJ-1234, PROJ-5678 Add OAuth2 integration`
+   - Examples without issues: "feat: Add OAuth2 integration with Google provider", "fix: Resolve race condition in cache invalidation"
 
-2. **Description**: MUST follow the template structure above but keep it under {max_chars} characters total
+2. **Project Context**: If <project_context> is provided above, incorporate information into appropriate sections:
+   - **Issue IDs** (jira_issues, etc.): Include in TITLE (see instruction 1) AND in the body if the template has a section for it (e.g., "Related Issues", "JIRA", etc.)
+   - **test_info**: Add to the "Testing" or "Test plan" section (users, credentials, steps)
+   - **related_pr**: Add to "Additional Notes" or similar section
+
+3. **Description**: MUST follow the template structure above but keep it under {max_chars} characters total
    - Fill in the template sections (Summary, Type of Change, Changes Made, etc.)
    - Mark checkboxes appropriately with [x]
    - Adjust detail level based on PR size ({pr_size}):
@@ -462,20 +504,16 @@ DESCRIPTION:
         title = title.strip('"').strip("'")
 
         # Ensure title subject starts with capital letter (conventional commits requirement)
-        # Format: type(scope): Description
+        # Format: type: Description
         if ':' in title:
             parts = title.split(':', 1)
             if len(parts) == 2:
-                prefix = parts[0]  # type(scope)
+                prefix = parts[0]  # type
                 subject = parts[1].strip()  # description
                 # Capitalize first letter of subject
                 if subject and subject[0].islower():
                     subject = subject[0].upper() + subject[1:]
                 title = f"{prefix}: {subject}"
-
-        # Truncate description if needed (but not title)
-        if len(description) > max_chars:
-            description = description[:max_chars - 3] + "..."
 
         # Validate description
         if not description or len(description.strip()) < 10:

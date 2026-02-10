@@ -9,7 +9,9 @@ from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 from textual.containers import Container
 
+from titan_cli import __version__
 from titan_cli.ui.tui.icons import Icons
+from titan_cli.ui.tui.widgets import StatusBarWidget
 from .base import BaseScreen
 
 from .cli_launcher import CLILauncherScreen
@@ -29,6 +31,15 @@ class MainMenuScreen(BaseScreen):
     - Switch Project
     - Exit
     """
+
+    def __init__(self, config, **kwargs):
+        """Initialize main menu with version in title."""
+        super().__init__(
+            config,
+            title=f"Titan CLI v{__version__}",
+            show_back=False,
+            **kwargs
+        )
 
     BINDINGS = [
         ("q", "quit", "Quit"),
@@ -151,7 +162,19 @@ class MainMenuScreen(BaseScreen):
 
     def handle_ai_config_action(self) -> None:
         """Handle AI Configuration action."""
-        self.app.push_screen(AIConfigScreen(self.config))
+        def on_ai_config_closed(result) -> None:
+            """Callback when AI config screen is closed."""
+            # Refresh status bar with latest config
+            try:
+                # Reload config from disk
+                self.config.load()
+
+                status_bar = self.query_one("#status-bar", StatusBarWidget)
+                self._update_status_bar(status_bar)
+            except Exception as e:
+                self.app.notify(f"Error refreshing status bar: {e}", severity="error")
+
+        self.app.push_screen(AIConfigScreen(self.config), callback=on_ai_config_closed)
 
     def handle_switch_project_action(self) -> None:
         """Handle Switch Project action."""

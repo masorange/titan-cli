@@ -64,7 +64,6 @@ class ConfigParseError(ConfigError):
         super().__init__(message)
 
 
-
 class ConfigWriteError(ConfigError):
 
     """Raised when writing to a configuration file fails."""

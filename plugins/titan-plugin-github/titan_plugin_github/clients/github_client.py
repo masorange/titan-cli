@@ -974,7 +974,8 @@ class GitHubClient:
 
     def create_pull_request(
         self, title: str, body: str, base: str, head: str, draft: bool = False,
-        assignees: Optional[List[str]] = None
+        assignees: Optional[List[str]] = None, reviewers: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None, excluded_reviewers: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Create a pull request
@@ -986,6 +987,9 @@ class GitHubClient:
             head: Head branch (feature branch)
             draft: Whether to create as draft PR
             assignees: List of GitHub usernames to assign to the PR
+            reviewers: List of GitHub usernames or team slugs to request review from
+            labels: List of label names to add to the PR
+            excluded_reviewers: List of GitHub usernames to exclude from team expansion
 
         Returns:
             Dict with PR information including:
@@ -997,14 +1001,27 @@ class GitHubClient:
             GitHubAPIError: If PR creation fails
 
         Examples:
+            >>> # Basic PR with team reviewers
             >>> pr = client.create_pull_request(
             ...     title="feat: Add new feature",
             ...     body="Description of changes",
             ...     base="develop",
             ...     head="feat/new-feature",
-            ...     assignees=["username"]
+            ...     assignees=["username"],
+            ...     reviewers=["my-org/backend-team", "username2"],
+            ...     labels=["enhancement", "needs-review"]
             ... )
             >>> print(f"Created PR #{pr['number']}: {pr['url']}")
+            >>>
+            >>> # PR with team but exclude specific member
+            >>> pr = client.create_pull_request(
+            ...     title="fix: Bug fix",
+            ...     body="Fixes issue #123",
+            ...     base="main",
+            ...     head="fix/bug-123",
+            ...     reviewers=["my-org/backend-team"],
+            ...     excluded_reviewers=["on-vacation-user"]
+            ... )
         """
         try:
             args = [
@@ -1027,6 +1044,38 @@ class GitHubClient:
             if assignees:
                 for assignee in assignees:
                     args.extend(["--assignee", assignee])
+
+            # Process reviewers: expand teams if needed and exclude users
+            final_reviewers = []
+            if reviewers:
+                for reviewer in reviewers:
+                    # Check if it's a team (format: "org/team")
+                    if '/' in reviewer:
+                        # Expand team to individual members
+                        try:
+                            team_members = self.list_team_members(reviewer)
+                            # Filter out excluded reviewers
+                            if excluded_reviewers:
+                                team_members = [m for m in team_members if m not in excluded_reviewers]
+                            final_reviewers.extend(team_members)
+                        except GitHubAPIError as e:
+                            # If team expansion fails, log warning but continue
+                            # (could be a nested team or permission issue)
+                            raise GitHubAPIError(f"Could not expand team {reviewer}: {e}")
+                    else:
+                        # It's a username, add directly if not excluded
+                        if not excluded_reviewers or reviewer not in excluded_reviewers:
+                            final_reviewers.append(reviewer)
+
+            # Add reviewers if provided
+            if final_reviewers:
+                for reviewer in final_reviewers:
+                    args.extend(["--reviewer", reviewer])
+
+            # Add labels if provided
+            if labels:
+                for label in labels:
+                    args.extend(["--label", label])
 
             args.extend(self._get_repo_arg())
 
@@ -1112,3 +1161,39 @@ class GitHubClient:
             raise GitHubAPIError(f"Failed to parse label data: {e}")
         except GitHubAPIError as e:
             raise GitHubAPIError(f"Failed to list labels: {e}")
+
+    def list_team_members(self, team_slug: str) -> List[str]:
+        """
+        List all members of a GitHub team.
+
+        Args:
+            team_slug: Team slug in format "org/team-name" (e.g., "my-org/backend-team")
+
+        Returns:
+            List of GitHub usernames (logins) that are members of the team.
+
+        Raises:
+            GitHubAPIError: If team lookup fails or team doesn't exist.
+
+        Example:
+            >>> members = client.list_team_members("my-org/backend-team")
+            >>> print(members)
+            ['user1', 'user2', 'user3']
+        """
+        try:
+            # Parse org and team from slug
+            if '/' not in team_slug:
+                raise GitHubAPIError(f"Invalid team slug format. Expected 'org/team', got '{team_slug}'")
+
+            org, team = team_slug.split('/', 1)
+
+            # Use gh api to get team members
+            args = ["api", f"/orgs/{org}/teams/{team}/members", "--jq", ".[].login"]
+            output = self._run_gh_command(args)
+
+            # Parse output (one username per line)
+            members = [line.strip() for line in output.strip().split('\n') if line.strip()]
+            return members
+
+        except GitHubAPIError as e:
+            raise GitHubAPIError(f"Failed to list team members for '{team_slug}': {e}")
