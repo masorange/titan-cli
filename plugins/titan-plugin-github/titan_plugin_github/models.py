@@ -232,6 +232,7 @@ class PRComment:
 
     Attributes:
         id: Comment ID
+        node_id: GraphQL node ID (for resolving threads)
         body: Comment text
         user: User who created the comment
         created_at: Creation timestamp
@@ -241,17 +242,20 @@ class PRComment:
         pull_request_review_id: Review ID (for review comments)
         in_reply_to_id: ID of parent comment (if it's a reply)
         is_review_comment: True if inline review comment, False if issue comment
+        is_resolved: True if the review thread is resolved (only for review comments)
     """
     id: int
-    body: str
-    user: User
-    created_at: str
+    node_id: Optional[str] = None
+    body: str = ""
+    user: Optional[User] = None
+    created_at: str = ""
     path: Optional[str] = None
     line: Optional[int] = None
     diff_hunk: Optional[str] = None
     pull_request_review_id: Optional[int] = None
     in_reply_to_id: Optional[int] = None
     is_review_comment: bool = True
+    is_resolved: bool = False
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], is_review: bool = True) -> 'PRComment':
@@ -270,6 +274,7 @@ class PRComment:
 
         return cls(
             id=data.get("id", 0),
+            node_id=data.get("node_id"),
             body=data.get("body", ""),
             user=user,
             created_at=data.get("created_at", ""),
@@ -278,7 +283,8 @@ class PRComment:
             diff_hunk=data.get("diff_hunk"),
             pull_request_review_id=data.get("pull_request_review_id"),
             in_reply_to_id=data.get("in_reply_to_id"),
-            is_review_comment=is_review
+            is_review_comment=is_review,
+            is_resolved=False  # Will be set later based on GraphQL data
         )
 
 

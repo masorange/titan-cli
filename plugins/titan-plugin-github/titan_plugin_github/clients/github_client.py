@@ -267,12 +267,12 @@ class GitHubClient:
             # - 'gh search prs' ignores --repo flag and searches across all repos
             # - 'gh pr list' respects current repo context
 
-            # Get all PRs with review-requested: @me
+            # Get all PRs with review-requested: JulenGarGon (temporary for testing)
             args = [
                 "pr",
                 "list",
                 "--search",
-                "review-requested: @me",
+                "review-requested: JulenGarGon",
                 "--state",
                 "open",
                 "--limit",
@@ -288,10 +288,11 @@ class GitHubClient:
                 # Return all PRs (you individually OR your team)
                 return PRSearchResult.from_list(all_prs)
             else:
-                # Filter to only PRs where current user is explicitly in reviewRequests
+                # Filter to only PRs where JulenGarGon is explicitly in reviewRequests (temporary for testing)
                 # Get current user to filter review requests
-                user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
-                current_user = user_output.strip()
+                # user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
+                # current_user = user_output.strip()
+                current_user = "JulenGarGon"  # Temporary hardcode for testing
 
                 filtered_prs = []
                 for pr in all_prs:
@@ -329,8 +330,9 @@ class GitHubClient:
         """
         try:
             # Get current user login
-            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
-            current_user = user_output.strip()
+            # user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
+            # current_user = user_output.strip()
+            current_user = "JulenGarGon"  # Temporary hardcode for testing
 
             # List all PRs (--author @me doesn't work with --json, it's a gh CLI bug)
             args = [
@@ -347,7 +349,7 @@ class GitHubClient:
             output = self._run_gh_command(args)
             all_prs = json.loads(output)
 
-            # Filter to only PRs authored by current user
+            # Filter to only PRs authored by JulenGarGon (temporary for testing)
             my_prs = [
                 pr for pr in all_prs
                 if pr.get("author") and pr["author"].get("login") == current_user
@@ -801,12 +803,82 @@ class GitHubClient:
                 merged=False, message=msg.GitHub.UNEXPECTED_ERROR.format(error=e)
             )
 
-    def get_pr_comments(self, pr_number: int) -> List[GitHubPRComment]:
+    def _get_review_thread_states(self, pr_number: int) -> Dict[str, bool]:
+        """
+        Get the resolved state of all review threads using GraphQL
+
+        Args:
+            pr_number: PR number
+
+        Returns:
+            Dict mapping comment ID to is_resolved status
+        """
+        try:
+            repo = self._get_repo_string()
+            owner, repo_name = repo.split('/')
+
+            # GraphQL query to get review threads with their resolved state
+            query = '''
+            query($owner: String!, $repo: String!, $prNumber: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $prNumber) {
+                  reviewThreads(first: 100) {
+                    nodes {
+                      isResolved
+                      comments(first: 100) {
+                        nodes {
+                          databaseId
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            '''
+
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-F",
+                f"owner={owner}",
+                "-F",
+                f"repo={repo_name}",
+                "-F",
+                f"prNumber={pr_number}"
+            ]
+
+            output = self._run_gh_command(args)
+            data = json.loads(output)
+
+            # Build map of comment ID → isResolved
+            resolved_map = {}
+            threads = data.get("data", {}).get("repository", {}).get("pullRequest", {}).get("reviewThreads", {}).get("nodes", [])
+
+            for thread in threads:
+                is_resolved = thread.get("isResolved", False)
+                comments = thread.get("comments", {}).get("nodes", [])
+                # Mark ALL comments in the thread with the same resolved state
+                for comment in comments:
+                    comment_id = str(comment.get("databaseId"))
+                    if comment_id:
+                        resolved_map[comment_id] = is_resolved
+
+            return resolved_map
+
+        except Exception:
+            # If GraphQL fails, return empty map (treat all as unresolved)
+            return {}
+
+    def get_pr_comments(self, pr_number: int, include_resolved: bool = True) -> List[GitHubPRComment]:
         """
         Get all comments for a PR (review comments + issue comments)
 
         Args:
             pr_number: PR number
+            include_resolved: If False, exclude comments from resolved threads
 
         Returns:
             List of PRComment objects
@@ -815,9 +887,14 @@ class GitHubClient:
             >>> comments = client.get_pr_comments(123)
             >>> for c in comments:
             ...     print(f"{c.user.login}: {c.body}")
+            >>> # Get only unresolved comments
+            >>> unresolved = client.get_pr_comments(123, include_resolved=False)
         """
         try:
             repo = self._get_repo_string()
+
+            # First, get thread resolved states using GraphQL
+            resolved_map = self._get_review_thread_states(pr_number)
 
             # Get review comments (inline in files)
             args = ["api", f"/repos/{repo}/pulls/{pr_number}/comments", "--paginate"]
@@ -833,7 +910,16 @@ class GitHubClient:
             comments = []
 
             for data in review_comments_data:
-                comments.append(GitHubPRComment.from_dict(data, is_review=True))
+                comment = GitHubPRComment.from_dict(data, is_review=True)
+                # Check if this comment's thread is resolved
+                comment_id = str(data.get("id"))
+                comment.is_resolved = resolved_map.get(comment_id, False)
+
+                # Skip resolved threads if requested
+                if not include_resolved and comment.is_resolved:
+                    continue
+
+                comments.append(comment)
 
             for data in issue_comments_data:
                 comments.append(GitHubPRComment.from_dict(data, is_review=False))
@@ -848,16 +934,17 @@ class GitHubClient:
             )
 
     def get_pending_comments(
-        self, pr_number: int, author: Optional[str] = None
+        self, pr_number: int, author: Optional[str] = None, include_resolved: bool = False
     ) -> List[GitHubPRComment]:
         """
         Get comments pending response from PR author
 
-        Filters out comments already responded to by the author.
+        Filters out comments already responded to by the author and optionally resolved threads.
 
         Args:
             pr_number: PR number
             author: PR author username (if None, uses current user)
+            include_resolved: If True, include comments from resolved threads (default: False)
 
         Returns:
             List of PRComment objects that don't have author's response
@@ -869,7 +956,8 @@ class GitHubClient:
         if author is None:
             author = self.get_current_user()
 
-        all_comments = self.get_pr_comments(pr_number)
+        # Exclude resolved threads by default
+        all_comments = self.get_pr_comments(pr_number, include_resolved=include_resolved)
 
         # Build set of comment IDs that have author's response
         responded_ids = set()
@@ -920,6 +1008,49 @@ class GitHubClient:
             raise GitHubAPIError(
                 msg.GitHub.API_ERROR.format(
                     error_msg=f"Failed to reply to comment: {e}"
+                )
+            )
+
+    def resolve_review_thread(self, thread_node_id: str) -> None:
+        """
+        Resolve a review thread in a PR using GraphQL
+
+        Args:
+            thread_node_id: GraphQL node ID of the comment thread
+
+        Raises:
+            GitHubAPIError: If resolving the thread fails
+
+        Examples:
+            >>> client.resolve_review_thread("PRRT_kwDOAbc123...")
+        """
+        try:
+            # Use GraphQL mutation to resolve the thread
+            query = '''
+            mutation($threadId: ID!) {
+              resolveReviewThread(input: {threadId: $threadId}) {
+                thread {
+                  isResolved
+                }
+              }
+            }
+            '''
+
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-f",
+                f"threadId={thread_node_id}"
+            ]
+
+            self._run_gh_command(args)
+
+        except GitHubAPIError as e:
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(
+                    error_msg=f"Failed to resolve review thread: {e}"
                 )
             )
 

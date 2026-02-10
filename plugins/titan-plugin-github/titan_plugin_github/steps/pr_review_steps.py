@@ -184,18 +184,21 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
 
 def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Fetch pending review comments for the selected PR.
+    Fetch unresolved review comments for the selected PR.
+
+    Only fetches threads that are NOT marked as resolved in GitHub.
+    Does NOT filter by author responses - all unresolved threads are shown.
 
     Requires (from ctx.data):
         selected_pr_number (int): The PR number
 
     Outputs (saved to ctx.data):
-        all_comments (List[PRComment]): ALL comments (needed for threading)
-        pending_comment_ids (Set[int]): IDs of pending comments (main threads to review)
+        all_comments (List[PRComment]): ALL unresolved comments (needed for threading)
+        pending_comment_ids (Set[int]): IDs of top-level comments (threads to review)
 
     Returns:
         Success: Comments fetched
-        Skip: No pending comments
+        Skip: No unresolved comments
         Error: Failed to fetch comments
     """
     if not ctx.textual:
@@ -215,35 +218,34 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("GitHub client not available")
 
     try:
-        # Fetch ALL comments (needed to build threads)
+        # Fetch ALL comments (exclude resolved threads)
         with ctx.textual.loading(f"Fetching comments for PR #{pr_number}..."):
-            all_comments = ctx.github.get_pr_comments(pr_number)
-            # Also get which ones are pending (no response from author)
-            pending_comments = ctx.github.get_pending_comments(pr_number)
+            all_comments = ctx.github.get_pr_comments(pr_number, include_resolved=False)
 
-        if not pending_comments:
-            ctx.textual.dim_text(f"No pending comments found for PR #{pr_number}")
+        if not all_comments:
+            ctx.textual.dim_text(f"No unresolved comments found for PR #{pr_number}")
             ctx.textual.end_step("skip")
-            return Skip("No pending comments")
+            return Skip("No unresolved comments")
 
-        # Create set of pending comment IDs for quick lookup
-        pending_ids = {c.id for c in pending_comments}
+        # Get top-level comments (threads to review)
+        top_level_comments = [c for c in all_comments if not c.in_reply_to_id]
+        pending_ids = {c.id for c in top_level_comments}
 
         # Show summary
-        ctx.textual.success_text(f"Found {len(pending_comments)} pending comment(s)")
+        ctx.textual.success_text(f"Found {len(top_level_comments)} unresolved thread(s)")
         ctx.textual.text("")
 
         # Save to context
         metadata = {
             "all_comments": all_comments,  # All comments for threading
-            "pending_comment_ids": pending_ids,  # Which ones to review
-            "total_pending": len(pending_comments),
+            "pending_comment_ids": pending_ids,  # Top-level comment IDs to review
+            "total_pending": len(top_level_comments),
         }
 
         ctx.textual.end_step("success")
 
         return Success(
-            f"Found {len(pending_comments)} pending comments",
+            f"Found {len(top_level_comments)} unresolved threads",
             metadata=metadata
         )
 
@@ -302,17 +304,22 @@ def _group_comment_threads(comments: List[PRComment]) -> List[List[PRComment]]:
 
         threads.append(thread)
 
+    # Sort threads by creation time of the first comment (chronological order)
+    threads.sort(key=lambda thread: thread[0].created_at if thread else "")
+
     return threads
 
 
 def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Review all pending comments one by one and take action.
+    Review all unresolved comment threads one by one and take action.
+
+    Shows all threads that are NOT marked as resolved, regardless of who commented.
 
     Requires (from ctx.data):
         selected_pr_number (int): The PR number
-        all_comments (List[PRComment]): ALL comments
-        pending_comment_ids (Set[int]): IDs of pending main comments
+        all_comments (List[PRComment]): ALL unresolved comments
+        pending_comment_ids (Set[int]): IDs of top-level comments (threads)
 
     Returns:
         Success: All comments processed
@@ -394,7 +401,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
             ChoiceOption(value="reply", label="Reply manually", variant="primary"),
             ChoiceOption(value="ai_suggest", label="Get AI suggestion", variant="default"),
             ChoiceOption(value="skip", label="Skip for now", variant="default"),
-            ChoiceOption(value="resolve", label="Mark as addressed", variant="success"),
+            ChoiceOption(value="resolve", label="Resolve thread", variant="success"),
         ]
 
         # Add "Exit" option if not the last comment
@@ -430,6 +437,29 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         result_event.wait()
         choice = result_container.get("choice")
 
+        # Replace the choice buttons with selected action text
+        def replace_buttons_with_text():
+            from titan_cli.ui.tui.widgets import PromptChoice, DimText
+            try:
+                # Find and remove the PromptChoice widget
+                prompt_widget = thread_widget.query_one(PromptChoice)
+                prompt_widget.remove()
+
+                # Add text showing selected action
+                action_labels = {
+                    "reply": "Replying manually",
+                    "ai_suggest": "Getting AI suggestion",
+                    "skip": "Skipped",
+                    "resolve": "Resolving thread",
+                    "exit": "Exiting review"
+                }
+                label = action_labels.get(choice, f"Action: {choice}")
+                thread_widget.mount(DimText(f"→ {label}"))
+            except Exception:
+                pass  # Widget might not have PromptChoice
+
+        ctx.textual.app.call_from_thread(replace_buttons_with_text)
+
         # Handle user choice
         if choice == "exit":
             ctx.textual.warning_text(f"Exiting review. Processed {processed_count}, skipped {skipped_count}")
@@ -445,7 +475,6 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
             )
 
         if choice == "skip":
-            ctx.textual.dim_text("Skipped comment")
             skipped_count += 1
             continue
 
@@ -568,19 +597,21 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 skipped_count += 1
 
         elif choice == "resolve":
-            # Mark as addressed (just add a simple comment)
+            # Resolve the review thread
             try:
-                with ctx.textual.loading("Marking as addressed..."):
-                    ctx.github.reply_to_comment(
-                        pr_number,
-                        comment.id,
-                        "✓ Addressed"
-                    )
+                # Get the node_id from the first comment in the thread (the root comment)
+                root_comment = thread[0]
+                if not root_comment.node_id:
+                    ctx.textual.error_text("Cannot resolve thread: missing node_id")
+                    skipped_count += 1
+                else:
+                    with ctx.textual.loading("Resolving thread..."):
+                        ctx.github.resolve_review_thread(root_comment.node_id)
 
-                ctx.textual.success_text("Marked as addressed")
-                processed_count += 1
+                    ctx.textual.success_text("Thread resolved")
+                    processed_count += 1
             except Exception as e:
-                ctx.textual.error_text(f"Failed to mark as addressed: {e}")
+                ctx.textual.error_text(f"Failed to resolve thread: {e}")
                 skipped_count += 1
 
     # All comments processed
