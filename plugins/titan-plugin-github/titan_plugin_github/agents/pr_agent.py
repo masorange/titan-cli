@@ -257,6 +257,8 @@ class PRAgent(BaseAIAgent):
 {diff_preview}
 ```
 
+Use format: type: Description (e.g., "feat: Add user authentication", "fix: Resolve memory leak")
+
 Format your response EXACTLY like this:
 COMMIT_MESSAGE: <conventional commit message>"""
 
@@ -452,12 +454,12 @@ This PR modifies localization/translation files. When analyzing:
 ```
 
 ## CRITICAL Instructions
-1. **Title**: Follow conventional commits (type(scope): Description), be clear and descriptive
+1. **Title**: Follow conventional commits (type: Description), be clear and descriptive
    - Start description with CAPITAL letter (imperative mood)
    - **If <project_context> contains issue IDs** (e.g., jira_issues, issue_ids, tickets), include them in the title BEFORE the description:
-     * Format: `type(scope): ISSUE-1, ISSUE-2 Description`
-     * Example: `feat(auth): PROJ-1234, PROJ-5678 Add OAuth2 integration`
-   - Examples without issues: "feat(auth): Add OAuth2 integration with Google provider", "fix(api): Resolve race condition in cache invalidation"
+     * Format: `type: ISSUE-1, ISSUE-2 Description`
+     * Example: `feat: PROJ-1234, PROJ-5678 Add OAuth2 integration`
+   - Examples without issues: "feat: Add OAuth2 integration with Google provider", "fix: Resolve race condition in cache invalidation"
 
 2. **Project Context**: If <project_context> is provided above, incorporate information into appropriate sections:
    - **Issue IDs** (jira_issues, etc.): Include in TITLE (see instruction 1) AND in the body if the template has a section for it (e.g., "Related Issues", "JIRA", etc.)
@@ -502,11 +504,11 @@ DESCRIPTION:
         title = title.strip('"').strip("'")
 
         # Ensure title subject starts with capital letter (conventional commits requirement)
-        # Format: type(scope): Description
+        # Format: type: Description
         if ':' in title:
             parts = title.split(':', 1)
             if len(parts) == 2:
-                prefix = parts[0]  # type(scope)
+                prefix = parts[0]  # type
                 subject = parts[1].strip()  # description
                 # Capitalize first letter of subject
                 if subject and subject[0].islower():

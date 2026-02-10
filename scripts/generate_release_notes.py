@@ -74,12 +74,12 @@ def parse_commit(commit_line: str) -> Optional[Commit]:
     """
     Parse a conventional commit message.
 
-    Format: type(scope): message
+    Format: type: message
     Examples:
-        feat(ui): add new button
+        feat: add new button
         fix: resolve crash on startup
         feat!: breaking change
-        refactor(core)!: major refactor
+        refactor!: major refactor
     """
     parts = commit_line.split("|||")
     if len(parts) < 2:
