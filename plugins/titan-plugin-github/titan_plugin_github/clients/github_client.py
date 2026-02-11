@@ -18,7 +18,7 @@ from ..models import (
     Review,
     PRSearchResult,
     PRMergeResult,
-    PRComment as GitHubPRComment,
+    PRReviewThread,
     Issue,
 )
 from ..exceptions import (
@@ -803,180 +803,6 @@ class GitHubClient:
                 merged=False, message=msg.GitHub.UNEXPECTED_ERROR.format(error=e)
             )
 
-    def _get_review_thread_states(self, pr_number: int) -> Dict[str, bool]:
-        """
-        Get the resolved state of all review threads using GraphQL
-
-        Args:
-            pr_number: PR number
-
-        Returns:
-            Dict mapping comment ID to is_resolved status
-        """
-        try:
-            repo = self._get_repo_string()
-            owner, repo_name = repo.split('/')
-
-            # GraphQL query to get review threads with their resolved state
-            query = '''
-            query($owner: String!, $repo: String!, $prNumber: Int!) {
-              repository(owner: $owner, name: $repo) {
-                pullRequest(number: $prNumber) {
-                  reviewThreads(first: 100) {
-                    nodes {
-                      isResolved
-                      comments(first: 100) {
-                        nodes {
-                          databaseId
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            '''
-
-            args = [
-                "api",
-                "graphql",
-                "-f",
-                f"query={query}",
-                "-F",
-                f"owner={owner}",
-                "-F",
-                f"repo={repo_name}",
-                "-F",
-                f"prNumber={pr_number}"
-            ]
-
-            output = self._run_gh_command(args)
-            data = json.loads(output)
-
-            # Build map of comment ID → isResolved
-            resolved_map = {}
-            threads = data.get("data", {}).get("repository", {}).get("pullRequest", {}).get("reviewThreads", {}).get("nodes", [])
-
-            for thread in threads:
-                is_resolved = thread.get("isResolved", False)
-                comments = thread.get("comments", {}).get("nodes", [])
-                # Mark ALL comments in the thread with the same resolved state
-                for comment in comments:
-                    comment_id = str(comment.get("databaseId"))
-                    if comment_id:
-                        resolved_map[comment_id] = is_resolved
-
-            return resolved_map
-
-        except Exception:
-            # If GraphQL fails, return empty map (treat all as unresolved)
-            return {}
-
-    def get_pr_comments(self, pr_number: int, include_resolved: bool = True) -> List[GitHubPRComment]:
-        """
-        Get all comments for a PR (review comments + issue comments)
-
-        Args:
-            pr_number: PR number
-            include_resolved: If False, exclude comments from resolved threads
-
-        Returns:
-            List of PRComment objects
-
-        Examples:
-            >>> comments = client.get_pr_comments(123)
-            >>> for c in comments:
-            ...     print(f"{c.user.login}: {c.body}")
-            >>> # Get only unresolved comments
-            >>> unresolved = client.get_pr_comments(123, include_resolved=False)
-        """
-        try:
-            repo = self._get_repo_string()
-
-            # First, get thread resolved states using GraphQL
-            resolved_map = self._get_review_thread_states(pr_number)
-
-            # Get review comments (inline in files)
-            args = ["api", f"/repos/{repo}/pulls/{pr_number}/comments", "--paginate"]
-            output = self._run_gh_command(args)
-            review_comments_data = json.loads(output) if output else []
-
-            # Get issue comments (general comments)
-            args = ["api", f"/repos/{repo}/issues/{pr_number}/comments", "--paginate"]
-            output = self._run_gh_command(args)
-            issue_comments_data = json.loads(output) if output else []
-
-            # Convert to PRComment objects
-            comments = []
-
-            for data in review_comments_data:
-                comment = GitHubPRComment.from_dict(data, is_review=True)
-                # Check if this comment's thread is resolved
-                comment_id = str(data.get("id"))
-                comment.is_resolved = resolved_map.get(comment_id, False)
-
-                # Skip resolved threads if requested
-                if not include_resolved and comment.is_resolved:
-                    continue
-
-                comments.append(comment)
-
-            for data in issue_comments_data:
-                comments.append(GitHubPRComment.from_dict(data, is_review=False))
-
-            return comments
-
-        except (json.JSONDecodeError, GitHubAPIError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to get PR comments: {e}"
-                )
-            )
-
-    def get_pending_comments(
-        self, pr_number: int, author: Optional[str] = None, include_resolved: bool = False
-    ) -> List[GitHubPRComment]:
-        """
-        Get comments pending response from PR author
-
-        Filters out comments already responded to by the author and optionally resolved threads.
-
-        Args:
-            pr_number: PR number
-            author: PR author username (if None, uses current user)
-            include_resolved: If True, include comments from resolved threads (default: False)
-
-        Returns:
-            List of PRComment objects that don't have author's response
-
-        Examples:
-            >>> pending = client.get_pending_comments(123)
-            >>> print(f"{len(pending)} comments pending")
-        """
-        if author is None:
-            author = self.get_current_user()
-
-        # Exclude resolved threads by default
-        all_comments = self.get_pr_comments(pr_number, include_resolved=include_resolved)
-
-        # Build set of comment IDs that have author's response
-        responded_ids = set()
-        for comment in all_comments:
-            if comment.in_reply_to_id and comment.user.login == author:
-                responded_ids.add(comment.in_reply_to_id)
-
-        # Filter to main comments (not replies) without author's response
-        pending = []
-        for comment in all_comments:
-            is_main_comment = comment.in_reply_to_id is None
-            not_from_author = comment.user.login != author
-            not_responded = comment.id not in responded_ids
-
-            if is_main_comment and not_from_author and not_responded:
-                pending.append(comment)
-
-        return pending
-
     def reply_to_comment(self, pr_number: int, comment_id: int, body: str) -> None:
         """
         Reply to a PR comment
@@ -1051,6 +877,115 @@ class GitHubClient:
             raise GitHubAPIError(
                 msg.GitHub.API_ERROR.format(
                     error_msg=f"Failed to resolve review thread: {e}"
+                )
+            )
+
+    def get_pr_review_threads(
+        self, pr_number: int, include_resolved: bool = True
+    ) -> List[PRReviewThread]:
+        """
+        Get all review threads for a PR using GraphQL.
+
+        Uses GraphQL to fetch structured threads with proper metadata.
+        Each thread contains main comment + replies + resolution status.
+
+        Args:
+            pr_number: PR number
+            include_resolved: If False, exclude resolved threads
+
+        Returns:
+            List of PRReviewThread objects
+
+        Examples:
+            >>> threads = client.get_pr_review_threads(123)
+            >>> for thread in threads:
+            ...     print(f"Thread: {thread.id}, Resolved: {thread.is_resolved}")
+            ...     print(f"  Main: {thread.main_comment.body}")
+            ...     for reply in thread.replies:
+            ...         print(f"  Reply: {reply.body}")
+        """
+        try:
+            repo = self._get_repo_string()
+            owner, repo_name = repo.split('/')
+
+            # GraphQL query to get all review threads with comments
+            query = '''
+            query($owner: String!, $repo: String!, $prNumber: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $prNumber) {
+                  reviewThreads(first: 100) {
+                    nodes {
+                      id
+                      isResolved
+                      isOutdated
+                      path
+                      comments(first: 100) {
+                        nodes {
+                          databaseId
+                          body
+                          author {
+                            login
+                          }
+                          createdAt
+                          updatedAt
+                          path
+                          position
+                          line
+                          originalLine
+                          diffHunk
+                          replyTo {
+                            databaseId
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            '''
+
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-F",
+                f"owner={owner}",
+                "-F",
+                f"repo={repo_name}",
+                "-F",
+                f"prNumber={pr_number}"
+            ]
+
+            output = self._run_gh_command(args)
+            data = json.loads(output)
+
+            # Extract review threads
+            threads_data = (
+                data.get("data", {})
+                .get("repository", {})
+                .get("pullRequest", {})
+                .get("reviewThreads", {})
+                .get("nodes", [])
+            )
+
+            # Convert to PRReviewThread objects
+            threads = []
+            for thread_data in threads_data:
+                # Skip resolved threads if requested
+                if not include_resolved and thread_data.get("isResolved", False):
+                    continue
+
+                thread = PRReviewThread.from_graphql(thread_data)
+                threads.append(thread)
+
+            return threads
+
+        except (json.JSONDecodeError, KeyError) as e:
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(
+                    error_msg=f"Failed to get PR review threads: {e}"
                 )
             )
 

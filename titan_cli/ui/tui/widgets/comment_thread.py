@@ -1,57 +1,52 @@
 """
 CommentThread Widget
 
-Widget for organizing a PR/issue comment thread (main comment + replies + actions).
+Widget for organizing a PR review comment thread (main comment + replies + actions).
+Uses GraphQL structure for clean separation.
 """
 
 from typing import Callable, List, Any, Optional
 from textual.app import ComposeResult
-from titan_plugin_github.models import PRComment
+from titan_cli.ui.tui.models import UICommentThread
 from .panel_container import PanelContainer
 from .comment import Comment
-from .text import BoldText, Text, DimText
+from .reply_comment import ReplyComment
+from .text import BoldText, Text
 from .prompt_choice import PromptChoice, ChoiceOption
 
 
 class _ReplyPanel(PanelContainer):
     """Internal widget for rendering a reply comment in a bordered panel."""
 
-    def __init__(
-        self,
-        reply: PRComment,
-        parent_comment: PRComment,
-        is_outdated: bool = False,
-        **kwargs
-    ):
+    def __init__(self, reply_widget: ReplyComment, **kwargs):
         super().__init__(variant="default", **kwargs)
-        self.reply = reply
-        self.parent_comment = parent_comment
-        self.is_outdated = is_outdated
+        self.reply_widget = reply_widget
         self.add_class("reply-panel")
 
     def compose(self) -> ComposeResult:
         """Render the reply comment inside the panel."""
-        yield Comment(
-            self.reply,
-            is_outdated=self.is_outdated,
-            parent_comment=self.parent_comment
-        )
+        yield self.reply_widget
 
 
 class CommentThread(PanelContainer):
     """
-    Widget for organizing a comment thread.
+    Widget for organizing a review comment thread (GraphQL structure).
 
-    Contains:
-    - Main comment (with all its content)
-    - Replies (if any)
-    - Action buttons (if provided)
+    Simplified to use UICommentThread which already contains:
+    - main_comment: UIComment
+    - replies: List[UIComment]
+    - is_resolved: bool
+    - is_outdated: bool
     """
 
     DEFAULT_CSS = """
     CommentThread PanelContainer.reply-panel {
         margin-left: 4;
         border: round white;
+    }
+
+    CommentThread.outdated-thread {
+        border: round $warning;
     }
 
     CommentThread PromptChoice {
@@ -64,10 +59,8 @@ class CommentThread(PanelContainer):
 
     def __init__(
         self,
-        pr_comment: PRComment,
-        thread_number: str = None,
-        is_outdated: bool = False,
-        replies: Optional[List[PRComment]] = None,
+        thread: UICommentThread,
+        thread_number: Optional[str] = None,
         options: Optional[List[ChoiceOption]] = None,
         on_select: Optional[Callable[[Any], None]] = None,
         **kwargs,
@@ -76,87 +69,43 @@ class CommentThread(PanelContainer):
         Initialize comment thread widget.
 
         Args:
-            pr_comment: The main PR comment
+            thread: UICommentThread with main_comment, replies, and metadata
             thread_number: Thread number (e.g., "Thread 1 of 8")
-            is_outdated: Whether comment is on outdated code
-            replies: List of reply comments
             options: Action buttons to display
             on_select: Callback for action button selection
         """
-        # Determine variant
-        variant = "warning" if is_outdated else "default"
+        # Always use default variant - outdated styling is CSS-only
+        super().__init__(variant="default", title=thread_number, **kwargs)
 
-        # Initialize PanelContainer with variant and title
-        super().__init__(variant=variant, title=thread_number, **kwargs)
-
-        self.pr_comment = pr_comment
-        self.is_outdated = is_outdated
-        self.replies = replies or []
+        self.thread = thread
         self.options = options or []
         self.on_select_callback = on_select
 
-    def _format_comment_metadata(self, comment: PRComment) -> ComposeResult:
-        """Format PR comment object metadata for debugging."""
-        yield DimText("─── Comment Metadata ───")
-        yield DimText(f"ID: {comment.id}")
-        if comment.node_id:
-            yield DimText(f"Node ID: {comment.node_id}")
-        if comment.user:
-            yield DimText(f"User: {comment.user.login}")
-        yield DimText(f"Created: {comment.created_at}")
-        if comment.path:
-            yield DimText(f"Path: {comment.path}")
-        if comment.line:
-            yield DimText(f"Line: {comment.line}")
-        if hasattr(comment, 'position') and comment.position is not None:
-            yield DimText(f"Position: {comment.position}")
-        if hasattr(comment, 'original_position') and comment.original_position is not None:
-            yield DimText(f"Original Position: {comment.original_position}")
-        if hasattr(comment, 'is_outdated'):
-            yield DimText(f"Is Outdated: {comment.is_outdated}")
-        if comment.pull_request_review_id:
-            yield DimText(f"Review ID: {comment.pull_request_review_id}")
-        if comment.in_reply_to_id:
-            yield DimText(f"In Reply To: {comment.in_reply_to_id}")
-        yield DimText(f"Is Review Comment: {comment.is_review_comment}")
-        yield DimText(f"Is Resolved: {comment.is_resolved}")
-        if comment.diff_hunk:
-            yield DimText(f"Diff Hunk: {len(comment.diff_hunk)} chars")
-            # Show first 3 lines of diff_hunk to verify content
-            lines = comment.diff_hunk.split('\n')[:3]
-            yield DimText(f"Diff Preview: {' | '.join(lines)}")
-        if comment.body:
-            body_preview = comment.body[:100] + "..." if len(comment.body) > 100 else comment.body
-            yield DimText(f"Body: {body_preview}")
-        yield DimText("─────────────────────────")
-        yield Text("")
+        # Add CSS class for outdated threads (only affects border color)
+        if thread.is_outdated:
+            self.add_class("outdated-thread")
 
     def compose(self) -> ComposeResult:
         """Compose thread: main comment + replies + action buttons."""
-        # Main comment metadata
-        # for widget in self._format_comment_metadata(self.pr_comment):
-        #     yield widget
-
-        # Main comment formatted
-        yield Comment(self.pr_comment, is_outdated=self.is_outdated)
+        # Main comment (with full context: path, line, diff_hunk, body)
+        if self.thread.main_comment:
+            yield Comment(
+                comment=self.thread.main_comment,
+                is_outdated=self.thread.is_outdated
+            )
 
         # Replies (if any)
-        if self.replies:
+        if self.thread.replies:
             yield Text("")
             yield BoldText(
-                f"💬 {len(self.replies)} repl{'y' if len(self.replies) == 1 else 'ies'}:"
+                f"💬 {len(self.thread.replies)} repl{'y' if len(self.thread.replies) == 1 else 'ies'}:"
             )
-            for reply in self.replies:
-                # Reply metadata
-                # for widget in self._format_comment_metadata(reply):
-                #     yield widget
+            for reply in self.thread.replies:
+                # Create ReplyComment widget (only author, date, body)
+                reply_widget = ReplyComment(reply=reply)
 
-                # Wrap reply in a PanelContainer
-                yield _ReplyPanel(
-                    reply=reply,
-                    parent_comment=self.pr_comment,
-                    is_outdated=self.is_outdated
-                )
+                # Wrap in panel with border
+                yield _ReplyPanel(reply_widget=reply_widget)
 
         # Action buttons (if provided)
         if self.options and self.on_select_callback:
@@ -186,3 +135,4 @@ class CommentThread(PanelContainer):
 
 
 __all__ = ["CommentThread"]
+

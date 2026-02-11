@@ -11,6 +11,7 @@ from .table import Table
 from .button import Button
 from .step_container import StepContainer
 from .comment import Comment
+from .reply_comment import ReplyComment
 from .comment_thread import CommentThread
 from .code_block import CodeBlock
 from .multiline_input import MultilineInput
@@ -49,6 +50,7 @@ __all__ = [
     "Button",
     "StepContainer",
     "Comment",
+    "ReplyComment",
     "CommentThread",
     "CodeBlock",
     "MultilineInput",

@@ -19,7 +19,8 @@ class TextElement:
 class SuggestionElement:
     """Code suggestion block from comment body."""
     code: str
-    original_line: Optional[str] = None
+    original_lines: Optional[str] = None  # Can be multiple lines (multiline suggestions)
+    start_line: Optional[int] = None  # Starting line number for the suggestion
 
 
 @dataclass
@@ -82,13 +83,25 @@ def parse_comment_body(
 
         # Handle suggestions specially
         if language == "suggestion":
-            original_line = None
-            if diff_hunk and line:
-                original_line = _extract_line_from_diff(diff_hunk, line)
+            original_lines = None
+            target_line = line
+
+            # If line is None but we have diff_hunk, parse it from the @@ header
+            if not target_line and diff_hunk:
+                header_match = re.match(r'@@ -\d+,?\d* \+(\d+),?\d* @@', diff_hunk.split('\n')[0])
+                if header_match:
+                    target_line = int(header_match.group(1))
+
+            if diff_hunk and target_line:
+                # Count how many lines are in the suggestion
+                num_lines = len(code.split('\n'))
+                # Extract that many lines from diff_hunk starting at target line
+                original_lines = _extract_lines_from_diff(diff_hunk, target_line, num_lines)
 
             elements.append(SuggestionElement(
                 code=code,
-                original_line=original_line
+                original_lines=original_lines,
+                start_line=target_line
             ))
         else:
             # Regular code block
@@ -107,16 +120,17 @@ def parse_comment_body(
     return elements
 
 
-def _extract_line_from_diff(diff_hunk: str, target_line: int) -> Optional[str]:
+def _extract_lines_from_diff(diff_hunk: str, target_line: int, num_lines: int = 1) -> Optional[str]:
     """
-    Extract the specific line from diff_hunk that was commented on.
+    Extract multiple consecutive lines from diff_hunk for multiline suggestions.
 
     Args:
         diff_hunk: Diff context string
-        target_line: Line number to extract
+        target_line: Starting line number
+        num_lines: Number of consecutive lines to extract
 
     Returns:
-        The content of the line (without diff markers), or None if not found
+        The content of the lines (without diff markers), or None if not found
     """
     if not diff_hunk or not target_line:
         return None
@@ -131,21 +145,27 @@ def _extract_line_from_diff(diff_hunk: str, target_line: int) -> Optional[str]:
     start_line = int(header_match.group(1))
     current_line = start_line
 
-    # Find the line that matches target_line
+    extracted_lines = []
+
+    # Extract num_lines starting from target_line
     for line in lines[1:]:  # Skip @@ header
         if line.startswith('+'):
             # Added line
-            if current_line == target_line:
-                return line[1:]  # Remove '+' marker
+            if current_line >= target_line and len(extracted_lines) < num_lines:
+                extracted_lines.append(line[1:])  # Remove '+' marker
             current_line += 1
         elif line.startswith(' '):
             # Context line
-            if current_line == target_line:
-                return line[1:]  # Remove ' ' marker
+            if current_line >= target_line and len(extracted_lines) < num_lines:
+                extracted_lines.append(line[1:])  # Remove ' ' marker
             current_line += 1
         # Removed lines (-) don't increment line counter
 
-    return None
+        # Stop when we have enough lines
+        if len(extracted_lines) >= num_lines:
+            break
+
+    return '\n'.join(extracted_lines) if extracted_lines else None
 
 
 __all__ = [
