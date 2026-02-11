@@ -74,7 +74,7 @@ class IssueGeneratorAgent(BaseAIAgent):
 Your task is to:
 1. Analyze the user's description and categorize it
 2. Generate an issue title and detailed description following the appropriate template (if available)
-3. Ensure the title follows the Conventional Commits specification (e.g., "feat(scope): brief description")
+3. Ensure the title follows the Conventional Commits specification WITHOUT scope (e.g., "feat: Add user authentication")
 4. Use English for all content
 5. Prioritize clarity, conciseness, and actionable detail
 6. Preserve any code snippets exactly as provided, formatted in markdown code blocks
@@ -304,7 +304,7 @@ Instructions:
 Output format (REQUIRED - JSON):
 {{
   "category": "<category>",
-  "title": "<prefix>(scope): brief description",
+  "title": "<prefix>: Brief description",
   "body": "<complete markdown-formatted description>"
 }}
 """

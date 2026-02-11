@@ -13,11 +13,6 @@ steps:
     plugin: github
     step: ai_suggest_issue_title_and_body
 
-  - id: preview_and_confirm_issue
-    name: "Preview and Confirm Issue"
-    plugin: github
-    step: preview_and_confirm_issue
-
   - id: prompt_for_self_assign
     name: "Prompt for Self Assign"
     plugin: github

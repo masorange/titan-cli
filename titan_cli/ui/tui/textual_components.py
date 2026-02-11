@@ -139,6 +139,21 @@ class TextualComponents:
         except Exception:
             pass
 
+    def _append_text_no_truncate(self, text: str) -> None:
+        """
+        Internal helper to append text without truncation.
+
+        Creates a Static widget with proper overflow handling to show full text.
+
+        Args:
+            text: Text to append
+        """
+        widget = Static(text)
+        widget.styles.width = "100%"
+        widget.styles.height = "auto"
+        widget.styles.overflow_x = "auto"
+        self.output_widget.mount(widget)
+
     def text(self, text: str) -> None:
         """
         Append plain text without styling.
@@ -351,7 +366,7 @@ class TextualComponents:
                 result_container["cancelled"] = False
 
                 # Show what user entered (confirmation)
-                self.output_widget.append_output(f"  → {value}")
+                self._append_text_no_truncate(f"  → {value}")
 
                 # Remove the input widget
                 input_widget.remove()
@@ -434,11 +449,13 @@ class TextualComponents:
                 result_container["value"] = value
                 result_container["cancelled"] = False
 
-                # Show confirmation (truncated preview for multiline)
-                preview = value.split('\n')[0][:50]
-                if len(value.split('\n')) > 1 or len(value) > 50:
-                    preview += "..."
-                self.output_widget.append_output(f"  → {preview}")
+                # Show confirmation with full text (first line only for multiline)
+                if '\n' in value:
+                    preview = value.split('\n')[0]  # Show first line for multiline
+                else:
+                    preview = value  # Show full text for single line
+
+                self._append_text_no_truncate(f"  → {preview}")
 
                 # Remove the textarea widget
                 textarea_widget.remove()
@@ -608,7 +625,7 @@ class TextualComponents:
             from titan_cli.ui.tui.widgets import ChoiceOption
 
             options = [
-                ChoiceOption(value="use", label="Use as-is", variant="primary"),
+                ChoiceOption(value="use", label="Use", variant="primary"),
                 ChoiceOption(value="edit", label="Edit", variant="default"),
                 ChoiceOption(value="reject", label="Reject", variant="error"),
             ]
@@ -754,3 +771,140 @@ class TextualComponents:
                 return -1
 
         return result_container["exit_code"]
+
+    def ai_content_review_flow(
+        self,
+        content_title: str,
+        content_body: str,
+        header_text: str = "AI-Generated Content",
+        title_label: str = "Title:",
+        description_label: str = "Description:",
+        edit_instruction: str = "Edit the content below (first line = title, rest = description)",
+        confirm_question: str = "Use this content?",
+        choice_question: str = "What would you like to do?",
+    ) -> tuple[str, Optional[str], Optional[str]]:
+        """
+        Generic flow for reviewing AI-generated content with Use/Edit/Reject options.
+
+        This method provides a consistent UX for reviewing AI-generated content across
+        different workflows (PR, Issue, etc.). It shows a preview, offers 3 options
+        (Use/Edit/Reject), and handles the edit loop.
+
+        Args:
+            title: Not used currently, kept for backwards compatibility
+            content_title: The AI-generated title/subject line
+            content_body: The AI-generated body/description
+            header_text: Header to show above the preview (default: "AI-Generated Content")
+            title_label: Label for the title field (default: "Title:")
+            description_label: Label for the body field (default: "Description:")
+            edit_instruction: Instruction text shown when editing (default: generic)
+            confirm_question: Question to ask after editing (default: "Use this content?")
+            choice_question: Question for the Use/Edit/Reject choice (default: generic)
+
+        Returns:
+            Tuple of (choice, final_title, final_body):
+                - choice: "use", "edit", or "reject"
+                - final_title: The final title (original or edited), or None if rejected
+                - final_body: The final body (original or edited), or None if rejected
+
+        Raises:
+            KeyboardInterrupt: If user cancels the operation
+
+        Example:
+            choice, title, body = ctx.textual.ai_content_review_flow(
+                content_title="feat: Add dark mode support",
+                content_body="## Summary\\n- Implemented theme switcher...",
+                header_text="AI-Generated PR",
+                title_label="PR Title:",
+                description_label="PR Description:"
+            )
+
+            if choice == "reject":
+                return Skip("User rejected AI content")
+            elif choice in ("use", "edit"):
+                ctx.set("pr_title", title)
+                ctx.set("pr_body", body)
+        """
+        # Show preview header
+        self.text("")  # spacing
+        self.bold_text(header_text)
+        self.text("")  # spacing
+
+        # Show title
+        self.bold_text(title_label)
+        self.primary_text(f"  {content_title}")
+
+        # Warn if title is too long
+        number_of_characters = 72
+        if len(content_title) > number_of_characters:
+            self.warning_text(f"⚠ Title is {len(content_title)} characters (recommended: ≤ {number_of_characters})")
+
+        self.text("")  # spacing
+
+        # Show description
+        self.bold_text(description_label)
+        self.markdown(content_body)
+
+        self.text("")  # spacing
+
+        # Ask user what to do with the AI suggestion
+        options = [
+            ChoiceOption(value="use", label="Use", variant="primary"),
+            ChoiceOption(value="edit", label="Edit", variant="default"),
+            ChoiceOption(value="reject", label="Reject", variant="error"),
+        ]
+
+        choice = self.ask_choice(choice_question, options)
+
+        # Handle user choice
+        if choice == "reject":
+            return ("reject", None, None)
+
+        # Store initial values
+        final_title = content_title
+        final_body = content_body
+
+        if choice == "edit":
+            # Edit loop: allow user to edit until they confirm
+            while True:
+                self.text("")
+                self.dim_text(edit_instruction)
+
+                # Combine title and body as markdown for editing
+                combined_markdown = f"{final_title}\n\n{final_body}"
+
+                # Ask user to edit
+                edited_content = self.ask_multiline(
+                    "Edit content:",
+                    default=combined_markdown
+                )
+
+                if not edited_content or not edited_content.strip():
+                    self.warning_text("Content cannot be empty")
+                    return ("reject", None, None)
+
+                # Parse: first line = title, rest = body
+                lines = edited_content.strip().split("\n", 1)
+                final_title = lines[0].strip()
+                final_body = lines[1].strip() if len(lines) > 1 else ""
+
+                # Show final preview
+                self.text("")
+                self.bold_text("Final Preview:")
+                self.text("")
+                self.bold_text(title_label)
+                self.primary_text(f"  {final_title}")
+                self.text("")
+                self.bold_text(description_label)
+                self.markdown(final_body)
+                self.text("")
+
+                # Confirm
+                confirmed = self.ask_confirm(confirm_question, default=True)
+
+                if confirmed:
+                    break
+                # If not confirmed, loop back to edit
+
+        # Return the choice and final content
+        return (choice, final_title, final_body)
