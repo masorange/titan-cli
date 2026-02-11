@@ -33,7 +33,7 @@ def test_ai_suggest_issue_title_and_body(MockIssueGeneratorAgent, mock_secret_ma
     # Arrange
     mock_issue_generator = MockIssueGeneratorAgent.return_value
     mock_issue_generator.generate_issue.return_value = {
-        "title": "feat(plugins): Test Feature",
+        "title": "feat: Test Feature",
         "body": "Test Body",
         "category": "feature",
         "labels": ["feature"],
@@ -44,13 +44,15 @@ def test_ai_suggest_issue_title_and_body(MockIssueGeneratorAgent, mock_secret_ma
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Test issue body"})
     ctx.ai = MagicMock()
     ctx.textual = MagicMock()
+    # Mock ai_content_review_flow to return (choice, title, body)
+    ctx.textual.ai_content_review_flow.return_value = ("use", "feat: Test Feature", "Test Body")
 
     # Act
     result = ai_suggest_issue_title_and_body_step(ctx)
 
     # Assert
     assert isinstance(result, Success)
-    assert ctx.get("issue_title") == "feat(plugins): Test Feature"
+    assert ctx.get("issue_title") == "feat: Test Feature"
     assert ctx.get("issue_body") == "Test Body"
     assert ctx.get("issue_category") == "feature"
     assert ctx.get("labels") == ["feature"]
@@ -61,7 +63,7 @@ def test_ai_suggest_issue_title_and_body_bug_category(mock_secret_manager):
     with patch("titan_plugin_github.steps.issue_steps.IssueGeneratorAgent") as MockIssueGeneratorAgent:
         mock_issue_generator = MockIssueGeneratorAgent.return_value
         mock_issue_generator.generate_issue.return_value = {
-            "title": "fix(api): Test Bug Fix",
+            "title": "fix: Test Bug Fix",
             "body": "Bug description",
             "category": "bug",
             "labels": ["bug"],
@@ -72,6 +74,8 @@ def test_ai_suggest_issue_title_and_body_bug_category(mock_secret_manager):
         ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Something is broken"})
         ctx.ai = MagicMock()
         ctx.textual = MagicMock()
+        # Mock ai_content_review_flow to return (choice, title, body)
+        ctx.textual.ai_content_review_flow.return_value = ("use", "fix: Test Bug Fix", "Bug description")
 
         # Act
         result = ai_suggest_issue_title_and_body_step(ctx)
@@ -97,6 +101,8 @@ def test_ai_suggest_issue_title_and_body_without_template(mock_secret_manager):
         ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_body": "Update deps"})
         ctx.ai = MagicMock()
         ctx.textual = MagicMock()
+        # Mock ai_content_review_flow to return (choice, title, body)
+        ctx.textual.ai_content_review_flow.return_value = ("use", "chore: Update dependencies", "Chore description")
 
         # Act
         result = ai_suggest_issue_title_and_body_step(ctx)
