@@ -43,6 +43,7 @@ class CodeBlock(Static):
         word_wrap: bool = False,
         indent_guides: bool = False,
         original_line: str = None,
+        start_line: int = 1,
         **kwargs,
     ):
         """
@@ -58,6 +59,7 @@ class CodeBlock(Static):
             word_wrap: Whether to wrap long lines
             indent_guides: Whether to show indent guides
             original_line: For "suggestion" language, the original line to show in red
+            start_line: Starting line number (for diffs with real line numbers)
         """
         # Special handling for "suggestion" language (GitHub suggested changes)
         if language == "suggestion":
@@ -78,6 +80,18 @@ class CodeBlock(Static):
                 code = f"+{code}"
             language = "diff"
 
+        # For diffs, auto-detect starting line number from @@ header and remove it
+        if language == "diff" and line_numbers:
+            import re
+            lines = code.split('\n')
+            if lines:
+                # Format: @@ -old_start,old_lines +new_start,new_lines @@
+                header_match = re.match(r'@@ -\d+,?\d* \+(\d+),?\d* @@', lines[0])
+                if header_match:
+                    start_line = int(header_match.group(1))
+                    # Remove the header line from the code
+                    code = '\n'.join(lines[1:])
+
         # Create Rich Syntax object
         syntax = Syntax(
             code,
@@ -86,6 +100,7 @@ class CodeBlock(Static):
             line_numbers=line_numbers,
             word_wrap=word_wrap,
             indent_guides=indent_guides,
+            start_line=start_line,
         )
 
         # Initialize Static with the syntax object
