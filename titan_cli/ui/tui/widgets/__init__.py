@@ -32,6 +32,13 @@ from .text import (
     ItalicText,
     DimItalicText,
 )
+from .comment_utils import (
+    TextElement,
+    SuggestionElement,
+    CodeBlockElement,
+    CommentElement,
+    parse_comment_body,
+)
 
 __all__ = [
     "StatusBarWidget",
@@ -65,4 +72,9 @@ __all__ = [
     "WarningText",
     "ItalicText",
     "DimItalicText",
+    "TextElement",
+    "SuggestionElement",
+    "CodeBlockElement",
+    "CommentElement",
+    "parse_comment_body",
 ]

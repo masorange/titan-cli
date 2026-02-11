@@ -6,7 +6,6 @@ Widget for displaying a single PR/issue comment.
 
 from typing import List, Any, Optional
 from datetime import datetime
-import re
 from textual.app import ComposeResult
 from textual.widgets import Markdown
 from textual.widget import Widget
@@ -14,6 +13,7 @@ from textual.containers import Horizontal
 from titan_plugin_github.models import PRComment
 from .code_block import CodeBlock
 from .text import BoldText, DimText, ItalicText, Text, DimItalicText
+from .comment_utils import parse_comment_body, TextElement, SuggestionElement, CodeBlockElement
 
 
 class Comment(Widget):
@@ -105,9 +105,23 @@ class Comment(Widget):
         return container
 
     def _file_info_container(self) -> Optional[Horizontal]:
-        """Create container for file path and line info (for review comments)."""
+        """
+        Create container for file path and line info (for review comments).
+
+        For replies, only show if path/line differ from parent comment.
+        """
         if not self.pr_comment.path:
             return None
+
+        # If this is a reply with same file/line as parent, don't show redundant info
+        if self.parent_comment is not None:
+            parent_path = self.parent_comment.path
+            parent_line = self.parent_comment.line
+
+            # Skip if both path and line match parent
+            if (parent_path == self.pr_comment.path and
+                parent_line == self.pr_comment.line):
+                return None
 
         file_widget = ItalicText(f"{self.pr_comment.path}")
         file_widget.styles.width = "auto"
@@ -153,111 +167,55 @@ class Comment(Widget):
         """
         Parse comment body and render text and code blocks separately.
 
+        Uses comment_utils.parse_comment_body() to parse, then converts
+        elements to Textual widgets.
+
         Returns list of widgets: Markdown for text, CodeBlock for code.
         """
         body = self.pr_comment.body.strip()
         if not body:
             return []
 
-        # Normalize line endings (GitHub may send \r\n)
-        body = body.replace("\r\n", "\n")
+        # Parse comment body into structured elements
+        elements = parse_comment_body(
+            body=body,
+            diff_hunk=self.pr_comment.diff_hunk,
+            line=self.pr_comment.line
+        )
 
+        # Convert elements to widgets
         widgets = []
-
-        # Regex to match code blocks: ```language\ncode\n```
-        code_block_pattern = re.compile(r"```(\w+)?\n(.*?)```", re.DOTALL)
-        matches = list(code_block_pattern.finditer(body))
-
-        # If no code blocks found, just render as markdown
-        if not matches:
-            markdown_widget = Markdown(body)
-            markdown_widget.styles.width = "100%"
-            markdown_widget.styles.height = "auto"
-            markdown_widget.styles.padding = (1, 1, 0, 1)
-            widgets.append(markdown_widget)
-            return widgets
-
-        last_end = 0
-        for match in matches:
-            # Text before this code block
-            text_before = body[last_end : match.start()].strip()
-            if text_before:
-                markdown_widget = Markdown(text_before)
+        for element in elements:
+            if isinstance(element, TextElement):
+                # Render text as Markdown
+                markdown_widget = Markdown(element.content)
                 markdown_widget.styles.width = "100%"
                 markdown_widget.styles.height = "auto"
                 markdown_widget.styles.padding = (1, 1, 0, 1)
                 widgets.append(markdown_widget)
 
-            # Code block
-            language = match.group(1) or "text"
-            code = match.group(2).strip()
+            elif isinstance(element, SuggestionElement):
+                # Render suggestion as CodeBlock with original line
+                code_widget = CodeBlock(
+                    code=element.code,
+                    language="suggestion",
+                    original_line=element.original_line,
+                    theme="native",
+                    line_numbers=True,
+                )
+                widgets.append(code_widget)
 
-            # For "suggestion" blocks, extract original line from diff_hunk
-            original_line = None
-            if language == "suggestion":
-                original_line = self._extract_commented_line_from_diff()
-
-            code_widget = CodeBlock(
-                code=code,
-                language=language,
-                original_line=original_line,
-                theme="native",
-                line_numbers=True,
-            )
-            widgets.append(code_widget)
-
-            last_end = match.end()
-
-        # Text after last code block
-        text_after = body[last_end:].strip()
-        if text_after:
-            markdown_widget = Markdown(text_after)
-            markdown_widget.styles.width = "100%"
-            markdown_widget.styles.height = "auto"
-            markdown_widget.styles.padding = (1, 1, 0, 1)
-            widgets.append(markdown_widget)
+            elif isinstance(element, CodeBlockElement):
+                # Render code block
+                code_widget = CodeBlock(
+                    code=element.code,
+                    language=element.language,
+                    theme="native",
+                    line_numbers=True,
+                )
+                widgets.append(code_widget)
 
         return widgets
-
-    def _extract_commented_line_from_diff(self) -> Optional[str]:
-        """
-        Extract the specific line from diff_hunk that was commented on.
-
-        Returns:
-            The content of the commented line (without diff markers), or None if not found
-        """
-        if not self.pr_comment.diff_hunk or not self.pr_comment.line:
-            return None
-
-        diff_hunk = self.pr_comment.diff_hunk
-        target_line = self.pr_comment.line
-
-        # Parse the diff hunk to find the line
-        lines = diff_hunk.split('\n')
-
-        # Parse the @@ header to get starting line number
-        header_match = re.match(r'@@ -\d+,?\d* \+(\d+),?\d* @@', lines[0])
-        if not header_match:
-            return None
-
-        start_line = int(header_match.group(1))
-        current_line = start_line
-
-        # Find the line that matches target_line
-        for line in lines[1:]:  # Skip @@ header
-            if line.startswith('+'):
-                # Added line
-                if current_line == target_line:
-                    return line[1:]
-                current_line += 1
-            elif line.startswith(' '):
-                # Context line
-                if current_line == target_line:
-                    return line[1:]
-                current_line += 1
-            # Removed lines (-) don't increment line counter
-
-        return None
 
 
 __all__ = ["Comment"]
