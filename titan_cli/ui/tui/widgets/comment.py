@@ -32,6 +32,19 @@ class Comment(Widget):
         width: 100%;
         height: auto;
     }
+
+    Comment Horizontal {
+        width: 100%;
+    }
+
+    Comment .outdated-badge {
+        color: $warning;
+        border: round $warning;
+        padding: 0 1;
+        width: auto;
+        height: auto;
+        dock: right;
+    }
     """
 
     def __init__(
@@ -78,7 +91,7 @@ class Comment(Widget):
             yield DimItalicText("(empty comment)")
 
     def _metadata_container(self) -> Horizontal:
-        """Create container for author and date metadata."""
+        """Create container for author and date metadata with optional outdated badge."""
         # Format date to DD/MM/YYYY HH:mm:SS
         formatted_date = self.pr_comment.created_at
         try:
@@ -92,14 +105,20 @@ class Comment(Widget):
         author_widget = BoldText(f"{author_name}")
         author_widget.styles.width = "auto"
 
-        date_text = f" • {formatted_date}"
-        if self.is_outdated:
-            date_text += " (outdated)"
-        date_widget = DimText(date_text)
+        date_widget = DimText(f" • {formatted_date}")
         date_widget.styles.width = "auto"
 
+        # Build widgets list
+        widgets = [author_widget, date_widget]
+
+        # Add outdated badge if comment is outdated
+        if self.is_outdated:
+            badge = Text(" Outdated ")
+            badge.add_class("outdated-badge")
+            widgets.append(badge)
+
         # Container
-        container = Horizontal(author_widget, date_widget)
+        container = Horizontal(*widgets)
         container.styles.height = "auto"
 
         return container

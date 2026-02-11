@@ -13,6 +13,31 @@ from .text import BoldText, Text, DimText
 from .prompt_choice import PromptChoice, ChoiceOption
 
 
+class _ReplyPanel(PanelContainer):
+    """Internal widget for rendering a reply comment in a bordered panel."""
+
+    def __init__(
+        self,
+        reply: PRComment,
+        parent_comment: PRComment,
+        is_outdated: bool = False,
+        **kwargs
+    ):
+        super().__init__(variant="default", **kwargs)
+        self.reply = reply
+        self.parent_comment = parent_comment
+        self.is_outdated = is_outdated
+        self.add_class("reply-panel")
+
+    def compose(self) -> ComposeResult:
+        """Render the reply comment inside the panel."""
+        yield Comment(
+            self.reply,
+            is_outdated=self.is_outdated,
+            parent_comment=self.parent_comment
+        )
+
+
 class CommentThread(PanelContainer):
     """
     Widget for organizing a comment thread.
@@ -24,8 +49,9 @@ class CommentThread(PanelContainer):
     """
 
     DEFAULT_CSS = """
-    CommentThread Comment.reply {
+    CommentThread PanelContainer.reply-panel {
         margin-left: 4;
+        border: round white;
     }
 
     CommentThread PromptChoice {
@@ -82,6 +108,12 @@ class CommentThread(PanelContainer):
             yield DimText(f"Path: {comment.path}")
         if comment.line:
             yield DimText(f"Line: {comment.line}")
+        if hasattr(comment, 'position') and comment.position is not None:
+            yield DimText(f"Position: {comment.position}")
+        if hasattr(comment, 'original_position') and comment.original_position is not None:
+            yield DimText(f"Original Position: {comment.original_position}")
+        if hasattr(comment, 'is_outdated'):
+            yield DimText(f"Is Outdated: {comment.is_outdated}")
         if comment.pull_request_review_id:
             yield DimText(f"Review ID: {comment.pull_request_review_id}")
         if comment.in_reply_to_id:
@@ -90,16 +122,20 @@ class CommentThread(PanelContainer):
         yield DimText(f"Is Resolved: {comment.is_resolved}")
         if comment.diff_hunk:
             yield DimText(f"Diff Hunk: {len(comment.diff_hunk)} chars")
+            # Show first 3 lines of diff_hunk to verify content
+            lines = comment.diff_hunk.split('\n')[:3]
+            yield DimText(f"Diff Preview: {' | '.join(lines)}")
         if comment.body:
-            yield DimText(f"Body: {comment.body}")
+            body_preview = comment.body[:100] + "..." if len(comment.body) > 100 else comment.body
+            yield DimText(f"Body: {body_preview}")
         yield DimText("─────────────────────────")
         yield Text("")
 
     def compose(self) -> ComposeResult:
         """Compose thread: main comment + replies + action buttons."""
         # Main comment metadata
-        for widget in self._format_comment_metadata(self.pr_comment):
-            yield widget
+        # for widget in self._format_comment_metadata(self.pr_comment):
+        #     yield widget
 
         # Main comment formatted
         yield Comment(self.pr_comment, is_outdated=self.is_outdated)
@@ -112,17 +148,15 @@ class CommentThread(PanelContainer):
             )
             for reply in self.replies:
                 # Reply metadata
-                for widget in self._format_comment_metadata(reply):
-                    yield widget
+                # for widget in self._format_comment_metadata(reply):
+                #     yield widget
 
-                # Reply formatted (pass parent to compare diff_hunk)
-                reply_widget = Comment(
-                    reply,
-                    is_outdated=self.is_outdated,
-                    parent_comment=self.pr_comment
+                # Wrap reply in a PanelContainer
+                yield _ReplyPanel(
+                    reply=reply,
+                    parent_comment=self.pr_comment,
+                    is_outdated=self.is_outdated
                 )
-                reply_widget.add_class("reply")  # Indentation
-                yield reply_widget
 
         # Action buttons (if provided)
         if self.options and self.on_select_callback:

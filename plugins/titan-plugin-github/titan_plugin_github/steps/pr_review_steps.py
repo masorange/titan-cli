@@ -321,7 +321,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
             thread_widget = CommentThread(
                 pr_comment=comment,
                 thread_number=f"Thread {thread_idx + 1} of {len(pending_threads)}",
-                is_outdated=False,  # Could check comment.original_position vs position
+                is_outdated=comment.is_outdated,
                 replies=replies,
                 options=options,
                 on_select=on_choice_selected

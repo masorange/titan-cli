@@ -243,6 +243,8 @@ class PRComment:
         in_reply_to_id: ID of parent comment (if it's a reply)
         is_review_comment: True if inline review comment, False if issue comment
         is_resolved: True if the review thread is resolved (only for review comments)
+        position: Position in the current diff (None if outdated)
+        original_position: Position when comment was made
     """
     id: int
     node_id: Optional[str] = None
@@ -256,6 +258,13 @@ class PRComment:
     in_reply_to_id: Optional[int] = None
     is_review_comment: bool = True
     is_resolved: bool = False
+    position: Optional[int] = None
+    original_position: Optional[int] = None
+
+    @property
+    def is_outdated(self) -> bool:
+        """Check if comment is outdated (code changed since comment was made)."""
+        return self.is_review_comment and self.position is None and self.original_position is not None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], is_review: bool = True) -> 'PRComment':
@@ -284,7 +293,9 @@ class PRComment:
             pull_request_review_id=data.get("pull_request_review_id"),
             in_reply_to_id=data.get("in_reply_to_id"),
             is_review_comment=is_review,
-            is_resolved=False  # Will be set later based on GraphQL data
+            is_resolved=False,  # Will be set later based on GraphQL data
+            position=data.get("position"),
+            original_position=data.get("original_position")
         )
 
 
