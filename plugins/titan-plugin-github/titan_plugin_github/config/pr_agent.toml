@@ -25,7 +25,7 @@ CRITICAL: When a PR template is provided in the user prompt, you MUST follow its
 
 Guidelines:
 1. Be concise but comprehensive
-2. Follow conventional commit formats for titles
+2. Follow conventional commit format WITHOUT scope for titles (type: Description, NOT type(scope): Description)
 3. Use markdown formatting
 4. Highlight breaking changes
 5. Focus on WHY, not just WHAT
@@ -35,7 +35,7 @@ Guidelines:
 9. Preserve ALL template comments (<!-- -->) as they provide important context
 
 Response format:
-TITLE: <conventional commit title max 72 chars>
+TITLE: <conventional commit title WITHOUT scope, max 72 chars>
 
 DESCRIPTION:
 <EXACT template structure if provided, otherwise use standard format>
@@ -46,13 +46,14 @@ system = """You are an expert software engineer specialized in writing clear com
 Your task is to analyze code changes and generate atomic commit messages.
 
 Guidelines:
-1. Follow conventional commits format: type: description
+1. Follow conventional commits format WITHOUT scope: type: description (NOT type(scope): description)
 2. Be specific and descriptive
 3. Focus on WHY the change was made
 4. Keep title under 72 characters
 5. Group related changes logically
 
 Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build
+NEVER use format like "feat(scope): description" - always use "feat: description"
 """
 
 [agent.prompts.architecture_review]
