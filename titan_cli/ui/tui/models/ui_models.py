@@ -44,12 +44,13 @@ class UIComment:
     diff_hunk: Optional[str] = None
 
     @classmethod
-    def from_review_comment(cls, comment: 'Any') -> 'UIComment':
+    def from_review_comment(cls, comment: 'Any', is_outdated: bool = False) -> 'UIComment':
         """
         Convert a PRReviewComment (network model) to UIComment (view model).
 
         Args:
             comment: PRReviewComment instance from GraphQL
+            is_outdated: Whether this comment is on outdated code
 
         Returns:
             UIComment instance optimized for rendering
@@ -57,8 +58,12 @@ class UIComment:
         # Extract author name
         author_name = comment.author.login if comment.author else "Unknown"
 
-        # Use line if available, otherwise fallback to originalLine (for outdated comments)
-        line_number = comment.line or comment.original_line
+        # For outdated comments, use originalLine because diffHunk reflects old state
+        # For current comments, use line
+        if is_outdated and comment.original_line:
+            line_number = comment.original_line
+        else:
+            line_number = comment.line or comment.original_line
 
         return cls(
             id=comment.id,
@@ -66,7 +71,7 @@ class UIComment:
             author_name=author_name,
             formatted_date=_format_date(comment.created_at),
             path=comment.path,
-            line=line_number,  # line or originalLine from GraphQL
+            line=line_number,  # originalLine for outdated, line otherwise
             diff_hunk=comment.diff_hunk
         )
 
@@ -120,14 +125,17 @@ class UICommentThread:
         Returns:
             UICommentThread instance optimized for rendering
         """
-        # Convert main comment
+        # Convert main comment with outdated status
         main_comment = None
         if thread.main_comment:
-            main_comment = UIComment.from_review_comment(thread.main_comment)
+            main_comment = UIComment.from_review_comment(
+                thread.main_comment,
+                is_outdated=thread.is_outdated
+            )
 
-        # Convert replies
+        # Convert replies with outdated status
         replies = [
-            UIComment.from_review_comment(reply)
+            UIComment.from_review_comment(reply, is_outdated=thread.is_outdated)
             for reply in thread.replies
         ]
 
