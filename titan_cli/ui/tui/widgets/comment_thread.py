@@ -36,6 +36,8 @@ class CommentThread(PanelContainer):
         background: transparent;
         border: none;
     }
+
+
     """
 
     def __init__(
@@ -246,7 +248,7 @@ class CommentThread(PanelContainer):
             markdown_widget = Markdown(body)
             markdown_widget.styles.width = "100%"
             markdown_widget.styles.height = "auto"
-            markdown_widget.styles.margin = (1, 0)
+            markdown_widget.styles.padding = (1, 1, 0, 1)
             widgets.append(markdown_widget)
             return widgets
 
@@ -255,11 +257,11 @@ class CommentThread(PanelContainer):
             # Text before this code block
             text_before = body[last_end : match.start()].strip()
             if text_before:
-                # Use Markdown for text to preserve formatting (bold, links, etc.)
+                # Use Markdown to preserve formatting (bold, links, etc.)
                 markdown_widget = Markdown(text_before)
                 markdown_widget.styles.width = "100%"
                 markdown_widget.styles.height = "auto"
-                markdown_widget.styles.margin = (0, 0, 1, 0)
+                markdown_widget.styles.padding = (1, 1, 0, 1)
                 widgets.append(markdown_widget)
 
             # Code block
@@ -272,7 +274,11 @@ class CommentThread(PanelContainer):
                 original_line = self._extract_commented_line_from_diff()
                 # DEBUG: Show suggestion info
                 widgets.append(DimText(f"[DEBUG] Suggestion code: {code[:80]}"))
-                widgets.append(DimText(f"[DEBUG] Original line: {original_line[:80] if original_line else 'None'}"))
+                widgets.append(
+                    DimText(
+                        f"[DEBUG] Original line: {original_line[:80] if original_line else 'None'}"
+                    )
+                )
 
             code_widget = CodeBlock(
                 code=code,
@@ -291,7 +297,7 @@ class CommentThread(PanelContainer):
             markdown_widget = Markdown(text_after)
             markdown_widget.styles.width = "100%"
             markdown_widget.styles.height = "auto"
-            markdown_widget.styles.margin = (0, 0, 1, 0)
+            markdown_widget.styles.padding = (1, 1, 0, 1)
             widgets.append(markdown_widget)
 
         return widgets
