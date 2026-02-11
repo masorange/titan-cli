@@ -37,7 +37,7 @@ class PromptChoice(Widget):
 
     Example:
         options = [
-            ChoiceOption(value="use", label="Use as-is", variant="primary"),
+            ChoiceOption(value="use", label="Use", variant="primary"),
             ChoiceOption(value="edit", label="Edit", variant="default"),
             ChoiceOption(value="reject", label="Reject", variant="error"),
         ]

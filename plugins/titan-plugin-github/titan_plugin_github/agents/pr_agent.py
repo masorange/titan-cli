@@ -454,12 +454,14 @@ This PR modifies localization/translation files. When analyzing:
 ```
 
 ## CRITICAL Instructions
-1. **Title**: Follow conventional commits (type: Description), be clear and descriptive
+1. **Title**: Follow conventional commits format WITHOUT scope (type: Description), be clear and descriptive
+   - Format: `type: Description` (NO scope, NO parentheses)
    - Start description with CAPITAL letter (imperative mood)
    - **If <project_context> contains issue IDs** (e.g., jira_issues, issue_ids, tickets), include them in the title BEFORE the description:
      * Format: `type: ISSUE-1, ISSUE-2 Description`
      * Example: `feat: PROJ-1234, PROJ-5678 Add OAuth2 integration`
    - Examples without issues: "feat: Add OAuth2 integration with Google provider", "fix: Resolve race condition in cache invalidation"
+   - NEVER use format like "feat(scope): Description" - always use "feat: Description"
 
 2. **Project Context**: If <project_context> is provided above, incorporate information into appropriate sections:
    - **Issue IDs** (jira_issues, etc.): Include in TITLE (see instruction 1) AND in the body if the template has a section for it (e.g., "Related Issues", "JIRA", etc.)
