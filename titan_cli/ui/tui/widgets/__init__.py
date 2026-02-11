@@ -10,6 +10,7 @@ from .panel_container import PanelContainer
 from .table import Table
 from .button import Button
 from .step_container import StepContainer
+from .comment import Comment
 from .comment_thread import CommentThread
 from .code_block import CodeBlock
 from .multiline_input import MultilineInput
@@ -40,6 +41,7 @@ __all__ = [
     "Table",
     "Button",
     "StepContainer",
+    "Comment",
     "CommentThread",
     "CodeBlock",
     "MultilineInput",
