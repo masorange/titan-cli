@@ -38,6 +38,7 @@ class Comment(Widget):
         self,
         pr_comment: PRComment,
         is_outdated: bool = False,
+        parent_comment: Optional[PRComment] = None,
         **kwargs
     ):
         """
@@ -46,10 +47,12 @@ class Comment(Widget):
         Args:
             pr_comment: The PR comment to display
             is_outdated: Whether comment is on outdated code
+            parent_comment: Parent comment (for replies, to compare diff_hunk)
         """
         super().__init__(**kwargs)
         self.pr_comment = pr_comment
         self.is_outdated = is_outdated
+        self.parent_comment = parent_comment
 
     def compose(self) -> ComposeResult:
         """Compose comment content."""
@@ -121,9 +124,21 @@ class Comment(Widget):
         return container
 
     def _code_context_widget(self) -> Optional[CodeBlock]:
-        """Create code block widget with syntax-highlighted diff context."""
+        """
+        Create code block widget with syntax-highlighted diff context.
+
+        For replies, only show diff_hunk if it's different from the parent comment.
+        This prevents showing redundant code context in conversation threads.
+        """
         if not self.pr_comment.diff_hunk:
             return None
+
+        # If this is a reply, only show diff if it's different from parent
+        if self.parent_comment is not None:
+            parent_diff = self.parent_comment.diff_hunk
+            # Skip if same diff_hunk as parent (redundant context)
+            if parent_diff and parent_diff == self.pr_comment.diff_hunk:
+                return None
 
         code_block = CodeBlock(
             code=self.pr_comment.diff_hunk,
