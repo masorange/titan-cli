@@ -774,7 +774,6 @@ class TextualComponents:
 
     def ai_content_review_flow(
         self,
-        title: str,
         content_title: str,
         content_body: str,
         header_text: str = "AI-Generated Content",
@@ -813,7 +812,6 @@ class TextualComponents:
 
         Example:
             choice, title, body = ctx.textual.ai_content_review_flow(
-                title="",  # Not used
                 content_title="feat: Add dark mode support",
                 content_body="## Summary\\n- Implemented theme switcher...",
                 header_text="AI-Generated PR",

@@ -107,7 +107,6 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Use the reusable AI content review flow
         choice, pr_title, pr_body = ctx.textual.ai_content_review_flow(
-            title="",  # Not used by the component
             content_title=analysis.pr_title,
             content_body=analysis.pr_body,
             header_text=msg.GitHub.AI.AI_GENERATED_PR_TITLE,

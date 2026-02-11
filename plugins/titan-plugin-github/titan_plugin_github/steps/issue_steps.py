@@ -61,7 +61,6 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
 
         # Use the reusable AI content review flow
         choice, issue_title, issue_body = ctx.textual.ai_content_review_flow(
-            title="",  # Not used by the component
             content_title=result["title"],
             content_body=result["body"],
             header_text="AI-Generated Issue",
