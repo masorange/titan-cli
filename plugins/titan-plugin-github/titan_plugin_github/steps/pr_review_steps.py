@@ -4,7 +4,8 @@ Steps for reviewing and addressing PR comments.
 import threading
 from typing import List
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
-from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, CommentThread
+from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
+from titan_plugin_github.widgets import CommentThread
 from titan_cli.ui.tui.models import UICommentThread
 from ..models import PRReviewThread
 

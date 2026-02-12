@@ -10,10 +10,6 @@ from .panel_container import PanelContainer
 from .table import Table
 from .button import Button
 from .step_container import StepContainer
-from .comment import Comment
-from .reply_comment import ReplyComment
-from .comment_thread import CommentThread
-from .code_block import CodeBlock
 from .multiline_input import MultilineInput
 from .prompt_input import PromptInput
 from .prompt_textarea import PromptTextArea
@@ -33,13 +29,6 @@ from .text import (
     ItalicText,
     DimItalicText,
 )
-from .comment_utils import (
-    TextElement,
-    SuggestionElement,
-    CodeBlockElement,
-    CommentElement,
-    parse_comment_body,
-)
 
 __all__ = [
     "StatusBarWidget",
@@ -49,10 +38,6 @@ __all__ = [
     "Table",
     "Button",
     "StepContainer",
-    "Comment",
-    "ReplyComment",
-    "CommentThread",
-    "CodeBlock",
     "MultilineInput",
     "PromptInput",
     "PromptTextArea",
@@ -74,9 +59,4 @@ __all__ = [
     "WarningText",
     "ItalicText",
     "DimItalicText",
-    "TextElement",
-    "SuggestionElement",
-    "CodeBlockElement",
-    "CommentElement",
-    "parse_comment_body",
 ]
