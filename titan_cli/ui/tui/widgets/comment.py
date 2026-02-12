@@ -7,13 +7,12 @@ Shows: author, date, file path, line, diff context, and comment body.
 
 from typing import List, Any, Optional
 from textual.app import ComposeResult
-from textual.widgets import Markdown
 from textual.widget import Widget
 from textual.containers import Horizontal
 from titan_cli.ui.tui.models import UIComment
 from .code_block import CodeBlock
 from .text import BoldText, DimText, ItalicText, Text, DimItalicText
-from .comment_utils import parse_comment_body, TextElement, SuggestionElement, CodeBlockElement
+from .comment_utils import render_comment_elements
 
 
 class Comment(Widget):
@@ -257,80 +256,12 @@ class Comment(Widget):
         return new_header + '\n' + '\n'.join(extracted_raw_lines)
 
     def _parse_and_render_body(self) -> List[Any]:
-        """
-        Parse comment body and render text and code blocks separately.
-
-        Uses comment_utils.parse_comment_body() to parse, then converts
-        elements to Textual widgets.
-
-        Returns list of widgets: Markdown for text, CodeBlock for code.
-        """
-        body = self.comment.body.strip()
-        if not body:
-            return []
-
-        # Parse comment body into structured elements
-        elements = parse_comment_body(
-            body=body,
+        """Parse comment body and render as Textual widgets."""
+        return render_comment_elements(
+            body=self.comment.body,
             diff_hunk=self.comment.diff_hunk,
             line=self.comment.line
         )
-
-        # Convert elements to widgets
-        widgets = []
-        for element in elements:
-            if isinstance(element, TextElement):
-                # Render text as Markdown
-                markdown_widget = Markdown(element.content)
-                markdown_widget.styles.width = "100%"
-                markdown_widget.styles.height = "auto"
-                markdown_widget.styles.padding = (1, 1, 0, 1)
-                widgets.append(markdown_widget)
-
-            elif isinstance(element, SuggestionElement):
-                # DEBUG: Show extraction details
-                widgets.append(DimText("─── SUGGESTION DEBUG ───"))
-                widgets.append(DimText(f"Comment line: {self.comment.line}"))
-                widgets.append(DimText(f"start_line: {element.start_line}"))
-                widgets.append(DimText(f"Suggestion has {len(element.code.split(chr(10)))} line(s)"))
-                widgets.append(DimText(f"Original lines: {element.original_lines if element.original_lines else 'NONE'}"))
-                if self.comment.diff_hunk:
-                    import re
-                    hunk_lines = self.comment.diff_hunk.split('\n')
-                    # Parse header to see what line range the diff covers
-                    header_match = re.match(r'@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@', hunk_lines[0])
-                    if header_match:
-                        new_start = int(header_match.group(3))
-                        new_count = int(header_match.group(4)) if header_match.group(4) else 1
-                        widgets.append(DimText(f"Diff covers lines {new_start} to {new_start + new_count - 1}"))
-                    widgets.append(DimText(f"Diff header: {hunk_lines[0][:80]}"))
-                    widgets.append(DimText(f"Diff has {len(hunk_lines)} total lines"))
-                else:
-                    widgets.append(DimText("diff_hunk: NONE"))
-                widgets.append(DimText("────────────────────────"))
-
-                # Render suggestion as CodeBlock with GitHub-style line numbers
-                code_widget = CodeBlock(
-                    code=element.code,
-                    language="suggestion",
-                    original_lines=element.original_lines,
-                    start_line=element.start_line or 1,
-                    theme="native",
-                    line_numbers=True,  # CodeBlock handles GitHub-style numbers
-                )
-                widgets.append(code_widget)
-
-            elif isinstance(element, CodeBlockElement):
-                # Render code block
-                code_widget = CodeBlock(
-                    code=element.code,
-                    language=element.language,
-                    theme="native",
-                    line_numbers=True,
-                )
-                widgets.append(code_widget)
-
-        return widgets
 
 
 __all__ = ["Comment"]

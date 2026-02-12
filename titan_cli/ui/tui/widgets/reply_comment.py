@@ -7,13 +7,11 @@ Shows only: author, date, and comment body (context already shown in main commen
 
 from typing import List, Any
 from textual.app import ComposeResult
-from textual.widgets import Markdown
-from textual.widget import Widget
+from textual.widget import Widget, Text
 from textual.containers import Horizontal
 from titan_cli.ui.tui.models import UIComment
-from .code_block import CodeBlock
-from .text import BoldText, DimText, Text, DimItalicText
-from .comment_utils import parse_comment_body, TextElement, SuggestionElement, CodeBlockElement
+from .text import BoldText, DimText, DimItalicText
+from .comment_utils import render_comment_elements
 
 
 class ReplyComment(Widget):
@@ -72,57 +70,11 @@ class ReplyComment(Widget):
         return container
 
     def _parse_and_render_body(self) -> List[Any]:
-        """
-        Parse reply body and render text and code blocks.
-
-        Returns list of widgets: Markdown for text, CodeBlock for code.
-        """
-        body = self.reply.body.strip()
-        if not body:
-            return []
-
-        # Parse comment body into structured elements
-        # Replies can have suggestions too, so pass diff_hunk and line
-        elements = parse_comment_body(
-            body=body,
+        """Parse reply body and render as Textual widgets."""
+        return render_comment_elements(
+            body=self.reply.body,
             diff_hunk=self.reply.diff_hunk,
             line=self.reply.line
         )
-
-        # Convert elements to widgets
-        widgets = []
-        for element in elements:
-            if isinstance(element, TextElement):
-                # Render text as Markdown
-                markdown_widget = Markdown(element.content)
-                markdown_widget.styles.width = "100%"
-                markdown_widget.styles.height = "auto"
-                markdown_widget.styles.padding = (1, 1, 0, 1)
-                widgets.append(markdown_widget)
-
-            elif isinstance(element, SuggestionElement):
-                # Render suggestion as CodeBlock with GitHub-style line numbers
-                code_widget = CodeBlock(
-                    code=element.code,
-                    language="suggestion",
-                    original_lines=element.original_lines,
-                    start_line=element.start_line or 1,
-                    theme="native",
-                    line_numbers=True,  # CodeBlock handles GitHub-style numbers
-                )
-                widgets.append(code_widget)
-
-            elif isinstance(element, CodeBlockElement):
-                # Render code block
-                code_widget = CodeBlock(
-                    code=element.code,
-                    language=element.language,
-                    theme="native",
-                    line_numbers=True,
-                )
-                widgets.append(code_widget)
-
-        return widgets
-
 
 __all__ = ["ReplyComment"]

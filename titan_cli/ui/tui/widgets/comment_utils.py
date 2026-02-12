@@ -168,10 +168,72 @@ def _extract_lines_from_diff(diff_hunk: str, target_line: int, num_lines: int = 
     return '\n'.join(extracted_lines) if extracted_lines else None
 
 
+def render_comment_elements(body: str, diff_hunk: Optional[str] = None, line: Optional[int] = None):
+    """
+    Parse and render comment body into Textual widgets.
+
+    Args:
+        body: Comment body text
+        diff_hunk: Diff context (for suggestions)
+        line: Line number (for suggestions)
+
+    Returns:
+        List of Textual widgets ready to be yielded
+    """
+    from textual.widgets import Markdown
+    from .code_block import CodeBlock
+
+    if not body or not body.strip():
+        return []
+
+    # Parse comment body into structured elements
+    elements = parse_comment_body(
+        body=body,
+        diff_hunk=diff_hunk,
+        line=line
+    )
+
+    # Convert elements to widgets
+    widgets = []
+    for element in elements:
+        if isinstance(element, TextElement):
+            # Render text as Markdown
+            markdown_widget = Markdown(element.content)
+            markdown_widget.styles.width = "100%"
+            markdown_widget.styles.height = "auto"
+            markdown_widget.styles.padding = (1, 1, 0, 1)
+            widgets.append(markdown_widget)
+
+        elif isinstance(element, SuggestionElement):
+            # Render suggestion as CodeBlock with GitHub-style line numbers
+            code_widget = CodeBlock(
+                code=element.code,
+                language="suggestion",
+                original_lines=element.original_lines,
+                start_line=element.start_line or 1,
+                theme="native",
+                line_numbers=True,
+            )
+            widgets.append(code_widget)
+
+        elif isinstance(element, CodeBlockElement):
+            # Render code block
+            code_widget = CodeBlock(
+                code=element.code,
+                language=element.language,
+                theme="native",
+                line_numbers=True,
+            )
+            widgets.append(code_widget)
+
+    return widgets
+
+
 __all__ = [
     "TextElement",
     "SuggestionElement",
     "CodeBlockElement",
     "CommentElement",
     "parse_comment_body",
+    "render_comment_elements",
 ]
