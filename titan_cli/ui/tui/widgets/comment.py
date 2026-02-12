@@ -198,70 +198,37 @@ class Comment(Widget):
                 # Control line or empty
                 parsed_lines.append((None, None, raw_line, idx))
 
-        # For outdated comments with large diffs, show last 10 lines (like Microsoft's slice(-maxLines))
-        if is_outdated:
-            if len(parsed_lines) > 10:
-                # Show last 10 diff lines
-                extracted = parsed_lines[-10:]
-
-                # Find start lines for header
-                extracted_new_start = None
-                extracted_old_start = None
-                for old_num, new_num, raw_line, _ in extracted:
-                    if extracted_new_start is None and new_num is not None:
-                        extracted_new_start = new_num
-                    if extracted_old_start is None and old_num is not None:
-                        extracted_old_start = old_num
-                    if extracted_new_start and extracted_old_start:
-                        break
-
-                if extracted_new_start is None:
-                    extracted_new_start = new_start
-                if extracted_old_start is None:
-                    extracted_old_start = old_start
-
-                # Count lines for header
-                old_count = sum(1 for old_num, _, raw_line, _ in extracted
-                               if raw_line.startswith('-') or raw_line.startswith(' '))
-                new_count = sum(1 for _, new_num, raw_line, _ in extracted
-                               if raw_line.startswith('+') or raw_line.startswith(' '))
-
-                # Rebuild diff with correct header
-                new_header = f"@@ -{extracted_old_start},{old_count} +{extracted_new_start},{new_count} @@{header_suffix}"
-                extracted_raw_lines = [raw_line for _, _, raw_line, _ in extracted]
-
-                return new_header + '\n' + '\n'.join(extracted_raw_lines)
-            else:
-                return diff_hunk
-
-        if not target_line:
-            return diff_hunk
-
-        # Find the line that matches target_line
+        # Find target line in diff (only for non-outdated comments)
         target_idx = None
-        for old_num, new_num, raw_line, idx in parsed_lines:
-            if new_num == target_line:
-                target_idx = idx
-                break
+        if not is_outdated and target_line:
+            for old_num, new_num, raw_line, idx in parsed_lines:
+                if new_num == target_line:
+                    target_idx = idx
+                    break
 
-        if target_idx is None:
-            # Target line not in diff, show full diff
+        # Decide which lines to extract
+        if target_idx is not None:
+            # Target found: extract context around it (7 before + target + 3 after)
+            min_idx = max(0, target_idx - 7)
+            max_idx = min(len(parsed_lines) - 1, target_idx + 3)
+            extracted = parsed_lines[min_idx:max_idx + 1]
+        elif len(parsed_lines) > 10:
+            # Target not found or outdated with large diff: show last 10 lines
+            extracted = parsed_lines[-10:]
+        else:
+            # Small diff: show all
             return diff_hunk
 
-        # Extract last 8 lines before target + target + 3 after (like Microsoft's maxLines=8)
-        context_before = 7
-        context_after = 3
-        min_idx = max(0, target_idx - context_before)
-        max_idx = min(len(parsed_lines) - 1, target_idx + context_after)
+        # Rebuild diff with extracted lines
+        return self._rebuild_diff(extracted, old_start, new_start, header_suffix)
 
-        # Get the extracted lines
-        extracted = parsed_lines[min_idx:max_idx + 1]
-
-        # Find the new start line for the header (first non-removed line)
+    def _rebuild_diff(self, extracted_lines, old_start, new_start, header_suffix):
+        """Rebuild a diff from extracted lines with correct header."""
+        # Find start lines for the extracted portion
         extracted_new_start = None
         extracted_old_start = None
 
-        for old_num, new_num, raw_line, _ in extracted:
+        for old_num, new_num, raw_line, _ in extracted_lines:
             if extracted_new_start is None and new_num is not None:
                 extracted_new_start = new_num
             if extracted_old_start is None and old_num is not None:
@@ -275,15 +242,17 @@ class Comment(Widget):
         if extracted_old_start is None:
             extracted_old_start = old_start
 
-        # Count lines for the new header
-        old_count = sum(1 for old_num, _, raw_line, _ in extracted
+        # Count lines for each side
+        old_count = sum(1 for old_num, _, raw_line, _ in extracted_lines
                        if raw_line.startswith('-') or raw_line.startswith(' '))
-        new_count = sum(1 for _, new_num, raw_line, _ in extracted
+        new_count = sum(1 for _, new_num, raw_line, _ in extracted_lines
                        if raw_line.startswith('+') or raw_line.startswith(' '))
 
-        # Rebuild diff with correct header
+        # Build new header
         new_header = f"@@ -{extracted_old_start},{old_count} +{extracted_new_start},{new_count} @@{header_suffix}"
-        extracted_raw_lines = [raw_line for _, _, raw_line, _ in extracted]
+
+        # Extract raw lines
+        extracted_raw_lines = [raw_line for _, _, raw_line, _ in extracted_lines]
 
         return new_header + '\n' + '\n'.join(extracted_raw_lines)
 
