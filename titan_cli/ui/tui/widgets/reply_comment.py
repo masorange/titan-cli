@@ -101,22 +101,6 @@ class ReplyComment(Widget):
                 widgets.append(markdown_widget)
 
             elif isinstance(element, SuggestionElement):
-                # DEBUG: Show extraction details
-                widgets.append(DimText("─── SUGGESTION DEBUG (REPLY) ───"))
-                widgets.append(DimText(f"start_line: {element.start_line}"))
-                widgets.append(DimText(f"Suggestion ({len(element.code.split(chr(10)))} lines): {element.code[:80]}"))
-                widgets.append(DimText(f"Original lines: {element.original_lines if element.original_lines else 'NONE'}"))
-                if self.reply.diff_hunk:
-                    hunk_lines = self.reply.diff_hunk.split('\n')
-                    widgets.append(DimText(f"Diff has {len(hunk_lines)} lines"))
-                    widgets.append(DimText("First 5 lines of diff:"))
-                    for i, line in enumerate(hunk_lines[:5]):
-                        widgets.append(DimText(f"  [{i}] {line[:60]}"))
-                else:
-                    widgets.append(DimText("diff_hunk: NONE"))
-                widgets.append(DimText(f"reply.line: {self.reply.line}"))
-                widgets.append(DimText("────────────────────────────"))
-
                 # Render suggestion as CodeBlock with original lines (can be multiline)
                 code_widget = CodeBlock(
                     code=element.code,

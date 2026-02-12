@@ -128,11 +128,16 @@ class Comment(Widget):
             is_outdated=self.is_outdated
         )
 
+        # Only show line numbers if there are no removed lines (-)
+        # When there are removed lines, two-column numbering would be needed (old | new)
+        # but Rich/Syntax only supports one column, so we disable numbers in that case
+        has_removed_lines = '\n-' in context_code
+
         code_block = CodeBlock(
             code=context_code,
             language="diff",
             theme="native",
-            line_numbers=True,
+            line_numbers=not has_removed_lines,  # Disable only when there are removed lines
         )
 
         return code_block
