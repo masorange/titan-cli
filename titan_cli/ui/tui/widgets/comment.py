@@ -128,16 +128,13 @@ class Comment(Widget):
             is_outdated=self.is_outdated
         )
 
-        # Only show line numbers if there are no removed lines (-)
-        # When there are removed lines, two-column numbering would be needed (old | new)
-        # but Rich/Syntax only supports one column, so we disable numbers in that case
-        has_removed_lines = '\n-' in context_code
-
+        # CodeBlock now handles GitHub-style line numbers for diffs
+        # (old line numbers for -, new line numbers for +)
         code_block = CodeBlock(
             code=context_code,
             language="diff",
             theme="native",
-            line_numbers=not has_removed_lines,  # Disable only when there are removed lines
+            line_numbers=True,  # CodeBlock handles this correctly now
         )
 
         return code_block
@@ -343,15 +340,14 @@ class Comment(Widget):
                     widgets.append(DimText("diff_hunk: NONE"))
                 widgets.append(DimText("────────────────────────"))
 
-                # Render suggestion as CodeBlock with original lines (can be multiline)
-                # No line numbers for suggestions, just diff markers
+                # Render suggestion as CodeBlock with GitHub-style line numbers
                 code_widget = CodeBlock(
                     code=element.code,
                     language="suggestion",
                     original_lines=element.original_lines,
                     start_line=element.start_line or 1,
                     theme="native",
-                    line_numbers=False,  # No line numbers in suggestions
+                    line_numbers=True,  # CodeBlock handles GitHub-style numbers
                 )
                 widgets.append(code_widget)
 

@@ -101,14 +101,14 @@ class ReplyComment(Widget):
                 widgets.append(markdown_widget)
 
             elif isinstance(element, SuggestionElement):
-                # Render suggestion as CodeBlock with original lines (can be multiline)
+                # Render suggestion as CodeBlock with GitHub-style line numbers
                 code_widget = CodeBlock(
                     code=element.code,
                     language="suggestion",
                     original_lines=element.original_lines,
                     start_line=element.start_line or 1,
                     theme="native",
-                    line_numbers=False,  # No line numbers in suggestions
+                    line_numbers=True,  # CodeBlock handles GitHub-style numbers
                 )
                 widgets.append(code_widget)
 
