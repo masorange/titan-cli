@@ -343,7 +343,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 continue
 
             elif choice == "reply":
-                # Manual reply
+                # Manual reply - add to pending responses for review at the end
                 ctx.textual.text("")
                 reply_text = ctx.textual.ask_multiline(
                     "Enter your reply:",
@@ -351,17 +351,11 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 )
 
                 if reply_text and reply_text.strip():
-                    try:
-                        # Get main comment ID from the network model
-                        main_comment_id = pr_thread.main_comment.id
-                        with ctx.textual.loading("Posting reply..."):
-                            ctx.github.reply_to_comment(pr_number, main_comment_id, reply_text)
-
-                        ctx.textual.success_text("Reply posted successfully")
-                        processed_count += 1
-                    except Exception as e:
-                        ctx.textual.error_text(f"Failed to post reply: {e}")
-                        skipped_count += 1
+                    # Add to pending responses (will be reviewed at the end)
+                    main_comment_id = pr_thread.main_comment.id
+                    pending_responses[main_comment_id] = reply_text
+                    ctx.textual.success_text("✓ Reply queued for review")
+                    processed_count += 1
                 else:
                     ctx.textual.warning_text("Empty reply, skipping")
                     skipped_count += 1
