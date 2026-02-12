@@ -469,7 +469,7 @@ Note: Review the entire conversation thread carefully - previous fix attempts ma
                     ctx.data["project_root"] = full_worktree_path
 
                     # Launch AI assistant
-                    ai_result = execute_ai_assistant_step(ai_step, ctx)
+                    execute_ai_assistant_step(ai_step, ctx)
 
                     # Restore original project_root
                     ctx.data["project_root"] = original_project_root
@@ -686,6 +686,50 @@ Note: Review the entire conversation thread carefully - previous fix attempts ma
                 ctx.textual.success_text(f"✓ Sent {replied_count} auto-reply(s)")
             else:
                 ctx.textual.dim_text("Skipped auto-replies")
+
+        # Push commits and re-request review
+        if comment_commits and worktree_created and worktree_path:
+            ctx.textual.text("")
+            ctx.textual.text("")
+            ctx.textual.bold_text(f"=== Push Changes to PR ({len(comment_commits)} commit(s)) ===")
+            ctx.textual.text("")
+
+            should_push = ctx.textual.ask_confirm(
+                f"Do you want to push {len(comment_commits)} commit(s) to the PR branch?",
+                default=True
+            )
+
+            if should_push:
+                try:
+                    # Push from worktree
+                    ctx.textual.text("")
+                    with ctx.textual.loading(f"Pushing to {head_branch}..."):
+                        ctx.git.run_in_worktree(worktree_path, ["git", "push", "origin", head_branch])
+
+                    ctx.textual.success_text(f"✓ Pushed to {head_branch}")
+
+                    # Ask if want to re-request review
+                    ctx.textual.text("")
+                    should_rerequest = ctx.textual.ask_confirm(
+                        "Do you want to re-request review from existing reviewers?",
+                        default=True
+                    )
+
+                    if should_rerequest:
+                        try:
+                            with ctx.textual.loading("Re-requesting review..."):
+                                ctx.github.request_pr_review(pr_number)
+
+                            ctx.textual.success_text("✓ Review re-requested from existing reviewers")
+                        except Exception as e:
+                            ctx.textual.warning_text(f"Failed to re-request review: {e}")
+                    else:
+                        ctx.textual.dim_text("Skipped review re-request")
+
+                except Exception as e:
+                    ctx.textual.error_text(f"Failed to push: {e}")
+            else:
+                ctx.textual.dim_text("Skipped push (commits remain in worktree)")
 
         # All threads processed
         ctx.textual.text("")

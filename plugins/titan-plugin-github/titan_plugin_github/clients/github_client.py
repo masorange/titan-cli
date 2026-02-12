@@ -880,6 +880,194 @@ class GitHubClient:
                 )
             )
 
+    def request_pr_review(self, pr_number: int, reviewers: Optional[List[str]] = None) -> None:
+        """
+        Request review (or re-request review) on a PR using GraphQL.
+
+        If reviewers is not provided, re-requests review from all existing reviewers
+        who have already reviewed the PR.
+
+        Args:
+            pr_number: PR number
+            reviewers: List of GitHub usernames to request review from.
+                      If None, re-requests from existing reviewers.
+
+        Raises:
+            GitHubAPIError: If requesting review fails
+
+        Examples:
+            >>> # Re-request review from existing reviewers
+            >>> client.request_pr_review(123)
+
+            >>> # Request review from specific users
+            >>> client.request_pr_review(123, ["user1", "user2"])
+        """
+        try:
+            # First, get PR node ID and existing reviewers if needed
+            if reviewers is None:
+                # Get existing reviewers from PR
+                query = '''
+                query($owner: String!, $repo: String!, $prNumber: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $prNumber) {
+                      id
+                      reviewRequests(first: 100) {
+                        nodes {
+                          requestedReviewer {
+                            ... on User {
+                              login
+                            }
+                          }
+                        }
+                      }
+                      reviews(first: 100) {
+                        nodes {
+                          author {
+                            login
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                '''
+
+                args = [
+                    "api",
+                    "graphql",
+                    "-f",
+                    f"query={query}",
+                    "-f",
+                    f"owner={self.owner}",
+                    "-f",
+                    f"repo={self.repo}",
+                    "-F",
+                    f"prNumber={pr_number}"
+                ]
+
+                output = self._run_gh_command(args)
+                data = json.loads(output)
+                pr_data = data.get("data", {}).get("repository", {}).get("pullRequest", {})
+
+                if not pr_data:
+                    raise GitHubAPIError(f"PR #{pr_number} not found")
+
+                pr_node_id = pr_data.get("id")
+
+                # Get reviewers who have already reviewed
+                existing_reviewers = set()
+                reviews = pr_data.get("reviews", {}).get("nodes", [])
+                for review in reviews:
+                    author = review.get("author", {})
+                    if author and author.get("login"):
+                        existing_reviewers.add(author["login"])
+
+                # Get pending review requests
+                review_requests = pr_data.get("reviewRequests", {}).get("nodes", [])
+                for request in review_requests:
+                    requested = request.get("requestedReviewer", {})
+                    if requested and requested.get("login"):
+                        existing_reviewers.add(requested["login"])
+
+                reviewers = list(existing_reviewers)
+
+                if not reviewers:
+                    # No reviewers to re-request
+                    return
+            else:
+                # Get PR node ID
+                query = '''
+                query($owner: String!, $repo: String!, $prNumber: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $prNumber) {
+                      id
+                    }
+                  }
+                }
+                '''
+
+                args = [
+                    "api",
+                    "graphql",
+                    "-f",
+                    f"query={query}",
+                    "-f",
+                    f"owner={self.owner}",
+                    "-f",
+                    f"repo={self.repo}",
+                    "-F",
+                    f"prNumber={pr_number}"
+                ]
+
+                output = self._run_gh_command(args)
+                data = json.loads(output)
+                pr_node_id = data.get("data", {}).get("repository", {}).get("pullRequest", {}).get("id")
+
+                if not pr_node_id:
+                    raise GitHubAPIError(f"PR #{pr_number} not found")
+
+            # Now request reviews using GraphQL mutation
+            mutation = '''
+            mutation($prId: ID!, $userIds: [ID!]!) {
+              requestReviews(input: {pullRequestId: $prId, userIds: $userIds}) {
+                pullRequest {
+                  id
+                }
+              }
+            }
+            '''
+
+            # Convert usernames to user IDs (GraphQL needs node IDs)
+            user_ids = []
+            for username in reviewers:
+                user_query = '''
+                query($login: String!) {
+                  user(login: $login) {
+                    id
+                  }
+                }
+                '''
+
+                user_args = [
+                    "api",
+                    "graphql",
+                    "-f",
+                    f"query={user_query}",
+                    "-f",
+                    f"login={username}"
+                ]
+
+                user_output = self._run_gh_command(user_args)
+                user_data = json.loads(user_output)
+                user_id = user_data.get("data", {}).get("user", {}).get("id")
+
+                if user_id:
+                    user_ids.append(user_id)
+
+            if not user_ids:
+                return
+
+            # Request reviews
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={mutation}",
+                "-f",
+                f"prId={pr_node_id}",
+                "-f",
+                f"userIds={json.dumps(user_ids)}"
+            ]
+
+            self._run_gh_command(args)
+
+        except GitHubAPIError as e:
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(
+                    error_msg=f"Failed to request review on PR #{pr_number}: {e}"
+                )
+            )
+
     def get_pr_review_threads(
         self, pr_number: int, include_resolved: bool = True
     ) -> List[PRReviewThread]:
