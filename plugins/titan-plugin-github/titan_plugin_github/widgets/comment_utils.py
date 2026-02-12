@@ -229,6 +229,122 @@ def render_comment_elements(body: str, diff_hunk: Optional[str] = None, line: Op
     return widgets
 
 
+def extract_diff_context(
+    diff_hunk: str,
+    target_line: Optional[int],
+    is_outdated: bool = False
+) -> str:
+    """
+    Extract relevant diff lines around the comment, following Microsoft's approach.
+
+    Args:
+        diff_hunk: Diff hunk from GitHub API
+        target_line: Line number being commented on
+        is_outdated: Whether this is an outdated comment
+
+    Returns:
+        Diff with relevant context (7 before + target + 3 after), or full diff if extraction fails
+    """
+    if not diff_hunk:
+        return ""
+
+    lines = diff_hunk.split('\n')
+    if not lines:
+        return diff_hunk
+
+    # Parse the diff header
+    header_match = re.match(r'@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@(.*)', lines[0])
+    if not header_match:
+        return diff_hunk
+
+    old_start = int(header_match.group(1))
+    new_start = int(header_match.group(3))
+    header_suffix = header_match.group(5)
+
+    # Track line numbers as we parse (like Microsoft's parseDiffHunk)
+    old_line = old_start
+    new_line = new_start
+
+    # Build list of (old_line, new_line, raw_line, index)
+    parsed_lines = []
+    for idx, raw_line in enumerate(lines[1:], start=1):
+        if raw_line.startswith('+'):
+            # Added line: only new_line increments
+            parsed_lines.append((None, new_line, raw_line, idx))
+            new_line += 1
+        elif raw_line.startswith('-'):
+            # Removed line: only old_line increments
+            parsed_lines.append((old_line, None, raw_line, idx))
+            old_line += 1
+        elif raw_line.startswith(' '):
+            # Context line: both increment
+            parsed_lines.append((old_line, new_line, raw_line, idx))
+            old_line += 1
+            new_line += 1
+        else:
+            # Control line or empty
+            parsed_lines.append((None, None, raw_line, idx))
+
+    # Find target line in diff (only for non-outdated comments)
+    target_idx = None
+    if not is_outdated and target_line:
+        for old_num, new_num, raw_line, idx in parsed_lines:
+            if new_num == target_line:
+                target_idx = idx
+                break
+
+    # Decide which lines to extract
+    if target_idx is not None:
+        # Target found: extract context around it (7 before + target + 3 after)
+        min_idx = max(0, target_idx - 7)
+        max_idx = min(len(parsed_lines) - 1, target_idx + 3)
+        extracted = parsed_lines[min_idx:max_idx + 1]
+    elif len(parsed_lines) > 10:
+        # Target not found or outdated with large diff: show last 10 lines
+        extracted = parsed_lines[-10:]
+    else:
+        # Small diff: show all
+        return diff_hunk
+
+    # Rebuild diff with extracted lines
+    return _rebuild_diff(extracted, old_start, new_start, header_suffix)
+
+
+def _rebuild_diff(extracted_lines, old_start, new_start, header_suffix):
+    """Rebuild a diff from extracted lines with correct header."""
+    # Find start lines for the extracted portion
+    extracted_new_start = None
+    extracted_old_start = None
+
+    for old_num, new_num, raw_line, _ in extracted_lines:
+        if extracted_new_start is None and new_num is not None:
+            extracted_new_start = new_num
+        if extracted_old_start is None and old_num is not None:
+            extracted_old_start = old_num
+        if extracted_new_start and extracted_old_start:
+            break
+
+    # Fallback to original starts
+    if extracted_new_start is None:
+        extracted_new_start = new_start
+    if extracted_old_start is None:
+        extracted_old_start = old_start
+
+    # Count lines for each side
+    old_count = sum(1 for old_num, _, raw_line, _ in extracted_lines
+                   if raw_line.startswith('-') or raw_line.startswith(' '))
+    new_count = sum(1 for _, new_num, raw_line, _ in extracted_lines
+                   if raw_line.startswith('+') or raw_line.startswith(' '))
+
+    # Build new header
+    new_header = f"@@ -{extracted_old_start},{old_count} +{extracted_new_start},{new_count} @@{header_suffix}"
+
+    # Extract raw lines
+    extracted_raw_lines = [raw_line for _, _, raw_line, _ in extracted_lines]
+
+    return new_header + '\n' + '\n'.join(extracted_raw_lines)
+
+
 __all__ = [
     "TextElement",
     "SuggestionElement",
@@ -236,4 +352,5 @@ __all__ = [
     "CommentElement",
     "parse_comment_body",
     "render_comment_elements",
+    "extract_diff_context",
 ]

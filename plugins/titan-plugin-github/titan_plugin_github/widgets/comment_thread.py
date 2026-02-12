@@ -8,11 +8,9 @@ Uses GraphQL structure for clean separation.
 from typing import Callable, List, Any, Optional
 from textual.app import ComposeResult
 from titan_cli.ui.tui.models import UICommentThread
-from .panel_container import PanelContainer
+from titan_cli.ui.tui.widgets import PanelContainer, BoldText, Text, PromptChoice, ChoiceOption
 from .comment import Comment
 from .reply_comment import ReplyComment
-from .text import BoldText, Text
-from .prompt_choice import PromptChoice, ChoiceOption
 
 
 class _ReplyPanel(PanelContainer):

@@ -203,10 +203,14 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Review Comments")
 
+    worktree_path = None
+    worktree_created = False
+
     try:
         # Get data from context
         pr_number = ctx.get("selected_pr_number")
         review_threads: List[PRReviewThread] = ctx.get("review_threads", [])
+        head_branch = ctx.get("selected_pr_head_branch", "")
 
         if not pr_number or not review_threads:
             ctx.textual.end_step("error")
@@ -216,6 +220,42 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.dim_text("No pending comment threads")
             ctx.textual.end_step("skip")
             return Skip("No pending threads")
+
+        # Create worktree once for all AI reviews
+        if ctx.git:
+            import os
+            worktree_name = f"titan-review-{pr_number}"
+            worktree_path = f".titan/worktrees/{worktree_name}"
+            original_cwd = os.getcwd()
+            full_worktree_path = os.path.join(original_cwd, worktree_path)
+
+            ctx.textual.text("")
+            with ctx.textual.loading(f"Creating worktree for PR #{pr_number}..."):
+                # Remove worktree if it already exists
+                try:
+                    ctx.git.remove_worktree(worktree_path, force=True)
+                except Exception:
+                    pass
+
+                # Create new worktree from head branch
+                ctx.git.create_worktree(
+                    path=worktree_path,
+                    branch=head_branch,
+                    create_branch=False
+                )
+                worktree_created = True
+
+            ctx.textual.success_text(f"Worktree created at {worktree_path}")
+        else:
+            worktree_path = None
+            full_worktree_path = None
+
+        # Track commits made for each comment (for auto-reply)
+        comment_commits = {}  # {comment_id: commit_hash}
+
+        # Accumulate AI responses (when no code changes made)
+        pending_responses = {}  # {comment_id: response_text}
+        response_files = []  # Track temp files for cleanup
 
         # Loop through all review threads
         processed_count = 0
@@ -227,8 +267,8 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
             # Prepare action options
             options = [
-                ChoiceOption(value="reply", label="Reply manually", variant="primary"),
-                ChoiceOption(value="ai_suggest", label="Get AI suggestion", variant="default"),
+                ChoiceOption(value="ai_review", label="AI Review & Fix", variant="primary"),
+                ChoiceOption(value="reply", label="Reply manually", variant="default"),
                 ChoiceOption(value="skip", label="Skip for now", variant="default"),
                 ChoiceOption(value="resolve", label="Resolve thread", variant="success"),
             ]
@@ -272,8 +312,8 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
                     # Add text showing selected action
                     action_labels = {
+                        "ai_review": "Launching AI to review and fix",
                         "reply": "Replying manually",
-                        "ai_suggest": "Getting AI suggestion",
                         "skip": "Skipped",
                         "resolve": "Resolving thread",
                         "exit": "Exiting review"
@@ -326,101 +366,215 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                     ctx.textual.warning_text("Empty reply, skipping")
                     skipped_count += 1
 
-            elif choice == "ai_suggest":
-                # AI suggestion
-                if not ctx.ai or not ctx.ai.is_available():
-                    ctx.textual.warning_text("AI not configured")
+            elif choice == "ai_review":
+                # AI Review & Fix - Launch AI CLI in shared worktree
+                if not worktree_created or not full_worktree_path:
+                    ctx.textual.error_text("Worktree not available")
                     skipped_count += 1
                     continue
 
                 try:
-                    # Build context for AI
-                    from titan_cli.ai.models import AIMessage
+                    import json
+                    from ..widgets.comment_utils import extract_diff_context
 
-                    pr_title = ctx.get("selected_pr_title", "")
                     main_comment = pr_thread.main_comment
+                    pr_title = ctx.get("selected_pr_title", "")
 
-                    context_parts = [
-                        f"You are helping address a code review comment on PR: {pr_title}",
-                        f"\nReviewer: {main_comment.author.login}",
-                    ]
+                    # Take snapshot of current worktree state BEFORE AI review
+                    status_before = ctx.git.run_in_worktree(worktree_path, ["git", "status", "--short"])
+                    files_before = set(line.strip() for line in status_before.splitlines() if line.strip())
 
-                    if main_comment.path:
-                        context_parts.append(f"File: {main_comment.path}")
-                        if main_comment.diff_hunk:
-                            context_parts.append(f"\nCode context:\n```diff\n{main_comment.diff_hunk}\n```")
+                    # Extract only relevant lines from diff_hunk (7 before + target + 3 after)
+                    # This reduces token usage significantly (e.g., 200 lines → 11 lines)
+                    diff_context = extract_diff_context(
+                        diff_hunk=main_comment.diff_hunk,
+                        target_line=main_comment.line,
+                        is_outdated=False
+                    ) if main_comment.diff_hunk else None
 
-                    context_parts.append(f"\nComment:\n{main_comment.body}")
-                    context_parts.append("\nProvide a helpful, professional reply addressing this comment. Be concise and constructive.")
+                    # Build structured JSON context (efficient, less tokens than markdown)
+                    review_context = {
+                        "pr": pr_title,
+                        "file": main_comment.path or "N/A",
+                        "line": main_comment.line,
+                        "diff_hunk": diff_context,  # Use extracted context, not full diff
+                        "thread": [
+                            {
+                                "author": main_comment.author.login,
+                                "date": main_comment.created_at[:10],
+                                "body": main_comment.body
+                            }
+                        ]
+                    }
 
-                    prompt = "\n".join(context_parts)
+                    # Add all replies to show full conversation
+                    if pr_thread.replies:
+                        for reply in pr_thread.replies:
+                            review_context["thread"].append({
+                                "author": reply.author.login,
+                                "date": reply.created_at[:10],
+                                "body": reply.body
+                            })
 
-                    # Get AI suggestion (generic for any model)
-                    messages = [AIMessage(role="user", content=prompt)]
-                    with ctx.textual.loading("Generating AI suggestion..."):
-                        response = ctx.ai.generate(messages)
-                        ai_response = response.content.strip()
+                    # Store JSON context
+                    ctx.data["pr_review_context"] = json.dumps(review_context, indent=2)
 
-                    if not ai_response or not ai_response.strip():
-                        ctx.textual.warning_text("AI returned empty response")
-                        skipped_count += 1
-                        continue
+                    # Prepare response file path for AI to save explanations
+                    response_file = f"/tmp/titan-ai-response-comment-{main_comment.id}.txt"
+                    response_files.append(response_file)  # Track for cleanup
 
-                    # Show AI suggestion
-                    ctx.textual.text("")
-                    ctx.textual.bold_text("AI Suggestion:")
-                    ctx.textual.markdown(ai_response)
-                    ctx.textual.text("")
+                    # Clean up any existing response file
+                    if os.path.exists(response_file):
+                        os.remove(response_file)
 
-                    # No manual scroll - PromptChoice will auto-scroll when mounted
+                    # Import and call ai_assistant_step (reuse existing generic step)
+                    from titan_cli.engine.steps.ai_assistant_step import execute_ai_assistant_step
+                    from titan_cli.core.workflows.models import WorkflowStepModel
 
-                    # Ask what to do with suggestion
-                    ai_options = [
-                        ChoiceOption(value="use", label="Use", variant="primary"),
-                        ChoiceOption(value="edit", label="Edit", variant="default"),
-                        ChoiceOption(value="reject", label="Reject", variant="error"),
-                    ]
+                    ai_step = WorkflowStepModel(
+                        id="ai_review_helper",
+                        plugin="core",
+                        step="ai_code_assistant",
+                        name="AI Code Review",
+                        params={
+                            "context_key": "pr_review_context",
+                            "prompt_template": f"""Review this PR comment thread:
 
-                    ai_choice = ctx.textual.ask_choice(
-                        "What would you like to do with this suggestion?",
-                        ai_options
+```json
+{{context}}
+```
+
+## Your Task
+
+1. **First, evaluate if the review comment makes sense:**
+   - Is the feedback valid and applicable to the current code?
+   - Is the requested change appropriate?
+   - Could previous attempts have already addressed this (check the thread conversation)?
+
+2. **Then, based on your evaluation:**
+   - **If the comment makes sense**: Make the necessary code changes to address it
+   - **If the comment doesn't make sense or is outdated**:
+     * DO NOT make code changes
+     * Write your explanation/response EXACTLY to this file path: {response_file}
+     * IMPORTANT: Use this exact command to write the response:
+       ```bash
+       cat > {response_file} << 'EOF'
+       Your response text here
+       EOF
+       ```
+     * The response should be a professional reply to the reviewer explaining why the comment doesn't apply
+
+Note: Review the entire conversation thread carefully - previous fix attempts may have failed or been incomplete.""",
+                            "ask_confirmation": False,
+                            "cli_preference": "auto"
+                        }
                     )
 
-                    if ai_choice == "reject":
-                        ctx.textual.warning_text("AI suggestion rejected")
-                        skipped_count += 1
-                        continue
+                    # Update project_root in context to point to worktree
+                    original_project_root = ctx.get("project_root", ".")
+                    ctx.data["project_root"] = full_worktree_path
 
-                    reply_text = ai_response
+                    # Launch AI assistant
+                    ai_result = execute_ai_assistant_step(ai_step, ctx)
 
-                    if ai_choice == "edit":
+                    # Restore original project_root
+                    ctx.data["project_root"] = original_project_root
+
+                    # Check if there are NEW changes after AI work (compare with snapshot)
+                    ctx.textual.text("")
+                    status_after = ctx.git.run_in_worktree(worktree_path, ["git", "status", "--short"])
+                    files_after = set(line.strip() for line in status_after.splitlines() if line.strip())
+
+                    # Detect NEW changes (files that weren't in the before snapshot)
+                    new_changes = files_after - files_before
+                    has_new_changes = bool(new_changes)
+
+                    if has_new_changes:
+                        # Show what changed (only NEW changes)
+                        changed_files = list(new_changes)
+
+                        ctx.textual.success_text(f"✓ New changes detected: {len(changed_files)} file(s)")
+                        for file_change in changed_files[:5]:  # Show first 5 files
+                            ctx.textual.dim_text(f"  {file_change}")
+                        if len(changed_files) > 5:
+                            ctx.textual.dim_text(f"  ... and {len(changed_files) - 5} more")
+
+                        # Commit immediately with a descriptive message
                         ctx.textual.text("")
-                        edited_reply = ctx.textual.ask_multiline(
-                            "Edit the reply:",
-                            default=ai_response
-                        )
+                        try:
+                            # Create commit message
+                            comment_summary = main_comment.body[:80].replace('\n', ' ')
+                            commit_msg = f"Fix PR comment: {comment_summary}\n\nComment by {main_comment.author.login} on {main_comment.path or 'PR'}"
 
-                        if edited_reply and edited_reply.strip():
-                            reply_text = edited_reply
+                            # Commit changes in worktree (skip pre-commit hooks for speed and compatibility)
+                            with ctx.textual.loading("Committing changes..."):
+                                ctx.git.run_in_worktree(worktree_path, ["git", "add", "--all"])
+                                ctx.git.run_in_worktree(worktree_path, ["git", "commit", "--no-verify", "-m", commit_msg])
+                                commit_hash = ctx.git.run_in_worktree(worktree_path, ["git", "rev-parse", "HEAD"]).strip()
+
+                            ctx.textual.success_text(f"✓ Committed: {commit_hash[:8]}")
+
+                            # Track commit for this comment
+                            comment_commits[main_comment.id] = commit_hash
+                            processed_count += 1
+
+                        except Exception as e:
+                            ctx.textual.error_text(f"Failed to commit changes: {e}")
+                            import traceback
+                            ctx.textual.dim_text(traceback.format_exc()[:200])
+                            # Still count as processed since AI did make changes
+                            processed_count += 1
+                    else:
+                        # No code changes - check if AI left a response
+                        ctx.textual.dim_text("No code changes were made")
+
+                        # Try to read AI response from file
+                        ai_response = None
+                        response_found_at = None
+
+                        # First, try the expected location
+                        if os.path.exists(response_file):
+                            try:
+                                with open(response_file, 'r') as f:
+                                    ai_response = f.read().strip()
+                                response_found_at = response_file
+                            except Exception as e:
+                                ctx.textual.dim_text(f"Could not read AI response from {response_file}: {e}")
+
+                        # If not found, search in common AI CLI temp directories
+                        if not ai_response:
+                            import glob
+                            search_patterns = [
+                                f"/tmp/**/titan-ai-response-comment-{main_comment.id}.txt",
+                                os.path.expanduser(f"~/.gemini/tmp/**/titan-ai-response-comment-{main_comment.id}.txt"),
+                                os.path.expanduser(f"~/.claude/tmp/**/titan-ai-response-comment-{main_comment.id}.txt"),
+                            ]
+
+                            for pattern in search_patterns:
+                                matches = glob.glob(pattern, recursive=True)
+                                if matches:
+                                    try:
+                                        with open(matches[0], 'r') as f:
+                                            ai_response = f.read().strip()
+                                        response_found_at = matches[0]
+                                        ctx.textual.dim_text(f"Found response at: {response_found_at}")
+                                        break
+                                    except Exception as e:
+                                        ctx.textual.dim_text(f"Could not read from {matches[0]}: {e}")
+
+                        if ai_response:
+                            ctx.textual.success_text("✓ AI provided a response (will review all at the end)")
+                            pending_responses[main_comment.id] = ai_response
+                            processed_count += 1
                         else:
-                            ctx.textual.warning_text("Empty reply, skipping")
+                            ctx.textual.warning_text("⚠ No AI response found - AI may have skipped this comment")
+                            ctx.textual.dim_text(f"Searched for: {os.path.basename(response_file)}")
                             skipped_count += 1
-                            continue
-
-                    # Post the reply
-                    try:
-                        main_comment_id = pr_thread.main_comment.id
-                        with ctx.textual.loading("Posting reply..."):
-                            ctx.github.reply_to_comment(pr_number, main_comment_id, reply_text)
-
-                        ctx.textual.success_text("Reply posted successfully")
-                        processed_count += 1
-                    except Exception as e:
-                        ctx.textual.error_text(f"Failed to post reply: {e}")
-                        skipped_count += 1
 
                 except Exception as e:
-                    ctx.textual.error_text(f"AI error: {e}")
+                    ctx.textual.error_text(f"AI review error: {e}")
+                    import traceback
+                    ctx.textual.dim_text(traceback.format_exc())
                     skipped_count += 1
 
             elif choice == "resolve":
@@ -440,9 +594,112 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                     ctx.textual.error_text(f"Failed to resolve thread: {e}")
                     skipped_count += 1
 
+        # Review and send all pending AI responses
+        if pending_responses:
+            ctx.textual.text("")
+            ctx.textual.text("")
+            ctx.textual.bold_text(f"=== AI Responses Review ({len(pending_responses)} response(s)) ===")
+            ctx.textual.text("")
+
+            # Map comment IDs to thread info for display
+            comment_map = {thread.main_comment.id: thread for thread in review_threads}
+
+            # Show each response and allow editing
+            responses_to_send = {}
+            for comment_id, ai_response in pending_responses.items():
+                thread = comment_map.get(comment_id)
+                if not thread:
+                    continue
+
+                main_comment = thread.main_comment
+                ctx.textual.text("")
+                ctx.textual.primary_text(f"Comment by {main_comment.author.login} on {main_comment.path or 'PR'}:")
+                ctx.textual.dim_text(f"  {main_comment.body[:100]}..." if len(main_comment.body) > 100 else f"  {main_comment.body}")
+                ctx.textual.text("")
+                ctx.textual.bold_text("AI Response:")
+                ctx.textual.markdown(ai_response)
+                ctx.textual.text("")
+
+                # Ask what to do with this response
+                response_options = [
+                    ChoiceOption(value="use", label="Use as-is", variant="primary"),
+                    ChoiceOption(value="edit", label="Edit", variant="default"),
+                    ChoiceOption(value="skip", label="Skip", variant="default"),
+                ]
+
+                response_action = ctx.textual.ask_choice(
+                    "What would you like to do with this response?",
+                    response_options
+                )
+
+                if response_action == "use":
+                    responses_to_send[comment_id] = ai_response
+                elif response_action == "edit":
+                    ctx.textual.text("")
+                    edited_response = ctx.textual.ask_multiline(
+                        "Edit the response:",
+                        default=ai_response
+                    )
+                    if edited_response and edited_response.strip():
+                        responses_to_send[comment_id] = edited_response
+                    else:
+                        ctx.textual.warning_text("Empty response, skipping")
+                # "skip" - do nothing
+
+            # Send all approved responses
+            if responses_to_send:
+                ctx.textual.text("")
+                ctx.textual.primary_text(f"Sending {len(responses_to_send)} response(s)...")
+                replied_count = 0
+
+                for comment_id, response_text in responses_to_send.items():
+                    try:
+                        with ctx.textual.loading(f"Replying to comment {comment_id}..."):
+                            ctx.github.reply_to_comment(pr_number, comment_id, response_text)
+                        replied_count += 1
+                    except Exception as e:
+                        ctx.textual.error_text(f"Failed to reply to comment {comment_id}: {e}")
+
+                ctx.textual.success_text(f"✓ Sent {replied_count} response(s)")
+            else:
+                ctx.textual.dim_text("No responses to send")
+
+        # Send "Fixed in {hash}" replies for commits
+        if comment_commits:
+            ctx.textual.text("")
+            ctx.textual.text("")
+            ctx.textual.bold_text(f"=== Auto-reply to Code Changes ({len(comment_commits)} comment(s)) ===")
+            ctx.textual.text("")
+
+            should_reply = ctx.textual.ask_confirm(
+                f"Do you want to reply to {len(comment_commits)} comment(s) with their commit hashes?",
+                default=True
+            )
+
+            if should_reply:
+                ctx.textual.text("")
+                replied_count = 0
+                for comment_id, commit_hash in comment_commits.items():
+                    try:
+                        reply_text = f"Fixed in {commit_hash[:8]}"
+                        with ctx.textual.loading(f"Replying to comment {comment_id}..."):
+                            ctx.github.reply_to_comment(pr_number, comment_id, reply_text)
+                        replied_count += 1
+                        ctx.textual.dim_text(f"  ✓ Replied with: {reply_text}")
+                    except Exception as e:
+                        ctx.textual.warning_text(f"Failed to reply to comment {comment_id}: {e}")
+
+                ctx.textual.success_text(f"✓ Sent {replied_count} auto-reply(s)")
+            else:
+                ctx.textual.dim_text("Skipped auto-replies")
+
         # All threads processed
         ctx.textual.text("")
         ctx.textual.success_text(f"Review complete! Processed {processed_count}, skipped {skipped_count} out of {len(review_threads)} thread(s)")
+        if comment_commits:
+            ctx.textual.dim_text(f"  • {len(comment_commits)} commit(s) created")
+        if pending_responses:
+            ctx.textual.dim_text(f"  • {len(pending_responses)} text response(s) sent")
         ctx.textual.end_step("success")
 
         return Success(
@@ -451,6 +708,8 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 "processed_count": processed_count,
                 "skipped_count": skipped_count,
                 "total_threads": len(review_threads),
+                "commits_created": len(comment_commits),
+                "text_responses_sent": len(pending_responses),
             }
         )
 
@@ -462,6 +721,24 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text(traceback.format_exc())
         ctx.textual.end_step("error")
         return Error(error_msg)
+    finally:
+        # Cleanup temporary AI response files
+        if 'response_files' in locals():
+            for response_file in response_files:
+                try:
+                    if os.path.exists(response_file):
+                        os.remove(response_file)
+                except Exception:
+                    pass  # Silent cleanup
+
+        # Cleanup worktree if it was created
+        if worktree_created and worktree_path and ctx.git:
+            try:
+                with ctx.textual.loading("Cleaning up worktree..."):
+                    ctx.git.remove_worktree(worktree_path, force=True)
+                ctx.textual.dim_text("Worktree cleaned up")
+            except Exception as e:
+                ctx.textual.warning_text(f"Failed to cleanup worktree: {e}")
 
 
 # Export for plugin registration

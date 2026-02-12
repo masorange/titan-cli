@@ -7,10 +7,10 @@ Shows only: author, date, and comment body (context already shown in main commen
 
 from typing import List, Any
 from textual.app import ComposeResult
-from textual.widget import Widget, Text
+from textual.widget import Widget
 from textual.containers import Horizontal
 from titan_cli.ui.tui.models import UIComment
-from .text import BoldText, DimText, DimItalicText
+from titan_cli.ui.tui.widgets import BoldText, DimText, DimItalicText, Text
 from .comment_utils import render_comment_elements
 
 
