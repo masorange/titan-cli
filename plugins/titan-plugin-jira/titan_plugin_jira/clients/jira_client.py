@@ -14,11 +14,7 @@ from typing import Dict, List, Optional, Any, Union
 import requests
 
 from ..models import (
-    JiraProject,
-    JiraIssueType,
-    JiraTransition,
-    JiraComment,
-    JiraTicket,
+    RESTJiraIssue,
 )
 from ..exceptions import JiraAPIError
 
@@ -131,7 +127,7 @@ class JiraClient:
 
     # ==================== TICKET OPERATIONS ====================
 
-    def get_ticket(self, ticket_key: str, expand: Optional[List[str]] = None) -> JiraTicket:
+    def get_ticket(self, ticket_key: str, expand: Optional[List[str]] = None) -> RESTJiraIssue:
         """
         Get ticket details
 
@@ -140,7 +136,7 @@ class JiraClient:
             expand: Additional fields to expand (e.g., ["changelog", "renderedFields"])
 
         Returns:
-            JiraTicket object
+            RESTJiraIssue object (network model)
         """
         params = {}
         if expand:
@@ -148,25 +144,7 @@ class JiraClient:
 
         data = self._make_request("GET", f"issue/{ticket_key}", params=params)
 
-        fields = data.get("fields", {})
-
-        return JiraTicket(
-            key=data["key"],
-            id=data["id"],
-            summary=fields.get("summary", ""),
-            description=fields.get("description"),
-            status=fields.get("status", {}).get("name", "Unknown"),
-            issue_type=fields.get("issuetype", {}).get("name", "Unknown"),
-            assignee=fields.get("assignee", {}).get("displayName") if fields.get("assignee") else None,
-            reporter=fields.get("reporter", {}).get("displayName", "Unknown"),
-            priority=fields.get("priority", {}).get("name", "Unknown"),
-            created=fields.get("created", ""),
-            updated=fields.get("updated", ""),
-            labels=fields.get("labels", []),
-            components=[c.get("name", "") for c in fields.get("components", [])],
-            fix_versions=[v.get("name", "") for v in fields.get("fixVersions", [])],
-            raw=data
-        )
+        return self._parse_issue(data)
 
     def search_tickets(self, jql: str, max_results: int = 50, fields: Optional[List[str]] = None) -> List[JiraTicket]:
         """
