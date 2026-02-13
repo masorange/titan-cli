@@ -18,7 +18,7 @@ This guide explains how to create workflow steps using the Textual TUI framework
 ### Step Template
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel
 
 def my_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -214,6 +214,34 @@ Marks the end of a step. Status can be "success", "error", or "skip".
 
 ```python
 ctx.textual.end_step("success")
+ctx.textual.end_step("error")
+ctx.textual.end_step("skip")
+```
+
+**Important**: The `end_step()` status is separate from the `WorkflowResult` you return:
+- `Success` → typically use `end_step("success")`
+- `Error` → typically use `end_step("error")`
+- `Skip` → typically use `end_step("skip")`
+- `Exit` → use `end_step("success")` or `end_step("skip")` depending on context
+
+**WorkflowResult Types:**
+- `Success(message, metadata={})` - Step completed successfully, continue workflow
+- `Error(message)` - Step failed, stop workflow
+- `Skip(message)` - Step was skipped, continue workflow
+- `Exit(message)` - Exit workflow early in a controlled way (not an error)
+
+```python
+# Example: Exit when no data found (not an error, just nothing to do)
+if not data:
+    ctx.textual.dim_text("No data found")
+    ctx.textual.end_step("success")  # ← Step itself succeeded
+    return Exit("No data to process")  # ← But exit the workflow
+
+# Example: User cancelled (skip this step)
+if not user_confirmed:
+    ctx.textual.warning_text("User cancelled")
+    ctx.textual.end_step("skip")  # ← Mark as skipped
+    return Exit("User cancelled")  # ← Exit the workflow
 ```
 
 ##### `scroll_to_end()`
@@ -644,7 +672,7 @@ from titan_cli.ui.tui.widgets import Button
 ### Example 1: Simple Step with Panel
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel
 
 def simple_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -664,7 +692,7 @@ def simple_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 2: Step with User Input
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit, Skip
 from titan_cli.ui.tui.widgets import Panel
 
 def prompt_for_title_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -695,7 +723,7 @@ def prompt_for_title_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 3: Step with AI and Loading Indicator
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit, Skip
 from titan_cli.ui.tui.widgets import Panel
 
 def ai_analyze_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -750,7 +778,7 @@ def ai_analyze_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 4: Step with Table Results
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel, Table
 
 def search_issues_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -807,7 +835,7 @@ def search_issues_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 5: Step with Error Handling
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel
 import requests
 
@@ -1263,4 +1291,4 @@ def test_widget_step(ctx: WorkflowContext) -> WorkflowResult:
 
 ---
 
-**Last updated**: 2026-02-06
+**Last updated**: 2026-02-12
