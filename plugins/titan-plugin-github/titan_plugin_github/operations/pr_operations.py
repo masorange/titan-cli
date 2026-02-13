@@ -6,14 +6,14 @@ No UI dependencies - all functions can be unit tested.
 """
 
 from typing import List
-from ..models import PRReviewThread
+from ..models.network.graphql import GraphQLPullRequestReviewThread
 
 
 def fetch_pr_threads(
     github_client,
     pr_number: int,
     include_resolved: bool = False
-) -> List[PRReviewThread]:
+) -> List[GraphQLPullRequestReviewThread]:
     """
     Fetch and filter PR review threads.
 
@@ -29,7 +29,7 @@ def fetch_pr_threads(
         include_resolved: Whether to include resolved threads
 
     Returns:
-        List of filtered PRReviewThread objects
+        List of filtered GraphQLPullRequestReviewThread objects
 
     Example:
         >>> threads = fetch_pr_threads(github, 123, include_resolved=False)

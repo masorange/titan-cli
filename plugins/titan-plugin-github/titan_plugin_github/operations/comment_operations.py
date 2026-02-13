@@ -8,12 +8,12 @@ No UI dependencies - all functions can be unit tested.
 import os
 import glob
 from typing import Optional, Set, Tuple, Dict
-from ..models import PRReviewThread
+from ..models.network.graphql import GraphQLPullRequestReviewThread
 from ..widgets.comment_utils import extract_diff_context
 
 
 def build_ai_review_context(
-    pr_thread: PRReviewThread,
+    pr_thread: GraphQLPullRequestReviewThread,
     pr_title: str
 ) -> dict:
     """
@@ -219,7 +219,7 @@ def reply_to_comment_batch(
 def auto_review_comment(
     github_client,
     git_client,
-    pr_thread: PRReviewThread,
+    pr_thread: GraphQLPullRequestReviewThread,
     worktree_path: str,
     pr_title: str,
     response_file_path: str,
