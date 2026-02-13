@@ -5,6 +5,7 @@ params:
   draft: false
 
 hooks:
+  - before_pr_generation
   - before_push
   - after_pr
 
