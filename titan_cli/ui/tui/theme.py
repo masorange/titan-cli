@@ -3,104 +3,114 @@ Titan TUI Theme
 
 Centralized theme configuration for the Textual UI.
 Defines color variables, CSS utilities, and style constants.
+
+Color values are imported from colors.py to ensure consistency
+between CSS and Python code (e.g., Rich Text objects).
 """
 
-# Titan Theme CSS - Dracula Edition (Grises y Púrpuras)
-TITAN_THEME_CSS = """
-/* Color Variables */
-$primary: #bd93f9;           /* Purple (Dracula standard) */
-$secondary: #50fa7b;         /* Green */
-$accent: #ff79c6;            /* Pink */
-$error: #ff5555;             /* Red */
-$warning: #f1fa8c;           /* Yellow */
-$success: #50fa7b;           /* Green */
-$info: #8be9fd;              /* Cyan */
+from .colors import (
+    PRIMARY, SECONDARY, ACCENT, ERROR, WARNING, SUCCESS, INFO,
+    SURFACE, SURFACE_LIGHTEN_1, SURFACE_LIGHTEN_2,
+    TEXT, TEXT_MUTED, TEXT_DISABLED
+)
+
+# Titan Theme CSS - Dracula Edition
+# Uses color constants from colors.py for consistency
+TITAN_THEME_CSS = f"""
+/* Color Variables - Imported from colors.py */
+$primary: {PRIMARY};           /* Purple (Dracula standard) */
+$secondary: {SECONDARY};       /* Green */
+$accent: {ACCENT};             /* Pink */
+$error: {ERROR};               /* Red */
+$warning: {WARNING};           /* Yellow */
+$success: {SUCCESS};           /* Green */
+$info: {INFO};                 /* Cyan */
 
 /* Backgrounds */
-$surface: #282a36;
-$surface-lighten-1: #343746;
-$surface-lighten-2: #44475a;
+$surface: {SURFACE};
+$surface-lighten-1: {SURFACE_LIGHTEN_1};
+$surface-lighten-2: {SURFACE_LIGHTEN_2};
 
 /* Text Colors */
-$text: #f8f8f2;              /* Foreground (Almost white) */
-$text-muted: #6272a4;        /* Comment */
-$text-disabled: #44475a;     /* Disabled */
+$text: {TEXT};                 /* Foreground (Almost white) */
+$text-muted: {TEXT_MUTED};     /* Comment */
+$text-disabled: {TEXT_DISABLED}; /* Disabled */
 
 /* Banner gradient colors */
-$banner-start: #6272a4;
-$banner-mid: #bd93f9;
-$banner-end: #ff79c6;
+$banner-start: {TEXT_MUTED};
+$banner-mid: {PRIMARY};
+$banner-end: {ACCENT};
 
 /* Base widget styles */
-.title {
+.title {{
     color: $primary;
     text-style: bold;
-}
+}}
 
-.subtitle {
+.subtitle {{
     color: $secondary;
     text-style: bold;
-}
+}}
 
-.body {
+.body {{
     color: $text;
-}
+}}
 
-.muted {
+.muted {{
     color: $text-muted;
     text-style: italic;
-}
+}}
 
-.error-text {
+.error-text {{
     color: $error;
     text-style: bold;
-}
+}}
 
-.success-text {
+.success-text {{
     color: $success;
     text-style: bold;
-}
+}}
 
-.warning-text {
+.warning-text {{
     color: $warning;
     text-style: bold;
-}
+}}
 
-.info-text {
+.info-text {{
     color: $info;
-}
+}}
 
 /* Text widget styles (from widgets/text.py) */
-.dim, DimText, DimItalicText {
+.dim, DimText, DimItalicText {{
     color: $text-muted;
-}
+}}
 
-.bold, BoldText, BoldPrimaryText {
+.bold, BoldText, BoldPrimaryText {{
     text-style: bold;
-}
+}}
 
-.italic, ItalicText, DimItalicText {
+.italic, ItalicText, DimItalicText {{
     text-style: italic;
-}
+}}
 
-.primary, PrimaryText, BoldPrimaryText {
+.primary, PrimaryText, BoldPrimaryText {{
     color: $primary;
-}
+}}
 
-.success, SuccessText {
+.success, SuccessText {{
     color: $success;
-}
+}}
 
-.error, ErrorText {
+.error, ErrorText {{
     color: $error;
-}
+}}
 
-.warning, WarningText {
+.warning, WarningText {{
     color: $warning;
-}
+}}
 
 /* Global scrollbar styles - applies to all widgets */
-* {
+* {{
     scrollbar-background: $surface;
     scrollbar-background-hover: $surface-lighten-1;
     scrollbar-background-active: $surface-lighten-2;
@@ -108,24 +118,24 @@ $banner-end: #ff79c6;
     scrollbar-color-hover: $accent;
     scrollbar-color-active: $accent;
     scrollbar-corner-color: $surface;
-}
+}}
 
 /* Global OptionList styles - transparent to inherit parent background */
-OptionList {
+OptionList {{
     border: none;
     background: transparent;
-}
+}}
 
-OptionList > .option-list--option {
+OptionList > .option-list--option {{
     background: transparent;
-}
+}}
 
-OptionList > .option-list--option-highlighted {
+OptionList > .option-list--option-highlighted {{
     background: $primary;
-}
+}}
 
-Screen {
+Screen {{
     background: $surface;
     color: $text;
-}
+}}
 """

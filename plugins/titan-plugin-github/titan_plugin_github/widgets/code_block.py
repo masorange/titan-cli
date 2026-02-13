@@ -2,6 +2,7 @@
 CodeBlock Widget
 
 Reusable widget for displaying syntax-highlighted code blocks.
+Uses centralized theme colors for consistency.
 """
 
 from textual.widgets import Static
@@ -9,6 +10,9 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 import re
+
+# Import theme colors for consistent styling
+from titan_cli.ui.tui.colors import RichStyles
 
 
 class CodeBlock(Static):
@@ -209,23 +213,23 @@ class CodeBlock(Static):
             content = line[1:] if len(line) > 1 else ""
 
             if marker == '-':
-                # Removed line: show old line number
-                line_num_text = Text(str(old_line), style="dim red")
-                marker_text = Text("-", style="bold red")
-                content_text = Text(content, style="red")
+                # Removed line: show old line number (theme red)
+                line_num_text = Text(str(old_line), style=RichStyles.REMOVE_DIM)
+                marker_text = Text("-", style=RichStyles.REMOVE_BOLD)
+                content_text = Text(content, style=RichStyles.REMOVE)
                 table.add_row(line_num_text, marker_text, content_text)
                 old_line += 1
             elif marker == '+':
-                # Added line: show new line number
-                line_num_text = Text(str(new_line), style="dim green")
-                marker_text = Text("+", style="bold green")
-                content_text = Text(content, style="green")
+                # Added line: show new line number (theme green)
+                line_num_text = Text(str(new_line), style=RichStyles.ADD_DIM)
+                marker_text = Text("+", style=RichStyles.ADD_BOLD)
+                content_text = Text(content, style=RichStyles.ADD)
                 table.add_row(line_num_text, marker_text, content_text)
                 new_line += 1
             elif marker == ' ':
-                # Context line: both numbers match
-                line_num_text = Text(str(new_line), style="dim")
-                marker_text = Text(" ", style="dim")
+                # Context line: both numbers match (theme muted)
+                line_num_text = Text(str(new_line), style=RichStyles.CONTEXT_DIM)
+                marker_text = Text(" ", style=RichStyles.CONTEXT_DIM)
                 content_text = Text(content)
                 table.add_row(line_num_text, marker_text, content_text)
                 old_line += 1
@@ -260,21 +264,21 @@ class CodeBlock(Static):
         table.add_column("marker", width=2)
         table.add_column("code", ratio=1)
 
-        # Add original lines (removed)
+        # Add original lines (removed) - theme red
         current_line = start_line
         for orig_line in original_lines:
-            line_num_text = Text(str(current_line), style="dim red")
-            marker_text = Text("-", style="bold red")
-            content_text = Text(orig_line, style="red")
+            line_num_text = Text(str(current_line), style=RichStyles.REMOVE_DIM)
+            marker_text = Text("-", style=RichStyles.REMOVE_BOLD)
+            content_text = Text(orig_line, style=RichStyles.REMOVE)
             table.add_row(line_num_text, marker_text, content_text)
             current_line += 1
 
-        # Add suggested lines (added)
+        # Add suggested lines (added) - theme green
         current_line = start_line
         for sugg_line in suggested_lines:
-            line_num_text = Text(str(current_line), style="dim green")
-            marker_text = Text("+", style="bold green")
-            content_text = Text(sugg_line, style="green")
+            line_num_text = Text(str(current_line), style=RichStyles.ADD_DIM)
+            marker_text = Text("+", style=RichStyles.ADD_BOLD)
+            content_text = Text(sugg_line, style=RichStyles.ADD)
             table.add_row(line_num_text, marker_text, content_text)
             current_line += 1
 

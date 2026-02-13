@@ -1,4 +1,10 @@
-# plugins/titan-plugin-github/titan_plugin_github/models.py
+# plugins/titan-plugin-github/titan_plugin_github/models/network.py
+"""
+GitHub Network/API Models
+
+Models representing data from GitHub's GraphQL and REST APIs.
+These are "network models" that match the structure of API responses.
+"""
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 

@@ -1,9 +1,10 @@
 """
-UI Models for Textual TUI Widgets
+GitHub UI/View Models
 
-These models are optimized for rendering in the TUI and are decoupled from
-network/API models. This allows widgets to remain stable even if the underlying
-API models change.
+View models optimized for rendering GitHub data in Textual TUI widgets.
+Decoupled from network/API models to keep widgets stable when API changes.
+
+These models are GitHub-specific and live in the GitHub plugin, not in the core.
 """
 
 from dataclasses import dataclass

@@ -7,7 +7,7 @@ Uses GraphQL structure for clean separation.
 
 from typing import Callable, List, Any, Optional
 from textual.app import ComposeResult
-from titan_cli.ui.tui.models import UICommentThread
+from ..models import UICommentThread
 from titan_cli.ui.tui.widgets import PanelContainer, BoldText, Text, PromptChoice, ChoiceOption
 from .comment import Comment
 from .reply_comment import ReplyComment
