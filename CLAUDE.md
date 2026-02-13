@@ -23,10 +23,31 @@ titan-cli/
 │
 └── plugins/                  # Plugin system
     ├── titan-plugin-git/    # Git plugin
+    │   ├── operations/      # Business logic (NEW)
+    │   └── steps/           # UI orchestration
     ├── titan-plugin-github/ # GitHub plugin
+    │   ├── operations/      # Business logic (NEW)
+    │   └── steps/           # UI orchestration
     ├── titan-plugin-jira/   # Jira plugin
+    │   ├── operations/      # Business logic (NEW)
+    │   └── steps/           # UI orchestration
     └── ...
 ```
+
+### Operations Pattern (NEW - 2026-02)
+
+**All plugins now follow the Operations Pattern for clean separation of concerns:**
+
+- **operations/**: Pure business logic, UI-agnostic, 100% testable
+- **steps/**: UI orchestration only, calls operations for logic
+
+**📖 [Operations Pattern Guide](.claude/docs/operations.md)** - Complete guide with examples
+
+**Key Benefits:**
+- Zero code duplication
+- 100% test coverage on business logic
+- Steps focused purely on UI
+- Operations reusable across steps
 
 ### Workflow Framework
 
@@ -119,13 +140,25 @@ Each plugin is an independent Python package that can register:
 ```
 titan-plugin-{name}/
 ├── titan_plugin_{name}/
-│   ├── steps/          # Workflow steps
+│   ├── operations/     # Pure business logic (NEW)
+│   ├── steps/          # UI orchestration (workflow steps)
 │   ├── workflows/      # YAML definitions
 │   ├── clients/        # API clients (optional)
 │   ├── agents/         # AI agents (optional)
 │   └── plugin.py       # Plugin registration
+├── tests/
+│   ├── operations/     # Unit tests for operations (NEW)
+│   └── ...
 └── pyproject.toml
 ```
+
+**IMPORTANT: Operations Pattern (see [Operations Guide](.claude/docs/operations.md))**
+
+When creating new steps or refactoring existing ones:
+1. Extract ALL business logic to `operations/`
+2. Keep steps ONLY for UI orchestration
+3. Write unit tests for operations (target: 100% coverage)
+4. Steps should call operations and display results
 
 ## Tech Stack
 
