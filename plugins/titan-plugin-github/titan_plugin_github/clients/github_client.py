@@ -267,12 +267,16 @@ class GitHubClient:
             # - 'gh search prs' ignores --repo flag and searches across all repos
             # - 'gh pr list' respects current repo context
 
-            # Get all PRs with review-requested: JulenGarGon (temporary for testing)
+            # Get current user login
+            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
+            current_user = user_output.strip()
+
+            # Get all PRs with review-requested:@me
             args = [
                 "pr",
                 "list",
                 "--search",
-                "review-requested: JulenGarGon",
+                f"review-requested:{current_user}",
                 "--state",
                 "open",
                 "--limit",
@@ -288,11 +292,7 @@ class GitHubClient:
                 # Return all PRs (you individually OR your team)
                 return PRSearchResult.from_list(all_prs)
             else:
-                # Filter to only PRs where JulenGarGon is explicitly in reviewRequests (temporary for testing)
-                # Get current user to filter review requests
-                # user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
-                # current_user = user_output.strip()
-                current_user = "JulenGarGon"  # Temporary hardcode for testing
+                # Filter to only PRs where current user is explicitly in reviewRequests
 
                 filtered_prs = []
                 for pr in all_prs:
@@ -330,9 +330,8 @@ class GitHubClient:
         """
         try:
             # Get current user login
-            # user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
-            # current_user = user_output.strip()
-            current_user = "JulenGarGon"  # Temporary hardcode for testing
+            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
+            current_user = user_output.strip()
 
             # List all PRs (--author @me doesn't work with --json, it's a gh CLI bug)
             args = [
@@ -349,7 +348,7 @@ class GitHubClient:
             output = self._run_gh_command(args)
             all_prs = json.loads(output)
 
-            # Filter to only PRs authored by JulenGarGon (temporary for testing)
+            # Filter to only PRs authored by current user
             my_prs = [
                 pr for pr in all_prs
                 if pr.get("author") and pr["author"].get("login") == current_user
