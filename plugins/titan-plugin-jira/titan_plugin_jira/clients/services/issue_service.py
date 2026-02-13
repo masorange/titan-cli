@@ -131,6 +131,128 @@ class IssueService:
                 error_code="SEARCH_ERROR"
             )
 
+    def create_issue(
+        self,
+        project_key: str,
+        issue_type_id: str,
+        summary: str,
+        description: Optional[str] = None,
+        assignee: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        priority: Optional[str] = None
+    ) -> ClientResult[UIJiraIssue]:
+        """
+        Create new issue.
+
+        Args:
+            project_key: Project key
+            issue_type_id: Issue type ID
+            summary: Issue summary/title
+            description: Issue description
+            assignee: Assignee username or email
+            labels: List of labels
+            priority: Priority name
+
+        Returns:
+            ClientResult[UIJiraIssue]
+        """
+        try:
+            # 1. Build payload
+            payload = {
+                "fields": {
+                    "project": {"key": project_key},
+                    "summary": summary,
+                    "issuetype": {"id": issue_type_id}
+                }
+            }
+
+            # Add description if provided
+            if description:
+                payload["fields"]["description"] = {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": description}]
+                    }]
+                }
+
+            # Add optional fields
+            if assignee:
+                payload["fields"]["assignee"] = {"name": assignee}
+            if labels:
+                payload["fields"]["labels"] = labels
+            if priority:
+                payload["fields"]["priority"] = {"name": priority}
+
+            # 2. Network call
+            data = self.network.make_request("POST", "issue", json=payload)
+
+            # 3. Get the created issue
+            issue_key = data["key"]
+            return self.get_issue(issue_key)
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=str(e),
+                error_code="CREATE_ISSUE_ERROR"
+            )
+
+    def create_subtask(
+        self,
+        parent_key: str,
+        project_key: str,
+        subtask_type_id: str,
+        summary: str,
+        description: Optional[str] = None
+    ) -> ClientResult[UIJiraIssue]:
+        """
+        Create subtask under parent issue.
+
+        Args:
+            parent_key: Parent issue key
+            project_key: Project key
+            subtask_type_id: Subtask issue type ID
+            summary: Subtask summary
+            description: Subtask description
+
+        Returns:
+            ClientResult[UIJiraIssue]
+        """
+        try:
+            # 1. Build payload
+            payload = {
+                "fields": {
+                    "project": {"key": project_key},
+                    "parent": {"key": parent_key},
+                    "summary": summary,
+                    "issuetype": {"id": subtask_type_id}
+                }
+            }
+
+            if description:
+                payload["fields"]["description"] = {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": description}]
+                    }]
+                }
+
+            # 2. Network call
+            data = self.network.make_request("POST", "issue", json=payload)
+
+            # 3. Get the created subtask
+            issue_key = data["key"]
+            return self.get_issue(issue_key)
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=str(e),
+                error_code="CREATE_SUBTASK_ERROR"
+            )
+
     # ==================== INTERNAL PARSERS ====================
 
     def _parse_user(self, user_data: Optional[dict]) -> Optional[NetworkJiraUser]:
