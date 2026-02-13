@@ -1,22 +1,15 @@
-import json
 import subprocess
-from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error, WorkflowResult
 from titan_cli.engine.utils import get_poetry_venv_env
 from titan_cli.ui.tui.widgets import Table
 
-
-def _format_file_path(file_path: str, project_root: str) -> str:
-    """Format file path relative to project root if possible."""
-    try:
-        project_path = Path(project_root).resolve()
-        file_path_obj = Path(file_path).resolve()
-        if file_path_obj.is_relative_to(project_path):
-            return str(file_path_obj.relative_to(project_path))
-    except (ValueError, OSError):
-        pass  # Keep original path if conversion fails
-    return file_path
+# Import operations
+from operations import (
+    parse_ruff_json_output,
+    build_ruff_error_table_data,
+    format_ruff_errors_for_ai,
+)
 
 
 def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
@@ -29,7 +22,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     # Begin step container
     ctx.textual.begin_step("Run Ruff Linter")
 
-    project_root = ctx.get("project_root", ".") # Fallback to current dir
+    project_root = ctx.get("project_root", ".")  # Fallback to current dir
     venv_env = get_poetry_venv_env(cwd=project_root)
     if not venv_env:
         ctx.textual.text("")
@@ -56,11 +49,11 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error(f"ruff command not found: {e}")
 
-    try:
-        errors_before = json.loads(result_before.stdout) if result_before.stdout else []
-    except json.JSONDecodeError as e:
+    # Parse using operations
+    errors_before = parse_ruff_json_output(result_before.stdout)
+    if errors_before is None and result_before.returncode != 0:
         ctx.textual.text("")
-        ctx.textual.error_text(f"Failed to parse initial ruff output as JSON: {e}")
+        ctx.textual.error_text("Failed to parse initial ruff output as JSON")
         ctx.textual.text("")
         if result_before.stdout:
             ctx.textual.dim_text("STDOUT:")
@@ -71,7 +64,6 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text(f"Return code: {result_before.returncode}")
         ctx.textual.end_step("error")
         return Error("Failed to parse ruff output as JSON")
-
 
     # 2. Auto-fix
     ctx.textual.dim_text("Applying auto-fixes...")
@@ -91,9 +83,10 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         cwd=project_root,
         env=venv_env
     )
-    try:
-        errors_after = json.loads(result_after.stdout) if result_after.stdout else []
-    except json.JSONDecodeError:
+
+    # Parse using operations
+    errors_after = parse_ruff_json_output(result_after.stdout)
+    if errors_after is None and result_after.returncode != 0:
         ctx.textual.end_step("error")
         return Error(f"Failed to parse final ruff output as JSON.\n{result_after.stdout}")
 
@@ -114,20 +107,8 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.warning_text(f"{len(errors_after)} issue(s) require manual fix:")
         ctx.textual.text("")  # spacing
 
-        # Prepare data for the table
-        table_headers = ["File", "Line", "Col", "Code", "Message"]
-        table_rows = []
-
-        for error in errors_after:
-            file_path = _format_file_path(error.get("filename", "Unknown file"), project_root)
-
-            location = error.get("location", {})
-            row = str(location.get("row", "?"))
-            col = str(location.get("column", "?"))
-            code = error.get("code", "")
-            message = error.get("message", "")
-
-            table_rows.append([file_path, row, col, code, message])
+        # Build table data using operations
+        table_headers, table_rows = build_ruff_error_table_data(errors_after, project_root)
 
         # Mount table widget
         ctx.textual.mount(
@@ -138,15 +119,8 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
             )
         )
 
-        # Build formatted error list for AI assistant
-        errors_text = f"{len(errors_after)} linting issues found:\n\n"
-        for error in errors_after:
-            file_path = _format_file_path(error.get("filename", "Unknown file"), project_root)
-
-            location = error.get("location", {})
-            errors_text += f"• {file_path}:{location.get('row', '?')}:{location.get('column', '?')} - [{error.get('code', '')}] {error.get('message', '')}\n"
-            if error.get("url"):
-                errors_text += f"  Docs: {error['url']}\n"
+        # Build formatted error list for AI assistant using operations
+        errors_text = format_ruff_errors_for_ai(errors_after, project_root)
 
         # Return Success with errors in metadata for next step to consume
         ctx.textual.end_step("success")

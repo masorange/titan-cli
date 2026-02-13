@@ -8,9 +8,12 @@ from titan_cli.engine.utils import get_poetry_venv_env
 from titan_cli.ui.tui.widgets import Table
 from titan_cli.ui.tui.icons import Icons
 
-# Constants for display limits
-MAX_TEST_NAME_LENGTH = 60
-MAX_ERROR_DISPLAY_LENGTH = 150 # Increased to accommodate error_repr which can be longer
+# Import operations
+from operations import (
+    parse_pytest_report_summary,
+    build_failure_table_data,
+    format_failures_for_ai,
+)
 
 
 def test_runner(ctx: WorkflowContext) -> WorkflowResult:
@@ -53,7 +56,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text("Try running: poetry install")
         ctx.textual.end_step("error")
         return Error(f"pytest command not found: {e}")
-    
+
     # Read the report
     if not report_path.exists():
         ctx.textual.text("")
@@ -82,14 +85,14 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.text("")  # spacing
 
-    # --- Extract Summary ---
-    summary = report.get("summary", {})
-    passed_count = summary.get("passed", 0)
-    failed_count = summary.get("failed", 0)
-    total_count = summary.get("total", passed_count + failed_count)
-    duration = f"{report.get('duration', 0):.2f}s"
+    # Extract summary using operations
+    summary_data = parse_pytest_report_summary(report)
+    passed_count = summary_data["passed"]
+    failed_count = summary_data["failed"]
+    total_count = summary_data["total"]
+    duration = f"{summary_data['duration']:.2f}s"
 
-    # --- Show Summary Table ---
+    # Show summary table
     if total_count > 0:
         ctx.textual.mount(
             Table(
@@ -106,7 +109,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
         )
         ctx.textual.text("")  # spacing
 
-    # --- Handle Failures ---
+    # Handle failures
     if failed_count == 0:
         ctx.textual.success_text("All tests passed!")
         ctx.textual.end_step("success")
@@ -117,21 +120,10 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
 
     failures = [test for test in report.get("tests", []) if test.get("outcome") == "failed"]
 
-    # --- Show Failures Table ---
+    # Show failures table
     if failures:
-        failure_rows = []
-        for failure in failures:
-            test_name = failure.get("nodeid", "Unknown Test")
-            call = failure.get("call", {})
-            error_repr = call.get("longrepr", "No error details")
-
-            # Clean up test name and error message
-            if len(test_name) > MAX_TEST_NAME_LENGTH:
-                test_name = "..." + test_name[-(MAX_TEST_NAME_LENGTH - 3):]
-            if len(error_repr) > MAX_ERROR_DISPLAY_LENGTH:
-                error_repr = error_repr[:(MAX_ERROR_DISPLAY_LENGTH - 3)] + "..."
-
-            failure_rows.append([test_name, error_repr])
+        # Build failure rows using operations
+        failure_rows = build_failure_table_data(failures, max_test_name=60, max_error=150)
 
         ctx.textual.mount(
             Table(
@@ -142,15 +134,11 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
         )
         ctx.textual.text("")  # spacing
 
-    # --- Format Failures for AI ---
-    failures_text = f"{failed_count} test(s) failed:\n\n"
-    for failure in failures:
-        failures_text += f"Test: {failure.get('nodeid', 'Unknown Test')}\n"
-        failures_text += f"Error:\n  {failure.get('call', {}).get('longrepr', 'N/A')}\n\n"
+    # Format failures for AI using operations
+    failures_text = format_failures_for_ai(failures)
 
     ctx.textual.end_step("success")
     return Success(
         message="Tests completed with failures",
         metadata={"step_output": failures_text}
     )
-
