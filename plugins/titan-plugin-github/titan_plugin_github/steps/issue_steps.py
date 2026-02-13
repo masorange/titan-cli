@@ -2,6 +2,7 @@ import ast
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
 from ..agents.issue_generator import IssueGeneratorAgent
+from ..operations import filter_valid_labels
 from pathlib import Path
 
 def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -144,12 +145,10 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     if labels and ctx.github:
         try:
             available_labels = ctx.github.list_labels()
-            # Filter labels to only include those that exist (case-insensitive)
-            filtered_labels = [
-                label for label in labels
-                if label.lower() in [av_label.lower() for av_label in available_labels]
-            ]
-            labels = filtered_labels
+            valid_labels, invalid_labels = filter_valid_labels(labels, available_labels)
+            if invalid_labels:
+                ctx.textual.warning_text(f"Skipping invalid labels: {', '.join(invalid_labels)}")
+            labels = valid_labels
         except Exception:
             # If we can't validate labels, continue with all labels anyway
             pass

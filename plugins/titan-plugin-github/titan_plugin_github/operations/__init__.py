@@ -8,6 +8,8 @@ Modules:
     comment_operations: Operations for PR comments and reviews
     pr_operations: Operations for pull requests
     worktree_operations: Operations for git worktree workflows
+    pr_creation_operations: Operations for PR creation
+    issue_operations: Operations for GitHub issues
 """
 
 from .comment_operations import (
@@ -30,6 +32,17 @@ from .worktree_operations import (
     commit_in_worktree,
 )
 
+from .pr_creation_operations import (
+    determine_pr_assignees,
+    add_assignee_if_missing,
+)
+
+from .issue_operations import (
+    parse_comma_separated_list,
+    filter_valid_labels,
+    parse_assignees_and_labels,
+)
+
 __all__ = [
     # Comment operations
     "build_ai_review_context",
@@ -47,4 +60,13 @@ __all__ = [
     "setup_worktree",
     "cleanup_worktree",
     "commit_in_worktree",
+
+    # PR creation operations
+    "determine_pr_assignees",
+    "add_assignee_if_missing",
+
+    # Issue operations
+    "parse_comma_separated_list",
+    "filter_valid_labels",
+    "parse_assignees_and_labels",
 ]

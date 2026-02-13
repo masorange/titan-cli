@@ -7,6 +7,7 @@ from titan_cli.ui.tui.widgets import Table
 from ..exceptions import JiraAPIError
 from ..messages import msg
 from ..utils import IssueSorter
+from ..operations import substitute_jql_variables, build_issue_table_data
 
 
 def search_jql_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -69,20 +70,8 @@ def search_jql_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error(error_msg)
 
-    # Perform variable substitution: replace ${var} with ctx.data values
-    # This allows dynamic queries like "project = ${project_key}"
-    import re
-
-    def replace_var(match):
-        var_name = match.group(1)
-        value = ctx.get(var_name)
-        if value is None:
-            # Variable not found in context, keep original placeholder
-            return match.group(0)
-        return str(value)
-
-    # Replace ${variable} patterns
-    jql = re.sub(r'\$\{([^}]+)\}', replace_var, jql)
+    # Perform variable substitution using operations
+    jql = substitute_jql_variables(jql, ctx.data)
 
     # Show which query is being executed
     ctx.textual.text("")
@@ -125,25 +114,8 @@ def search_jql_step(ctx: WorkflowContext) -> WorkflowResult:
             sorter = IssueSorter()
             sorted_issues = sorter.sort(issues)
 
-            # Prepare table data with row numbers for selection
-            headers = ["#", "Key", "Status", "Summary", "Assignee", "Type", "Priority"]
-            rows = []
-            for i, issue in enumerate(sorted_issues, 1):
-                assignee = issue.assignee or "Unassigned"
-                status = issue.status or "Unknown"
-                priority = issue.priority or "Unknown"
-                issue_type = issue.issue_type or "Unknown"
-                summary = (issue.summary or "No summary")[:60]
-
-                rows.append([
-                    str(i),
-                    issue.key,
-                    status,
-                    summary,
-                    assignee,
-                    issue_type,
-                    priority
-                ])
+            # Build table data using operations
+            headers, rows = build_issue_table_data(sorted_issues, summary_max_length=60)
 
             # Render table using textual widget
             ctx.textual.mount(

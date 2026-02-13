@@ -4,6 +4,11 @@ Create a new Git branch.
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_plugin_git.exceptions import GitError
+from ..operations import (
+    check_branch_exists,
+    determine_safe_checkout_target,
+    should_delete_before_create,
+)
 
 
 def create_branch_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -48,33 +53,38 @@ def create_branch_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text(f"Creating branch: {new_branch}")
         ctx.textual.dim_text(f"From: {start_point}")
 
-        # Check if branch exists
+        # Check if branch exists using operations
         all_branches = ctx.git.get_branches()
         branch_names = [b.name for b in all_branches]
-        branch_exists = new_branch in branch_names
+        branch_exists = check_branch_exists(new_branch, branch_names)
 
-        # Delete if exists and requested
-        if branch_exists and delete_if_exists:
+        # Delete if exists and requested using operations
+        if should_delete_before_create(branch_exists, delete_if_exists):
             ctx.textual.text("")
             ctx.textual.warning_text(f"Branch {new_branch} exists, deleting...")
 
-            # If we're on the branch, checkout another one first
+            # If we're on the branch, checkout another one first using operations
             current_branch = ctx.git.get_current_branch()
-            if current_branch == new_branch:
-                # Checkout main branch before deleting
-                main_branch = ctx.git.main_branch
-                if main_branch in branch_names and main_branch != new_branch:
-                    try:
-                        ctx.git.checkout(main_branch)
-                        ctx.textual.dim_text(f"Switched to {main_branch}")
-                    except GitError as e:
-                        ctx.textual.error_text(f"Failed to checkout {main_branch}: {str(e)}")
-                        ctx.textual.end_step("error")
-                        return Error(f"Cannot checkout {main_branch}: {str(e)}")
-                else:
-                    ctx.textual.error_text(f"Cannot delete current branch {new_branch}")
+            safe_target = determine_safe_checkout_target(
+                current_branch=current_branch,
+                branch_to_delete=new_branch,
+                main_branch=ctx.git.main_branch,
+                all_branches=branch_names
+            )
+
+            if safe_target:
+                try:
+                    ctx.git.checkout(safe_target)
+                    ctx.textual.dim_text(f"Switched to {safe_target}")
+                except GitError as e:
+                    ctx.textual.error_text(f"Failed to checkout {safe_target}: {str(e)}")
                     ctx.textual.end_step("error")
-                    return Error("Cannot delete current branch")
+                    return Error(f"Cannot checkout {safe_target}: {str(e)}")
+            elif current_branch == new_branch:
+                # Cannot delete current branch and no safe target available
+                ctx.textual.error_text(f"Cannot delete current branch {new_branch}")
+                ctx.textual.end_step("error")
+                return Error("Cannot delete current branch")
 
             # Delete the branch
             try:

@@ -1,0 +1,18 @@
+name: "Review PR Comments"
+description: "Review and address pending comments on your pull requests"
+
+steps:
+  - id: select_pr
+    name: "Select PR for Review"
+    plugin: github
+    step: select_pr_for_review
+
+  - id: fetch_comments
+    name: "Fetch Pending Comments"
+    plugin: github
+    step: fetch_pending_comments
+
+  - id: review_comments
+    name: "Review Comments"
+    plugin: github
+    step: review_comments

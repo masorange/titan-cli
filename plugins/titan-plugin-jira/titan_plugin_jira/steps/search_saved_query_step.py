@@ -7,6 +7,12 @@ from titan_cli.ui.tui.widgets import Table
 from ..exceptions import JiraAPIError
 from ..messages import msg
 from ..utils import SAVED_QUERIES, IssueSorter
+from ..operations import (
+    merge_query_collections,
+    build_query_not_found_message,
+    format_jql_with_project,
+    build_issue_table_data,
+)
 
 
 def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -85,28 +91,13 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     except Exception:
         pass
 
-    # Merge queries (custom queries override predefined)
-    all_queries = {**predefined_queries, **custom_queries}
+    # Merge queries using operations (custom queries override predefined)
+    all_queries = merge_query_collections(predefined_queries, custom_queries)
 
     # Look up the query
     if query_name not in all_queries:
-        # Build helpful error message
-        predefined_list = list(predefined_queries.keys())
-        custom_list = list(custom_queries.keys())
-
-        error_msg = msg.Steps.Search.QUERY_NOT_FOUND.format(query_name=query_name) + "\n\n"
-        error_msg += msg.Steps.Search.AVAILABLE_PREDEFINED + "\n  "
-        error_msg += "\n  ".join(predefined_list[:15])
-        if len(predefined_list) > 15:
-            error_msg += "\n" + msg.Steps.Search.MORE_QUERIES.format(count=len(predefined_list) - 15)
-
-        if custom_list:
-            error_msg += "\n\n" + msg.Steps.Search.CUSTOM_QUERIES_HEADER + "\n  "
-            error_msg += "\n  ".join(custom_list)
-        else:
-            error_msg += "\n\n" + msg.Steps.Search.ADD_CUSTOM_HINT + "\n"
-            error_msg += msg.Steps.Search.CUSTOM_QUERY_EXAMPLE
-
+        # Build helpful error message using operations
+        error_msg = build_query_not_found_message(query_name, predefined_queries, custom_queries, max_predefined_shown=15)
         ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
@@ -116,20 +107,17 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     # Get parameters for query formatting
     project = ctx.get("project")
 
-    # Format query if it has parameters
-    if "{project}" in jql:
-        if not project:
-            # Try to use default project from JIRA client
-            if ctx.jira and hasattr(ctx.jira, 'project_key'):
-                project = ctx.jira.project_key
+    # Try to use default project from JIRA client if not provided
+    if not project and ctx.jira and hasattr(ctx.jira, 'project_key'):
+        project = ctx.jira.project_key
 
-        if not project:
-            error_msg = msg.Steps.Search.PROJECT_REQUIRED.format(query_name=query_name, jql=jql)
-            ctx.textual.error_text(error_msg)
-            ctx.textual.end_step("error")
-            return Error(error_msg)
-
-        jql = jql.format(project=project)
+    # Format query if it has parameters using operations
+    jql, format_error = format_jql_with_project(jql, project)
+    if format_error:
+        error_msg = msg.Steps.Search.PROJECT_REQUIRED.format(query_name=query_name, jql=jql)
+        ctx.textual.error_text(error_msg)
+        ctx.textual.end_step("error")
+        return Error(error_msg)
 
     # Show which query is being used
     is_custom = query_name in custom_queries
@@ -174,25 +162,8 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             sorter = IssueSorter()
             sorted_issues = sorter.sort(issues)
 
-            # Prepare table data with row numbers for selection
-            headers = ["#", "Key", "Status", "Summary", "Assignee", "Type", "Priority"]
-            rows = []
-            for i, issue in enumerate(sorted_issues, 1):
-                assignee = issue.assignee or "Unassigned"
-                status = issue.status or "Unknown"
-                priority = issue.priority or "Unknown"
-                issue_type = issue.issue_type or "Unknown"
-                summary = (issue.summary or "No summary")[:60]
-
-                rows.append([
-                    str(i),
-                    issue.key,
-                    status,
-                    summary,
-                    assignee,
-                    issue_type,
-                    priority
-                ])
+            # Build table data using operations
+            headers, rows = build_issue_table_data(sorted_issues, summary_max_length=60)
 
             # Render table using textual widget
             ctx.textual.mount(

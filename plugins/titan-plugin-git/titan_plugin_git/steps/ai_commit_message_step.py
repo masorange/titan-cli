@@ -1,6 +1,11 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/ai_commit_message_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_plugin_git.messages import msg
+from ..operations import (
+    build_ai_commit_prompt,
+    process_ai_commit_message,
+    validate_message_length,
+)
 
 
 def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
@@ -60,40 +65,9 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("skip")
             return Skip(msg.Steps.AICommitMessage.NO_UNCOMMITTED_CHANGES)
 
-        # Build AI prompt
-        # Get list of modified files for the summary
+        # Build AI prompt using operations
         all_files = git_status.modified_files + git_status.untracked_files + git_status.staged_files
-        files_summary = "\n".join([f"  - {f}" for f in all_files]) if all_files else "(checking diff)"
-
-        # Limit diff size to avoid token overflow (keep first 8000 chars)
-        diff_preview = diff_text[:8000] if len(diff_text) > 8000 else diff_text
-        if len(diff_text) > 8000:
-            diff_preview += f"\n\n{msg.Steps.AICommitMessage.DIFF_TRUNCATED}"
-
-        prompt = f"""Analyze these code changes and generate a conventional commit message.
-
-## Changed Files ({len(all_files)} total)
-{files_summary}
-
-## Diff
-```diff
-{diff_preview}
-```
-
-## CRITICAL Instructions
-Generate ONE single-line conventional commit message following this EXACT format:
-- type: Description
-- Types: feat, fix, refactor, docs, test, chore, style, perf
-- Description: clear summary in imperative mood, starting with CAPITAL letter (be descriptive, concise, and at least 5 words long)
-- NO line breaks, NO body, NO additional explanation
-
-Examples (notice they start with capital letter and are all one line):
-- feat: Add OAuth2 integration with Google provider
-- fix: Resolve race condition in cache invalidation
-- refactor: Simplify menu component and remove unused props
-- refactor: Add support for nested workflow execution
-
-Return ONLY the single-line commit message, absolutely nothing else."""
+        prompt = build_ai_commit_prompt(diff_text, all_files, max_diff_chars=8000)
 
         # Call AI with loading indicator
         from titan_cli.ai.models import AIMessage
@@ -103,33 +77,18 @@ Return ONLY the single-line commit message, absolutely nothing else."""
         with ctx.textual.loading(msg.Steps.AICommitMessage.GENERATING_MESSAGE):
             response = ctx.ai.generate(messages, max_tokens=1024, temperature=0.7)
 
-        commit_message = response.content.strip()
-
-        # Clean up the message (remove quotes, newlines, extra whitespace)
-        commit_message = commit_message.strip('"').strip("'").strip()
-        # Take only the first line if AI returned multiple lines
-        commit_message = commit_message.split('\n')[0].strip()
-
-        # Ensure subject starts with capital letter (conventional commits requirement)
-        # Format: type: Description
-        if ':' in commit_message:
-            parts = commit_message.split(':', 1)
-            if len(parts) == 2:
-                prefix = parts[0]  # type
-                subject = parts[1].strip()  # description
-                # Capitalize first letter of subject
-                if subject and subject[0].islower():
-                    subject = subject[0].upper() + subject[1:]
-                commit_message = f"{prefix}: {subject}"
+        # Process AI response using operations (normalize and capitalize)
+        commit_message = process_ai_commit_message(response.content)
 
         # Show preview to user
         ctx.textual.text("")  # spacing
         ctx.textual.bold_text(msg.Steps.AICommitMessage.GENERATED_MESSAGE_TITLE)
         ctx.textual.bold_primary_text(f"  {commit_message}")
 
-        # Warn if message is too long
-        if len(commit_message) > 72:
-            ctx.textual.warning_text(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=len(commit_message)))
+        # Warn if message is too long using operations
+        is_valid, length = validate_message_length(commit_message, max_length=72)
+        if not is_valid:
+            ctx.textual.warning_text(msg.Steps.AICommitMessage.MESSAGE_LENGTH_WARNING.format(length=length))
 
         ctx.textual.text("")  # spacing
 
