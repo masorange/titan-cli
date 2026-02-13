@@ -135,22 +135,88 @@ Each plugin is an independent Python package that can register:
 - **Clients**: Wrappers for external APIs (GitHub, Jira, etc.)
 - **AI Agents**: Specialized logic for LLM analysis
 
-#### Plugin Structure
+#### Modern Plugin Architecture (2026-02)
+
+**📖 [Complete Plugin Architecture Guide](.claude/docs/plugin-architecture.md)**
+
+Plugins now follow a **5-layer architecture** for clean separation of concerns:
 
 ```
 titan-plugin-{name}/
 ├── titan_plugin_{name}/
-│   ├── operations/     # Pure business logic (NEW)
-│   ├── steps/          # UI orchestration (workflow steps)
-│   ├── workflows/      # YAML definitions
-│   ├── clients/        # API clients (optional)
-│   ├── agents/         # AI agents (optional)
-│   └── plugin.py       # Plugin registration
+│   │
+│   ├── models/                    # DATA MODELS (3 sub-layers)
+│   │   ├── network/              # Network layer - API responses
+│   │   │   ├── rest/            # REST API models (faithful to API)
+│   │   │   │   ├── user.py
+│   │   │   │   ├── resource.py
+│   │   │   │   └── ...
+│   │   │   └── graphql/         # GraphQL models (faithful to schema)
+│   │   │       ├── user.py
+│   │   │       └── ...
+│   │   ├── view/                # View layer - UI models
+│   │   │   └── view.py          # UIResource, UIUser, etc.
+│   │   ├── mappers/             # Mappers - network → view
+│   │   │   ├── resource_mapper.py
+│   │   │   └── ...
+│   │   └── formatting.py        # Shared formatting utils
+│   │
+│   ├── clients/                  # CLIENT LAYER
+│   │   ├── network/             # Low-level API executors
+│   │   │   ├── rest_network.py  # REST executor
+│   │   │   ├── graphql_network.py
+│   │   │   └── queries.py       # Centralized queries
+│   │   ├── services/            # Business logic services
+│   │   │   ├── resource_service.py
+│   │   │   └── ...
+│   │   ├── protocols.py         # Interfaces (for testing)
+│   │   └── {name}_client.py     # Public facade
+│   │
+│   ├── operations/              # OPERATIONS (pure business logic)
+│   │   ├── resource_operations.py
+│   │   └── ...
+│   │
+│   ├── steps/                   # STEPS (UI orchestration)
+│   ├── workflows/               # WORKFLOWS (YAML)
+│   ├── agents/                  # AI AGENTS (optional)
+│   └── plugin.py
+│
 ├── tests/
-│   ├── operations/     # Unit tests for operations (NEW)
+│   ├── operations/              # Unit tests for operations
 │   └── ...
 └── pyproject.toml
 ```
+
+**Architectural Layers:**
+
+1. **Models Layer** (3 sub-layers):
+   - `network/`: Faithful to API responses (REST/GraphQL)
+   - `view/`: UI-optimized (pre-calculated fields)
+   - `mappers/`: Conversion logic + presentation
+
+2. **Client Layer**:
+   - `network/`: Low-level API calls
+   - `services/`: Business logic + model conversion
+   - Facade: Public API
+
+3. **Operations**: Pure functions (UI-agnostic)
+
+4. **Steps**: UI orchestration only
+
+5. **Workflows**: Declarative flow definitions
+
+**Key Benefits:**
+- ✅ Separation of concerns (network/business/view)
+- ✅ Each layer independently testable
+- ✅ Faithful network models (stable when API changes)
+- ✅ Optimized view models (pre-calculated for UI)
+- ✅ Reusable formatters and mappers
+- ✅ Hybrid REST/GraphQL where each excels
+
+**Examples:**
+- **titan-plugin-github**: REST (gh CLI) + GraphQL
+- **titan-plugin-jira**: REST API (same pattern applies)
+- **titan-plugin-git**: Command executor (simpler, no API models)
 
 **IMPORTANT: Operations Pattern (see [Operations Guide](.claude/docs/operations.md))**
 

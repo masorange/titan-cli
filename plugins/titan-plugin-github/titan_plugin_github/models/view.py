@@ -4,29 +4,14 @@ GitHub UI/View Models
 View models optimized for rendering GitHub data in Textual TUI widgets.
 Decoupled from network/API models to keep widgets stable when API changes.
 
+All formatting, computed fields, and presentation logic lives here.
+Network models contain raw API data; view models contain UI-ready data.
+
 These models are GitHub-specific and live in the GitHub plugin, not in the core.
 """
 
 from dataclasses import dataclass
 from typing import Any, List, Optional
-from datetime import datetime
-
-
-def _format_date(iso_date: str) -> str:
-    """
-    Format ISO 8601 date to DD/MM/YYYY HH:MM:SS.
-
-    Args:
-        iso_date: ISO 8601 formatted date string
-
-    Returns:
-        Formatted date string, or original if parsing fails
-    """
-    try:
-        date_obj = datetime.fromisoformat(str(iso_date).replace('Z', '+00:00'))
-        return date_obj.strftime("%d/%m/%Y %H:%M:%S")
-    except Exception:
-        return iso_date
 
 
 @dataclass
@@ -38,6 +23,7 @@ class UIComment:
     """
     id: int
     body: str
+    author_login: str  # Login/username (needed for bot detection, commit messages)
     author_name: str
     formatted_date: str  # Pre-formatted as "DD/MM/YYYY HH:MM:SS"
     path: Optional[str] = None
@@ -47,58 +33,35 @@ class UIComment:
     @classmethod
     def from_review_comment(cls, comment: 'Any', is_outdated: bool = False) -> 'UIComment':
         """
-        Convert a PRReviewComment (network model) to UIComment (view model).
+        Convert a GraphQLPullRequestReviewComment (network model) to UIComment (view model).
+
+        Delegates to mapper for conversion logic.
 
         Args:
-            comment: PRReviewComment instance from GraphQL
+            comment: GraphQLPullRequestReviewComment instance from GraphQL
             is_outdated: Whether this comment is on outdated code
 
         Returns:
             UIComment instance optimized for rendering
         """
-        # Extract author name
-        author_name = comment.author.login if comment.author else "Unknown"
-
-        # For outdated comments, use originalLine because diffHunk reflects old state
-        # For current comments, use line
-        if is_outdated and comment.original_line:
-            line_number = comment.original_line
-        else:
-            line_number = comment.line or comment.original_line
-
-        return cls(
-            id=comment.id,
-            body=comment.body,
-            author_name=author_name,
-            formatted_date=_format_date(comment.created_at),
-            path=comment.path,
-            line=line_number,  # originalLine for outdated, line otherwise
-            diff_hunk=comment.diff_hunk
-        )
+        from .mappers import from_graphql_review_comment
+        return from_graphql_review_comment(comment, is_outdated)
 
     @classmethod
     def from_issue_comment(cls, comment: 'Any') -> 'UIComment':
         """
-        Convert a PRIssueComment (network model) to UIComment (view model).
+        Convert a GraphQLIssueComment (network model) to UIComment (view model).
+
+        Delegates to mapper for conversion logic.
 
         Args:
-            comment: PRIssueComment instance from GraphQL
+            comment: GraphQLIssueComment instance from GraphQL
 
         Returns:
             UIComment instance optimized for rendering
         """
-        # Extract author name
-        author_name = comment.author.login if comment.author else "Unknown"
-
-        return cls(
-            id=comment.id,
-            body=comment.body,
-            author_name=author_name,
-            formatted_date=_format_date(comment.created_at),
-            path=None,
-            line=None,
-            diff_hunk=None
-        )
+        from .mappers import from_graphql_issue_comment
+        return from_graphql_issue_comment(comment)
 
 
 @dataclass
@@ -118,35 +81,68 @@ class UICommentThread:
     @classmethod
     def from_review_thread(cls, thread: 'Any') -> 'UICommentThread':
         """
-        Convert a PRReviewThread (network model) to UICommentThread (view model).
+        Convert a GraphQLPullRequestReviewThread (network model) to UICommentThread (view model).
+
+        Delegates to mapper for conversion logic.
 
         Args:
-            thread: PRReviewThread instance from GraphQL
+            thread: GraphQLPullRequestReviewThread instance from GraphQL
 
         Returns:
             UICommentThread instance optimized for rendering
         """
-        # Convert main comment with outdated status
-        main_comment = None
-        if thread.main_comment:
-            main_comment = UIComment.from_review_comment(
-                thread.main_comment,
-                is_outdated=thread.is_outdated
-            )
-
-        # Convert replies with outdated status
-        replies = [
-            UIComment.from_review_comment(reply, is_outdated=thread.is_outdated)
-            for reply in thread.replies
-        ]
-
-        return cls(
-            thread_id=thread.id,
-            main_comment=main_comment,
-            replies=replies,
-            is_resolved=thread.is_resolved,
-            is_outdated=thread.is_outdated
-        )
+        from .mappers import from_graphql_review_thread
+        return from_graphql_review_thread(thread)
 
 
-__all__ = ["UIComment", "UICommentThread"]
+@dataclass
+class UIPullRequest:
+    """
+    UI model for displaying a pull request.
+
+    All fields are pre-formatted and ready for widget rendering.
+    Computed/derived fields are calculated once during construction.
+    """
+    number: int
+    title: str
+    body: str
+    status_icon: str  # "🟢" "🔴" "🟣" "📝" etc.
+    state: str  # "OPEN", "CLOSED", "MERGED"
+    author_name: str  # Just the username
+    head_ref: str  # Head branch name (for operations)
+    base_ref: str  # Base branch name (for operations)
+    branch_info: str  # "feat/xyz → develop" (pre-formatted for display)
+    stats: str  # "+123 -45" (pre-formatted)
+    files_changed: int
+    is_mergeable: bool  # Boolean for logic
+    is_draft: bool
+    review_summary: str  # "✅ 2 approved", "❌ 1 changes requested", etc.
+    labels: List[str]  # Just label names
+    formatted_created_at: str  # "DD/MM/YYYY HH:MM:SS"
+    formatted_updated_at: str  # "DD/MM/YYYY HH:MM:SS"
+
+
+@dataclass
+class UIIssue:
+    """
+    UI model for displaying an issue.
+
+    All fields are pre-formatted and ready for widget rendering.
+    """
+    number: int
+    title: str
+    body: str
+    status_icon: str  # "🟢" for open, "🔴" for closed
+    state: str  # "OPEN", "CLOSED"
+    author_name: str
+    labels: List[str]  # Just label names
+    formatted_created_at: str  # "DD/MM/YYYY HH:MM:SS"
+    formatted_updated_at: str  # "DD/MM/YYYY HH:MM:SS"
+
+
+__all__ = [
+    "UIComment",
+    "UICommentThread",
+    "UIPullRequest",
+    "UIIssue",
+]

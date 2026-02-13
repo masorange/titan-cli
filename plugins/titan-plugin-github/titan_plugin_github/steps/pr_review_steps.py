@@ -11,7 +11,6 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Ex
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
 from titan_plugin_github.widgets import CommentThread
 from ..models import UICommentThread
-from ..models import PRReviewThread
 from ..operations import (
     fetch_pr_threads,
     setup_worktree,
@@ -33,7 +32,7 @@ from ..operations import (
 
 def _show_thread_and_get_action(
     ctx: WorkflowContext,
-    pr_thread: PRReviewThread,
+    pr_thread: UICommentThread,
     thread_idx: int,
     total_threads: int
 ) -> str:
@@ -42,15 +41,13 @@ def _show_thread_and_get_action(
 
     Args:
         ctx: Workflow context
-        pr_thread: The PR review thread to display
+        pr_thread: The PR review thread (UI model)
         thread_idx: Current thread index (0-based)
         total_threads: Total number of threads
 
     Returns:
         User's choice: "ai_review", "reply", "skip", "resolve", or "exit"
     """
-    # Convert PRReviewThread to UICommentThread
-    ui_thread = UICommentThread.from_review_thread(pr_thread)
 
     # Prepare action options
     options = [
@@ -76,7 +73,7 @@ def _show_thread_and_get_action(
 
     # Create and mount CommentThread widget
     thread_widget = CommentThread(
-        thread=ui_thread,
+        thread=pr_thread,
         thread_number=f"Thread {thread_idx + 1} of {total_threads}",
         options=options,
         on_select=on_choice_selected
@@ -115,7 +112,7 @@ def _show_thread_and_get_action(
 
 def _handle_manual_reply(
     ctx: WorkflowContext,
-    pr_thread: PRReviewThread,
+    pr_thread: UICommentThread,
     pending_responses: Dict[int, str]
 ) -> bool:
     """
@@ -147,7 +144,7 @@ def _handle_manual_reply(
 
 def _handle_ai_review(
     ctx: WorkflowContext,
-    pr_thread: PRReviewThread,
+    pr_thread: UICommentThread,
     worktree_path: str,
     full_worktree_path: str,
     pr_title: str,
@@ -160,7 +157,7 @@ def _handle_ai_review(
 
     Args:
         ctx: Workflow context
-        pr_thread: The PR review thread
+        pr_thread: The PR review thread (UI model)
         worktree_path: Relative path to worktree
         full_worktree_path: Absolute path to worktree
         pr_title: PR title for context
@@ -313,7 +310,7 @@ Note: Review the entire conversation thread carefully - previous fix attempts ma
 
 def _handle_resolve_thread(
     ctx: WorkflowContext,
-    pr_thread: PRReviewThread
+    pr_thread: UICommentThread
 ) -> bool:
     """
     Handle resolving a review thread.
@@ -346,7 +343,7 @@ def _review_and_send_responses(
     ctx: WorkflowContext,
     pr_number: int,
     pending_responses: Dict[int, str],
-    review_threads: List[PRReviewThread]
+    review_threads: List[UICommentThread]
 ) -> None:
     """
     Review AI responses with user and send approved ones.
@@ -355,7 +352,7 @@ def _review_and_send_responses(
         ctx: Workflow context
         pr_number: PR number
         pending_responses: Dict of comment_id -> response_text
-        review_threads: All review threads (for mapping comment IDs)
+        review_threads: All review threads (UI models, for mapping comment IDs)
     """
     if not pending_responses:
         return
@@ -576,29 +573,29 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("GitHub client not available")
 
     try:
-        # Fetch user's open PRs
+        # Fetch user's open PRs (returns List[UIPullRequest])
         with ctx.textual.loading("Fetching your open PRs..."):
-            result = ctx.github.list_my_prs(state="open")
+            prs = ctx.github.list_my_prs(state="open")
 
-        if not result.prs:
+        if not prs:
             ctx.textual.dim_text("You don't have any open PRs.")
             ctx.textual.end_step("success")
             return Exit("No open PRs found")
 
         # Create options from PRs
         options = []
-        for pr in result.prs:
+        for pr in prs:
             options.append(
                 OptionItem(
                     value=pr.number,
                     title=f"#{pr.number}: {pr.title}",
-                    description=f"Branch: {pr.head_ref} → {pr.base_ref}"
+                    description=f"Branch: {pr.branch_info}"  # Pre-formatted "head → base"
                 )
             )
 
         # Ask user to select a PR
         selected = ctx.textual.ask_option(
-            f"Select a PR to review comments ({result.total} open PR(s)):",
+            f"Select a PR to review comments ({len(prs)} open PR(s)):",
             options
         )
 
@@ -609,7 +606,7 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # selected is already the PR number (int)
         pr_number = selected
-        selected_pr = next((pr for pr in result.prs if pr.number == pr_number), None)
+        selected_pr = next((pr for pr in prs if pr.number == pr_number), None)
 
         if not selected_pr:
             ctx.textual.end_step("error")
@@ -647,7 +644,7 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         selected_pr_number (int): The PR number
 
     Outputs (saved to ctx.data):
-        review_threads (List[PRReviewThread]): Unresolved review threads
+        review_threads (List[UICommentThread]): Unresolved review threads (UI models)
 
     Returns:
         Success: Threads fetched
@@ -711,7 +708,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Requires (from ctx.data):
         selected_pr_number (int): The PR number
-        review_threads (List[PRReviewThread]): Unresolved threads from GraphQL
+        review_threads (List[UICommentThread]): Unresolved threads (UI models)
 
     Returns:
         Success: All threads processed
@@ -729,7 +726,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     try:
         # Get data from context
         pr_number = ctx.get("selected_pr_number")
-        review_threads: List[PRReviewThread] = ctx.get("review_threads", [])
+        review_threads: List[UICommentThread] = ctx.get("review_threads", [])
         head_branch = ctx.get("selected_pr_head_branch", "")
         pr_title = ctx.get("selected_pr_title", "")
 

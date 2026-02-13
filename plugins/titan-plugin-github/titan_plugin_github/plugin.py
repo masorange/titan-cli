@@ -6,7 +6,8 @@ from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.plugins.models import GitHubPluginConfig
-from .clients.github_client import GitHubClient, GitHubError
+from .clients.github_client import GitHubClient
+from .exceptions import GitHubError
 
 
 class GitHubPlugin(TitanPlugin):

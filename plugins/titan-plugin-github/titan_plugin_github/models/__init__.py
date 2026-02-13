@@ -1,41 +1,77 @@
 """
 GitHub Plugin Models
 
-This package contains data models for the GitHub plugin:
-- network.py: Network/API models (GraphQL responses, REST API data)
-- view.py: View/UI models (optimized for rendering in widgets)
+This package contains all data models for the GitHub plugin:
+
+- network/: Network models (REST and GraphQL) - faithful to API responses
+- view/: View models - optimized for UI rendering
+- mappers/: Conversion functions from network to view models
+- formatting.py: Shared formatting utilities
 """
 
-# Network/API models
-from .network import (
-    User,
-    ReviewComment,
-    Review,
-    PullRequest,
-    PRReviewComment,
-    PRReviewThread,
-    PRIssueComment,
-    PRSearchResult,
-    PRMergeResult,
-    Issue,
+# Network models (REST)
+from .network.rest import (
+    RESTUser,
+    RESTReview,
+    RESTPullRequest,
+    RESTPRSearchResult,
+    RESTPRMergeResult,
+    RESTIssue,
 )
 
-# View/UI models
-from .view import UIComment, UICommentThread
+# Network models (GraphQL)
+from .network.graphql import (
+    GraphQLUser,
+    GraphQLPullRequestReviewComment,
+    GraphQLPullRequestReviewThread,
+    GraphQLIssueComment,
+)
+
+# View models
+from .view import (
+    UIComment,
+    UICommentThread,
+    UIPullRequest,
+    UIIssue,
+)
+
+# Mappers
+from .mappers import (
+    from_rest_pr,
+    from_rest_issue,
+    from_graphql_review_comment,
+    from_graphql_issue_comment,
+    from_graphql_review_thread,
+)
+
+# Formatting utilities
+from . import formatting
+
 
 __all__ = [
-    # Network models (from API/GraphQL)
-    "User",
-    "ReviewComment",
-    "Review",
-    "PullRequest",
-    "PRReviewComment",
-    "PRReviewThread",
-    "PRIssueComment",
-    "PRSearchResult",
-    "PRMergeResult",
-    "Issue",
-    # View models (for UI rendering)
+    # Network models (REST)
+    "RESTUser",
+    "RESTReview",
+    "RESTPullRequest",
+    "RESTPRSearchResult",
+    "RESTPRMergeResult",
+    "RESTIssue",
+    # Network models (GraphQL)
+    "GraphQLUser",
+    "GraphQLPullRequestReviewComment",
+    "GraphQLPullRequestReviewThread",
+    "GraphQLIssueComment",
+    # View models
     "UIComment",
     "UICommentThread",
+    "UIPullRequest",
+    "UIIssue",
+    # Mappers
+    "from_rest_pr",
+    "from_rest_issue",
+    "from_graphql_review_comment",
+    "from_graphql_issue_comment",
+    "from_graphql_review_thread",
+    # Formatting
+    "formatting",
 ]

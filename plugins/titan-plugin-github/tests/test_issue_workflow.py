@@ -6,7 +6,7 @@ from titan_cli.core.secrets import SecretManager
 from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step
 from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
 from titan_plugin_github.steps.preview_step import preview_and_confirm_issue_step
-from titan_plugin_github.models import Issue, User
+from titan_plugin_github.models.network.rest import RESTIssue, RESTUser
 
 @pytest.fixture
 def mock_secret_manager():
@@ -145,12 +145,12 @@ def test_prompt_for_self_assign_step(mock_secret_manager):
 def test_create_issue_step(MockGitHubClient, mock_secret_manager):
     # Arrange
     mock_github_client = MockGitHubClient()
-    mock_issue = Issue(
+    mock_issue = RESTIssue(
         number=1,
-        title="Test Issue",
+        title="Test RESTIssue",
         body="This is a test issue",
         state="OPEN",
-        author=User(login="testuser"),
+        author=RESTUser(login="testuser"),
         labels=[],
     )
     mock_github_client.create_issue.return_value = mock_issue
@@ -180,12 +180,12 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
     # Arrange
     with patch("titan_plugin_github.clients.github_client.GitHubClient") as MockGitHubClient:
         mock_github_client = MockGitHubClient()
-        mock_issue = Issue(
+        mock_issue = RESTIssue(
             number=2,
             title="feat: New Feature",
             body="Feature description",
             state="OPEN",
-            author=User(login="testuser"),
+            author=RESTUser(login="testuser"),
             labels=["feature"],
         )
         mock_github_client.create_issue.return_value = mock_issue
@@ -339,12 +339,12 @@ def test_create_issue_with_invalid_labels(MockGitHubClient, mock_secret_manager)
     # Arrange
     mock_github_client = MockGitHubClient()
     mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]
-    mock_issue = Issue(
+    mock_issue = RESTIssue(
         number=3,
         title="Test Title",
         body="Test Body",
         state="OPEN",
-        author=User(login="testuser"),
+        author=RESTUser(login="testuser"),
         labels=[],  # No labels since invalid ones were filtered
     )
     mock_github_client.create_issue.return_value = mock_issue

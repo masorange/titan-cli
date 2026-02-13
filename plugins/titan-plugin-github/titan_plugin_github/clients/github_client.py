@@ -1,47 +1,36 @@
 # plugins/titan-plugin-github/titan_plugin_github/clients/github_client.py
 """
-GitHub Client
+GitHub Client Facade
 
-Python client for GitHub operations using gh CLI.
+High-level facade for GitHub operations.
+Delegates to specialized services (PRs, reviews, issues, teams).
 """
-
-import json
-import subprocess
 from typing import List, Optional, Dict, Any
 
 from titan_cli.core.secrets import SecretManager
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from titan_plugin_git.clients.git_client import GitClient
 
-from ..models import (
-    PullRequest,
-    Review,
-    PRSearchResult,
-    PRMergeResult,
-    PRReviewThread,
-    Issue,
-)
-from ..exceptions import (
-    GitHubError,
-    GitHubAuthenticationError,
-    PRNotFoundError,
-    GitHubAPIError,
-)
-from ..messages import msg
+from .network import GHNetwork, GraphQLNetwork
+from .services import PRService, ReviewService, IssueService, TeamService
+from ..models.network.rest import RESTPRMergeResult, RESTReview
+from ..models.view import UIPullRequest, UICommentThread, UIIssue
 
 
 class GitHubClient:
     """
-    GitHub client using gh CLI
+    GitHub client facade.
 
-    This client wraps gh CLI commands and provides a Pythonic interface
-    for GitHub operations.
+    Provides a unified interface for all GitHub operations.
+    Internally delegates to specialized services.
+
+    This is the public API for the GitHub plugin.
 
     Examples:
         >>> config = GitHubPluginConfig()
-        >>> client = GitHubClient(config)
+        >>> client = GitHubClient(config, secrets, git_client, "owner", "repo")
         >>> pr = client.get_pull_request(123)
-        >>> print(pr.title)
+        >>> print(pr.title, pr.status_icon)
     """
 
     def __init__(
@@ -53,14 +42,14 @@ class GitHubClient:
         repo_name: str
     ):
         """
-        Initialize GitHub client
+        Initialize GitHub client.
 
         Args:
             config: GitHub configuration
             secrets: SecretManager instance
             git_client: Initialized GitClient instance
-            repo_owner: GitHub repository owner.
-            repo_name: GitHub repository name.
+            repo_owner: GitHub repository owner
+            repo_name: GitHub repository name
 
         Raises:
             GitHubAuthenticationError: If gh CLI is not authenticated
@@ -70,665 +59,88 @@ class GitHubClient:
         self.git_client = git_client
         self.repo_owner = repo_owner
         self.repo_name = repo_name
-        self._check_auth()
 
-    def _check_auth(self) -> None:
-        """
-        Check if gh CLI is authenticated
+        # Initialize network layers
+        self._gh_network = GHNetwork(repo_owner, repo_name)
+        self._graphql_network = GraphQLNetwork(self._gh_network)
 
-        Raises:
-            GitHubAuthenticationError: If not authenticated
-        """
-        try:
-            subprocess.run(["gh", "auth", "status"], capture_output=True, check=True)
-        except subprocess.CalledProcessError:
-            raise GitHubAuthenticationError(msg.GitHub.NOT_AUTHENTICATED)
+        # Initialize services
+        self._pr_service = PRService(self._gh_network)
+        self._review_service = ReviewService(self._gh_network, self._graphql_network)
+        self._issue_service = IssueService(self._gh_network)
+        self._team_service = TeamService(self._gh_network)
 
-    def _run_gh_command(
-        self, args: List[str], stdin_input: Optional[str] = None
-    ) -> str:
-        """
-        Run gh CLI command and return stdout
+    # ============================================================================
+    # Pull Request Operations
+    # ============================================================================
 
-        Args:
-            args: Command arguments (without 'gh' prefix)
-            stdin_input: Optional input to pass via stdin (for multiline text)
-
-        Returns:
-            Command stdout as string
-
-        Raises:
-            GitHubAPIError: If command fails
-        """
-        try:
-            result = subprocess.run(
-                ["gh"] + args,
-                input=stdin_input,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr.strip() if e.stderr else str(e)
-            raise GitHubAPIError(msg.GitHub.API_ERROR.format(error_msg=error_msg))
-        except FileNotFoundError:
-            raise GitHubError(msg.GitHub.CLI_NOT_FOUND)
-        except Exception as e:
-            raise GitHubError(msg.GitHub.UNEXPECTED_ERROR.format(error=e))
-
-    def _get_repo_arg(self) -> List[str]:
-        """Get --repo argument for gh commands"""
-        if self.repo_owner and self.repo_name:
-            return ["--repo", f"{self.repo_owner}/{self.repo_name}"]
-        return []
-
-    def _get_repo_string(self) -> str:
-        """Get repo string in format 'owner/repo'"""
-        return f"{self.repo_owner}/{self.repo_name}"
-
-    def get_pull_request(self, pr_number: int) -> PullRequest:
-        """
-        Get pull request by number
-
-        Args:
-            pr_number: PR number
-
-        Returns:
-            PullRequest instance
-
-        Raises:
-            PRNotFoundError: If PR doesn't exist
-            GitHubAPIError: If API call fails
-
-        Examples:
-            >>> pr = client.get_pull_request(123)
-            >>> print(pr.title, pr.state)
-        """
-        try:
-            # Get PR with all relevant fields
-            fields = [
-                "number",
-                "title",
-                "body",
-                "state",
-                "author",
-                "baseRefName",
-                "headRefName",
-                "additions",
-                "deletions",
-                "changedFiles",
-                "mergeable",
-                "isDraft",
-                "createdAt",
-                "updatedAt",
-                "mergedAt",
-                "reviews",
-                "labels",
-            ]
-
-            args = [
-                "pr",
-                "view",
-                str(pr_number),
-                "--json",
-                ",".join(fields),
-            ] + self._get_repo_arg()
-
-            output = self._run_gh_command(args)
-            data = json.loads(output)
-
-            return PullRequest.from_dict(data)
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to parse PR data: {e}"
-                )
-            )
-        except GitHubAPIError as e:
-            if "not found" in str(e).lower():
-                raise PRNotFoundError(
-                    msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number)
-                )
-            raise
-
-    def get_default_branch(self) -> str:
-        """
-        Get the default branch (base branch) for the repository
-
-        Checks in order:
-        1. Project config (.titan/config.toml -> github.default_branch)
-        2. GitHub repository default branch (via API)
-        3. Fallback to "develop"
-
-        Returns:
-            Default branch name (e.g., "main", "develop", "master")
-
-        Examples:
-            >>> # If config has github.default_branch = "develop"
-            >>> client = GitHubClient(config)
-            >>> branch = client.get_default_branch()
-            >>> print(branch)  # "develop" (from config)
-
-            >>> # If no config, consults GitHub API
-            >>> client = GitHubClient(config)
-            >>> branch = client.get_default_branch()
-            >>> print(branch)  # "main" (from GitHub API)
-        """
-        # Try to get from project config first
-        if self.config.default_branch:
-            return self.config.default_branch
-
-        # Fallback to GitHub API
-        try:
-            # Get repository info including default branch
-            args = ["repo", "view", "--json", "defaultBranchRef"] + self._get_repo_arg()
-
-            output = self._run_gh_command(args)
-            data = json.loads(output)
-
-            # Extract default branch name
-            default_branch_ref = data.get("defaultBranchRef", {})
-            branch_name = default_branch_ref.get("name")
-
-            if branch_name:
-                return branch_name
-
-        except Exception:
-            # Log this, but don't re-raise immediately, try final fallback
-            pass
-
-        # Final fallback: use git plugin's main_branch
-        return self.git_client.main_branch
+    def get_pull_request(self, pr_number: int) -> UIPullRequest:
+        """Get a pull request by number."""
+        return self._pr_service.get_pull_request(pr_number)
 
     def list_pending_review_prs(
         self, max_results: int = 50, include_team_reviews: bool = False
-    ) -> PRSearchResult:
-        """
-        List PRs pending your review in the current repository
+    ) -> List[UIPullRequest]:
+        """List PRs pending your review."""
+        return self._pr_service.list_pending_review_prs(max_results, include_team_reviews)
 
-        Args:
-            max_results: Maximum number of results
-            include_team_reviews: If True, includes PRs where only your team is requested
-                                 If False, only PRs where YOU are individually requested
+    def list_my_prs(self, state: str = "open", max_results: int = 50) -> List[UIPullRequest]:
+        """List your PRs."""
+        return self._pr_service.list_my_prs(state, max_results)
 
-        Returns:
-            PRSearchResult with pending PRs
-
-        Examples:
-            >>> # Only PRs where you're individually assigned
-            >>> result = client.list_pending_review_prs()
-            >>> # PRs where you OR your team are assigned
-            >>> result = client.list_pending_review_prs(include_team_reviews=True)
-        """
-        try:
-            # Use 'gh pr list' instead of 'gh search prs' because:
-            # - 'gh search prs' ignores --repo flag and searches across all repos
-            # - 'gh pr list' respects current repo context
-
-            # Get current user login
-            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
-            current_user = user_output.strip()
-
-            # Get all PRs with review-requested:@me
-            args = [
-                "pr",
-                "list",
-                "--search",
-                f"review-requested:{current_user}",
-                "--state",
-                "open",
-                "--limit",
-                str(max_results),
-                "--json",
-                "number,title,author,updatedAt,labels,isDraft,reviewRequests",
-            ] + self._get_repo_arg()
-
-            output = self._run_gh_command(args)
-            all_prs = json.loads(output)
-
-            if include_team_reviews:
-                # Return all PRs (you individually OR your team)
-                return PRSearchResult.from_list(all_prs)
-            else:
-                # Filter to only PRs where current user is explicitly in reviewRequests
-
-                filtered_prs = []
-                for pr in all_prs:
-                    review_requests = pr.get("reviewRequests", [])
-                    # Check if current user is in the review requests
-                    if any(
-                        req and req.get("login") == current_user
-                        for req in review_requests
-                    ):
-                        filtered_prs.append(pr)
-
-                return PRSearchResult.from_list(filtered_prs)
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to parse search results: {e}"
-                )
-            )
-
-    def list_my_prs(self, state: str = "open", max_results: int = 50) -> PRSearchResult:
-        """
-        List your PRs
-
-        Args:
-            state: PR state (open, closed, merged, all)
-            max_results: Maximum number of results
-
-        Returns:
-            PRSearchResult with your PRs
-
-        Examples:
-            >>> result = client.list_my_prs(state="open")
-            >>> print(f"You have {result.total} open PRs")
-        """
-        try:
-            # Get current user login
-            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
-            current_user = user_output.strip()
-
-            # List all PRs (--author @me doesn't work with --json, it's a gh CLI bug)
-            args = [
-                "pr",
-                "list",
-                "--state",
-                state,
-                "--limit",
-                str(max_results),
-                "--json",
-                "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName",
-            ] + self._get_repo_arg()
-
-            output = self._run_gh_command(args)
-            all_prs = json.loads(output)
-
-            # Filter to only PRs authored by current user
-            my_prs = [
-                pr for pr in all_prs
-                if pr.get("author") and pr["author"].get("login") == current_user
-            ]
-
-            return PRSearchResult.from_list(my_prs)
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to parse PR list: {e}"
-                )
-            )
-
-    def list_all_prs(
-        self, state: str = "open", max_results: int = 50
-    ) -> PRSearchResult:
-        """
-        List all PRs in the repository
-
-        Args:
-            state: PR state (open, closed, merged, all)
-            max_results: Maximum number of results
-
-        Returns:
-            PRSearchResult with all PRs
-
-        Examples:
-            >>> result = client.list_all_prs(state="open")
-            >>> print(f"Repository has {result.total} open PRs")
-        """
-        try:
-            args = [
-                "pr",
-                "list",
-                "--state",
-                state,
-                "--limit",
-                str(max_results),
-                "--json",
-                "number,title,author,updatedAt,labels,isDraft,state,reviewRequests",
-            ] + self._get_repo_arg()
-
-            output = self._run_gh_command(args)
-            data = json.loads(output)
-
-            return PRSearchResult.from_list(data)
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to parse PR list: {e}"
-                )
-            )
+    def list_all_prs(self, state: str = "open", max_results: int = 50) -> List[UIPullRequest]:
+        """List all PRs in the repository."""
+        return self._pr_service.list_all_prs(state, max_results)
 
     def get_pr_diff(self, pr_number: int, file_path: Optional[str] = None) -> str:
-        """
-        Get diff for a PR
-
-        Args:
-            pr_number: PR number
-            file_path: Optional specific file to get diff for
-
-        Returns:
-            Diff as string
-
-        Raises:
-            PRNotFoundError: If PR doesn't exist
-
-        Examples:
-            >>> diff = client.get_pr_diff(123)
-            >>> print(diff)
-        """
-        try:
-            args = ["pr", "diff", str(pr_number)] + self._get_repo_arg()
-
-            if file_path:
-                args.append("--")
-                args.append(file_path)
-
-            return self._run_gh_command(args)
-
-        except GitHubAPIError as e:
-            if "not found" in str(e).lower():
-                raise PRNotFoundError(
-                    msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number)
-                )
-            raise
+        """Get diff for a PR."""
+        return self._pr_service.get_pr_diff(pr_number, file_path)
 
     def get_pr_files(self, pr_number: int) -> List[str]:
-        """
-        Get list of changed files in PR
-
-        Args:
-            pr_number: PR number
-
-        Returns:
-            List of file paths
-
-        Examples:
-            >>> files = client.get_pr_files(123)
-            >>> print(f"Changed {len(files)} files")
-        """
-        try:
-            args = [
-                "pr",
-                "view",
-                str(pr_number),
-                "--json",
-                "files",
-            ] + self._get_repo_arg()
-
-            output = self._run_gh_command(args)
-            data = json.loads(output)
-
-            return [f["path"] for f in data.get("files", [])]
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to parse files: {e}"
-                )
-            )
+        """Get list of changed files in PR."""
+        return self._pr_service.get_pr_files(pr_number)
 
     def checkout_pr(self, pr_number: int) -> str:
+        """Checkout a PR locally."""
+        return self._pr_service.checkout_pr(pr_number)
+
+    def create_pull_request(
+        self,
+        title: str,
+        body: str,
+        base: str,
+        head: str,
+        draft: bool = False,
+        assignees: Optional[List[str]] = None,
+        reviewers: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+        excluded_reviewers: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
-        Checkout a PR locally
+        Create a pull request.
 
-        Args:
-            pr_number: PR number
-
-        Returns:
-            Branch name that was checked out
-
-        Raises:
-            PRNotFoundError: If PR doesn't exist
-
-        Examples:
-            >>> branch = client.checkout_pr(123)
-            >>> print(f"Checked out {branch}")
+        Note: excluded_reviewers is handled by expanding team reviewers and filtering.
         """
-        try:
-            # Get PR branch name first
-            pr = self.get_pull_request(pr_number)
+        # Handle team expansion and exclusions
+        final_reviewers = []
+        if reviewers:
+            for reviewer in reviewers:
+                # Check if it's a team (format: "org/team")
+                if '/' in reviewer:
+                    # Expand team to individual members
+                    team_members = self._team_service.list_team_members(reviewer)
+                    # Filter out excluded reviewers
+                    if excluded_reviewers:
+                        team_members = [m for m in team_members if m not in excluded_reviewers]
+                    final_reviewers.extend(team_members)
+                else:
+                    # It's a username, add directly if not excluded
+                    if not excluded_reviewers or reviewer not in excluded_reviewers:
+                        final_reviewers.append(reviewer)
 
-            # Checkout the PR using gh CLI
-            args = ["pr", "checkout", str(pr_number)] + self._get_repo_arg()
-            self._run_gh_command(args)
-
-            return pr.head_ref
-
-        except GitHubAPIError as e:
-            if "not found" in str(e).lower():
-                raise PRNotFoundError(
-                    msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number)
-                )
-            raise
-
-    def add_comment(self, pr_number: int, body: str) -> None:
-        """
-        Add comment to a PR
-
-        Args:
-            pr_number: PR number
-            body: Comment text
-
-        Raises:
-            PRNotFoundError: If PR doesn't exist
-
-        Examples:
-            >>> client.add_comment(123, "LGTM!")
-        """
-        try:
-            args = [
-                "pr",
-                "comment",
-                str(pr_number),
-                "--body",
-                body,
-            ] + self._get_repo_arg()
-
-            self._run_gh_command(args)
-
-        except GitHubAPIError as e:
-            if "not found" in str(e).lower():
-                raise PRNotFoundError(
-                    msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number)
-                )
-            raise
-
-    def get_pr_commit_sha(self, pr_number: int) -> str:
-        """
-        Get the latest commit SHA for a PR
-
-        Args:
-            pr_number: PR number
-
-        Returns:
-            Latest commit SHA
-
-        Examples:
-            >>> sha = client.get_pr_commit_sha(123)
-        """
-        try:
-            args = [
-                "pr",
-                "view",
-                str(pr_number),
-                "--json",
-                "commits",
-            ] + self._get_repo_arg()
-
-            output = self._run_gh_command(args)
-            data = json.loads(output)
-            commits = data.get("commits", [])
-
-            if not commits:
-                raise GitHubAPIError(
-                    msg.GitHub.API_ERROR.format(
-                        error_msg=f"No commits found for PR #{pr_number}"
-                    )
-                )
-
-            return commits[-1]["oid"]
-
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to get commit SHA: {e}"
-                )
-            )
-
-    def get_pr_reviews(self, pr_number: int) -> List["Review"]:
-        """
-        Get all reviews for a PR
-
-        Args:
-            pr_number: PR number
-
-        Returns:
-            List of Review objects
-
-        Examples:
-            >>> reviews = client.get_pr_reviews(123)
-            >>> approved = sum(1 for r in reviews if r.state == "APPROVED")
-        """
-        try:
-            repo = self._get_repo_string()
-            result = self._run_gh_command(
-                ["api", f"/repos/{repo}/pulls/{pr_number}/reviews", "--jq", "."]
-            )
-
-            reviews_data = json.loads(result)
-            return [Review.from_dict(r) for r in reviews_data]
-
-        except (json.JSONDecodeError, KeyError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to get PR reviews: {e}"
-                )
-            )
-
-    def create_draft_review(self, pr_number: int, payload: Dict[str, Any]) -> int:
-        """
-        Create a draft review on a PR
-
-        Args:
-            pr_number: PR number
-            payload: Review payload with commit_id, body, event, comments
-
-        Returns:
-            Review ID
-
-        Examples:
-            >>> payload = {
-            ...     "commit_id": "abc123",
-            ...     "body": "",
-            ...     "event": "PENDING",
-            ...     "comments": [{"path": "file.kt", "line": 10, "body": "Nice"}]
-            ... }
-            >>> review_id = client.create_draft_review(123, payload)
-        """
-        try:
-            repo = self._get_repo_string()
-            args = [
-                "api",
-                f"/repos/{repo}/pulls/{pr_number}/reviews",
-                "--method",
-                "POST",
-                "--input",
-                "-",
-            ]
-
-            # Run gh command with JSON payload via stdin
-            import subprocess
-
-            result = subprocess.run(
-                ["gh"] + args,
-                input=json.dumps(payload),
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-
-            response = json.loads(result.stdout)
-            return response["id"]
-
-        except (json.JSONDecodeError, KeyError, subprocess.CalledProcessError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to create draft review: {e}"
-                )
-            )
-
-    def submit_review(
-        self, pr_number: int, review_id: int, event: str, body: str = ""
-    ) -> None:
-        """
-        Submit a review
-
-        Args:
-            pr_number: PR number
-            review_id: Review ID
-            event: Review event (APPROVE, REQUEST_CHANGES, COMMENT)
-            body: Optional review body text
-
-        Examples:
-            >>> client.submit_review(123, 456, "APPROVE", "")
-        """
-        try:
-            repo = self._get_repo_string()
-            args = [
-                "api",
-                f"/repos/{repo}/pulls/{pr_number}/reviews/{review_id}/events",
-                "--method",
-                "POST",
-                "-f",
-                f"event={event}",
-            ]
-
-            if body:
-                args.extend(["-f", f"body={body}"])
-
-            self._run_gh_command(args)
-
-        except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to submit review: {e}"
-                )
-            )
-
-    def delete_review(self, pr_number: int, review_id: int) -> None:
-        """
-        Delete a draft review
-
-        Args:
-            pr_number: PR number
-            review_id: Review ID
-
-        Examples:
-            >>> client.delete_review(123, 456)
-        """
-        try:
-            repo = self._get_repo_string()
-            args = [
-                "api",
-                f"/repos/{repo}/pulls/{pr_number}/reviews/{review_id}",
-                "--method",
-                "DELETE",
-            ]
-
-            self._run_gh_command(args)
-
-        except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to delete review: {e}"
-                )
-            )
+        return self._pr_service.create_pull_request(
+            title, body, base, head, draft, assignees, final_reviewers, labels
+        )
 
     def merge_pr(
         self,
@@ -736,622 +148,67 @@ class GitHubClient:
         merge_method: str = "squash",
         commit_title: Optional[str] = None,
         commit_message: Optional[str] = None,
-    ) -> PRMergeResult:
-        """
-        Merge a pull request
+    ) -> RESTPRMergeResult:
+        """Merge a pull request."""
+        return self._pr_service.merge_pr(pr_number, merge_method, commit_title, commit_message)
 
-        Args:
-            pr_number: PR number
-            merge_method: Merge method (squash, merge, rebase)
-            commit_title: Optional commit title
-            commit_message: Optional commit message
+    def add_comment(self, pr_number: int, body: str) -> None:
+        """Add a comment to a PR."""
+        return self._pr_service.add_comment(pr_number, body)
 
-        Returns:
-            PRMergeResult with merge status and SHA
+    def get_pr_commit_sha(self, pr_number: int) -> str:
+        """Get the latest commit SHA for a PR."""
+        return self._pr_service.get_pr_commit_sha(pr_number)
 
-        Examples:
-            >>> result = client.merge_pr(123, merge_method="squash")
-            >>> if result.merged:
-            ...     print(f"Merged: {result.sha}")
-        """
-        try:
-            # Validate merge method
-            valid_methods = ["squash", "merge", "rebase"]
-            if merge_method not in valid_methods:
-                return PRMergeResult(
-                    merged=False,
-                    message=msg.GitHub.INVALID_MERGE_METHOD.format(
-                        method=merge_method, valid_methods=", ".join(valid_methods)
-                    ),
-                )
-
-            # Build command
-            args = ["pr", "merge", str(pr_number), f"--{merge_method}"]
-
-            if commit_title:
-                args.extend(["--subject", commit_title])
-
-            if commit_message:
-                args.extend(["--body", commit_message])
-
-            # Execute merge
-            result = self._run_gh_command(args)
-
-            # Parse result to get SHA
-            # gh pr merge returns: "✓ Merged pull request #123 (SHA)"
-            # Extract SHA from output
-            sha = None
-            if result:
-                import re
-
-                sha_match = re.search(r"\(([a-f0-9]{40})\)", result)
-                if sha_match:
-                    sha = sha_match.group(1)
-                else:
-                    # Try short SHA (7 chars)
-                    sha_match = re.search(r"\(([a-f0-9]{7,})\)", result)
-                    if sha_match:
-                        sha = sha_match.group(1)
-
-            return PRMergeResult(merged=True, sha=sha, message="Successfully merged")
-
-        except GitHubAPIError as e:
-            return PRMergeResult(merged=False, message=str(e))
-        except Exception as e:
-            return PRMergeResult(
-                merged=False, message=msg.GitHub.UNEXPECTED_ERROR.format(error=e)
-            )
-
-    def reply_to_comment(self, pr_number: int, comment_id: int, body: str) -> None:
-        """
-        Reply to a PR comment
-
-        Args:
-            pr_number: PR number
-            comment_id: Comment ID to reply to
-            body: Reply text
-
-        Examples:
-            >>> client.reply_to_comment(123, 456789, "Fixed in abc123")
-        """
-        try:
-            repo = self._get_repo_string()
-            # Use -F body= @docs/guides/creating-visual-components.md to read body from stdin
-            # This properly handles multiline text, special characters, and code blocks
-            args = [
-                "api",
-                "-X",
-                "POST",
-                f"/repos/{repo}/pulls/{pr_number}/comments/{comment_id}/replies",
-                "-F",
-                "body= @-",
-            ]
-
-            self._run_gh_command(args, stdin_input=body)
-
-        except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to reply to comment: {e}"
-                )
-            )
-
-    def resolve_review_thread(self, thread_node_id: str) -> None:
-        """
-        Resolve a review thread in a PR using GraphQL
-
-        Args:
-            thread_node_id: GraphQL node ID of the comment thread
-
-        Raises:
-            GitHubAPIError: If resolving the thread fails
-
-        Examples:
-            >>> client.resolve_review_thread("PRRT_kwDOAbc123...")
-        """
-        try:
-            # Use GraphQL mutation to resolve the thread
-            query = '''
-            mutation($threadId: ID!) {
-              resolveReviewThread(input: {threadId: $threadId}) {
-                thread {
-                  isResolved
-                }
-              }
-            }
-            '''
-
-            args = [
-                "api",
-                "graphql",
-                "-f",
-                f"query={query}",
-                "-f",
-                f"threadId={thread_node_id}"
-            ]
-
-            self._run_gh_command(args)
-
-        except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to resolve review thread: {e}"
-                )
-            )
-
-    def request_pr_review(self, pr_number: int, reviewers: Optional[List[str]] = None) -> None:
-        """
-        Request review (or re-request review) on a PR using GraphQL.
-
-        If reviewers is not provided, re-requests review from all existing reviewers
-        who have already reviewed the PR.
-
-        Args:
-            pr_number: PR number
-            reviewers: List of GitHub usernames to request review from.
-                      If None, re-requests from existing reviewers.
-
-        Raises:
-            GitHubAPIError: If requesting review fails
-
-        Examples:
-            >>> # Re-request review from existing reviewers
-            >>> client.request_pr_review(123)
-
-            >>> # Request review from specific users
-            >>> client.request_pr_review(123, ["user1", "user2"])
-        """
-        try:
-            # First, get PR node ID and existing reviewers if needed
-            if reviewers is None:
-                # Get existing reviewers from PR
-                query = '''
-                query($owner: String!, $repo: String!, $prNumber: Int!) {
-                  repository(owner: $owner, name: $repo) {
-                    pullRequest(number: $prNumber) {
-                      id
-                      reviewRequests(first: 100) {
-                        nodes {
-                          requestedReviewer {
-                            ... on User {
-                              login
-                            }
-                          }
-                        }
-                      }
-                      reviews(first: 100) {
-                        nodes {
-                          author {
-                            login
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                '''
-
-                args = [
-                    "api",
-                    "graphql",
-                    "-f",
-                    f"query={query}",
-                    "-f",
-                    f"owner={self.owner}",
-                    "-f",
-                    f"repo={self.repo}",
-                    "-F",
-                    f"prNumber={pr_number}"
-                ]
-
-                output = self._run_gh_command(args)
-                data = json.loads(output)
-                pr_data = data.get("data", {}).get("repository", {}).get("pullRequest", {})
-
-                if not pr_data:
-                    raise GitHubAPIError(f"PR #{pr_number} not found")
-
-                pr_node_id = pr_data.get("id")
-
-                # Get reviewers who have already reviewed
-                existing_reviewers = set()
-                reviews = pr_data.get("reviews", {}).get("nodes", [])
-                for review in reviews:
-                    author = review.get("author", {})
-                    if author and author.get("login"):
-                        existing_reviewers.add(author["login"])
-
-                # Get pending review requests
-                review_requests = pr_data.get("reviewRequests", {}).get("nodes", [])
-                for request in review_requests:
-                    requested = request.get("requestedReviewer", {})
-                    if requested and requested.get("login"):
-                        existing_reviewers.add(requested["login"])
-
-                reviewers = list(existing_reviewers)
-
-                if not reviewers:
-                    # No reviewers to re-request
-                    return
-            else:
-                # Get PR node ID
-                query = '''
-                query($owner: String!, $repo: String!, $prNumber: Int!) {
-                  repository(owner: $owner, name: $repo) {
-                    pullRequest(number: $prNumber) {
-                      id
-                    }
-                  }
-                }
-                '''
-
-                args = [
-                    "api",
-                    "graphql",
-                    "-f",
-                    f"query={query}",
-                    "-f",
-                    f"owner={self.owner}",
-                    "-f",
-                    f"repo={self.repo}",
-                    "-F",
-                    f"prNumber={pr_number}"
-                ]
-
-                output = self._run_gh_command(args)
-                data = json.loads(output)
-                pr_node_id = data.get("data", {}).get("repository", {}).get("pullRequest", {}).get("id")
-
-                if not pr_node_id:
-                    raise GitHubAPIError(f"PR #{pr_number} not found")
-
-            # Now request reviews using GraphQL mutation
-            mutation = '''
-            mutation($prId: ID!, $userIds: [ID!]!) {
-              requestReviews(input: {pullRequestId: $prId, userIds: $userIds}) {
-                pullRequest {
-                  id
-                }
-              }
-            }
-            '''
-
-            # Convert usernames to user IDs (GraphQL needs node IDs)
-            user_ids = []
-            for username in reviewers:
-                user_query = '''
-                query($login: String!) {
-                  user(login: $login) {
-                    id
-                  }
-                }
-                '''
-
-                user_args = [
-                    "api",
-                    "graphql",
-                    "-f",
-                    f"query={user_query}",
-                    "-f",
-                    f"login={username}"
-                ]
-
-                user_output = self._run_gh_command(user_args)
-                user_data = json.loads(user_output)
-                user_id = user_data.get("data", {}).get("user", {}).get("id")
-
-                if user_id:
-                    user_ids.append(user_id)
-
-            if not user_ids:
-                return
-
-            # Request reviews
-            args = [
-                "api",
-                "graphql",
-                "-f",
-                f"query={mutation}",
-                "-f",
-                f"prId={pr_node_id}",
-                "-f",
-                f"userIds={json.dumps(user_ids)}"
-            ]
-
-            self._run_gh_command(args)
-
-        except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to request review on PR #{pr_number}: {e}"
-                )
-            )
+    # ============================================================================
+    # Review Operations
+    # ============================================================================
 
     def get_pr_review_threads(
         self, pr_number: int, include_resolved: bool = True
-    ) -> List[PRReviewThread]:
-        """
-        Get all review threads for a PR using GraphQL.
+    ) -> List[UICommentThread]:
+        """Get all review threads for a PR."""
+        return self._review_service.get_pr_review_threads(pr_number, include_resolved)
 
-        Uses GraphQL to fetch structured threads with proper metadata.
-        Each thread contains main comment + replies + resolution status.
+    def resolve_review_thread(self, thread_node_id: str) -> None:
+        """Resolve a review thread."""
+        return self._review_service.resolve_review_thread(thread_node_id)
 
-        Args:
-            pr_number: PR number
-            include_resolved: If False, exclude resolved threads
+    def get_pr_reviews(self, pr_number: int) -> List[RESTReview]:
+        """Get all reviews for a PR."""
+        return self._review_service.get_pr_reviews(pr_number)
 
-        Returns:
-            List of PRReviewThread objects
+    def create_draft_review(self, pr_number: int, payload: Dict[str, Any]) -> int:
+        """Create a draft review on a PR."""
+        return self._review_service.create_draft_review(pr_number, payload)
 
-        Examples:
-            >>> threads = client.get_pr_review_threads(123)
-            >>> for thread in threads:
-            ...     print(f"Thread: {thread.id}, Resolved: {thread.is_resolved}")
-            ...     print(f"  Main: {thread.main_comment.body}")
-            ...     for reply in thread.replies:
-            ...         print(f"  Reply: {reply.body}")
-        """
-        try:
-            repo = self._get_repo_string()
-            owner, repo_name = repo.split('/')
+    def submit_review(
+        self, pr_number: int, review_id: int, event: str, body: str = ""
+    ) -> None:
+        """Submit a review."""
+        return self._review_service.submit_review(pr_number, review_id, event, body)
 
-            # GraphQL query to get all review threads with comments
-            query = '''
-            query($owner: String!, $repo: String!, $prNumber: Int!) {
-              repository(owner: $owner, name: $repo) {
-                pullRequest(number: $prNumber) {
-                  reviewThreads(first: 100) {
-                    nodes {
-                      id
-                      isResolved
-                      isOutdated
-                      path
-                      comments(first: 100) {
-                        nodes {
-                          databaseId
-                          body
-                          author {
-                            login
-                          }
-                          createdAt
-                          updatedAt
-                          path
-                          position
-                          line
-                          originalLine
-                          diffHunk
-                          replyTo {
-                            databaseId
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            '''
+    def delete_review(self, pr_number: int, review_id: int) -> None:
+        """Delete a draft review."""
+        return self._review_service.delete_review(pr_number, review_id)
 
-            args = [
-                "api",
-                "graphql",
-                "-f",
-                f"query={query}",
-                "-F",
-                f"owner={owner}",
-                "-F",
-                f"repo={repo_name}",
-                "-F",
-                f"prNumber={pr_number}"
-            ]
-
-            output = self._run_gh_command(args)
-            data = json.loads(output)
-
-            # Extract review threads
-            threads_data = (
-                data.get("data", {})
-                .get("repository", {})
-                .get("pullRequest", {})
-                .get("reviewThreads", {})
-                .get("nodes", [])
-            )
-
-            # Convert to PRReviewThread objects
-            threads = []
-            for thread_data in threads_data:
-                # Skip resolved threads if requested
-                if not include_resolved and thread_data.get("isResolved", False):
-                    continue
-
-                thread = PRReviewThread.from_graphql(thread_data)
-                threads.append(thread)
-
-            return threads
-
-        except (json.JSONDecodeError, KeyError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to get PR review threads: {e}"
-                )
-            )
+    def reply_to_comment(self, pr_number: int, comment_id: int, body: str) -> None:
+        """Reply to a PR comment."""
+        return self._review_service.reply_to_comment(pr_number, comment_id, body)
 
     def add_issue_comment(self, pr_number: int, body: str) -> None:
-        """
-        Add a general comment to PR (issue comment)
+        """Add a general comment to PR (issue comment)."""
+        return self._review_service.add_issue_comment(pr_number, body)
 
-        Args:
-            pr_number: PR number
-            body: Comment text
+    def request_pr_review(
+        self, pr_number: int, reviewers: Optional[List[str]] = None
+    ) -> None:
+        """Request review (or re-request) on a PR."""
+        return self._review_service.request_pr_review(pr_number, reviewers)
 
-        Examples:
-            >>> client.add_issue_comment(123, "Thanks for the review!")
-        """
-        try:
-            repo = self._get_repo_string()
-            # Use -F body= @docs/guides/creating-visual-components.md to read body from stdin
-            # This properly handles multiline text, special characters, and code blocks
-            args = [
-                "api",
-                "-X",
-                "POST",
-                f"/repos/{repo}/issues/{pr_number}/comments",
-                "-F",
-                "body= @-",
-            ]
-
-            self._run_gh_command(args, stdin_input=body)
-
-        except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to add comment: {e}"
-                )
-            )
-
-    def get_current_user(self) -> str:
-        """
-        Get the currently authenticated GitHub username.
-
-        Returns:
-            GitHub username
-
-        Raises:
-            GitHubAPIError: If unable to get current user
-        """
-        try:
-            output = self._run_gh_command(["api", "user", "-q", ".login"])
-            return output.strip()
-        except GitHubAPIError as e:
-            raise GitHubAPIError(f"Failed to get current GitHub user: {e}")
-
-    def create_pull_request(
-        self, title: str, body: str, base: str, head: str, draft: bool = False,
-        assignees: Optional[List[str]] = None, reviewers: Optional[List[str]] = None,
-        labels: Optional[List[str]] = None, excluded_reviewers: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
-        """
-        Create a pull request
-
-        Args:
-            title: PR title
-            body: PR description/body
-            base: Base branch (e.g., "develop", "main")
-            head: Head branch (feature branch)
-            draft: Whether to create as draft PR
-            assignees: List of GitHub usernames to assign to the PR
-            reviewers: List of GitHub usernames or team slugs to request review from
-            labels: List of label names to add to the PR
-            excluded_reviewers: List of GitHub usernames to exclude from team expansion
-
-        Returns:
-            Dict with PR information including:
-            - number: PR number
-            - url: PR URL
-            - state: PR state
-
-        Raises:
-            GitHubAPIError: If PR creation fails
-
-        Examples:
-            >>> # Basic PR with team reviewers
-            >>> pr = client.create_pull_request(
-            ...     title="feat: Add new feature",
-            ...     body="Description of changes",
-            ...     base="develop",
-            ...     head="feat/new-feature",
-            ...     assignees=["username"],
-            ...     reviewers=["my-org/backend-team", "username2"],
-            ...     labels=["enhancement", "needs-review"]
-            ... )
-            >>> print(f"Created PR #{pr['number']}: {pr['url']}")
-            >>>
-            >>> # PR with team but exclude specific member
-            >>> pr = client.create_pull_request(
-            ...     title="fix: Bug fix",
-            ...     body="Fixes issue #123",
-            ...     base="main",
-            ...     head="fix/bug-123",
-            ...     reviewers=["my-org/backend-team"],
-            ...     excluded_reviewers=["on-vacation-user"]
-            ... )
-        """
-        try:
-            args = [
-                "pr",
-                "create",
-                "--base",
-                base,
-                "--head",
-                head,
-                "--title",
-                title,
-                "--body",
-                body,
-            ]
-
-            if draft:
-                args.append("--draft")
-
-            # Add assignees if provided
-            if assignees:
-                for assignee in assignees:
-                    args.extend(["--assignee", assignee])
-
-            # Process reviewers: expand teams if needed and exclude users
-            final_reviewers = []
-            if reviewers:
-                for reviewer in reviewers:
-                    # Check if it's a team (format: "org/team")
-                    if '/' in reviewer:
-                        # Expand team to individual members
-                        try:
-                            team_members = self.list_team_members(reviewer)
-                            # Filter out excluded reviewers
-                            if excluded_reviewers:
-                                team_members = [m for m in team_members if m not in excluded_reviewers]
-                            final_reviewers.extend(team_members)
-                        except GitHubAPIError as e:
-                            # If team expansion fails, log warning but continue
-                            # (could be a nested team or permission issue)
-                            raise GitHubAPIError(f"Could not expand team {reviewer}: {e}")
-                    else:
-                        # It's a username, add directly if not excluded
-                        if not excluded_reviewers or reviewer not in excluded_reviewers:
-                            final_reviewers.append(reviewer)
-
-            # Add reviewers if provided
-            if final_reviewers:
-                for reviewer in final_reviewers:
-                    args.extend(["--reviewer", reviewer])
-
-            # Add labels if provided
-            if labels:
-                for label in labels:
-                    args.extend(["--label", label])
-
-            args.extend(self._get_repo_arg())
-
-            # Run command and get PR URL
-            output = self._run_gh_command(args)
-            pr_url = output.strip()
-
-            # Extract PR number from URL
-            # URL format: https://github.com/owner/repo/pull/123
-            pr_number = int(pr_url.split("/")[-1])
-
-            return {
-                "number": pr_number,
-                "url": pr_url,
-                "state": "draft" if draft else "open",
-            }
-
-        except ValueError:
-            raise GitHubAPIError(
-                msg.GitHub.FAILED_TO_PARSE_PR_NUMBER.format(url=pr_url)
-            )
-        except GitHubAPIError as e:
-            raise GitHubAPIError(msg.GitHub.PR_CREATION_FAILED.format(error=e))
+    # ============================================================================
+    # Issue Operations
+    # ============================================================================
 
     def create_issue(
         self,
@@ -1359,94 +216,66 @@ class GitHubClient:
         body: str,
         assignees: Optional[List[str]] = None,
         labels: Optional[List[str]] = None,
-    ) -> Issue:
-        """
-        Create a new GitHub issue.
-        """
-        try:
-            args = ["issue", "create", "--title", title, "--body", body]
-
-            if assignees:
-                for assignee in assignees:
-                    args.extend(["--assignee", assignee])
-            if labels:
-                for label in labels:
-                    args.extend(["--label", label])
-
-            args.extend(self._get_repo_arg())
-            output = self._run_gh_command(args)
-            issue_url = output.strip()
-            try:
-                issue_number = int(issue_url.strip().split("/")[-1])
-            except (ValueError, IndexError) as e:
-                raise GitHubAPIError(f"Failed to parse issue number from URL '{issue_url}': {e}")
-
-            # Fetch the issue to return the full object
-            issue_args = [
-                "issue",
-                "view",
-                str(issue_number),
-                "--json",
-                "number,title,body,state,author,labels,createdAt,updatedAt",
-            ] + self._get_repo_arg()
-            issue_output = self._run_gh_command(issue_args)
-            issue_data = json.loads(issue_output)
-            return Issue.from_dict(issue_data)
-
-        except (ValueError, json.JSONDecodeError) as e:
-            raise GitHubAPIError(f"Failed to parse issue data: {e}")
-        except GitHubAPIError as e:
-            raise GitHubAPIError(f"Failed to create issue: {e}")
+    ) -> UIIssue:
+        """Create a new GitHub issue."""
+        return self._issue_service.create_issue(title, body, assignees, labels)
 
     def list_labels(self) -> List[str]:
-        """
-        List all labels in the repository.
+        """List all labels in the repository."""
+        return self._issue_service.list_labels()
 
-        Returns:
-            List of label names.
-        """
-        try:
-            args = ["label", "list", "--json", "name"] + self._get_repo_arg()
-            output = self._run_gh_command(args)
-            labels_data = json.loads(output)
-            return [label["name"] for label in labels_data]
-        except (ValueError, json.JSONDecodeError) as e:
-            raise GitHubAPIError(f"Failed to parse label data: {e}")
-        except GitHubAPIError as e:
-            raise GitHubAPIError(f"Failed to list labels: {e}")
+    # ============================================================================
+    # Team Operations
+    # ============================================================================
 
     def list_team_members(self, team_slug: str) -> List[str]:
-        """
-        List all members of a GitHub team.
+        """List all members of a GitHub team."""
+        return self._team_service.list_team_members(team_slug)
 
-        Args:
-            team_slug: Team slug in format "org/team-name" (e.g., "my-org/backend-team")
+    # ============================================================================
+    # Utility Methods
+    # ============================================================================
+
+    def get_current_user(self) -> str:
+        """
+        Get the currently authenticated GitHub username.
 
         Returns:
-            List of GitHub usernames (logins) that are members of the team.
-
-        Raises:
-            GitHubAPIError: If team lookup fails or team doesn't exist.
-
-        Example:
-            >>> members = client.list_team_members("my-org/backend-team")
-            >>> print(members)
-            ['user1', 'user2', 'user3']
+            GitHub username
         """
+        output = self._gh_network.run_command(["api", "user", "-q", ".login"])
+        return output.strip()
+
+    def get_default_branch(self) -> str:
+        """
+        Get the default branch for the repository.
+
+        Checks in order:
+        1. Project config (.titan/config.toml -> github.default_branch)
+        2. GitHub repository default branch (via API)
+        3. Fallback to git client's main_branch
+
+        Returns:
+            Default branch name (e.g., "main", "develop", "master")
+        """
+        # Try to get from project config first
+        if self.config.default_branch:
+            return self.config.default_branch
+
+        # Fallback to GitHub API
         try:
-            # Parse org and team from slug
-            if '/' not in team_slug:
-                raise GitHubAPIError(f"Invalid team slug format. Expected 'org/team', got '{team_slug}'")
+            import json
+            args = ["repo", "view", "--json", "defaultBranchRef"] + self._gh_network.get_repo_arg()
+            output = self._gh_network.run_command(args)
+            data = json.loads(output)
 
-            org, team = team_slug.split('/', 1)
+            default_branch_ref = data.get("defaultBranchRef", {})
+            branch_name = default_branch_ref.get("name")
 
-            # Use gh api to get team members
-            args = ["api", f"/orgs/{org}/teams/{team}/members", "--jq", ".[].login"]
-            output = self._run_gh_command(args)
+            if branch_name:
+                return branch_name
+        except Exception:
+            pass
 
-            # Parse output (one username per line)
-            members = [line.strip() for line in output.strip().split('\n') if line.strip()]
-            return members
-
-        except GitHubAPIError as e:
-            raise GitHubAPIError(f"Failed to list team members for '{team_slug}': {e}")
+        # Final fallback: use git plugin's main_branch
+        return self.git_client.main_branch

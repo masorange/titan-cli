@@ -20,9 +20,9 @@ from titan_plugin_github.operations.comment_operations import (
 class TestBuildAIReviewContext:
     """Test building AI review context"""
 
-    def test_builds_context_with_all_fields(self, sample_pr_thread):
+    def test_builds_context_with_all_fields(self, sample_ui_comment_thread):
         """Test building context with complete thread"""
-        context = build_ai_review_context(sample_pr_thread, "feat: Add feature")
+        context = build_ai_review_context(sample_ui_comment_thread, "feat: Add feature")
 
         assert context["pr"] == "feat: Add feature"
         assert context["file"] == "src/main.py"
@@ -34,14 +34,17 @@ class TestBuildAIReviewContext:
 
     def test_builds_context_without_replies(self, sample_review_comment):
         """Test building context with only main comment"""
-        from titan_plugin_github.models import PRReviewThread
+        from titan_plugin_github.models.view import UICommentThread, UIComment
 
-        thread = PRReviewThread(
-            id="thread_solo",
+        # Convert network model to view model
+        main_comment = UIComment.from_review_comment(sample_review_comment, is_outdated=False)
+
+        thread = UICommentThread(
+            thread_id="thread_solo",
+            main_comment=main_comment,
+            replies=[],
             is_resolved=False,
-            is_outdated=False,
-            path="src/main.py",
-            comments=[sample_review_comment]
+            is_outdated=False
         )
 
         context = build_ai_review_context(thread, "fix: Bug fix")
@@ -49,11 +52,11 @@ class TestBuildAIReviewContext:
         assert len(context["thread"]) == 1
         assert context["pr"] == "fix: Bug fix"
 
-    def test_handles_missing_diff_hunk(self, sample_pr_thread):
+    def test_handles_missing_diff_hunk(self, sample_ui_comment_thread):
         """Test context building when diff_hunk is None"""
-        sample_pr_thread.main_comment.diff_hunk = None
+        sample_ui_comment_thread.main_comment.diff_hunk = None
 
-        context = build_ai_review_context(sample_pr_thread, "test: Add test")
+        context = build_ai_review_context(sample_ui_comment_thread, "test: Add test")
 
         assert context["diff_hunk"] is None
 
@@ -221,7 +224,7 @@ class TestAutoReviewComment:
     """Test automatic comment review with AI"""
 
     def test_commits_when_ai_makes_code_changes(
-        self, mock_github_client, mock_git_client, sample_pr_thread
+        self, mock_github_client, mock_git_client, sample_ui_comment_thread
     ):
         """Test commit creation when AI makes code changes"""
         # Mock git status showing changes
@@ -240,7 +243,7 @@ class TestAutoReviewComment:
         has_changes, commit_hash, response = auto_review_comment(
             mock_github_client,
             mock_git_client,
-            sample_pr_thread,
+            sample_ui_comment_thread,
             "/tmp/worktree",
             "feat: Add feature",
             "/tmp/response.txt",
@@ -252,7 +255,7 @@ class TestAutoReviewComment:
         assert response is None
 
     def test_returns_text_response_when_no_code_changes(
-        self, mock_github_client, mock_git_client, sample_pr_thread
+        self, mock_github_client, mock_git_client, sample_ui_comment_thread
     ):
         """Test text response when AI doesn't make code changes"""
         # Mock git status showing NO changes
@@ -273,7 +276,7 @@ class TestAutoReviewComment:
             has_changes, commit_hash, response = auto_review_comment(
                 mock_github_client,
                 mock_git_client,
-                sample_pr_thread,
+                sample_ui_comment_thread,
                 "/tmp/worktree",
                 "feat: Add feature",
                 response_path,
@@ -287,7 +290,7 @@ class TestAutoReviewComment:
             os.unlink(response_path)
 
     def test_handles_ai_executor_failure(
-        self, mock_github_client, mock_git_client, sample_pr_thread
+        self, mock_github_client, mock_git_client, sample_ui_comment_thread
     ):
         """Test handling when AI executor fails"""
         mock_git_client.run_in_worktree.return_value = ""
@@ -299,7 +302,7 @@ class TestAutoReviewComment:
             auto_review_comment(
                 mock_github_client,
                 mock_git_client,
-                sample_pr_thread,
+                sample_ui_comment_thread,
                 "/tmp/worktree",
                 "feat: Add feature",
                 "/tmp/response.txt",
