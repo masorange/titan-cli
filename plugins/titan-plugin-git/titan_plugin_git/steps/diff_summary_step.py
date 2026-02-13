@@ -1,6 +1,7 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/diff_summary_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_plugin_git.messages import msg
+from ..operations import format_diff_stat_display
 
 
 def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
@@ -36,40 +37,16 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.bold_text("Changes summary:")
         ctx.textual.text("")  # spacing
 
-        # Parse lines to find max filename length for alignment
-        file_lines = []
-        summary_lines = []
-        max_filename_len = 0
-
-        for line in stat_output.split('\n'):
-            if not line.strip():
-                continue
-
-            if '|' in line:
-                parts = line.split('|')
-                filename = parts[0].strip()
-                stats = '|'.join(parts[1:]) if len(parts) > 1 else ''
-                file_lines.append((filename, stats))
-                max_filename_len = max(max_filename_len, len(filename))
-            else:
-                summary_lines.append(line)
+        # Format diff stat with colors and alignment using operations
+        formatted_files, formatted_summary = format_diff_stat_display(stat_output)
 
         # Display aligned file changes
-        for filename, stats in file_lines:
-            # Pad filename to align pipes
-            padded_filename = filename.ljust(max_filename_len)
-
-            # Replace + with green and - with red
-            stats = stats.replace('+', '[green]+[/green]')
-            stats = stats.replace('-', '[red]-[/red]')
-
-            ctx.textual.text(f"  {padded_filename} | {stats}")
+        for line in formatted_files:
+            ctx.textual.text(f"  {line}")
 
         # Display summary lines
-        for line in summary_lines:
-            colored_line = line.replace('(+)', '[green](+)[/green]')
-            colored_line = colored_line.replace('(-)', '[red](-)[/red]')
-            ctx.textual.dim_text(f"  {colored_line}")
+        for line in formatted_summary:
+            ctx.textual.dim_text(f"  {line}")
 
         ctx.textual.text("")  # spacing
 
@@ -131,40 +108,16 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.bold_text(f"Changes in {head_branch} vs {remote}/{base_branch}:")
         ctx.textual.text("")  # spacing
 
-        # Parse lines to find max filename length for alignment
-        file_lines = []
-        summary_lines = []
-        max_filename_len = 0
-
-        for line in stat_output.split('\n'):
-            if not line.strip():
-                continue
-
-            if '|' in line:
-                parts = line.split('|')
-                filename = parts[0].strip()
-                stats = '|'.join(parts[1:]) if len(parts) > 1 else ''
-                file_lines.append((filename, stats))
-                max_filename_len = max(max_filename_len, len(filename))
-            else:
-                summary_lines.append(line)
+        # Format diff stat with colors and alignment using operations
+        formatted_files, formatted_summary = format_diff_stat_display(stat_output)
 
         # Display aligned file changes
-        for filename, stats in file_lines:
-            # Pad filename to align pipes
-            padded_filename = filename.ljust(max_filename_len)
-
-            # Replace + with green and - with red
-            stats = stats.replace('+', '[green]+[/green]')
-            stats = stats.replace('-', '[red]-[/red]')
-
-            ctx.textual.text(f"  {padded_filename} | {stats}")
+        for line in formatted_files:
+            ctx.textual.text(f"  {line}")
 
         # Display summary lines
-        for line in summary_lines:
-            colored_line = line.replace('(+)', '[green](+)[/green]')
-            colored_line = colored_line.replace('(-)', '[red](-)[/red]')
-            ctx.textual.dim_text(f"  {colored_line}")
+        for line in formatted_summary:
+            ctx.textual.dim_text(f"  {line}")
 
         ctx.textual.text("")  # spacing
 
