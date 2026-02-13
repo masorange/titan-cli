@@ -104,7 +104,20 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
             metadata={"pr_number": pr["number"], "pr_url": pr["url"]},
         )
     except GitHubAPIError as e:
-        ctx.textual.error_text(f"Failed to create pull request: {e}")
+        error_msg = str(e)
+
+        # Check for common errors and provide helpful guidance
+        if "No commits between" in error_msg or "Head sha can't be blank" in error_msg:
+            ctx.textual.error_text(f"Failed to create pull request: {e}")
+            ctx.textual.text("")
+            ctx.textual.warning_text("💡 The branch might not be pushed to the remote repository.")
+            ctx.textual.text("")
+            ctx.textual.dim_text("To fix this, push your branch and try again:")
+            ctx.textual.dim_text(f"  git push -u origin {head}")
+            ctx.textual.text("")
+        else:
+            ctx.textual.error_text(f"Failed to create pull request: {e}")
+
         ctx.textual.end_step("error")
         return Error(f"Failed to create pull request: {e}")
     except Exception as e:
