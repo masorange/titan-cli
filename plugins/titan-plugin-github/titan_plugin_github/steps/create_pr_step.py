@@ -2,6 +2,7 @@
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from ..exceptions import GitHubAPIError
 from ..messages import msg
+from ..operations import determine_pr_assignees
 
 
 def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -67,7 +68,11 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     if not assignees and ctx.github.config.auto_assign_prs:
         try:
             current_user = ctx.github.get_current_user()
-            assignees = [current_user]
+            assignees = determine_pr_assignees(
+                auto_assign=True,
+                current_user=current_user,
+                existing_assignees=assignees
+            )
         except GitHubAPIError as e:
             # Log warning but continue without assignee
             ctx.textual.warning_text(f"Could not get current user for auto-assign: {e}")

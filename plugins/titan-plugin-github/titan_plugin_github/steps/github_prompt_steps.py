@@ -2,6 +2,7 @@
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
 from ..messages import msg
+from ..operations import add_assignee_if_missing, parse_comma_separated_list
 
 
 def prompt_for_pr_title_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -147,9 +148,8 @@ def prompt_for_self_assign_step(ctx: WorkflowContext) -> WorkflowResult:
     try:
         if ctx.textual.ask_confirm(msg.Prompts.ASSIGN_TO_SELF, default=True):
             current_user = ctx.github.get_current_user()
-            assignees = ctx.get("assignees", [])
-            if current_user not in assignees:
-                assignees.append(current_user)
+            existing_assignees = ctx.get("assignees", [])
+            assignees = add_assignee_if_missing(current_user, existing_assignees)
             ctx.set("assignees", assignees)
             ctx.textual.success_text(f"Issue will be assigned to {current_user}")
             ctx.textual.end_step("success")
@@ -202,10 +202,7 @@ def prompt_for_labels_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
         # Parse comma-separated labels
-        if labels_input:
-            selected_labels = [label.strip() for label in labels_input.split(",") if label.strip()]
-        else:
-            selected_labels = []
+        selected_labels = parse_comma_separated_list(labels_input)
 
         ctx.set("labels", selected_labels)
         if selected_labels:
