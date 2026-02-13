@@ -18,7 +18,7 @@ from ..models import (
     Review,
     PRSearchResult,
     PRMergeResult,
-    PRComment as GitHubPRComment,
+    PRReviewThread,
     Issue,
 )
 from ..exceptions import (
@@ -267,12 +267,16 @@ class GitHubClient:
             # - 'gh search prs' ignores --repo flag and searches across all repos
             # - 'gh pr list' respects current repo context
 
-            # Get all PRs with review-requested: @me
+            # Get current user login
+            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
+            current_user = user_output.strip()
+
+            # Get all PRs with review-requested:@me
             args = [
                 "pr",
                 "list",
                 "--search",
-                "review-requested: @me",
+                f"review-requested:{current_user}",
                 "--state",
                 "open",
                 "--limit",
@@ -289,9 +293,6 @@ class GitHubClient:
                 return PRSearchResult.from_list(all_prs)
             else:
                 # Filter to only PRs where current user is explicitly in reviewRequests
-                # Get current user to filter review requests
-                user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
-                current_user = user_output.strip()
 
                 filtered_prs = []
                 for pr in all_prs:
@@ -328,23 +329,32 @@ class GitHubClient:
             >>> print(f"You have {result.total} open PRs")
         """
         try:
+            # Get current user login
+            user_output = self._run_gh_command(["api", "user", "--jq", ".login"])
+            current_user = user_output.strip()
+
+            # List all PRs (--author @me doesn't work with --json, it's a gh CLI bug)
             args = [
                 "pr",
                 "list",
-                "--author",
-                " @me",
                 "--state",
                 state,
                 "--limit",
                 str(max_results),
                 "--json",
-                "number,title,author,updatedAt,labels,isDraft,state",
+                "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName",
             ] + self._get_repo_arg()
 
             output = self._run_gh_command(args)
-            data = json.loads(output)
+            all_prs = json.loads(output)
 
-            return PRSearchResult.from_list(data)
+            # Filter to only PRs authored by current user
+            my_prs = [
+                pr for pr in all_prs
+                if pr.get("author") and pr["author"].get("login") == current_user
+            ]
+
+            return PRSearchResult.from_list(my_prs)
 
         except json.JSONDecodeError as e:
             raise GitHubAPIError(
@@ -792,94 +802,6 @@ class GitHubClient:
                 merged=False, message=msg.GitHub.UNEXPECTED_ERROR.format(error=e)
             )
 
-    def get_pr_comments(self, pr_number: int) -> List[GitHubPRComment]:
-        """
-        Get all comments for a PR (review comments + issue comments)
-
-        Args:
-            pr_number: PR number
-
-        Returns:
-            List of PRComment objects
-
-        Examples:
-            >>> comments = client.get_pr_comments(123)
-            >>> for c in comments:
-            ...     print(f"{c.user.login}: {c.body}")
-        """
-        try:
-            repo = self._get_repo_string()
-
-            # Get review comments (inline in files)
-            args = ["api", f"/repos/{repo}/pulls/{pr_number}/comments", "--paginate"]
-            output = self._run_gh_command(args)
-            review_comments_data = json.loads(output) if output else []
-
-            # Get issue comments (general comments)
-            args = ["api", f"/repos/{repo}/issues/{pr_number}/comments", "--paginate"]
-            output = self._run_gh_command(args)
-            issue_comments_data = json.loads(output) if output else []
-
-            # Convert to PRComment objects
-            comments = []
-
-            for data in review_comments_data:
-                comments.append(GitHubPRComment.from_dict(data, is_review=True))
-
-            for data in issue_comments_data:
-                comments.append(GitHubPRComment.from_dict(data, is_review=False))
-
-            return comments
-
-        except (json.JSONDecodeError, GitHubAPIError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to get PR comments: {e}"
-                )
-            )
-
-    def get_pending_comments(
-        self, pr_number: int, author: Optional[str] = None
-    ) -> List[GitHubPRComment]:
-        """
-        Get comments pending response from PR author
-
-        Filters out comments already responded to by the author.
-
-        Args:
-            pr_number: PR number
-            author: PR author username (if None, uses current user)
-
-        Returns:
-            List of PRComment objects that don't have author's response
-
-        Examples:
-            >>> pending = client.get_pending_comments(123)
-            >>> print(f"{len(pending)} comments pending")
-        """
-        if author is None:
-            author = self.get_current_user()
-
-        all_comments = self.get_pr_comments(pr_number)
-
-        # Build set of comment IDs that have author's response
-        responded_ids = set()
-        for comment in all_comments:
-            if comment.in_reply_to_id and comment.user.login == author:
-                responded_ids.add(comment.in_reply_to_id)
-
-        # Filter to main comments (not replies) without author's response
-        pending = []
-        for comment in all_comments:
-            is_main_comment = comment.in_reply_to_id is None
-            not_from_author = comment.user.login != author
-            not_responded = comment.id not in responded_ids
-
-            if is_main_comment and not_from_author and not_responded:
-                pending.append(comment)
-
-        return pending
-
     def reply_to_comment(self, pr_number: int, comment_id: int, body: str) -> None:
         """
         Reply to a PR comment
@@ -911,6 +833,346 @@ class GitHubClient:
             raise GitHubAPIError(
                 msg.GitHub.API_ERROR.format(
                     error_msg=f"Failed to reply to comment: {e}"
+                )
+            )
+
+    def resolve_review_thread(self, thread_node_id: str) -> None:
+        """
+        Resolve a review thread in a PR using GraphQL
+
+        Args:
+            thread_node_id: GraphQL node ID of the comment thread
+
+        Raises:
+            GitHubAPIError: If resolving the thread fails
+
+        Examples:
+            >>> client.resolve_review_thread("PRRT_kwDOAbc123...")
+        """
+        try:
+            # Use GraphQL mutation to resolve the thread
+            query = '''
+            mutation($threadId: ID!) {
+              resolveReviewThread(input: {threadId: $threadId}) {
+                thread {
+                  isResolved
+                }
+              }
+            }
+            '''
+
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-f",
+                f"threadId={thread_node_id}"
+            ]
+
+            self._run_gh_command(args)
+
+        except GitHubAPIError as e:
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(
+                    error_msg=f"Failed to resolve review thread: {e}"
+                )
+            )
+
+    def request_pr_review(self, pr_number: int, reviewers: Optional[List[str]] = None) -> None:
+        """
+        Request review (or re-request review) on a PR using GraphQL.
+
+        If reviewers is not provided, re-requests review from all existing reviewers
+        who have already reviewed the PR.
+
+        Args:
+            pr_number: PR number
+            reviewers: List of GitHub usernames to request review from.
+                      If None, re-requests from existing reviewers.
+
+        Raises:
+            GitHubAPIError: If requesting review fails
+
+        Examples:
+            >>> # Re-request review from existing reviewers
+            >>> client.request_pr_review(123)
+
+            >>> # Request review from specific users
+            >>> client.request_pr_review(123, ["user1", "user2"])
+        """
+        try:
+            # First, get PR node ID and existing reviewers if needed
+            if reviewers is None:
+                # Get existing reviewers from PR
+                query = '''
+                query($owner: String!, $repo: String!, $prNumber: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $prNumber) {
+                      id
+                      reviewRequests(first: 100) {
+                        nodes {
+                          requestedReviewer {
+                            ... on User {
+                              login
+                            }
+                          }
+                        }
+                      }
+                      reviews(first: 100) {
+                        nodes {
+                          author {
+                            login
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                '''
+
+                args = [
+                    "api",
+                    "graphql",
+                    "-f",
+                    f"query={query}",
+                    "-f",
+                    f"owner={self.owner}",
+                    "-f",
+                    f"repo={self.repo}",
+                    "-F",
+                    f"prNumber={pr_number}"
+                ]
+
+                output = self._run_gh_command(args)
+                data = json.loads(output)
+                pr_data = data.get("data", {}).get("repository", {}).get("pullRequest", {})
+
+                if not pr_data:
+                    raise GitHubAPIError(f"PR #{pr_number} not found")
+
+                pr_node_id = pr_data.get("id")
+
+                # Get reviewers who have already reviewed
+                existing_reviewers = set()
+                reviews = pr_data.get("reviews", {}).get("nodes", [])
+                for review in reviews:
+                    author = review.get("author", {})
+                    if author and author.get("login"):
+                        existing_reviewers.add(author["login"])
+
+                # Get pending review requests
+                review_requests = pr_data.get("reviewRequests", {}).get("nodes", [])
+                for request in review_requests:
+                    requested = request.get("requestedReviewer", {})
+                    if requested and requested.get("login"):
+                        existing_reviewers.add(requested["login"])
+
+                reviewers = list(existing_reviewers)
+
+                if not reviewers:
+                    # No reviewers to re-request
+                    return
+            else:
+                # Get PR node ID
+                query = '''
+                query($owner: String!, $repo: String!, $prNumber: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $prNumber) {
+                      id
+                    }
+                  }
+                }
+                '''
+
+                args = [
+                    "api",
+                    "graphql",
+                    "-f",
+                    f"query={query}",
+                    "-f",
+                    f"owner={self.owner}",
+                    "-f",
+                    f"repo={self.repo}",
+                    "-F",
+                    f"prNumber={pr_number}"
+                ]
+
+                output = self._run_gh_command(args)
+                data = json.loads(output)
+                pr_node_id = data.get("data", {}).get("repository", {}).get("pullRequest", {}).get("id")
+
+                if not pr_node_id:
+                    raise GitHubAPIError(f"PR #{pr_number} not found")
+
+            # Now request reviews using GraphQL mutation
+            mutation = '''
+            mutation($prId: ID!, $userIds: [ID!]!) {
+              requestReviews(input: {pullRequestId: $prId, userIds: $userIds}) {
+                pullRequest {
+                  id
+                }
+              }
+            }
+            '''
+
+            # Convert usernames to user IDs (GraphQL needs node IDs)
+            user_ids = []
+            for username in reviewers:
+                user_query = '''
+                query($login: String!) {
+                  user(login: $login) {
+                    id
+                  }
+                }
+                '''
+
+                user_args = [
+                    "api",
+                    "graphql",
+                    "-f",
+                    f"query={user_query}",
+                    "-f",
+                    f"login={username}"
+                ]
+
+                user_output = self._run_gh_command(user_args)
+                user_data = json.loads(user_output)
+                user_id = user_data.get("data", {}).get("user", {}).get("id")
+
+                if user_id:
+                    user_ids.append(user_id)
+
+            if not user_ids:
+                return
+
+            # Request reviews
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={mutation}",
+                "-f",
+                f"prId={pr_node_id}",
+                "-f",
+                f"userIds={json.dumps(user_ids)}"
+            ]
+
+            self._run_gh_command(args)
+
+        except GitHubAPIError as e:
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(
+                    error_msg=f"Failed to request review on PR #{pr_number}: {e}"
+                )
+            )
+
+    def get_pr_review_threads(
+        self, pr_number: int, include_resolved: bool = True
+    ) -> List[PRReviewThread]:
+        """
+        Get all review threads for a PR using GraphQL.
+
+        Uses GraphQL to fetch structured threads with proper metadata.
+        Each thread contains main comment + replies + resolution status.
+
+        Args:
+            pr_number: PR number
+            include_resolved: If False, exclude resolved threads
+
+        Returns:
+            List of PRReviewThread objects
+
+        Examples:
+            >>> threads = client.get_pr_review_threads(123)
+            >>> for thread in threads:
+            ...     print(f"Thread: {thread.id}, Resolved: {thread.is_resolved}")
+            ...     print(f"  Main: {thread.main_comment.body}")
+            ...     for reply in thread.replies:
+            ...         print(f"  Reply: {reply.body}")
+        """
+        try:
+            repo = self._get_repo_string()
+            owner, repo_name = repo.split('/')
+
+            # GraphQL query to get all review threads with comments
+            query = '''
+            query($owner: String!, $repo: String!, $prNumber: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $prNumber) {
+                  reviewThreads(first: 100) {
+                    nodes {
+                      id
+                      isResolved
+                      isOutdated
+                      path
+                      comments(first: 100) {
+                        nodes {
+                          databaseId
+                          body
+                          author {
+                            login
+                          }
+                          createdAt
+                          updatedAt
+                          path
+                          position
+                          line
+                          originalLine
+                          diffHunk
+                          replyTo {
+                            databaseId
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            '''
+
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-F",
+                f"owner={owner}",
+                "-F",
+                f"repo={repo_name}",
+                "-F",
+                f"prNumber={pr_number}"
+            ]
+
+            output = self._run_gh_command(args)
+            data = json.loads(output)
+
+            # Extract review threads
+            threads_data = (
+                data.get("data", {})
+                .get("repository", {})
+                .get("pullRequest", {})
+                .get("reviewThreads", {})
+                .get("nodes", [])
+            )
+
+            # Convert to PRReviewThread objects
+            threads = []
+            for thread_data in threads_data:
+                # Skip resolved threads if requested
+                if not include_resolved and thread_data.get("isResolved", False):
+                    continue
+
+                thread = PRReviewThread.from_graphql(thread_data)
+                threads.append(thread)
+
+            return threads
+
+        except (json.JSONDecodeError, KeyError) as e:
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(
+                    error_msg=f"Failed to get PR review threads: {e}"
                 )
             )
 

@@ -1147,13 +1147,13 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     """
     Run ruff with autofix and show diff between before/after.
     """
-    if not ctx.ui:
-        return Error("UI context is not available for this step.")
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
     project_root = ctx.get("project_root", ".")
 
     # 1. Scan before fix
-    ctx.ui.text.body("Running initial ruff scan...", style="dim")
+    ctx.textual.dim_text("Running initial ruff scan...")
     result_before = subprocess.run(
         ["poetry", "run", "ruff", "check", ".", "--output-format=json"],
         capture_output=True,
@@ -1167,7 +1167,7 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
         return Error(f"Failed to parse ruff output as JSON.\n{result_before.stdout}")
 
     # 2. Auto-fix
-    ctx.ui.text.body("Applying auto-fixes...", style="dim")
+    ctx.textual.dim_text("Applying auto-fixes...")
     subprocess.run(
         ["poetry", "run", "ruff", "check", ".", "--fix", "--quiet"],
         capture_output=True,
@@ -1183,25 +1183,25 @@ def ruff_linter(ctx: WorkflowContext) -> WorkflowResult:
     )
     errors_after = json.loads(result_after.stdout) if result_after.stdout else []
 
-    # 4. Show summary with UI components
+    # 4. Show summary with Textual components
     fixed_count = len(errors_before) - len(errors_after)
 
     if fixed_count > 0:
-        ctx.ui.text.success(f"Auto-fixed {fixed_count} issue(s)")
+        ctx.textual.success_text(f"Auto-fixed {fixed_count} issue(s)")
 
     if not errors_after:
-        ctx.ui.text.success("All linting issues resolved!")
+        ctx.textual.success_text("All linting issues resolved!")
         return Success("Linting passed")
 
     # 5. Show remaining errors
-    ctx.ui.text.warning(f"{len(errors_after)} issue(s) require manual fix:")
+    ctx.textual.warning_text(f"{len(errors_after)} issue(s) require manual fix:")
     for error in errors_after:
         file_path = error.get("filename", "Unknown")
         location = error.get("location", {})
         row = location.get("row", "?")
         code = error.get("code", "")
         message = error.get("message", "")
-        ctx.ui.text.error(f"  {file_path}:{row} - [{code}] {message}")
+        ctx.textual.error_text(f"  {file_path}:{row} - [{code}] {message}")
 
     return Error(f"{len(errors_after)} linting issues remain")
 ```
@@ -1366,7 +1366,7 @@ Executes a `ParsedWorkflow` by iterating through steps, resolving plugin calls, 
 - Show final workflow success/failure message
 
 **What the executor does NOT do:**
-- ❌ Does NOT show step headers (steps do this via `ctx.views.step_header()`)
+- ❌ Does NOT show step headers (steps do this via `ctx.textual.begin_step()`)
 - ❌ Does NOT show success/skip messages (steps handle their own UI)
 - ❌ Does NOT show step-specific panels or UI
 
@@ -1417,17 +1417,25 @@ class WorkflowContext:
     git: Optional[Any] = None     # GitClient from git plugin
     github: Optional[Any] = None  # GitHubClient from github plugin
 
-    # UI components (two-level architecture)
-    ui: Optional[UIComponents] = None
-    #   ui.text      - TextRenderer (titles, body, success, error, info)
-    #   ui.panel     - PanelRenderer (bordered panels with types)
-    #   ui.table     - TableRenderer (tabular data)
-    #   ui.spacer    - SpacerRenderer (vertical spacing)
-
-    views: Optional[UIViews] = None
-    #   views.prompts     - PromptsRenderer (ask_text, ask_confirm, etc.)
-    #   views.menu        - MenuRenderer (interactive menus)
-    #   views.step_header - Standardized step header rendering
+    # Textual TUI components
+    textual: Optional[TextualComponents] = None
+    #   textual.text()           - Normal text
+    #   textual.bold_text()      - Bold text
+    #   textual.dim_text()       - Dimmed/secondary text
+    #   textual.success_text()   - Success message (green)
+    #   textual.error_text()     - Error message (red)
+    #   textual.warning_text()   - Warning message (yellow)
+    #   textual.markdown()       - Render markdown content
+    #   textual.mount()          - Mount any Textual widget
+    #   textual.ask_text()       - Request text input
+    #   textual.ask_multiline()  - Request multiline input
+    #   textual.ask_confirm()    - Request Y/N confirmation
+    #   textual.ask_selection()  - Multi-select list
+    #   textual.ask_choice()     - Single-choice buttons
+    #   textual.ask_option()     - Styled option list
+    #   textual.loading()        - Loading indicator context manager
+    #   textual.begin_step()     - Mark step beginning
+    #   textual.end_step()       - Mark step completion
 
     # Workflow metadata (injected by WorkflowExecutor)
     workflow_name: Optional[str] = None     # Name of current workflow
@@ -1451,24 +1459,18 @@ class WorkflowContext:
         return key in self.data
 ```
 
-**UI Architecture:**
+**Textual TUI Architecture:**
 
-The context provides two levels of UI components:
+The context provides a single unified UI interface via `ctx.textual`:
 
-1. **`ctx.ui` (UIComponents)** - Basic Rich wrappers (no composition)
-   - `text` - Typography rendering
-   - `panel` - Panel rendering
-   - `table` - Table rendering
-   - `spacer` - Spacing utilities
-
-2. **`ctx.views` (UIViews)** - Composite components (uses `ctx.ui`)
-   - `prompts` - Interactive prompts
-   - `menu` - Menu rendering
-   - `step_header(name, current, total)` - Standardized step headers
+- **Display methods**: `text()`, `bold_text()`, `dim_text()`, `success_text()`, `error_text()`, `warning_text()`, `markdown()`, `mount()`
+- **Interactive methods**: `ask_text()`, `ask_multiline()`, `ask_confirm()`, `ask_selection()`, `ask_choice()`, `ask_option()`
+- **Utility methods**: `loading()`, `begin_step()`, `end_step()`, `scroll_to_end()`
+- **Thread-safe**: All methods handle cross-thread communication automatically
 
 **Workflow Metadata:**
 
-The `WorkflowExecutor` automatically injects metadata before running each step:
+The `TextualWorkflowExecutor` automatically injects metadata before running each step:
 
 ```python
 # Before workflow starts:
@@ -1479,19 +1481,18 @@ ctx.total_steps = 7
 ctx.current_step = 1  # Then 2, 3, 4, etc.
 ```
 
-Steps use this metadata to show standardized headers:
+Steps use `begin_step()` to show step headers:
 
 ```python
 def my_step(ctx: WorkflowContext) -> WorkflowResult:
-    # Show header with step type and detail
-    if ctx.views:
-        ctx.views.step_header(
-            name="My Step",
-            step_type="plugin",
-            step_detail="myplugin.my_step"
-        )
+    # Show step header
+    if ctx.textual:
+        ctx.textual.begin_step("My Step")
 
-    # ... rest of step
+    # ... rest of step logic
+
+    ctx.textual.end_step("success")
+    return Success("Step completed")
 ```
 
 #### 4. WorkflowResult Types (`engine/results.py`)
@@ -1526,21 +1527,24 @@ All workflow steps are functions that accept a single `WorkflowContext` argument
 
 **IMPORTANT: Step UI Responsibility**
 
-Steps are **fully responsible** for their own UI rendering. The `WorkflowExecutor` only:
+Steps are **fully responsible** for their own UI rendering. The `TextualWorkflowExecutor` only:
 - Injects metadata (`current_step`, `total_steps`, `workflow_name`) into context
+- Shows step headers automatically
 - Handles errors (shows error messages for failed steps)
 - Merges metadata from successful/skipped steps into `ctx.data`
 
 Steps should:
-1. Show their own header using `ctx.views.step_header()`
+1. Use `ctx.textual.begin_step()` to mark step start
 2. Display their own panels, messages, and UI (success, warnings, info)
-3. Return `Success`, `Error`, or `Skip` with appropriate messages
+3. Use `ctx.textual.end_step()` to mark step completion
+4. Return `Success`, `Error`, or `Skip` with appropriate messages
 
 **Step Anatomy:**
 
 ```python
 # plugins/my-plugin/my_plugin/steps/my_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.ui.tui.widgets import Panel
 
 def my_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -1548,6 +1552,7 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Requires:
         ctx.git: An initialized GitClient.
+        ctx.textual: Textual UI context.
 
     Inputs (from ctx.data):
         my_input_variable (str): A variable needed for this step.
@@ -1560,45 +1565,47 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:
         Error: If an error occurs.
         Skip: If step is not applicable.
     """
-    # 1. Show step header
-    if ctx.views:
-        ctx.views.step_header(
-            name="My Step",
-            step_type="plugin",
-            step_detail="myplugin.my_step"
-        )
+    # 1. Check Textual context
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
-    # 2. Validate inputs
+    # 2. Show step header
+    ctx.textual.begin_step("My Step")
+
+    # 3. Validate inputs
     my_input = ctx.get("my_input_variable")
     if not my_input:
+        ctx.textual.end_step("error")
         return Error("Missing my_input_variable in context.")
 
-    # 3. Show UI as needed (panels, info messages, etc.)
-    if ctx.ui:
-        ctx.ui.text.info(f"Processing: {my_input}")
+    # 4. Show UI as needed
+    ctx.textual.text(f"Processing: {my_input}")
 
-    # 4. Do the work
+    # 5. Do the work
     try:
         if ctx.git:
             status = ctx.git.get_status()
 
             # Show warning panel if needed
             if not status.is_clean:
-                ctx.ui.panel.print(
-                    "Warning: Uncommitted changes detected",
-                    panel_type="warning"
+                ctx.textual.mount(
+                    Panel("Warning: Uncommitted changes detected", panel_type="warning")
                 )
 
             # Show success panel when done
-            ctx.ui.panel.print(
-                f"Step completed successfully for branch: {status.branch}",
-                panel_type="success"
+            ctx.textual.mount(
+                Panel(
+                    f"Step completed successfully for branch: {status.branch}",
+                    panel_type="success"
+                )
             )
 
     except Exception as e:
+        ctx.textual.end_step("error")
         return Error(f"Step failed: {e}", exception=e)
 
-    # 5. Return success with metadata (auto-merged into ctx.data)
+    # 6. Mark step as complete and return success
+    ctx.textual.end_step("success")
     return Success(
         message="Step completed successfully",
         metadata={"my_output_variable": "result_value"}
@@ -2023,80 +2030,99 @@ When creating a workflow step, follow this pattern:
 
 ```python
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.ui.tui.widgets import Panel
 
 def my_step(ctx: WorkflowContext) -> WorkflowResult:
     """Step docstring with Requires, Inputs, Outputs, Returns."""
 
-    # ✅ 1. Show step header
-    if ctx.views:
-        ctx.views.step_header(
-            name="My Step",
-            step_type="plugin",
-            step_detail="myplugin.my_step"
-        )
+    # ✅ 1. Check Textual context
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
 
-    # ✅ 2. Validate requirements
+    # ✅ 2. Show step header
+    ctx.textual.begin_step("My Step")
+
+    # ✅ 3. Validate requirements
     if not ctx.git:
+        ctx.textual.end_step("error")
         return Error("GitClient not available")
 
-    # ✅ 3. Show UI as needed (panels, info messages)
-    if ctx.ui:
-        ctx.ui.panel.print("Warning message", panel_type="warning")
+    # ✅ 4. Show UI as needed (panels, messages)
+    ctx.textual.mount(Panel("Warning message", panel_type="warning"))
 
-    # ✅ 4. Do the work
+    # ✅ 5. Do the work
     try:
         result = ctx.git.some_operation()
     except Exception as e:
+        ctx.textual.end_step("error")
         return Error(f"Operation failed: {e}", exception=e)
 
-    # ✅ 5. Show success UI
-    if ctx.ui:
-        ctx.ui.panel.print("Operation completed", panel_type="success")
+    # ✅ 6. Show success UI
+    ctx.textual.mount(Panel("Operation completed", panel_type="success"))
 
-    # ✅ 6. Return result with metadata
+    # ✅ 7. Mark step complete and return result
+    ctx.textual.end_step("success")
     return Success(
         message="Step completed",
         metadata={"output_key": result}
     )
 ```
 
-### UI Component Quick Reference
+### Textual UI Quick Reference
 
-**Components (no composition):**
+**Display Methods:**
 ```python
-ctx.ui.text.title("Title")
-ctx.ui.text.success("Success message")
-ctx.ui.panel.print("Content", panel_type="success")
-ctx.ui.table.print_table(headers=["A", "B"], rows=[...])
-ctx.ui.spacer.small()
+# Text display
+ctx.textual.text("Normal text")
+ctx.textual.bold_text("Bold text")
+ctx.textual.dim_text("Dimmed text")
+ctx.textual.success_text("Success message")
+ctx.textual.error_text("Error message")
+ctx.textual.warning_text("Warning message")
+
+# Mount widgets
+from titan_cli.ui.tui.widgets import Panel, Table
+ctx.textual.mount(Panel("Content", panel_type="success"))
+ctx.textual.mount(Table(headers=["A", "B"], rows=[...]))
+
+# Markdown
+ctx.textual.markdown("## Title\n\n- Item 1\n- Item 2")
 ```
 
-**Views (composition allowed):**
+**Interactive Methods:**
 ```python
-ctx.views.step_header(
-    name="Step Name",
-    step_type="plugin",
-    step_detail="myplugin.step_name"
-)
-ctx.views.prompts.ask_confirm("Continue?", default=True)
-ctx.views.prompts.ask_text("Enter value:")
+# User input
+text = ctx.textual.ask_text("Enter name:", default="")
+content = ctx.textual.ask_multiline("Enter description:", default="")
+confirmed = ctx.textual.ask_confirm("Continue?", default=True)
+
+# Selection/choices
+from titan_cli.ui.tui.widgets import SelectionOption, ChoiceOption, OptionItem
+selected = ctx.textual.ask_selection("Select items:", options)
+choice = ctx.textual.ask_choice("What to do?", options)
+option = ctx.textual.ask_option("Select PR:", options)
+
+# Loading indicator
+with ctx.textual.loading("Processing..."):
+    # Long operation
+    pass
 ```
 
 ### Architecture Principles
 
 **✅ DO:**
-- Steps handle ALL their own UI (headers, panels, messages)
-- Use `ctx.views.step_header()` at the start of each step
+- Always check `if ctx.textual:` before using UI
+- Use `ctx.textual.begin_step()` at the start of each step
+- Use `ctx.textual.end_step()` before returning from step
+- Use specific text methods (`success_text()`, `dim_text()`, etc.) instead of `text()` with markup
 - Return `Success` with metadata for data sharing
-- Use `ctx.ui` for basic components
-- Use `ctx.views` for composed components and prompts
-- Check `if ctx.ui:` and `if ctx.views:` before using them
+- Use `loading()` context manager for long operations
 
 **❌ DON'T:**
-- Don't expect the executor to show step success/skip messages
-- Don't use emojis in text (TextRenderer adds them automatically)
-- Don't compose other components inside `ui/components/` (use `ui/views/`)
-- Don't put `step_header()` in `UIComponents` (it belongs in `UIViews`)
+- Don't use `ctx.ui` or `ctx.views` (old Rich UI system - removed)
+- Don't use `text(..., markup="dim")` - use `dim_text()` instead
+- Don't forget to call `end_step()` before returning
+- Don't expect the executor to show step success/skip messages automatically
 
 ### Preview System
 
@@ -2152,5 +2178,5 @@ poetry run titan preview workflow my-workflow
 
 ---
 
-**Last Updated**: 2025-12-09
+**Last Updated**: 2026-02-06
 **Maintainers**: MasOrange Apps Team (apps-management-stores@masorange.es)

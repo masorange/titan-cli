@@ -18,7 +18,7 @@ This guide explains how to create workflow steps using the Textual TUI framework
 ### Step Template
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel
 
 def my_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -142,10 +142,57 @@ step_func = getattr(module, step_name, None)  # Looks for exact name
 **File**: `/titan_cli/ui/tui/textual_components.py`
 **Class**: `TextualComponents`
 
-### Main Methods
+This is the main API available in workflow steps via `ctx.textual`. It provides methods for displaying content and requesting user input.
 
-#### 1. `mount(widget: Widget)`
-Mounts a Textual widget to the output panel.
+### Display Methods
+
+#### Text Display Methods
+
+These methods use the custom text widgets from `/titan_cli/ui/tui/widgets/text.py`:
+
+```python
+# Normal text
+ctx.textual.text("Normal message")
+ctx.textual.text("")  # Empty line for spacing
+
+# Styled text
+ctx.textual.bold_text("Important message")
+ctx.textual.dim_text("Secondary information")
+ctx.textual.italic_text("Emphasis")
+ctx.textual.dim_italic_text("Secondary emphasis")
+
+# Colored text
+ctx.textual.primary_text("Primary color message")
+ctx.textual.bold_primary_text("Bold primary message")
+ctx.textual.success_text("Operation successful")
+ctx.textual.error_text("Operation failed")
+ctx.textual.warning_text("Warning message")
+```
+
+**IMPORTANT**: Always use these specific methods instead of `text()` with markup:
+
+```python
+# ✅ CORRECT
+ctx.textual.dim_text("(empty content)")
+ctx.textual.success_text("Done!")
+
+# ❌ WRONG - Don't use markup parameter
+ctx.textual.text("(empty content)", markup="dim")
+ctx.textual.text("Done!", markup="green")
+```
+
+#### Other Display Methods
+
+##### `markdown(markdown_text: str)`
+Renders markdown content.
+
+```python
+analysis = "## Summary\n\n- Point 1\n- Point 2"
+ctx.textual.markdown(analysis)
+```
+
+##### `mount(widget: Widget)`
+Mounts any Textual widget to the output panel.
 
 ```python
 from titan_cli.ui.tui.widgets import Panel
@@ -155,27 +202,62 @@ ctx.textual.mount(
 )
 ```
 
-#### 2. `text(text: str, markup: str = "")`
-Appends inline text with optional markup styling.
+##### `begin_step(title: str)`
+Marks the beginning of a step (shows step header).
 
 ```python
-ctx.textual.text("Processing...", markup="cyan")
-ctx.textual.text("Warning!", markup="yellow")
-ctx.textual.text("")  # Empty line for spacing
+ctx.textual.begin_step("Fetching PR Comments")
 ```
 
-**Common markup**: `"bold"`, `"dim"`, `"cyan"`, `"yellow"`, `"red"`, `"green"`, `"bold cyan"`
-
-#### 3. `markdown(markdown_text: str)`
-Renders markdown content.
+##### `end_step(status: str)`
+Marks the end of a step. Status can be "success", "error", or "skip".
 
 ```python
-analysis = "## Summary\n\n- Point 1\n- Point 2"
-ctx.textual.markdown(analysis)
+ctx.textual.end_step("success")
+ctx.textual.end_step("error")
+ctx.textual.end_step("skip")
 ```
 
-#### 4. `ask_text(question: str, default: str = "") -> Optional[str]`
-Requests text input from user (blocks until response).
+**Important**: The `end_step()` status is separate from the `WorkflowResult` you return:
+- `Success` → typically use `end_step("success")`
+- `Error` → typically use `end_step("error")`
+- `Skip` → typically use `end_step("skip")`
+- `Exit` → use `end_step("success")` or `end_step("skip")` depending on context
+
+**WorkflowResult Types:**
+- `Success(message, metadata={})` - Step completed successfully, continue workflow
+- `Error(message)` - Step failed, stop workflow
+- `Skip(message)` - Step was skipped, continue workflow
+- `Exit(message)` - Exit workflow early in a controlled way (not an error)
+
+```python
+# Example: Exit when no data found (not an error, just nothing to do)
+if not data:
+    ctx.textual.dim_text("No data found")
+    ctx.textual.end_step("success")  # ← Step itself succeeded
+    return Exit("No data to process")  # ← But exit the workflow
+
+# Example: User cancelled (skip this step)
+if not user_confirmed:
+    ctx.textual.warning_text("User cancelled")
+    ctx.textual.end_step("skip")  # ← Mark as skipped
+    return Exit("User cancelled")  # ← Exit the workflow
+```
+
+##### `scroll_to_end()`
+Manually scrolls to the bottom of the output (rarely needed, see Scroll Behavior Guidelines).
+
+```python
+# Only use when showing large content + interactive widget immediately after
+ctx.textual.markdown(very_large_content)
+ctx.textual.scroll_to_end()  # Ensure user sees the next widget
+choice = ctx.textual.ask_choice("What to do?", options)
+```
+
+### Interactive Methods (User Input)
+
+#### `ask_text(question: str, default: str = "") -> Optional[str]`
+Requests single-line text input from user (blocks until response).
 
 ```python
 title = ctx.textual.ask_text("Enter PR title:", default="")
@@ -183,7 +265,7 @@ if not title:
     return Error("Title cannot be empty")
 ```
 
-#### 5. `ask_multiline(question: str, default: str = "") -> Optional[str]`
+#### `ask_multiline(question: str, default: str = "") -> Optional[str]`
 Requests multiline input (Enter to submit, Shift+Enter for new line).
 
 ```python
@@ -193,7 +275,7 @@ description = ctx.textual.ask_multiline(
 )
 ```
 
-#### 6. `ask_confirm(question: str, default: bool = True) -> bool`
+#### `ask_confirm(question: str, default: bool = True) -> bool`
 Requests Y/N confirmation.
 
 ```python
@@ -205,8 +287,64 @@ else:
     pass
 ```
 
-#### 7. `loading(message: str)` (Context Manager)
-Shows a loading indicator during long operations.
+#### `ask_selection(question: str, options: List[SelectionOption]) -> List[Any]`
+Shows a multi-select list (spacebar to toggle, Enter to confirm).
+
+```python
+from titan_cli.ui.tui.widgets import SelectionOption
+
+options = [
+    SelectionOption(value="feature1", label="Feature 1"),
+    SelectionOption(value="feature2", label="Feature 2"),
+]
+
+selected = ctx.textual.ask_selection("Select features:", options)
+# Returns list of selected values: ["feature1", "feature2"]
+```
+
+#### `ask_choice(question: str, options: List[ChoiceOption]) -> Any`
+Shows single-choice buttons.
+
+```python
+from titan_cli.ui.tui.widgets import ChoiceOption
+
+options = [
+    ChoiceOption(value="use", label="Use as-is", variant="primary"),
+    ChoiceOption(value="edit", label="Edit", variant="default"),
+    ChoiceOption(value="reject", label="Reject", variant="error"),
+]
+
+choice = ctx.textual.ask_choice("What to do?", options)
+# Returns single value: "use", "edit", or "reject"
+```
+
+#### `ask_option(question: str, options: List[OptionItem]) -> Any`
+Shows a styled option list with titles and descriptions (like workflow selection menu).
+
+```python
+from titan_cli.ui.tui.widgets import OptionItem
+
+options = [
+    OptionItem(
+        value=123,
+        title="PR #123: Add new feature",
+        description="Branch: feature/new → main"
+    ),
+    OptionItem(
+        value=124,
+        title="PR #124: Fix bug",
+        description="Branch: fix/bug → develop"
+    ),
+]
+
+selected = ctx.textual.ask_option("Select a PR:", options)
+# Returns value: 123 or 124
+```
+
+### Utility Methods
+
+#### `loading(message: str)` (Context Manager)
+Shows a loading spinner during long operations.
 
 ```python
 with ctx.textual.loading("Analyzing issue..."):
@@ -214,7 +352,7 @@ with ctx.textual.loading("Analyzing issue..."):
 # Loading indicator disappears automatically
 ```
 
-#### 8. `launch_external_cli(cli_name: str, prompt: str = None, cwd: str = None) -> int`
+#### `launch_external_cli(cli_name: str, prompt: str = None, cwd: str = None) -> int`
 Launches an external CLI, temporarily suspending the TUI.
 
 ```python
@@ -335,32 +473,39 @@ return Success("Done")
 ## Available Widgets
 
 ### Location
-**File**: `/titan_cli/ui/tui/widgets/__init__.py`
+**Directory**: `/titan_cli/ui/tui/widgets/`
+**Exports**: `/titan_cli/ui/tui/widgets/__init__.py`
 
-### Panel
-Displays content in a bordered panel.
+All widgets are imported from this package and can be mounted using `ctx.textual.mount()` or used in interactive methods.
+
+### Display Widgets
+
+#### Panel
+Displays content in a bordered panel with different types/colors.
 
 ```python
 from titan_cli.ui.tui.widgets import Panel
 
-# Success panel
+# Success panel (green)
 ctx.textual.mount(Panel("Operation successful", panel_type="success"))
 
-# Error panel
+# Error panel (red)
 ctx.textual.mount(Panel("Error occurred", panel_type="error"))
 
-# Info panel
+# Info panel (blue)
 ctx.textual.mount(Panel("FYI: Something happened", panel_type="info"))
 
-# Warning panel
+# Warning panel (yellow)
 ctx.textual.mount(Panel("Warning message", panel_type="warning"))
 
-# Default panel
+# Default panel (no color)
 ctx.textual.mount(Panel("Regular message", panel_type="default"))
 ```
 
-### Table
-Displays tabular data.
+**Implementation**: `/titan_cli/ui/tui/widgets/panel.py`
+
+#### Table
+Displays tabular data with headers.
 
 ```python
 from titan_cli.ui.tui.widgets import Table
@@ -380,6 +525,146 @@ ctx.textual.mount(
 )
 ```
 
+**Implementation**: `/titan_cli/ui/tui/widgets/table.py`
+
+#### Text Widgets
+Various styled text widgets (used internally by `ctx.textual` methods).
+
+```python
+from titan_cli.ui.tui.widgets import (
+    Text,              # Normal text
+    BoldText,          # Bold
+    DimText,           # Dimmed/secondary
+    ItalicText,        # Italic
+    DimItalicText,     # Dim + Italic
+    PrimaryText,       # Primary color
+    BoldPrimaryText,   # Bold + Primary
+    SuccessText,       # Green
+    ErrorText,         # Red
+    WarningText,       # Yellow
+)
+
+# Direct usage (rarely needed - prefer ctx.textual methods)
+ctx.textual.mount(DimText("Secondary information"))
+ctx.textual.mount(SuccessText("Operation completed"))
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/text.py`
+
+**Note**: These are used internally by `ctx.textual.dim_text()`, `ctx.textual.success_text()`, etc. You should use those methods instead of mounting these widgets directly.
+
+### Interactive Widgets
+
+#### PromptInput
+Single-line text input widget (used by `ctx.textual.ask_text()`).
+
+```python
+from titan_cli.ui.tui.widgets import PromptInput
+
+# Used internally by ctx.textual.ask_text()
+# Typically not instantiated directly
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/prompt_input.py`
+
+#### PromptTextArea
+Multi-line text input widget (used by `ctx.textual.ask_multiline()`).
+
+```python
+from titan_cli.ui.tui.widgets import PromptTextArea
+
+# Used internally by ctx.textual.ask_multiline()
+# Typically not instantiated directly
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/prompt_textarea.py`
+
+#### PromptSelectionList
+Multi-select list widget (used by `ctx.textual.ask_selection()`).
+
+```python
+from titan_cli.ui.tui.widgets import PromptSelectionList, SelectionOption
+
+options = [
+    SelectionOption(value="opt1", label="Option 1"),
+    SelectionOption(value="opt2", label="Option 2"),
+]
+
+# Used via ctx.textual.ask_selection("Question?", options)
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/prompt_selection_list.py`
+
+#### PromptChoice
+Single-choice button widget (used by `ctx.textual.ask_choice()`).
+
+```python
+from titan_cli.ui.tui.widgets import PromptChoice, ChoiceOption
+
+options = [
+    ChoiceOption(value="yes", label="Yes", variant="primary"),
+    ChoiceOption(value="no", label="No", variant="default"),
+]
+
+# Used via ctx.textual.ask_choice("Question?", options)
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/prompt_choice.py`
+
+**Variants**: `"primary"`, `"default"`, `"success"`, `"warning"`, `"error"`
+
+#### PromptOptionList
+Styled option list with titles and descriptions (used by `ctx.textual.ask_option()`).
+
+```python
+from titan_cli.ui.tui.widgets import PromptOptionList, OptionItem
+
+options = [
+    OptionItem(
+        value=1,
+        title="Option 1",
+        description="Description for option 1"
+    ),
+    OptionItem(
+        value=2,
+        title="Option 2",
+        description="Description for option 2"
+    ),
+]
+
+# Used via ctx.textual.ask_option("Select:", options)
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/prompt_option_list.py`
+
+**Use case**: When you need to show a list with both a title and description (like PR selection, workflow selection).
+
+### Container Widgets
+
+#### StepContainer
+Container for step content with header.
+
+```python
+from titan_cli.ui.tui.widgets import StepContainer
+
+# Used internally by TextualWorkflowExecutor
+# Shows step number and title
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/step_container.py`
+
+#### Button
+Styled button widget.
+
+```python
+from titan_cli.ui.tui.widgets import Button
+
+# Used internally by PromptChoice
+# Typically not used directly
+```
+
+**Implementation**: `/titan_cli/ui/tui/widgets/button.py`
+
 ---
 
 ## Complete Examples
@@ -387,7 +672,7 @@ ctx.textual.mount(
 ### Example 1: Simple Step with Panel
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel
 
 def simple_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -407,7 +692,7 @@ def simple_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 2: Step with User Input
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit, Skip
 from titan_cli.ui.tui.widgets import Panel
 
 def prompt_for_title_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -438,7 +723,7 @@ def prompt_for_title_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 3: Step with AI and Loading Indicator
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit, Skip
 from titan_cli.ui.tui.widgets import Panel
 
 def ai_analyze_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -493,7 +778,7 @@ def ai_analyze_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 4: Step with Table Results
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel, Table
 
 def search_issues_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -550,7 +835,7 @@ def search_issues_step(ctx: WorkflowContext) -> WorkflowResult:
 ### Example 5: Step with Error Handling
 
 ```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.ui.tui.widgets import Panel
 import requests
 
@@ -642,4 +927,368 @@ def fetch_data_step(ctx: WorkflowContext) -> WorkflowResult:
 
 ---
 
-**Last updated**: 2026-02-05
+## Extending the Textual System
+
+This section explains how to add new widgets and methods to extend the Textual TUI framework.
+
+### Creating a New Widget
+
+Custom widgets should be created in `/titan_cli/ui/tui/widgets/` and follow Textual's widget patterns.
+
+#### Step 1: Create Widget File
+
+```python
+# /titan_cli/ui/tui/widgets/my_custom_widget.py
+from textual.widgets import Static
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
+
+@dataclass
+class MyCustomItem:
+    """Data model for widget items."""
+    value: Any
+    label: str
+    description: str = ""
+
+class MyCustomWidget(Static):
+    """
+    Custom widget for specialized UI interaction.
+
+    This widget shows a list of items with custom styling.
+    """
+
+    def __init__(
+        self,
+        question: str,
+        items: list[MyCustomItem],
+        on_submit: Optional[Callable[[Any], None]] = None,
+        **kwargs
+    ):
+        """
+        Args:
+            question: Question to display
+            items: List of items to show
+            on_submit: Callback when user submits selection
+        """
+        super().__init__(**kwargs)
+        self.question = question
+        self.items = items
+        self.on_submit = on_submit
+        self.selected_index = 0
+
+    def compose(self) -> ComposeResult:
+        """Compose the widget UI using Textual components."""
+        from .text import BoldText, DimText
+
+        # Show question
+        yield BoldText(self.question)
+        yield DimText("")  # Empty line
+
+        # Show items
+        with Vertical():
+            for i, item in enumerate(self.items):
+                # Use markup for inline styling
+                prefix = "→ " if i == self.selected_index else "  "
+                yield Static(f"{prefix}[bold]{item.label}[/bold]")
+                if item.description:
+                    yield Static(f"  [dim]{item.description}[/dim]")
+
+    def on_key(self, event) -> None:
+        """Handle keyboard input."""
+        if event.key == "up":
+            self.selected_index = max(0, self.selected_index - 1)
+            self.refresh()
+        elif event.key == "down":
+            self.selected_index = min(len(self.items) - 1, self.selected_index + 1)
+            self.refresh()
+        elif event.key == "enter":
+            # Submit selection
+            selected_item = self.items[self.selected_index]
+            if self.on_submit:
+                self.on_submit(selected_item.value)
+```
+
+#### Step 2: Export Widget
+
+Add to `/titan_cli/ui/tui/widgets/__init__.py`:
+
+```python
+from .my_custom_widget import MyCustomWidget, MyCustomItem
+
+__all__ = [
+    # ... existing exports
+    "MyCustomWidget",
+    "MyCustomItem",
+]
+```
+
+#### Step 3: Use Widget in Steps
+
+You can now use the widget directly:
+
+```python
+from titan_cli.ui.tui.widgets import MyCustomWidget, MyCustomItem
+
+def my_step(ctx: WorkflowContext) -> WorkflowResult:
+    items = [
+        MyCustomItem(value=1, label="Option 1", description="First option"),
+        MyCustomItem(value=2, label="Option 2", description="Second option"),
+    ]
+
+    # Direct usage (widget handles its own display)
+    ctx.textual.mount(MyCustomWidget(
+        question="Select an option:",
+        items=items
+    ))
+
+    return Success("Widget displayed")
+```
+
+### Adding Methods to TextualComponents
+
+To make widgets easier to use in steps, add convenience methods to `TextualComponents`.
+
+#### Location
+**File**: `/titan_cli/ui/tui/textual_components.py`
+
+#### Pattern for Interactive Methods
+
+All interactive methods must use threading and event containers for communication between threads.
+
+```python
+# In TextualComponents class
+
+def ask_custom(self, question: str, items: list) -> Any:
+    """
+    Ask user to select from custom widget.
+
+    Args:
+        question: Question to display
+        items: List of items to choose from
+
+    Returns:
+        Selected value or None if cancelled
+    """
+    from .widgets import MyCustomWidget, MyCustomItem
+
+    # Container for thread-safe communication
+    result_container = {"result": None, "ready": threading.Event()}
+
+    def on_submit(value):
+        """Callback when user submits."""
+        result_container["result"] = value
+        result_container["ready"].set()
+
+    # Create widget with callback
+    widget = MyCustomWidget(
+        question=question,
+        items=items,
+        on_submit=on_submit
+    )
+
+    # Mount widget on UI thread
+    target = self._get_current_output_target()
+    self.app.call_from_thread(target.mount, widget)
+
+    # Wait for user response with timeout for Ctrl+C handling
+    try:
+        while not result_container["ready"].wait(timeout=0.5):
+            pass
+    except KeyboardInterrupt:
+        result_container["result"] = None
+
+    return result_container["result"]
+```
+
+#### KeyboardInterrupt Handling
+
+**CRITICAL**: All interactive methods MUST handle Ctrl+C using a timeout loop:
+
+```python
+# ✅ CORRECT - Timeout allows KeyboardInterrupt to be caught
+try:
+    while not result_container["ready"].wait(timeout=0.5):
+        pass
+except KeyboardInterrupt:
+    result_container["result"] = None
+
+# ❌ WRONG - Blocks forever, Ctrl+C doesn't work
+result_container["ready"].wait()
+```
+
+**Why this pattern:**
+- Python can only process KeyboardInterrupt during active code execution
+- `wait()` with no timeout blocks in C code, preventing interrupt handling
+- `wait(timeout=0.5)` returns to Python every 0.5s, allowing interrupts
+- Wrapping in try/except catches Ctrl+C and returns None gracefully
+
+#### Usage After Adding Method
+
+```python
+def my_step(ctx: WorkflowContext) -> WorkflowResult:
+    from titan_cli.ui.tui.widgets import MyCustomItem
+
+    items = [
+        MyCustomItem(value=1, label="Option 1", description="First"),
+        MyCustomItem(value=2, label="Option 2", description="Second"),
+    ]
+
+    # Now much cleaner to use!
+    selected = ctx.textual.ask_custom("Select an option:", items)
+
+    if not selected:
+        return Error("No selection made")
+
+    return Success(f"Selected: {selected}")
+```
+
+### Common Extension Patterns
+
+#### Pattern 1: Generic AI Integration
+
+Always use `AIMessage` for model-agnostic AI calls:
+
+```python
+from titan_cli.ai.models import AIMessage
+
+def ai_helper_step(ctx: WorkflowContext) -> WorkflowResult:
+    if not ctx.ai or not ctx.ai.is_available():
+        return Skip("AI not configured")
+
+    # Build messages
+    messages = [
+        AIMessage(role="user", content="Analyze this...")
+    ]
+
+    # Generate (works with Claude, Gemini, any configured provider)
+    with ctx.textual.loading("Generating..."):
+        response = ctx.ai.generate(messages)
+
+    result = response.content.strip()
+    ctx.textual.markdown(result)
+
+    return Success("AI analysis complete")
+```
+
+#### Pattern 2: Empty Content Handling
+
+Always check for empty/None content from APIs:
+
+```python
+# ✅ CORRECT - Handle empty content gracefully
+if content and content.strip():
+    ctx.textual.markdown(content)
+else:
+    ctx.textual.dim_text("(no content)")
+
+# ❌ WRONG - May crash on None or show empty space
+ctx.textual.markdown(content)
+```
+
+#### Pattern 3: API Field Variations
+
+Some APIs return different field names for the same data. Try multiple fields:
+
+```python
+# GitHub API line numbers
+line = data.get("line") or data.get("original_line") or data.get("start_line")
+
+# Author information
+author = data.get("user") or data.get("author") or {}
+```
+
+#### Pattern 4: Recursive Data Structures
+
+Use recursion for building hierarchical structures:
+
+```python
+def build_comment_tree(comments: list, parent_id: int = None) -> list:
+    """Recursively build comment thread tree."""
+    tree = []
+
+    for comment in comments:
+        if comment.parent_id == parent_id:
+            # This comment belongs at this level
+            tree.append(comment)
+
+            # Recursively find children
+            children = build_comment_tree(comments, comment.id)
+            if children:
+                comment.children = children
+
+    return tree
+```
+
+### Widget Best Practices
+
+#### 1. Use Dataclasses for Item Models
+
+```python
+@dataclass
+class OptionItem:
+    """Clear data structure for widget items."""
+    value: Any
+    title: str
+    description: str = ""
+```
+
+#### 2. Accept Callbacks for Events
+
+```python
+def __init__(self, on_submit: Optional[Callable] = None):
+    self.on_submit = on_submit
+```
+
+#### 3. Use Textual Markup for Styling
+
+```python
+# ✅ CORRECT - Use markup strings
+yield Static(f"[bold]{title}[/bold]")
+yield Static(f"[dim]{description}[/dim]")
+
+# ❌ WRONG - Don't create multiple styled widgets
+yield BoldText(title)  # Unnecessary - markup is cleaner
+```
+
+#### 4. Handle Focus and Keyboard Events
+
+```python
+def on_mount(self) -> None:
+    """Set focus when widget mounts."""
+    self.focus()
+
+def on_key(self, event: Key) -> None:
+    """Handle keyboard input."""
+    if event.key == "enter":
+        self.submit()
+    elif event.key == "escape":
+        self.cancel()
+```
+
+### Testing New Widgets
+
+Test widgets interactively by creating a test step:
+
+```python
+# Test in a workflow step
+def test_widget_step(ctx: WorkflowContext) -> WorkflowResult:
+    if not ctx.textual:
+        return Error("No Textual context")
+
+    from titan_cli.ui.tui.widgets import MyCustomWidget, MyCustomItem
+
+    items = [
+        MyCustomItem(value=1, label="Test 1", description="First test"),
+        MyCustomItem(value=2, label="Test 2", description="Second test"),
+    ]
+
+    ctx.textual.mount(MyCustomWidget("Test question:", items))
+
+    return Success("Widget test complete")
+```
+
+---
+
+**Last updated**: 2026-02-12

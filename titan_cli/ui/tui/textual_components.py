@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
 from textual.containers import Container
-from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption, PromptChoice, ChoiceOption
+from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption, PromptChoice, ChoiceOption, PromptOptionList, OptionItem
 
 
 class TextualComponents:
@@ -586,13 +586,95 @@ class TextualComponents:
 
         self.mount(selection_widget)
 
-        # Wait for user to submit
-        result_container["ready"].wait()
+        # Wait for user to submit (with timeout to handle Ctrl+C)
+        try:
+            while not result_container["ready"].wait(timeout=0.5):
+                pass  # Keep waiting in small intervals
+        except KeyboardInterrupt:
+            # User cancelled with Ctrl+C
+            result_container["result"] = []
 
         # Remove the widget
         def _remove():
             try:
                 selection_widget.remove()
+            except Exception:
+                pass
+
+        try:
+            self.app.call_from_thread(_remove)
+        except Exception:
+            pass
+
+        return result_container["result"]
+
+    def ask_option(
+        self,
+        question: str,
+        options: List[OptionItem],
+    ) -> Any:
+        """
+        Ask user to select one option from a list with title and description.
+
+        Similar to workflow selection - displays a scrollable list with
+        bold titles and dim descriptions.
+
+        Args:
+            question: Question to display
+            options: List of OptionItem instances
+
+        Returns:
+            The selected value (the 'value' field from OptionItem)
+
+        Example:
+            from titan_cli.ui.tui.widgets import OptionItem
+
+            options = [
+                OptionItem(
+                    value=123,
+                    title="#123: Fix bug in login",
+                    description="Branch: fix/login → main"
+                ),
+                OptionItem(
+                    value=124,
+                    title="#124: Add feature",
+                    description="Branch: feat/new → main"
+                ),
+            ]
+
+            selected = ctx.textual.ask_option(
+                "Select a PR to review:",
+                options
+            )
+            # selected might be 123 or 124
+        """
+        result_container = {"result": None, "ready": threading.Event()}
+
+        def on_select(selected_value: Any):
+            result_container["result"] = selected_value
+            result_container["ready"].set()
+
+        # Create and mount the option list widget
+        option_widget = PromptOptionList(
+            question=question,
+            options=options,
+            on_select=on_select
+        )
+
+        self.mount(option_widget)
+
+        # Wait for user to select (with timeout to handle Ctrl+C)
+        try:
+            while not result_container["ready"].wait(timeout=0.5):
+                pass  # Keep waiting in small intervals
+        except KeyboardInterrupt:
+            # User cancelled with Ctrl+C
+            result_container["result"] = None
+
+        # Remove the widget
+        def _remove():
+            try:
+                option_widget.remove()
             except Exception:
                 pass
 
@@ -658,8 +740,13 @@ class TextualComponents:
 
         self.mount(choice_widget)
 
-        # Wait for user to select
-        result_container["ready"].wait()
+        # Wait for user to select (with timeout to handle Ctrl+C)
+        try:
+            while not result_container["ready"].wait(timeout=0.5):
+                pass  # Keep waiting in small intervals
+        except KeyboardInterrupt:
+            # User cancelled with Ctrl+C
+            result_container["result"] = None
 
         # Remove the widget
         def _remove():

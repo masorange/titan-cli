@@ -1,4 +1,10 @@
-# plugins/titan-plugin-github/titan_plugin_github/models.py
+# plugins/titan-plugin-github/titan_plugin_github/models/network.py
+"""
+GitHub Network/API Models
+
+Models representing data from GitHub's GraphQL and REST APIs.
+These are "network models" that match the structure of API responses.
+"""
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
@@ -16,7 +22,7 @@ class User:
     @classmethod
     def from_dict(cls, data: dict) -> 'User':
         """
-        Create User from API response
+        Create User from API response (REST API)
 
         Args:
             data: User data from GitHub API
@@ -36,6 +42,26 @@ class User:
             name=data.get("name"),
             email=data.get("email"),
             avatar_url=data.get("avatar_url")
+        )
+
+    @classmethod
+    def from_graphql(cls, data: dict) -> 'User':
+        """
+        Create User from GraphQL response
+
+        Args:
+            data: Actor data from GraphQL
+
+        Returns:
+            User instance
+        """
+        if not data:
+            return cls(login="unknown")
+
+        return cls(
+            login=data.get("login", "unknown"),
+            name=data.get("name"),
+            email=data.get("email")
         )
 
 
@@ -226,55 +252,174 @@ class PRSearchResult:
 
 
 @dataclass
-class PRComment:
+class PRReviewComment:
     """
-    Pull request comment (review comment or issue comment)
+    Individual review comment on code (GraphQL: PullRequestReviewComment).
+
+    Faithful representation of GitHub's GraphQL PullRequestReviewComment object.
+    See: https://docs.github.com/en/graphql/reference/objects#pullrequestreviewcomment
 
     Attributes:
-        id: Comment ID
-        body: Comment text
-        user: User who created the comment
-        created_at: Creation timestamp
-        path: File path (for review comments)
-        line: Line number (for review comments)
-        diff_hunk: Diff context (for review comments)
-        pull_request_review_id: Review ID (for review comments)
-        in_reply_to_id: ID of parent comment (if it's a reply)
-        is_review_comment: True if inline review comment, False if issue comment
+        id: Comment database ID (databaseId in GraphQL)
+        body: Comment text content
+        author: User who created the comment
+        created_at: Creation timestamp (ISO 8601)
+        updated_at: Last update timestamp (ISO 8601)
+        path: File path being commented on
+        position: Position in the diff (None if outdated)
+        line: Line number in the new version of the file (None if outdated)
+        original_line: Line number in the original version before changes
+        diff_hunk: Diff context snippet showing the commented code
+        reply_to: Parent comment if this is a reply (for threading)
     """
     id: int
     body: str
-    user: User
+    author: User
     created_at: str
+    updated_at: str
     path: Optional[str] = None
+    position: Optional[int] = None
     line: Optional[int] = None
+    original_line: Optional[int] = None
     diff_hunk: Optional[str] = None
-    pull_request_review_id: Optional[int] = None
-    in_reply_to_id: Optional[int] = None
-    is_review_comment: bool = True
+    reply_to: Optional['PRReviewComment'] = None
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], is_review: bool = True) -> 'PRComment':
-        """Create from API response"""
-        user_data = data.get("user", {})
-        user = User(
-            login=user_data.get("login", ""),
-            name=user_data.get("name"),
-            email=user_data.get("email"),
-            avatar_url=user_data.get("avatar_url")
-        )
+    def from_graphql(cls, data: Dict[str, Any]) -> 'PRReviewComment':
+        """
+        Create PRReviewComment from GraphQL response.
+
+        Args:
+            data: Comment node from GraphQL PullRequestReviewComment
+
+        Returns:
+            PRReviewComment instance
+        """
+        author_data = data.get("author", {})
+        author = User.from_graphql(author_data)
+
+        # Handle replyTo for threading
+        reply_to_data = data.get("replyTo")
+        reply_to = None
+        if reply_to_data:
+            reply_to = cls.from_graphql(reply_to_data)
 
         return cls(
-            id=data.get("id", 0),
+            id=data.get("databaseId", 0),
             body=data.get("body", ""),
-            user=user,
-            created_at=data.get("created_at", ""),
+            author=author,
+            created_at=data.get("createdAt", ""),
+            updated_at=data.get("updatedAt", ""),
             path=data.get("path"),
+            position=data.get("position"),
             line=data.get("line"),
-            diff_hunk=data.get("diff_hunk"),
-            pull_request_review_id=data.get("pull_request_review_id"),
-            in_reply_to_id=data.get("in_reply_to_id"),
-            is_review_comment=is_review
+            original_line=data.get("originalLine"),
+            diff_hunk=data.get("diffHunk"),
+            reply_to=reply_to
+        )
+
+
+@dataclass
+class PRReviewThread:
+    """
+    Review thread containing a main comment and its replies (GraphQL: PullRequestReviewThread).
+
+    Faithful representation of GitHub's GraphQL PullRequestReviewThread object.
+    See: https://docs.github.com/en/graphql/reference/objects#pullrequestreviewthread
+
+    Attributes:
+        id: Thread node ID (for resolving/unresolving)
+        is_resolved: Whether the thread has been marked as resolved
+        is_outdated: Whether the code has changed since this comment was made
+        path: File path where the thread is located
+        comments: List of comments [main_comment, reply1, reply2, ...]
+    """
+    id: str
+    is_resolved: bool
+    is_outdated: bool
+    path: Optional[str]
+    comments: List[PRReviewComment]
+
+    @property
+    def main_comment(self) -> Optional[PRReviewComment]:
+        """Get the main comment that started this thread."""
+        return self.comments[0] if self.comments else None
+
+    @property
+    def replies(self) -> List[PRReviewComment]:
+        """Get all reply comments in this thread."""
+        return self.comments[1:] if len(self.comments) > 1 else []
+
+    @classmethod
+    def from_graphql(cls, data: Dict[str, Any]) -> 'PRReviewThread':
+        """
+        Create PRReviewThread from GraphQL response.
+
+        Args:
+            data: Thread node from GraphQL PullRequestReviewThread
+
+        Returns:
+            PRReviewThread instance
+        """
+        thread_id = data.get("id", "")
+        is_resolved = data.get("isResolved", False)
+        is_outdated = data.get("isOutdated", False)
+        path = data.get("path")
+
+        comment_nodes = data.get("comments", {}).get("nodes", [])
+        comments = [PRReviewComment.from_graphql(node) for node in comment_nodes]
+
+        return cls(
+            id=thread_id,
+            is_resolved=is_resolved,
+            is_outdated=is_outdated,
+            path=path,
+            comments=comments
+        )
+
+
+@dataclass
+class PRIssueComment:
+    """
+    General PR comment not attached to specific code (GraphQL: IssueComment).
+
+    Faithful representation of GitHub's GraphQL IssueComment object.
+    These are general comments on the PR itself, not inline code review comments.
+    See: https://docs.github.com/en/graphql/reference/objects#issuecomment
+
+    Attributes:
+        id: Comment database ID (databaseId in GraphQL)
+        body: Comment text content
+        author: User who created the comment
+        created_at: Creation timestamp (ISO 8601)
+        updated_at: Last update timestamp (ISO 8601)
+    """
+    id: int
+    body: str
+    author: User
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_graphql(cls, data: Dict[str, Any]) -> 'PRIssueComment':
+        """
+        Create PRIssueComment from GraphQL response.
+
+        Args:
+            data: Comment node from GraphQL IssueComment
+
+        Returns:
+            PRIssueComment instance
+        """
+        author_data = data.get("author", {})
+        author = User.from_graphql(author_data)
+
+        return cls(
+            id=data.get("databaseId", 0),
+            body=data.get("body", ""),
+            author=author,
+            created_at=data.get("createdAt", ""),
+            updated_at=data.get("updatedAt", "")
         )
 
 

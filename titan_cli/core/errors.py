@@ -55,6 +55,7 @@ class ConfigParseError(ConfigError):
         self.file_path = file_path
         self.original_exception = original_exception
 
+
         message = msg.Errors.CONFIG_PARSE_ERROR.format(
             file_path=file_path,
             error=original_exception

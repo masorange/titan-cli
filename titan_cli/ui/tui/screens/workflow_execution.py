@@ -492,15 +492,13 @@ class WorkflowExecutionContent(Widget):
             pass
 
     def on_descendant_mount(self, event) -> None:
-        """Auto-scroll when any widget is mounted as a descendant."""
-        from titan_cli.ui.tui.widgets import PromptInput, StepContainer
+        """Auto-scroll when step containers are mounted."""
+        from titan_cli.ui.tui.widgets import StepContainer
 
-        # Auto-scroll for StepContainers (new steps being added)
-        # StepContainer itself triggers scroll via begin_step(), but this is a safety net
+        # ONLY auto-scroll for StepContainers (new steps)
+        # Interactive widgets (PromptChoice, PromptInput, etc.) handle their own scroll
+        # Passive content (Panel, Markdown, Text) should NOT trigger scroll
         if isinstance(event.widget, StepContainer):
-            self._scroll_to_end()
-        # Also scroll for other widgets, but skip PromptInput (it handles its own scroll)
-        elif not isinstance(event.widget, PromptInput):
             self._scroll_to_end()
 
     def handle_event(self, message) -> None:
