@@ -108,7 +108,9 @@ class UIPullRequest:
     status_icon: str  # "🟢" "🔴" "🟣" "📝" etc.
     state: str  # "OPEN", "CLOSED", "MERGED"
     author_name: str  # Just the username
-    branch_info: str  # "feat/xyz → develop" (pre-formatted)
+    head_ref: str  # Head branch name (for operations)
+    base_ref: str  # Base branch name (for operations)
+    branch_info: str  # "feat/xyz → develop" (pre-formatted for display)
     stats: str  # "+123 -45" (pre-formatted)
     files_changed: int
     is_mergeable: bool  # Boolean for logic

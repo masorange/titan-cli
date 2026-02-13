@@ -38,6 +38,8 @@ def from_rest_pr(rest_pr: RESTPullRequest) -> UIPullRequest:
         status_icon=get_pr_status_icon(rest_pr.state, rest_pr.isDraft),
         state=rest_pr.state,
         author_name=rest_pr.author.login,
+        head_ref=rest_pr.headRefName,
+        base_ref=rest_pr.baseRefName,
         branch_info=format_branch_info(rest_pr.headRefName, rest_pr.baseRefName),
         stats=format_pr_stats(rest_pr.additions, rest_pr.deletions),
         files_changed=rest_pr.changedFiles,

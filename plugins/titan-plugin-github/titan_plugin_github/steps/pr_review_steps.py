@@ -576,29 +576,29 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("GitHub client not available")
 
     try:
-        # Fetch user's open PRs
+        # Fetch user's open PRs (returns List[UIPullRequest])
         with ctx.textual.loading("Fetching your open PRs..."):
-            result = ctx.github.list_my_prs(state="open")
+            prs = ctx.github.list_my_prs(state="open")
 
-        if not result.prs:
+        if not prs:
             ctx.textual.dim_text("You don't have any open PRs.")
             ctx.textual.end_step("success")
             return Exit("No open PRs found")
 
         # Create options from PRs
         options = []
-        for pr in result.prs:
+        for pr in prs:
             options.append(
                 OptionItem(
                     value=pr.number,
                     title=f"#{pr.number}: {pr.title}",
-                    description=f"Branch: {pr.head_ref} → {pr.base_ref}"
+                    description=f"Branch: {pr.branch_info}"  # Pre-formatted "head → base"
                 )
             )
 
         # Ask user to select a PR
         selected = ctx.textual.ask_option(
-            f"Select a PR to review comments ({result.total} open PR(s)):",
+            f"Select a PR to review comments ({len(prs)} open PR(s)):",
             options
         )
 
@@ -609,7 +609,7 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # selected is already the PR number (int)
         pr_number = selected
-        selected_pr = next((pr for pr in result.prs if pr.number == pr_number), None)
+        selected_pr = next((pr for pr in prs if pr.number == pr_number), None)
 
         if not selected_pr:
             ctx.textual.end_step("error")
