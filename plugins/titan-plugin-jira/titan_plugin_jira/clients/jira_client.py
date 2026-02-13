@@ -374,6 +374,26 @@ class JiraClient:
         """
         return self._metadata_service.get_current_user()
 
+    def list_project_versions(self, project_key: Optional[str] = None) -> ClientResult[List[dict]]:
+        """
+        List all versions for a project.
+
+        Args:
+            project_key: Project key (uses default if not provided)
+
+        Returns:
+            ClientResult[List[dict]]
+        """
+        key = project_key or self.project_key
+        if not key:
+            from titan_cli.core.result import ClientError
+            return ClientError(
+                error_message="Project key not provided",
+                error_code="MISSING_PROJECT_KEY"
+            )
+
+        return self._metadata_service.list_project_versions(key)
+
     # ==================== LINK OPERATIONS ====================
 
     def link_issue(

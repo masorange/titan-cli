@@ -124,5 +124,44 @@ class MetadataService:
                 error_code="GET_USER_ERROR"
             )
 
+    def list_project_versions(self, project_key: str) -> ClientResult[List[Dict[str, Any]]]:
+        """
+        List all versions for a project.
+
+        Args:
+            project_key: Project key
+
+        Returns:
+            ClientResult[List[Dict]] with version info (id, name, description, released, releaseDate)
+        """
+        try:
+            # Get project (includes versions)
+            project_data = self.network.make_request("GET", f"project/{project_key}")
+
+            # Extract versions
+            versions = project_data.get("versions", [])
+
+            # Parse version data
+            version_list = []
+            for v_data in versions:
+                version_list.append({
+                    "id": v_data.get("id"),
+                    "name": v_data.get("name"),
+                    "description": v_data.get("description"),
+                    "released": v_data.get("released", False),
+                    "releaseDate": v_data.get("releaseDate")
+                })
+
+            return ClientSuccess(
+                data=version_list,
+                message=f"Found {len(version_list)} versions"
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=str(e),
+                error_code="LIST_VERSIONS_ERROR"
+            )
+
 
 __all__ = ["MetadataService"]
