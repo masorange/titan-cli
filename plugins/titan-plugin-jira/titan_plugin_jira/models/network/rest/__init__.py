@@ -5,24 +5,24 @@ Faithful representations of Jira REST API responses.
 These models contain raw API data without any UI formatting or business logic.
 """
 
-from .issue import RESTJiraIssue, RESTJiraFields
-from .project import RESTJiraProject
-from .comment import RESTJiraComment
-from .transition import RESTJiraTransition
-from .issue_type import RESTJiraIssueType
-from .user import RESTJiraUser
-from .status import RESTJiraStatus, RESTJiraStatusCategory
-from .priority import RESTJiraPriority
+from .issue import NetworkJiraIssue, NetworkJiraFields
+from .project import NetworkJiraProject
+from .comment import NetworkJiraComment
+from .transition import NetworkJiraTransition
+from .issue_type import NetworkJiraIssueType
+from .user import NetworkJiraUser
+from .status import NetworkJiraStatus, NetworkJiraStatusCategory
+from .priority import NetworkJiraPriority
 
 __all__ = [
-    "RESTJiraIssue",
-    "RESTJiraFields",
-    "RESTJiraProject",
-    "RESTJiraComment",
-    "RESTJiraTransition",
-    "RESTJiraIssueType",
-    "RESTJiraUser",
-    "RESTJiraStatus",
-    "RESTJiraStatusCategory",
-    "RESTJiraPriority",
+    "NetworkJiraIssue",
+    "NetworkJiraFields",
+    "NetworkJiraProject",
+    "NetworkJiraComment",
+    "NetworkJiraTransition",
+    "NetworkJiraIssueType",
+    "NetworkJiraUser",
+    "NetworkJiraStatus",
+    "NetworkJiraStatusCategory",
+    "NetworkJiraPriority",
 ]

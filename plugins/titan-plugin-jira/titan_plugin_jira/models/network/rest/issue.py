@@ -2,14 +2,14 @@
 
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
-from .user import RESTJiraUser
-from .status import RESTJiraStatus
-from .issue_type import RESTJiraIssueType
-from .priority import RESTJiraPriority
+from .user import NetworkJiraUser
+from .status import NetworkJiraStatus
+from .issue_type import NetworkJiraIssueType
+from .priority import NetworkJiraPriority
 
 
 @dataclass
-class RESTJiraComponent:
+class NetworkJiraComponent:
     """Jira component from REST API."""
     id: str
     name: str
@@ -17,7 +17,7 @@ class RESTJiraComponent:
 
 
 @dataclass
-class RESTJiraVersion:
+class NetworkJiraVersion:
     """Jira version from REST API."""
     id: str
     name: str
@@ -27,7 +27,7 @@ class RESTJiraVersion:
 
 
 @dataclass
-class RESTJiraFields:
+class NetworkJiraFields:
     """
     Jira issue fields from REST API.
 
@@ -35,23 +35,23 @@ class RESTJiraFields:
     """
     summary: str
     description: Optional[Any] = None  # Can be ADF (dict) or string
-    status: Optional[RESTJiraStatus] = None
-    issuetype: Optional[RESTJiraIssueType] = None
-    assignee: Optional[RESTJiraUser] = None
-    reporter: Optional[RESTJiraUser] = None
-    priority: Optional[RESTJiraPriority] = None
+    status: Optional[NetworkJiraStatus] = None
+    issuetype: Optional[NetworkJiraIssueType] = None
+    assignee: Optional[NetworkJiraUser] = None
+    reporter: Optional[NetworkJiraUser] = None
+    priority: Optional[NetworkJiraPriority] = None
     created: Optional[str] = None
     updated: Optional[str] = None
     labels: Optional[List[str]] = None
-    components: Optional[List[RESTJiraComponent]] = None
-    fixVersions: Optional[List[RESTJiraVersion]] = None
+    components: Optional[List[NetworkJiraComponent]] = None
+    fixVersions: Optional[List[NetworkJiraVersion]] = None
     parent: Optional[Dict[str, Any]] = None  # For subtasks
     subtasks: Optional[List[Dict[str, Any]]] = None
 
 
 
 @dataclass
-class RESTJiraIssue:
+class NetworkJiraIssue:
     """
     Jira issue from REST API.
 
@@ -60,6 +60,6 @@ class RESTJiraIssue:
     """
     key: str
     id: str
-    fields: RESTJiraFields
+    fields: NetworkJiraFields
     self: Optional[str] = None  # API URL
     expand: Optional[str] = None

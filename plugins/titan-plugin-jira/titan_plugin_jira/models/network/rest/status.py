@@ -5,7 +5,7 @@ from typing import Optional
 
 
 @dataclass
-class RESTJiraStatusCategory:
+class NetworkJiraStatusCategory:
     """Jira status category from REST API."""
     id: str
     name: str  # "To Do", "In Progress", "Done"
@@ -14,7 +14,7 @@ class RESTJiraStatusCategory:
 
 
 @dataclass
-class RESTJiraStatus:
+class NetworkJiraStatus:
     """
     Jira status from REST API.
 
@@ -23,4 +23,4 @@ class RESTJiraStatus:
     id: str
     name: str
     description: Optional[str] = None
-    statusCategory: Optional[RESTJiraStatusCategory] = None
+    statusCategory: Optional[NetworkJiraStatusCategory] = None

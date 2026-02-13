@@ -5,7 +5,7 @@ from typing import Optional
 
 
 @dataclass
-class RESTJiraUser:
+class NetworkJiraUser:
     """
     Jira user from REST API.
 

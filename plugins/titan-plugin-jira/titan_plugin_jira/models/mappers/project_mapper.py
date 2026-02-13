@@ -4,24 +4,24 @@ Project Mapper
 Converts Jira REST API project models to UI view models.
 """
 
-from ..network.rest import RESTJiraProject
+from ..network.rest import NetworkJiraProject
 from ..view import UIJiraProject
 
 
-def from_rest_project(project: RESTJiraProject) -> UIJiraProject:
+def from_network_project(project: NetworkJiraProject) -> UIJiraProject:
     """
     Convert REST Jira project to UI project.
 
     Args:
-        project: RESTJiraProject from REST API
+        project: NetworkJiraProject from REST API
 
     Returns:
         UIJiraProject ready for rendering
 
     Example:
-        >>> from ..network.rest import RESTJiraProject
-        >>> rest_project = RESTJiraProject(id="1", key="PROJ", name="Project")
-        >>> ui_project = from_rest_project(rest_project)
+        >>> from ..network.rest import NetworkJiraProject
+        >>> rest_project = NetworkJiraProject(id="1", key="PROJ", name="Project")
+        >>> ui_project = from_network_project(rest_project)
         >>> ui_project.description
         'No description'
     """

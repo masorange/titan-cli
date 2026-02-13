@@ -4,26 +4,26 @@ Transition Mapper
 Converts Jira REST API transition models to UI view models.
 """
 
-from ..network.rest import RESTJiraTransition
+from ..network.rest import NetworkJiraTransition
 from ..view import UIJiraTransition
 from ..formatting import get_status_icon
 
 
-def from_rest_transition(transition: RESTJiraTransition) -> UIJiraTransition:
+def from_network_transition(transition: NetworkJiraTransition) -> UIJiraTransition:
     """
     Convert REST Jira transition to UI transition.
 
     Args:
-        transition: RESTJiraTransition from REST API
+        transition: NetworkJiraTransition from REST API
 
     Returns:
         UIJiraTransition ready for rendering
 
     Example:
-        >>> from ..network.rest import RESTJiraTransition, RESTJiraStatus, RESTJiraStatusCategory
-        >>> status = RESTJiraStatus(id="1", name="In Progress", statusCategory=RESTJiraStatusCategory(id="2", name="In Progress", key="indeterminate"))
-        >>> rest_transition = RESTJiraTransition(id="1", name="Start Progress", to=status)
-        >>> ui_transition = from_rest_transition(rest_transition)
+        >>> from ..network.rest import NetworkJiraTransition, NetworkJiraStatus, NetworkJiraStatusCategory
+        >>> status = NetworkJiraStatus(id="1", name="In Progress", statusCategory=NetworkJiraStatusCategory(id="2", name="In Progress", key="indeterminate"))
+        >>> rest_transition = NetworkJiraTransition(id="1", name="Start Progress", to=status)
+        >>> ui_transition = from_network_transition(rest_transition)
         >>> ui_transition.to_status_icon
         '🔵'
     """

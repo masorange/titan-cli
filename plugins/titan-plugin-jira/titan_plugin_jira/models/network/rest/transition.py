@@ -2,11 +2,11 @@
 
 from dataclasses import dataclass
 from typing import Optional
-from .status import RESTJiraStatus
+from .status import NetworkJiraStatus
 
 
 @dataclass
-class RESTJiraTransition:
+class NetworkJiraTransition:
     """
     Jira transition from REST API.
 
@@ -14,5 +14,5 @@ class RESTJiraTransition:
     """
     id: str
     name: str
-    to: Optional[RESTJiraStatus] = None  # Target status
+    to: Optional[NetworkJiraStatus] = None  # Target status
     hasScreen: bool = False

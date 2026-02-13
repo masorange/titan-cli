@@ -4,26 +4,26 @@ Comment Mapper
 Converts Jira REST API comment models to UI view models.
 """
 
-from ..network.rest import RESTJiraComment
+from ..network.rest import NetworkJiraComment
 from ..view import UIJiraComment
 from ..formatting import format_jira_date, extract_text_from_adf
 
 
-def from_rest_comment(comment: RESTJiraComment) -> UIJiraComment:
+def from_network_comment(comment: NetworkJiraComment) -> UIJiraComment:
     """
     Convert REST Jira comment to UI comment.
 
     Args:
-        comment: RESTJiraComment from REST API
+        comment: NetworkJiraComment from REST API
 
     Returns:
         UIJiraComment ready for rendering
 
     Example:
-        >>> from ..network.rest import RESTJiraComment, RESTJiraUser
-        >>> author = RESTJiraUser(displayName="Alice", emailAddress="alice@example.com")
-        >>> rest_comment = RESTJiraComment(id="1", author=author, body="Test", created="2025-01-15T10:30:45Z")
-        >>> ui_comment = from_rest_comment(rest_comment)
+        >>> from ..network.rest import NetworkJiraComment, NetworkJiraUser
+        >>> author = NetworkJiraUser(displayName="Alice", emailAddress="alice@example.com")
+        >>> rest_comment = NetworkJiraComment(id="1", author=author, body="Test", created="2025-01-15T10:30:45Z")
+        >>> ui_comment = from_network_comment(rest_comment)
         >>> ui_comment.author_name
         'Alice'
     """

@@ -4,7 +4,7 @@ Issue Mapper
 Converts Jira REST API issue models to UI view models.
 """
 
-from ..network.rest import RESTJiraIssue
+from ..network.rest import NetworkJiraIssue
 from ..view import UIJiraIssue
 from ..formatting import (
     format_jira_date,
@@ -15,22 +15,22 @@ from ..formatting import (
 )
 
 
-def from_rest_issue(issue: RESTJiraIssue) -> UIJiraIssue:
+def from_network_issue(issue: NetworkJiraIssue) -> UIJiraIssue:
     """
     Convert REST Jira issue to UI issue.
 
     Args:
-        issue: RESTJiraIssue from REST API
+        issue: NetworkJiraIssue from REST API
 
     Returns:
         UIJiraIssue ready for rendering
 
     Example:
-        >>> from ..network.rest import RESTJiraIssue, RESTJiraFields, RESTJiraStatus, RESTJiraStatusCategory
-        >>> status = RESTJiraStatus(id="1", name="To Do", statusCategory=RESTJiraStatusCategory(id="2", name="To Do", key="new"))
-        >>> fields = RESTJiraFields(summary="Test", status=status, ...)
-        >>> rest_issue = RESTJiraIssue(key="PROJ-1", id="1", fields=fields)
-        >>> ui_issue = from_rest_issue(rest_issue)
+        >>> from ..network.rest import NetworkJiraIssue, NetworkJiraFields, NetworkJiraStatus, NetworkJiraStatusCategory
+        >>> status = NetworkJiraStatus(id="1", name="To Do", statusCategory=NetworkJiraStatusCategory(id="2", name="To Do", key="new"))
+        >>> fields = NetworkJiraFields(summary="Test", status=status, ...)
+        >>> rest_issue = NetworkJiraIssue(key="PROJ-1", id="1", fields=fields)
+        >>> ui_issue = from_network_issue(rest_issue)
         >>> ui_issue.status_icon
         '🟡'
     """

@@ -2,18 +2,18 @@
 
 from dataclasses import dataclass
 from typing import Optional, Any
-from .user import RESTJiraUser
+from .user import NetworkJiraUser
 
 
 @dataclass
-class RESTJiraComment:
+class NetworkJiraComment:
     """
     Jira comment from REST API.
 
     Faithful to API response structure.
     """
     id: str
-    author: Optional[RESTJiraUser] = None
+    author: Optional[NetworkJiraUser] = None
     body: Optional[Any] = None  # Can be ADF (dict) or string
     created: Optional[str] = None
     updated: Optional[str] = None

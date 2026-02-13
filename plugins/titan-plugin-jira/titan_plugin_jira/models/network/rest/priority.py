@@ -5,7 +5,7 @@ from typing import Optional
 
 
 @dataclass
-class RESTJiraPriority:
+class NetworkJiraPriority:
     """
     Jira priority from REST API.
 

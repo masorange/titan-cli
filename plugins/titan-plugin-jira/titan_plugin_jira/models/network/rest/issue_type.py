@@ -5,7 +5,7 @@ from typing import Optional
 
 
 @dataclass
-class RESTJiraIssueType:
+class NetworkJiraIssueType:
     """
     Jira issue type from REST API.
 

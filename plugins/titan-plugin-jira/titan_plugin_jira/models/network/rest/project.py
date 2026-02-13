@@ -2,12 +2,12 @@
 
 from dataclasses import dataclass
 from typing import Optional, List
-from .user import RESTJiraUser
-from .issue_type import RESTJiraIssueType
+from .user import NetworkJiraUser
+from .issue_type import NetworkJiraIssueType
 
 
 @dataclass
-class RESTJiraProject:
+class NetworkJiraProject:
     """
     Jira project from REST API.
 
@@ -18,6 +18,6 @@ class RESTJiraProject:
     name: str
     description: Optional[str] = None
     projectTypeKey: Optional[str] = None
-    lead: Optional[RESTJiraUser] = None
-    issueTypes: Optional[List[RESTJiraIssueType]] = None
+    lead: Optional[NetworkJiraUser] = None
+    issueTypes: Optional[List[NetworkJiraIssueType]] = None
     self: Optional[str] = None  # API URL

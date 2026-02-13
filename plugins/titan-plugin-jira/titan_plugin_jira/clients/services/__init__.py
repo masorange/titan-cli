@@ -2,7 +2,7 @@
 Jira Services (Internal)
 
 Services are PRIVATE to the JiraClient.
-They handle data access: Network → REST → UI conversion.
+They handle data access: Network → Network model → UI model → Result.
 
 NO business logic here (that's in operations/).
 """

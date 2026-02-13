@@ -10,16 +10,16 @@ Organized into layers:
 
 # Network models (REST API)
 from .network.rest import (
-    RESTJiraIssue,
-    RESTJiraFields,
-    RESTJiraProject,
-    RESTJiraComment,
-    RESTJiraTransition,
-    RESTJiraIssueType,
-    RESTJiraUser,
-    RESTJiraStatus,
-    RESTJiraStatusCategory,
-    RESTJiraPriority,
+    NetworkJiraIssue,
+    NetworkJiraFields,
+    NetworkJiraProject,
+    NetworkJiraComment,
+    NetworkJiraTransition,
+    NetworkJiraIssueType,
+    NetworkJiraUser,
+    NetworkJiraStatus,
+    NetworkJiraStatusCategory,
+    NetworkJiraPriority,
 )
 
 # View models (UI)
@@ -32,10 +32,10 @@ from .view import (
 
 # Mappers (network → view)
 from .mappers import (
-    from_rest_issue,
-    from_rest_project,
-    from_rest_comment,
-    from_rest_transition,
+    from_network_issue,
+    from_network_project,
+    from_network_comment,
+    from_network_transition,
 )
 
 # Formatting utilities
@@ -50,26 +50,26 @@ from .formatting import (
 
 __all__ = [
     # Network models
-    "RESTJiraIssue",
-    "RESTJiraFields",
-    "RESTJiraProject",
-    "RESTJiraComment",
-    "RESTJiraTransition",
-    "RESTJiraIssueType",
-    "RESTJiraUser",
-    "RESTJiraStatus",
-    "RESTJiraStatusCategory",
-    "RESTJiraPriority",
+    "NetworkJiraIssue",
+    "NetworkJiraFields",
+    "NetworkJiraProject",
+    "NetworkJiraComment",
+    "NetworkJiraTransition",
+    "NetworkJiraIssueType",
+    "NetworkJiraUser",
+    "NetworkJiraStatus",
+    "NetworkJiraStatusCategory",
+    "NetworkJiraPriority",
     # View models
     "UIJiraIssue",
     "UIJiraProject",
     "UIJiraComment",
     "UIJiraTransition",
     # Mappers
-    "from_rest_issue",
-    "from_rest_project",
-    "from_rest_comment",
-    "from_rest_transition",
+    "from_network_issue",
+    "from_network_project",
+    "from_network_comment",
+    "from_network_transition",
     # Formatting
     "format_jira_date",
     "get_status_icon",
