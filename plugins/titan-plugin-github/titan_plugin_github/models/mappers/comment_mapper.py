@@ -23,8 +23,9 @@ def from_graphql_review_comment(
     Returns:
         UIComment ready for rendering
     """
-    # Extract author name
-    author_name = comment.author.login if comment.author else "Unknown"
+    # Extract author info
+    author_login = comment.author.login if comment.author else "Unknown"
+    author_name = comment.author.name if (comment.author and comment.author.name) else author_login
 
     # For outdated comments, use originalLine because diffHunk reflects old state
     # For current comments, use line
@@ -36,6 +37,7 @@ def from_graphql_review_comment(
     return UIComment(
         id=comment.databaseId,
         body=comment.body,
+        author_login=author_login,
         author_name=author_name,
         formatted_date=format_date(comment.createdAt),
         path=comment.path,
@@ -54,12 +56,14 @@ def from_graphql_issue_comment(comment: GraphQLIssueComment) -> UIComment:
     Returns:
         UIComment ready for rendering
     """
-    # Extract author name
-    author_name = comment.author.login if comment.author else "Unknown"
+    # Extract author info
+    author_login = comment.author.login if comment.author else "Unknown"
+    author_name = comment.author.name if (comment.author and comment.author.name) else author_login
 
     return UIComment(
         id=comment.databaseId,
         body=comment.body,
+        author_login=author_login,
         author_name=author_name,
         formatted_date=format_date(comment.createdAt),
         path=None,

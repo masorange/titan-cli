@@ -8,12 +8,12 @@ No UI dependencies - all functions can be unit tested.
 import os
 import glob
 from typing import Optional, Set, Tuple, Dict
-from ..models.network.graphql import GraphQLPullRequestReviewThread
+from ..models.view import UICommentThread
 from ..widgets.comment_utils import extract_diff_context
 
 
 def build_ai_review_context(
-    pr_thread: GraphQLPullRequestReviewThread,
+    pr_thread: UICommentThread,
     pr_title: str
 ) -> dict:
     """
@@ -55,8 +55,8 @@ def build_ai_review_context(
     # Build thread conversation
     thread_conversation = [
         {
-            "author": main_comment.author.login,
-            "date": main_comment.created_at[:10],
+            "author": main_comment.author_login,
+            "date": main_comment.formatted_date[:10],
             "body": main_comment.body
         }
     ]
@@ -65,8 +65,8 @@ def build_ai_review_context(
     if pr_thread.replies:
         for reply in pr_thread.replies:
             thread_conversation.append({
-                "author": reply.author.login,
-                "date": reply.created_at[:10],
+                "author": reply.author_login,
+                "date": reply.formatted_date[:10],
                 "body": reply.body
             })
 
@@ -219,7 +219,7 @@ def reply_to_comment_batch(
 def auto_review_comment(
     github_client,
     git_client,
-    pr_thread: GraphQLPullRequestReviewThread,
+    pr_thread: UICommentThread,
     worktree_path: str,
     pr_title: str,
     response_file_path: str,
@@ -275,7 +275,7 @@ def auto_review_comment(
         # AI made code changes - commit them
         commit_msg = create_commit_message(
             main_comment.body,
-            main_comment.author.login,
+            main_comment.author_login,
             main_comment.path
         )
 

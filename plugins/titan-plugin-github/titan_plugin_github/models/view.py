@@ -23,6 +23,7 @@ class UIComment:
     """
     id: int
     body: str
+    author_login: str  # Login/username (needed for bot detection, commit messages)
     author_name: str
     formatted_date: str  # Pre-formatted as "DD/MM/YYYY HH:MM:SS"
     path: Optional[str] = None
@@ -43,7 +44,7 @@ class UIComment:
         Returns:
             UIComment instance optimized for rendering
         """
-        from ..mappers import from_graphql_review_comment
+        from .mappers import from_graphql_review_comment
         return from_graphql_review_comment(comment, is_outdated)
 
     @classmethod
@@ -59,7 +60,7 @@ class UIComment:
         Returns:
             UIComment instance optimized for rendering
         """
-        from ..mappers import from_graphql_issue_comment
+        from .mappers import from_graphql_issue_comment
         return from_graphql_issue_comment(comment)
 
 
@@ -90,7 +91,7 @@ class UICommentThread:
         Returns:
             UICommentThread instance optimized for rendering
         """
-        from ..mappers import from_graphql_review_thread
+        from .mappers import from_graphql_review_thread
         return from_graphql_review_thread(thread)
 
 

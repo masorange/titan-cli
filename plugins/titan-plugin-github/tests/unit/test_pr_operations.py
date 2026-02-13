@@ -7,7 +7,6 @@ from titan_plugin_github.operations.pr_operations import (
     fetch_pr_threads,
     push_and_request_review,
 )
-from titan_plugin_github.models import PRReviewThread, PRReviewComment, User
 
 
 @pytest.mark.unit
@@ -16,23 +15,22 @@ class TestFetchPRThreads:
 
     def test_filters_bot_comments(self, mock_github_client):
         """Test that bot comments are filtered out"""
-        bot_user = User(login="dependabot[bot]", avatar_url="")
-        human_user = User(login="reviewer", avatar_url="")
+        from titan_plugin_github.models.view import UICommentThread, UIComment
 
-        bot_comment = PRReviewComment(
-            id=1, body="Bot message", author=bot_user,
-            created_at="2025-01-01", updated_at="2025-01-01",
+        bot_comment = UIComment(
+            id=1, body="Bot message", author_login="dependabot[bot]",
+            author_name="Dependabot", formatted_date="2025-01-01",
             path="file.py", line=1, diff_hunk=""
         )
-        human_comment = PRReviewComment(
-            id=2, body="Real review", author=human_user,
-            created_at="2025-01-01", updated_at="2025-01-01",
+        human_comment = UIComment(
+            id=2, body="Real review", author_login="reviewer",
+            author_name="Reviewer", formatted_date="2025-01-01",
             path="file.py", line=2, diff_hunk=""
         )
 
         threads = [
-            PRReviewThread(id="t1", is_resolved=False, is_outdated=False, path="file.py", comments=[bot_comment]),
-            PRReviewThread(id="t2", is_resolved=False, is_outdated=False, path="file.py", comments=[human_comment])
+            UICommentThread(thread_id="t1", main_comment=bot_comment, replies=[], is_resolved=False, is_outdated=False),
+            UICommentThread(thread_id="t2", main_comment=human_comment, replies=[], is_resolved=False, is_outdated=False)
         ]
 
         mock_github_client.get_pr_review_threads.return_value = threads
@@ -40,24 +38,26 @@ class TestFetchPRThreads:
         result = fetch_pr_threads(mock_github_client, 42, include_resolved=False)
 
         assert len(result) == 1
-        assert result[0].main_comment.author.login == "reviewer"
+        assert result[0].main_comment.author_login == "reviewer"
 
     def test_filters_empty_comments(self, mock_github_client, sample_github_user):
         """Test that empty comments are filtered out"""
-        empty_comment = PRReviewComment(
-            id=1, body="   ", author=sample_github_user,
-            created_at="2025-01-01", updated_at="2025-01-01",
+        from titan_plugin_github.models.view import UICommentThread, UIComment
+
+        empty_comment = UIComment(
+            id=1, body="   ", author_login="test-user",
+            author_name="Test User", formatted_date="2025-01-01",
             path="file.py", line=1, diff_hunk=""
         )
-        valid_comment = PRReviewComment(
-            id=2, body="Good review", author=sample_github_user,
-            created_at="2025-01-01", updated_at="2025-01-01",
+        valid_comment = UIComment(
+            id=2, body="Good review", author_login="test-user",
+            author_name="Test User", formatted_date="2025-01-01",
             path="file.py", line=2, diff_hunk=""
         )
 
         threads = [
-            PRReviewThread(id="t1", is_resolved=False, is_outdated=False, path="file.py", comments=[empty_comment]),
-            PRReviewThread(id="t2", is_resolved=False, is_outdated=False, path="file.py", comments=[valid_comment])
+            UICommentThread(thread_id="t1", main_comment=empty_comment, replies=[], is_resolved=False, is_outdated=False),
+            UICommentThread(thread_id="t2", main_comment=valid_comment, replies=[], is_resolved=False, is_outdated=False)
         ]
 
         mock_github_client.get_pr_review_threads.return_value = threads
@@ -69,20 +69,22 @@ class TestFetchPRThreads:
 
     def test_filters_json_only_comments(self, mock_github_client, sample_github_user):
         """Test that JSON-only comments (coverage reports) are filtered"""
-        json_comment = PRReviewComment(
-            id=1, body='{"coverage": 85.5}', author=sample_github_user,
-            created_at="2025-01-01", updated_at="2025-01-01",
+        from titan_plugin_github.models.view import UICommentThread, UIComment
+
+        json_comment = UIComment(
+            id=1, body='{"coverage": 85.5}', author_login="test-user",
+            author_name="Test User", formatted_date="2025-01-01",
             path="file.py", line=1, diff_hunk=""
         )
-        normal_comment = PRReviewComment(
-            id=2, body="Please fix this", author=sample_github_user,
-            created_at="2025-01-01", updated_at="2025-01-01",
+        normal_comment = UIComment(
+            id=2, body="Please fix this", author_login="test-user",
+            author_name="Test User", formatted_date="2025-01-01",
             path="file.py", line=2, diff_hunk=""
         )
 
         threads = [
-            PRReviewThread(id="t1", is_resolved=False, is_outdated=False, path="file.py", comments=[json_comment]),
-            PRReviewThread(id="t2", is_resolved=False, is_outdated=False, path="file.py", comments=[normal_comment])
+            UICommentThread(thread_id="t1", main_comment=json_comment, replies=[], is_resolved=False, is_outdated=False),
+            UICommentThread(thread_id="t2", main_comment=normal_comment, replies=[], is_resolved=False, is_outdated=False)
         ]
 
         mock_github_client.get_pr_review_threads.return_value = threads
@@ -94,14 +96,16 @@ class TestFetchPRThreads:
 
     def test_includes_resolved_when_requested(self, mock_github_client, sample_github_user):
         """Test include_resolved parameter"""
-        comment = PRReviewComment(
-            id=1, body="Comment", author=sample_github_user,
-            created_at="2025-01-01", updated_at="2025-01-01",
+        from titan_plugin_github.models.view import UICommentThread, UIComment
+
+        comment = UIComment(
+            id=1, body="Comment", author_login="test-user",
+            author_name="Test User", formatted_date="2025-01-01",
             path="file.py", line=1, diff_hunk=""
         )
 
         threads = [
-            PRReviewThread(id="t1", is_resolved=True, is_outdated=False, path="file.py", comments=[comment])
+            UICommentThread(thread_id="t1", main_comment=comment, replies=[], is_resolved=True, is_outdated=False)
         ]
 
         mock_github_client.get_pr_review_threads.return_value = threads
