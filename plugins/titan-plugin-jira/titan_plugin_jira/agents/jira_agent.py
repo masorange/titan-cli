@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
+from titan_cli.core.result import ClientSuccess, ClientError
 from .config_loader import load_agent_config
 from .response_parser import JiraAgentParser
 from .validators import IssueValidator
@@ -155,7 +156,15 @@ class JiraAgent(BaseAIAgent):
 
         # 1. Get issue from JIRA (with error handling)
         try:
-            issue = self.jira.get_ticket(issue_key)
+            result = self.jira.get_issue(issue_key)
+
+            # Handle Result
+            match result:
+                case ClientSuccess(data=issue):
+                    pass  # Continue with issue
+                case ClientError(error_message=err):
+                    logger.error(f"Failed to get issue {issue_key}: {err}")
+                    return IssueAnalysis()
 
             # 2. Analyze requirements (with AI error handling)
             if self.config.enable_requirement_extraction:
@@ -485,7 +494,16 @@ class JiraAgent(BaseAIAgent):
             return None
 
         try:
-            issue = self.jira.get_ticket(issue_key)
+            result = self.jira.get_issue(issue_key)
+
+            # Handle Result
+            match result:
+                case ClientSuccess(data=issue):
+                    pass  # Continue with issue
+                case ClientError(error_message=err):
+                    logger.error(f"Failed to get issue {issue_key}: {err}")
+                    return None
+
             description = issue.description or ""
             desc_preview = self.validator.sanitize_description(
                 description,

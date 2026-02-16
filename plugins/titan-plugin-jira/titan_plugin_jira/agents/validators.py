@@ -7,7 +7,7 @@ Addresses PR #74 comment: "Falta Validación de Issue Data"
 """
 
 from typing import Optional, List, Tuple
-from ..models import JiraTicket
+from ..models import UIJiraIssue
 
 
 class IssueValidationError(ValueError):
@@ -54,7 +54,7 @@ class IssueValidator:
         self.strict = strict
         self.min_description_length = min_description_length
 
-    def validate_issue(self, issue: JiraTicket) -> Tuple[bool, List[str]]:
+    def validate_issue(self, issue: UIJiraIssue) -> Tuple[bool, List[str]]:
         """
         Validate issue data for AI processing.
 
@@ -147,7 +147,7 @@ class IssueValidator:
         pattern = r'^[A-Z][A-Z0-9]+-\d+$'
         return bool(re.match(pattern, key))
 
-    def _check_suspicious_data(self, issue: JiraTicket) -> List[str]:
+    def _check_suspicious_data(self, issue: UIJiraIssue) -> List[str]:
         """
         Check for suspicious or malformed data.
 
@@ -182,7 +182,7 @@ class IssueValidator:
 
     def validate_for_requirements_extraction(
         self,
-        issue: JiraTicket
+        issue: UIJiraIssue
     ) -> Tuple[bool, List[str]]:
         """
         Validate issue specifically for requirements extraction.

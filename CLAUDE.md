@@ -34,20 +34,34 @@ titan-cli/
     └── ...
 ```
 
-### Operations Pattern (NEW - 2026-02)
+### Plugin Architecture (5-Layer Pattern)
 
-**All plugins now follow the Operations Pattern for clean separation of concerns:**
+**All official plugins follow a 5-layer architecture (Feb 2026):**
 
-- **operations/**: Pure business logic, UI-agnostic, 100% testable
-- **steps/**: UI orchestration only, calls operations for logic
+```
+Steps → Operations → Client → Services → Network
+  ↓         ↓          ↓         ↓          ↓
+ UI    Business    Public   Data Access   HTTP
+       Logic       API
+```
 
-**📖 [Operations Pattern Guide](.claude/docs/operations.md)** - Complete guide with examples
+**📖 [Complete Plugin Architecture Guide](.claude/docs/plugin-architecture.md)** ⭐
 
-**Key Benefits:**
-- Zero code duplication
-- 100% test coverage on business logic
-- Steps focused purely on UI
-- Operations reusable across steps
+**Key Features:**
+- **Result Wrapper Pattern**: `ClientSuccess`/`ClientError` for type-safe error handling
+- **Network Models**: `NetworkJiraIssue`, `NetworkGraphQLPullRequest` (faithful to APIs)
+- **UI Models**: `UIJiraIssue`, `UIPullRequest` (pre-formatted for display)
+- **Mappers**: Pure functions converting Network → UI
+- **Services**: PRIVATE data access layer
+- **Operations**: OPTIONAL business logic layer
+
+**Quick Reference:**
+- `*API` classes: HTTP/CLI communication (JiraAPI, GitHubRESTAPI)
+- `Network*` models: Faithful to API responses
+- `UI*` models: Optimized for rendering
+- `ClientResult[T]`: Return type for all client methods
+
+> **Note**: This architecture is for **official plugins only** (Jira, GitHub, Git). Custom user steps can use any pattern - the only requirement is `WorkflowContext → WorkflowResult`.
 
 ### Workflow Framework
 

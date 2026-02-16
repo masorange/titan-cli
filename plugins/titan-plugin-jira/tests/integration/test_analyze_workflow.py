@@ -8,30 +8,38 @@ import pytest
 from unittest.mock import MagicMock, Mock
 from titan_cli.engine import WorkflowContextBuilder, Success, Error, Skip
 from titan_cli.core.secrets import SecretManager
-from titan_plugin_jira.models import JiraTicket
+from titan_cli.core.result import ClientSuccess
+from titan_plugin_jira.models import UIJiraIssue
 
 
 def create_mock_ticket(**kwargs):
-    """Helper to create JiraTicket with default values."""
+    """Helper to create UIJiraIssue with default values."""
     defaults = {
         "key": "TEST-123",
         "id": "12345",
         "summary": "Test summary",
         "description": "Test description",
         "status": "Open",
+        "status_icon": "⚪",
+        "status_category": "To Do",
         "issue_type": "Task",
+        "issue_type_icon": "✅",
         "assignee": "test@example.com",
+        "assignee_email": "test@example.com",
         "reporter": "reporter@example.com",
         "priority": "Medium",
-        "created": "2025-01-01T00:00:00Z",
-        "updated": "2025-01-02T00:00:00Z",
+        "priority_icon": "🟡",
+        "formatted_created_at": "01/01/2025 00:00:00",
+        "formatted_updated_at": "02/01/2025 00:00:00",
         "labels": [],
         "components": [],
         "fix_versions": [],
-        "raw": {}
+        "is_subtask": False,
+        "parent_key": None,
+        "subtask_count": 0
     }
     defaults.update(kwargs)
-    return JiraTicket(**defaults)
+    return UIJiraIssue(**defaults)
 
 
 def execute_step_with_metadata(step_func, ctx):
@@ -47,18 +55,21 @@ def execute_step_with_metadata(step_func, ctx):
 
 @pytest.fixture
 def mock_jira_client():
-    """Mock JIRA client with sample data."""
+    """Mock JIRA client with sample data (new architecture)."""
     client = MagicMock()
 
-    # Mock search_tickets to return sample issues
-    client.search_tickets.return_value = [
+    # Mock search_issues to return ClientSuccess with sample issues
+    issues = [
         create_mock_ticket(
             key="ECAPP-123",
             summary="Fix login bug",
             description="Users can't login with valid credentials",
             status="Open",
+            status_icon="⚪",
             priority="High",
+            priority_icon="🔴",
             issue_type="Bug",
+            issue_type_icon="🐛",
             assignee="john.doe@example.com",
             labels=["backend", "authentication"],
             components=["API"]
@@ -68,25 +79,39 @@ def mock_jira_client():
             summary="Add dark mode",
             description="Implement dark mode toggle",
             status="Ready to Dev",
+            status_icon="⚪",
             priority="Medium",
+            priority_icon="🟡",
             issue_type="Feature",
+            issue_type_icon="📖",
             assignee="jane.smith@example.com",
             labels=["frontend", "ui"],
             components=["UI"]
         )
     ]
+    client.search_issues.return_value = ClientSuccess(
+        data=issues,
+        message="Found 2 issues"
+    )
 
-    # Mock get_ticket (not get_issue) to return full issue details
-    client.get_ticket.return_value = create_mock_ticket(
+    # Mock get_issue to return ClientSuccess with full issue details
+    issue = create_mock_ticket(
         key="ECAPP-123",
         summary="Fix login bug",
         description="Users can't login with valid credentials. This happens on both mobile and web.",
         status="Open",
+        status_icon="⚪",
         priority="High",
+        priority_icon="🔴",
         issue_type="Bug",
+        issue_type_icon="🐛",
         assignee="john.doe@example.com",
         labels=["backend", "authentication"],
         components=["API"]
+    )
+    client.get_issue.return_value = ClientSuccess(
+        data=issue,
+        message="Issue retrieved successfully"
     )
 
     return client
@@ -219,7 +244,7 @@ def test_workflow_step_1_search_issues(workflow_context, mock_jira_client):
     assert len(workflow_context.get("jira_issues")) == 2
 
     # Verify JIRA client was called
-    mock_jira_client.search_tickets.assert_called_once()
+    mock_jira_client.search_issues.assert_called_once()
 
 
 def test_workflow_step_2_select_issue(workflow_context):
@@ -266,8 +291,8 @@ def test_workflow_step_3_get_issue_details(workflow_context, mock_jira_client):
     assert workflow_context.get("jira_issue") is not None
     assert workflow_context.get("jira_issue").key == "ECAPP-123"
 
-    # Verify JIRA client was called with correct key (get_ticket, not get_issue)
-    mock_jira_client.get_ticket.assert_called_once_with(ticket_key="ECAPP-123", expand=None)
+    # Verify JIRA client was called with correct key
+    mock_jira_client.get_issue.assert_called_once_with(key="ECAPP-123", expand=None)
 
 
 def test_workflow_step_4_ai_analysis(workflow_context, mock_ai_client):
@@ -366,7 +391,10 @@ def test_workflow_no_issues_found(workflow_context, mock_jira_client):
     from titan_plugin_jira.steps.search_saved_query_step import search_saved_query_step
 
     # Mock empty results
-    mock_jira_client.search_tickets.return_value = []
+    mock_jira_client.search_issues.return_value = ClientSuccess(
+        data=[],
+        message="Found 0 issues"
+    )
 
     workflow_context.data["query_name"] = "open_issues"
     workflow_context.current_step = 1

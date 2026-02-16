@@ -32,7 +32,10 @@ class Messages:
             PROJECT_REQUIRED: str = (
                 "Query '{query_name}' requires a 'project' parameter.\n"
                 "JQL template: {jql}\n\n"
-                "Provide it in workflow:\n"
+                "Option 1: Configure default project in .titan/config.toml:\n"
+                "  [plugins.jira]\n"
+                "  default_project = \"PROJ\"\n\n"
+                "Option 2: Provide it in workflow params:\n"
                 "  params:\n"
                 "    query_name: \"{query_name}\"\n"
                 "    project: \"PROJ\""
