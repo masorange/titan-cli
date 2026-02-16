@@ -7,7 +7,7 @@ Delegates to internal services.
 
 from typing import List, Optional
 
-from titan_cli.core.result import ClientResult
+from titan_cli.core.result import ClientResult, ClientError
 
 from .network import JiraNetwork
 from .services import (
@@ -132,7 +132,6 @@ class JiraClient:
         """
         project_key = key or self.project_key
         if not project_key:
-            from titan_cli.core.result import ClientError
             return ClientError(
                 error_message="Project key not provided",
                 error_code="MISSING_PROJECT_KEY"
@@ -238,7 +237,6 @@ class JiraClient:
         """
         project_key = project or self.project_key
         if not project_key:
-            from titan_cli.core.result import ClientError
             return ClientError(
                 error_message="Project key not provided",
                 error_code="MISSING_PROJECT_KEY"
@@ -256,7 +254,6 @@ class JiraClient:
                 break
 
         if not issue_type_obj:
-            from titan_cli.core.result import ClientError
             available = [it.name for it in issue_types_result.data]
             return ClientError(
                 error_message=f"Issue type '{issue_type}' not found. Available: {', '.join(available)}",
@@ -291,7 +288,6 @@ class JiraClient:
             ClientResult[UIJiraIssue]
         """
         if not self.project_key:
-            from titan_cli.core.result import ClientError
             return ClientError(
                 error_message="No default project configured",
                 error_code="MISSING_PROJECT_KEY"
@@ -309,7 +305,6 @@ class JiraClient:
                 break
 
         if not subtask_type:
-            from titan_cli.core.result import ClientError
             return ClientError(
                 error_message="No subtask issue type found for project",
                 error_code="NO_SUBTASK_TYPE"
@@ -337,7 +332,6 @@ class JiraClient:
         """
         key = project_key or self.project_key
         if not key:
-            from titan_cli.core.result import ClientError
             return ClientError(
                 error_message="Project key not provided",
                 error_code="MISSING_PROJECT_KEY"
@@ -357,7 +351,6 @@ class JiraClient:
         """
         key = project_key or self.project_key
         if not key:
-            from titan_cli.core.result import ClientError
             return ClientError(
                 error_message="Project key not provided",
                 error_code="MISSING_PROJECT_KEY"
@@ -386,7 +379,6 @@ class JiraClient:
         """
         key = project_key or self.project_key
         if not key:
-            from titan_cli.core.result import ClientError
             return ClientError(
                 error_message="Project key not provided",
                 error_code="MISSING_PROJECT_KEY"

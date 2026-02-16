@@ -50,7 +50,7 @@ def get_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Pattern match on Result
     match result:
-        case ClientSuccess(data=issue, message=msg_text):
+        case ClientSuccess(data=issue):
             # Show success
             ctx.textual.text("")  # spacing
             ctx.textual.success_text(msg.Steps.GetIssue.GET_SUCCESS.format(issue_key=issue_key))

@@ -70,7 +70,7 @@ class IssueSorter:
     Unknown statuses/priorities are placed at the end.
 
     Example:
-        >>> from titan_plugin_jira.models import JiraTicket
+        >>> from titan_plugin_jira.models import UIJiraIssue
         >>> sorter = IssueSorter()
         >>> sorted_issues = sorter.sort(issues)
     """
@@ -90,10 +90,10 @@ class IssueSorter:
         Sort issues based on status, priority, and key.
 
         Args:
-            issues: List of JiraTicket objects
+            issues: List of UIJiraIssue objects
 
         Returns:
-            Sorted list of JiraTicket objects
+            Sorted list of UIJiraIssue objects
 
         Example:
             >>> sorter = IssueSorter()

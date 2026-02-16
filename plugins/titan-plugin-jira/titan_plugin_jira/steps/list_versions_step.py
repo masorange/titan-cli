@@ -64,7 +64,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Pattern match on Result
     match result:
-        case ClientSuccess(data=versions, message=msg_text):
+        case ClientSuccess(data=versions):
             if not versions:
                 ctx.textual.panel(
                     f"No versions found for project {project_key}", panel_type="info"
@@ -116,7 +116,7 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
                 metadata={"versions": version_names, "versions_full": sorted_versions},
             )
 
-        case ClientError(error_message=err, error_code=code):
+        case ClientError(error_message=err):
             error_msg = f"Failed to fetch versions: {err}"
             ctx.textual.panel(error_msg, panel_type="error")
             ctx.textual.end_step("error")

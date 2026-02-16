@@ -233,6 +233,7 @@ Note: Review the entire conversation thread carefully - previous fix attempts ma
             }
         )
 
+
         # Update project_root in context to point to worktree
         original_project_root = ctx.get("project_root", ".")
         ctx.data["project_root"] = full_worktree_path

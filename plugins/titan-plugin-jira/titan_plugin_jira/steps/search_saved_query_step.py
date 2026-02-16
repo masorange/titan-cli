@@ -137,7 +137,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Pattern match on Result
     match result:
-        case ClientSuccess(data=issues, message=msg_text):
+        case ClientSuccess(data=issues):
             if not issues:
                 ctx.textual.dim_text(f"No issues found for query: {query_name}")
                 ctx.textual.end_step("success")
@@ -196,7 +196,7 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
                 }
             )
 
-        case ClientError(error_message=err, error_code=code):
+        case ClientError(error_message=err):
             error_msg = f"JIRA search failed: {err}"
             ctx.textual.error_text(error_msg)
             ctx.textual.end_step("error")
