@@ -1,11 +1,11 @@
 # plugins/titan-plugin-git/tests/test_git_plugin.py
 from unittest.mock import MagicMock
 from titan_cli.engine import WorkflowContext, is_success, is_error, is_skip, is_exit, Skip
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.steps.status_step import get_git_status_step
 from titan_plugin_git.steps.commit_step import create_git_commit_step
 from titan_plugin_git.clients.git_client import GitClient
 from titan_plugin_git.models import GitStatus
-from titan_plugin_git.exceptions import GitCommandError
 
 def test_get_git_status_step_success():
     """
@@ -22,7 +22,10 @@ def test_get_git_status_step_success():
         ahead=0,
         behind=0
     )
-    mock_git_client.get_status.return_value = mock_status
+    mock_git_client.get_status.return_value = ClientSuccess(
+        data=mock_status,
+        message="Status retrieved"
+    )
 
     mock_context = MagicMock(spec=WorkflowContext)
     mock_context.git = mock_git_client
@@ -52,7 +55,10 @@ def test_get_git_status_step_exit_when_clean():
         ahead=0,
         behind=0
     )
-    mock_git_client.get_status.return_value = mock_status
+    mock_git_client.get_status.return_value = ClientSuccess(
+        data=mock_status,
+        message="Status retrieved"
+    )
 
     mock_context = MagicMock(spec=WorkflowContext)
     mock_context.git = mock_git_client
@@ -87,11 +93,14 @@ def test_get_git_status_step_no_client():
 
 def test_get_git_status_step_client_error():
     """
-    Test that get_git_status_step returns an Error if the client raises an exception.
+    Test that get_git_status_step returns an Error if the client returns an error.
     """
     # 1. Arrange
     mock_git_client = MagicMock(spec=GitClient)
-    mock_git_client.get_status.side_effect = Exception("A git error occurred")
+    mock_git_client.get_status.return_value = ClientError(
+        error_message="A git error occurred",
+        error_code="GIT_ERROR"
+    )
 
     mock_context = MagicMock(spec=WorkflowContext)
     mock_context.git = mock_git_client
@@ -113,7 +122,10 @@ def test_create_git_commit_step_success():
     # 1. Arrange
     mock_git_client = MagicMock(spec=GitClient)
     expected_commit_hash = "abcdef123456"
-    mock_git_client.commit.return_value = expected_commit_hash
+    mock_git_client.commit.return_value = ClientSuccess(
+        data=expected_commit_hash,
+        message="Commit created"
+    )
 
     mock_context = MagicMock(spec=WorkflowContext)
     mock_context.git = mock_git_client
@@ -201,7 +213,10 @@ def test_create_git_commit_step_client_error():
     """
     # 1. Arrange
     mock_git_client = MagicMock(spec=GitClient)
-    mock_git_client.commit.side_effect = GitCommandError("Commit command failed")
+    mock_git_client.commit.return_value = ClientError(
+        error_message="Commit command failed",
+        error_code="COMMIT_ERROR"
+    )
 
     mock_context = MagicMock(spec=WorkflowContext)
     mock_context.git = mock_git_client

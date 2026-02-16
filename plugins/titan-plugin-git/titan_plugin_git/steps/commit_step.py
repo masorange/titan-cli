@@ -1,7 +1,7 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/commit_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.engine.results import Skip
-from titan_plugin_git.exceptions import GitClientError, GitCommandError
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.messages import msg
 
 
@@ -54,23 +54,20 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
     all_files = ctx.get('all_files', True)
     no_verify = ctx.get('no_verify', False)
 
-    try:
-        commit_hash = ctx.git.commit(message=commit_message, all=all_files, no_verify=no_verify)
+    # Create commit using ClientResult pattern
+    result = ctx.git.commit(message=commit_message, all=all_files, no_verify=no_verify)
 
-        # Show success message
-        ctx.textual.success_text(f"Commit created: {commit_hash[:7]}")
+    match result:
+        case ClientSuccess(data=commit_hash):
+            # Show success message
+            ctx.textual.success_text(f"Commit created: {commit_hash[:7]}")
 
-        ctx.textual.end_step("success")
-        return Success(
-            message=msg.Steps.Commit.COMMIT_SUCCESS.format(commit_hash=commit_hash),
-            metadata={"commit_hash": commit_hash}
-        )
-    except GitClientError as e:
-        ctx.textual.end_step("error")
-        return Error(msg.Steps.Commit.CLIENT_ERROR_DURING_COMMIT.format(e=e))
-    except GitCommandError as e:
-        ctx.textual.end_step("error")
-        return Error(msg.Steps.Commit.COMMAND_FAILED_DURING_COMMIT.format(e=e))
-    except Exception as e:
-        ctx.textual.end_step("error")
-        return Error(msg.Steps.Commit.UNEXPECTED_ERROR_DURING_COMMIT.format(e=e))
+            ctx.textual.end_step("success")
+            return Success(
+                message=msg.Steps.Commit.COMMIT_SUCCESS.format(commit_hash=commit_hash),
+                metadata={"commit_hash": commit_hash}
+            )
+
+        case ClientError(error_message=err):
+            ctx.textual.end_step("error")
+            return Error(msg.Steps.Commit.COMMAND_FAILED_DURING_COMMIT.format(e=err))

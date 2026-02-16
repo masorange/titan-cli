@@ -32,8 +32,8 @@ class Messages:
         BRANCH_DELETING = "Deleting branch: {name}"
         BRANCH_DELETED = "Branch deleted: {name}"
         BRANCH_EXISTS = "Branch already exists: {name}"
-        BRANCH_NOT_FOUND = "Branch not found: {name}"
-        BRANCH_INVALID_NAME = "Invalid branch name: {name}"
+        BRANCH_NOT_FOUND = "Branch not found: {branch}"
+        BRANCH_INVALID_NAME = "Invalid branch name: {branch}"
         BRANCH_PROTECTED = "Cannot delete protected branch: {branch}"
 
         # Push/Pull
