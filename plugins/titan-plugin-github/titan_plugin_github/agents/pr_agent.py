@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
+from titan_cli.core.result import ClientSuccess, ClientError
 from .config_loader import load_agent_config
 from ..utils import calculate_pr_size, is_i18n_change
 
@@ -138,43 +139,59 @@ class PRAgent(BaseAIAgent):
 
         # 1. Check if we need to commit (with error handling)
         try:
-            status = self.git.get_status()
-            needs_commit = not status.is_clean
+            status_result = self.git.get_status()
+            match status_result:
+                case ClientSuccess(data=status):
+                    needs_commit = not status.is_clean
 
-            if needs_commit:
-                # Get unstaged/staged changes
-                try:
-                    if auto_stage:
-                        # Get modified files diff
-                        diff = self.git.get_unstaged_diff()
-
-                        # Also include untracked files if they exist
-                        if status.untracked_files:
-                            # Add header for untracked files context
-                            untracked_info = "\n\n# New untracked files:\n"
-                            for file in status.untracked_files:
-                                untracked_info += f"# - {file}\n"
-                            diff = diff + untracked_info if diff else untracked_info
-                    else:
-                        diff = self.git.get_staged_diff()
-
-                    if diff:
-                        # Generate commit message (with AI error handling)
+                    if needs_commit:
+                        # Get unstaged/staged changes
                         try:
-                            commit_result = self._generate_commit_message(diff)
-                            commit_message = commit_result.message
-                            total_tokens += commit_result.tokens_used
+                            if auto_stage:
+                                # Get modified files diff
+                                diff_result = self.git.get_unstaged_diff()
+                                match diff_result:
+                                    case ClientSuccess(data=diff):
+                                        # Also include untracked files if they exist
+                                        if status.untracked_files:
+                                            # Add header for untracked files context
+                                            untracked_info = "\n\n# New untracked files:\n"
+                                            for file in status.untracked_files:
+                                                untracked_info += f"# - {file}\n"
+                                            diff = diff + untracked_info if diff else untracked_info
+                                    case ClientError(error_message=err):
+                                        logger.error(f"Failed to get unstaged diff: {err}")
+                                        diff = None
+                            else:
+                                diff_result = self.git.get_staged_diff()
+                                match diff_result:
+                                    case ClientSuccess(data=diff):
+                                        pass  # diff is now extracted
+                                    case ClientError(error_message=err):
+                                        logger.error(f"Failed to get staged diff: {err}")
+                                        diff = None
+
+                            if diff:
+                                # Generate commit message (with AI error handling)
+                                try:
+                                    commit_result = self._generate_commit_message(diff)
+                                    commit_message = commit_result.message
+                                    total_tokens += commit_result.tokens_used
+                                except Exception as e:
+                                    logger.warning(f"Failed to generate commit message: {e}")
+                                    commit_message = None
+
+                                # Get staged files
+                                if status.staged_files:
+                                    staged_files = status.staged_files
+
                         except Exception as e:
-                            logger.warning(f"Failed to generate commit message: {e}")
-                            commit_message = None
+                            logger.error(f"Failed to get git diff: {e}")
+                            # Continue with PR analysis even if commit analysis failed
 
-                        # Get staged files
-                        if status.staged_files:
-                            staged_files = status.staged_files
-
-                except Exception as e:
-                    logger.error(f"Failed to get git diff: {e}")
-                    # Continue with PR analysis even if commit analysis failed
+                case ClientError(error_message=err):
+                    logger.error(f"Failed to get git status: {err}")
+                    # Continue with graceful fallback
 
         except Exception as e:
             logger.error(f"Failed to get git status: {e}")
@@ -182,33 +199,41 @@ class PRAgent(BaseAIAgent):
 
         # 2. Analyze branch for PR (with error handling)
         try:
-            commits = self.git.get_branch_commits(base_branch, head_branch)
-            branch_diff = self.git.get_branch_diff(base_branch, head_branch)
+            commits_result = self.git.get_branch_commits(base_branch, head_branch)
+            diff_result = self.git.get_branch_diff(base_branch, head_branch)
 
-            if branch_diff and commits:
-                # Read PR template (uses embedded default if file not found)
-                template = self._read_pr_template()
+            match (commits_result, diff_result):
+                case (ClientSuccess(data=commits_data), ClientSuccess(data=branch_diff)):
+                    if branch_diff and commits_data:
+                        commits = commits_data  # Extract commits list
 
-                # Generate PR description (with AI error handling)
-                try:
-                    pr_result = self._generate_pr_description(
-                        commits=commits,
-                        diff=branch_diff,
-                        head_branch=head_branch,
-                        base_branch=base_branch,
-                        template=template,
-                        additional_context=additional_context
-                    )
+                        # Read PR template (uses embedded default if file not found)
+                        template = self._read_pr_template()
 
-                    pr_title = pr_result["title"]
-                    pr_body = pr_result["body"]
-                    pr_size = pr_result["pr_size"]
-                    files_changed = pr_result["files_changed"]
-                    lines_changed = pr_result["lines_changed"]
-                    total_tokens += pr_result["tokens_used"]
+                        # Generate PR description (with AI error handling)
+                        try:
+                            pr_result = self._generate_pr_description(
+                                commits=commits,
+                                diff=branch_diff,
+                                head_branch=head_branch,
+                                base_branch=base_branch,
+                                template=template,
+                                additional_context=additional_context
+                            )
 
-                except Exception as e:
-                    logger.error(f"Failed to generate PR description: {e}")
+                            pr_title = pr_result["title"]
+                            pr_body = pr_result["body"]
+                            pr_size = pr_result["pr_size"]
+                            files_changed = pr_result["files_changed"]
+                            lines_changed = pr_result["lines_changed"]
+                            total_tokens += pr_result["tokens_used"]
+
+                        except Exception as e:
+                            logger.error(f"Failed to generate PR description: {e}")
+                            # Return analysis without PR data
+
+                case _:
+                    logger.error("Failed to get branch commits or diff")
                     # Return analysis without PR data
 
         except Exception as e:

@@ -1,5 +1,6 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/branch_steps.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.messages import msg
 
 def get_current_branch_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -28,20 +29,23 @@ def get_current_branch_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error(error_msg)
 
-    try:
-        current_branch = ctx.git.get_current_branch()
-        success_msg = msg.Steps.Branch.GET_CURRENT_BRANCH_SUCCESS.format(branch=current_branch)
-        ctx.textual.success_text(success_msg)
-        ctx.textual.end_step("success")
-        return Success(
-            success_msg,
-            metadata={"pr_head_branch": current_branch}
-        )
-    except Exception as e:
-        error_msg = msg.Steps.Branch.GET_CURRENT_BRANCH_FAILED.format(e=e)
-        ctx.textual.error_text(error_msg)
-        ctx.textual.end_step("error")
-        return Error(error_msg, exception=e)
+    # Get current branch using ClientResult pattern
+    result = ctx.git.get_current_branch()
+
+    match result:
+        case ClientSuccess(data=current_branch):
+            success_msg = msg.Steps.Branch.GET_CURRENT_BRANCH_SUCCESS.format(branch=current_branch)
+            ctx.textual.success_text(success_msg)
+            ctx.textual.end_step("success")
+            return Success(
+                success_msg,
+                metadata={"pr_head_branch": current_branch}
+            )
+        case ClientError(error_message=err):
+            error_msg = msg.Steps.Branch.GET_CURRENT_BRANCH_FAILED.format(e=err)
+            ctx.textual.error_text(error_msg)
+            ctx.textual.end_step("error")
+            return Error(error_msg)
 
 def get_base_branch_step(ctx: WorkflowContext) -> WorkflowResult:
     """
