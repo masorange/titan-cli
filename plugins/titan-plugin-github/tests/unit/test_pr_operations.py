@@ -3,6 +3,7 @@ Unit tests for PR operations
 """
 
 import pytest
+from titan_cli.core.result import ClientSuccess
 from titan_plugin_github.operations.pr_operations import (
     fetch_pr_threads,
     push_and_request_review,
@@ -33,7 +34,9 @@ class TestFetchPRThreads:
             UICommentThread(thread_id="t2", main_comment=human_comment, replies=[], is_resolved=False, is_outdated=False)
         ]
 
-        mock_github_client.get_pr_review_threads.return_value = threads
+        mock_github_client.get_pr_review_threads.return_value = ClientSuccess(
+            data=threads, message="Found 2 threads"
+        )
 
         result = fetch_pr_threads(mock_github_client, 42, include_resolved=False)
 
@@ -60,7 +63,9 @@ class TestFetchPRThreads:
             UICommentThread(thread_id="t2", main_comment=valid_comment, replies=[], is_resolved=False, is_outdated=False)
         ]
 
-        mock_github_client.get_pr_review_threads.return_value = threads
+        mock_github_client.get_pr_review_threads.return_value = ClientSuccess(
+            data=threads, message="Found 2 threads"
+        )
 
         result = fetch_pr_threads(mock_github_client, 42, include_resolved=False)
 
@@ -87,7 +92,9 @@ class TestFetchPRThreads:
             UICommentThread(thread_id="t2", main_comment=normal_comment, replies=[], is_resolved=False, is_outdated=False)
         ]
 
-        mock_github_client.get_pr_review_threads.return_value = threads
+        mock_github_client.get_pr_review_threads.return_value = ClientSuccess(
+            data=threads, message="Found 2 threads"
+        )
 
         result = fetch_pr_threads(mock_github_client, 42, include_resolved=False)
 
@@ -108,7 +115,9 @@ class TestFetchPRThreads:
             UICommentThread(thread_id="t1", main_comment=comment, replies=[], is_resolved=True, is_outdated=False)
         ]
 
-        mock_github_client.get_pr_review_threads.return_value = threads
+        mock_github_client.get_pr_review_threads.return_value = ClientSuccess(
+            data=threads, message="Found 1 thread"
+        )
 
         result = fetch_pr_threads(mock_github_client, 42, include_resolved=True)
 
@@ -117,7 +126,9 @@ class TestFetchPRThreads:
 
     def test_handles_no_threads(self, mock_github_client):
         """Test with no review threads"""
-        mock_github_client.get_pr_review_threads.return_value = []
+        mock_github_client.get_pr_review_threads.return_value = ClientSuccess(
+            data=[], message="No threads found"
+        )
 
         result = fetch_pr_threads(mock_github_client, 42, include_resolved=False)
 
