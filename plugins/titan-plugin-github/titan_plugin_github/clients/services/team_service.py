@@ -6,6 +6,8 @@ Business logic for GitHub team operations.
 """
 from typing import List
 
+from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+
 from ..network import GHNetwork
 from ...exceptions import GitHubAPIError
 
@@ -26,7 +28,7 @@ class TeamService:
         """
         self.gh = gh_network
 
-    def list_team_members(self, team_slug: str) -> List[str]:
+    def list_team_members(self, team_slug: str) -> ClientResult[List[str]]:
         """
         List all members of a GitHub team.
 
@@ -34,20 +36,20 @@ class TeamService:
             team_slug: Team slug in format "org/team-name" (e.g., "my-org/backend-team")
 
         Returns:
-            List of GitHub usernames (logins)
-
-        Raises:
-            GitHubAPIError: If team lookup fails
+            ClientResult[List[str]] with GitHub usernames (logins)
 
         Examples:
-            >>> members = service.list_team_members("my-org/backend-team")
-            >>> # Returns: ['user1', 'user2', 'user3']
+            >>> result = service.list_team_members("my-org/backend-team")
+            >>> match result:
+            ...     case ClientSuccess(data=members):
+            ...         print(members)  # ['user1', 'user2', 'user3']
         """
         try:
             # Parse org and team from slug
             if '/' not in team_slug:
-                raise GitHubAPIError(
-                    f"Invalid team slug format. Expected 'org/team', got '{team_slug}'"
+                return ClientError(
+                    error_message=f"Invalid team slug format. Expected 'org/team', got '{team_slug}'",
+                    error_code="INVALID_TEAM_SLUG"
                 )
 
             org, team = team_slug.split('/', 1)
@@ -58,7 +60,14 @@ class TeamService:
 
             # Parse output (one username per line)
             members = [line.strip() for line in output.strip().split('\n') if line.strip()]
-            return members
+
+            return ClientSuccess(
+                data=members,
+                message=f"Found {len(members)} team members"
+            )
 
         except GitHubAPIError as e:
-            raise GitHubAPIError(f"Failed to list team members for '{team_slug}': {e}")
+            return ClientError(
+                error_message=f"Failed to list team members for '{team_slug}': {e}",
+                error_code="API_ERROR"
+            )
