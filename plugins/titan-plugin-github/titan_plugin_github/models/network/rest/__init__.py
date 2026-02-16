@@ -6,16 +6,16 @@ Field names preserve API conventions (camelCase).
 No transformations or computed fields.
 """
 
-from .user import RESTUser
-from .review import RESTReview
-from .pull_request import RESTPullRequest, RESTPRSearchResult, RESTPRMergeResult
-from .issue import RESTIssue
+from .user import NetworkUser
+from .review import NetworkReview
+from .pull_request import NetworkPullRequest, NetworkPRSearchResult, NetworkPRMergeResult
+from .issue import NetworkIssue
 
 __all__ = [
-    "RESTUser",
-    "RESTReview",
-    "RESTPullRequest",
-    "RESTPRSearchResult",
-    "RESTPRMergeResult",
-    "RESTIssue",
+    "NetworkUser",
+    "NetworkReview",
+    "NetworkPullRequest",
+    "NetworkPRSearchResult",
+    "NetworkPRMergeResult",
+    "NetworkIssue",
 ]

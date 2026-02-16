@@ -140,9 +140,40 @@ class UIIssue:
     formatted_updated_at: str  # "DD/MM/YYYY HH:MM:SS"
 
 
+@dataclass
+class UIReview:
+    """
+    UI model for displaying a PR review.
+
+    All fields are pre-formatted and ready for widget rendering.
+    """
+    id: int
+    author_name: str
+    body: str
+    state_icon: str  # "🟢" APPROVED, "🔴" CHANGES_REQUESTED, "💬" COMMENTED, "⏳" PENDING
+    state: str  # "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "PENDING"
+    formatted_submitted_at: str  # "DD/MM/YYYY HH:MM:SS"
+    commit_id_short: str  # First 7 characters of SHA
+
+
+@dataclass
+class UIPRMergeResult:
+    """
+    UI model for displaying PR merge result.
+
+    All fields are pre-formatted and ready for widget rendering.
+    """
+    merged: bool
+    status_icon: str  # "✅" if merged, "❌" if not
+    sha_short: str  # First 7 characters of merge commit SHA (or empty)
+    message: str
+
+
 __all__ = [
     "UIComment",
     "UICommentThread",
     "UIPullRequest",
     "UIIssue",
+    "UIReview",
+    "UIPRMergeResult",
 ]

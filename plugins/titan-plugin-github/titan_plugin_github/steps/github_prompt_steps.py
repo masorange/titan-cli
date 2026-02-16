@@ -1,6 +1,7 @@
 # plugins/titan-plugin-github/titan_plugin_github/steps/prompt_steps.py
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
+from titan_cli.core.result import ClientSuccess, ClientError
 from ..messages import msg
 from ..operations import add_assignee_if_missing, parse_comma_separated_list
 
@@ -147,13 +148,19 @@ def prompt_for_self_assign_step(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         if ctx.textual.ask_confirm(msg.Prompts.ASSIGN_TO_SELF, default=True):
-            current_user = ctx.github.get_current_user()
-            existing_assignees = ctx.get("assignees", [])
-            assignees = add_assignee_if_missing(current_user, existing_assignees)
-            ctx.set("assignees", assignees)
-            ctx.textual.success_text(f"Issue will be assigned to {current_user}")
-            ctx.textual.end_step("success")
-            return Success(f"Issue will be assigned to {current_user}")
+            result = ctx.github.get_current_user()
+            match result:
+                case ClientSuccess(data=current_user):
+                    existing_assignees = ctx.get("assignees", [])
+                    assignees = add_assignee_if_missing(current_user, existing_assignees)
+                    ctx.set("assignees", assignees)
+                    ctx.textual.success_text(f"Issue will be assigned to {current_user}")
+                    ctx.textual.end_step("success")
+                    return Success(f"Issue will be assigned to {current_user}")
+                case ClientError(error_message=err):
+                    ctx.textual.error_text(f"Failed to get current user: {err}")
+                    ctx.textual.end_step("error")
+                    return Error(f"Failed to get current user: {err}")
         ctx.textual.dim_text("Issue will not be assigned to current user")
         ctx.textual.end_step("success")
         return Success("Issue will not be assigned to current user")
@@ -182,35 +189,41 @@ def prompt_for_labels_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("GitHub client not available")
 
     try:
-        available_labels = ctx.github.list_labels()
-        if not available_labels:
-            ctx.textual.dim_text("No labels found in the repository.")
-            ctx.textual.end_step("skip")
-            return Skip("No labels found in the repository.")
+        result = ctx.github.list_labels()
+        match result:
+            case ClientSuccess(data=available_labels):
+                if not available_labels:
+                    ctx.textual.dim_text("No labels found in the repository.")
+                    ctx.textual.end_step("skip")
+                    return Skip("No labels found in the repository.")
 
-        # Show available labels
-        ctx.textual.dim_text(f"Available labels: {', '.join(available_labels)}")
+                # Show available labels
+                ctx.textual.dim_text(f"Available labels: {', '.join(available_labels)}")
 
-        # Get default labels as comma-separated string
-        existing_labels = ctx.get("labels", [])
-        default_value = ",".join(existing_labels) if existing_labels else ""
+                # Get default labels as comma-separated string
+                existing_labels = ctx.get("labels", [])
+                default_value = ",".join(existing_labels) if existing_labels else ""
 
-        # TODO: Implement multi-select in Textual - for now use comma-separated input
-        labels_input = ctx.textual.ask_text(
-            f"{msg.Prompts.SELECT_LABELS} (comma-separated)",
-            default=default_value
-        )
+                # TODO: Implement multi-select in Textual - for now use comma-separated input
+                labels_input = ctx.textual.ask_text(
+                    f"{msg.Prompts.SELECT_LABELS} (comma-separated)",
+                    default=default_value
+                )
 
-        # Parse comma-separated labels
-        selected_labels = parse_comma_separated_list(labels_input)
+                # Parse comma-separated labels
+                selected_labels = parse_comma_separated_list(labels_input)
 
-        ctx.set("labels", selected_labels)
-        if selected_labels:
-            ctx.textual.success_text(f"Selected labels: {', '.join(selected_labels)}")
-        else:
-            ctx.textual.dim_text("No labels selected")
-        ctx.textual.end_step("success")
-        return Success("Labels selected")
+                ctx.set("labels", selected_labels)
+                if selected_labels:
+                    ctx.textual.success_text(f"Selected labels: {', '.join(selected_labels)}")
+                else:
+                    ctx.textual.dim_text("No labels selected")
+                ctx.textual.end_step("success")
+                return Success("Labels selected")
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"Failed to get labels: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to get labels: {err}")
     except (KeyboardInterrupt, EOFError):
         ctx.textual.end_step("error")
         return Error("User cancelled.")

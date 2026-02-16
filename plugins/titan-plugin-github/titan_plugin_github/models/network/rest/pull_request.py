@@ -7,12 +7,12 @@ Faithful representation of GitHub PR from REST API (gh CLI).
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
-from .user import RESTUser
-from .review import RESTReview
+from .user import NetworkUser
+from .review import NetworkReview
 
 
 @dataclass
-class RESTPullRequest:
+class NetworkPullRequest:
     """
     GitHub Pull Request from REST API.
 
@@ -44,7 +44,7 @@ class RESTPullRequest:
     title: str
     body: str
     state: str
-    author: RESTUser
+    author: NetworkUser
     baseRefName: str  # Keep camelCase from API
     headRefName: str  # Keep camelCase from API
     additions: int = 0
@@ -55,13 +55,13 @@ class RESTPullRequest:
     createdAt: Optional[str] = None  # Keep camelCase from API
     updatedAt: Optional[str] = None  # Keep camelCase from API
     mergedAt: Optional[str] = None  # Keep camelCase from API
-    reviews: List[RESTReview] = field(default_factory=list)
+    reviews: List[NetworkReview] = field(default_factory=list)
     labels: List[Dict[str, Any]] = field(default_factory=list)  # Raw label objects
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> 'RESTPullRequest':
+    def from_json(cls, data: Dict[str, Any]) -> 'NetworkPullRequest':
         """
-        Create RESTPullRequest from gh CLI JSON response.
+        Create NetworkPullRequest from gh CLI JSON response.
 
         Direct 1:1 mapping from API response, no transformations.
 
@@ -69,19 +69,19 @@ class RESTPullRequest:
             data: PR data from `gh pr view --json`
 
         Returns:
-            RESTPullRequest instance
+            NetworkPullRequest instance
 
         Examples:
             >>> data = json.loads(subprocess.run(["gh", "pr", "view", "123", "--json", "..."]))
-            >>> pr = RESTPullRequest.from_json(data)
+            >>> pr = NetworkPullRequest.from_json(data)
         """
         # Parse author
         author_data = data.get("author", {})
-        author = RESTUser.from_json(author_data)
+        author = NetworkUser.from_json(author_data)
 
         # Parse reviews
         reviews_data = data.get("reviews", [])
-        reviews = [RESTReview.from_json(r) for r in reviews_data]
+        reviews = [NetworkReview.from_json(r) for r in reviews_data]
 
         return cls(
             number=data.get("number", 0),
@@ -105,7 +105,7 @@ class RESTPullRequest:
 
 
 @dataclass
-class RESTPRSearchResult:
+class NetworkPRSearchResult:
     """
     Result of searching pull requests via REST API.
 
@@ -113,26 +113,26 @@ class RESTPRSearchResult:
         prs: List of pull requests
         total: Total count
     """
-    prs: List[RESTPullRequest]
+    prs: List[NetworkPullRequest]
     total: int
 
     @classmethod
-    def from_json_list(cls, data: List[Dict[str, Any]]) -> 'RESTPRSearchResult':
+    def from_json_list(cls, data: List[Dict[str, Any]]) -> 'NetworkPRSearchResult':
         """
-        Create RESTPRSearchResult from list of PR JSON objects.
+        Create NetworkPRSearchResult from list of PR JSON objects.
 
         Args:
             data: List of PR dictionaries from gh CLI
 
         Returns:
-            RESTPRSearchResult instance
+            NetworkPRSearchResult instance
         """
-        prs = [RESTPullRequest.from_json(pr_data) for pr_data in data]
+        prs = [NetworkPullRequest.from_json(pr_data) for pr_data in data]
         return cls(prs=prs, total=len(prs))
 
 
 @dataclass
-class RESTPRMergeResult:
+class NetworkPRMergeResult:
     """
     Result of merging a pull request via REST API.
 

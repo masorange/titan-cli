@@ -12,9 +12,9 @@ from typing import List, Optional, Dict, Any
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
 from ..network import GHNetwork
-from ...models.network.rest import RESTPullRequest, RESTPRMergeResult
-from ...models.view import UIPullRequest
-from ...models.mappers import from_rest_pr
+from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult
+from ...models.view import UIPullRequest, UIPRMergeResult
+from ...models.mappers import from_rest_pr, from_network_pr_merge_result
 from ...exceptions import GitHubAPIError
 from ...messages import msg
 
@@ -65,7 +65,7 @@ class PRService:
             data = json.loads(output)
 
             # Parse to network model
-            rest_pr = RESTPullRequest.from_json(data)
+            rest_pr = NetworkPullRequest.from_json(data)
 
             # Map to view model
             ui_pr = from_rest_pr(rest_pr)
@@ -127,7 +127,7 @@ class PRService:
             # Parse to network models then map to view models
             ui_prs = []
             for pr_data in all_prs:
-                rest_pr = RESTPullRequest.from_json(pr_data)
+                rest_pr = NetworkPullRequest.from_json(pr_data)
                 ui_pr = from_rest_pr(rest_pr)
                 ui_prs.append(ui_pr)
 
@@ -180,7 +180,7 @@ class PRService:
             # Parse and map
             ui_prs = []
             for pr_data in my_prs:
-                rest_pr = RESTPullRequest.from_json(pr_data)
+                rest_pr = NetworkPullRequest.from_json(pr_data)
                 ui_pr = from_rest_pr(rest_pr)
                 ui_prs.append(ui_pr)
 
@@ -222,7 +222,7 @@ class PRService:
             # Parse and map
             ui_prs = []
             for pr_data in all_prs:
-                rest_pr = RESTPullRequest.from_json(pr_data)
+                rest_pr = NetworkPullRequest.from_json(pr_data)
                 ui_pr = from_rest_pr(rest_pr)
                 ui_prs.append(ui_pr)
 
@@ -421,7 +421,7 @@ class PRService:
         merge_method: str = "squash",
         commit_title: Optional[str] = None,
         commit_message: Optional[str] = None,
-    ) -> ClientResult[RESTPRMergeResult]:
+    ) -> ClientResult[UIPRMergeResult]:
         """
         Merge a pull request.
 
@@ -432,19 +432,20 @@ class PRService:
             commit_message: Optional commit message
 
         Returns:
-            ClientResult[RESTPRMergeResult]
+            ClientResult[UIPRMergeResult]
         """
         try:
             # Validate merge method
             valid_methods = ["squash", "merge", "rebase"]
             if merge_method not in valid_methods:
-                merge_result = RESTPRMergeResult(
+                network_result = NetworkPRMergeResult(
                     merged=False,
                     message=msg.GitHub.INVALID_MERGE_METHOD.format(
                         method=merge_method, valid_methods=", ".join(valid_methods)
                     ),
                 )
-                return ClientSuccess(data=merge_result, message="Invalid merge method")
+                ui_result = from_network_pr_merge_result(network_result)
+                return ClientSuccess(data=ui_result, message="Invalid merge method")
 
             # Build command
             args = ["pr", "merge", str(pr_number), f"--{merge_method}"]
@@ -467,16 +468,18 @@ class PRService:
                 if sha_match:
                     sha = sha_match.group(1)
 
-            merge_result = RESTPRMergeResult(
+            network_result = NetworkPRMergeResult(
                 merged=True,
                 sha=sha,
                 message="Successfully merged"
             )
-            return ClientSuccess(data=merge_result, message=f"PR #{pr_number} merged")
+            ui_result = from_network_pr_merge_result(network_result)
+            return ClientSuccess(data=ui_result, message=f"PR #{pr_number} merged")
 
         except GitHubAPIError as e:
-            merge_result = RESTPRMergeResult(merged=False, message=str(e))
-            return ClientSuccess(data=merge_result, message="Merge failed")
+            network_result = NetworkPRMergeResult(merged=False, message=str(e))
+            ui_result = from_network_pr_merge_result(network_result)
+            return ClientSuccess(data=ui_result, message="Merge failed")
 
     def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """

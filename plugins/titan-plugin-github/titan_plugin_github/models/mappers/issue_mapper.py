@@ -4,17 +4,17 @@ Issue Mappers
 
 Converts network models (REST) to view models (UI).
 """
-from ..network.rest import RESTIssue
+from ..network.rest import NetworkIssue
 from ..view import UIIssue
 from ..formatting import format_date, get_issue_status_icon
 
 
-def from_rest_issue(rest_issue: RESTIssue) -> UIIssue:
+def from_rest_issue(rest_issue: NetworkIssue) -> UIIssue:
     """
     Convert REST Issue to UI Issue.
 
     Args:
-        rest_issue: RESTIssue from REST API
+        rest_issue: NetworkIssue from REST API
 
     Returns:
         UIIssue ready for rendering

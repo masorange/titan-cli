@@ -12,10 +12,10 @@ from typing import List, Optional, Dict, Any
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
 from ..network import GHNetwork, GraphQLNetwork, graphql_queries
-from ...models.network.rest import RESTReview
+from ...models.network.rest import NetworkReview
 from ...models.network.graphql import GraphQLPullRequestReviewThread
-from ...models.view import UICommentThread
-from ...models.mappers import from_graphql_review_thread
+from ...models.view import UICommentThread, UIReview
+from ...models.mappers import from_graphql_review_thread, from_network_review
 from ...exceptions import GitHubAPIError
 
 
@@ -130,7 +130,7 @@ class ReviewService:
                 error_code="API_ERROR"
             )
 
-    def get_pr_reviews(self, pr_number: int) -> ClientResult[List[RESTReview]]:
+    def get_pr_reviews(self, pr_number: int) -> ClientResult[List[UIReview]]:
         """
         Get all reviews for a PR.
 
@@ -138,7 +138,7 @@ class ReviewService:
             pr_number: PR number
 
         Returns:
-            ClientResult[List[RESTReview]]
+            ClientResult[List[UIReview]]
         """
         try:
             repo = self.gh.get_repo_string()
@@ -147,11 +147,14 @@ class ReviewService:
             )
 
             reviews_data = json.loads(result)
-            reviews = [RESTReview.from_json(r) for r in reviews_data]
+            network_reviews = [NetworkReview.from_json(r) for r in reviews_data]
+
+            # Map to UI models
+            ui_reviews = [from_network_review(r) for r in network_reviews]
 
             return ClientSuccess(
-                data=reviews,
-                message=f"Found {len(reviews)} reviews"
+                data=ui_reviews,
+                message=f"Found {len(ui_reviews)} reviews"
             )
 
         except (json.JSONDecodeError, KeyError) as e:

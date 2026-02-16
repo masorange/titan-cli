@@ -11,12 +11,12 @@ Use mappers to convert to view models for UI rendering.
 
 # Re-export for convenience
 from .rest import (
-    RESTUser,
-    RESTReview,
-    RESTPullRequest,
-    RESTPRSearchResult,
-    RESTPRMergeResult,
-    RESTIssue,
+    NetworkUser,
+    NetworkReview,
+    NetworkPullRequest,
+    NetworkPRSearchResult,
+    NetworkPRMergeResult,
+    NetworkIssue,
 )
 
 from .graphql import (
@@ -28,12 +28,12 @@ from .graphql import (
 
 __all__ = [
     # REST models
-    "RESTUser",
-    "RESTReview",
-    "RESTPullRequest",
-    "RESTPRSearchResult",
-    "RESTPRMergeResult",
-    "RESTIssue",
+    "NetworkUser",
+    "NetworkReview",
+    "NetworkPullRequest",
+    "NetworkPRSearchResult",
+    "NetworkPRMergeResult",
+    "NetworkIssue",
     # GraphQL models
     "GraphQLUser",
     "GraphQLPullRequestReviewComment",

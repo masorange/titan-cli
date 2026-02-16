@@ -1,6 +1,6 @@
 # plugins/titan-plugin-github/titan_plugin_github/steps/create_pr_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
-from ..exceptions import GitHubAPIError
+from titan_cli.core.result import ClientSuccess, ClientError
 from ..messages import msg
 from ..operations import determine_pr_assignees
 
@@ -66,16 +66,17 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     # 3. Determine assignees if auto-assign is enabled
     assignees = ctx.get("pr_assignees")
     if not assignees and ctx.github.config.auto_assign_prs:
-        try:
-            current_user = ctx.github.get_current_user()
-            assignees = determine_pr_assignees(
-                auto_assign=True,
-                current_user=current_user,
-                existing_assignees=assignees
-            )
-        except GitHubAPIError as e:
-            # Log warning but continue without assignee
-            ctx.textual.warning_text(f"Could not get current user for auto-assign: {e}")
+        result = ctx.github.get_current_user()
+        match result:
+            case ClientSuccess(data=current_user):
+                assignees = determine_pr_assignees(
+                    auto_assign=True,
+                    current_user=current_user,
+                    existing_assignees=assignees
+                )
+            case ClientError(error_message=err):
+                # Log warning but continue without assignee
+                ctx.textual.warning_text(f"Could not get current user for auto-assign: {err}")
 
     # Get reviewers from context (if provided)
     reviewers = ctx.get("pr_reviewers")
@@ -87,42 +88,36 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     labels = ctx.get("pr_labels")
 
     # 4. Call the client method
-    try:
-        ctx.textual.dim_text(f"Creating pull request '{title}' from {head} to {base}...")
-        pr = ctx.github.create_pull_request(
-            title=title, body=body, base=base, head=head, draft=is_draft,
-            assignees=assignees, reviewers=reviewers, labels=labels,
-            excluded_reviewers=excluded_reviewers
-        )
-        ctx.textual.text("")  # spacing
-        ctx.textual.success_text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]))
+    ctx.textual.dim_text(f"Creating pull request '{title}' from {head} to {base}...")
+    result = ctx.github.create_pull_request(
+        title=title, body=body, base=base, head=head, draft=is_draft,
+        assignees=assignees, reviewers=reviewers, labels=labels,
+        excluded_reviewers=excluded_reviewers
+    )
 
-        # 4. Return Success with PR info
-        ctx.textual.end_step("success")
-        return Success(
-            "Pull request created successfully.",
-            metadata={"pr_number": pr["number"], "pr_url": pr["url"]},
-        )
-    except GitHubAPIError as e:
-        error_msg = str(e)
+    match result:
+        case ClientSuccess(data=pr):
+            ctx.textual.text("")  # spacing
+            ctx.textual.success_text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]))
 
-        # Check for common errors and provide helpful guidance
-        if "No commits between" in error_msg or "Head sha can't be blank" in error_msg:
-            ctx.textual.error_text(f"Failed to create pull request: {e}")
-            ctx.textual.text("")
-            ctx.textual.warning_text("💡 The branch might not be pushed to the remote repository.")
-            ctx.textual.text("")
-            ctx.textual.dim_text("To fix this, push your branch and try again:")
-            ctx.textual.dim_text(f"  git push -u origin {head}")
-            ctx.textual.text("")
-        else:
-            ctx.textual.error_text(f"Failed to create pull request: {e}")
+            # Return Success with PR info
+            ctx.textual.end_step("success")
+            return Success(
+                "Pull request created successfully.",
+                metadata={"pr_number": pr["number"], "pr_url": pr["url"]},
+            )
+        case ClientError(error_message=error_msg):
+            # Check for common errors and provide helpful guidance
+            if "No commits between" in error_msg or "Head sha can't be blank" in error_msg:
+                ctx.textual.error_text(f"Failed to create pull request: {error_msg}")
+                ctx.textual.text("")
+                ctx.textual.warning_text("💡 The branch might not be pushed to the remote repository.")
+                ctx.textual.text("")
+                ctx.textual.dim_text("To fix this, push your branch and try again:")
+                ctx.textual.dim_text(f"  git push -u origin {head}")
+                ctx.textual.text("")
+            else:
+                ctx.textual.error_text(f"Failed to create pull request: {error_msg}")
 
-        ctx.textual.end_step("error")
-        return Error(f"Failed to create pull request: {e}")
-    except Exception as e:
-        ctx.textual.error_text(f"An unexpected error occurred while creating the pull request: {e}")
-        ctx.textual.end_step("error")
-        return Error(
-            f"An unexpected error occurred while creating the pull request: {e}"
-        )
+            ctx.textual.end_step("error")
+            return Error(f"Failed to create pull request: {error_msg}")

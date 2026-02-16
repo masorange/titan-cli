@@ -7,11 +7,11 @@ Faithful representation of GitHub issue from REST API.
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
-from .user import RESTUser
+from .user import NetworkUser
 
 
 @dataclass
-class RESTIssue:
+class NetworkIssue:
     """
     GitHub Issue from REST API.
 
@@ -32,24 +32,24 @@ class RESTIssue:
     title: str
     body: str
     state: str
-    author: RESTUser
+    author: NetworkUser
     labels: List[Dict[str, Any]] = field(default_factory=list)  # Raw label objects
     createdAt: Optional[str] = None  # Keep camelCase from API
     updatedAt: Optional[str] = None  # Keep camelCase from API
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> 'RESTIssue':
+    def from_json(cls, data: Dict[str, Any]) -> 'NetworkIssue':
         """
-        Create RESTIssue from gh CLI JSON response.
+        Create NetworkIssue from gh CLI JSON response.
 
         Args:
             data: Issue data from `gh issue view --json`
 
         Returns:
-            RESTIssue instance
+            NetworkIssue instance
         """
         author_data = data.get("author", {})
-        author = RESTUser.from_json(author_data)
+        author = NetworkUser.from_json(author_data)
 
         return cls(
             number=data.get("number", 0),

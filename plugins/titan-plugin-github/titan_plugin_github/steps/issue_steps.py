@@ -1,6 +1,7 @@
 import ast
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
+from titan_cli.core.result import ClientSuccess, ClientError
 from ..agents.issue_generator import IssueGeneratorAgent
 from ..operations import filter_valid_labels
 from pathlib import Path
@@ -32,11 +33,13 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
         # Get available labels from repository for smart mapping
         available_labels = None
         if ctx.github:
-            try:
-                available_labels = ctx.github.list_labels()
-            except Exception:
-                # If we can't get labels, continue without filtering
-                pass
+            result = ctx.github.list_labels()
+            match result:
+                case ClientSuccess(data=labels):
+                    available_labels = labels
+                case ClientError():
+                    # If we can't get labels, continue without filtering
+                    pass
 
         # Get template directory from repo path
         template_dir = None
@@ -143,32 +146,35 @@ def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
 
     # Filter labels to only those that exist in the repository
     if labels and ctx.github:
-        try:
-            available_labels = ctx.github.list_labels()
-            valid_labels, invalid_labels = filter_valid_labels(labels, available_labels)
-            if invalid_labels:
-                ctx.textual.warning_text(f"Skipping invalid labels: {', '.join(invalid_labels)}")
-            labels = valid_labels
-        except Exception:
-            # If we can't validate labels, continue with all labels anyway
-            pass
+        result = ctx.github.list_labels()
+        match result:
+            case ClientSuccess(data=available_labels):
+                valid_labels, invalid_labels = filter_valid_labels(labels, available_labels)
+                if invalid_labels:
+                    ctx.textual.warning_text(f"Skipping invalid labels: {', '.join(invalid_labels)}")
+                labels = valid_labels
+            case ClientError():
+                # If we can't validate labels, continue with all labels anyway
+                pass
 
-    try:
-        ctx.textual.dim_text(f"Creating issue: {issue_title}...")
-        issue = ctx.github.create_issue(
-            title=issue_title,
-            body=issue_body,
-            assignees=assignees,
-            labels=labels,
-        )
-        ctx.textual.text("")  # spacing
-        ctx.textual.success_text(f"Successfully created issue #{issue.number}")
-        ctx.textual.end_step("success")
-        return Success(
-            f"Successfully created issue #{issue.number}",
-            metadata={"issue": issue}
-        )
-    except Exception as e:
-        ctx.textual.error_text(f"Failed to create issue: {e}")
-        ctx.textual.end_step("error")
-        return Error(f"Failed to create issue: {e}")
+    ctx.textual.dim_text(f"Creating issue: {issue_title}...")
+    result = ctx.github.create_issue(
+        title=issue_title,
+        body=issue_body,
+        assignees=assignees,
+        labels=labels,
+    )
+
+    match result:
+        case ClientSuccess(data=issue):
+            ctx.textual.text("")  # spacing
+            ctx.textual.success_text(f"Successfully created issue #{issue.number}")
+            ctx.textual.end_step("success")
+            return Success(
+                f"Successfully created issue #{issue.number}",
+                metadata={"issue": issue}
+            )
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to create issue: {err}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to create issue: {err}")

@@ -11,7 +11,7 @@ from typing import List, Optional
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
 from ..network import GHNetwork
-from ...models.network.rest import RESTIssue
+from ...models.network.rest import NetworkIssue
 from ...models.view import UIIssue
 from ...models.mappers import from_rest_issue
 from ...exceptions import GitHubAPIError
@@ -87,7 +87,7 @@ class IssueService:
             issue_data = json.loads(issue_output)
 
             # Parse to network model then map to view
-            rest_issue = RESTIssue.from_json(issue_data)
+            rest_issue = NetworkIssue.from_json(issue_data)
             ui_issue = from_rest_issue(rest_issue)
 
             return ClientSuccess(data=ui_issue, message=f"Issue #{issue_number} created")
