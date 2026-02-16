@@ -5,25 +5,26 @@ Pull Request Mappers
 Converts network models (REST/GraphQL) to view models (UI).
 All presentation logic and transformations live here.
 """
-from ..network.rest import RESTPullRequest
-from ..view import UIPullRequest
+from ..network.rest import NetworkPullRequest, NetworkPRMergeResult
+from ..view import UIPullRequest, UIPRMergeResult
 from ..formatting import (
     format_date,
     get_pr_status_icon,
     format_pr_stats,
     format_branch_info,
     calculate_review_summary,
+    format_short_sha,
 )
 
 
-def from_rest_pr(rest_pr: RESTPullRequest) -> UIPullRequest:
+def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
     """
     Convert REST PR to UI PR.
 
     Applies all transformations and pre-calculates display fields.
 
     Args:
-        rest_pr: RESTPullRequest from REST API
+        rest_pr: NetworkPullRequest from REST API
 
     Returns:
         UIPullRequest ready for rendering
@@ -49,4 +50,28 @@ def from_rest_pr(rest_pr: RESTPullRequest) -> UIPullRequest:
         labels=label_names,
         formatted_created_at=format_date(rest_pr.createdAt) if rest_pr.createdAt else "",
         formatted_updated_at=format_date(rest_pr.updatedAt) if rest_pr.updatedAt else "",
+    )
+
+
+def from_network_pr_merge_result(network_result: NetworkPRMergeResult) -> UIPRMergeResult:
+    """
+    Convert Network PR Merge Result to UI PR Merge Result.
+
+    Args:
+        network_result: NetworkPRMergeResult from REST API
+
+    Returns:
+        UIPRMergeResult with all fields pre-formatted for display
+    """
+    # Format SHA to short format
+    sha_short = format_short_sha(network_result.sha)
+
+    # Set status icon based on merge success
+    status_icon = "✅" if network_result.merged else "❌"
+
+    return UIPRMergeResult(
+        merged=network_result.merged,
+        status_icon=status_icon,
+        sha_short=sha_short,
+        message=network_result.message,
     )

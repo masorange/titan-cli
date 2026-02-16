@@ -6,6 +6,7 @@ Shared formatting functions for converting network data to UI-friendly strings.
 All presentation/display logic should use these utilities for consistency.
 """
 from datetime import datetime
+from typing import Optional
 
 
 def format_date(iso_date: str) -> str:
@@ -149,6 +150,53 @@ def calculate_review_summary(reviews: list) -> str:
         return f"💬 {len(reviews)} comments"
 
 
+def get_review_state_icon(state: str) -> str:
+    """
+    Get icon for review state.
+
+    Args:
+        state: Review state (APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING)
+
+    Returns:
+        Icon representing the review state
+
+    Examples:
+        >>> get_review_state_icon("APPROVED")
+        '🟢'
+        >>> get_review_state_icon("CHANGES_REQUESTED")
+        '🔴'
+    """
+    icons = {
+        "APPROVED": "🟢",
+        "CHANGES_REQUESTED": "🔴",
+        "COMMENTED": "💬",
+        "PENDING": "⏳",
+    }
+    return icons.get(state.upper(), "⚪")
+
+
+def format_short_sha(sha: Optional[str], length: int = 7) -> str:
+    """
+    Format commit SHA to short format.
+
+    Args:
+        sha: Full commit SHA (40 characters)
+        length: Number of characters to show (default: 7)
+
+    Returns:
+        Short SHA or empty string if None
+
+    Examples:
+        >>> format_short_sha("abc123def456")
+        'abc123d'
+        >>> format_short_sha(None)
+        ''
+    """
+    if not sha:
+        return ""
+    return sha[:length]
+
+
 __all__ = [
     "format_date",
     "get_pr_status_icon",
@@ -156,4 +204,6 @@ __all__ = [
     "format_pr_stats",
     "format_branch_info",
     "calculate_review_summary",
+    "get_review_state_icon",
+    "format_short_sha",
 ]

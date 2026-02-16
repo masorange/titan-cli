@@ -6,13 +6,16 @@ Business logic for PR operations.
 Uses network layer to fetch data, parses to network models, maps to view models.
 """
 import json
+import re
 from typing import List, Optional, Dict, Any
 
+from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+
 from ..network import GHNetwork
-from ...models.network.rest import RESTPullRequest, RESTPRMergeResult
-from ...models.view import UIPullRequest
-from ...models.mappers import from_rest_pr
-from ...exceptions import GitHubAPIError, PRNotFoundError
+from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult
+from ...models.view import UIPullRequest, UIPRMergeResult
+from ...models.mappers import from_rest_pr, from_network_pr_merge_result
+from ...exceptions import GitHubAPIError
 from ...messages import msg
 
 
@@ -33,7 +36,7 @@ class PRService:
         """
         self.gh = gh_network
 
-    def get_pull_request(self, pr_number: int) -> UIPullRequest:
+    def get_pull_request(self, pr_number: int) -> ClientResult[UIPullRequest]:
         """
         Get a pull request by number.
 
@@ -41,11 +44,7 @@ class PRService:
             pr_number: PR number
 
         Returns:
-            UIPullRequest ready for UI rendering
-
-        Raises:
-            PRNotFoundError: If PR doesn't exist
-            GitHubAPIError: If API call fails
+            ClientResult[UIPullRequest]
         """
         try:
             # Define fields to fetch
@@ -66,25 +65,29 @@ class PRService:
             data = json.loads(output)
 
             # Parse to network model
-            rest_pr = RESTPullRequest.from_json(data)
+            rest_pr = NetworkPullRequest.from_json(data)
 
             # Map to view model
             ui_pr = from_rest_pr(rest_pr)
 
-            return ui_pr
+            return ClientSuccess(data=ui_pr, message=f"PR #{pr_number} retrieved")
 
         except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(error_msg=f"Failed to parse PR data: {e}")
+            return ClientError(
+                error_message=f"Failed to parse PR data: {e}",
+                error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
             if "not found" in str(e).lower():
-                raise PRNotFoundError(msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number))
-            raise
+                return ClientError(
+                    error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
+                    error_code="PR_NOT_FOUND"
+                )
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
     def list_pending_review_prs(
         self, max_results: int = 50, include_team_reviews: bool = False
-    ) -> List[UIPullRequest]:
+    ) -> ClientResult[List[UIPullRequest]]:
         """
         List PRs pending your review.
 
@@ -93,7 +96,7 @@ class PRService:
             include_team_reviews: If True, includes PRs where only your team is requested
 
         Returns:
-            List of UIPullRequest objects
+            ClientResult[List[UIPullRequest]]
         """
         try:
             # Get current user
@@ -124,18 +127,24 @@ class PRService:
             # Parse to network models then map to view models
             ui_prs = []
             for pr_data in all_prs:
-                rest_pr = RESTPullRequest.from_json(pr_data)
+                rest_pr = NetworkPullRequest.from_json(pr_data)
                 ui_pr = from_rest_pr(rest_pr)
                 ui_prs.append(ui_pr)
 
-            return ui_prs
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(error_msg=f"Failed to parse PR list: {e}")
+            return ClientSuccess(
+                data=ui_prs,
+                message=f"Found {len(ui_prs)} PRs pending review"
             )
 
-    def list_my_prs(self, state: str = "open", max_results: int = 50) -> List[UIPullRequest]:
+        except json.JSONDecodeError as e:
+            return ClientError(
+                error_message=f"Failed to parse PR list: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    def list_my_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
         """
         List your PRs.
 
@@ -144,7 +153,7 @@ class PRService:
             max_results: Maximum number of results
 
         Returns:
-            List of UIPullRequest objects
+            ClientResult[List[UIPullRequest]]
         """
         try:
             # Get current user
@@ -171,18 +180,24 @@ class PRService:
             # Parse and map
             ui_prs = []
             for pr_data in my_prs:
-                rest_pr = RESTPullRequest.from_json(pr_data)
+                rest_pr = NetworkPullRequest.from_json(pr_data)
                 ui_pr = from_rest_pr(rest_pr)
                 ui_prs.append(ui_pr)
 
-            return ui_prs
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(error_msg=f"Failed to parse PR list: {e}")
+            return ClientSuccess(
+                data=ui_prs,
+                message=f"Found {len(ui_prs)} PRs"
             )
 
-    def list_all_prs(self, state: str = "open", max_results: int = 50) -> List[UIPullRequest]:
+        except json.JSONDecodeError as e:
+            return ClientError(
+                error_message=f"Failed to parse PR list: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    def list_all_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
         """
         List all PRs in the repository.
 
@@ -191,7 +206,7 @@ class PRService:
             max_results: Maximum number of results
 
         Returns:
-            List of UIPullRequest objects
+            ClientResult[List[UIPullRequest]]
         """
         try:
             args = [
@@ -207,18 +222,24 @@ class PRService:
             # Parse and map
             ui_prs = []
             for pr_data in all_prs:
-                rest_pr = RESTPullRequest.from_json(pr_data)
+                rest_pr = NetworkPullRequest.from_json(pr_data)
                 ui_pr = from_rest_pr(rest_pr)
                 ui_prs.append(ui_pr)
 
-            return ui_prs
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(error_msg=f"Failed to parse PR list: {e}")
+            return ClientSuccess(
+                data=ui_prs,
+                message=f"Found {len(ui_prs)} PRs"
             )
 
-    def get_pr_diff(self, pr_number: int, file_path: Optional[str] = None) -> str:
+        except json.JSONDecodeError as e:
+            return ClientError(
+                error_message=f"Failed to parse PR list: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    def get_pr_diff(self, pr_number: int, file_path: Optional[str] = None) -> ClientResult[str]:
         """
         Get diff for a PR.
 
@@ -227,7 +248,7 @@ class PRService:
             file_path: Optional specific file to get diff for
 
         Returns:
-            Diff as string
+            ClientResult[str] with diff content
         """
         try:
             args = ["pr", "diff", str(pr_number)] + self.gh.get_repo_arg()
@@ -235,14 +256,18 @@ class PRService:
             if file_path:
                 args.extend(["--", file_path])
 
-            return self.gh.run_command(args)
+            diff = self.gh.run_command(args)
+            return ClientSuccess(data=diff, message=f"PR #{pr_number} diff retrieved")
 
         except GitHubAPIError as e:
             if "not found" in str(e).lower():
-                raise PRNotFoundError(msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number))
-            raise
+                return ClientError(
+                    error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
+                    error_code="PR_NOT_FOUND"
+                )
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
-    def get_pr_files(self, pr_number: int) -> List[str]:
+    def get_pr_files(self, pr_number: int) -> ClientResult[List[str]]:
         """
         Get list of changed files in PR.
 
@@ -250,7 +275,7 @@ class PRService:
             pr_number: PR number
 
         Returns:
-            List of file paths
+            ClientResult[List[str]] with file paths
         """
         try:
             args = [
@@ -261,14 +286,21 @@ class PRService:
             output = self.gh.run_command(args)
             data = json.loads(output)
 
-            return [f["path"] for f in data.get("files", [])]
-
-        except json.JSONDecodeError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(error_msg=f"Failed to parse files: {e}")
+            files = [f["path"] for f in data.get("files", [])]
+            return ClientSuccess(
+                data=files,
+                message=f"Found {len(files)} changed files"
             )
 
-    def checkout_pr(self, pr_number: int) -> str:
+        except json.JSONDecodeError as e:
+            return ClientError(
+                error_message=f"Failed to parse files: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    def checkout_pr(self, pr_number: int) -> ClientResult[str]:
         """
         Checkout a PR locally.
 
@@ -276,24 +308,34 @@ class PRService:
             pr_number: PR number
 
         Returns:
-            Branch name that was checked out
+            ClientResult[str] with branch name that was checked out
         """
         try:
             # Get PR to extract branch name
-            ui_pr = self.get_pull_request(pr_number)
+            pr_result = self.get_pull_request(pr_number)
 
-            # Checkout using gh CLI
-            args = ["pr", "checkout", str(pr_number)] + self.gh.get_repo_arg()
-            self.gh.run_command(args)
+            match pr_result:
+                case ClientSuccess(data=ui_pr):
+                    # Checkout using gh CLI
+                    args = ["pr", "checkout", str(pr_number)] + self.gh.get_repo_arg()
+                    self.gh.run_command(args)
 
-            # Extract head ref from branch_info (format: "head → base")
-            head_ref = ui_pr.branch_info.split(" → ")[0]
-            return head_ref
+                    # Extract head ref from branch_info (format: "head → base")
+                    head_ref = ui_pr.branch_info.split(" → ")[0]
+                    return ClientSuccess(
+                        data=head_ref,
+                        message=f"Checked out PR #{pr_number} to branch {head_ref}"
+                    )
+                case ClientError() as err:
+                    return err
 
         except GitHubAPIError as e:
             if "not found" in str(e).lower():
-                raise PRNotFoundError(msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number))
-            raise
+                return ClientError(
+                    error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
+                    error_code="PR_NOT_FOUND"
+                )
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
     def create_pull_request(
         self,
@@ -305,7 +347,7 @@ class PRService:
         assignees: Optional[List[str]] = None,
         reviewers: Optional[List[str]] = None,
         labels: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> ClientResult[Dict[str, Any]]:
         """
         Create a pull request.
 
@@ -320,7 +362,7 @@ class PRService:
             labels: List of labels
 
         Returns:
-            Dict with pr_number, pr_url, state
+            ClientResult[Dict] with number, url, state
         """
         try:
             args = [
@@ -353,16 +395,25 @@ class PRService:
             pr_url = output.strip()
 
             # Extract PR number from URL
-            pr_number = int(pr_url.split("/")[-1])
+            try:
+                pr_number = int(pr_url.split("/")[-1])
+            except ValueError:
+                return ClientError(
+                    error_message=msg.GitHub.FAILED_TO_PARSE_PR_NUMBER.format(url=output),
+                    error_code="PARSE_ERROR"
+                )
 
-            return {
-                "number": pr_number,
-                "url": pr_url,
-                "state": "draft" if draft else "open",
-            }
+            return ClientSuccess(
+                data={
+                    "number": pr_number,
+                    "url": pr_url,
+                    "state": "draft" if draft else "open",
+                },
+                message=f"PR #{pr_number} created"
+            )
 
-        except ValueError:
-            raise GitHubAPIError(msg.GitHub.FAILED_TO_PARSE_PR_NUMBER.format(url=output))
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
     def merge_pr(
         self,
@@ -370,7 +421,7 @@ class PRService:
         merge_method: str = "squash",
         commit_title: Optional[str] = None,
         commit_message: Optional[str] = None,
-    ) -> RESTPRMergeResult:
+    ) -> ClientResult[UIPRMergeResult]:
         """
         Merge a pull request.
 
@@ -381,18 +432,20 @@ class PRService:
             commit_message: Optional commit message
 
         Returns:
-            RESTPRMergeResult with merge status
+            ClientResult[UIPRMergeResult]
         """
         try:
             # Validate merge method
             valid_methods = ["squash", "merge", "rebase"]
             if merge_method not in valid_methods:
-                return RESTPRMergeResult(
+                network_result = NetworkPRMergeResult(
                     merged=False,
                     message=msg.GitHub.INVALID_MERGE_METHOD.format(
                         method=merge_method, valid_methods=", ".join(valid_methods)
                     ),
                 )
+                ui_result = from_network_pr_merge_result(network_result)
+                return ClientSuccess(data=ui_result, message="Invalid merge method")
 
             # Build command
             args = ["pr", "merge", str(pr_number), f"--{merge_method}"]
@@ -409,25 +462,35 @@ class PRService:
             result = self.gh.run_command(args)
 
             # Extract SHA from output
-            import re
             sha = None
             if result:
                 sha_match = re.search(r"\(([a-f0-9]{7,40})\)", result)
                 if sha_match:
                     sha = sha_match.group(1)
 
-            return RESTPRMergeResult(merged=True, sha=sha, message="Successfully merged")
+            network_result = NetworkPRMergeResult(
+                merged=True,
+                sha=sha,
+                message="Successfully merged"
+            )
+            ui_result = from_network_pr_merge_result(network_result)
+            return ClientSuccess(data=ui_result, message=f"PR #{pr_number} merged")
 
         except GitHubAPIError as e:
-            return RESTPRMergeResult(merged=False, message=str(e))
+            network_result = NetworkPRMergeResult(merged=False, message=str(e))
+            ui_result = from_network_pr_merge_result(network_result)
+            return ClientSuccess(data=ui_result, message="Merge failed")
 
-    def add_comment(self, pr_number: int, body: str) -> None:
+    def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """
         Add a comment to a PR.
 
         Args:
             pr_number: PR number
             body: Comment text
+
+        Returns:
+            ClientResult[None]
         """
         try:
             args = [
@@ -436,13 +499,17 @@ class PRService:
             ] + self.gh.get_repo_arg()
 
             self.gh.run_command(args)
+            return ClientSuccess(data=None, message=f"Comment added to PR #{pr_number}")
 
         except GitHubAPIError as e:
             if "not found" in str(e).lower():
-                raise PRNotFoundError(msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number))
-            raise
+                return ClientError(
+                    error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
+                    error_code="PR_NOT_FOUND"
+                )
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
-    def get_pr_commit_sha(self, pr_number: int) -> str:
+    def get_pr_commit_sha(self, pr_number: int) -> ClientResult[str]:
         """
         Get the latest commit SHA for a PR.
 
@@ -450,7 +517,7 @@ class PRService:
             pr_number: PR number
 
         Returns:
-            Latest commit SHA
+            ClientResult[str] with latest commit SHA
         """
         try:
             args = [
@@ -463,15 +530,18 @@ class PRService:
             commits = data.get("commits", [])
 
             if not commits:
-                raise GitHubAPIError(
-                    msg.GitHub.API_ERROR.format(
-                        error_msg=f"No commits found for PR #{pr_number}"
-                    )
+                return ClientError(
+                    error_message=f"No commits found for PR #{pr_number}",
+                    error_code="NO_COMMITS"
                 )
 
-            return commits[-1]["oid"]
+            sha = commits[-1]["oid"]
+            return ClientSuccess(data=sha, message="Latest commit SHA retrieved")
 
         except (json.JSONDecodeError, KeyError, IndexError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(error_msg=f"Failed to get commit SHA: {e}")
+            return ClientError(
+                error_message=f"Failed to get commit SHA: {e}",
+                error_code="PARSE_ERROR"
             )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")

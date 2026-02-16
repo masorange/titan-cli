@@ -7,11 +7,11 @@ Faithful representation of GitHub PR review from REST API.
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
-from .user import RESTUser
+from .user import NetworkUser
 
 
 @dataclass
-class RESTReview:
+class NetworkReview:
     """
     GitHub PR review from REST API.
 
@@ -27,26 +27,26 @@ class RESTReview:
         commit_id: Commit SHA reviewed
     """
     id: int
-    user: RESTUser
+    user: NetworkUser
     body: str
     state: str  # PENDING, APPROVED, CHANGES_REQUESTED, COMMENTED
     submitted_at: Optional[str] = None
     commit_id: Optional[str] = None
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> 'RESTReview':
+    def from_json(cls, data: Dict[str, Any]) -> 'NetworkReview':
         """
-        Create RESTReview from REST API JSON response.
+        Create NetworkReview from REST API JSON response.
 
         Args:
             data: Review data from GitHub REST API
 
         Returns:
-            RESTReview instance
+            NetworkReview instance
         """
         return cls(
             id=data.get("id", 0),
-            user=RESTUser.from_json(data.get("user", {})),
+            user=NetworkUser.from_json(data.get("user", {})),
             body=data.get("body", ""),
             state=data.get("state", "PENDING"),
             submitted_at=data.get("submitted_at"),

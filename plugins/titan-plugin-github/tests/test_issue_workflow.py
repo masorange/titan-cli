@@ -2,11 +2,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.core.secrets import SecretManager
 from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step
 from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
 from titan_plugin_github.steps.preview_step import preview_and_confirm_issue_step
-from titan_plugin_github.models.network.rest import RESTIssue, RESTUser
+from titan_plugin_github.models.view import UIIssue
 
 @pytest.fixture
 def mock_secret_manager():
@@ -129,7 +130,7 @@ def test_prompt_for_self_assign_step(mock_secret_manager):
     ctx = WorkflowContext(secrets=mock_secret_manager, data={})
     ctx.github = MagicMock()
     ctx.textual = MagicMock()
-    ctx.github.get_current_user.return_value = "testuser"
+    ctx.github.get_current_user.return_value = ClientSuccess(data="testuser", message="User retrieved")
     ctx.textual.ask_confirm.return_value = True
 
     # Act
@@ -145,16 +146,19 @@ def test_prompt_for_self_assign_step(mock_secret_manager):
 def test_create_issue_step(MockGitHubClient, mock_secret_manager):
     # Arrange
     mock_github_client = MockGitHubClient()
-    mock_issue = RESTIssue(
+    mock_ui_issue = UIIssue(
         number=1,
-        title="Test RESTIssue",
+        title="Test NetworkIssue",
         body="This is a test issue",
-        state="OPEN",
-        author=RESTUser(login="testuser"),
+        state="open",
+        author_name="testuser",
         labels=[],
+        status_icon="⚪",
+        formatted_created_at="",
+        formatted_updated_at="",
     )
-    mock_github_client.create_issue.return_value = mock_issue
-    mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]  # Mock available labels
+    mock_github_client.create_issue.return_value = ClientSuccess(data=mock_ui_issue, message="Issue created")
+    mock_github_client.list_labels.return_value = ClientSuccess(data=["bug", "feature", "improvement"], message="Labels retrieved")
 
     ctx = WorkflowContext(secrets=mock_secret_manager, data={"issue_title": "Test Title", "issue_body": "Test Body", "assignees": ["testuser"], "labels": ["bug"]})
     ctx.github = mock_github_client
@@ -162,13 +166,13 @@ def test_create_issue_step(MockGitHubClient, mock_secret_manager):
 
     # Act
     result = create_issue_steps(ctx)
-    if result.metadata:
+    if result and result.metadata:
         ctx.data.update(result.metadata)
 
     # Assert
     assert isinstance(result, Success)
     assert result.message == "Successfully created issue #1"
-    assert ctx.get("issue") == mock_issue
+    assert ctx.get("issue") == mock_ui_issue
     mock_github_client.create_issue.assert_called_once_with(
         title="Test Title",
         body="Test Body",
@@ -180,16 +184,19 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
     # Arrange
     with patch("titan_plugin_github.clients.github_client.GitHubClient") as MockGitHubClient:
         mock_github_client = MockGitHubClient()
-        mock_issue = RESTIssue(
+        mock_ui_issue = UIIssue(
             number=2,
             title="feat: New Feature",
             body="Feature description",
-            state="OPEN",
-            author=RESTUser(login="testuser"),
+            state="open",
+            author_name="testuser",
             labels=["feature"],
+            status_icon="⚪",
+            formatted_created_at="",
+            formatted_updated_at="",
         )
-        mock_github_client.create_issue.return_value = mock_issue
-        mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]  # Mock available labels
+        mock_github_client.create_issue.return_value = ClientSuccess(data=mock_ui_issue, message="Issue created")
+        mock_github_client.list_labels.return_value = ClientSuccess(data=["bug", "feature", "improvement"], message="Labels retrieved")
 
         # Labels auto-assigned by AI categorization
         ctx = WorkflowContext(
@@ -206,7 +213,7 @@ def test_create_issue_with_auto_assigned_labels(mock_secret_manager):
 
         # Act
         result = create_issue_steps(ctx)
-        if result.metadata:
+        if result and result.metadata:
             ctx.data.update(result.metadata)
 
         # Assert
@@ -338,16 +345,19 @@ def test_create_issue_with_invalid_labels(MockGitHubClient, mock_secret_manager)
     """Test behavior when labels don't exist in repository - they should be filtered out"""
     # Arrange
     mock_github_client = MockGitHubClient()
-    mock_github_client.list_labels.return_value = ["bug", "feature", "improvement"]
-    mock_issue = RESTIssue(
+    mock_github_client.list_labels.return_value = ClientSuccess(data=["bug", "feature", "improvement"], message="Labels retrieved")
+    mock_ui_issue = UIIssue(
         number=3,
         title="Test Title",
         body="Test Body",
-        state="OPEN",
-        author=RESTUser(login="testuser"),
+        state="open",
+        author_name="testuser",
         labels=[],  # No labels since invalid ones were filtered
+        status_icon="⚪",
+        formatted_created_at="",
+        formatted_updated_at="",
     )
-    mock_github_client.create_issue.return_value = mock_issue
+    mock_github_client.create_issue.return_value = ClientSuccess(data=mock_ui_issue, message="Issue created")
 
     ctx = WorkflowContext(
         secrets=mock_secret_manager,
@@ -380,8 +390,11 @@ def test_create_issue_when_github_api_fails(MockGitHubClient, mock_secret_manage
     """Test behavior when GitHub API fails to create issue"""
     # Arrange
     mock_github_client = MockGitHubClient()
-    mock_github_client.list_labels.return_value = ["bug", "feature"]
-    mock_github_client.create_issue.side_effect = Exception("GitHub API Error")
+    mock_github_client.list_labels.return_value = ClientSuccess(data=["bug", "feature"], message="Labels retrieved")
+    mock_github_client.create_issue.return_value = ClientError(
+        error_message="GitHub API Error",
+        error_code="API_ERROR"
+    )
 
     ctx = WorkflowContext(
         secrets=mock_secret_manager,

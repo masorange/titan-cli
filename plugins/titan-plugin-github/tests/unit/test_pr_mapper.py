@@ -3,7 +3,7 @@ Unit tests for PR mappers
 """
 
 from unittest.mock import Mock
-from titan_plugin_github.models.network.rest import RESTPullRequest, RESTUser
+from titan_plugin_github.models.network.rest import NetworkPullRequest, NetworkUser
 from titan_plugin_github.models.mappers.pr_mapper import from_rest_pr
 
 
@@ -13,13 +13,13 @@ class TestFromRestPR:
     def test_maps_all_fields_correctly(self):
         """Test that all fields are mapped correctly"""
         # Arrange
-        author = RESTUser(login="author123", name="Author Name")
+        author = NetworkUser(login="author123", name="Author Name")
         reviews = [
             Mock(state="APPROVED"),
             Mock(state="APPROVED"),
         ]
 
-        rest_pr = RESTPullRequest(
+        rest_pr = NetworkPullRequest(
             number=42,
             title="feat: Add new feature",
             body="This PR adds a new feature",
@@ -63,8 +63,8 @@ class TestFromRestPR:
     def test_draft_pr_icon(self):
         """Test that draft PRs get the correct icon"""
         # Arrange
-        author = RESTUser(login="author")
-        rest_pr = RESTPullRequest(
+        author = NetworkUser(login="author")
+        rest_pr = NetworkPullRequest(
             number=1,
             title="WIP: Draft PR",
             body="",
@@ -93,8 +93,8 @@ class TestFromRestPR:
     def test_merged_pr_icon(self):
         """Test that merged PRs get the correct icon"""
         # Arrange
-        author = RESTUser(login="author")
-        rest_pr = RESTPullRequest(
+        author = NetworkUser(login="author")
+        rest_pr = NetworkPullRequest(
             number=1,
             title="Merged PR",
             body="",
@@ -123,8 +123,8 @@ class TestFromRestPR:
     def test_closed_pr_icon(self):
         """Test that closed PRs get the correct icon"""
         # Arrange
-        author = RESTUser(login="author")
-        rest_pr = RESTPullRequest(
+        author = NetworkUser(login="author")
+        rest_pr = NetworkPullRequest(
             number=1,
             title="Closed PR",
             body="",
@@ -153,8 +153,8 @@ class TestFromRestPR:
     def test_not_mergeable_pr(self):
         """Test PR with conflicts (not mergeable)"""
         # Arrange
-        author = RESTUser(login="author")
-        rest_pr = RESTPullRequest(
+        author = NetworkUser(login="author")
+        rest_pr = NetworkPullRequest(
             number=1,
             title="Conflicting PR",
             body="",
@@ -182,8 +182,8 @@ class TestFromRestPR:
     def test_handles_empty_labels(self):
         """Test handling of empty labels list"""
         # Arrange
-        author = RESTUser(login="author")
-        rest_pr = RESTPullRequest(
+        author = NetworkUser(login="author")
+        rest_pr = NetworkPullRequest(
             number=1,
             title="PR",
             body="",
@@ -211,8 +211,8 @@ class TestFromRestPR:
     def test_handles_no_reviews(self):
         """Test handling of no reviews"""
         # Arrange
-        author = RESTUser(login="author")
-        rest_pr = RESTPullRequest(
+        author = NetworkUser(login="author")
+        rest_pr = NetworkPullRequest(
             number=1,
             title="PR",
             body="",
@@ -240,8 +240,8 @@ class TestFromRestPR:
     def test_handles_missing_dates(self):
         """Test handling of None dates"""
         # Arrange
-        author = RESTUser(login="author")
-        rest_pr = RESTPullRequest(
+        author = NetworkUser(login="author")
+        rest_pr = NetworkPullRequest(
             number=1,
             title="PR",
             body="",

@@ -11,12 +11,12 @@ This package contains all data models for the GitHub plugin:
 
 # Network models (REST)
 from .network.rest import (
-    RESTUser,
-    RESTReview,
-    RESTPullRequest,
-    RESTPRSearchResult,
-    RESTPRMergeResult,
-    RESTIssue,
+    NetworkUser,
+    NetworkReview,
+    NetworkPullRequest,
+    NetworkPRSearchResult,
+    NetworkPRMergeResult,
+    NetworkIssue,
 )
 
 # Network models (GraphQL)
@@ -50,12 +50,12 @@ from . import formatting
 
 __all__ = [
     # Network models (REST)
-    "RESTUser",
-    "RESTReview",
-    "RESTPullRequest",
-    "RESTPRSearchResult",
-    "RESTPRMergeResult",
-    "RESTIssue",
+    "NetworkUser",
+    "NetworkReview",
+    "NetworkPullRequest",
+    "NetworkPRSearchResult",
+    "NetworkPRMergeResult",
+    "NetworkIssue",
     # Network models (GraphQL)
     "GraphQLUser",
     "GraphQLPullRequestReviewComment",

@@ -6,6 +6,7 @@ import pytest
 import tempfile
 import os
 from unittest.mock import patch
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_github.operations.comment_operations import (
     build_ai_review_context,
     detect_worktree_changes,
@@ -179,6 +180,11 @@ class TestReplyToCommentBatch:
 
     def test_replies_to_all_comments_successfully(self, mock_github_client):
         """Test successful batch replies"""
+        # Mock to return ClientSuccess
+        mock_github_client.reply_to_comment.return_value = ClientSuccess(
+            data=None, message="Comment posted"
+        )
+
         replies = {
             101: "Fixed in abc123",
             102: "Done",
@@ -195,7 +201,8 @@ class TestReplyToCommentBatch:
         """Test handling when some replies fail"""
         def side_effect(pr_num, comment_id, text):
             if comment_id == 102:
-                raise Exception("API Error")
+                return ClientError(error_message="API Error", error_code="API_ERROR")
+            return ClientSuccess(data=None, message="Comment posted")
 
         mock_github_client.reply_to_comment.side_effect = side_effect
 

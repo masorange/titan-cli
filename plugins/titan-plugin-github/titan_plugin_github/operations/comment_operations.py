@@ -8,6 +8,7 @@ No UI dependencies - all functions can be unit tested.
 import os
 import glob
 from typing import Optional, Set, Tuple, Dict
+from titan_cli.core.result import ClientSuccess, ClientError
 from ..models.view import UICommentThread
 from ..widgets.comment_utils import extract_diff_context
 
@@ -207,11 +208,16 @@ def reply_to_comment_batch(
     results = {}
 
     for comment_id, response_text in replies.items():
-        try:
-            github_client.reply_to_comment(pr_number, comment_id, response_text)
-            results[comment_id] = True
-        except Exception:
-            results[comment_id] = False
+        result = github_client.reply_to_comment(pr_number, comment_id, response_text)
+
+        # Handle ClientResult
+        match result:
+            case ClientSuccess():
+                results[comment_id] = True
+            case ClientError():
+                results[comment_id] = False
+            case _:
+                results[comment_id] = False
 
     return results
 

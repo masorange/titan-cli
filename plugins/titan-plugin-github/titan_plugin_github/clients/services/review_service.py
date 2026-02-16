@@ -6,15 +6,17 @@ Business logic for PR review operations.
 Uses GraphQL for complex operations (threads, comments, resolve).
 """
 import json
+import subprocess
 from typing import List, Optional, Dict, Any
 
+from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+
 from ..network import GHNetwork, GraphQLNetwork, graphql_queries
-from ...models.network.rest import RESTReview
+from ...models.network.rest import NetworkReview
 from ...models.network.graphql import GraphQLPullRequestReviewThread
-from ...models.view import UICommentThread
-from ...models.mappers import from_graphql_review_thread
+from ...models.view import UICommentThread, UIReview
+from ...models.mappers import from_graphql_review_thread, from_network_review
 from ...exceptions import GitHubAPIError
-from ...messages import msg
 
 
 class ReviewService:
@@ -38,7 +40,7 @@ class ReviewService:
 
     def get_pr_review_threads(
         self, pr_number: int, include_resolved: bool = True
-    ) -> List[UICommentThread]:
+    ) -> ClientResult[List[UICommentThread]]:
         """
         Get all review threads for a PR.
 
@@ -49,7 +51,7 @@ class ReviewService:
             include_resolved: If False, exclude resolved threads
 
         Returns:
-            List of UICommentThread objects ready for UI
+            ClientResult[List[UICommentThread]]
         """
         try:
             # Parse owner/repo
@@ -90,21 +92,28 @@ class ReviewService:
             # Map to view models
             ui_threads = [from_graphql_review_thread(t) for t in graphql_threads]
 
-            return ui_threads
-
-        except (KeyError, ValueError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to parse review threads: {e}"
-                )
+            return ClientSuccess(
+                data=ui_threads,
+                message=f"Found {len(ui_threads)} review threads"
             )
 
-    def resolve_review_thread(self, thread_node_id: str) -> None:
+        except (KeyError, ValueError) as e:
+            return ClientError(
+                error_message=f"Failed to parse review threads: {e}",
+                error_code="PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    def resolve_review_thread(self, thread_node_id: str) -> ClientResult[None]:
         """
         Resolve a review thread.
 
         Args:
             thread_node_id: GraphQL node ID of the thread
+
+        Returns:
+            ClientResult[None]
         """
         try:
             variables = {"threadId": thread_node_id}
@@ -113,14 +122,15 @@ class ReviewService:
                 variables
             )
 
+            return ClientSuccess(data=None, message="Review thread resolved")
+
         except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to resolve review thread: {e}"
-                )
+            return ClientError(
+                error_message=f"Failed to resolve review thread: {e}",
+                error_code="API_ERROR"
             )
 
-    def get_pr_reviews(self, pr_number: int) -> List[RESTReview]:
+    def get_pr_reviews(self, pr_number: int) -> ClientResult[List[UIReview]]:
         """
         Get all reviews for a PR.
 
@@ -128,7 +138,7 @@ class ReviewService:
             pr_number: PR number
 
         Returns:
-            List of RESTReview objects
+            ClientResult[List[UIReview]]
         """
         try:
             repo = self.gh.get_repo_string()
@@ -137,16 +147,27 @@ class ReviewService:
             )
 
             reviews_data = json.loads(result)
-            return [RESTReview.from_json(r) for r in reviews_data]
+            network_reviews = [NetworkReview.from_json(r) for r in reviews_data]
 
-        except (json.JSONDecodeError, KeyError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to get PR reviews: {e}"
-                )
+            # Map to UI models
+            ui_reviews = [from_network_review(r) for r in network_reviews]
+
+            return ClientSuccess(
+                data=ui_reviews,
+                message=f"Found {len(ui_reviews)} reviews"
             )
 
-    def create_draft_review(self, pr_number: int, payload: Dict[str, Any]) -> int:
+        except (json.JSONDecodeError, KeyError) as e:
+            return ClientError(
+                error_message=f"Failed to get PR reviews: {e}",
+                error_code="PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    def create_draft_review(
+        self, pr_number: int, payload: Dict[str, Any]
+    ) -> ClientResult[int]:
         """
         Create a draft review on a PR.
 
@@ -155,7 +176,7 @@ class ReviewService:
             payload: Review payload with commit_id, body, event, comments
 
         Returns:
-            Review ID
+            ClientResult[int] with review ID
         """
         try:
             repo = self.gh.get_repo_string()
@@ -167,7 +188,6 @@ class ReviewService:
             ]
 
             # Run with JSON payload via stdin
-            import subprocess
             result = subprocess.run(
                 ["gh"] + args,
                 input=json.dumps(payload),
@@ -177,18 +197,29 @@ class ReviewService:
             )
 
             response = json.loads(result.stdout)
-            return response["id"]
+            review_id = response["id"]
 
-        except (json.JSONDecodeError, KeyError, subprocess.CalledProcessError) as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to create draft review: {e}"
-                )
+            return ClientSuccess(
+                data=review_id,
+                message=f"Draft review #{review_id} created"
             )
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return ClientError(
+                error_message=f"Failed to parse review response: {e}",
+                error_code="PARSE_ERROR"
+            )
+        except subprocess.CalledProcessError as e:
+            return ClientError(
+                error_message=f"Failed to create draft review: {e}",
+                error_code="API_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
     def submit_review(
         self, pr_number: int, review_id: int, event: str, body: str = ""
-    ) -> None:
+    ) -> ClientResult[None]:
         """
         Submit a review.
 
@@ -197,6 +228,9 @@ class ReviewService:
             review_id: Review ID
             event: Review event (APPROVE, REQUEST_CHANGES, COMMENT)
             body: Optional review body text
+
+        Returns:
+            ClientResult[None]
         """
         try:
             repo = self.gh.get_repo_string()
@@ -212,20 +246,24 @@ class ReviewService:
 
             self.gh.run_command(args)
 
+            return ClientSuccess(data=None, message=f"Review #{review_id} submitted")
+
         except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to submit review: {e}"
-                )
+            return ClientError(
+                error_message=f"Failed to submit review: {e}",
+                error_code="API_ERROR"
             )
 
-    def delete_review(self, pr_number: int, review_id: int) -> None:
+    def delete_review(self, pr_number: int, review_id: int) -> ClientResult[None]:
         """
         Delete a draft review.
 
         Args:
             pr_number: PR number
             review_id: Review ID
+
+        Returns:
+            ClientResult[None]
         """
         try:
             repo = self.gh.get_repo_string()
@@ -237,14 +275,17 @@ class ReviewService:
 
             self.gh.run_command(args)
 
+            return ClientSuccess(data=None, message=f"Review #{review_id} deleted")
+
         except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to delete review: {e}"
-                )
+            return ClientError(
+                error_message=f"Failed to delete review: {e}",
+                error_code="API_ERROR"
             )
 
-    def reply_to_comment(self, pr_number: int, comment_id: int, body: str) -> None:
+    def reply_to_comment(
+        self, pr_number: int, comment_id: int, body: str
+    ) -> ClientResult[None]:
         """
         Reply to a PR comment.
 
@@ -252,6 +293,9 @@ class ReviewService:
             pr_number: PR number
             comment_id: Comment ID to reply to
             body: Reply text
+
+        Returns:
+            ClientResult[None]
         """
         try:
             repo = self.gh.get_repo_string()
@@ -263,20 +307,24 @@ class ReviewService:
 
             self.gh.run_command(args, stdin_input=body)
 
+            return ClientSuccess(data=None, message="Reply posted")
+
         except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to reply to comment: {e}"
-                )
+            return ClientError(
+                error_message=f"Failed to reply to comment: {e}",
+                error_code="API_ERROR"
             )
 
-    def add_issue_comment(self, pr_number: int, body: str) -> None:
+    def add_issue_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """
         Add a general comment to PR (issue comment).
 
         Args:
             pr_number: PR number
             body: Comment text
+
+        Returns:
+            ClientResult[None]
         """
         try:
             repo = self.gh.get_repo_string()
@@ -288,16 +336,17 @@ class ReviewService:
 
             self.gh.run_command(args, stdin_input=body)
 
+            return ClientSuccess(data=None, message="Comment added")
+
         except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to add comment: {e}"
-                )
+            return ClientError(
+                error_message=f"Failed to add comment: {e}",
+                error_code="API_ERROR"
             )
 
     def request_pr_review(
         self, pr_number: int, reviewers: Optional[List[str]] = None
-    ) -> None:
+    ) -> ClientResult[None]:
         """
         Request review (or re-request) on a PR.
 
@@ -306,6 +355,9 @@ class ReviewService:
         Args:
             pr_number: PR number
             reviewers: List of GitHub usernames to request review from
+
+        Returns:
+            ClientResult[None]
         """
         try:
             # Parse owner/repo
@@ -332,7 +384,10 @@ class ReviewService:
                 )
 
                 if not pr_data:
-                    raise GitHubAPIError(f"PR #{pr_number} not found")
+                    return ClientError(
+                        error_message=f"PR #{pr_number} not found",
+                        error_code="PR_NOT_FOUND"
+                    )
 
                 pr_node_id = pr_data.get("id")
 
@@ -353,7 +408,10 @@ class ReviewService:
                 reviewers = list(existing_reviewers)
 
                 if not reviewers:
-                    return
+                    return ClientSuccess(
+                        data=None,
+                        message="No existing reviewers to re-request"
+                    )
             else:
                 # Get PR node ID
                 variables = {
@@ -375,7 +433,10 @@ class ReviewService:
                 )
 
                 if not pr_node_id:
-                    raise GitHubAPIError(f"PR #{pr_number} not found")
+                    return ClientError(
+                        error_message=f"PR #{pr_number} not found",
+                        error_code="PR_NOT_FOUND"
+                    )
 
             # Convert usernames to user IDs
             user_ids = []
@@ -390,7 +451,10 @@ class ReviewService:
                     user_ids.append(user_id)
 
             if not user_ids:
-                return
+                return ClientSuccess(
+                    data=None,
+                    message="No valid reviewers found"
+                )
 
             # Request reviews
             self.graphql.run_mutation(
@@ -398,9 +462,13 @@ class ReviewService:
                 {"prId": pr_node_id, "userIds": user_ids}
             )
 
+            return ClientSuccess(
+                data=None,
+                message=f"Review requested from {len(user_ids)} reviewers"
+            )
+
         except GitHubAPIError as e:
-            raise GitHubAPIError(
-                msg.GitHub.API_ERROR.format(
-                    error_msg=f"Failed to request review on PR #{pr_number}: {e}"
-                )
+            return ClientError(
+                error_message=f"Failed to request review on PR #{pr_number}: {e}",
+                error_code="API_ERROR"
             )

@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any
 
 
 @dataclass
-class RESTUser:
+class NetworkUser:
     """
     GitHub user from REST API.
 
@@ -18,7 +18,7 @@ class RESTUser:
 
     Examples:
         >>> data = {"login": "john", "name": "John Doe", "email": "john@example.com"}
-        >>> user = RESTUser.from_json(data)
+        >>> user = NetworkUser.from_json(data)
     """
     login: str
     name: Optional[str] = None
@@ -26,19 +26,19 @@ class RESTUser:
     avatar_url: Optional[str] = None
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> 'RESTUser':
+    def from_json(cls, data: Dict[str, Any]) -> 'NetworkUser':
         """
-        Create RESTUser from gh CLI JSON response.
+        Create NetworkUser from gh CLI JSON response.
 
         Args:
             data: User data from GitHub REST API
 
         Returns:
-            RESTUser instance
+            NetworkUser instance
 
         Examples:
             >>> data = {"login": "john", "name": "John Doe"}
-            >>> user = RESTUser.from_json(data)
+            >>> user = NetworkUser.from_json(data)
         """
         if not data:
             return cls(login="unknown")

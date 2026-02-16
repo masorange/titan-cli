@@ -6,6 +6,7 @@ No UI dependencies - all functions can be unit tested.
 """
 
 from typing import List
+from titan_cli.core.result import ClientSuccess, ClientError
 from ..models.view import UICommentThread
 
 
@@ -31,6 +32,9 @@ def fetch_pr_threads(
     Returns:
         List of filtered UICommentThread objects (view models)
 
+    Raises:
+        Exception: If fetching threads fails
+
     Example:
         >>> threads = fetch_pr_threads(github, 123, include_resolved=False)
         >>> len(threads)
@@ -39,10 +43,19 @@ def fetch_pr_threads(
         True
     """
     # Fetch all threads using GraphQL
-    all_threads = github_client.get_pr_review_threads(
+    result = github_client.get_pr_review_threads(
         pr_number,
         include_resolved=include_resolved
     )
+
+    # Handle ClientResult
+    match result:
+        case ClientSuccess(data=threads):
+            all_threads = threads
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to fetch threads: {err}")
+        case _:
+            raise Exception("Unexpected result type")
 
     # Filter out unwanted threads
     filtered_threads = []
@@ -108,9 +121,14 @@ def push_and_request_review(
         )
 
         # Re-request review from existing reviewers
-        github_client.request_pr_review(pr_number)
+        result = github_client.request_pr_review(pr_number)
 
-        return True
+        # Handle ClientResult
+        match result:
+            case ClientSuccess():
+                return True
+            case ClientError():
+                return False
 
     except Exception:
         return False

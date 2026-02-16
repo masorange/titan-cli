@@ -8,8 +8,10 @@ Uses REST API for issue operations.
 import json
 from typing import List, Optional
 
+from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+
 from ..network import GHNetwork
-from ...models.network.rest import RESTIssue
+from ...models.network.rest import NetworkIssue
 from ...models.view import UIIssue
 from ...models.mappers import from_rest_issue
 from ...exceptions import GitHubAPIError
@@ -37,7 +39,7 @@ class IssueService:
         body: str,
         assignees: Optional[List[str]] = None,
         labels: Optional[List[str]] = None,
-    ) -> UIIssue:
+    ) -> ClientResult[UIIssue]:
         """
         Create a new GitHub issue.
 
@@ -48,7 +50,7 @@ class IssueService:
             labels: List of labels
 
         Returns:
-            UIIssue object
+            ClientResult[UIIssue]
         """
         try:
             args = ["issue", "create", "--title", title, "--body", body]
@@ -67,7 +69,13 @@ class IssueService:
             issue_url = output.strip()
 
             # Extract issue number from URL
-            issue_number = int(issue_url.split("/")[-1])
+            try:
+                issue_number = int(issue_url.split("/")[-1])
+            except ValueError:
+                return ClientError(
+                    error_message=f"Failed to parse issue number from URL: {issue_url}",
+                    error_code="PARSE_ERROR"
+                )
 
             # Fetch full issue data
             issue_args = [
@@ -79,27 +87,38 @@ class IssueService:
             issue_data = json.loads(issue_output)
 
             # Parse to network model then map to view
-            rest_issue = RESTIssue.from_json(issue_data)
+            rest_issue = NetworkIssue.from_json(issue_data)
             ui_issue = from_rest_issue(rest_issue)
 
-            return ui_issue
+            return ClientSuccess(data=ui_issue, message=f"Issue #{issue_number} created")
 
-        except (ValueError, json.JSONDecodeError) as e:
-            raise GitHubAPIError(f"Failed to create or parse issue: {e}")
+        except json.JSONDecodeError as e:
+            return ClientError(
+                error_message=f"Failed to parse issue data: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
-    def list_labels(self) -> List[str]:
+    def list_labels(self) -> ClientResult[List[str]]:
         """
         List all labels in the repository.
 
         Returns:
-            List of label names
+            ClientResult[List[str]] with label names
         """
         try:
             args = ["label", "list", "--json", "name"] + self.gh.get_repo_arg()
             output = self.gh.run_command(args)
             labels_data = json.loads(output)
 
-            return [label["name"] for label in labels_data]
+            labels = [label["name"] for label in labels_data]
+            return ClientSuccess(data=labels, message=f"Found {len(labels)} labels")
 
-        except (ValueError, json.JSONDecodeError) as e:
-            raise GitHubAPIError(f"Failed to list labels: {e}")
+        except json.JSONDecodeError as e:
+            return ClientError(
+                error_message=f"Failed to parse labels: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")

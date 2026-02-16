@@ -8,6 +8,7 @@ import os
 import threading
 from typing import List, Dict
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
 from titan_plugin_github.widgets import CommentThread
 from ..models import UICommentThread
@@ -323,21 +324,21 @@ def _handle_resolve_thread(
     Returns:
         True if resolved successfully, False if failed
     """
-    try:
-        thread_id = pr_thread.id
-        if not thread_id:
-            ctx.textual.error_text("Cannot resolve thread: missing thread ID")
-            return False
-
-        with ctx.textual.loading("Resolving thread..."):
-            ctx.github.resolve_review_thread(thread_id)
-
-        ctx.textual.success_text("Thread resolved")
-        return True
-
-    except Exception as e:
-        ctx.textual.error_text(f"Failed to resolve thread: {e}")
+    thread_id = pr_thread.id
+    if not thread_id:
+        ctx.textual.error_text("Cannot resolve thread: missing thread ID")
         return False
+
+    with ctx.textual.loading("Resolving thread..."):
+        result = ctx.github.resolve_review_thread(thread_id)
+
+    match result:
+        case ClientSuccess():
+            ctx.textual.success_text("Thread resolved")
+            return True
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to resolve thread: {err}")
+            return False
 
 
 def _review_and_send_responses(
@@ -573,66 +574,73 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
-    try:
-        # Fetch user's open PRs (returns List[UIPullRequest])
-        with ctx.textual.loading("Fetching your open PRs..."):
-            prs = ctx.github.list_my_prs(state="open")
+    # Fetch user's open PRs (returns ClientResult[List[UIPullRequest]])
+    with ctx.textual.loading("Fetching your open PRs..."):
+        result = ctx.github.list_my_prs(state="open")
 
-        if not prs:
-            ctx.textual.dim_text("You don't have any open PRs.")
-            ctx.textual.end_step("success")
-            return Exit("No open PRs found")
+    match result:
+        case ClientSuccess(data=prs):
+            if not prs:
+                ctx.textual.dim_text("You don't have any open PRs.")
+                ctx.textual.end_step("success")
+                return Exit("No open PRs found")
 
-        # Create options from PRs
-        options = []
-        for pr in prs:
-            options.append(
-                OptionItem(
-                    value=pr.number,
-                    title=f"#{pr.number}: {pr.title}",
-                    description=f"Branch: {pr.branch_info}"  # Pre-formatted "head → base"
+            # Create options from PRs
+            options = []
+            for pr in prs:
+                options.append(
+                    OptionItem(
+                        value=pr.number,
+                        title=f"#{pr.number}: {pr.title}",
+                        description=f"Branch: {pr.branch_info}"  # Pre-formatted "head → base"
+                    )
                 )
-            )
 
-        # Ask user to select a PR
-        selected = ctx.textual.ask_option(
-            f"Select a PR to review comments ({len(prs)} open PR(s)):",
-            options
-        )
+            # Ask user to select a PR
+            try:
+                selected = ctx.textual.ask_option(
+                    f"Select a PR to review comments ({len(prs)} open PR(s)):",
+                    options
+                )
 
-        if not selected:
-            ctx.textual.warning_text("No PR selected")
-            ctx.textual.end_step("skip")
-            return Exit("User cancelled PR selection")
+                if not selected:
+                    ctx.textual.warning_text("No PR selected")
+                    ctx.textual.end_step("skip")
+                    return Exit("User cancelled PR selection")
 
-        # selected is already the PR number (int)
-        pr_number = selected
-        selected_pr = next((pr for pr in prs if pr.number == pr_number), None)
+                # selected is already the PR number (int)
+                pr_number = selected
+                selected_pr = next((pr for pr in prs if pr.number == pr_number), None)
 
-        if not selected_pr:
+                if not selected_pr:
+                    ctx.textual.end_step("error")
+                    return Error(f"PR #{pr_number} not found")
+
+                # Save to context
+                metadata = {
+                    "selected_pr_number": pr_number,
+                    "selected_pr_title": selected_pr.title,
+                    "selected_pr_head_branch": selected_pr.head_ref,
+                    "selected_pr_base_branch": selected_pr.base_ref,
+                }
+
+                ctx.textual.success_text(f"Selected PR #{pr_number}: {selected_pr.title}")
+                ctx.textual.end_step("success")
+
+                return Success(
+                    f"Selected PR #{pr_number}",
+                    metadata=metadata
+                )
+
+            except Exception as e:
+                ctx.textual.error_text(f"Failed during PR selection: {e}")
+                ctx.textual.end_step("error")
+                return Error(str(e))
+
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to fetch PRs: {err}")
             ctx.textual.end_step("error")
-            return Error(f"PR #{pr_number} not found")
-
-        # Save to context
-        metadata = {
-            "selected_pr_number": pr_number,
-            "selected_pr_title": selected_pr.title,
-            "selected_pr_head_branch": selected_pr.head_ref,
-            "selected_pr_base_branch": selected_pr.base_ref,
-        }
-
-        ctx.textual.success_text(f"Selected PR #{pr_number}: {selected_pr.title}")
-        ctx.textual.end_step("success")
-
-        return Success(
-            f"Selected PR #{pr_number}",
-            metadata=metadata
-        )
-
-    except Exception as e:
-        ctx.textual.error_text(f"Failed to fetch PRs: {e}")
-        ctx.textual.end_step("error")
-        return Error(str(e))
+            return Error(f"Failed to fetch PRs: {err}")
 
 
 def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
