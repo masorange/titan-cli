@@ -312,7 +312,7 @@ class GitClient:
 
     def get_uncommitted_diff_stat(self) -> ClientResult[str]:
         """Get diff stat summary of uncommitted changes."""
-        return self.diff_service.get_diff_stat("HEAD", "HEAD")
+        return self.diff_service.get_uncommitted_diff_stat()
 
     def get_branch_diff_stat(
         self, base_branch: str, head_branch: str

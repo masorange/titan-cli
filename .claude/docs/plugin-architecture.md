@@ -627,3 +627,151 @@ class JiraClient:
 - `titan-plugin-jira` - Reference implementation
 - `titan-plugin-github` - Complex (GraphQL + REST)
 - `titan-plugin-git` - Simple example
+
+---
+
+## Advanced Patterns (2026-02-16)
+
+### Pattern Matching in Steps (MANDATORY)
+
+All steps MUST use pattern matching when handling `ClientResult`. Never call `.data` directly.
+
+**❌ WRONG:**
+```python
+def my_step(ctx: WorkflowContext) -> WorkflowResult:
+    result = ctx.jira.get_issue("PROJ-1")
+    issue = result.data  # WRONG! Assumes success
+    ctx.textual.text(issue.summary)
+```
+
+**✅ CORRECT:**
+```python
+def my_step(ctx: WorkflowContext) -> WorkflowResult:
+    result = ctx.jira.get_issue("PROJ-1")
+    
+    match result:
+        case ClientSuccess(data=issue):
+            ctx.textual.text(issue.summary)
+            return Success("Issue retrieved")
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed: {err}")
+            return Error(err)
+```
+
+**Why mandatory:**
+- Type safety - compiler checks all cases
+- Explicit error handling - no silent failures
+- Consistent error messages
+- Clear success/failure paths
+
+### Operations Work with Models, Not Dicts
+
+Operations MUST work with typed models for clarity and type safety.
+
+**❌ BAD - Dict hell:**
+```python
+def process_issues(issues: List[Dict]) -> str:
+    """Hard to understand, no type safety"""
+    for issue in issues:
+        key = issue.get("key")  # What type? Who knows!
+        summary = issue.get("fields", {}).get("summary")  # Maybe?
+```
+
+**✅ GOOD - Type-safe:**
+```python
+def process_issues(issues: List[UIJiraIssue]) -> str:
+    """Clear types, IDE autocomplete works"""
+    for issue in issues:
+        key = issue.key  # Type: str
+        summary = issue.summary  # Type: str
+```
+
+**When to use dicts:**
+- Single key-value config
+- Temporary intermediate data (very short-lived)
+- One-off transformations
+
+**Rule of thumb:** If you access it more than once, make it a model.
+
+### Docstrings - NO Examples
+
+**DO NOT** use doctest examples in docstrings.
+
+**❌ BAD:**
+```python
+def build_issues_data(issues: List[UIJiraIssue]) -> str:
+    """
+    Build formatted text.
+    
+    Examples:
+        >>> from dataclasses import dataclass
+        >>> @dataclass
+        ... class MockIssue:
+        ...     key: str
+        ...     summary: str
+        ...     # 20 more lines of mock setup...
+        >>> build_issues_data([MockIssue(...)])
+        'output'
+    """
+```
+
+**✅ GOOD:**
+```python
+def build_issues_data(issues: List[UIJiraIssue]) -> str:
+    """
+    Build formatted text of issues for AI filtering.
+    
+    Args:
+        issues: List of UIJiraIssue objects
+    
+    Returns:
+        Formatted text with issue details for AI
+    """
+```
+
+**Why:**
+- Project doesn't run doctests (no value)
+- Verbose mocks make docstrings unreadable
+- Real tests belong in `/tests` directory
+- Confusing for developers
+
+---
+
+## Implementation Checklist
+
+When creating/migrating a plugin, ensure:
+
+### Models
+- [ ] Network models in `models/network/` (faithful to API)
+- [ ] UI models in `models/view/` (pre-formatted)
+- [ ] Mappers in `models/mappers/`
+
+### Services
+- [ ] All methods return `ClientResult[UIModel]`
+- [ ] Network call → Parse → Map → Wrap Result
+
+### Client
+- [ ] Simple facade delegating to services
+- [ ] All methods return `ClientResult[UIModel]`
+
+### Steps
+- [ ] MANDATORY: Pattern matching for all `ClientResult`
+- [ ] NO direct `.data` access
+- [ ] Clear error messages
+
+### Operations (if needed)
+- [ ] Work with UI models, NOT dicts
+- [ ] Pure functions
+- [ ] Well-typed parameters
+- [ ] NO doctest examples
+
+### Tests
+- [ ] Network layer: 90%+ coverage
+- [ ] Services: 100% coverage
+- [ ] Operations: 100% coverage
+- [ ] Use mocks, not real API calls
+
+---
+
+**Last Updated**: 2026-02-16
+**Version**: 3.0

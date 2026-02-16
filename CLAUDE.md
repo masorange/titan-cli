@@ -402,4 +402,20 @@ Two new wizards guide users through initial setup:
 
 ---
 
-**Last updated**: 2026-02-05
+## Recent Updates (2026-02-16)
+
+### Plugin Architecture Completed ✅
+
+All three official plugins (Git, GitHub, Jira) now follow the 5-layer architecture.
+
+**Key improvements:**
+- Pattern matching mandatory for all `ClientResult` handling
+- Operations work with UI models, never dicts
+- Clean docstrings (no doctest examples)
+- Type-safe throughout
+
+See **[Plugin Architecture Guide](.claude/docs/plugin-architecture.md)** for complete details.
+
+---
+
+**Last updated**: 2026-02-16

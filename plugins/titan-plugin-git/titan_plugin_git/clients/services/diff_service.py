@@ -95,6 +95,25 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    def get_uncommitted_diff_stat(self) -> ClientResult[str]:
+        """
+        Get diff stat summary of uncommitted changes (working tree vs HEAD).
+
+        Shows summary of files changed, insertions, and deletions.
+
+        Returns:
+            ClientResult[str] with diff stat output
+        """
+        try:
+            # Add untracked files to index without staging content
+            self.git.run_command(["git", "add", "--intent-to-add", "."], check=False)
+
+            # git diff --stat HEAD shows all changes vs last commit
+            diff_stat = self.git.run_command(["git", "diff", "--stat", "HEAD"], check=False)
+            return ClientSuccess(data=diff_stat, message="Uncommitted diff stat retrieved")
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
     def get_file_diff(self, file_path: str) -> ClientResult[str]:
         """
         Get diff for a specific file.
