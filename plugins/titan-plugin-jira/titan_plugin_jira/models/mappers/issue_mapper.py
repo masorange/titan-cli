@@ -4,6 +4,7 @@ Issue Mapper
 Converts Jira REST API issue models to UI view models.
 """
 
+from typing import Optional, Dict, Any
 from ..network.rest import NetworkJiraIssue
 from ..view import UIJiraIssue
 from ..formatting import (
@@ -15,12 +16,13 @@ from ..formatting import (
 )
 
 
-def from_network_issue(issue: NetworkJiraIssue) -> UIJiraIssue:
+def from_network_issue(issue: NetworkJiraIssue, raw: Optional[Dict[str, Any]] = None) -> UIJiraIssue:
     """
     Convert REST Jira issue to UI issue.
 
     Args:
         issue: NetworkJiraIssue from REST API
+        raw: Optional raw API response dict (for custom fields access)
 
     Returns:
         UIJiraIssue ready for rendering
@@ -96,4 +98,5 @@ def from_network_issue(issue: NetworkJiraIssue) -> UIJiraIssue:
         is_subtask=is_subtask,
         parent_key=parent_key,
         subtask_count=subtask_count,
+        raw=raw,  # Preserve raw API response for custom fields access
     )

@@ -68,8 +68,8 @@ class IssueService:
             # 2. Parse to Network model
             network_issue = self._parse_network_issue(data)
 
-            # 3. Map to UI model
-            ui_issue = from_network_issue(network_issue)
+            # 3. Map to UI model (pass raw data for custom fields access)
+            ui_issue = from_network_issue(network_issue, raw=data)
 
             # 4. Wrap in Result
             return ClientSuccess(
@@ -116,7 +116,8 @@ class IssueService:
             ui_issues = []
             for issue_data in data.get("issues", []):
                 network_issue = self._parse_network_issue(issue_data)
-                ui_issue = from_network_issue(network_issue)
+                # Pass raw data to mapper for custom fields access
+                ui_issue = from_network_issue(network_issue, raw=issue_data)
                 ui_issues.append(ui_issue)
 
             # 3. Wrap in Result

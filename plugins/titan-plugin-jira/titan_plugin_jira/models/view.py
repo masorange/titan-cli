@@ -9,7 +9,7 @@ Network models contain raw API data; view models contain UI-ready data.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 
 @dataclass
@@ -42,6 +42,7 @@ class UIJiraIssue:
     is_subtask: bool                 # Whether this is a subtask
     parent_key: Optional[str]        # Parent issue key if subtask
     subtask_count: int               # Number of subtasks
+    raw: Optional[Dict[str, Any]] = None  # Raw API response for custom fields access
 
 
 @dataclass
