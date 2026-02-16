@@ -42,7 +42,9 @@ class JiraClient:
         email: str,
         api_token: str,
         project_key: Optional[str] = None,
-        timeout: int = 30
+        timeout: int = 30,
+        enable_cache: bool = False,
+        cache_ttl: int = 300
     ):
         """
         Initialize Jira client.
@@ -53,8 +55,12 @@ class JiraClient:
             api_token: Jira API token (Personal Access Token)
             project_key: Default project key (optional)
             timeout: Request timeout in seconds
+            enable_cache: Enable response caching (optional, not implemented yet)
+            cache_ttl: Cache time-to-live in seconds (optional, not implemented yet)
         """
         self.project_key = project_key
+        self.enable_cache = enable_cache
+        self.cache_ttl = cache_ttl
 
         # Internal dependencies (private)
         self._network = JiraNetwork(base_url, email, api_token, timeout)
