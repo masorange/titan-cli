@@ -251,17 +251,29 @@ When creating new steps or refactoring existing ones:
 
 ## Project Setup
 
-### Development Installation
+### For Contributors (Development Mode)
 
+**📖 [Complete Development Setup Guide](.claude/docs/development-setup.md)**
+
+Quick start:
 ```bash
-# Install in editable mode with dev dependencies
-pip install -e ".[dev]"
+# Clone repository
+git clone https://github.com/masorange/titan-cli.git
+cd titan-cli
 
-# Install plugins
-pip install -e plugins/titan-plugin-git
-pip install -e plugins/titan-plugin-github
-pip install -e plugins/titan-plugin-jira
+# Setup development environment
+make dev-install
+
+# Run development version
+titan-dev
 ```
+
+**What this does:**
+- Installs dependencies with Poetry (`.venv/`)
+- Creates `~/.local/bin/titan-dev` script pointing to local codebase
+- Allows immediate testing of code changes
+
+**Important:** The `titan-dev` command is for contributors only. End users who install from PyPI only get `titan`.
 
 ### Configuration
 
@@ -304,7 +316,12 @@ enabled = true
 
 ## Main Commands
 
+### For End Users
+
 ```bash
+# Install from PyPI (production version)
+pipx install titan-cli
+
 # Launch interactive TUI (run from project directory)
 cd /path/to/your/project
 titan
@@ -322,10 +339,27 @@ titan
 # Other commands:
 titan version           # Show version
 titan tui               # Explicitly launch TUI
-
-# Development (from repo):
-poetry run titan        # Run from source
 ```
+
+### For Contributors (Development)
+
+```bash
+# Setup development environment (one-time)
+make dev-install
+
+# Run development version (uses local codebase)
+titan-dev
+
+# Alternative ways to run:
+poetry run titan        # Run from poetry virtualenv
+cd ~/git/titan-cli && poetry shell && titan  # Activate venv first
+
+# Run tests
+make test               # All tests
+poetry run pytest       # Direct pytest
+```
+
+**Key difference:** `titan` is the production version from PyPI, `titan-dev` runs your local codebase changes.
 
 ## Current Project Status
 

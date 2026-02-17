@@ -8,24 +8,34 @@
 
 ## 🛠️ Development Setup
 
+> **Important:** This guide is for contributors who want to develop Titan CLI. If you just want to use Titan, see [README.md](README.md) for user installation.
+
 ### Prerequisites
 
-- Python 3.9+
-- pipx
+- Python 3.10+
+- `poetry` (dependency management)
+- `pipx` (optional, for production version)
 
 ### Installation for Development
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/titan-cli.git
+git clone https://github.com/masorange/titan-cli.git
 cd titan-cli
 
-# 2. Install titan-cli in editable mode
-pipx install -e .
+# 2. Install dependencies and create titan-dev launcher
+make dev-install
 
 # 3. Verify installation
-titan --help
+titan-dev --version
 ```
+
+**What this does:**
+- Installs all dependencies with Poetry in a local virtualenv (`.venv/`)
+- Creates a `~/.local/bin/titan-dev` script that points to your local codebase
+- Allows you to test changes immediately without reinstalling
+
+**Note:** The `titan-dev` command is **only for developers**. End users who install from PyPI with `pipx install titan-cli` only get the `titan` command.
 
 ### Initial Configuration
 
