@@ -395,10 +395,10 @@ class GitClient:
     # ===== Worktree Methods =====
 
     def create_worktree(
-        self, path: str, branch: str, create_branch: bool = False
+        self, path: str, branch: str, create_branch: bool = False, detached: bool = False
     ) -> ClientResult[None]:
         """Create a new worktree."""
-        return self.worktree_service.create_worktree(path, branch, create_branch)
+        return self.worktree_service.create_worktree(path, branch, create_branch, detached)
 
     def remove_worktree(self, path: str, force: bool = False) -> ClientResult[None]:
         """Remove a worktree."""

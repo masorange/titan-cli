@@ -34,21 +34,25 @@ class WorktreeService:
         self.git = git_network
 
     def create_worktree(
-        self, path: str, branch: str, create_branch: bool = False
+        self, path: str, branch: str, create_branch: bool = False, detached: bool = False
     ) -> ClientResult[None]:
         """
         Create a new worktree at the specified path.
 
         Args:
             path: Path where to create the worktree
-            branch: Branch to checkout in the worktree
+            branch: Branch or ref to checkout in the worktree
             create_branch: If True, create the branch
+            detached: If True, create in detached HEAD mode (allows using same branch as current repo)
 
         Returns:
             ClientResult[None]
         """
         try:
             args = ["git", "worktree", "add"]
+
+            if detached:
+                args.append("--detach")
 
             if create_branch:
                 args.extend(["-b", branch])
