@@ -4,7 +4,6 @@ Project Setup Wizard Screen
 Wizard for configuring a new Titan project in the current directory.
 """
 
-import logging
 from textual.app import ComposeResult
 from textual.widgets import Static, Input, SelectionList
 from textual.widgets.selection_list import Selection
@@ -14,19 +13,10 @@ from pathlib import Path
 
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import Text, DimText, Button, BoldText
-from titan_cli.utils.autoupdate import is_dev_install
+from titan_cli.core.logging import get_logger
 from .base import BaseScreen
 
-# Setup debug logging (only in development)
-logger = logging.getLogger(__name__)
-if is_dev_install():
-    debug_log = Path("/tmp/titan_wizard_debug.log")
-    logging.basicConfig(
-        filename=str(debug_log),
-        level=logging.DEBUG,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        filemode='w'
-    )
+logger = get_logger(__name__)
 
 
 class StepIndicator(Static):
@@ -162,7 +152,7 @@ class ProjectSetupWizardScreen(BaseScreen):
 
     def __init__(self, config, project_path: Path):
         # Debug: check registry state at init
-        logger.debug(f"ProjectSetupWizard.__init__ - Registry has {len(config.registry._plugins)} plugins: {list(config.registry._plugins.keys())}")
+        logger.debug("project_wizard_init", plugin_count=len(config.registry._plugins), plugins=list(config.registry._plugins.keys()))
 
         super().__init__(
             config,
@@ -362,9 +352,9 @@ class ProjectSetupWizardScreen(BaseScreen):
         body_widget.mount(optional_info)
 
         # Get available plugins
-        logger.debug(f"load_select_plugins_step - Registry has {len(self.config.registry._plugins)} plugins: {list(self.config.registry._plugins.keys())}")
+        logger.debug("select_plugins_step_loaded", plugin_count=len(self.config.registry._plugins), plugins=list(self.config.registry._plugins.keys()))
         installed_plugins = self.config.registry.list_discovered()
-        logger.debug(f"Discovered plugins: {installed_plugins}")
+        logger.debug("plugins_discovered", plugins=installed_plugins)
 
         if not installed_plugins:
             no_plugins = DimText(
@@ -465,7 +455,7 @@ class ProjectSetupWizardScreen(BaseScreen):
         # If on select_plugins step, configure each selected plugin
         if self.steps[self.current_step]["id"] == "select_plugins":
             enabled_plugins = self.wizard_data.get("enabled_plugins", [])
-            logger.debug(f"Type of enabled_plugins: {type(enabled_plugins)}, Content: {enabled_plugins}")
+            logger.debug("enabled_plugins_type_debug", plugin_type=str(type(enabled_plugins)), content=enabled_plugins)
             if enabled_plugins:
                 # Launch plugin configuration wizards
                 self._configure_plugins(enabled_plugins)
@@ -506,7 +496,7 @@ class ProjectSetupWizardScreen(BaseScreen):
                 selection_list = self.query_one("#plugins-selection", SelectionList)
                 # Get the selected values (plugin names)
                 raw_selected = selection_list.selected
-                logger.debug(f"Raw selected type: {type(raw_selected)}, value: {raw_selected}")
+                logger.debug("raw_selected_debug", selected_type=str(type(raw_selected)), value=raw_selected)
 
                 enabled_plugins = [str(item) for item in raw_selected]
 
@@ -522,11 +512,11 @@ class ProjectSetupWizardScreen(BaseScreen):
                     return False
 
                 self.wizard_data["enabled_plugins"] = enabled_plugins
-                logger.debug(f"Selected {len(enabled_plugins)} plugins: {enabled_plugins}")
+                logger.debug("plugins_selected", count=len(enabled_plugins), plugins=enabled_plugins)
 
                 return True
-            except Exception as e:
-                logger.error(f"Error getting plugins: {e}")
+            except Exception:
+                logger.exception("plugin_selection_error")
                 self.app.notify("Error selecting plugins", severity="error")
                 return False
 
@@ -541,10 +531,10 @@ class ProjectSetupWizardScreen(BaseScreen):
         """Configure each selected plugin one by one."""
         import tomli_w
 
-        logger.debug(f"Configuring {len(plugins_to_configure)} plugins: {plugins_to_configure}")
+        logger.debug("configuring_plugins", count=len(plugins_to_configure), plugins=plugins_to_configure)
 
         if not plugins_to_configure:
-            logger.debug("No plugins to configure, skipping")
+            logger.debug("no_plugins_to_configure")
             self.load_step(self.current_step + 1)
             return
 
@@ -613,7 +603,7 @@ class ProjectSetupWizardScreen(BaseScreen):
 
         # Debug: check registry state before launching wizard
         available_plugins = list(self.config.registry._plugins.keys())
-        logger.debug(f"Before launching wizard for '{plugin_name}': Registry has {available_plugins}")
+        logger.debug("launching_plugin_wizard", plugin=plugin_name, available_plugins=available_plugins)
 
         def on_plugin_config_complete(_=None):
             """Callback when plugin configuration completes."""
@@ -644,7 +634,7 @@ class ProjectSetupWizardScreen(BaseScreen):
             # If config file already exists (plugins were configured), just verify it
             if project_config_path.exists():
                 # Config already created and populated by plugin wizards
-                logger.debug(f"Project config already exists at {project_config_path}")
+                logger.debug("project_config_exists", path=str(project_config_path))
             else:
                 # No plugins were configured, create basic config
                 project_config_data = {

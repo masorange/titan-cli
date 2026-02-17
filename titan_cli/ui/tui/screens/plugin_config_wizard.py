@@ -5,7 +5,6 @@ Generic wizard that adapts to any plugin's configuration schema.
 Each plugin can have different configuration steps based on its schema.
 """
 
-import logging
 from textual.app import ComposeResult
 from textual.widgets import Static, Input
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -14,9 +13,9 @@ from textual.binding import Binding
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import Text, DimText, Button, BoldText
 from .base import BaseScreen
+from titan_cli.core.logging import get_logger
 
-# Use the same logger as project_setup_wizard
-logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
+logger = get_logger(__name__)
 
 
 class StepIndicator(Static):
@@ -184,29 +183,28 @@ class PluginConfigWizardScreen(BaseScreen):
     def on_mount(self) -> None:
         """Load plugin schema and build steps."""
         # Get plugin instance directly from registry's internal dict
-        logger.debug(f"PluginConfigWizard mounted for: '{self.plugin_name}'")
-        logger.debug(f"Registry plugins: {list(self.config.registry._plugins.keys())}")
+        logger.debug("plugin_config_wizard_mounted", plugin=self.plugin_name, available_plugins=list(self.config.registry._plugins.keys()))
 
         plugin = self.config.registry._plugins.get(self.plugin_name)
 
         if not plugin:
             available = list(self.config.registry._plugins.keys())
-            logger.error(f"Plugin '{self.plugin_name}' not found. Available: {available}")
+            logger.error("plugin_not_found", plugin=self.plugin_name, available=available)
             self.app.notify(f"Plugin '{self.plugin_name}' not found", severity="error")
             self.dismiss(result=False)
             return
 
         # Check if plugin has configuration schema
         if not hasattr(plugin, "get_config_schema"):
-            logger.debug(f"Plugin '{self.plugin_name}' has no config schema")
+            logger.debug("plugin_no_config_schema", plugin=self.plugin_name)
             self.dismiss(result=True)
             return
 
         try:
             self.schema = plugin.get_config_schema()
-            logger.debug(f"Got schema for '{self.plugin_name}': {self.schema}")
+            logger.debug("plugin_schema_loaded", plugin=self.plugin_name)
         except Exception as e:
-            logger.error(f"Failed to get config schema: {e}")
+            logger.exception("plugin_schema_load_failed", plugin=self.plugin_name)
             self.app.notify(f"Failed to get config schema: {e}", severity="error")
             self.dismiss(result=False)
             return
@@ -214,11 +212,10 @@ class PluginConfigWizardScreen(BaseScreen):
         self.properties = self.schema.get("properties", {})
         self.required_fields = self.schema.get("required", [])
 
-        logger.debug(f"Properties: {list(self.properties.keys())}")
-        logger.debug(f"Required fields: {self.required_fields}")
+        logger.debug("plugin_schema_parsed", plugin=self.plugin_name, properties=list(self.properties.keys()), required_fields=self.required_fields)
 
         if not self.properties:
-            logger.debug(f"Plugin '{self.plugin_name}' has no config fields")
+            logger.debug("plugin_no_config_fields", plugin=self.plugin_name)
             self.dismiss(result=True)
             return
 
