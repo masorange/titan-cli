@@ -859,6 +859,94 @@ class TextualComponents:
 
         return result_container["exit_code"]
 
+    def _content_review_options_flow(
+        self,
+        combined_content: str,
+        edit_instruction: str,
+        confirm_question: str,
+        choice_question: str,
+        parse_fn=None,
+        preview_fn=None,
+    ) -> tuple[str, Optional[str]]:
+        """
+        Internal helper for Use/Edit/Reject options flow.
+
+        Handles the common logic of presenting options and managing the edit loop.
+        Can be customized via parse_fn and preview_fn for different content types.
+
+        Args:
+            combined_content: The full content to edit (e.g., "title\n\nbody" or just document)
+            edit_instruction: Instruction shown when editing
+            confirm_question: Question to confirm after editing
+            choice_question: Question for Use/Edit/Reject choice
+            parse_fn: Optional function to parse edited content (default: identity)
+            preview_fn: Optional function to preview content after editing (default: markdown)
+
+        Returns:
+            Tuple of (choice, final_content):
+                - choice: "use", "edit", or "reject"
+                - final_content: The final content (original or edited), or None if rejected
+        """
+        # Ask user what to do
+        options = [
+            ChoiceOption(value="use", label="Use", variant="primary"),
+            ChoiceOption(value="edit", label="Edit", variant="default"),
+            ChoiceOption(value="reject", label="Reject", variant="error"),
+        ]
+
+        choice = self.ask_choice(choice_question, options)
+
+        # Handle rejection
+        if choice == "reject":
+            return ("reject", None)
+
+        # Store initial value
+        final_content = combined_content
+
+        # Handle edit
+        if choice == "edit":
+            # Edit loop: allow user to edit until they confirm
+            while True:
+                self.text("")
+                self.dim_text(edit_instruction)
+
+                # Ask user to edit
+                edited_content = self.ask_multiline(
+                    "Edit content:",
+                    default=final_content
+                )
+
+                if not edited_content or not edited_content.strip():
+                    self.warning_text("Content cannot be empty")
+                    return ("reject", None)
+
+                # Parse if custom parser provided
+                if parse_fn:
+                    final_content = parse_fn(edited_content)
+                else:
+                    final_content = edited_content
+
+                # Show preview if custom preview function provided
+                self.text("")
+                self.bold_text("Final Preview:")
+                self.text("")
+
+                if preview_fn:
+                    preview_fn(final_content)
+                else:
+                    self.markdown(final_content)
+
+                self.text("")
+
+                # Confirm
+                confirmed = self.ask_confirm(confirm_question, default=True)
+
+                if confirmed:
+                    break
+                # If not confirmed, loop back to edit
+
+        return (choice, final_content)
+
     def ai_content_review_flow(
         self,
         content_title: str,
@@ -934,64 +1022,119 @@ class TextualComponents:
 
         self.text("")  # spacing
 
-        # Ask user what to do with the AI suggestion
-        options = [
-            ChoiceOption(value="use", label="Use", variant="primary"),
-            ChoiceOption(value="edit", label="Edit", variant="default"),
-            ChoiceOption(value="reject", label="Reject", variant="error"),
-        ]
+        # Combine title and body for editing
+        combined_content = f"{content_title}\n\n{content_body}"
 
-        choice = self.ask_choice(choice_question, options)
+        # Parse function: split first line as title, rest as body
+        def parse_title_body(edited: str) -> str:
+            return edited  # Return as-is, will be split later
 
-        # Handle user choice
+        # Preview function: show title and body separately with markdown
+        def preview_title_body(content: str):
+            lines = content.strip().split("\n", 1)
+            title = lines[0].strip()
+            body = lines[1].strip() if len(lines) > 1 else ""
+
+            self.bold_text(title_label)
+            self.primary_text(f"  {title}")
+            self.text("")
+            self.bold_text(description_label)
+            self.markdown(body)
+
+        # Use common options flow
+        choice, final_content = self._content_review_options_flow(
+            combined_content=combined_content,
+            edit_instruction=edit_instruction,
+            confirm_question=confirm_question,
+            choice_question=choice_question,
+            parse_fn=parse_title_body,
+            preview_fn=preview_title_body,
+        )
+
+        # Handle result
         if choice == "reject":
             return ("reject", None, None)
 
-        # Store initial values
-        final_title = content_title
-        final_body = content_body
+        # Split final content into title and body
+        lines = final_content.strip().split("\n", 1)
+        final_title = lines[0].strip()
+        final_body = lines[1].strip() if len(lines) > 1 else ""
 
-        if choice == "edit":
-            # Edit loop: allow user to edit until they confirm
-            while True:
-                self.text("")
-                self.dim_text(edit_instruction)
-
-                # Combine title and body as markdown for editing
-                combined_markdown = f"{final_title}\n\n{final_body}"
-
-                # Ask user to edit
-                edited_content = self.ask_multiline(
-                    "Edit content:",
-                    default=combined_markdown
-                )
-
-                if not edited_content or not edited_content.strip():
-                    self.warning_text("Content cannot be empty")
-                    return ("reject", None, None)
-
-                # Parse: first line = title, rest = body
-                lines = edited_content.strip().split("\n", 1)
-                final_title = lines[0].strip()
-                final_body = lines[1].strip() if len(lines) > 1 else ""
-
-                # Show final preview
-                self.text("")
-                self.bold_text("Final Preview:")
-                self.text("")
-                self.bold_text(title_label)
-                self.primary_text(f"  {final_title}")
-                self.text("")
-                self.bold_text(description_label)
-                self.markdown(final_body)
-                self.text("")
-
-                # Confirm
-                confirmed = self.ask_confirm(confirm_question, default=True)
-
-                if confirmed:
-                    break
-                # If not confirmed, loop back to edit
-
-        # Return the choice and final content
         return (choice, final_title, final_body)
+
+    def ai_document_review_flow(
+        self,
+        document_title: str,
+        document_content: str,
+        header_text: str = "AI-Generated Document",
+        title_label: str = "Document:",
+        edit_instruction: str = "Edit the document below:",
+        confirm_question: str = "Use this document?",
+        choice_question: str = "What would you like to do with the document?",
+    ) -> tuple[str, Optional[str]]:
+        """
+        Flow for reviewing AI-generated long-form documents with Use/Edit/Reject options.
+
+        Similar to ai_content_review_flow but designed for single long documents
+        (like release notes, reports, etc.) rather than title+description pairs.
+        Uses panel() to preserve line breaks instead of markdown() which collapses them.
+
+        Args:
+            document_title: Title/label for the document (e.g., "Release Notes v26.8")
+            document_content: The full document content
+            header_text: Header to show above the preview (default: "AI-Generated Document")
+            title_label: Label for the document title (default: "Document:")
+            edit_instruction: Instruction shown when editing (default: generic)
+            confirm_question: Question to confirm after editing (default: "Use this document?")
+            choice_question: Question for Use/Edit/Reject choice (default: generic)
+
+        Returns:
+            Tuple of (choice, final_content):
+                - choice: "use", "edit", or "reject"
+                - final_content: The final document content (original or edited), or None if rejected
+
+        Raises:
+            KeyboardInterrupt: If user cancels the operation
+
+        Example:
+            choice, content = ctx.textual.ai_document_review_flow(
+                document_title="Release Notes v26.8",
+                document_content="# 26.8\\n\\n## Features\\n- ...",
+                header_text="📋 AI-Generated Release Notes",
+                title_label="Version:"
+            )
+
+            if choice == "reject":
+                return Error("User rejected release notes")
+            elif choice in ("use", "edit"):
+                ctx.set("release_notes", content)
+        """
+        # Show preview header
+        self.text("")  # spacing
+        self.bold_text(header_text)
+        self.text("")  # spacing
+
+        # Show title
+        self.bold_text(title_label)
+        self.primary_text(f"  {document_title}")
+        self.text("")  # spacing
+
+        # Show content using panel (preserves line breaks)
+        self.panel(document_content, panel_type="info", show_icon=False)
+        self.text("")  # spacing
+
+        # Preview function: show content in panel
+        def preview_document(content: str):
+            self.panel(content, panel_type="info", show_icon=False)
+
+        # Use common options flow
+        choice, final_content = self._content_review_options_flow(
+            combined_content=document_content,
+            edit_instruction=edit_instruction,
+            confirm_question=confirm_question,
+            choice_question=choice_question,
+            parse_fn=None,  # No parsing needed, use content as-is
+            preview_fn=preview_document,
+        )
+
+        return (choice, final_content)

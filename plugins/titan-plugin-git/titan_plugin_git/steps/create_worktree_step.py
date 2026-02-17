@@ -11,18 +11,24 @@ import tempfile
 
 def create_worktree(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Create a temporary git worktree from main branch.
+    Create a temporary git worktree in detached HEAD mode from remote main branch.
 
-    This step creates a worktree in a temporary directory and checks out
-    the main branch. Useful for operating on a clean branch without
-    affecting your current working directory.
+    This step creates a worktree in a temporary directory in detached HEAD state,
+    pointing to the latest commit from the remote main branch. This allows creating
+    a clean workspace even if you're currently on the main branch or have uncommitted
+    changes.
+
+    The worktree is created in detached HEAD mode, which means:
+    - It doesn't conflict with your current branch
+    - It works even if you're on the main branch with uncommitted changes
+    - It always uses the latest code from the remote
 
     Params:
         path: Custom path for worktree (optional, defaults to temp directory)
 
     Output variables:
         worktree_path: Path to the created worktree
-        worktree_branch: Branch checked out in the worktree (main branch)
+        base_branch: Base branch name (e.g., "develop" or "main")
 
     Example:
         ```yaml
@@ -38,8 +44,11 @@ def create_worktree(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Create Worktree")
 
     try:
-        # Always use main branch from git config
-        branch = ctx.git.main_branch
+        from titan_cli.core.result import ClientSuccess, ClientError as ResultClientError
+
+        # Get configuration
+        base_branch = ctx.git.main_branch
+        remote = ctx.git.default_remote
 
         custom_path = ctx.get("path")
 
@@ -54,40 +63,71 @@ def create_worktree(ctx: WorkflowContext) -> WorkflowResult:
         # Display info
         ctx.textual.text("")
         ctx.textual.primary_text(f"Creating worktree at: {worktree_path}")
-        ctx.textual.dim_text(f"Branch: {branch}")
+        ctx.textual.dim_text(f"Base: {remote}/{base_branch} (detached HEAD)")
 
-        # Check if worktree already exists (by path or branch) and remove it
-        existing_worktrees = ctx.git.list_worktrees()
-        for wt in existing_worktrees:
-            wt_path = wt.get("path")
-            wt_branch = wt.get("branch")
-
-            # Skip the main worktree (the actual repository)
-            if not wt.get("detached") and wt_branch is None:
-                continue
-
-            # Remove if same path OR same branch (Git doesn't allow same branch in multiple worktrees)
-            if wt_path == worktree_path or wt_branch == branch:
-                ctx.textual.text("")
-                ctx.textual.warning_text(f"Worktree already exists (path: {wt_path}, branch: {wt_branch})")
-                ctx.textual.dim_text("Removing existing worktree...")
-                try:
-                    ctx.git.remove_worktree(path=wt_path, force=True)
-                    ctx.textual.dim_text("✓ Removed existing worktree")
-                except Exception as e:
-                    ctx.textual.dim_text(f"Warning: Could not remove worktree: {e}")
-
-        # Create worktree (never create branch, always checkout existing main)
+        # Fetch to ensure we have latest remote refs
         ctx.textual.text("")
-        ctx.git.create_worktree(
+        ctx.textual.dim_text(f"Fetching latest from {remote}...")
+
+        fetch_result = ctx.git.fetch(remote=remote, branch=base_branch)
+        match fetch_result:
+            case ClientSuccess():
+                ctx.textual.dim_text(f"✓ Fetched {remote}/{base_branch}")
+            case ResultClientError(error_message=err):
+                ctx.textual.warning_text(f"Fetch failed: {err}")
+                ctx.textual.dim_text("Proceeding with local refs...")
+
+        # Check if worktree already exists at the same path and remove it
+        worktrees_result = ctx.git.list_worktrees()
+        match worktrees_result:
+            case ClientSuccess(data=existing_worktrees):
+                import os
+                main_repo_path = os.path.abspath(ctx.git.repo_path)
+
+                for wt in existing_worktrees:
+                    wt_path = wt.path
+
+                    # Skip the main worktree (the actual repository directory)
+                    if os.path.abspath(wt_path) == main_repo_path:
+                        continue
+
+                    # Remove if same path (we use detached HEAD so branch conflicts are no longer an issue)
+                    if wt_path == worktree_path:
+                        ctx.textual.text("")
+                        ctx.textual.warning_text(f"Worktree already exists at: {wt_path}")
+                        ctx.textual.dim_text("Removing existing worktree...")
+
+                        remove_result = ctx.git.remove_worktree(path=wt_path, force=True)
+                        match remove_result:
+                            case ClientSuccess():
+                                ctx.textual.dim_text("✓ Removed existing worktree")
+                            case ResultClientError(error_message=err):
+                                ctx.textual.dim_text(f"Warning: Could not remove worktree: {err}")
+            case ResultClientError(error_message=err):
+                ctx.textual.dim_text(f"Warning: Could not list worktrees: {err}")
+
+        # Create worktree in detached HEAD mode from remote branch
+        # This allows creating the worktree even if we're currently on the same branch
+        ctx.textual.text("")
+        remote_ref = f"{remote}/{base_branch}"
+
+        create_wt_result = ctx.git.create_worktree(
             path=worktree_path,
-            branch=branch,
-            create_branch=False
+            branch=remote_ref,
+            create_branch=False,
+            detached=True  # Detached HEAD - doesn't conflict with current branch
         )
 
-        # Success
-        ctx.textual.text("")
-        ctx.textual.success_text(f"✓ Created worktree at {worktree_path}")
+        match create_wt_result:
+            case ClientSuccess():
+                # Success
+                ctx.textual.text("")
+                ctx.textual.success_text(f"✓ Created worktree at {worktree_path}")
+            case ResultClientError(error_message=err):
+                ctx.textual.text("")
+                ctx.textual.error_text(f"Failed to create worktree: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to create worktree: {err}")
 
         ctx.textual.text("")
         ctx.textual.end_step("success")
@@ -97,8 +137,7 @@ def create_worktree(ctx: WorkflowContext) -> WorkflowResult:
             f"Worktree created at {worktree_path}",
             metadata={
                 "worktree_path": worktree_path,
-                "worktree_branch": branch,
-                "base_branch": branch  # Also save as base_branch for PR creation
+                "base_branch": base_branch  # Save base branch for PR creation
             }
         )
 

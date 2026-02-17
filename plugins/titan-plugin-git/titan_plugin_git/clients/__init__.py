@@ -3,6 +3,7 @@
 Git client module
 """
 
-from .git_client import GitClient, GitClientError
+from .git_client import GitClient
+from ..exceptions import GitClientError
 
 __all__ = ["GitClient", "GitClientError"]

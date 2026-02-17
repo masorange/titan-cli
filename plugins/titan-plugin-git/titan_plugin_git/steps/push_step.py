@@ -1,6 +1,6 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/push_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
-from titan_plugin_git.exceptions import GitCommandError
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.messages import msg
 
 def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -40,40 +40,54 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
 
     # Use defaults from the GitClient if not provided in the context
     remote_to_use = remote or ctx.git.default_remote
-    branch_to_use = branch or ctx.git.get_current_branch()
 
-    try:
-        # The first push of a branch should set the upstream
-        if not ctx.git.branch_exists_on_remote(branch=branch_to_use, remote=remote_to_use):
-            set_upstream = True
+    # Get current branch if not provided
+    if not branch:
+        branch_result = ctx.git.get_current_branch()
+        match branch_result:
+            case ClientSuccess(data=current_branch):
+                branch_to_use = current_branch
+            case ClientError(error_message=err):
+                ctx.textual.end_step("error")
+                return Error(f"Failed to get current branch: {err}")
+    else:
+        branch_to_use = branch
 
-        # Push branch (and tags if requested)
-        ctx.git.push(
-            remote=remote_to_use,
-            branch=branch_to_use,
-            set_upstream=set_upstream,
-            tags=push_tags
-        )
+    # Check if branch exists on remote
+    exists_result = ctx.git.branch_exists_on_remote(branch=branch_to_use, remote=remote_to_use)
+    match exists_result:
+        case ClientSuccess(data=exists):
+            # The first push of a branch should set the upstream
+            if not exists:
+                set_upstream = True
+        case ClientError(error_message=err):
+            ctx.textual.end_step("error")
+            return Error(f"Failed to check remote branch: {err}")
 
-        # Show success message
-        success_msg = f"Pushed to {remote_to_use}/{branch_to_use}"
-        if push_tags:
-            success_msg += " (with tags)"
+    # Push branch (and tags if requested)
+    push_result = ctx.git.push(
+        remote=remote_to_use,
+        branch=branch_to_use,
+        set_upstream=set_upstream,
+        tags=push_tags
+    )
 
-        ctx.textual.success_text(success_msg)
+    match push_result:
+        case ClientSuccess():
+            # Show success message
+            success_msg = f"Pushed to {remote_to_use}/{branch_to_use}"
+            if push_tags:
+                success_msg += " (with tags)"
 
-        ctx.textual.end_step("success")
-        return Success(
-            message=msg.Git.PUSH_SUCCESS.format(remote=remote_to_use, branch=branch_to_use),
-            metadata={"pr_head_branch": branch_to_use}
-        )
-    except GitCommandError as e:
-        error_msg = msg.Steps.Push.PUSH_FAILED.format(e=e)
-        ctx.textual.error_text(error_msg)
-        ctx.textual.end_step("error")
-        return Error(error_msg)
-    except Exception as e:
-        error_msg = msg.Git.UNEXPECTED_ERROR.format(e=e)
-        ctx.textual.error_text(error_msg)
-        ctx.textual.end_step("error")
-        return Error(error_msg)
+            ctx.textual.success_text(success_msg)
+
+            ctx.textual.end_step("success")
+            return Success(
+                message=msg.Git.PUSH_SUCCESS.format(remote=remote_to_use, branch=branch_to_use),
+                metadata={"pr_head_branch": branch_to_use}
+            )
+        case ClientError(error_message=err):
+            error_msg = msg.Steps.Push.PUSH_FAILED.format(e=err)
+            ctx.textual.error_text(error_msg)
+            ctx.textual.end_step("error")
+            return Error(error_msg)

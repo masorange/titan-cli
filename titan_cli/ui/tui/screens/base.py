@@ -9,7 +9,7 @@ from textual.screen import Screen
 from titan_cli.core.config import TitanConfig
 from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
 from titan_cli.ui.tui.widgets.header import HeaderWidget
-
+from titan_cli.core.result import ClientSuccess
 
 class BaseScreen(Screen):
     """
@@ -78,8 +78,12 @@ class BaseScreen(Screen):
             git_plugin = self.config.registry.get_plugin("git")
             if git_plugin and git_plugin.is_available():
                 git_client = git_plugin.get_client()
-                git_status = git_client.get_status()
-                git_branch = git_status.branch if git_status else "N/A"
+                result = git_client.get_status()
+                match result:
+                    case ClientSuccess(data=git_status):
+                        git_branch = git_status.branch
+                    case _:
+                        git_branch = "N/A"
         except Exception:
             pass
 

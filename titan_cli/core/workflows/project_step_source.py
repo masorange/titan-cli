@@ -133,9 +133,30 @@ class ProjectStepSource(BaseStepSource):
                         self._step_function_cache[step_name] = step_func
                         return step_func
 
-            except Exception:
+            except Exception as e:
+                # Log import errors to help with debugging
+                import traceback
+                error_info = f"Error loading {step_file}: {type(e).__name__}: {e}"
+                # Store error in a class variable for later retrieval
+                if not hasattr(self, '_load_errors'):
+                    self._load_errors = {}
+                self._load_errors[str(step_file)] = {
+                    'error': error_info,
+                    'traceback': traceback.format_exc()
+                }
                 # Continue searching other files
                 continue
+
+        # If step wasn't found but we had load errors, write them to a debug file
+        if hasattr(self, '_load_errors') and self._load_errors:
+            debug_file = Path("/tmp/titan_step_load_errors.txt")
+            with open(debug_file, 'w') as f:
+                f.write(f"Step '{step_name}' not found. Errors during module loading:\n\n")
+                for file_path, error_data in self._load_errors.items():
+                    f.write(f"File: {file_path}\n")
+                    f.write(f"Error: {error_data['error']}\n")
+                    f.write(f"Full traceback:\n{error_data['traceback']}\n")
+                    f.write("="*80 + "\n\n")
 
         return None
 

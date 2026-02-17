@@ -1,5 +1,6 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/ai_commit_message_step.py
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.messages import msg
 from ..operations import (
     build_ai_commit_prompt,
@@ -58,12 +59,17 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         # Get diff of uncommitted changes
         ctx.textual.dim_text(msg.Steps.AICommitMessage.ANALYZING_CHANGES)
 
-        # Get diff of all uncommitted changes
-        diff_text = ctx.git.get_uncommitted_diff()
+        # Get diff of all uncommitted changes using ClientResult pattern
+        diff_result = ctx.git.get_uncommitted_diff()
 
-        if not diff_text or diff_text.strip() == "":
-            ctx.textual.end_step("skip")
-            return Skip(msg.Steps.AICommitMessage.NO_UNCOMMITTED_CHANGES)
+        match diff_result:
+            case ClientSuccess(data=diff_text):
+                if not diff_text or diff_text.strip() == "":
+                    ctx.textual.end_step("skip")
+                    return Skip(msg.Steps.AICommitMessage.NO_UNCOMMITTED_CHANGES)
+            case ClientError(error_message=err):
+                ctx.textual.end_step("error")
+                return Error(f"Failed to get diff: {err}")
 
         # Build AI prompt using operations
         all_files = git_status.modified_files + git_status.untracked_files + git_status.staged_files
