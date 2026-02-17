@@ -160,6 +160,11 @@ def _setup_console_handler(log_level: int, is_dev: bool) -> None:
     root_logger = logging.getLogger()
     root_logger.addHandler(console_handler)
 
+    # Silence Textual's verbose internal logs (only show WARNING and above)
+    # This prevents EVENT/SYSTEM spam in the console while keeping app logs visible
+    logging.getLogger("textual").setLevel(logging.WARNING)
+    logging.getLogger("rich").setLevel(logging.WARNING)
+
 
 def _configure_structlog(is_dev: bool) -> None:
     """
