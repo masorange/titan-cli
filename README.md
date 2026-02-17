@@ -23,21 +23,31 @@ pipx install titan-cli
 
 # Verify installation
 titan --version
+
+# Launch Titan
+titan
 ```
 
-### For Development
+**Note:** This installs the stable production version. You only get the `titan` command.
 
+### For Contributors (Development Setup)
+
+**See [DEVELOPMENT.md](DEVELOPMENT.md) for complete development setup.**
+
+Quick start:
 ```bash
 # Clone repository
 git clone https://github.com/masorange/titan-cli.git
 cd titan-cli
 
-# Install with Poetry (editable mode)
-poetry install
+# Setup development environment
+make dev-install
 
 # Run development version
-poetry run titan-dev
+titan-dev
 ```
+
+**Note:** Development setup creates a `titan-dev` command that runs from your local codebase, allowing you to test changes immediately. This command is **not available** to end users who install from PyPI.
 
 ## 🚀 Quick Start
 
