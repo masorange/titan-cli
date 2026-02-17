@@ -18,11 +18,12 @@ Usage:
     logger.info("operation_completed", items=5)
 """
 
-from .config import setup_logging, get_logger
+from .config import setup_logging, get_logger, disable_console_logging
 from .decorators import log_client_operation
 
 __all__ = [
     "setup_logging",
     "get_logger",
+    "disable_console_logging",
     "log_client_operation",
 ]

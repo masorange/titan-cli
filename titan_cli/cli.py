@@ -104,7 +104,7 @@ def main(
             pass
 
         # Launch TUI (only if no update or update was declined/failed)
-        launch_tui()
+        launch_tui(debug=debug)
 
 
 @app.command()
@@ -115,6 +115,10 @@ def version():
 
 
 @app.command()
-def tui():
+def tui(
+    ctx: typer.Context,
+):
     """Launch Titan in TUI mode (Textual interface)."""
-    launch_tui()
+    # Get debug flag from parent context (main callback)
+    debug = ctx.parent.params.get("debug", False) if ctx.parent else False
+    launch_tui(debug=debug)

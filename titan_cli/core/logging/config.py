@@ -173,20 +173,34 @@ def _configure_structlog(is_dev: bool) -> None:
         structlog.contextvars.merge_contextvars,  # Add context variables
         structlog.stdlib.add_log_level,  # Add log level
         structlog.stdlib.add_logger_name,  # Add logger name
-        structlog.processors.TimeStamper(fmt="iso"),  # ISO timestamp
         structlog.processors.StackInfoRenderer(),  # Stack info if available
     ]
 
     # Choose final renderer based on mode
+    # NOTE: Only final rendering processors here, shared_processors go in main configure
     if is_dev:
         # Development: colorized console output
-        final_processor = structlog.dev.ConsoleRenderer(
-            colors=True,
-            exception_formatter=structlog.dev.plain_traceback,
-        )
+        console_processors = [
+            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),  # Human-readable timestamp
+            structlog.dev.ConsoleRenderer(
+                colors=True,
+                exception_formatter=structlog.dev.plain_traceback,
+            ),
+        ]
+        file_processors = [
+            structlog.processors.TimeStamper(fmt="iso"),  # ISO for file
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ]
     else:
-        # Production: JSON output
-        final_processor = structlog.processors.JSONRenderer()
+        # Production: JSON for both
+        json_processors = [
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ]
+        console_processors = json_processors
+        file_processors = json_processors
 
     # Configure structlog
     structlog.configure(
@@ -200,17 +214,29 @@ def _configure_structlog(is_dev: bool) -> None:
     )
 
     # Configure formatters for stdlib integration
-    formatter = structlog.stdlib.ProcessorFormatter(
+    console_formatter = structlog.stdlib.ProcessorFormatter(
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-            final_processor,
-        ],
+        ]
+        + console_processors,  # Include ALL processors (TimeStamper + Renderer)
     )
 
-    # Apply formatter to all handlers
+    file_formatter = structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+        ]
+        + file_processors,  # Include ALL processors
+    )
+
+    # Apply formatters to specific handlers
     root_logger = logging.getLogger()
     for handler in root_logger.handlers:
-        handler.setFormatter(formatter)
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+            # Console handler
+            handler.setFormatter(console_formatter)
+        else:
+            # File handler
+            handler.setFormatter(file_formatter)
 
 
 def get_logger(name: str = "titan") -> structlog.BoundLogger:
@@ -232,3 +258,26 @@ def get_logger(name: str = "titan") -> structlog.BoundLogger:
         logger.info("step_started", step="commit", branch="main")
     """
     return structlog.get_logger(name)
+
+
+def disable_console_logging() -> None:
+    """
+    Disable console logging (only log to file).
+
+    This is used in production mode when launching the Textual TUI.
+    In production, console logs would be hidden by the TUI anyway,
+    so we disable them to save resources.
+
+    In debug mode, console logging stays enabled because Textual
+    devtools will capture and display them in a separate console.
+
+    After calling this, logs will only go to the file handler.
+    """
+    root_logger = logging.getLogger()
+
+    # Remove console handler (StreamHandler that's not a FileHandler)
+    for handler in root_logger.handlers[:]:  # [:] creates a copy for safe iteration
+        if isinstance(handler, logging.StreamHandler) and not isinstance(
+            handler, logging.FileHandler
+        ):
+            root_logger.removeHandler(handler)
