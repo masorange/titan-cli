@@ -7,14 +7,16 @@ These functions wrap git worktree commands without UI dependencies.
 
 import os
 from typing import Tuple, Optional
+from titan_cli.core.result import ClientSuccess, ClientError
 
 
 def setup_worktree(
     git_client,
     pr_number: int,
     branch: str,
-    base_path: str = ".titan/worktrees"
-) -> Tuple[str, str, bool]:
+    base_path: str = ".titan/worktrees",
+    remote: str = "origin"
+) -> Tuple[str, bool]:
     """
     Create a git worktree for PR review.
 
@@ -23,14 +25,15 @@ def setup_worktree(
         pr_number: PR number (used in worktree name)
         branch: Branch to checkout in worktree
         base_path: Base directory for worktrees
+        remote: Remote name (default: "origin")
 
     Returns:
-        Tuple of (relative_path, absolute_path, created_successfully)
+        Tuple of (absolute_path, created_successfully)
 
     Example:
-        >>> rel_path, abs_path, created = setup_worktree(git, 123, "feature-branch")
-        >>> rel_path
-        '.titan/worktrees/titan-review-123'
+        >>> abs_path, created = setup_worktree(git, 123, "feature-branch")
+        >>> abs_path
+        '/home/user/project/.titan/worktrees/titan-review-123'
         >>> created
         True
     """
@@ -42,21 +45,34 @@ def setup_worktree(
 
         # Remove worktree if it already exists
         try:
-            git_client.remove_worktree(worktree_path, force=True)
+            result = git_client.remove_worktree(worktree_path, force=True)
+            match result:
+                case ClientSuccess():
+                    pass
+                case ClientError():
+                    pass  # Worktree might not exist
         except Exception:
-            pass  # Worktree might not exist
+            pass
 
-        # Create new worktree from branch
-        git_client.create_worktree(
+        # Create new worktree from remote branch in detached mode
+        # This avoids "branch already checked out" errors and works even if branch doesn't exist locally
+        remote_ref = f"{remote}/{branch}"
+
+        result = git_client.create_worktree(
             path=worktree_path,
-            branch=branch,
-            create_branch=False
+            branch=remote_ref,
+            create_branch=False,
+            detached=True
         )
 
-        return (worktree_path, full_worktree_path, True)
+        match result:
+            case ClientSuccess():
+                return (full_worktree_path, True)
+            case ClientError():
+                return ("", False)
 
     except Exception:
-        return ("", "", False)
+        return ("", False)
 
 
 def cleanup_worktree(
@@ -109,18 +125,15 @@ def commit_in_worktree(
 
     Raises:
         Exception: If commit fails
-
-    Example:
-        >>> commit_hash = commit_in_worktree(
-        ...     git, "/tmp/worktree",
-        ...     "Fix bug", add_all=True, no_verify=True
-        ... )
-        >>> len(commit_hash)
-        40
     """
     # Stage files if requested
     if add_all:
-        git_client.run_in_worktree(worktree_path, ["git", "add", "--all"])
+        add_result = git_client.run_in_worktree(worktree_path, ["git", "add", "--all"])
+        match add_result:
+            case ClientSuccess():
+                pass
+            case ClientError(error_message=err):
+                raise Exception(f"Failed to stage files: {err}")
 
     # Build commit command
     commit_args = ["git", "commit"]
@@ -131,15 +144,24 @@ def commit_in_worktree(
     commit_args.extend(["-m", message])
 
     # Create commit
-    git_client.run_in_worktree(worktree_path, commit_args)
+    commit_result = git_client.run_in_worktree(worktree_path, commit_args)
+    match commit_result:
+        case ClientSuccess():
+            pass
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to create commit: {err}")
 
     # Get commit hash
-    commit_hash = git_client.run_in_worktree(
+    hash_result = git_client.run_in_worktree(
         worktree_path,
         ["git", "rev-parse", "HEAD"]
-    ).strip()
+    )
 
-    return commit_hash
+    match hash_result:
+        case ClientSuccess(data=commit_hash):
+            return commit_hash.strip()
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to get commit hash: {err}")
 
 
 def push_from_worktree(
@@ -163,19 +185,19 @@ def push_from_worktree(
 
     Returns:
         True if successful, False otherwise
-
-    Example:
-        >>> push_from_worktree(git, "/tmp/worktree", branch="feature-x")
-        True
     """
     try:
         # Auto-detect branch if not provided
         if not branch:
-            result = git_client.run_in_worktree(
+            branch_result = git_client.run_in_worktree(
                 worktree_path,
                 ["git", "branch", "--show-current"]
             )
-            branch = result.strip()
+            match branch_result:
+                case ClientSuccess(data=branch_name):
+                    branch = branch_name.strip()
+                case ClientError():
+                    return False
 
         if not branch:
             return False
@@ -189,9 +211,12 @@ def push_from_worktree(
         push_args.extend([remote, branch])
 
         # Push
-        git_client.run_in_worktree(worktree_path, push_args)
-
-        return True
+        push_result = git_client.run_in_worktree(worktree_path, push_args)
+        match push_result:
+            case ClientSuccess():
+                return True
+            case ClientError():
+                return False
 
     except Exception:
         return False

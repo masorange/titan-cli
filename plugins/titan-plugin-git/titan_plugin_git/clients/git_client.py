@@ -22,6 +22,7 @@ from .services import (
 )
 from ..models.view import (
     UIGitBranch,
+    UIGitCommit,
     UIGitStatus,
     UIGitTag,
     UIGitWorktree,
@@ -411,3 +412,18 @@ class GitClient:
     def run_in_worktree(self, worktree_path: str, args: List[str]) -> ClientResult[str]:
         """Run a git command in a specific worktree."""
         return self.worktree_service.run_in_worktree(worktree_path, args)
+
+    def get_commits(self, worktree_path: str, limit: int = 10) -> ClientResult[List[UIGitCommit]]:
+        """Get recent commits from a worktree."""
+        return self.worktree_service.get_commits(worktree_path, limit)
+
+    def get_worktree_diff_stat(self, worktree_path: str) -> ClientResult[str]:
+        """Get diff stat of uncommitted changes in a worktree."""
+        return self.worktree_service.get_diff_stat_in_worktree(worktree_path)
+
+    def push_from_worktree(
+        self, worktree_path: str, branch: str, remote: Optional[str] = None
+    ) -> ClientResult[None]:
+        """Push commits from a worktree to remote."""
+        remote = remote or self.default_remote
+        return self.worktree_service.push_from_worktree(worktree_path, branch, remote)

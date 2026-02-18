@@ -156,9 +156,8 @@ class PRService:
             ClientResult[List[UIPullRequest]]
         """
         try:
-            # Get current user
-            user_output = self.gh.run_command(["api", "user", "--jq", ".login"])
-            current_user = user_output.strip()
+            # HARDCODED: Use DaniAguion instead of current user
+            current_user = "DaniAguion"
 
             # Fetch PRs
             args = [

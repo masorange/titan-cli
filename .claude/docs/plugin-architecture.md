@@ -280,6 +280,52 @@ class IssueService:
             return ClientError(error_message=str(e), error_code=error_code)
 ```
 
+**⚠️ CRITICAL: Exception Handling in Services**
+
+Services MUST catch the **BASE exception class**, not specific subclasses.
+
+❌ **WRONG**:
+```python
+class WorktreeService:
+    def push_from_worktree(...) -> ClientResult[None]:
+        try:
+            self.git.run_command(args)
+            return ClientSuccess(...)
+        except GitCommandError as e:  # ❌ Only catches GitCommandError
+            return ClientError(...)
+```
+
+✅ **CORRECT**:
+```python
+class WorktreeService:
+    def push_from_worktree(...) -> ClientResult[None]:
+        try:
+            self.git.run_command(args)
+            return ClientSuccess(...)
+        except GitError as e:  # ✅ Catches ALL git errors
+            return ClientError(...)
+```
+
+**Why?**
+
+Exception hierarchies have multiple sibling classes:
+```
+GitError (base)
+├── GitCommandError (command execution failed)
+├── GitClientError (git CLI not found)
+├── GitNotRepositoryError (not a git repo)
+└── GitMergeConflictError (merge conflict)
+```
+
+If a service only catches `GitCommandError`, then:
+- `GitClientError` (git not installed) → uncaught → propagates to executor
+- Result: Confusing error message: "Error executing step: Git CLI not found"
+- Violates architecture: Services should return `ClientError`, not throw exceptions
+
+**Rule**: Always catch the base exception class (`GitError`, `JiraAPIError`, `GitHubAPIError`) to ensure ALL error types are converted to `ClientResult`.
+
+**Bug Fix Reference**: WorktreeService (2026-02-18) - changed `except GitCommandError` → `except GitError`
+
 ---
 
 ### Layer 5: Network

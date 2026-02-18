@@ -111,3 +111,37 @@ mutation($prId: ID!, $userIds: [ID!]!) {
   }
 }
 '''
+
+ADD_PULL_REQUEST_REVIEW_COMMENT = '''
+mutation($body: String!, $inReplyTo: ID!) {
+  addPullRequestReviewComment(input: {
+    body: $body
+    inReplyTo: $inReplyTo
+  }) {
+    comment {
+      id
+      databaseId
+      body
+    }
+  }
+}
+'''
+
+GET_COMMENT_NODE_ID = '''
+query($owner: String!, $repo: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      reviewThreads(first: 100) {
+        nodes {
+          comments(first: 100) {
+            nodes {
+              databaseId
+              id
+            }
+          }
+        }
+      }
+    }
+  }
+}
+'''

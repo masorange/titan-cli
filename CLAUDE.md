@@ -74,6 +74,19 @@ Workflows are defined in YAML files and executed through steps that can:
 
 ## Technical Documentation
 
+### Workflows
+
+**📖 [Complete Workflows Guide](.claude/docs/workflows.md)** ⭐
+
+Covers everything about creating and extending workflows:
+- YAML structure (all fields)
+- Step types: plugin steps, shell commands, nested workflows
+- Parameter substitution (`${key}` syntax)
+- Workflow sources and override precedence
+- Extending workflows with `extends` + hooks
+- **Result types: Success / Skip / Error / Exit and their effects on execution**
+- **Critical: Skip vs Exit — guaranteed cleanup pattern**
+
 ### Workflow Steps Development
 
 To create new workflow steps using the Textual TUI framework:
@@ -119,6 +132,47 @@ def my_step(ctx: WorkflowContext) -> WorkflowResult:  # ← Exact match
 ```
 
 **Convention**: Don't add `_step` suffix to function names in project steps. The function name IS the step name.
+
+**2. Using Low-Level Client Methods Directly in Steps**
+
+Steps should NEVER call low-level client methods directly. Always use high-level service methods or operations.
+
+❌ **WRONG**:
+```python
+# In a step
+def my_step(ctx: WorkflowContext) -> WorkflowResult:
+    # DON'T use run_in_worktree directly
+    result = ctx.git.run_in_worktree(path, ["git", "log", "--oneline"])
+
+    # DON'T use run_command directly
+    output = ctx.git.run_command(["git", "status"])
+```
+
+✅ **CORRECT**:
+```python
+# In a step - use high-level service methods
+def my_step(ctx: WorkflowContext) -> WorkflowResult:
+    # Use service methods that return ClientResult
+    result = ctx.git.get_worktree_commits(path, limit=10)
+    match result:
+        case ClientSuccess(data=commits):
+            # Work with UI models
+            for commit in commits:
+                ctx.textual.text(commit.summary)
+        case ClientError(error_message=err):
+            return Error(f"Failed: {err}")
+```
+
+**Why?**
+- Low-level methods bypass the architecture (no ClientResult, no UI models)
+- Hard to test and maintain
+- Violates separation of concerns (steps should only orchestrate UI)
+- If you need git/worktree operations, add them to the appropriate service:
+  - `WorktreeService` for worktree operations
+  - `BranchService` for branch operations
+  - Or create an operation in `operations/` for complex logic
+
+**Rule**: If a step needs to call `run_in_worktree()`, `run_command()`, or any other low-level method, create a proper service method or operation instead.
 
 ### Scroll Behavior Guidelines
 

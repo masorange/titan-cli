@@ -186,7 +186,7 @@ class TestReplyToCommentBatch:
         )
 
         replies = {
-            101: "Fixed in abc123",
+            101: "abc123",
             102: "Done",
             103: "Implemented"
         }

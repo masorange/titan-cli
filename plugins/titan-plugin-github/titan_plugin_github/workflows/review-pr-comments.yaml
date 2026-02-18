@@ -12,7 +12,43 @@ steps:
     plugin: github
     step: fetch_pending_comments
 
+  # Create worktree - if fails, skip to cleanup
+  - id: create_worktree
+    name: "Create Worktree"
+    plugin: github
+    step: create_worktree
+    on_error: continue
+
+  # Review comments - if fails, skip to cleanup
   - id: review_comments
     name: "Review Comments"
     plugin: github
     step: review_comments
+    on_error: continue
+
+  # Push commits - if fails, skip to cleanup
+  - id: push_commits
+    name: "Push Commits"
+    plugin: github
+    step: push_commits
+    on_error: continue
+
+  # Send replies - if fails, skip to cleanup
+  - id: send_replies
+    name: "Send Comment Replies"
+    plugin: github
+    step: send_comment_replies
+    on_error: continue
+
+  # Request review - if fails, skip to cleanup
+  - id: request_review
+    name: "Re-request Review"
+    plugin: github
+    step: request_review
+    on_error: continue
+
+  # Cleanup ALWAYS runs (even if previous steps failed)
+  - id: cleanup
+    name: "Cleanup Worktree"
+    plugin: github
+    step: cleanup_worktree
