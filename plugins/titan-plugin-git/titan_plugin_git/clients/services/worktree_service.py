@@ -256,6 +256,48 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_DIFF_STAT_ERROR")
 
+    def commit_in_worktree(
+        self,
+        worktree_path: str,
+        message: str,
+        add_all: bool = True,
+        no_verify: bool = False
+    ) -> ClientResult[str]:
+        """
+        Stage and commit changes in a worktree.
+
+        Args:
+            worktree_path: Path to worktree
+            message: Commit message
+            add_all: Stage all changes before committing
+            no_verify: Skip pre-commit hooks
+
+        Returns:
+            ClientResult[str] with commit hash
+        """
+        try:
+            if add_all:
+                self.git.run_command(
+                    ["git", "-C", worktree_path, "add", "--all"],
+                    cwd=worktree_path
+                )
+
+            commit_args = ["git", "-C", worktree_path, "commit"]
+            if no_verify:
+                commit_args.append("--no-verify")
+            commit_args.extend(["-m", message])
+
+            self.git.run_command(commit_args, cwd=worktree_path)
+
+            commit_hash = self.git.run_command(
+                ["git", "-C", worktree_path, "rev-parse", "HEAD"],
+                cwd=worktree_path
+            )
+            return ClientSuccess(data=commit_hash.strip(), message="Commit created")
+
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="WORKTREE_COMMIT_ERROR")
+
     def push_from_worktree(
         self, worktree_path: str, branch: str, remote: str = "origin"
     ) -> ClientResult[None]:

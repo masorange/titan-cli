@@ -573,18 +573,17 @@ class TextualComponents:
 
         def _mount():
             choice_widget_ref = []
+            target = self._active_step_container or self.output_widget
 
             def on_selected(value: bool):
                 # Called from UI thread (button press event)
                 # Replace PromptChoice with DecisionBadge
                 widget = choice_widget_ref[0]
-                parent = widget.parent
                 label = "✓ Yes" if value else "✗ No"
                 variant = "success" if value else "warning"
                 badge = DecisionBadge(label, variant=variant)
                 widget.remove()
-                if parent:
-                    parent.mount(badge)
+                target.mount(badge)
                 result_container["value"] = value
                 result_event.set()
 
@@ -594,7 +593,6 @@ class TextualComponents:
                 on_select=on_selected,
             )
             choice_widget_ref.append(widget)
-            target = self._active_step_container or self.output_widget
             target.mount(widget)
 
         try:
@@ -636,16 +634,15 @@ class TextualComponents:
 
         def _mount():
             choice_widget_ref = []
+            target = self._active_step_container or self.output_widget
 
             def on_selected(value):
                 widget = choice_widget_ref[0]
-                parent = widget.parent
                 selected = next((o for o in options if o.value == value), None)
                 label = f"→ {selected.label}" if selected else f"→ {value}"
                 badge = DecisionBadge(label)
                 widget.remove()
-                if parent:
-                    parent.mount(badge)
+                target.mount(badge)
                 result_container["value"] = value
                 result_event.set()
 
@@ -655,7 +652,6 @@ class TextualComponents:
                 on_select=on_selected,
             )
             choice_widget_ref.append(widget)
-            target = self._active_step_container or self.output_widget
             target.mount(widget)
 
         try:

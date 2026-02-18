@@ -421,6 +421,16 @@ class GitClient:
         """Get diff stat of uncommitted changes in a worktree."""
         return self.worktree_service.get_diff_stat_in_worktree(worktree_path)
 
+    def commit_in_worktree(
+        self,
+        worktree_path: str,
+        message: str,
+        add_all: bool = True,
+        no_verify: bool = False
+    ) -> ClientResult[str]:
+        """Stage and commit changes in a worktree."""
+        return self.worktree_service.commit_in_worktree(worktree_path, message, add_all, no_verify)
+
     def push_from_worktree(
         self, worktree_path: str, branch: str, remote: Optional[str] = None
     ) -> ClientResult[None]:
