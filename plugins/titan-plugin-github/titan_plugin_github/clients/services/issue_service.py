@@ -9,6 +9,7 @@ import json
 from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GHNetwork
 from ...models.network.rest import NetworkIssue
@@ -33,6 +34,7 @@ class IssueService:
         """
         self.gh = gh_network
 
+    @log_client_operation()
     def create_issue(
         self,
         title: str,
@@ -100,6 +102,7 @@ class IssueService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def list_labels(self) -> ClientResult[List[str]]:
         """
         List all labels in the repository.

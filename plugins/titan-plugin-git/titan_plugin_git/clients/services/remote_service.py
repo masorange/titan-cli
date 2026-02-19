@@ -9,6 +9,7 @@ import re
 from typing import Optional, Tuple
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...exceptions import GitCommandError
@@ -30,6 +31,7 @@ class RemoteService:
         """
         self.git = git_network
 
+    @log_client_operation()
     def push(
         self,
         remote: str = "origin",
@@ -69,6 +71,7 @@ class RemoteService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="PUSH_ERROR")
 
+    @log_client_operation()
     def pull(
         self, remote: str = "origin", branch: Optional[str] = None
     ) -> ClientResult[None]:
@@ -94,6 +97,7 @@ class RemoteService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="PULL_ERROR")
 
+    @log_client_operation()
     def fetch(
         self,
         remote: str = "origin",
@@ -127,6 +131,7 @@ class RemoteService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="FETCH_ERROR")
 
+    @log_client_operation()
     def get_github_repo_info(self) -> ClientResult[Tuple[Optional[str], Optional[str]]]:
         """
         Extract GitHub repository owner and name from 'origin' remote URL.

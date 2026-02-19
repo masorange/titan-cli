@@ -290,7 +290,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
         request = AgentRequest(
             context=prompt,
             max_tokens=500,  # Increased from 200 to handle larger diffs
-            system_prompt=self.config.commit_system_prompt  # Use specific commit prompt
+            system_prompt=self.config.commit_system_prompt,  # Use specific commit prompt
+            operation="commit_message",
         )
 
         try:
@@ -387,7 +388,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
         request = AgentRequest(
             context=prompt,
             max_tokens=max_tokens,
-            system_prompt=self.config.pr_system_prompt
+            system_prompt=self.config.pr_system_prompt,
+            operation="pr_description",
         )
 
         try:

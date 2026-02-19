@@ -8,6 +8,7 @@ Uses network layer to execute commands, parses to network models, maps to view m
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...models.network.worktree import NetworkGitWorktree
@@ -36,6 +37,7 @@ class WorktreeService:
         """
         self.git = git_network
 
+    @log_client_operation()
     def create_worktree(
         self, path: str, branch: str, create_branch: bool = False, detached: bool = False
     ) -> ClientResult[None]:
@@ -71,6 +73,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_CREATE_ERROR")
 
+    @log_client_operation()
     def remove_worktree(self, path: str, force: bool = False) -> ClientResult[None]:
         """
         Remove a worktree.
@@ -94,6 +97,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_REMOVE_ERROR")
 
+    @log_client_operation()
     def list_worktrees(self) -> ClientResult[List[UIGitWorktree]]:
         """
         List all worktrees.
@@ -154,6 +158,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_LIST_ERROR")
 
+    @log_client_operation()
     def run_in_worktree(self, worktree_path: str, args: List[str]) -> ClientResult[str]:
         """
         Run a git command in a specific worktree.
@@ -178,6 +183,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_COMMAND_ERROR")
 
+    @log_client_operation()
     def get_commits(
         self, worktree_path: str, limit: int = 10
     ) -> ClientResult[List[UIGitCommit]]:
@@ -239,6 +245,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_COMMITS_ERROR")
 
+    @log_client_operation()
     def get_diff_stat_in_worktree(self, worktree_path: str) -> ClientResult[str]:
         """
         Get diff stat of uncommitted changes in a worktree.
@@ -256,6 +263,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_DIFF_STAT_ERROR")
 
+    @log_client_operation()
     def checkout_branch_in_worktree(
         self,
         worktree_path: str,
@@ -283,6 +291,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_CHECKOUT_ERROR")
 
+    @log_client_operation()
     def commit_in_worktree(
         self,
         worktree_path: str,
@@ -325,6 +334,7 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_COMMIT_ERROR")
 
+    @log_client_operation()
     def push_from_worktree(
         self, worktree_path: str, branch: str, remote: str = "origin"
     ) -> ClientResult[None]:

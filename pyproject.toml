@@ -42,6 +42,7 @@ jinja2 = ">=3.1.4,<4.0.0"
 textual = ">=1.0.0,<2.0.0"
 requests = ">=2.31.0,<3.0.0"
 packaging = ">=23.0,<25.0"
+structlog = ">=25.5.0,<26.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
@@ -49,6 +50,7 @@ pytest-mock = "^3.12"
 pytest-cov = "^4.1"
 ruff = "^0.14.9"
 pytest-json-report = "^1.5.0"
+textual-dev = "^1.0.0"
 # Plugin path dependencies for development (editable installs)
 titan-plugin-git = {path = "plugins/titan-plugin-git", develop = true}
 titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}

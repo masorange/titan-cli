@@ -8,6 +8,7 @@ Uses network layer to execute commands, parses to network models, maps to view m
 from typing import Tuple
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...models.network.status import NetworkGitStatus
@@ -33,6 +34,7 @@ class StatusService:
         """
         self.git = git_network
 
+    @log_client_operation()
     def get_status(self) -> ClientResult[UIGitStatus]:
         """
         Get repository status.
@@ -93,6 +95,7 @@ class StatusService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STATUS_ERROR")
 
+    @log_client_operation()
     def has_uncommitted_changes(self) -> ClientResult[bool]:
         """
         Check if repository has uncommitted changes.

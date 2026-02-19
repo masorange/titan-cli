@@ -10,6 +10,7 @@ import subprocess
 from typing import List, Optional, Dict, Any
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 from ..network import GHNetwork, GraphQLNetwork, graphql_queries
 from ...models.network.rest import NetworkReview
 from ...models.network.graphql import GraphQLPullRequestReviewThread
@@ -37,6 +38,7 @@ class ReviewService:
         self.gh = gh_network
         self.graphql = graphql_network
 
+    @log_client_operation()
     def get_pr_review_threads(
         self, pr_number: int, include_resolved: bool = True
     ) -> ClientResult[List[UICommentThread]]:
@@ -104,6 +106,7 @@ class ReviewService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def resolve_review_thread(self, thread_node_id: str) -> ClientResult[None]:
         """
         Resolve a review thread.
@@ -129,6 +132,7 @@ class ReviewService:
                 error_code="API_ERROR"
             )
 
+    @log_client_operation()
     def get_pr_reviews(self, pr_number: int) -> ClientResult[List[UIReview]]:
         """
         Get all reviews for a PR.
@@ -164,6 +168,7 @@ class ReviewService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def create_draft_review(
         self, pr_number: int, payload: Dict[str, Any]
     ) -> ClientResult[int]:
@@ -210,12 +215,13 @@ class ReviewService:
             )
         except subprocess.CalledProcessError as e:
             return ClientError(
-                error_message=f"Failed to create draft review: {e}",
+                error_message=f"Failed to create draft review: gh API returned exit code {e.returncode}",
                 error_code="API_ERROR"
             )
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def submit_review(
         self, pr_number: int, review_id: int, event: str, body: str = ""
     ) -> ClientResult[None]:
@@ -253,6 +259,7 @@ class ReviewService:
                 error_code="API_ERROR"
             )
 
+    @log_client_operation()
     def delete_review(self, pr_number: int, review_id: int) -> ClientResult[None]:
         """
         Delete a draft review.
@@ -282,6 +289,7 @@ class ReviewService:
                 error_code="API_ERROR"
             )
 
+    @log_client_operation()
     def reply_to_comment(
         self, pr_number: int, comment_id: int, body: str
     ) -> ClientResult[None]:
@@ -316,6 +324,7 @@ class ReviewService:
                 error_code="API_ERROR"
             )
 
+    @log_client_operation()
     def add_issue_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """
         Add a general comment to PR (issue comment).
@@ -345,6 +354,7 @@ class ReviewService:
                 error_code="API_ERROR"
             )
 
+    @log_client_operation()
     def request_pr_review(
         self, pr_number: int, reviewers: Optional[List[str]] = None
     ) -> ClientResult[None]:

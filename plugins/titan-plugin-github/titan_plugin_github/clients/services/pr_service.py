@@ -10,6 +10,7 @@ import re
 from typing import List, Optional, Dict, Any
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GHNetwork
 from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult
@@ -36,6 +37,7 @@ class PRService:
         """
         self.gh = gh_network
 
+    @log_client_operation()
     def get_pull_request(self, pr_number: int) -> ClientResult[UIPullRequest]:
         """
         Get a pull request by number.
@@ -81,10 +83,12 @@ class PRService:
             if "not found" in str(e).lower():
                 return ClientError(
                     error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
-                    error_code="PR_NOT_FOUND"
+                    error_code="PR_NOT_FOUND",
+                    log_level="warning"
                 )
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def list_pending_review_prs(
         self, max_results: int = 50, include_team_reviews: bool = False
     ) -> ClientResult[List[UIPullRequest]]:
@@ -144,6 +148,7 @@ class PRService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def list_my_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
         """
         List your PRs.
@@ -197,6 +202,7 @@ class PRService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def list_all_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
         """
         List all PRs in the repository.
@@ -239,6 +245,7 @@ class PRService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def get_pr_diff(self, pr_number: int, file_path: Optional[str] = None) -> ClientResult[str]:
         """
         Get diff for a PR.
@@ -263,10 +270,12 @@ class PRService:
             if "not found" in str(e).lower():
                 return ClientError(
                     error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
-                    error_code="PR_NOT_FOUND"
+                    error_code="PR_NOT_FOUND",
+                    log_level="warning"
                 )
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def get_pr_files(self, pr_number: int) -> ClientResult[List[str]]:
         """
         Get list of changed files in PR.
@@ -300,6 +309,7 @@ class PRService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def checkout_pr(self, pr_number: int) -> ClientResult[str]:
         """
         Checkout a PR locally.
@@ -333,10 +343,12 @@ class PRService:
             if "not found" in str(e).lower():
                 return ClientError(
                     error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
-                    error_code="PR_NOT_FOUND"
+                    error_code="PR_NOT_FOUND",
+                    log_level="warning"
                 )
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def create_pull_request(
         self,
         title: str,
@@ -415,6 +427,7 @@ class PRService:
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def merge_pr(
         self,
         pr_number: int,
@@ -481,6 +494,7 @@ class PRService:
             ui_result = from_network_pr_merge_result(network_result)
             return ClientSuccess(data=ui_result, message="Merge failed")
 
+    @log_client_operation()
     def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """
         Add a comment to a PR.
@@ -505,10 +519,12 @@ class PRService:
             if "not found" in str(e).lower():
                 return ClientError(
                     error_message=msg.GitHub.PR_NOT_FOUND.format(pr_number=pr_number),
-                    error_code="PR_NOT_FOUND"
+                    error_code="PR_NOT_FOUND",
+                    log_level="warning"
                 )
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
+    @log_client_operation()
     def get_pr_commit_sha(self, pr_number: int) -> ClientResult[str]:
         """
         Get the latest commit SHA for a PR.

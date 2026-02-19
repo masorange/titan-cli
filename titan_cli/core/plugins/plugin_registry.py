@@ -3,6 +3,10 @@ from importlib.metadata import entry_points
 from typing import Dict, List, Any, Optional
 from ..errors import PluginLoadError, PluginInitializationError
 from .plugin_base import TitanPlugin
+from titan_cli.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class PluginRegistry:
     """Discovers and manages installed plugins."""
@@ -16,9 +20,6 @@ class PluginRegistry:
 
     def discover(self):
         """Discover all installed Titan plugins."""
-        import logging
-        logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
-
         discovered = entry_points(group='titan.plugins')
 
         # Deduplicate entry points (can happen in dev mode with editable installs)
@@ -30,23 +31,22 @@ class PluginRegistry:
                 unique_eps.append(ep)
 
         self._discovered_plugin_names = [ep.name for ep in unique_eps]
-        logger.debug(f"PluginRegistry.discover() - Found {len(self._discovered_plugin_names)} plugins: {self._discovered_plugin_names}")
+        logger.debug("plugins_discovered", count=len(self._discovered_plugin_names), plugins=self._discovered_plugin_names)
 
         for ep in unique_eps:
             try:
-                logger.debug(f"Loading plugin: {ep.name}")
+                logger.debug("plugin_loading", name=ep.name)
                 plugin_class = ep.load()
                 if not issubclass(plugin_class, TitanPlugin):
                     raise TypeError("Plugin class must inherit from TitanPlugin")
                 self._plugins[ep.name] = plugin_class()
-                logger.debug(f"Successfully loaded plugin: {ep.name}")
+                logger.debug("plugin_loaded", name=ep.name)
             except Exception as e:
-                logger.error(f"Failed to load plugin {ep.name}: {e}", exc_info=True)
+                logger.exception("plugin_load_failed", name=ep.name)
                 error = PluginLoadError(plugin_name=ep.name, original_exception=e)
                 self._failed_plugins[ep.name] = error
 
-        logger.debug(f"PluginRegistry.discover() - Loaded {len(self._plugins)} plugins successfully")
-        logger.debug(f"PluginRegistry.discover() - Failed {len(self._failed_plugins)} plugins: {list(self._failed_plugins.keys())}")
+        logger.debug("plugin_discovery_completed", loaded=len(self._plugins), failed=len(self._failed_plugins), failed_plugins=list(self._failed_plugins.keys()))
 
     def initialize_plugins(self, config: Any, secrets: Any) -> None:
         """
@@ -56,9 +56,6 @@ class PluginRegistry:
             config: TitanConfig instance
             secrets: SecretManager instance
         """
-        import logging
-        logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
-
         # Create a copy of plugin names to iterate over, as _plugins might change
         plugins_to_initialize = list(self._plugins.keys())
         initialized = set()
@@ -74,13 +71,13 @@ class PluginRegistry:
 
                 # Skip plugins that are disabled in configuration
                 if not config.is_plugin_enabled(name):
-                    logger.debug(f"Skipping disabled plugin: {name}")
+                    logger.debug("plugin_disabled", name=name)
                     initialized.add(name)  # Mark as processed so we don't retry
                     continue
 
                 plugin = self._plugins[name]
                 dependencies_met = True
-                
+
                 # Check if all dependencies are initialized or failed
                 for dep_name in plugin.dependencies:
                     if dep_name not in initialized:
@@ -92,13 +89,14 @@ class PluginRegistry:
                                 original_exception=f"Dependency '{dep_name}' failed to load/initialize."
                             )
                             self._failed_plugins[name] = error
+                            logger.error("plugin_dependency_failed", name=name, dependency=dep_name)
                             # Don't delete from _plugins - keep it available for configuration
                             dependencies_met = False
                             break
                         else:
                             dependencies_met = False
                             break
-                
+
                 if not dependencies_met:
                     if name not in self._failed_plugins: # If not already marked failed by dependency
                         next_pass_plugins.append(name)
@@ -106,12 +104,12 @@ class PluginRegistry:
 
                 # Initialize the plugin if dependencies are met
                 try:
-                    logger.debug(f"Initializing plugin: {name}")
+                    logger.debug("plugin_initializing", name=name)
                     plugin.initialize(config, secrets)
                     initialized.add(name)
-                    logger.debug(f"Successfully initialized plugin: {name}")
+                    logger.info("plugin_initialized", name=name)
                 except Exception as e:
-                    logger.error(f"Failed to initialize plugin {name}: {e}", exc_info=True)
+                    logger.exception("plugin_init_failed", name=name)
                     error = PluginInitializationError(plugin_name=name, original_exception=e)
                     self._failed_plugins[name] = error
                     # Don't delete from _plugins - keep it available for configuration
@@ -119,6 +117,7 @@ class PluginRegistry:
             plugins_to_initialize = next_pass_plugins
             if len(plugins_to_initialize) == remaining_plugins_count and remaining_plugins_count > 0:
                 # Circular dependency or unresolvable dependency
+                logger.error("circular_dependency_detected", plugins=plugins_to_initialize)
                 for name in plugins_to_initialize:
                     if name not in self._failed_plugins: # Only mark if not already failed by dependency
                         error = PluginInitializationError(

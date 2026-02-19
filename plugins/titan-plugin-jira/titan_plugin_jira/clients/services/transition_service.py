@@ -8,6 +8,7 @@ Network → NetworkModel → UIModel → ClientResult
 from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
 from ...models import (
@@ -30,6 +31,7 @@ class TransitionService:
     def __init__(self, network: JiraNetwork):
         self.network = network
 
+    @log_client_operation()
     def get_transitions(self, issue_key: str) -> ClientResult[List[UIJiraTransition]]:
         """
         Get available transitions for an issue.
@@ -59,10 +61,11 @@ class TransitionService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to get transitions for {issue_key}: {e.message}",
                 error_code="GET_TRANSITIONS_ERROR"
             )
 
+    @log_client_operation()
     def transition_issue(
         self,
         issue_key: str,
@@ -101,7 +104,8 @@ class TransitionService:
                 available = [t.to_status for t in transitions]
                 return ClientError(
                     error_message=f"Cannot transition to '{new_status}'. Available: {', '.join(available)}",
-                    error_code="INVALID_TRANSITION"
+                    error_code="INVALID_TRANSITION",
+                    log_level="warning"
                 )
 
             # 3. Build payload
@@ -137,7 +141,7 @@ class TransitionService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to transition {issue_key} to {new_status}: {e.message}",
                 error_code="TRANSITION_ERROR"
             )
 

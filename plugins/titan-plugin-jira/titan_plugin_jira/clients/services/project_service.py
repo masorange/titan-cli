@@ -8,6 +8,7 @@ Network → NetworkModel → UIModel → ClientResult
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
 from ...models import (
@@ -30,6 +31,7 @@ class ProjectService:
     def __init__(self, network: JiraNetwork):
         self.network = network
 
+    @log_client_operation()
     def get_project(self, key: str) -> ClientResult[UIJiraProject]:
         """
         Get project by key.
@@ -63,6 +65,7 @@ class ProjectService:
                 error_code=error_code
             )
 
+    @log_client_operation()
     def list_projects(self) -> ClientResult[List[UIJiraProject]]:
         """
         List all accessible projects.

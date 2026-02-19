@@ -7,7 +7,10 @@ Handles gh api graphql execution and error handling.
 No model conversion - returns raw GraphQL response dicts.
 """
 import json
+import time
 from typing import Dict, Any, Optional
+
+from titan_cli.core.logging.config import get_logger
 
 from ...exceptions import GitHubAPIError
 from ...messages import msg
@@ -34,6 +37,7 @@ class GraphQLNetwork:
             gh_network: GHNetwork instance for executing gh commands
         """
         self.gh_network = gh_network
+        self._logger = get_logger(__name__)
 
     def run_query(
         self, query: str, variables: Optional[Dict[str, Any]] = None
@@ -96,6 +100,10 @@ class GraphQLNetwork:
         Raises:
             GitHubAPIError: If execution fails
         """
+        # Detect type from first keyword — never log query content or variables (may contain PR/issue body)
+        op_type = "mutation" if operation.lstrip().startswith("mutation") else "query"
+        start = time.time()
+
         try:
             # Build payload as JSON
             payload = {"query": operation}
@@ -115,12 +123,22 @@ class GraphQLNetwork:
             if "errors" in response:
                 errors = response["errors"]
                 error_messages = [e.get("message", str(e)) for e in errors]
+                self._logger.debug(
+                    "graphql_errors",
+                    op_type=op_type,
+                    duration=round(time.time() - start, 3),
+                )
                 raise GitHubAPIError(
                     msg.GitHub.API_ERROR.format(
                         error_msg=f"GraphQL errors: {'; '.join(error_messages)}"
                     )
                 )
 
+            self._logger.debug(
+                "graphql_ok",
+                op_type=op_type,
+                duration=round(time.time() - start, 3),
+            )
             return response
 
         except json.JSONDecodeError as e:

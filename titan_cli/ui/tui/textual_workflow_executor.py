@@ -4,6 +4,7 @@ Textual Workflow Executor
 Workflow executor specifically designed for Textual TUI.
 Emits Textual messages instead of using Rich UI components.
 """
+import time
 from typing import Any, Dict, Optional
 
 from textual.message import Message
@@ -17,6 +18,9 @@ from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, is_error, is_skip, is_exit
 from titan_cli.engine.steps.command_step import execute_command_step as execute_external_command_step
 from titan_cli.engine.steps.ai_assistant_step import execute_ai_assistant_step
+from titan_cli.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class TextualWorkflowExecutor:
@@ -188,6 +192,15 @@ class TextualWorkflowExecutor:
         # Check if this is a nested workflow (called from another workflow)
         is_nested = len(ctx._workflow_stack) > 0
 
+        # Log workflow start
+        workflow_start_time = time.time()
+        logger.info("workflow_started",
+            workflow=workflow.name,
+            source=workflow.source,
+            total_steps=ctx.total_steps,
+            is_nested=is_nested
+        )
+
         # Emit workflow started event
         self._post_message(
             self.WorkflowStarted(
@@ -216,6 +229,16 @@ class TextualWorkflowExecutor:
                 step_id = step_config.id
                 step_name = step_config.name or step_id
 
+                # Log step start
+                step_start_time = time.time()
+                logger.debug("step_started",
+                    workflow=workflow.name,
+                    step_index=step_index,
+                    step_id=step_id,
+                    step=step_config.step,
+                    plugin=step_config.plugin
+                )
+
                 # Emit step started event
                 self._post_message_sync(
                     self.StepStarted(
@@ -235,10 +258,25 @@ class TextualWorkflowExecutor:
                     else:
                         step_result = Error(f"Invalid step configuration for '{step_id}'.")
                 except Exception as e:
+                    logger.exception("step_exception",
+                        workflow=workflow.name,
+                        step_id=step_id,
+                        step=step_config.step
+                    )
                     step_result = Error(f"An unexpected error occurred in step '{step_name}': {e}", e)
 
                 # Handle step result
+                step_duration = time.time() - step_start_time
+
                 if is_exit(step_result):
+                    # Log step exit
+                    logger.info("step_exit",
+                        workflow=workflow.name,
+                        step_id=step_id,
+                        message=step_result.message,
+                        duration=round(step_duration, 3)
+                    )
+
                     # Exit workflow immediately (not an error)
                     if step_result.metadata:
                         ctx.data.update(step_result.metadata)
@@ -256,6 +294,15 @@ class TextualWorkflowExecutor:
                     # (check if there are parent workflows in the stack)
                     is_nested = len(ctx._workflow_stack) > 1  # >1 because current workflow is still in stack
 
+                    # Log workflow completed
+                    workflow_duration = time.time() - workflow_start_time
+                    logger.info("workflow_completed",
+                        workflow=workflow.name,
+                        status="exited",
+                        steps_executed=step_index,
+                        duration=round(workflow_duration, 3)
+                    )
+
                     # Post workflow completed message and exit
                     self._post_message_sync(
                         self.WorkflowCompleted(
@@ -267,6 +314,15 @@ class TextualWorkflowExecutor:
                     return Success(step_result.message, step_result.metadata)
 
                 elif is_error(step_result):
+                    # Log step failure
+                    logger.error("step_failed",
+                        workflow=workflow.name,
+                        step_id=step_id,
+                        error=step_result.message,
+                        on_error=step_config.on_error,
+                        duration=round(step_duration, 3)
+                    )
+
                     self._post_message_sync(
                         self.StepFailed(
                             step_index=step_index,
@@ -278,6 +334,16 @@ class TextualWorkflowExecutor:
                     )
 
                     if step_config.on_error == "fail":
+                        # Log workflow failure
+                        workflow_duration = time.time() - workflow_start_time
+                        logger.error("workflow_failed",
+                            workflow=workflow.name,
+                            failed_at_step=step_id,
+                            error=step_result.message,
+                            steps_completed=step_index,
+                            duration=round(workflow_duration, 3)
+                        )
+
                         self._post_message_sync(
                             self.WorkflowFailed(
                                 workflow_name=workflow.name,
@@ -288,6 +354,13 @@ class TextualWorkflowExecutor:
                         return Error(f"Workflow failed at step '{step_name}'", step_result.exception)
                     # else: on_error == "continue" - continue to next step
                 elif is_skip(step_result):
+                    # Log step skipped
+                    logger.info("step_skipped",
+                        workflow=workflow.name,
+                        step_id=step_id,
+                        reason=step_result.message,
+                        duration=round(step_duration, 3)
+                    )
                     self._post_message_sync(
                         self.StepSkipped(
                             step_index=step_index,
@@ -298,6 +371,14 @@ class TextualWorkflowExecutor:
                     if step_result.metadata:
                         ctx.data.update(step_result.metadata)
                 else:  # Success
+                    # Log step success
+                    logger.info("step_success",
+                        workflow=workflow.name,
+                        step_id=step_id,
+                        message=step_result.message if hasattr(step_result, 'message') else None,
+                        duration=round(step_duration, 3)
+                    )
+
                     self._post_message_sync(
                         self.StepCompleted(
                             step_index=step_index,
@@ -314,9 +395,14 @@ class TextualWorkflowExecutor:
         # Check if this is a nested workflow (called from another workflow)
         is_nested = len(ctx._workflow_stack) > 0
 
-        # DEBUG: Log completion
-        # with open("/tmp/titan_debug.log", "a") as f:
-        #     f.write(f"[{time.time():.3f}] Workflow '{workflow.name}' completed. is_nested={is_nested}, stack={ctx._workflow_stack}\n")
+        # Log workflow completion
+        workflow_duration = time.time() - workflow_start_time
+        logger.info("workflow_completed",
+            workflow=workflow.name,
+            status="success",
+            steps_executed=step_index,
+            duration=round(workflow_duration, 3)
+        )
 
         # Emit workflow completed event
         self._post_message(

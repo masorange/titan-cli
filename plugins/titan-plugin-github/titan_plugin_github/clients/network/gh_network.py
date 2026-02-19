@@ -7,7 +7,10 @@ Handles subprocess execution, authentication, and error handling.
 No model conversion - returns raw JSON strings/dicts.
 """
 import subprocess
+import time
 from typing import List, Optional
+
+from titan_cli.core.logging.config import get_logger
 
 from ...exceptions import GitHubError, GitHubAuthenticationError, GitHubAPIError
 from ...messages import msg
@@ -39,6 +42,7 @@ class GHNetwork:
         """
         self.repo_owner = repo_owner
         self.repo_name = repo_name
+        self._logger = get_logger(__name__)
         self.check_auth()
 
     def check_auth(self) -> None:
@@ -74,6 +78,11 @@ class GHNetwork:
             >>> output = network.run_command(["pr", "view", "123", "--json", "title"])
             >>> # Returns: '{"title": "My PR"}'
         """
+        # Log only subcommand + action — never args[2:] (may contain PR body, issue content)
+        subcommand = args[0] if args else "unknown"
+        action = args[1] if len(args) > 1 else ""
+        start = time.time()
+
         try:
             result = subprocess.run(
                 ["gh"] + args,
@@ -82,8 +91,21 @@ class GHNetwork:
                 text=True,
                 check=True,
             )
+            self._logger.debug(
+                "gh_command_ok",
+                subcommand=subcommand,
+                action=action,
+                duration=round(time.time() - start, 3),
+            )
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
+            self._logger.debug(
+                "gh_command_failed",
+                subcommand=subcommand,
+                action=action,
+                duration=round(time.time() - start, 3),
+                exit_code=e.returncode,
+            )
             error_msg = e.stderr.strip() if e.stderr else str(e)
             raise GitHubAPIError(msg.GitHub.API_ERROR.format(error_msg=error_msg))
         except FileNotFoundError:
