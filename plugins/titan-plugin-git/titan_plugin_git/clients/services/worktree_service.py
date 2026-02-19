@@ -256,6 +256,33 @@ class WorktreeService:
         except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_DIFF_STAT_ERROR")
 
+    def checkout_branch_in_worktree(
+        self,
+        worktree_path: str,
+        branch_name: str,
+        force: bool = False
+    ) -> ClientResult[None]:
+        """
+        Checkout (or create) a branch in a worktree.
+
+        Args:
+            worktree_path: Path to worktree
+            branch_name: Branch name to checkout
+            force: Use -B to force create/reset branch if it exists
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            flag = "-B" if force else "-b"
+            self.git.run_command(
+                ["git", "-C", worktree_path, "checkout", flag, branch_name],
+                cwd=worktree_path
+            )
+            return ClientSuccess(data=None, message=f"Checked out branch '{branch_name}'")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="WORKTREE_CHECKOUT_ERROR")
+
     def commit_in_worktree(
         self,
         worktree_path: str,
