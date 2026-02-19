@@ -259,3 +259,65 @@ class TestGitClientSafeDeleteBranch:
 
         assert isinstance(result, ClientSuccess)
         mock_services['branch'].delete_branch.assert_called_once_with("feature", False)
+
+
+@pytest.mark.unit
+class TestGitClientWorktreeDelegation:
+    """Test that GitClient delegates new worktree methods to WorktreeService"""
+
+    def test_checkout_branch_in_worktree_delegates(self, mock_services):
+        """Test checkout_branch_in_worktree delegates to WorktreeService"""
+        mock_services['worktree'].checkout_branch_in_worktree.return_value = ClientSuccess(
+            data=None,
+            message="Checked out branch 'notes/release'"
+        )
+
+        client = GitClient()
+        result = client.checkout_branch_in_worktree("/tmp/worktree", "notes/release", force=True)
+
+        assert isinstance(result, ClientSuccess)
+        mock_services['worktree'].checkout_branch_in_worktree.assert_called_once_with(
+            "/tmp/worktree", "notes/release", True
+        )
+
+    def test_checkout_branch_in_worktree_error_propagates(self, mock_services):
+        """Test checkout_branch_in_worktree propagates ClientError from service"""
+        mock_services['worktree'].checkout_branch_in_worktree.return_value = ClientError(
+            error_message="branch already exists",
+            error_code="WORKTREE_CHECKOUT_ERROR"
+        )
+
+        client = GitClient()
+        result = client.checkout_branch_in_worktree("/tmp/worktree", "feature")
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "WORKTREE_CHECKOUT_ERROR"
+
+    def test_commit_in_worktree_delegates(self, mock_services):
+        """Test commit_in_worktree delegates to WorktreeService"""
+        mock_services['worktree'].commit_in_worktree.return_value = ClientSuccess(
+            data="abc123def456",
+            message="Commit created"
+        )
+
+        client = GitClient()
+        result = client.commit_in_worktree("/tmp/worktree", "Fix bug", add_all=True, no_verify=False)
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == "abc123def456"
+        mock_services['worktree'].commit_in_worktree.assert_called_once_with(
+            "/tmp/worktree", "Fix bug", True, False
+        )
+
+    def test_commit_in_worktree_error_propagates(self, mock_services):
+        """Test commit_in_worktree propagates ClientError from service"""
+        mock_services['worktree'].commit_in_worktree.return_value = ClientError(
+            error_message="nothing to commit",
+            error_code="WORKTREE_COMMIT_ERROR"
+        )
+
+        client = GitClient()
+        result = client.commit_in_worktree("/tmp/worktree", "Msg")
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "WORKTREE_COMMIT_ERROR"
