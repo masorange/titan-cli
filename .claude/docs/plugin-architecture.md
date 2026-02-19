@@ -586,6 +586,27 @@ match result:
 
 ## Testing Guidelines
 
+### ⚠️ Rule: Tests are MANDATORY for every Service
+
+**Every time a new Service is created or a method is added, unit tests MUST be written.**
+
+This is not optional. Services without tests are considered incomplete.
+
+**Checklist when creating a service:**
+- [ ] Create `tests/services/test_{name}_service.py`
+- [ ] Test every public method (happy path + error cases)
+- [ ] Mock the network layer (`mock_network.make_request` or `mock_git_network.run_command`)
+- [ ] Verify `ClientSuccess` is returned on success
+- [ ] Verify `ClientError` with the correct `error_code` is returned on failure
+
+**Where to put the tests:**
+```
+plugins/titan-plugin-{name}/
+└── tests/
+    └── services/
+        └── test_{name}_service.py   ← required for every service
+```
+
 ### Service Tests
 ```python
 def test_issue_service_get_success(mock_network):

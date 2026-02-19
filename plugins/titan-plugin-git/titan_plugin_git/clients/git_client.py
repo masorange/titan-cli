@@ -421,6 +421,12 @@ class GitClient:
         """Get diff stat of uncommitted changes in a worktree."""
         return self.worktree_service.get_diff_stat_in_worktree(worktree_path)
 
+    def checkout_branch_in_worktree(
+        self, worktree_path: str, branch_name: str, force: bool = False
+    ) -> ClientResult[None]:
+        """Checkout (or create) a branch in a worktree."""
+        return self.worktree_service.checkout_branch_in_worktree(worktree_path, branch_name, force)
+
     def commit_in_worktree(
         self,
         worktree_path: str,
