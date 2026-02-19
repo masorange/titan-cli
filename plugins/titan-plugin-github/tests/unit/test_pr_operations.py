@@ -6,7 +6,6 @@ import pytest
 from titan_cli.core.result import ClientSuccess
 from titan_plugin_github.operations.pr_operations import (
     fetch_pr_threads,
-    push_and_request_review,
 )
 
 
@@ -135,68 +134,3 @@ class TestFetchPRThreads:
         assert result == []
 
 
-@pytest.mark.unit
-class TestPushAndRequestReview:
-    """Test push and review request operation"""
-
-    def test_successful_push_and_rerequest(self, mock_github_client, mock_git_client):
-        """Test successful push and review re-request"""
-        success = push_and_request_review(
-            mock_github_client,
-            mock_git_client,
-            "/tmp/worktree",
-            "feature-branch",
-            42,
-            remote="origin"
-        )
-
-        assert success is True
-        mock_git_client.run_in_worktree.assert_called_once_with(
-            "/tmp/worktree",
-            ["git", "push", "origin", "feature-branch"]
-        )
-        mock_github_client.request_pr_review.assert_called_once_with(42)
-
-    def test_handles_push_failure(self, mock_github_client, mock_git_client):
-        """Test handling of git push failure"""
-        mock_git_client.run_in_worktree.side_effect = Exception("Push failed")
-
-        success = push_and_request_review(
-            mock_github_client,
-            mock_git_client,
-            "/tmp/worktree",
-            "feature-branch",
-            42
-        )
-
-        assert success is False
-
-    def test_handles_review_request_failure(self, mock_github_client, mock_git_client):
-        """Test handling of review request failure"""
-        mock_github_client.request_pr_review.side_effect = Exception("API error")
-
-        success = push_and_request_review(
-            mock_github_client,
-            mock_git_client,
-            "/tmp/worktree",
-            "feature-branch",
-            42
-        )
-
-        assert success is False
-
-    def test_uses_custom_remote(self, mock_github_client, mock_git_client):
-        """Test using custom remote name"""
-        push_and_request_review(
-            mock_github_client,
-            mock_git_client,
-            "/tmp/worktree",
-            "feature-branch",
-            42,
-            remote="upstream"
-        )
-
-        mock_git_client.run_in_worktree.assert_called_with(
-            "/tmp/worktree",
-            ["git", "push", "upstream", "feature-branch"]
-        )

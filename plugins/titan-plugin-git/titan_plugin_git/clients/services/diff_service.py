@@ -108,8 +108,8 @@ class DiffService:
             # Add untracked files to index without staging content
             self.git.run_command(["git", "add", "--intent-to-add", "."], check=False)
 
-            # git diff --stat HEAD shows all changes vs last commit
-            diff_stat = self.git.run_command(["git", "diff", "--stat", "HEAD"], check=False)
+            # git diff --stat=300 HEAD shows all changes vs last commit (300 prevents path truncation with ...)
+            diff_stat = self.git.run_command(["git", "diff", "--stat=300", "HEAD"], check=False)
             return ClientSuccess(data=diff_stat, message="Uncommitted diff stat retrieved")
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
@@ -169,7 +169,7 @@ class DiffService:
         """
         try:
             diff_stat = self.git.run_command(
-                ["git", "diff", "--stat", f"{base_ref}...{head_ref}"],
+                ["git", "diff", "--stat=300", f"{base_ref}...{head_ref}"],
                 check=False
             )
             return ClientSuccess(data=diff_stat, message="Diff stat retrieved")

@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
 from textual.containers import Container
-from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption, PromptChoice, ChoiceOption, PromptOptionList, OptionItem
+from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption, PromptChoice, ChoiceOption, PromptOptionList, OptionItem, DecisionBadge
 
 
 class TextualComponents:
@@ -338,6 +338,44 @@ class TextualComponents:
         widget.styles.height = "auto"
         self.mount(widget)
 
+    def show_diff_stat(
+        self,
+        formatted_files: List[str],
+        formatted_summary: List[str],
+        title: str = "Changes summary:",
+        use_panel: bool = False,
+    ) -> None:
+        """
+        Render a formatted git diff --stat display.
+
+        Displays a titled block with file change lines (colored) and summary line (dimmed).
+        Use alongside format_diff_stat_display() from titan_plugin_git.operations.
+
+        Args:
+            formatted_files: Colored file change lines (from format_diff_stat_display)
+            formatted_summary: Colored summary lines (from format_diff_stat_display)
+            title: Section title to show above the file list
+            use_panel: If True, wrap the content in a bordered panel instead of plain text
+
+        Example:
+            from titan_plugin_git.operations import format_diff_stat_display
+            formatted_files, formatted_summary = format_diff_stat_display(stat_output)
+            ctx.textual.show_diff_stat(formatted_files, formatted_summary, "Changes in branch:")
+            ctx.textual.show_diff_stat(formatted_files, formatted_summary, "Changes made:", use_panel=True)
+        """
+        if use_panel:
+            panel_content = "\n".join(formatted_files + [""] + formatted_summary)
+            self.panel(panel_content, show_icon=False)
+        else:
+            self.text("")
+            self.bold_text(title)
+            self.text("")
+            for line in formatted_files:
+                self.text(f"  {line}")
+            for line in formatted_summary:
+                self.dim_text(f"  {line}")
+            self.text("")
+
     def ask_text(self, question: str, default: str = "") -> Optional[str]:
         """
         Ask user for text input (blocks until user responds).
@@ -512,11 +550,11 @@ class TextualComponents:
 
     def ask_confirm(self, question: str, default: bool = True) -> bool:
         """
-        Ask user for confirmation (Y/N).
+        Ask user for confirmation using Yes/No buttons.
 
         Args:
             question: Question to ask
-            default: Default value (True = Y, False = N)
+            default: Default value (True = Yes, False = No)
 
         Returns:
             True if user confirmed, False otherwise
@@ -525,21 +563,109 @@ class TextualComponents:
             if ctx.textual.ask_confirm("Use AI message?", default=True):
                 # User said yes
         """
-        default_hint = "Y/n" if default else "y/N"
-        response = self.ask_text(f"{question} ({default_hint})", default="")
+        result_event = threading.Event()
+        result_container = {}
 
-        # Parse response
-        if response is None or response.strip() == "":
+        options = [
+            ChoiceOption(value=True, label="Yes", variant="primary" if default else "default"),
+            ChoiceOption(value=False, label="No", variant="default" if default else "primary"),
+        ]
+
+        def _mount():
+            choice_widget_ref = []
+            target = self._active_step_container or self.output_widget
+
+            def on_selected(value: bool):
+                # Called from UI thread (button press event)
+                # Replace PromptChoice with DecisionBadge
+                widget = choice_widget_ref[0]
+                label = "✓ Yes" if value else "✗ No"
+                variant = "success" if value else "warning"
+                badge = DecisionBadge(label, variant=variant)
+                widget.remove()
+                target.mount(badge)
+                result_container["value"] = value
+                result_event.set()
+
+            widget = PromptChoice(
+                question=question,
+                options=options,
+                on_select=on_selected,
+            )
+            choice_widget_ref.append(widget)
+            target.mount(widget)
+
+        try:
+            self.app.call_from_thread(_mount)
+        except Exception:
             return default
 
-        response_lower = response.strip().lower()
-        if response_lower in ["y", "yes"]:
-            return True
-        elif response_lower in ["n", "no"]:
-            return False
-        else:
-            # Invalid response, use default
-            return default
+        while not result_event.is_set():
+            if result_event.wait(timeout=0.5):
+                break
+            if not self.app.is_running:
+                return default
+
+        return result_container.get("value", default)
+
+    def ask_choice(self, question: str, options: List[ChoiceOption]) -> Optional[Any]:
+        """
+        Ask user to select one option from multiple choices using buttons.
+
+        Args:
+            question: Question to display above the buttons
+            options: List of ChoiceOption instances
+
+        Returns:
+            The selected option's value, or None if app closes
+
+        Example:
+            choice = ctx.textual.ask_choice(
+                "What would you like to do?",
+                options=[
+                    ChoiceOption(value="send", label="Send", variant="primary"),
+                    ChoiceOption(value="edit", label="Edit", variant="default"),
+                    ChoiceOption(value="skip", label="Skip", variant="error"),
+                ]
+            )
+        """
+        result_event = threading.Event()
+        result_container = {}
+
+        def _mount():
+            choice_widget_ref = []
+            target = self._active_step_container or self.output_widget
+
+            def on_selected(value):
+                widget = choice_widget_ref[0]
+                selected = next((o for o in options if o.value == value), None)
+                label = f"→ {selected.label}" if selected else f"→ {value}"
+                badge = DecisionBadge(label)
+                widget.remove()
+                target.mount(badge)
+                result_container["value"] = value
+                result_event.set()
+
+            widget = PromptChoice(
+                question=question,
+                options=options,
+                on_select=on_selected,
+            )
+            choice_widget_ref.append(widget)
+            target.mount(widget)
+
+        try:
+            self.app.call_from_thread(_mount)
+        except Exception:
+            return None
+
+        while not result_event.is_set():
+            if result_event.wait(timeout=0.5):
+                break
+            if not self.app.is_running:
+                return None
+
+        return result_container.get("value")
 
     def ask_multiselect(
         self,
@@ -682,87 +808,6 @@ class TextualComponents:
             self.app.call_from_thread(_remove)
         except Exception:
             pass
-
-        return result_container["result"]
-
-    def ask_choice(
-        self,
-        question: str,
-        options: List[ChoiceOption],
-    ) -> Any:
-        """
-        Ask user to select one option from multiple choices using buttons.
-
-        Args:
-            question: Question to display
-            options: List of ChoiceOption instances
-
-        Returns:
-            The selected value (the 'value' field from ChoiceOption)
-
-        Raises:
-            KeyboardInterrupt: If user presses Escape to cancel
-
-        Example:
-            from titan_cli.ui.tui.widgets import ChoiceOption
-
-            options = [
-                ChoiceOption(value="use", label="Use", variant="primary"),
-                ChoiceOption(value="edit", label="Edit", variant="default"),
-                ChoiceOption(value="reject", label="Reject", variant="error"),
-            ]
-
-            choice = ctx.textual.ask_choice(
-                "What would you like to do with this PR description?",
-                options
-            )
-            # choice might be "use", "edit", or "reject"
-        """
-        result_container = {"result": None, "cancelled": False, "ready": threading.Event()}
-
-        def on_select(selected_value: Any):
-            result_container["result"] = selected_value
-            result_container["cancelled"] = False
-            result_container["ready"].set()
-
-        def on_cancel():
-            result_container["result"] = None
-            result_container["cancelled"] = True
-            result_container["ready"].set()
-
-        # Create and mount the choice widget
-        choice_widget = PromptChoice(
-            question=question,
-            options=options,
-            on_select=on_select,
-            on_cancel=on_cancel
-        )
-
-        self.mount(choice_widget)
-
-        # Wait for user to select (with timeout to handle Ctrl+C)
-        try:
-            while not result_container["ready"].wait(timeout=0.5):
-                pass  # Keep waiting in small intervals
-        except KeyboardInterrupt:
-            # User cancelled with Ctrl+C
-            result_container["result"] = None
-
-        # Remove the widget
-        def _remove():
-            try:
-                choice_widget.remove()
-            except Exception:
-                pass
-
-        try:
-            self.app.call_from_thread(_remove)
-        except Exception:
-            pass
-
-        # Check if user cancelled
-        if result_container.get("cancelled", False):
-            raise KeyboardInterrupt("User cancelled choice")
 
         return result_container["result"]
 

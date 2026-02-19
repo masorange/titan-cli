@@ -7,7 +7,7 @@ No UI dependencies - all functions can be unit tested.
 
 import os
 import glob
-from typing import Optional, Set, Tuple, Dict
+from typing import Optional, Dict
 from titan_cli.core.result import ClientSuccess, ClientError
 from ..models.view import UICommentThread
 from ..widgets.comment_utils import extract_diff_context
@@ -80,40 +80,6 @@ def build_ai_review_context(
     }
 
 
-def detect_worktree_changes(
-    git_status_before: str,
-    git_status_after: str
-) -> Tuple[bool, Set[str]]:
-    """
-    Compare git status before/after to detect new changes.
-
-    This is used to determine if AI made code changes vs just writing a text response.
-
-    Args:
-        git_status_before: Output of `git status --short` before operation
-        git_status_after: Output of `git status --short` after operation
-
-    Returns:
-        Tuple of (has_new_changes: bool, new_changed_files: Set[str])
-
-    Example:
-        >>> before = "M file1.txt"
-        >>> after = "M file1.txt\\nM file2.txt"
-        >>> has_changes, files = detect_worktree_changes(before, after)
-        >>> has_changes
-        True
-        >>> files
-        {'M file2.txt'}
-    """
-    files_before = set(line.strip() for line in git_status_before.splitlines() if line.strip())
-    files_after = set(line.strip() for line in git_status_after.splitlines() if line.strip())
-
-    new_changes = files_after - files_before
-    has_new_changes = bool(new_changes)
-
-    return has_new_changes, new_changes
-
-
 def find_ai_response_file(comment_id: int, expected_path: str) -> Optional[str]:
     """
     Search for AI response file in expected and fallback locations.
@@ -155,7 +121,7 @@ def find_ai_response_file(comment_id: int, expected_path: str) -> Optional[str]:
 
 def create_commit_message(comment_body: str, comment_author: str, comment_path: Optional[str]) -> str:
     """
-    Generate a descriptive commit message from a PR comment.
+    Generate a simple commit message from a PR comment.
 
     Args:
         comment_body: The comment body text
@@ -164,23 +130,61 @@ def create_commit_message(comment_body: str, comment_author: str, comment_path: 
 
     Returns:
         Formatted commit message
-
-    Example:
-        >>> msg = create_commit_message("Fix the bug", "reviewer", "src/main.py")
-        >>> msg
-        'Fix PR comment: Fix the bug\\n\\nComment by reviewer on src/main.py'
     """
-    # Truncate comment to 80 chars and remove newlines
-    comment_summary = comment_body[:80].replace('\n', ' ')
-
-    # Build commit message
-    message = f"Fix PR comment: {comment_summary}\n\n"
-    message += f"Comment by {comment_author}"
-
+    # Simple and direct commit message
     if comment_path:
-        message += f" on {comment_path}"
+        # Extract just the filename from the path
+        filename = comment_path.split('/')[-1]
+        message = f"Fix: {filename}"
+    else:
+        message = "PR review fix"
+
+    # Add author attribution in body
+    message += f"\n\nBy: {comment_author}"
 
     return message
+
+
+def prepare_replies_for_sending(
+    pending_responses: Dict[int, Dict],
+    comment_commits: Dict[int, str],
+    push_successful: bool
+) -> Dict[int, str]:
+    """
+    Prepare all replies for batch sending.
+
+    Combines text responses and commit replies based on push success.
+    If push failed, commit replies are excluded.
+
+    Args:
+        pending_responses: Dict mapping comment_id -> {"text": ..., "source": ...}
+        comment_commits: Dict mapping comment_id -> commit_hash
+        push_successful: Whether commits were successfully pushed
+
+    Returns:
+        Dict mapping comment_id -> reply_text ready to send
+    """
+    replies_to_send = {}
+
+    # Add text responses (always send these)
+    for comment_id, response_data in pending_responses.items():
+        if isinstance(response_data, dict):
+            replies_to_send[comment_id] = response_data["text"]
+        else:
+            # Backward compatibility: if it's still a string
+            replies_to_send[comment_id] = response_data
+
+    # Add commit replies ONLY if push succeeded
+    if push_successful and comment_commits:
+        for comment_id, commit_hash in comment_commits.items():
+            short_hash = commit_hash[:8]
+            if comment_id in replies_to_send:
+                # Has text reply too — combine: hash first, then text
+                replies_to_send[comment_id] = f"{short_hash}\n\n{replies_to_send[comment_id]}"
+            else:
+                replies_to_send[comment_id] = short_hash
+
+    return replies_to_send
 
 
 def reply_to_comment_batch(
@@ -220,93 +224,3 @@ def reply_to_comment_batch(
                 results[comment_id] = False
 
     return results
-
-
-def auto_review_comment(
-    github_client,
-    git_client,
-    pr_thread: UICommentThread,
-    worktree_path: str,
-    pr_title: str,
-    response_file_path: str,
-    ai_executor_func
-) -> Tuple[bool, Optional[str], Optional[str]]:
-    """
-    Automatically review a PR comment using AI.
-
-    The AI can either:
-    1. Make code changes (returns commit hash)
-    2. Write a text response (returns response text)
-
-    Args:
-        github_client: GitHub client
-        git_client: Git client
-        pr_thread: PR review thread to process
-        worktree_path: Path to worktree
-        pr_title: PR title
-        response_file_path: Path where AI should write text responses
-        ai_executor_func: Function that executes AI (receives context dict)
-
-    Returns:
-        Tuple of (has_code_changes, commit_hash_or_none, response_text_or_none)
-
-    Example:
-        >>> has_changes, commit_hash, response = auto_review_comment(
-        ...     github, git, thread, "/tmp/worktree", "feat: Add X",
-        ...     "/tmp/response.txt", lambda ctx: ai.execute(ctx)
-        ... )
-        >>> if has_changes:
-        ...     print(f"Committed: {commit_hash}")
-        >>> else:
-        ...     print(f"Response: {response}")
-    """
-    main_comment = pr_thread.main_comment
-
-    # Build AI context
-    review_context = build_ai_review_context(pr_thread, pr_title)
-
-    # Take snapshot before AI executes
-    status_before = git_client.run_in_worktree(worktree_path, ["git", "status", "--short"])
-
-    # Execute AI (caller provides the executor function)
-    ai_executor_func(review_context, response_file_path)
-
-    # Take snapshot after
-    status_after = git_client.run_in_worktree(worktree_path, ["git", "status", "--short"])
-
-    # Detect changes
-    has_new_changes, changed_files = detect_worktree_changes(status_before, status_after)
-
-    if has_new_changes:
-        # AI made code changes - commit them
-        commit_msg = create_commit_message(
-            main_comment.body,
-            main_comment.author_login,
-            main_comment.path
-        )
-
-        # Import here to avoid circular dependency
-        from .worktree_operations import commit_in_worktree
-
-        commit_hash = commit_in_worktree(
-            git_client,
-            worktree_path,
-            commit_msg,
-            add_all=True,
-            no_verify=True
-        )
-
-        return (True, commit_hash, None)
-    else:
-        # No code changes - check for text response
-        response_path = find_ai_response_file(main_comment.id, response_file_path)
-
-        if response_path:
-            try:
-                with open(response_path, 'r') as f:
-                    ai_response = f.read().strip()
-                return (False, None, ai_response)
-            except Exception:
-                return (False, None, None)
-        else:
-            return (False, None, None)

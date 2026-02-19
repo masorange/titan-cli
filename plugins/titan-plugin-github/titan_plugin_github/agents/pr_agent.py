@@ -481,19 +481,26 @@ This PR modifies localization/translation files. When analyzing:
 ## CRITICAL Instructions
 1. **Title**: Follow conventional commits format WITHOUT scope (type: Description), be clear and descriptive
    - Format: `type: Description` (NO scope, NO parentheses)
+   - **HARD LIMIT: title MUST be ≤72 characters total** (count carefully before writing)
    - Start description with CAPITAL letter (imperative mood)
    - **If <project_context> contains issue IDs** (e.g., jira_issues, issue_ids, tickets), include them in the title BEFORE the description:
      * Format: `type: ISSUE-1, ISSUE-2 Description`
      * Example: `feat: PROJ-1234, PROJ-5678 Add OAuth2 integration`
-   - Examples without issues: "feat: Add OAuth2 integration with Google provider", "fix: Resolve race condition in cache invalidation"
+   - Examples without issues: "feat: Add user auth flow", "fix: Resolve cache race condition"
    - NEVER use format like "feat(scope): Description" - always use "feat: Description"
 
-2. **Project Context**: If <project_context> is provided above, incorporate information into appropriate sections:
+2. **Change prioritization** — focus on what matters most:
+   - **Primary**: source code changes (`.py`, `.ts`, `.kt`, `.swift`, etc.) — these describe WHAT was built or fixed
+   - **Secondary**: config files, YAML, tests — include only if meaningfully distinct from code changes
+   - **Ignore for title/summary**: `.md` files, `docs/`, `CLAUDE.md`, changelogs — documentation is supplementary
+   - If the branch adds a feature AND updates docs, the **title and summary must describe the feature**, not the documentation
+
+3. **Project Context**: If <project_context> is provided above, incorporate information into appropriate sections:
    - **Issue IDs** (jira_issues, etc.): Include in TITLE (see instruction 1) AND in the body if the template has a section for it (e.g., "Related Issues", "JIRA", etc.)
    - **test_info**: Add to the "Testing" or "Test plan" section (users, credentials, steps)
    - **related_pr**: Add to "Additional Notes" or similar section
 
-3. **Description**: MUST follow the template structure above but keep it under {max_chars} characters total
+4. **Description**: MUST follow the template structure above but keep it under {max_chars} characters total
    - Fill in the template sections (Summary, Type of Change, Changes Made, etc.)
    - Mark checkboxes appropriately with [x]
    - Adjust detail level based on PR size ({pr_size}):

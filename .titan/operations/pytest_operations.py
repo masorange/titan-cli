@@ -29,14 +29,16 @@ def parse_pytest_report_summary(report: Dict) -> Dict[str, Any]:
     summary = report.get("summary", {})
     passed_count = summary.get("passed", 0)
     failed_count = summary.get("failed", 0)
+    error_count = summary.get("error", 0)  # collection errors (ImportError, etc.)
     total_count = summary.get("total", passed_count + failed_count)
     duration = report.get("duration", 0)
 
     return {
         "passed": passed_count,
-        "failed": failed_count,
-        "total": total_count,
+        "failed": failed_count + error_count,  # treat collection errors as failures
+        "total": total_count + error_count,
         "duration": duration,
+        "errors": report.get("errors", []),  # collection error details
     }
 
 

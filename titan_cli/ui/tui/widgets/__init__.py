@@ -15,6 +15,7 @@ from .prompt_input import PromptInput
 from .prompt_textarea import PromptTextArea
 from .prompt_selection_list import PromptSelectionList, SelectionOption
 from .prompt_choice import PromptChoice, ChoiceOption
+from .decision_badge import DecisionBadge
 from .prompt_option_list import PromptOptionList, OptionItem
 from .styled_option_list import StyledOptionList, StyledOption
 from .text import (
@@ -45,6 +46,7 @@ __all__ = [
     "SelectionOption",
     "PromptChoice",
     "ChoiceOption",
+    "DecisionBadge",
     "PromptOptionList",
     "OptionItem",
     "StyledOptionList",

@@ -97,25 +97,16 @@ class GraphQLNetwork:
             GitHubAPIError: If execution fails
         """
         try:
-            # Build gh api graphql arguments
-            args = ["api", "graphql", "-f", f"query={operation}"]
-
-            # Add variables as field arguments
+            # Build payload as JSON
+            payload = {"query": operation}
             if variables:
-                for key, value in variables.items():
-                    # Determine flag based on type
-                    if isinstance(value, (int, bool)):
-                        # Use -F for numbers/booleans
-                        args.extend(["-F", f"{key}={value}"])
-                    elif isinstance(value, list):
-                        # Use -f for lists (JSON encoded)
-                        args.extend(["-f", f"{key}={json.dumps(value)}"])
-                    else:
-                        # Use -f for strings
-                        args.extend(["-f", f"{key}={value}"])
+                payload["variables"] = variables
 
-            # Execute command
-            output = self.gh_network.run_command(args)
+            # Use --input - to pass JSON via stdin (cleaner than field flags)
+            args = ["api", "graphql", "--input", "-"]
+
+            # Execute command with JSON payload via stdin
+            output = self.gh_network.run_command(args, stdin_input=json.dumps(payload))
 
             # Parse JSON response
             response = json.loads(output)

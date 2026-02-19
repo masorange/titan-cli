@@ -10,7 +10,6 @@ import subprocess
 from typing import List, Optional, Dict, Any
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
-
 from ..network import GHNetwork, GraphQLNetwork, graphql_queries
 from ...models.network.rest import NetworkReview
 from ...models.network.graphql import GraphQLPullRequestReviewThread
@@ -287,11 +286,11 @@ class ReviewService:
         self, pr_number: int, comment_id: int, body: str
     ) -> ClientResult[None]:
         """
-        Reply to a PR comment.
+        Reply to a PR comment using REST API with direct body parameter.
 
         Args:
             pr_number: PR number
-            comment_id: Comment ID to reply to
+            comment_id: Comment database ID to reply to
             body: Reply text
 
         Returns:
@@ -299,13 +298,15 @@ class ReviewService:
         """
         try:
             repo = self.gh.get_repo_string()
+
+            # Use -f instead of -F with stdin to avoid encoding issues
             args = [
                 "api", "-X", "POST",
                 f"/repos/{repo}/pulls/{pr_number}/comments/{comment_id}/replies",
-                "-F", "body=-",
+                "-f", f"body={body}",
             ]
 
-            self.gh.run_command(args, stdin_input=body)
+            self.gh.run_command(args)
 
             return ClientSuccess(data=None, message="Reply posted")
 
@@ -439,22 +440,31 @@ class ReviewService:
                     )
 
             # Convert usernames to user IDs
+            # Skip bots and invalid users that can't be resolved
             user_ids = []
-            for username in reviewers:
-                user_response = self.graphql.run_query(
-                    graphql_queries.GET_USER_ID,
-                    {"login": username}
-                )
+            skipped_users = []
 
-                user_id = user_response.get("data", {}).get("user", {}).get("id")
-                if user_id:
-                    user_ids.append(user_id)
+            for username in reviewers:
+                try:
+                    user_response = self.graphql.run_query(
+                        graphql_queries.GET_USER_ID,
+                        {"login": username}
+                    )
+
+                    user_id = user_response.get("data", {}).get("user", {}).get("id")
+                    if user_id:
+                        user_ids.append(user_id)
+                    else:
+                        skipped_users.append(username)
+                except GitHubAPIError:
+                    # Skip bots and users that can't be resolved (e.g., copilot-pull-request-reviewer)
+                    skipped_users.append(username)
 
             if not user_ids:
-                return ClientSuccess(
-                    data=None,
-                    message="No valid reviewers found"
-                )
+                msg = "No valid user reviewers found"
+                if skipped_users:
+                    msg += f" (skipped bots/invalid: {', '.join(skipped_users)})"
+                return ClientSuccess(data=None, message=msg)
 
             # Request reviews
             self.graphql.run_mutation(
@@ -462,10 +472,11 @@ class ReviewService:
                 {"prId": pr_node_id, "userIds": user_ids}
             )
 
-            return ClientSuccess(
-                data=None,
-                message=f"Review requested from {len(user_ids)} reviewers"
-            )
+            msg = f"Review requested from {len(user_ids)} reviewer(s)"
+            if skipped_users:
+                msg += f" (skipped {len(skipped_users)} bot(s)/invalid)"
+
+            return ClientSuccess(data=None, message=msg)
 
         except GitHubAPIError as e:
             return ClientError(
