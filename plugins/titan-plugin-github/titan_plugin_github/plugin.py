@@ -118,7 +118,16 @@ class GitHubPlugin(TitanPlugin):
         from .steps.ai_pr_step import ai_suggest_pr_description_step
         from .steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
         from .steps.preview_step import preview_and_confirm_issue_step
-        from .steps.pr_review_steps import select_pr_for_review_step, fetch_pending_comments_step, review_comments_step
+        from .steps.pr_review_steps import (
+            select_pr_for_review_step,
+            fetch_pending_comments_step,
+            create_worktree_step,
+            review_comments_step,
+            push_commits_step,
+            send_comment_replies_step,
+            request_review_step,
+            cleanup_worktree_step,
+        )
         return {
             "create_pr": create_pr_step,
             "prompt_for_pr_title": prompt_for_pr_title_step,
@@ -132,5 +141,10 @@ class GitHubPlugin(TitanPlugin):
             "preview_and_confirm_issue": preview_and_confirm_issue_step,
             "select_pr_for_review": select_pr_for_review_step,
             "fetch_pending_comments": fetch_pending_comments_step,
+            "create_worktree": create_worktree_step,
             "review_comments": review_comments_step,
+            "push_commits": push_commits_step,
+            "send_comment_replies": send_comment_replies_step,
+            "request_review": request_review_step,
+            "cleanup_worktree": cleanup_worktree_step,
         }

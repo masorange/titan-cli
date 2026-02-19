@@ -34,23 +34,9 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("success")
                 return Success("No changes")
 
-            # Show the stat summary with colors
-            ctx.textual.text("")  # spacing
-            ctx.textual.bold_text("Changes summary:")
-            ctx.textual.text("")  # spacing
-
-            # Format diff stat with colors and alignment using operations
+            # Format and render diff stat
             formatted_files, formatted_summary = format_diff_stat_display(stat_output)
-
-            # Display aligned file changes
-            for line in formatted_files:
-                ctx.textual.text(f"  {line}")
-
-            # Display summary lines
-            for line in formatted_summary:
-                ctx.textual.dim_text(f"  {line}")
-
-            ctx.textual.text("")  # spacing
+            ctx.textual.show_diff_stat(formatted_files, formatted_summary, "Changes summary:")
 
             # End step container with success
             ctx.textual.end_step("success")
@@ -106,23 +92,12 @@ def show_branch_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("success")
                 return Success("No changes")
 
-            # Show the stat summary with colors
-            ctx.textual.text("")  # spacing
-            ctx.textual.bold_text(f"Changes in {head_branch} vs {remote}/{base_branch}:")
-            ctx.textual.text("")  # spacing
-
-            # Format diff stat with colors and alignment using operations
+            # Format and render diff stat
             formatted_files, formatted_summary = format_diff_stat_display(stat_output)
-
-            # Display aligned file changes
-            for line in formatted_files:
-                ctx.textual.text(f"  {line}")
-
-            # Display summary lines
-            for line in formatted_summary:
-                ctx.textual.dim_text(f"  {line}")
-
-            ctx.textual.text("")  # spacing
+            ctx.textual.show_diff_stat(
+                formatted_files, formatted_summary,
+                f"Changes in {head_branch} vs {remote}/{base_branch}:"
+            )
 
             ctx.textual.end_step("success")
             return Success("Branch diff summary displayed")

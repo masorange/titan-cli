@@ -9,11 +9,9 @@ from unittest.mock import patch
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_github.operations.comment_operations import (
     build_ai_review_context,
-    detect_worktree_changes,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
-    auto_review_comment,
 )
 
 
@@ -62,48 +60,6 @@ class TestBuildAIReviewContext:
         assert context["diff_hunk"] is None
 
 
-@pytest.mark.unit
-class TestDetectWorktreeChanges:
-    """Test worktree change detection"""
-
-    def test_detects_new_changes(self):
-        """Test detection of new file changes"""
-        before = "M file1.txt\nM file2.txt"
-        after = "M file1.txt\nM file2.txt\nM file3.txt\nA file4.txt"
-
-        has_changes, changed_files = detect_worktree_changes(before, after)
-
-        assert has_changes is True
-        assert len(changed_files) == 2
-        assert "M file3.txt" in changed_files
-        assert "A file4.txt" in changed_files
-
-    def test_no_changes_detected(self):
-        """Test when no new changes exist"""
-        status = "M file1.txt\nM file2.txt"
-
-        has_changes, changed_files = detect_worktree_changes(status, status)
-
-        assert has_changes is False
-        assert len(changed_files) == 0
-
-    def test_handles_empty_status(self):
-        """Test with empty git status"""
-        has_changes, changed_files = detect_worktree_changes("", "M newfile.txt")
-
-        assert has_changes is True
-        assert "M newfile.txt" in changed_files
-
-    def test_handles_removed_files(self):
-        """Test when files are removed (staged → unstaged)"""
-        before = "M file1.txt\nM file2.txt"
-        after = "M file1.txt"
-
-        has_changes, changed_files = detect_worktree_changes(before, after)
-
-        # No NEW changes, just removal
-        assert has_changes is False
-
 
 @pytest.mark.unit
 class TestFindAIResponseFile:
@@ -141,17 +97,16 @@ class TestFindAIResponseFile:
 class TestCreateCommitMessage:
     """Test commit message creation"""
 
-    def test_creates_message_with_all_info(self):
-        """Test creating commit message with complete info"""
+    def test_creates_message_with_path(self):
+        """Test creating commit message with file path"""
         msg = create_commit_message(
             "Fix the bug in authentication",
             "reviewer123",
             "src/auth.py"
         )
 
-        assert "Fix PR comment: Fix the bug in authentication" in msg
-        assert "Comment by reviewer123" in msg
-        assert "on src/auth.py" in msg
+        assert "Fix: auth.py" in msg
+        assert "By: reviewer123" in msg
 
     def test_creates_message_without_path(self):
         """Test creating commit message without file path"""
@@ -161,17 +116,8 @@ class TestCreateCommitMessage:
             None
         )
 
-        assert "Fix PR comment: Update documentation" in msg
-        assert "Comment by reviewer456" in msg
-        assert "on " not in msg.split("Comment by reviewer456")[-1]
-
-    def test_truncates_long_comments(self):
-        """Test truncation of very long comment bodies"""
-        long_comment = "a" * 200
-        msg = create_commit_message(long_comment, "user", "file.py")
-
-        # Should be truncated to 80 chars
-        assert len(msg.split('\n')[0]) <= 100  # "Fix PR comment: " + 80 chars
+        assert "PR review fix" in msg
+        assert "By: reviewer456" in msg
 
 
 @pytest.mark.unit
@@ -186,7 +132,7 @@ class TestReplyToCommentBatch:
         )
 
         replies = {
-            101: "Fixed in abc123",
+            101: "abc123",
             102: "Done",
             103: "Implemented"
         }
@@ -226,92 +172,3 @@ class TestReplyToCommentBatch:
         assert not mock_github_client.reply_to_comment.called
 
 
-@pytest.mark.unit
-class TestAutoReviewComment:
-    """Test automatic comment review with AI"""
-
-    def test_commits_when_ai_makes_code_changes(
-        self, mock_github_client, mock_git_client, sample_ui_comment_thread
-    ):
-        """Test commit creation when AI makes code changes"""
-        # Mock git status showing changes
-        mock_git_client.run_in_worktree.side_effect = [
-            "",  # Before: clean (git status --short)
-            "M src/file.py",  # After: changes (git status --short)
-            None,  # git add --all
-            None,  # git commit
-            "abc123def456"  # git rev-parse HEAD (commit hash)
-        ]
-
-        # Mock AI executor
-        def ai_executor(context, response_file):
-            pass  # AI makes changes
-
-        has_changes, commit_hash, response = auto_review_comment(
-            mock_github_client,
-            mock_git_client,
-            sample_ui_comment_thread,
-            "/tmp/worktree",
-            "feat: Add feature",
-            "/tmp/response.txt",
-            ai_executor
-        )
-
-        assert has_changes is True
-        assert commit_hash == "abc123def456"
-        assert response is None
-
-    def test_returns_text_response_when_no_code_changes(
-        self, mock_github_client, mock_git_client, sample_ui_comment_thread
-    ):
-        """Test text response when AI doesn't make code changes"""
-        # Mock git status showing NO changes
-        mock_git_client.run_in_worktree.side_effect = [
-            "",  # Before: clean
-            ""   # After: still clean
-        ]
-
-        # Create temp response file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write("This comment doesn't apply because...")
-            response_path = f.name
-
-        try:
-            def ai_executor(context, response_file):
-                pass  # AI writes response to file
-
-            has_changes, commit_hash, response = auto_review_comment(
-                mock_github_client,
-                mock_git_client,
-                sample_ui_comment_thread,
-                "/tmp/worktree",
-                "feat: Add feature",
-                response_path,
-                ai_executor
-            )
-
-            assert has_changes is False
-            assert commit_hash is None
-            assert "This comment doesn't apply" in response
-        finally:
-            os.unlink(response_path)
-
-    def test_handles_ai_executor_failure(
-        self, mock_github_client, mock_git_client, sample_ui_comment_thread
-    ):
-        """Test handling when AI executor fails"""
-        mock_git_client.run_in_worktree.return_value = ""
-
-        def failing_ai_executor(context, response_file):
-            raise Exception("AI service unavailable")
-
-        with pytest.raises(Exception, match="AI service unavailable"):
-            auto_review_comment(
-                mock_github_client,
-                mock_git_client,
-                sample_ui_comment_thread,
-                "/tmp/worktree",
-                "feat: Add feature",
-                "/tmp/response.txt",
-                failing_ai_executor
-            )

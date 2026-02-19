@@ -14,16 +14,14 @@ Modules:
 
 from .comment_operations import (
     build_ai_review_context,
-    detect_worktree_changes,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
-    auto_review_comment,
+    prepare_replies_for_sending,
 )
 
 from .pr_operations import (
     fetch_pr_threads,
-    push_and_request_review,
 )
 
 from .worktree_operations import (
@@ -46,15 +44,13 @@ from .issue_operations import (
 __all__ = [
     # Comment operations
     "build_ai_review_context",
-    "detect_worktree_changes",
     "find_ai_response_file",
     "create_commit_message",
     "reply_to_comment_batch",
-    "auto_review_comment",
+    "prepare_replies_for_sending",
 
     # PR operations
     "fetch_pr_threads",
-    "push_and_request_review",
 
     # Worktree operations
     "setup_worktree",

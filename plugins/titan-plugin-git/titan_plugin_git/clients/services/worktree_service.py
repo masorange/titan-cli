@@ -11,9 +11,12 @@ from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
 from ..network import GitNetwork
 from ...models.network.worktree import NetworkGitWorktree
+from ...models.network.commit import NetworkGitCommit
 from ...models.view.worktree import UIGitWorktree
+from ...models.view.commit import UIGitCommit
 from ...models.mappers import from_network_worktree
-from ...exceptions import GitCommandError
+from ...models.mappers.commit_mapper import from_network_commit
+from ...exceptions import GitError
 
 
 class WorktreeService:
@@ -65,7 +68,7 @@ class WorktreeService:
             self.git.run_command(args)
             return ClientSuccess(data=None, message=f"Worktree created at {path}")
 
-        except GitCommandError as e:
+        except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_CREATE_ERROR")
 
     def remove_worktree(self, path: str, force: bool = False) -> ClientResult[None]:
@@ -88,7 +91,7 @@ class WorktreeService:
             self.git.run_command(args)
             return ClientSuccess(data=None, message=f"Worktree removed: {path}")
 
-        except GitCommandError as e:
+        except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_REMOVE_ERROR")
 
     def list_worktrees(self) -> ClientResult[List[UIGitWorktree]]:
@@ -148,7 +151,7 @@ class WorktreeService:
                 message=f"Found {len(ui_worktrees)} worktrees"
             )
 
-        except GitCommandError as e:
+        except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_LIST_ERROR")
 
     def run_in_worktree(self, worktree_path: str, args: List[str]) -> ClientResult[str]:
@@ -167,8 +170,163 @@ class WorktreeService:
             if args[0] == "git":
                 args = ["git", "-C", worktree_path] + args[1:]
 
-            output = self.git.run_command(args, cwd=worktree_path)
-            return ClientSuccess(data=output, message="Command executed in worktree")
+            return ClientSuccess(
+                data=self.git.run_command(args, cwd=worktree_path),
+                message="Command executed in worktree"
+            )
 
-        except GitCommandError as e:
+        except GitError as e:
             return ClientError(error_message=str(e), error_code="WORKTREE_COMMAND_ERROR")
+
+    def get_commits(
+        self, worktree_path: str, limit: int = 10
+    ) -> ClientResult[List[UIGitCommit]]:
+        """
+        Get recent commits from a worktree.
+
+        Args:
+            worktree_path: Path to the worktree
+            limit: Maximum number of commits to retrieve
+
+        Returns:
+            ClientResult[List[UIGitCommit]] with commit history
+        """
+        try:
+            # Use custom format for easy parsing
+            # Format: hash\nsubject\nauthor\ndate\n--END--
+            format_str = "%H%n%s%n%an <%ae>%n%ad%n--END--"
+            args = [
+                "git", "-C", worktree_path,
+                "log",
+                f"--pretty=format:{format_str}",
+                "--date=short",
+                "-n", str(limit)
+            ]
+
+            output = self.git.run_command(args, cwd=worktree_path)
+
+            # Parse commits
+            network_commits = []
+            lines = output.strip().split('\n')
+            i = 0
+            while i < len(lines):
+                if i + 3 < len(lines):
+                    commit_hash = lines[i].strip()
+                    subject = lines[i + 1].strip()
+                    author = lines[i + 2].strip()
+                    date = lines[i + 3].strip()
+
+                    network_commits.append(NetworkGitCommit(
+                        hash=commit_hash,
+                        message=subject,  # Just subject for now
+                        author=author,
+                        date=date
+                    ))
+
+                    # Skip to next commit (after --END--)
+                    i += 5
+                else:
+                    break
+
+            # Map to UI models
+            ui_commits = [from_network_commit(c) for c in network_commits]
+
+            return ClientSuccess(
+                data=ui_commits,
+                message=f"Retrieved {len(ui_commits)} commits"
+            )
+
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="WORKTREE_COMMITS_ERROR")
+
+    def get_diff_stat_in_worktree(self, worktree_path: str) -> ClientResult[str]:
+        """
+        Get diff stat of uncommitted changes in a worktree.
+
+        Args:
+            worktree_path: Path to the worktree
+
+        Returns:
+            ClientResult[str] with raw git diff --stat output
+        """
+        try:
+            args = ["git", "-C", worktree_path, "diff", "--stat=300", "HEAD"]
+            output = self.git.run_command(args, cwd=worktree_path)
+            return ClientSuccess(data=output, message="Worktree diff stat retrieved")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="WORKTREE_DIFF_STAT_ERROR")
+
+    def commit_in_worktree(
+        self,
+        worktree_path: str,
+        message: str,
+        add_all: bool = True,
+        no_verify: bool = False
+    ) -> ClientResult[str]:
+        """
+        Stage and commit changes in a worktree.
+
+        Args:
+            worktree_path: Path to worktree
+            message: Commit message
+            add_all: Stage all changes before committing
+            no_verify: Skip pre-commit hooks
+
+        Returns:
+            ClientResult[str] with commit hash
+        """
+        try:
+            if add_all:
+                self.git.run_command(
+                    ["git", "-C", worktree_path, "add", "--all"],
+                    cwd=worktree_path
+                )
+
+            commit_args = ["git", "-C", worktree_path, "commit"]
+            if no_verify:
+                commit_args.append("--no-verify")
+            commit_args.extend(["-m", message])
+
+            self.git.run_command(commit_args, cwd=worktree_path)
+
+            commit_hash = self.git.run_command(
+                ["git", "-C", worktree_path, "rev-parse", "HEAD"],
+                cwd=worktree_path
+            )
+            return ClientSuccess(data=commit_hash.strip(), message="Commit created")
+
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="WORKTREE_COMMIT_ERROR")
+
+    def push_from_worktree(
+        self, worktree_path: str, branch: str, remote: str = "origin"
+    ) -> ClientResult[None]:
+        """
+        Push commits from a worktree to remote.
+
+        Handles both regular and detached worktrees by using HEAD:branch syntax.
+        This allows pushing even if the branch is checked out elsewhere.
+
+        Args:
+            worktree_path: Path to worktree
+            branch: Branch name to push to
+            remote: Remote name (default: "origin")
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            # Use HEAD:branch syntax to support detached worktrees
+            args = ["git", "-C", worktree_path, "push", remote, f"HEAD:{branch}"]
+
+            self.git.run_command(args, cwd=worktree_path)
+            return ClientSuccess(
+                data=None,
+                message=f"Pushed to {remote}/{branch}"
+            )
+
+        except GitError as e:
+            return ClientError(
+                error_message=str(e),
+                error_code="WORKTREE_PUSH_ERROR"
+            )
