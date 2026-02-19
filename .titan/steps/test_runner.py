@@ -90,6 +90,7 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
     passed_count = summary_data["passed"]
     failed_count = summary_data["failed"]
     total_count = summary_data["total"]
+    collection_errors = summary_data.get("errors", [])
     duration = f"{summary_data['duration']:.2f}s"
 
     # Show summary table
@@ -117,6 +118,13 @@ def test_runner(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.warning_text(f"{failed_count} test(s) failed")
     ctx.textual.text("")  # spacing
+
+    # Show collection errors separately (ImportError, syntax errors, etc.)
+    if collection_errors:
+        ctx.textual.error_text(f"{len(collection_errors)} collection error(s) - tests could not be imported:")
+        for err in collection_errors:
+            ctx.textual.dim_text(f"  {err.get('nodeid', 'unknown')}: {err.get('longrepr', '')[:200]}")
+        ctx.textual.text("")
 
     failures = [test for test in report.get("tests", []) if test.get("outcome") == "failed"]
 

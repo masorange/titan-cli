@@ -41,3 +41,4 @@ jobs:
         run: |
           poetry run pytest tests/ plugins/titan-plugin-git/tests/
           poetry run pytest plugins/titan-plugin-jira/tests/
+          poetry run pytest plugins/titan-plugin-github/tests/

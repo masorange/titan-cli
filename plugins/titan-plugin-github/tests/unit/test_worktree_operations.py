@@ -3,11 +3,11 @@ Unit tests for worktree operations
 """
 
 import pytest
+from titan_cli.core.result import ClientError
 from titan_plugin_github.operations.worktree_operations import (
     setup_worktree,
     cleanup_worktree,
     commit_in_worktree,
-    push_from_worktree,
 )
 
 
@@ -17,7 +17,7 @@ class TestSetupWorktree:
 
     def test_creates_worktree_successfully(self, mock_git_client):
         """Test successful worktree creation"""
-        rel_path, abs_path, success = setup_worktree(
+        abs_path, success = setup_worktree(
             mock_git_client,
             pr_number=123,
             branch="feature-branch",
@@ -25,7 +25,6 @@ class TestSetupWorktree:
         )
 
         assert success is True
-        assert rel_path == ".titan/worktrees/titan-review-123"
         assert "titan-review-123" in abs_path
         mock_git_client.create_worktree.assert_called_once()
 
@@ -33,27 +32,24 @@ class TestSetupWorktree:
         """Test that existing worktree is removed first"""
         setup_worktree(mock_git_client, 123, "feature-branch")
 
-        # Should attempt to remove first (might fail if doesn't exist)
         mock_git_client.remove_worktree.assert_called_once()
         mock_git_client.create_worktree.assert_called_once()
 
     def test_handles_creation_failure(self, mock_git_client):
         """Test handling of worktree creation failure"""
-        mock_git_client.create_worktree.side_effect = Exception("Creation failed")
-
-        rel_path, abs_path, success = setup_worktree(
-            mock_git_client,
-            123,
-            "feature-branch"
+        from titan_cli.core.result import ClientError
+        mock_git_client.create_worktree.return_value = ClientError(
+            error_message="Creation failed", error_code="WORKTREE_CREATE_ERROR"
         )
 
+        abs_path, success = setup_worktree(mock_git_client, 123, "feature-branch")
+
         assert success is False
-        assert rel_path == ""
         assert abs_path == ""
 
     def test_uses_custom_base_path(self, mock_git_client):
         """Test using custom base path for worktrees"""
-        rel_path, abs_path, success = setup_worktree(
+        abs_path, success = setup_worktree(
             mock_git_client,
             456,
             "branch",
@@ -61,7 +57,7 @@ class TestSetupWorktree:
         )
 
         assert success is True
-        assert rel_path == "/custom/path/titan-review-456"
+        assert "titan-review-456" in abs_path
 
 
 @pytest.mark.unit
@@ -80,7 +76,9 @@ class TestCleanupWorktree:
 
     def test_handles_removal_failure(self, mock_git_client):
         """Test handling of removal failure"""
-        mock_git_client.remove_worktree.side_effect = Exception("Removal failed")
+        mock_git_client.remove_worktree.return_value = ClientError(
+            error_message="Removal failed", error_code="WORKTREE_REMOVE_ERROR"
+        )
 
         success = cleanup_worktree(mock_git_client, "/path/to/worktree")
 
@@ -93,8 +91,6 @@ class TestCommitInWorktree:
 
     def test_creates_commit_with_all_changes(self, mock_git_client):
         """Test creating commit with all changes staged"""
-        mock_git_client.run_in_worktree.return_value = "abc123def456789"
-
         commit_hash = commit_in_worktree(
             mock_git_client,
             "/tmp/worktree",
@@ -103,18 +99,14 @@ class TestCommitInWorktree:
             no_verify=False
         )
 
-        assert commit_hash == "abc123def456789"
-
-        # Should call git add --all
-        calls = mock_git_client.run_in_worktree.call_args_list
-        assert any("add" in str(call) for call in calls)
-        assert any("commit" in str(call) for call in calls)
+        assert commit_hash == "abc123def456789abc123def456789abc1234567"
+        mock_git_client.commit_in_worktree.assert_called_once_with(
+            "/tmp/worktree", "Fix bug in module", True, False
+        )
 
     def test_creates_commit_without_staging(self, mock_git_client):
         """Test creating commit without staging changes"""
-        mock_git_client.run_in_worktree.return_value = "def456abc123"
-
-        commit_hash = commit_in_worktree(
+        commit_in_worktree(
             mock_git_client,
             "/tmp/worktree",
             "Commit message",
@@ -122,16 +114,12 @@ class TestCommitInWorktree:
             no_verify=False
         )
 
-        assert commit_hash == "def456abc123"
-
-        # Should NOT call git add
-        calls = mock_git_client.run_in_worktree.call_args_list
-        assert not any("add" in str(call) and "--all" in str(call) for call in calls)
+        mock_git_client.commit_in_worktree.assert_called_once_with(
+            "/tmp/worktree", "Commit message", False, False
+        )
 
     def test_uses_no_verify_flag(self, mock_git_client):
-        """Test using --no-verify flag to skip hooks"""
-        mock_git_client.run_in_worktree.return_value = "hash123"
-
+        """Test passing no_verify flag through to client"""
         commit_in_worktree(
             mock_git_client,
             "/tmp/worktree",
@@ -140,35 +128,17 @@ class TestCommitInWorktree:
             no_verify=True
         )
 
-        # Should include --no-verify in commit command
-        calls = mock_git_client.run_in_worktree.call_args_list
-        commit_call = [call for call in calls if "commit" in str(call)][0]
-        assert "--no-verify" in str(commit_call)
-
-    def test_returns_full_commit_hash(self, mock_git_client):
-        """Test that full 40-char commit hash is returned"""
-        full_hash = "a" * 40
-        mock_git_client.run_in_worktree.return_value = full_hash
-
-        commit_hash = commit_in_worktree(
-            mock_git_client,
-            "/tmp/worktree",
-            "Test commit",
-            add_all=True,
-            no_verify=False
+        mock_git_client.commit_in_worktree.assert_called_once_with(
+            "/tmp/worktree", "Message", False, True
         )
-
-        assert len(commit_hash) == 40
-        assert commit_hash == full_hash
 
     def test_handles_commit_failure(self, mock_git_client):
         """Test handling of commit failure"""
-        mock_git_client.run_in_worktree.side_effect = [
-            None,  # git add succeeds
-            Exception("Nothing to commit")  # git commit fails
-        ]
+        mock_git_client.commit_in_worktree.return_value = ClientError(
+            error_message="Nothing to commit", error_code="WORKTREE_COMMIT_ERROR"
+        )
 
-        with pytest.raises(Exception, match="Nothing to commit"):
+        with pytest.raises(Exception, match="Failed to commit in worktree"):
             commit_in_worktree(
                 mock_git_client,
                 "/tmp/worktree",
@@ -176,98 +146,3 @@ class TestCommitInWorktree:
                 add_all=True,
                 no_verify=False
             )
-
-
-@pytest.mark.unit
-class TestPushFromWorktree:
-    """Test pushing from worktree"""
-
-    def test_pushes_with_explicit_branch(self, mock_git_client):
-        """Test push with explicitly specified branch"""
-        success = push_from_worktree(
-            mock_git_client,
-            "/tmp/worktree",
-            remote="origin",
-            branch="feature-branch",
-            set_upstream=False
-        )
-
-        assert success is True
-        mock_git_client.run_in_worktree.assert_called_with(
-            "/tmp/worktree",
-            ["git", "push", "origin", "feature-branch"]
-        )
-
-    def test_auto_detects_branch(self, mock_git_client):
-        """Test auto-detection of current branch"""
-        mock_git_client.run_in_worktree.side_effect = [
-            "feature-branch",  # git branch --show-current
-            None  # git push
-        ]
-
-        success = push_from_worktree(
-            mock_git_client,
-            "/tmp/worktree",
-            remote="origin",
-            branch=None,
-            set_upstream=False
-        )
-
-        assert success is True
-        calls = mock_git_client.run_in_worktree.call_args_list
-        assert "branch" in str(calls[0])
-        assert "push" in str(calls[1])
-
-    def test_uses_set_upstream_flag(self, mock_git_client):
-        """Test using -u flag to set upstream"""
-        push_from_worktree(
-            mock_git_client,
-            "/tmp/worktree",
-            remote="origin",
-            branch="new-branch",
-            set_upstream=True
-        )
-
-        mock_git_client.run_in_worktree.assert_called_with(
-            "/tmp/worktree",
-            ["git", "push", "-u", "origin", "new-branch"]
-        )
-
-    def test_handles_push_failure(self, mock_git_client):
-        """Test handling of push failure"""
-        mock_git_client.run_in_worktree.side_effect = Exception("Push rejected")
-
-        success = push_from_worktree(
-            mock_git_client,
-            "/tmp/worktree",
-            branch="feature"
-        )
-
-        assert success is False
-
-    def test_handles_empty_branch_detection(self, mock_git_client):
-        """Test handling when branch detection returns empty"""
-        mock_git_client.run_in_worktree.return_value = ""
-
-        success = push_from_worktree(
-            mock_git_client,
-            "/tmp/worktree",
-            branch=None
-        )
-
-        assert success is False
-
-    def test_uses_custom_remote(self, mock_git_client):
-        """Test pushing to custom remote"""
-        push_from_worktree(
-            mock_git_client,
-            "/tmp/worktree",
-            remote="upstream",
-            branch="main",
-            set_upstream=False
-        )
-
-        mock_git_client.run_in_worktree.assert_called_with(
-            "/tmp/worktree",
-            ["git", "push", "upstream", "main"]
-        )

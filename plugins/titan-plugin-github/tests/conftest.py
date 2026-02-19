@@ -175,13 +175,17 @@ def mock_github_client():
 @pytest.fixture
 def mock_git_client():
     """Create a mock Git client for testing"""
+    from titan_cli.core.result import ClientSuccess
+
     client = Mock()
     client.main_branch = "main"
 
-    # Mock git commands
-    client.run_in_worktree = Mock(return_value="")
-    client.create_worktree = Mock(return_value=True)
-    client.remove_worktree = Mock(return_value=True)
+    client.create_worktree = Mock(return_value=ClientSuccess(data=None, message="Created"))
+    client.remove_worktree = Mock(return_value=ClientSuccess(data=None, message="Removed"))
+    client.commit_in_worktree = Mock(return_value=ClientSuccess(
+        data="abc123def456789abc123def456789abc1234567", message="Committed"
+    ))
+    client.push_from_worktree = Mock(return_value=ClientSuccess(data=None, message="Pushed"))
 
     return client
 
