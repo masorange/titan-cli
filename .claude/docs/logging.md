@@ -90,7 +90,7 @@ commit_failed error="No changes to commit"
 ### Basic Usage
 
 ```python
-from titan_cli.core.logging_config import get_logger
+from titan_cli.core.logging.config import get_logger
 
 logger = get_logger(__name__)
 
@@ -220,12 +220,155 @@ except Exception as e:
 
 ---
 
+## 📐 Per-Component Rules
+
+Each architectural layer has specific rules about what to log and what to protect.
+
+---
+
+### Network Layer (`clients/network/`)
+
+**Pattern:** Log directly in the base method (`run_command`, `make_request`, etc.)
+
+**Log:** subcommand/action, HTTP method, endpoint path, status code, duration, exit code on failure.
+
+**NEVER log:**
+- `args[2:]` in git — may contain remote URLs with credentials, commit message content
+- `stdin_input` in gh — may contain PR/issue body
+- GraphQL `variables` or `query` content — may contain PR/issue body
+- HTTP request `params` or `json` kwargs in Jira — may contain JQL, issue content
+- HTTP `headers` — contains `Authorization: Bearer <token>`
+- Response content at any network layer
+
+```python
+# ✅ git_network.py
+subcommand = args[1] if len(args) > 1 else "unknown"
+start = time.time()
+# ... run command ...
+self._logger.debug("git_command_ok", subcommand=subcommand, duration=round(time.time() - start, 3))
+self._logger.debug("git_command_failed", subcommand=subcommand, exit_code=e.returncode, duration=...)
+
+# ✅ jira_network.py
+self._logger.debug("jira_request_ok", method=method.upper(), endpoint=endpoint, status_code=response.status_code, duration=...)
+self._logger.debug("jira_request_failed", method=method.upper(), endpoint=endpoint, status_code=e.response.status_code, duration=...)
+
+# ✅ graphql_network.py
+op_type = "mutation" if operation.lstrip().startswith("mutation") else "query"
+self._logger.debug("graphql_ok", op_type=op_type, duration=...)
+```
+
+---
+
+### Service Layer (`clients/services/`)
+
+**Pattern:** Use `@log_client_operation()` decorator — do NOT add manual logs inside service methods.
+
+The decorator automatically logs:
+- `{op_name}_started` at DEBUG (with kwargs)
+- `{op_name}_success` at INFO (with message, result_type, duration)
+- `{op_name}_failed` at ERROR/WARNING (with error, error_code, duration)
+- `{op_name}_exception` at ERROR with stack trace
+
+```python
+# ✅ GOOD
+@log_client_operation()
+def get_branches(self) -> ClientResult[List[UIGitBranch]]:
+    ...
+
+@log_client_operation("fetch_pr")
+def get_pull_request(self, number: int) -> ClientResult[UIPullRequest]:
+    ...
+
+# ❌ BAD - manual logging inside a decorated service method
+@log_client_operation()
+def get_branches(self):
+    self._logger.debug("fetching branches")  # redundant, decorator handles it
+    ...
+```
+
+---
+
+### AI Agents (`agents/`)
+
+**Pattern:** Add `operation=` to `AgentRequest` — logging is handled centrally in `BaseAIAgent.generate()`.
+
+**Never** add manual logs around `self.generate(request)` calls.
+
+`BaseAIAgent.generate()` automatically logs:
+- `ai_call_ok` at DEBUG: `provider`, `operation`, `tokens`, `max_tokens`, `duration`
+- `ai_call_failed` at DEBUG: `provider`, `operation`, `max_tokens`, `duration`
+
+**NEVER log:**
+- `request.context` — contains diffs, issue descriptions, PR content
+- `request.system_prompt` — contains project configuration
+- `response.content` — contains AI-generated text
+
+```python
+# ✅ GOOD — just label the operation
+request = AgentRequest(
+    context=prompt,
+    max_tokens=500,
+    system_prompt=self.config.commit_system_prompt,
+    operation="commit_message",   # ← this is all you need
+)
+response = self.generate(request)
+
+# ❌ BAD — manual logging around AI calls
+self._logger.debug("calling AI for commit message")
+response = self.generate(request)
+self._logger.debug("AI responded", tokens=response.tokens_used)  # already logged by base
+```
+
+**Available operation labels** (use these consistently):
+- `commit_message` — generating a git commit message
+- `pr_description` — generating PR title + body
+- `issue_generation` — generating a GitHub issue
+- `requirements_extraction` — Jira requirements analysis
+- `risk_analysis` — Jira risk analysis
+- `dependency_detection` — Jira dependency analysis
+- `subtask_suggestion` — Jira subtask suggestion
+- `comment_generation` — Jira comment generation
+
+---
+
+### Steps (`steps/`)
+
+**Pattern:** No manual logging needed. The workflow executor logs `step_started`, `step_success`, `step_failed`, `step_skipped` automatically.
+
+Only add logs in steps for significant business decisions that aren't captured by services:
+
+```python
+# ✅ OK — business decision worth logging
+if analysis.needs_commit:
+    self._logger.info("commit_required", staged_files=len(status.staged_files))
+
+# ❌ BAD — duplicates what executor already logs
+self._logger.info("starting pr creation step")
+```
+
+---
+
+## 🔒 Security: What to Never Log
+
+Regardless of component or log level:
+
+| Category | Examples |
+|---|---|
+| Auth credentials | API tokens, Bearer headers, passwords, SSH keys |
+| Secret fields | `Authorization`, `api_token`, `api_key`, `password` |
+| User content | Diffs, commit messages, PR body, issue descriptions |
+| AI content | Prompts sent to AI, AI responses |
+| Query content | JQL queries, GraphQL variables, request bodies |
+| Response bodies | HTTP responses, subprocess stdout with file content |
+
+---
+
 ## 🔧 Examples by Component
 
 ### In CLI Commands (cli.py)
 
 ```python
-from titan_cli.core.logging_config import get_logger
+from titan_cli.core.logging.config import get_logger
 
 logger = get_logger("titan.cli")
 
@@ -243,7 +386,7 @@ def my_command():
 ### In Workflow Steps
 
 ```python
-from titan_cli.core.logging_config import get_logger
+from titan_cli.core.logging.config import get_logger
 
 logger = get_logger("titan.workflows.create_pr")
 
@@ -272,7 +415,7 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
 ### In Plugin Services
 
 ```python
-from titan_cli.core.logging_config import get_logger
+from titan_cli.core.logging.config import get_logger
 
 logger = get_logger("titan.plugins.jira")
 
@@ -299,7 +442,7 @@ class JiraService:
 ### In Error Handling
 
 ```python
-from titan_cli.core.logging_config import get_logger
+from titan_cli.core.logging.config import get_logger
 
 logger = get_logger("titan.github")
 

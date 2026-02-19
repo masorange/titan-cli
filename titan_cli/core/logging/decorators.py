@@ -10,6 +10,8 @@ import time
 from typing import Any, Callable, TypeVar
 
 from titan_cli.core.logging.config import get_logger
+from titan_cli.core.result import ClientSuccess, ClientError
+
 
 F = TypeVar('F', bound=Callable[..., Any])
 
@@ -51,7 +53,6 @@ def log_client_operation(operation_name: str = None):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # Lazy import to avoid circular dependency
-            from titan_cli.engine.results import ClientSuccess, ClientError
 
             logger = get_logger(func.__module__)
             op_name = operation_name or func.__name__
@@ -81,8 +82,9 @@ def log_client_operation(operation_name: str = None):
                             duration=round(duration, 3)
                         )
 
-                    case ClientError(error_message=error_message, error_code=error_code):
-                        logger.error(
+                    case ClientError(error_message=error_message, error_code=error_code, log_level=log_level):
+                        log_fn = logger.warning if log_level == "warning" else logger.error
+                        log_fn(
                             f"{op_name}_failed",
                             error=error_message,
                             error_code=error_code,

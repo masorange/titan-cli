@@ -159,7 +159,7 @@ def test_get_issue_api_error(issue_service, mock_network):
     # Assertions
     assert isinstance(result, ClientError)
     assert result.error_code == "API_ERROR"
-    assert "error" in result.error_message.lower()
+    assert "TEST-123" in result.error_message
 
 
 def test_search_issues_success(issue_service, mock_network, sample_api_issue_response):

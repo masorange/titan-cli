@@ -6,6 +6,7 @@ Business logic for Git diff operations.
 Uses network layer to execute commands and returns diff outputs.
 """
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...exceptions import GitCommandError
@@ -30,6 +31,7 @@ class DiffService:
         self.git = git_network
         self.default_remote = default_remote
 
+    @log_client_operation()
     def get_diff(self, base_ref: str, head_ref: str = "HEAD") -> ClientResult[str]:
         """
         Get diff between two references.
@@ -50,6 +52,7 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
     def get_uncommitted_diff(self) -> ClientResult[str]:
         """
         Get diff of all uncommitted changes (staged + unstaged + untracked).
@@ -69,6 +72,7 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
     def get_staged_diff(self) -> ClientResult[str]:
         """
         Get diff of staged changes only (index vs HEAD).
@@ -82,6 +86,7 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
     def get_unstaged_diff(self) -> ClientResult[str]:
         """
         Get diff of unstaged changes only (working directory vs index).
@@ -95,6 +100,7 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
     def get_uncommitted_diff_stat(self) -> ClientResult[str]:
         """
         Get diff stat summary of uncommitted changes (working tree vs HEAD).
@@ -114,6 +120,7 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
     def get_file_diff(self, file_path: str) -> ClientResult[str]:
         """
         Get diff for a specific file.
@@ -133,6 +140,7 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
     def get_branch_diff(self, base_branch: str, head_branch: str) -> ClientResult[str]:
         """
         Get diff between two branches.
@@ -156,6 +164,7 @@ class DiffService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
     def get_diff_stat(self, base_ref: str, head_ref: str = "HEAD") -> ClientResult[str]:
         """
         Get diff stat summary between two references.

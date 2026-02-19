@@ -324,7 +324,8 @@ class JiraAgent(BaseAIAgent):
             context=prompt,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
-            system_prompt=self.config.requirements_system_prompt
+            system_prompt=self.config.requirements_system_prompt,
+            operation="requirements_extraction",
         )
 
         try:
@@ -384,7 +385,8 @@ class JiraAgent(BaseAIAgent):
             context=prompt,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
-            system_prompt=self.config.requirements_system_prompt
+            system_prompt=self.config.requirements_system_prompt,
+            operation="risk_analysis",
         )
 
         try:
@@ -424,7 +426,8 @@ class JiraAgent(BaseAIAgent):
             context=prompt,
             max_tokens=self.token_budget.get_budget(OperationType.DEPENDENCY_DETECTION),
             temperature=self.config.temperature,
-            system_prompt=self.config.requirements_system_prompt
+            system_prompt=self.config.requirements_system_prompt,
+            operation="dependency_detection",
         )
 
         try:
@@ -466,7 +469,8 @@ class JiraAgent(BaseAIAgent):
             context=prompt,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
-            system_prompt=self.config.subtask_suggestion_prompt
+            system_prompt=self.config.subtask_suggestion_prompt,
+            operation="subtask_suggestion",
         )
 
         try:
@@ -523,8 +527,9 @@ class JiraAgent(BaseAIAgent):
             request = AgentRequest(
                 context=prompt,
                 max_tokens=self.config.max_tokens // 2,
-            temperature=self.config.temperature,
-                system_prompt=self.config.comment_generation_prompt
+                temperature=self.config.temperature,
+                system_prompt=self.config.comment_generation_prompt,
+                operation="comment_generation",
             )
 
             response = self.generate(request)

@@ -8,6 +8,7 @@ Uses network layer to execute commands, parses to network models, maps to view m
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...models.network.branch import NetworkGitBranch
@@ -34,6 +35,7 @@ class BranchService:
         """
         self.git = git_network
 
+    @log_client_operation()
     def get_current_branch(self) -> ClientResult[str]:
         """
         Get current branch name.
@@ -47,6 +49,7 @@ class BranchService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="BRANCH_ERROR")
 
+    @log_client_operation()
     def get_branches(self, remote: bool = False) -> ClientResult[List[UIGitBranch]]:
         """
         List branches.
@@ -107,6 +110,7 @@ class BranchService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="BRANCH_LIST_ERROR")
 
+    @log_client_operation()
     def create_branch(
         self, branch_name: str, start_point: str = "HEAD"
     ) -> ClientResult[None]:
@@ -129,6 +133,7 @@ class BranchService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="BRANCH_CREATE_ERROR")
 
+    @log_client_operation()
     def delete_branch(
         self, branch: str, force: bool = False
     ) -> ClientResult[None]:
@@ -152,6 +157,7 @@ class BranchService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="BRANCH_DELETE_ERROR")
 
+    @log_client_operation()
     def checkout(self, branch: str) -> ClientResult[None]:
         """
         Checkout a branch.
@@ -176,7 +182,8 @@ class BranchService:
             except GitCommandError:
                 return ClientError(
                     error_message=msg.Git.BRANCH_NOT_FOUND.format(branch=branch),
-                    error_code="BRANCH_NOT_FOUND"
+                    error_code="BRANCH_NOT_FOUND",
+                    log_level="warning"
                 )
 
             # Checkout
@@ -192,10 +199,12 @@ class BranchService:
             if "would be overwritten" in error_str or "uncommitted changes" in error_str:
                 return ClientError(
                     error_message=msg.Git.CANNOT_CHECKOUT_UNCOMMITTED_CHANGES,
-                    error_code="DIRTY_WORKING_TREE"
+                    error_code="DIRTY_WORKING_TREE",
+                    log_level="warning"
                 )
             return ClientError(error_message=str(e), error_code="CHECKOUT_ERROR")
 
+    @log_client_operation()
     def branch_exists_on_remote(
         self, branch: str, remote: str = "origin"
     ) -> ClientResult[bool]:

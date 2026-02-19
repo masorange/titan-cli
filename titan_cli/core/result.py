@@ -39,16 +39,18 @@ class ClientError:
 
     Contains error information without raising an exception.
 
-    Examples:
-        >>> result = ClientError(
-        ...     error_message="Issue not found",
-        ...     error_code="ISSUE_NOT_FOUND"
-        ... )
-        >>> print(result.error_message)
-        'Issue not found'
+    Args:
+        error_message: Human-readable description of what failed (no sensitive data).
+        error_code: Structured code for programmatic handling (e.g. "NOT_FOUND").
+        log_level: How the decorator should log this error.
+                   Use "warning" for expected/recoverable cases (branch not found,
+                   invalid transition). Use "error" for unexpected failures (API down,
+                   auth error, network timeout). Defaults to "error".
+        details: Optional dict with extra diagnostic context.
     """
     error_message: str
     error_code: Optional[str] = None
+    log_level: str = "error"
     details: Optional[dict] = None
 
 

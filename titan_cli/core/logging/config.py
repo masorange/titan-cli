@@ -11,6 +11,7 @@ Provides structured logging with:
 import sys
 import os
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from typing import Optional
@@ -45,7 +46,7 @@ def setup_logging(
     # Determine if we're in development mode
     is_dev = _is_development_mode(debug)
 
-    # Setup file logging
+    # Setup file logging (writes session separator before attaching handler)
     _setup_file_handler(log_file, debug)
 
     # Setup console logging
@@ -55,11 +56,14 @@ def setup_logging(
     _configure_structlog(is_dev)
 
     # Get logger and log startup
+    from titan_cli import __version__
     logger = structlog.get_logger("titan")
     logger.info(
-        "logging_initialized",
+        "session_started",
+        version=__version__,
         mode="development" if is_dev else "production",
         log_level=logging.getLevelName(log_level),
+        pid=os.getpid(),
         log_file=str(_get_log_file_path(log_file)),
     )
 
@@ -109,6 +113,20 @@ def _get_log_file_path(custom_path: Optional[Path] = None) -> Path:
     return log_dir / "titan.log"
 
 
+def _write_session_separator(log_file: Path) -> None:
+    """
+    Write a plaintext session separator directly to the log file.
+
+    Written before the logging handler is attached, so it's a raw write.
+    Easy to grep: grep "SESSION START" ~/.local/state/titan/logs/titan.log
+    """
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"\n{'─' * 80}\n SESSION START  {date_str} UTC   PID {os.getpid()}\n{'─' * 80}\n"
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(line)
+
+
 def _setup_file_handler(log_file: Optional[Path], debug: bool) -> None:
     """
     Setup file handler with rotation.
@@ -120,6 +138,9 @@ def _setup_file_handler(log_file: Optional[Path], debug: bool) -> None:
     - Encoding: UTF-8
     """
     file_path = _get_log_file_path(log_file)
+
+    # Write session separator before attaching the handler
+    _write_session_separator(file_path)
 
     file_handler = RotatingFileHandler(
         file_path,

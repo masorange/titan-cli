@@ -1,11 +1,13 @@
 # titan_cli/ai/agents/base.py
 """Base classes for AI agents."""
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Protocol, List
 
 from titan_cli.ai.models import AIMessage, AIResponse
+from titan_cli.core.logging.config import get_logger
 
 
 @dataclass
@@ -15,6 +17,7 @@ class AgentRequest:
     max_tokens: int = 2000
     temperature: float = 0.7
     system_prompt: Optional[str] = None
+    operation: str = ""  # Label for logging (e.g., "commit_message", "pr_description")
 
 
 @dataclass
@@ -82,6 +85,7 @@ class BaseAIAgent(ABC):
                       (e.g., AIClient, AIProvider, or mock for testing)
         """
         self.generator = generator
+        self._logger = get_logger(__name__)
 
     @abstractmethod
     def get_system_prompt(self) -> str:
@@ -112,12 +116,30 @@ class BaseAIAgent(ABC):
 
         messages.append(AIMessage(role="user", content=request.context))
 
-        # Call underlying generator (AIClient, AIProvider, etc.)
-        response = self.generator.generate(
-            messages=messages,
-            max_tokens=request.max_tokens,
-            temperature=request.temperature
-        )
+        # Get provider name safely (needed for both ok and failed logs)
+        try:
+            provider_obj = getattr(self.generator, '_provider', self.generator)
+            provider_name = provider_obj.__class__.__name__ if provider_obj else "Unknown"
+        except AttributeError:
+            provider_name = "Unknown"
+
+        start = time.time()
+        try:
+            # Call underlying generator (AIClient, AIProvider, etc.)
+            response = self.generator.generate(
+                messages=messages,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature
+            )
+        except Exception:
+            self._logger.debug(
+                "ai_call_failed",
+                provider=provider_name,
+                operation=request.operation or "unknown",
+                max_tokens=request.max_tokens,
+                duration=round(time.time() - start, 3),
+            )
+            raise
 
         # Convert to AgentResponse
         # Calculate tokens used - handle both patterns
@@ -133,12 +155,14 @@ class BaseAIAgent(ABC):
         else:
             tokens_used = 0
 
-        # Get provider name safely
-        try:
-            provider_obj = getattr(self.generator, '_provider', self.generator)
-            provider_name = provider_obj.__class__.__name__ if provider_obj else "Unknown"
-        except AttributeError:
-            provider_name = "Unknown"
+        self._logger.debug(
+            "ai_call_ok",
+            provider=provider_name,
+            operation=request.operation or "unknown",
+            tokens=tokens_used,
+            max_tokens=request.max_tokens,
+            duration=round(time.time() - start, 3),
+        )
 
         return AgentResponse(
             content=response.content,

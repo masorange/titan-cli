@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...exceptions import GitCommandError
@@ -31,6 +32,7 @@ class StashService:
         """
         self.git = git_network
 
+    @log_client_operation()
     def stash_push(self, message: Optional[str] = None) -> ClientResult[bool]:
         """
         Stash uncommitted changes.
@@ -52,6 +54,7 @@ class StashService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STASH_ERROR")
 
+    @log_client_operation()
     def stash_pop(self, stash_ref: Optional[str] = None) -> ClientResult[bool]:
         """
         Pop stash (apply and remove).
@@ -72,6 +75,7 @@ class StashService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STASH_POP_ERROR")
 
+    @log_client_operation()
     def find_stash_by_message(self, message: str) -> ClientResult[Optional[str]]:
         """
         Find stash by message.
@@ -98,6 +102,7 @@ class StashService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STASH_FIND_ERROR")
 
+    @log_client_operation()
     def restore_stash(self, message: str) -> ClientResult[bool]:
         """
         Restore stash by finding it with a message and popping it.

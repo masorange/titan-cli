@@ -8,6 +8,7 @@ Network → NetworkModel → Result
 from typing import List, Dict, Any
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
 from ...models import NetworkJiraIssueType
@@ -25,6 +26,7 @@ class MetadataService:
     def __init__(self, network: JiraNetwork):
         self.network = network
 
+    @log_client_operation()
     def get_issue_types(self, project_key: str) -> ClientResult[List[NetworkJiraIssueType]]:
         """
         Get issue types for a project.
@@ -58,10 +60,11 @@ class MetadataService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to get issue types for {project_key}: {e.message}",
                 error_code="GET_ISSUE_TYPES_ERROR"
             )
 
+    @log_client_operation()
     def list_statuses(self, project_key: str) -> ClientResult[List[Dict[str, Any]]]:
         """
         List all available statuses for a project.
@@ -100,10 +103,11 @@ class MetadataService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to list statuses for {project_key}: {e.message}",
                 error_code="LIST_STATUSES_ERROR"
             )
 
+    @log_client_operation()
     def get_current_user(self) -> ClientResult[Dict[str, Any]]:
         """
         Get current authenticated user info.
@@ -120,10 +124,11 @@ class MetadataService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to get current user: {e.message}",
                 error_code="GET_USER_ERROR"
             )
 
+    @log_client_operation()
     def list_project_versions(self, project_key: str) -> ClientResult[List[Dict[str, Any]]]:
         """
         List all versions for a project.
@@ -159,7 +164,7 @@ class MetadataService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to list versions for {project_key}: {e.message}",
                 error_code="LIST_VERSIONS_ERROR"
             )
 

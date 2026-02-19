@@ -5,6 +5,7 @@ Handles issue linking operations.
 """
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
 from ...exceptions import JiraAPIError
@@ -20,6 +21,7 @@ class LinkService:
     def __init__(self, network: JiraNetwork):
         self.network = network
 
+    @log_client_operation()
     def link_issues(
         self,
         inward_issue: str,
@@ -53,10 +55,11 @@ class LinkService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to link {inward_issue} to {outward_issue}: {e.message}",
                 error_code="LINK_ERROR"
             )
 
+    @log_client_operation()
     def add_remote_link(
         self,
         issue_key: str,
@@ -95,7 +98,7 @@ class LinkService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to add remote link to {issue_key}: {e.message}",
                 error_code="ADD_REMOTE_LINK_ERROR"
             )
 

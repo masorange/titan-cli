@@ -8,6 +8,7 @@ Uses network layer to execute commands, parses to network models, maps to view m
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...models.network.tag import NetworkGitTag
@@ -33,6 +34,7 @@ class TagService:
         """
         self.git = git_network
 
+    @log_client_operation()
     def create_tag(
         self, tag_name: str, message: str, ref: str = "HEAD"
     ) -> ClientResult[None]:
@@ -53,6 +55,7 @@ class TagService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="TAG_CREATE_ERROR")
 
+    @log_client_operation()
     def delete_tag(self, tag_name: str) -> ClientResult[None]:
         """
         Delete a local tag.
@@ -69,6 +72,7 @@ class TagService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="TAG_DELETE_ERROR")
 
+    @log_client_operation()
     def tag_exists(self, tag_name: str) -> ClientResult[bool]:
         """
         Check if a tag exists locally.
@@ -89,6 +93,7 @@ class TagService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="TAG_CHECK_ERROR")
 
+    @log_client_operation()
     def list_tags(self) -> ClientResult[List[UIGitTag]]:
         """
         List all tags in the repository.

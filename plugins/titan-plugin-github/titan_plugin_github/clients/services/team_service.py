@@ -7,6 +7,7 @@ Business logic for GitHub team operations.
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GHNetwork
 from ...exceptions import GitHubAPIError
@@ -28,6 +29,7 @@ class TeamService:
         """
         self.gh = gh_network
 
+    @log_client_operation()
     def list_team_members(self, team_slug: str) -> ClientResult[List[str]]:
         """
         List all members of a GitHub team.
@@ -49,7 +51,8 @@ class TeamService:
             if '/' not in team_slug:
                 return ClientError(
                     error_message=f"Invalid team slug format. Expected 'org/team', got '{team_slug}'",
-                    error_code="INVALID_TEAM_SLUG"
+                    error_code="INVALID_TEAM_SLUG",
+                    log_level="warning"
                 )
 
             org, team = team_slug.split('/', 1)

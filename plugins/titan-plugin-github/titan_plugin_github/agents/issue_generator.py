@@ -312,7 +312,8 @@ Output format (REQUIRED - JSON):
         # Single AI call for categorization + generation with appropriate token limit
         request = AgentRequest(
             context=prompt,
-            max_tokens=estimation.max_tokens
+            max_tokens=estimation.max_tokens,
+            operation="issue_generation",
         )
         response = self.generate(request)
 

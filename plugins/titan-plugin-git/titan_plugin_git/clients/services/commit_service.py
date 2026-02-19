@@ -8,6 +8,7 @@ Uses network layer to execute commands, parses to network models, maps to view m
 from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...exceptions import GitCommandError
@@ -34,6 +35,7 @@ class CommitService:
         self.main_branch = main_branch
         self.default_remote = default_remote
 
+    @log_client_operation()
     def commit(
         self, message: str, all: bool = False, no_verify: bool = True
     ) -> ClientResult[str]:
@@ -68,6 +70,7 @@ class CommitService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
 
+    @log_client_operation()
     def get_current_commit(self) -> ClientResult[str]:
         """
         Get current commit SHA (HEAD).
@@ -84,6 +87,7 @@ class CommitService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
 
+    @log_client_operation()
     def get_commit_sha(self, ref: str) -> ClientResult[str]:
         """
         Get commit SHA for any git ref.
@@ -103,6 +107,7 @@ class CommitService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
 
+    @log_client_operation()
     def get_commits_vs_base(self) -> ClientResult[List[str]]:
         """
         Get commit messages from base branch to HEAD.
@@ -129,6 +134,7 @@ class CommitService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
 
+    @log_client_operation()
     def get_branch_commits(
         self, base_branch: str, head_branch: str
     ) -> ClientResult[List[str]]:
@@ -161,6 +167,7 @@ class CommitService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
 
+    @log_client_operation()
     def count_commits_ahead(self, base_branch: str = "develop") -> ClientResult[int]:
         """
         Count how many commits current branch is ahead of base branch.
@@ -183,6 +190,7 @@ class CommitService:
         except (GitCommandError, ValueError) as e:
             return ClientError(error_message=str(e), error_code="COMMIT_COUNT_ERROR")
 
+    @log_client_operation()
     def count_unpushed_commits(
         self, branch: Optional[str] = None, remote: str = "origin"
     ) -> ClientResult[int]:

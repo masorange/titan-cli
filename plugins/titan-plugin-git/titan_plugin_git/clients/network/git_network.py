@@ -8,7 +8,10 @@ No model conversion - returns raw command output strings.
 """
 import subprocess
 import shutil
+import time
 from typing import List, Optional
+
+from titan_cli.core.logging.config import get_logger
 
 from ...exceptions import (
     GitError,
@@ -44,6 +47,7 @@ class GitNetwork:
             GitNotRepositoryError: If not in a git repository
         """
         self.repo_path = repo_path
+        self._logger = get_logger(__name__)
         self._check_git_installed()
         self._check_repository()
 
@@ -98,6 +102,10 @@ class GitNetwork:
             >>> output = network.run_command(["git", "status", "--short"])
             >>> # Returns: "M file1.txt\\n?? file2.txt"
         """
+        # Log only the subcommand — never args[2:] (may contain remote URLs, commit messages)
+        subcommand = args[1] if len(args) > 1 else "unknown"
+        start = time.time()
+
         try:
             result = subprocess.run(
                 args,
@@ -106,8 +114,19 @@ class GitNetwork:
                 text=True,
                 check=check
             )
+            self._logger.debug(
+                "git_command_ok",
+                subcommand=subcommand,
+                duration=round(time.time() - start, 3),
+            )
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
+            self._logger.debug(
+                "git_command_failed",
+                subcommand=subcommand,
+                duration=round(time.time() - start, 3),
+                exit_code=e.returncode,
+            )
             error_msg = e.stderr.strip() if e.stderr else str(e)
             if "not a git repository" in error_msg:
                 raise GitNotRepositoryError(

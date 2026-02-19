@@ -40,13 +40,13 @@ class PluginRegistry:
                 if not issubclass(plugin_class, TitanPlugin):
                     raise TypeError("Plugin class must inherit from TitanPlugin")
                 self._plugins[ep.name] = plugin_class()
-                logger.info("plugin_loaded", name=ep.name)
+                logger.debug("plugin_loaded", name=ep.name)
             except Exception as e:
                 logger.exception("plugin_load_failed", name=ep.name)
                 error = PluginLoadError(plugin_name=ep.name, original_exception=e)
                 self._failed_plugins[ep.name] = error
 
-        logger.info("plugin_discovery_completed", loaded=len(self._plugins), failed=len(self._failed_plugins), failed_plugins=list(self._failed_plugins.keys()))
+        logger.debug("plugin_discovery_completed", loaded=len(self._plugins), failed=len(self._failed_plugins), failed_plugins=list(self._failed_plugins.keys()))
 
     def initialize_plugins(self, config: Any, secrets: Any) -> None:
         """

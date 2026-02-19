@@ -8,6 +8,7 @@ Network → NetworkModel → UIModel → ClientResult
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
 from ...models import (
@@ -29,6 +30,7 @@ class CommentService:
     def __init__(self, network: JiraNetwork):
         self.network = network
 
+    @log_client_operation()
     def get_comments(self, issue_key: str) -> ClientResult[List[UIJiraComment]]:
         """
         Get all comments for an issue.
@@ -58,10 +60,11 @@ class CommentService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to get comments for {issue_key}: {e.message}",
                 error_code="GET_COMMENTS_ERROR"
             )
 
+    @log_client_operation()
     def add_comment(self, issue_key: str, body: str) -> ClientResult[UIJiraComment]:
         """
         Add comment to issue.
@@ -103,7 +106,7 @@ class CommentService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to add comment to {issue_key}: {e.message}",
                 error_code="ADD_COMMENT_ERROR"
             )
 

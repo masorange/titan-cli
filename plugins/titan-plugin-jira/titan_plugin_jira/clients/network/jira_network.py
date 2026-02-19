@@ -7,9 +7,12 @@ NO model parsing, NO business logic.
 """
 
 import json
+import time
 from typing import Dict, List, Union
 
 import requests
+
+from titan_cli.core.logging.config import get_logger
 
 from ...exceptions import JiraAPIError
 
@@ -53,6 +56,7 @@ class JiraNetwork:
         self.email = email
         self.api_token = api_token
         self.timeout = timeout
+        self._logger = get_logger(__name__)
 
         # Setup session with auth
         self.session = requests.Session()
@@ -96,6 +100,9 @@ class JiraNetwork:
             headers['Content-Type'] = 'application/json'
             kwargs['headers'] = headers
 
+        # Log only method + endpoint path — never kwargs/params (may contain JQL, body) or headers (Bearer token)
+        start = time.time()
+
         try:
             response = self.session.request(
                 method,
@@ -106,14 +113,36 @@ class JiraNetwork:
 
             # Handle 204 No Content
             if response.status_code == 204:
+                self._logger.debug(
+                    "jira_request_ok",
+                    method=method.upper(),
+                    endpoint=endpoint,
+                    status_code=204,
+                    duration=round(time.time() - start, 3),
+                )
                 return {}
 
             response.raise_for_status()
+
+            self._logger.debug(
+                "jira_request_ok",
+                method=method.upper(),
+                endpoint=endpoint,
+                status_code=response.status_code,
+                duration=round(time.time() - start, 3),
+            )
 
             # Return JSON or empty dict
             return response.json() if response.content else {}
 
         except requests.exceptions.HTTPError as e:
+            self._logger.debug(
+                "jira_request_failed",
+                method=method.upper(),
+                endpoint=endpoint,
+                status_code=e.response.status_code if e.response is not None else None,
+                duration=round(time.time() - start, 3),
+            )
             error_msg = f"JIRA API error: {e}"
 
             # Try to extract error details from response

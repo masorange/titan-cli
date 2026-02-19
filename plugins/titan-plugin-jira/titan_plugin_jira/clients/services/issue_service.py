@@ -8,6 +8,7 @@ Network → NetworkModel → UIModel → ClientResult
 from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
 from ...models import (
@@ -42,6 +43,7 @@ class IssueService:
         """
         self.network = network
 
+    @log_client_operation()
     def get_issue(
         self,
         key: str,
@@ -78,13 +80,15 @@ class IssueService:
             )
 
         except JiraAPIError as e:
-            error_code = "ISSUE_NOT_FOUND" if e.status_code == 404 else "API_ERROR"
+            is_not_found = e.status_code == 404
             return ClientError(
-                error_message=str(e),
-                error_code=error_code,
+                error_message=f"Issue {key} not found" if is_not_found else f"Failed to get issue {key}",
+                error_code="ISSUE_NOT_FOUND" if is_not_found else "API_ERROR",
+                log_level="warning" if is_not_found else "error",
                 details={"status_code": e.status_code} if e.status_code else None
             )
 
+    @log_client_operation()
     def search_issues(
         self,
         jql: str,
@@ -128,10 +132,11 @@ class IssueService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to search issues: {e.message}",
                 error_code="SEARCH_ERROR"
             )
 
+    @log_client_operation()
     def create_issue(
         self,
         project_key: str,
@@ -195,10 +200,11 @@ class IssueService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to create issue in {project_key}: {e.message}",
                 error_code="CREATE_ISSUE_ERROR"
             )
 
+    @log_client_operation()
     def create_subtask(
         self,
         parent_key: str,
@@ -250,7 +256,7 @@ class IssueService:
 
         except JiraAPIError as e:
             return ClientError(
-                error_message=str(e),
+                error_message=f"Failed to create subtask under {parent_key}: {e.message}",
                 error_code="CREATE_SUBTASK_ERROR"
             )
 
