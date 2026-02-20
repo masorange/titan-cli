@@ -260,6 +260,12 @@ Note: Review the entire conversation thread carefully - previous fix attempts ma
 
         ctx.data["project_root"] = worktree_path
 
+        # Inform user how to return to Titan after using the AI CLI
+        ctx.textual.panel(
+            "When you're done using the AI CLI, press Ctrl+C twice to exit and return to Titan.",
+            panel_type="warning"
+        )
+
         # Launch AI assistant
         execute_ai_assistant_step(ai_step, ctx)
 

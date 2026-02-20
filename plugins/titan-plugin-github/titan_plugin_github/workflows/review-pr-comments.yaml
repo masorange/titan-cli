@@ -1,6 +1,9 @@
 name: "Review PR Comments"
 description: "Review and address pending comments on your pull requests"
 
+hooks:
+  - after_review
+
 steps:
   - id: select_pr
     name: "Select PR for Review"
@@ -25,6 +28,9 @@ steps:
     plugin: github
     step: review_comments
     on_error: continue
+
+  # Hook point: inject linter, tests, or any validation before pushing
+  - hook: after_review
 
   # Push commits - if fails, skip to cleanup
   - id: push_commits
