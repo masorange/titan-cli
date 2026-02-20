@@ -54,6 +54,9 @@ def setup_worktree(
         except Exception:
             pass
 
+        # Fetch the branch so the remote ref exists locally
+        git_client.fetch(remote, branch)
+
         # Create new worktree from remote branch in detached mode
         # This avoids "branch already checked out" errors and works even if branch doesn't exist locally
         remote_ref = f"{remote}/{branch}"
