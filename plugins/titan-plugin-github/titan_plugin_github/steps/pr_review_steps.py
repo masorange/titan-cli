@@ -14,9 +14,6 @@ from titan_plugin_github.widgets import CommentThread
 from ..models import UICommentThread
 from ..operations import (
     fetch_pr_threads,
-    setup_worktree,
-    cleanup_worktree,
-    commit_in_worktree,
     build_ai_review_context,
     find_ai_response_file,
     create_commit_message,
@@ -24,12 +21,6 @@ from ..operations import (
     prepare_replies_for_sending,
 )
 from titan_plugin_git.operations import format_diff_stat_display
-
-
-# ============================================================================
-# UI HELPER FUNCTIONS (Private)
-# ============================================================================
-
 
 def _show_thread_and_get_action(
     ctx: WorkflowContext,
@@ -155,7 +146,6 @@ def _handle_manual_reply(
 def _handle_ai_review(
     ctx: WorkflowContext,
     pr_thread: UICommentThread,
-    worktree_path: str,
     pr_title: str,
     comment_commits: Dict[int, str],
     pending_responses: Dict[int, str],
@@ -164,10 +154,11 @@ def _handle_ai_review(
     """
     Handle AI review for a comment thread.
 
+    Works directly on the current branch (no worktree).
+
     Args:
         ctx: Workflow context
         pr_thread: The PR review thread (UI model)
-        worktree_path: Absolute path to worktree
         pr_title: PR title for context
         comment_commits: Dict to track commits (will be updated)
         pending_responses: Dict to track responses (will be updated)
@@ -178,7 +169,6 @@ def _handle_ai_review(
     """
     try:
         import json
-        import os
 
         main_comment = pr_thread.main_comment
 
@@ -241,51 +231,33 @@ def _handle_ai_review(
 - Example GOOD: "This is intentional. The logic handles X at layer Y, ensuring Z."
 - Example BAD: Long multi-paragraph explanations with bullet points and detailed justifications
 
-Note: Review the entire conversation thread carefully - previous fix attempts may have failed or been incomplete.""",
+Note: Review the entire conversation thread carefully - previous fix attempts may have failed or been incomplete.
+
+## When You're Done
+Once you have completed your single action (code fix OR written the response file), tell the user:
+"Done. Press Ctrl+C twice to exit and return to Titan." """,
                 "ask_confirmation": False,
-                "cli_preference": "auto"
+                "cli_preference": "auto",
+                "pre_launch_warning": "When you're done using the AI CLI, press Ctrl+C twice to exit and return to Titan.",
             }
         )
 
-
-        # Update project_root in context to point to worktree
-        original_project_root = ctx.get("project_root", ".")
-
-        # Verify worktree exists before changing to it
-        worktree_exists = os.path.isdir(worktree_path)
-
-        if not worktree_exists:
-            ctx.textual.error_text(f"Worktree not found: {worktree_path}")
-            return False
-
-        ctx.data["project_root"] = worktree_path
-
-        # Inform user how to return to Titan after using the AI CLI
-        ctx.textual.panel(
-            "When you're done using the AI CLI, press Ctrl+C twice to exit and return to Titan.",
-            panel_type="warning"
-        )
-
-        # Launch AI assistant
+        # Launch AI assistant (works directly on current branch)
         execute_ai_assistant_step(ai_step, ctx)
-
-        # Restore original project_root
-        ctx.data["project_root"] = original_project_root
 
         # Check if AI made any code changes
         ctx.textual.text("")
 
-        status_result = ctx.git.run_in_worktree(worktree_path, ["git", "status", "--short"])
-        match status_result:
-            case ClientSuccess(data=status_output):
-                has_changes = bool(status_output.strip())
+        has_changes_result = ctx.git.has_uncommitted_changes()
+        match has_changes_result:
+            case ClientSuccess(data=has_changes):
+                pass
             case ClientError():
-                # AI might have provided a text response instead - check for that
                 has_changes = False
 
         if has_changes:
             # Show what changed using diff stat inside a panel
-            stat_result = ctx.git.get_worktree_diff_stat(worktree_path)
+            stat_result = ctx.git.get_uncommitted_diff_stat()
             match stat_result:
                 case ClientSuccess(data=stat_output) if stat_output.strip():
                     formatted_files, formatted_summary = format_diff_stat_display(stat_output)
@@ -302,16 +274,15 @@ Note: Review the entire conversation thread carefully - previous fix attempts ma
             )
 
             with ctx.textual.loading("Committing changes..."):
-                commit_hash = commit_in_worktree(
-                    ctx.git,
-                    worktree_path,
-                    commit_msg,
-                    add_all=True,
-                    no_verify=True
-                )
+                commit_result = ctx.git.commit(commit_msg, all=True, no_verify=True)
 
-            ctx.textual.success_text(f"✓ Committed: {commit_hash[:8]}")
-            comment_commits[main_comment.id] = commit_hash
+            match commit_result:
+                case ClientSuccess(data=commit_hash):
+                    ctx.textual.success_text(f"✓ Committed: {commit_hash[:8]}")
+                    comment_commits[main_comment.id] = commit_hash
+                case ClientError(error_message=err):
+                    ctx.textual.error_text(f"Failed to commit: {err}")
+                    return False
 
         else:
             # No code changes - check for text response
@@ -372,12 +343,6 @@ def _handle_resolve_thread(
             ctx.textual.error_text(f"Failed to resolve thread: {err}")
             return False
 
-
-# ============================================================================
-# WORKFLOW STEPS
-# ============================================================================
-
-
 def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Select a PR from the user's open PRs to review comments.
@@ -388,7 +353,7 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Returns:
         Success: PR selected successfully
-        Skip: No PRs available or user cancelled
+        Exit: No PRs available or user cancelled
         Error: Failed to fetch PRs
     """
     if not ctx.textual:
@@ -419,7 +384,7 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
                     OptionItem(
                         value=pr.number,
                         title=f"#{pr.number}: {pr.title}",
-                        description=f"Branch: {pr.branch_info}"  # Pre-formatted "head → base"
+                        description=f"Branch: {pr.branch_info}"
                     )
                 )
 
@@ -435,7 +400,6 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
                     ctx.textual.end_step("skip")
                     return Exit("User cancelled PR selection")
 
-                # selected is already the PR number (int)
                 pr_number = selected
                 selected_pr = next((pr for pr in prs if pr.number == pr_number), None)
 
@@ -474,17 +438,15 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Fetch unresolved review threads for the selected PR using GraphQL.
 
-    Fetches structured threads (main comment + replies) that are NOT resolved.
-
     Requires (from ctx.data):
         selected_pr_number (int): The PR number
 
     Outputs (saved to ctx.data):
-        review_threads (List[UICommentThread]): Unresolved review threads (UI models)
+        review_threads (List[UICommentThread]): Unresolved review threads
 
     Returns:
         Success: Threads fetched
-        Skip: No unresolved threads
+        Exit: No unresolved threads
         Error: Failed to fetch threads
     """
     if not ctx.textual:
@@ -492,19 +454,16 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Fetch Pending Comments")
 
-    # Get PR number from context
     pr_number = ctx.get("selected_pr_number")
     if not pr_number:
         ctx.textual.end_step("error")
         return Error("No PR selected")
 
-    # Get GitHub client
     if not ctx.github:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
     try:
-        # Fetch and filter review threads
         with ctx.textual.loading(f"Fetching comments for PR #{pr_number}..."):
             filtered_threads = fetch_pr_threads(ctx.github, pr_number, include_resolved=False)
 
@@ -513,11 +472,8 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("skip")
             return Exit("No unresolved threads")
 
-        # Show summary
         ctx.textual.success_text(f"Found {len(filtered_threads)} unresolved thread(s)")
-        ctx.textual.text("")
 
-        # Save to context
         metadata = {
             "review_threads": filtered_threads,
             "total_pending": len(filtered_threads),
@@ -536,85 +492,153 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error(str(e))
 
 
-def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
+def check_clean_state_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Create worktree for PR review.
+    Check that the working tree is clean before checking out the PR branch.
 
-    Requires (from ctx.data):
-        selected_pr_number (int): The PR number
-        selected_pr_head_branch (str): Branch to checkout in worktree
-
-    Outputs (saved to ctx.data):
-        worktree_path (str): Absolute path to worktree
-        worktree_created (bool): Whether worktree was created
+    If there are uncommitted changes, the workflow exits with instructions
+    for the user to stash them manually.
 
     Returns:
-        Success: Worktree created
-        Error: Failed to create worktree
+        Success: Working tree is clean
+        Exit: Uncommitted changes detected — user must stash manually
+        Error: Failed to check status
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Create Worktree")
+    ctx.textual.begin_step("Check Branch State")
 
-    # Get data from context
+    if not ctx.git:
+        ctx.textual.end_step("error")
+        return Error("Git client not available")
+
+    result = ctx.git.has_uncommitted_changes()
+    match result:
+        case ClientSuccess(data=has_changes):
+            if has_changes:
+                ctx.textual.error_text("Your branch has uncommitted changes.")
+                ctx.textual.text("")
+                ctx.textual.dim_text("Please stash or commit them before switching to the PR branch:")
+                ctx.textual.dim_text("  git stash")
+                ctx.textual.end_step("error")
+                return Exit("Uncommitted changes detected — stash them and try again")
+
+            ctx.textual.success_text("✓ Branch is clean")
+            ctx.textual.end_step("success")
+            return Success("Branch is clean")
+
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to check git status: {err}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to check git status: {err}")
+
+
+def checkout_pr_branch_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Save the current branch and checkout the PR branch.
+
+    Requires (from ctx.data):
+        selected_pr_number (int): The PR number
+        selected_pr_head_branch (str): Branch to checkout
+
+    Outputs (saved to ctx.data):
+        original_branch (str): Branch to restore after review
+
+    Returns:
+        Success: PR branch checked out
+        Error: Failed to fetch or checkout
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Checkout PR Branch")
+
+    if not ctx.git:
+        ctx.textual.end_step("error")
+        return Error("Git client not available")
+
     pr_number = ctx.get("selected_pr_number")
     head_branch = ctx.get("selected_pr_head_branch", "")
 
     if not pr_number or not head_branch:
-        ctx.textual.error_text("Missing PR number or branch")
         ctx.textual.end_step("error")
-        return Error("Missing required data")
+        return Error("Missing PR number or branch")
 
-    # Check if Git client is available
-    if not ctx.git:
-        ctx.textual.error_text("Git client not available")
-        ctx.textual.end_step("error")
-        return Error("Git client not available")
+    # Save current branch to restore later
+    current_branch_result = ctx.git.get_current_branch()
+    match current_branch_result:
+        case ClientSuccess(data=current_branch):
+            pass
+        case ClientError(error_message=err):
+            ctx.textual.end_step("error")
+            return Error(f"Failed to get current branch: {err}")
 
-    # Create worktree
-    ctx.textual.text("")
-    with ctx.textual.loading(f"Creating worktree for PR #{pr_number}..."):
-        remote = getattr(ctx.git, 'default_remote', 'origin')
-        worktree_path, worktree_created = setup_worktree(
-            ctx.git,
-            pr_number,
-            head_branch,
-            remote=remote
-        )
+    # Fetch the PR branch
+    with ctx.textual.loading(f"Fetching {head_branch}..."):
+        fetch_result = ctx.git.fetch("origin", head_branch)
 
-    if worktree_created:
-        worktree_name = os.path.basename(worktree_path)
-        ctx.textual.success_text(f"✓ Worktree created: {worktree_name}")
-        ctx.textual.end_step("success")
+    match fetch_result:
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to fetch branch: {err}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to fetch {head_branch}: {err}")
+        case ClientSuccess():
+            pass
 
-        metadata = {
-            "worktree_path": worktree_path,
-            "worktree_created": True,
-        }
+    # Checkout the PR branch
+    with ctx.textual.loading(f"Checking out {head_branch}..."):
+        checkout_result = ctx.git.checkout(head_branch)
 
-        return Success("Worktree created", metadata=metadata)
-    else:
-        ctx.textual.error_text("Failed to create worktree")
-        ctx.textual.end_step("error")
-        return Error("Failed to create worktree")
+    match checkout_result:
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to checkout {head_branch}: {err}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to checkout: {err}")
+        case ClientSuccess():
+            pass
+
+    # Pull to sync with origin
+    with ctx.textual.loading(f"Pulling latest changes for {head_branch}..."):
+        pull_result = ctx.git.pull("origin", head_branch)
+
+    match pull_result:
+        case ClientError(error_message=err):
+            if "conflict" in err.lower():
+                ctx.textual.error_text("Merge conflicts detected after pull.")
+                ctx.textual.text("")
+                ctx.textual.dim_text("Please resolve the conflicts manually and try again:")
+                ctx.textual.dim_text("  git status")
+                ctx.textual.dim_text("  git mergetool")
+                ctx.textual.end_step("error")
+                # Restore original branch before exiting
+                ctx.git.checkout(current_branch)
+                return Exit("Merge conflicts detected — resolve them and try again")
+            else:
+                ctx.textual.warning_text(f"Pull failed: {err}")
+        case ClientSuccess():
+            pass
+
+    ctx.textual.success_text(f"✓ On branch {head_branch}, up to date")
+    ctx.textual.end_step("success")
+    return Success(
+        f"Checked out {head_branch}",
+        metadata={"original_branch": current_branch}
+    )
 
 
 def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Review all unresolved comment threads one by one and take action.
 
-    Uses GraphQL-structured threads (main comment + replies).
+    Works directly on the current branch (PR branch must already be checked out).
 
     Requires (from ctx.data):
         selected_pr_number (int): The PR number
-        review_threads (List[UICommentThread]): Unresolved threads (UI models)
-        worktree_path (str): Absolute path to worktree (from create_worktree_step)
-        worktree_created (bool): Whether worktree was created (from create_worktree_step)
+        review_threads (List[UICommentThread]): Unresolved threads
 
     Returns:
         Success: All threads processed
-        Skip: User cancelled review
         Error: Failed to process threads
     """
     if not ctx.textual:
@@ -622,38 +646,26 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Review Comments")
 
+    response_files = []  # Track temp files for cleanup (must be before try for finally)
     try:
-        # Get data from context
         pr_number = ctx.get("selected_pr_number")
         review_threads: List[UICommentThread] = ctx.get("review_threads", [])
         pr_title = ctx.get("selected_pr_title", "")
-
-        # Get worktree info from create_worktree_step
-        worktree_path = ctx.get("worktree_path")
-        worktree_created = ctx.get("worktree_created", False)
 
         if not pr_number or not review_threads:
             ctx.textual.end_step("error")
             return Error("Missing required data")
 
-        if not worktree_created or not worktree_path:
-            ctx.textual.error_text("Worktree not available")
-            ctx.textual.end_step("error")
-            return Error("Worktree not available")
-
         # Track state
-        comment_commits = {}  # {comment_id: commit_hash}
-        pending_responses = {}  # {comment_id: response_text}
-        response_files = []  # Track temp files for cleanup
+        comment_commits = {}
+        pending_responses = {}
         processed_count = 0
         skipped_count = 0
 
         # Loop through all review threads
         for thread_idx, pr_thread in enumerate(review_threads):
-            # Show thread and get user's choice
             choice = _show_thread_and_get_action(ctx, pr_thread, thread_idx, len(review_threads))
 
-            # Handle user choice
             if choice == "exit":
                 ctx.textual.warning_text(f"Exiting review. Processed {processed_count}, skipped {skipped_count}")
                 ctx.textual.end_step("success")
@@ -663,6 +675,8 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                         "processed_count": processed_count,
                         "skipped_count": skipped_count,
                         "total_threads": len(review_threads),
+                        "comment_commits": comment_commits,
+                        "pending_responses": pending_responses,
                     }
                 )
 
@@ -676,14 +690,9 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                     skipped_count += 1
 
             elif choice == "ai_review":
-                if not worktree_created or not worktree_path:
-                    ctx.textual.error_text("Worktree not available")
-                    skipped_count += 1
-                    continue
-
                 if _handle_ai_review(
-                    ctx, pr_thread, worktree_path,
-                    pr_title, comment_commits, pending_responses, response_files
+                    ctx, pr_thread, pr_title,
+                    comment_commits, pending_responses, response_files
                 ):
                     processed_count += 1
                 else:
@@ -695,7 +704,6 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 else:
                     skipped_count += 1
 
-        # Summary - don't send anything yet, just show what was generated
         ctx.textual.text("")
         ctx.textual.success_text(
             f"Review complete! Processed {processed_count}, skipped {skipped_count} "
@@ -706,18 +714,15 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
         ctx.textual.end_step("success")
 
-        # Store data for next steps (worktree info already in context from create_worktree_step)
-        metadata = {
-            "processed_count": processed_count,
-            "skipped_count": skipped_count,
-            "total_threads": len(review_threads),
-            "comment_commits": comment_commits,  # {comment_id: commit_hash}
-            "pending_responses": pending_responses,  # {comment_id: {"text": ..., "source": ...}}
-        }
-
         return Success(
             f"Reviewed {len(review_threads)} comment thread(s)",
-            metadata=metadata
+            metadata={
+                "processed_count": processed_count,
+                "skipped_count": skipped_count,
+                "total_threads": len(review_threads),
+                "comment_commits": comment_commits,
+                "pending_responses": pending_responses,
+            }
         )
 
     except Exception as e:
@@ -731,14 +736,12 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     finally:
         # Cleanup temporary AI response files
-        if response_files:
-            for response_file in response_files:
-                try:
-                    if os.path.exists(response_file):
-                        os.remove(response_file)
-                except Exception:
-                    pass
-        # Note: Worktree cleanup moved to cleanup_worktree_step (runs after push)
+        for response_file in response_files:
+            try:
+                if os.path.exists(response_file):
+                    os.remove(response_file)
+            except Exception:
+                pass
 
 
 def push_commits_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -746,11 +749,8 @@ def push_commits_step(ctx: WorkflowContext) -> WorkflowResult:
     Push commits to PR branch.
 
     Requires (from ctx.data):
-        selected_pr_number (int): The PR number
         selected_pr_head_branch (str): Branch to push to
         comment_commits (Dict[int, str]): Map of comment_id -> commit_hash
-        worktree_path (str): Absolute path to worktree
-        worktree_created (bool): Whether worktree was created
 
     Outputs (saved to ctx.data):
         push_successful (bool): Whether push succeeded
@@ -765,42 +765,22 @@ def push_commits_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Push Commits")
 
-    # Get data from context
     head_branch = ctx.get("selected_pr_head_branch", "")
     comment_commits = ctx.get("comment_commits", {})
-    worktree_path = ctx.get("worktree_path")
-    worktree_created = ctx.get("worktree_created", False)
 
-    # Check if Git client is available
     if not ctx.git:
         ctx.textual.error_text("Git client not available")
         ctx.textual.end_step("error")
         return Error("Git client not available")
 
-    # Check if there are commits to push
     if not comment_commits:
         ctx.textual.dim_text("No commits to push")
         ctx.textual.end_step("skip")
         return Skip("No commits to push")
 
-    if not worktree_created or not worktree_path:
-        ctx.textual.error_text("Worktree not available")
-        ctx.textual.end_step("error")
-        return Error("Worktree not available")
-
     # Show commits to push
     ctx.textual.text("")
-
-    # List commits using service method
-    commits_result = ctx.git.get_commits(worktree_path, limit=len(comment_commits))
-    match commits_result:
-        case ClientSuccess(data=commits):
-            ctx.textual.bold_text(f"Push {len(commits)} commit(s) to `{head_branch}`")
-            for c in commits:
-                ctx.textual.text(f"  - {c.short_hash} {c.message_subject}")
-        case ClientError():
-            ctx.textual.bold_text(f"Push {len(comment_commits)} commit(s) to {head_branch}")
-
+    ctx.textual.bold_text(f"Push {len(comment_commits)} commit(s) to `{head_branch}`")
     ctx.textual.text("")
 
     # Ask confirmation
@@ -814,11 +794,10 @@ def push_commits_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("Push cancelled by user", metadata={"push_successful": False})
 
-    # Push
     ctx.textual.text("")
 
     with ctx.textual.loading(f"Pushing to {head_branch}..."):
-        push_result = ctx.git.push_from_worktree(worktree_path, head_branch)
+        push_result = ctx.git.push(branch=head_branch)
 
     match push_result:
         case ClientSuccess():
@@ -854,20 +833,17 @@ def send_comment_replies_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Send Comment Replies")
 
-    # Get data from context
     pr_number = ctx.get("selected_pr_number")
     comment_commits = ctx.get("comment_commits", {})
     pending_responses = ctx.get("pending_responses", {})
     push_successful = ctx.get("push_successful", False)
 
-    # Prepare replies using operation (handles push failure logic)
     replies_to_send = prepare_replies_for_sending(
         pending_responses,
         comment_commits,
         push_successful
     )
 
-    # Check if there's anything to send
     if not replies_to_send:
         ctx.textual.dim_text("No replies to send")
         ctx.textual.end_step("skip")
@@ -887,15 +863,22 @@ def send_comment_replies_step(ctx: WorkflowContext) -> WorkflowResult:
     for i, (comment_id, reply_text) in enumerate(replies_to_send.items(), 1):
         ctx.textual.text("")
 
-        # Show context
         thread = thread_by_id.get(comment_id)
         if thread and thread.main_comment:
             mc = thread.main_comment
             filename = mc.path.split('/')[-1] if mc.path else "General"
             ctx.textual.dim_text(f"Reply {i}/{total} — {mc.author_login} on {filename}")
+
+            # Show a short snippet of the original comment as context
+            if mc.body:
+                first_line = mc.body.splitlines()[0].strip()
+                snippet = first_line[:120] + "…" if len(first_line) > 120 else first_line
+                if snippet:
+                    ctx.textual.dim_text(f"  > {snippet}")
         else:
             ctx.textual.dim_text(f"Reply {i}/{total}")
 
+        ctx.textual.text("")
         for line in reply_text.splitlines():
             ctx.textual.text(f"  {line}")
 
@@ -918,11 +901,11 @@ def send_comment_replies_step(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.dim_text("Empty reply, skipping")
 
     if not final_replies:
-        ctx.textual.dim_text("All replies skipped")
+        skipped = total - len(final_replies)
+        ctx.textual.dim_text(f"No replies sent ({skipped}/{total} skipped)")
         ctx.textual.end_step("skip")
-        return Skip("All replies skipped")
+        return Skip("No replies sent")
 
-    # Send confirmed replies
     with ctx.textual.loading(f"Sending {len(final_replies)} reply(s)..."):
         results = reply_to_comment_batch(ctx.github, pr_number, final_replies)
 
@@ -960,17 +943,14 @@ def request_review_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Review Requested")
 
-    # Get data from context
     pr_number = ctx.get("selected_pr_number")
     push_successful = ctx.get("push_successful", False)
 
-    # Only re-request if push succeeded
     if not push_successful:
         ctx.textual.dim_text("Skipping re-request (no commits were pushed)")
         ctx.textual.end_step("skip")
         return Skip("No commits pushed")
 
-    # Ask confirmation
     ctx.textual.text("")
     should_rerequest = ctx.textual.ask_confirm(
         "Do you want to re-request review from existing reviewers?",
@@ -982,7 +962,6 @@ def request_review_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("Re-request cancelled by user")
 
-    # Re-request review
     with ctx.textual.loading("Re-requesting review..."):
         result = ctx.github.request_pr_review(pr_number)
 
@@ -994,65 +973,61 @@ def request_review_step(ctx: WorkflowContext) -> WorkflowResult:
         case ClientError(error_message=err):
             ctx.textual.warning_text(f"Re-request partially failed: {err}")
             ctx.textual.dim_text("Some reviewers may have been skipped (e.g., bots)")
-            ctx.textual.end_step("success")  # Still success - partial is OK
+            ctx.textual.end_step("success")
             return Success("Review re-requested (partial)")
 
 
-def cleanup_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
+def checkout_original_branch_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Cleanup worktree created for PR review.
+    Restore the original branch after PR review.
 
     Requires (from ctx.data):
-        worktree_created (bool): Whether worktree was created
-        worktree_path (str): Absolute path to worktree
+        original_branch (str): Branch to restore
 
     Returns:
-        Success: Worktree cleaned up
-        Skip: No worktree to cleanup
+        Success: Restored to original branch
+        Exit: No original branch saved or checkout failed
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Cleanup Worktree")
+    ctx.textual.begin_step("Restore Branch")
 
-    # Get data from context
-    worktree_created = ctx.get("worktree_created", False)
-    worktree_path = ctx.get("worktree_path")
+    original_branch = ctx.get("original_branch")
 
-    # Check if worktree needs cleanup
-    if not worktree_created or not worktree_path:
-        ctx.textual.dim_text("No worktree to cleanup")
+    if not original_branch:
+        ctx.textual.dim_text("No original branch to restore")
         ctx.textual.end_step("skip")
-        return Exit("No worktree to cleanup")
+        return Exit("No original branch to restore")
 
-    # Check if Git client is available
     if not ctx.git:
-        ctx.textual.warning_text("Git client not available - cannot cleanup")
+        ctx.textual.warning_text("Git client not available — could not restore branch")
         ctx.textual.end_step("skip")
         return Exit("Git client not available")
 
-    # Cleanup worktree
-    with ctx.textual.loading("Cleaning up worktree..."):
-        success = cleanup_worktree(ctx.git, worktree_path)
+    with ctx.textual.loading(f"Checking out {original_branch}..."):
+        result = ctx.git.checkout(original_branch)
 
-    if success:
-        ctx.textual.success_text("✓ Worktree cleaned up")
-        ctx.textual.end_step("success")
-        return Success("Worktree cleaned up")
-    else:
-        ctx.textual.warning_text("Failed to cleanup worktree")
-        ctx.textual.end_step("skip")
-        return Exit("Cleanup failed")
+    match result:
+        case ClientSuccess():
+            ctx.textual.success_text(f"✓ Back on {original_branch}")
+            ctx.textual.end_step("success")
+            return Success(f"Restored to {original_branch}")
+        case ClientError(error_message=err):
+            ctx.textual.warning_text(f"Failed to restore branch: {err}")
+            ctx.textual.end_step("skip")
+            return Exit(f"Failed to restore: {err}")
 
 
 # Export for plugin registration
 __all__ = [
     "select_pr_for_review_step",
     "fetch_pending_comments_step",
-    "create_worktree_step",
+    "check_clean_state_step",
+    "checkout_pr_branch_step",
     "review_comments_step",
     "push_commits_step",
     "send_comment_replies_step",
     "request_review_step",
-    "cleanup_worktree_step",
+    "checkout_original_branch_step",
 ]

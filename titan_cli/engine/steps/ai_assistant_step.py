@@ -52,6 +52,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     ask_confirmation = step.params.get("ask_confirmation", True)
     fail_on_decline = step.params.get("fail_on_decline", False)
     cli_preference = step.params.get("cli_preference", "auto")
+    pre_launch_warning = step.params.get("pre_launch_warning")
 
     # Validate cli_preference
     VALID_CLI_PREFERENCES = {"auto", "claude", "gemini"}
@@ -157,6 +158,10 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         for idx, cli_name in enumerate(cli_options, 1):
             display_name = CLI_REGISTRY[cli_name].get("display_name", cli_name)
             ctx.textual.text(f"  {idx}. {display_name}")
+
+        if pre_launch_warning:
+            ctx.textual.text("")  # spacing
+            ctx.textual.panel(pre_launch_warning, panel_type="warning")
 
         ctx.textual.text("")  # spacing
         choice_str = ctx.textual.ask_text("Select option (or press Enter to cancel):", default="")

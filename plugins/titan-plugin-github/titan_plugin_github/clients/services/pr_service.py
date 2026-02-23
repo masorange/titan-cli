@@ -175,7 +175,7 @@ class PRService:
             # Filter to DaniAguion's PRs
             my_prs = [
                 pr for pr in all_prs
-                if pr.get("author") and pr["author"].get("login") == "DaniAguion"
+                if pr.get("author") and pr["author"].get("login") == "albertobaezap"
             ]
 
             # Parse and map
