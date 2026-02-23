@@ -15,6 +15,7 @@ from ..models import UICommentThread
 from ..operations import (
     fetch_pr_threads,
     build_ai_review_context,
+    build_ai_review_prompt,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
@@ -44,6 +45,7 @@ def _show_thread_and_get_action(
     # Prepare action options
     options = [
         ChoiceOption(value="ai_review", label="AI Review & Fix", variant="primary"),
+        ChoiceOption(value="change_manually", label="Change Manually", variant="default"),
         ChoiceOption(value="reply", label="Reply manually", variant="default"),
         ChoiceOption(value="skip", label="Skip for now", variant="default"),
         ChoiceOption(value="resolve", label="Resolve thread", variant="success"),
@@ -88,6 +90,7 @@ def _show_thread_and_get_action(
 
             action_labels = {
                 "ai_review": "✓ AI Review & Fix",
+                "change_manually": "✎ Changed manually",
                 "reply": "→ Reply manually",
                 "skip": "— Skip",
                 "resolve": "✓ Resolved",
@@ -95,6 +98,7 @@ def _show_thread_and_get_action(
             }
             action_variants = {
                 "ai_review": "success",
+                "change_manually": "success",
                 "reply": "default",
                 "skip": "default",
                 "resolve": "success",
@@ -109,6 +113,53 @@ def _show_thread_and_get_action(
     ctx.textual.app.call_from_thread(replace_buttons_with_badge)
 
     return choice
+
+
+def _commit_review_changes(
+    ctx: WorkflowContext,
+    main_comment,
+    comment_commits: Dict[int, str]
+) -> bool:
+    """
+    Show diff stat and commit uncommitted changes.
+
+    Assumes changes are already detected. Shows the diff stat, then commits
+    using the standard review commit message format.
+
+    Args:
+        ctx: Workflow context
+        main_comment: The comment being addressed (for commit message)
+        comment_commits: Dict to store commit hash (mutated in place)
+
+    Returns:
+        True if commit succeeded, False otherwise
+    """
+    stat_result = ctx.git.get_uncommitted_diff_stat()
+    match stat_result:
+        case ClientSuccess(data=stat_output) if stat_output.strip():
+            formatted_files, formatted_summary = format_diff_stat_display(stat_output)
+            ctx.textual.show_diff_stat(formatted_files, formatted_summary, use_panel=True)
+        case _:
+            ctx.textual.dim_text("Changes detected")
+
+    ctx.textual.text("")
+    commit_msg = create_commit_message(
+        main_comment.body,
+        main_comment.author_login,
+        main_comment.path
+    )
+
+    with ctx.textual.loading("Committing changes..."):
+        commit_result = ctx.git.commit(commit_msg, all=True, no_verify=True)
+
+    match commit_result:
+        case ClientSuccess(data=commit_hash):
+            ctx.textual.success_text(f"✓ Committed: {commit_hash[:8]}")
+            comment_commits[main_comment.id] = commit_hash
+            return True
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to commit: {err}")
+            return False
 
 
 def _handle_manual_reply(
@@ -198,44 +249,7 @@ def _handle_ai_review(
             name="AI Code Review",
             params={
                 "context_key": "pr_review_context",
-                "prompt_template": f"""Review this PR comment thread:
-
-```json
-{{context}}
-```
-
-## Your Task
-
-1. **First, evaluate if the review comment makes sense:**
-   - Is the feedback valid and applicable to the current code?
-   - Is the requested change appropriate?
-   - Could previous attempts have already addressed this (check the thread conversation)?
-
-2. **Then, based on your evaluation:**
-   - **If the comment makes sense**: Make the necessary code changes to address it
-   - **If the comment doesn't make sense or is outdated**:
-     * DO NOT make code changes
-     * Write your explanation/response EXACTLY to this file path: {response_file}
-     * IMPORTANT: Use this exact command to write the response:
-       ```bash
-       cat > {response_file} << 'EOF'
-       Your response text here
-       EOF
-       ```
-
-## Response Style (CRITICAL)
-- **Keep responses SHORT and CONCISE** (maximum 2-3 sentences)
-- **Be direct and to the point** - no verbose explanations
-- **Avoid multiple paragraphs** - use a single short paragraph
-- **Don't over-explain** - state the key point clearly and move on
-- Example GOOD: "This is intentional. The logic handles X at layer Y, ensuring Z."
-- Example BAD: Long multi-paragraph explanations with bullet points and detailed justifications
-
-Note: Review the entire conversation thread carefully - previous fix attempts may have failed or been incomplete.
-
-## When You're Done
-Once you have completed your single action (code fix OR written the response file), tell the user:
-"Done. Press Ctrl+C twice to exit and return to Titan." """,
+                "prompt_template": build_ai_review_prompt(response_file),
                 "ask_confirmation": False,
                 "cli_preference": "auto",
                 "pre_launch_warning": "When you're done using the AI CLI, press Ctrl+C twice to exit and return to Titan.",
@@ -256,33 +270,8 @@ Once you have completed your single action (code fix OR written the response fil
                 has_changes = False
 
         if has_changes:
-            # Show what changed using diff stat inside a panel
-            stat_result = ctx.git.get_uncommitted_diff_stat()
-            match stat_result:
-                case ClientSuccess(data=stat_output) if stat_output.strip():
-                    formatted_files, formatted_summary = format_diff_stat_display(stat_output)
-                    ctx.textual.show_diff_stat(formatted_files, formatted_summary, use_panel=True)
-                case _:
-                    ctx.textual.dim_text("Changes detected")
-
-            # Commit immediately
-            ctx.textual.text("")
-            commit_msg = create_commit_message(
-                main_comment.body,
-                main_comment.author_login,
-                main_comment.path
-            )
-
-            with ctx.textual.loading("Committing changes..."):
-                commit_result = ctx.git.commit(commit_msg, all=True, no_verify=True)
-
-            match commit_result:
-                case ClientSuccess(data=commit_hash):
-                    ctx.textual.success_text(f"✓ Committed: {commit_hash[:8]}")
-                    comment_commits[main_comment.id] = commit_hash
-                case ClientError(error_message=err):
-                    ctx.textual.error_text(f"Failed to commit: {err}")
-                    return False
+            if not _commit_review_changes(ctx, main_comment, comment_commits):
+                return False
 
         else:
             # No code changes - check for text response
@@ -313,6 +302,63 @@ Once you have completed your single action (code fix OR written the response fil
         import traceback
         ctx.textual.dim_text(traceback.format_exc())
         return False
+
+
+def _handle_manual_change(
+    ctx: WorkflowContext,
+    pr_thread: UICommentThread,
+    comment_commits: Dict[int, str]
+) -> bool:
+    """
+    Handle manual code changes by the user.
+
+    Instructs the user to make changes, waits for confirmation,
+    then detects and commits any changes found.
+
+    Args:
+        ctx: Workflow context
+        pr_thread: The PR review thread being addressed
+        comment_commits: Dict mapping comment ID → commit hash (mutated in place)
+
+    Returns:
+        True if changes were detected and committed, False otherwise
+    """
+    main_comment = pr_thread.main_comment
+    if not main_comment:
+        ctx.textual.error_text("No comment found in thread")
+        return False
+
+    ctx.textual.text("")
+    ctx.textual.panel(
+        "Go make your code changes in your editor, then come back here and confirm.",
+        panel_type="warning",
+        show_icon=False,
+    )
+    ctx.textual.text("")
+
+    confirmed = ctx.textual.ask_confirm("I've made my changes", default=True)
+
+    if not confirmed:
+        ctx.textual.dim_text("Manual change cancelled")
+        return False
+
+    # Check for uncommitted changes
+    has_changes_result = ctx.git.has_uncommitted_changes()
+    match has_changes_result:
+        case ClientSuccess(data=has_changes):
+            pass
+        case ClientError():
+            has_changes = False
+
+    if not has_changes:
+        ctx.textual.panel(
+            "No changes detected. Make sure you saved your files.",
+            panel_type="warning",
+            show_icon=False,
+        )
+        return False
+
+    return _commit_review_changes(ctx, main_comment, comment_commits)
 
 
 def _handle_resolve_thread(
@@ -684,6 +730,12 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
             elif choice == "skip":
                 skipped_count += 1
+
+            elif choice == "change_manually":
+                if _handle_manual_change(ctx, pr_thread, comment_commits):
+                    processed_count += 1
+                else:
+                    skipped_count += 1
 
             elif choice == "reply":
                 if _handle_manual_reply(ctx, pr_thread, pending_responses):

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_github.operations.comment_operations import (
     build_ai_review_context,
+    build_ai_review_prompt,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
@@ -59,6 +60,40 @@ class TestBuildAIReviewContext:
 
         assert context["diff_hunk"] is None
 
+
+
+@pytest.mark.unit
+class TestBuildAIReviewPrompt:
+    """Test AI review prompt building"""
+
+    def test_includes_response_file_path(self):
+        """Test that response_file path appears in the prompt"""
+        prompt = build_ai_review_prompt("/tmp/titan-ai-response-comment-123.txt")
+
+        assert "/tmp/titan-ai-response-comment-123.txt" in prompt
+
+    def test_preserves_context_placeholder(self):
+        """Test that {context} placeholder is preserved for later substitution"""
+        prompt = build_ai_review_prompt("/tmp/response.txt")
+
+        assert "{context}" in prompt
+
+    def test_different_paths_produce_different_prompts(self):
+        """Test that different response file paths produce different prompts"""
+        prompt_a = build_ai_review_prompt("/tmp/response-111.txt")
+        prompt_b = build_ai_review_prompt("/tmp/response-222.txt")
+
+        assert prompt_a != prompt_b
+        assert "/tmp/response-111.txt" in prompt_a
+        assert "/tmp/response-222.txt" in prompt_b
+
+    def test_prompt_contains_key_instructions(self):
+        """Test that the prompt includes the core task instructions"""
+        prompt = build_ai_review_prompt("/tmp/response.txt")
+
+        assert "Your Task" in prompt
+        assert "code changes" in prompt
+        assert "Ctrl+C" in prompt
 
 
 @pytest.mark.unit
