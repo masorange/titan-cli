@@ -152,8 +152,19 @@ class WorkflowRegistry:
         if name in self._workflows:
             return self._workflows[name]
 
-        # Find the highest-precedence workflow file for the given name
-        workflow_file = self._find_workflow_file(name)
+        # Find the highest-precedence workflow file for the given name.
+        # Support "plugin:git/commit-ai" syntax to target a specific plugin's workflow directly.
+        if ":" in name:
+            source_type, ref_path = name.split(":", 1)
+            workflow_file = None
+            for source in self._sources:
+                if source.name == source_type or source.name.startswith(f"{source_type}:"):
+                    workflow_file = source.find(ref_path)
+                    if workflow_file:
+                        break
+        else:
+            workflow_file = self._find_workflow_file(name)
+
         if not workflow_file:
             return None
 

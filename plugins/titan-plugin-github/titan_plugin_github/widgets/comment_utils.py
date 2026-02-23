@@ -295,8 +295,8 @@ def extract_diff_context(
 
     # Decide which lines to extract
     if target_idx is not None:
-        # Target found: extract context around it (7 before + target + 3 after)
-        min_idx = max(0, target_idx - 7)
+        # Target found: extract context around it (4 before + target + 3 after)
+        min_idx = max(0, target_idx - 4)
         max_idx = min(len(parsed_lines) - 1, target_idx + 3)
         extracted = parsed_lines[min_idx:max_idx + 1]
     elif len(parsed_lines) > 10:
@@ -306,11 +306,11 @@ def extract_diff_context(
         # Small diff: show all
         return diff_hunk
 
-    # Rebuild diff with extracted lines
-    return _rebuild_diff(extracted, old_start, new_start, header_suffix)
+    # Rebuild diff with extracted lines, marking the target line
+    return _rebuild_diff(extracted, old_start, new_start, header_suffix, target_line)
 
 
-def _rebuild_diff(extracted_lines, old_start, new_start, header_suffix):
+def _rebuild_diff(extracted_lines, old_start, new_start, header_suffix, target_line=None):
     """Rebuild a diff from extracted lines with correct header."""
     # Find start lines for the extracted portion
     extracted_new_start = None
@@ -339,8 +339,13 @@ def _rebuild_diff(extracted_lines, old_start, new_start, header_suffix):
     # Build new header
     new_header = f"@@ -{extracted_old_start},{old_count} +{extracted_new_start},{new_count} @@{header_suffix}"
 
-    # Extract raw lines
-    extracted_raw_lines = [raw_line for _, _, raw_line, _ in extracted_lines]
+    # Extract raw lines, marking the commented line with ◄
+    extracted_raw_lines = []
+    for old_num, new_num, raw_line, _ in extracted_lines:
+        if target_line and new_num == target_line:
+            extracted_raw_lines.append(raw_line + "  ◄")
+        else:
+            extracted_raw_lines.append(raw_line)
 
     return new_header + '\n' + '\n'.join(extracted_raw_lines)
 
