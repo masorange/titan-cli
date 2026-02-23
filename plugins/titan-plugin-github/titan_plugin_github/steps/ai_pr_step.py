@@ -94,14 +94,12 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                 additional_context=additional_context
             )
 
-        # Log raw AI output for debugging
-        logger.debug(
-            "AI PR generation raw output",
-            extra={
-                "pr_title": analysis.pr_title,
-                "pr_body": repr(analysis.pr_body),
-                "pr_size": analysis.pr_size,
-            }
+        # Log raw AI output for debugging (info level so it always appears in logs)
+        logger.info(
+            "AI PR generation raw output | title=%r | size=%s | body=%r",
+            analysis.pr_title,
+            analysis.pr_size,
+            analysis.pr_body,
         )
 
         # Check if PR content was generated (need commits in branch)
