@@ -44,17 +44,17 @@ def _show_thread_and_get_action(
 
     # Prepare action options
     options = [
-        ChoiceOption(value="ai_review", label="AI Review & Fix", variant="primary"),
-        ChoiceOption(value="change_manually", label="Change Manually", variant="default"),
-        ChoiceOption(value="reply", label="Reply manually", variant="default"),
-        ChoiceOption(value="skip", label="Skip for now", variant="default"),
-        ChoiceOption(value="resolve", label="Resolve thread", variant="success"),
+        ChoiceOption(value="ai_review", label="AI Review", variant="primary"),
+        ChoiceOption(value="change_manually", label="Change", variant="default"),
+        ChoiceOption(value="reply", label="Reply", variant="default"),
+        ChoiceOption(value="skip", label="Skip", variant="default"),
+        ChoiceOption(value="resolve", label="Resolve", variant="success"),
     ]
 
     # Add "Exit" option if not the last thread
     if thread_idx < total_threads - 1:
         options.append(
-            ChoiceOption(value="exit", label="Exit review", variant="error")
+            ChoiceOption(value="exit", label="Exit", variant="error")
         )
 
     # Result container for callback
@@ -89,12 +89,12 @@ def _show_thread_and_get_action(
             prompt_widget.remove()
 
             action_labels = {
-                "ai_review": "✓ AI Review & Fix",
-                "change_manually": "✎ Changed manually",
-                "reply": "→ Reply manually",
+                "ai_review": "✓ AI Review",
+                "change_manually": "✎ Changed",
+                "reply": "→ Reply",
                 "skip": "— Skip",
                 "resolve": "✓ Resolved",
-                "exit": "✗ Exit review",
+                "exit": "✗ Exit",
             }
             action_variants = {
                 "ai_review": "success",
