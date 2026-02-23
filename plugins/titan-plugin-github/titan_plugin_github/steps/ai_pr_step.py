@@ -94,12 +94,14 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                 additional_context=additional_context
             )
 
-        # Log raw AI output for debugging (info level so it always appears in logs)
+        # Log AI generation metadata for debugging (no content logged)
+        has_literal_newlines = "\\n" in (analysis.pr_body or "")
         logger.info(
-            "AI PR generation raw output | title=%r | size=%s | body=%r",
-            analysis.pr_title,
+            "AI PR generation output | size=%s | title_len=%d | body_len=%d | body_has_literal_newlines=%s",
             analysis.pr_size,
-            analysis.pr_body,
+            len(analysis.pr_title or ""),
+            len(analysis.pr_body or ""),
+            has_literal_newlines,
         )
 
         # Check if PR content was generated (need commits in branch)
