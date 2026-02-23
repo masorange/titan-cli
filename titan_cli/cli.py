@@ -98,6 +98,8 @@ def main(
                     logger.info("update_skipped")
                     typer.echo("⏭  Skipping update. Run 'pipx upgrade titan-cli' to update later.")
                     typer.echo()
+        except (typer.Exit, SystemExit):
+            raise
         except Exception as e:
             # Log update check failures but don't show to user
             logger.warning("update_check_failed", error=str(e))
