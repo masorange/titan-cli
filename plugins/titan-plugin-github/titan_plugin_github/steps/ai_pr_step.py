@@ -5,10 +5,14 @@ AI-powered PR description generation step.
 Uses PRAgent to analyze branch context and generate PR content.
 """
 
+import logging
+
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 
 from ..agents import PRAgent
 from ..messages import msg
+
+logger = logging.getLogger(__name__)
 
 
 def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -89,6 +93,16 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                 auto_stage=False,  # Only analyze branch commits, not uncommitted changes
                 additional_context=additional_context
             )
+
+        # Log AI generation metadata for debugging (no content logged)
+        has_literal_newlines = "\\n" in (analysis.pr_body or "")
+        logger.info(
+            "AI PR generation output | size=%s | title_len=%d | body_len=%d | body_has_literal_newlines=%s",
+            analysis.pr_size,
+            len(analysis.pr_title or ""),
+            len(analysis.pr_body or ""),
+            has_literal_newlines,
+        )
 
         # Check if PR content was generated (need commits in branch)
         if not analysis.pr_title or not analysis.pr_body:

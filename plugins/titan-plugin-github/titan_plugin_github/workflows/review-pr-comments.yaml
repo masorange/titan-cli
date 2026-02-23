@@ -1,6 +1,9 @@
 name: "Review PR Comments"
 description: "Review and address pending comments on your pull requests"
 
+hooks:
+  - after_review
+
 steps:
   - id: select_pr
     name: "Select PR for Review"
@@ -12,43 +15,52 @@ steps:
     plugin: github
     step: fetch_pending_comments
 
-  # Create worktree - if fails, skip to cleanup
-  - id: create_worktree
-    name: "Create Worktree"
+  # Check branch is clean before switching to PR branch
+  - id: check_clean_state
+    name: "Check Branch State"
     plugin: github
-    step: create_worktree
+    step: check_clean_state
+
+  # Checkout PR branch (saves original branch for restore)
+  - id: checkout_pr_branch
+    name: "Checkout PR Branch"
+    plugin: github
+    step: checkout_pr_branch
     on_error: continue
 
-  # Review comments - if fails, skip to cleanup
+  # Review comments - if fails, skip to restore
   - id: review_comments
     name: "Review Comments"
     plugin: github
     step: review_comments
     on_error: continue
 
-  # Push commits - if fails, skip to cleanup
+  # Hook point: inject linter, tests, or any validation before pushing
+  - hook: after_review
+
+  # Push commits - if fails, skip to restore
   - id: push_commits
     name: "Push Commits"
     plugin: github
     step: push_commits
     on_error: continue
 
-  # Send replies - if fails, skip to cleanup
+  # Send replies - if fails, skip to restore
   - id: send_replies
     name: "Send Comment Replies"
     plugin: github
     step: send_comment_replies
     on_error: continue
 
-  # Request review - if fails, skip to cleanup
+  # Request review - if fails, skip to restore
   - id: request_review
     name: "Re-request Review"
     plugin: github
     step: request_review
     on_error: continue
 
-  # Cleanup ALWAYS runs (even if previous steps failed)
-  - id: cleanup
-    name: "Cleanup Worktree"
+  # Restore original branch ALWAYS runs
+  - id: restore_branch
+    name: "Restore Branch"
     plugin: github
-    step: cleanup_worktree
+    step: checkout_original_branch

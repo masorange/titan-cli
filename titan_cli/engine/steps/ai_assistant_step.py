@@ -52,6 +52,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     ask_confirmation = step.params.get("ask_confirmation", True)
     fail_on_decline = step.params.get("fail_on_decline", False)
     cli_preference = step.params.get("cli_preference", "auto")
+    pre_launch_warning = step.params.get("pre_launch_warning")
 
     # Validate cli_preference
     VALID_CLI_PREFERENCES = {"auto", "claude", "gemini"}
@@ -158,6 +159,10 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
             display_name = CLI_REGISTRY[cli_name].get("display_name", cli_name)
             ctx.textual.text(f"  {idx}. {display_name}")
 
+        if pre_launch_warning:
+            ctx.textual.text("")  # spacing
+            ctx.textual.panel(pre_launch_warning, panel_type="warning")
+
         ctx.textual.text("")  # spacing
         choice_str = ctx.textual.ask_text("Select option (or press Enter to cancel):", default="")
 
@@ -190,13 +195,6 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     # Launch the CLI
     ctx.textual.text("")  # spacing
     ctx.textual.primary_text(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name))
-
-    # Show prompt preview
-    prompt_preview_text = msg.AIAssistant.PROMPT_PREVIEW.format(
-        prompt_preview=f"{prompt[:100]}..." if len(prompt) > 100 else prompt
-    )
-    ctx.textual.dim_text(prompt_preview_text)
-    ctx.textual.text("")  # spacing
 
     project_root = ctx.get("project_root", ".")
 

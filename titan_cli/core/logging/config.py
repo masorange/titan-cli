@@ -77,7 +77,6 @@ def _is_development_mode(debug: bool) -> bool:
     Checks:
     1. TITAN_ENV environment variable
     2. Debug flag
-    3. Running in TTY (terminal)
 
     Returns:
         True if development mode, False otherwise
@@ -85,8 +84,6 @@ def _is_development_mode(debug: bool) -> bool:
     if os.getenv("TITAN_ENV") == "development":
         return True
     if debug:
-        return True
-    if sys.stdout.isatty():
         return True
     return False
 
