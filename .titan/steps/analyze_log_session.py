@@ -7,15 +7,51 @@ Display a structured analysis of the selected log session:
   - Slow operations
 """
 
+from textual.app import ComposeResult
+
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
-from titan_cli.ui.tui.widgets import Table
+from titan_cli.ui.tui.widgets import Table, PanelContainer, ErrorText, DimText
 
 from operations import (
+    WorkflowRun,
     analyze_session,
     SLOW_THRESHOLD_SECONDS,
     STEP_RESULT_ICONS,
     WORKFLOW_STATUS_ICONS,
 )
+
+
+class _WorkflowPanel(PanelContainer):
+    """Local widget — not exported. Displays a single workflow run in a panel."""
+
+    _STATUS_VARIANT = {
+        "success": "success",
+        "failed": "error",
+        "exited": "warning",
+    }
+
+    def __init__(self, wf: WorkflowRun, **kwargs):
+        dur_str = f"  {wf.duration:.1f}s" if wf.duration is not None else ""
+        icon = WORKFLOW_STATUS_ICONS.get(wf.status, "❓")
+        title = f"{icon} {wf.name}{dur_str}"
+        variant = self._STATUS_VARIANT.get(wf.status, "default")
+        super().__init__(variant=variant, title=title, **kwargs)
+        self._wf = wf
+
+    def compose(self) -> ComposeResult:
+        wf = self._wf
+        if wf.failed_at:
+            yield ErrorText(f"Failed at step: {wf.failed_at}")
+        if wf.steps:
+            rows = []
+            for step in wf.steps:
+                icon = STEP_RESULT_ICONS.get(step.result, "❓")
+                dur = f"{step.duration:.2f}s" if step.duration is not None else "—"
+                detail = (step.error or step.message or "")[:80]
+                rows.append([icon, step.step_id, dur, detail])
+            yield Table(headers=["", "Step", "Duration", "Info"], rows=rows)
+        else:
+            yield DimText("No steps recorded")
 
 
 def analyze_log_session(ctx: WorkflowContext) -> WorkflowResult:
@@ -47,40 +83,18 @@ def analyze_log_session(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text(f"Duration      : {session.duration_seconds:.0f}s")
     if session.pid:
         ctx.textual.dim_text(f"PID           : {session.pid}")
+    if session.version:
+        ctx.textual.dim_text(f"Version       : {session.version}")
+    if session.mode:
+        ctx.textual.dim_text(f"Mode          : {session.mode}")
     ctx.textual.dim_text(f"Log events    : {len(session.entries)}")
 
     # ── Workflow timeline ───────────────────────────────────────────────────────
     if analysis.workflows:
         ctx.textual.text("")
         ctx.textual.bold_text(f"Workflows ({len(analysis.workflows)})")
-
         for wf in analysis.workflows:
-            status_icon = WORKFLOW_STATUS_ICONS.get(wf.status, "❓")
-            dur_str = f"  —  {wf.duration:.1f}s" if wf.duration is not None else ""
-            header = f"  {status_icon}  {wf.name}{dur_str}"
-
-            ctx.textual.text("")
-            if wf.status == "failed":
-                ctx.textual.error_text(header)
-            else:
-                ctx.textual.text(header)
-
-            if wf.failed_at:
-                ctx.textual.error_text(f"      Failed at step: {wf.failed_at}")
-
-            if wf.steps:
-                rows = []
-                for step in wf.steps:
-                    icon = STEP_RESULT_ICONS.get(step.result, "❓")
-                    dur = f"{step.duration:.2f}s" if step.duration is not None else "—"
-                    detail = (step.error or step.message or "")[:80]
-                    rows.append([icon, step.step_id, dur, detail])
-
-                ctx.textual.mount(Table(
-                    headers=["", "Step", "Duration", "Info"],
-                    rows=rows,
-                ))
-
+            ctx.textual.mount(_WorkflowPanel(wf))
     else:
         ctx.textual.text("")
         ctx.textual.dim_text("No workflows recorded in this session")

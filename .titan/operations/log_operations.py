@@ -64,6 +64,8 @@ class WorkflowRun:
 class LogSession:
     start_time: Optional[datetime]
     pid: Optional[int]
+    version: Optional[str] = None
+    mode: Optional[str] = None
     entries: List[LogEntry] = field(default_factory=list)
 
     @property
@@ -110,6 +112,8 @@ def parse_log_file(path: Path) -> List[LogSession]:
     current_entries: List[LogEntry] = []
     current_start_time: Optional[datetime] = None
     current_pid: Optional[int] = None
+    current_version: Optional[str] = None
+    current_mode: Optional[str] = None
 
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -123,11 +127,15 @@ def parse_log_file(path: Path) -> List[LogSession]:
                     sessions.append(LogSession(
                         start_time=current_start_time,
                         pid=current_pid,
+                        version=current_version,
+                        mode=current_mode,
                         entries=current_entries,
                     ))
                 current_entries = []
                 current_start_time = _parse_session_time(line)
                 current_pid = _parse_session_pid(line)
+                current_version = None
+                current_mode = None
                 continue
 
             # Skip plain-text separator lines (─────)
@@ -136,6 +144,9 @@ def parse_log_file(path: Path) -> List[LogSession]:
 
             entry = _parse_log_entry(line)
             if entry:
+                if entry.event == "session_started" and current_version is None:
+                    current_version = entry.raw.get("version")
+                    current_mode = entry.raw.get("mode")
                 current_entries.append(entry)
 
     # Don't forget the last session
@@ -143,6 +154,8 @@ def parse_log_file(path: Path) -> List[LogSession]:
         sessions.append(LogSession(
             start_time=current_start_time,
             pid=current_pid,
+            version=current_version,
+            mode=current_mode,
             entries=current_entries,
         ))
 
