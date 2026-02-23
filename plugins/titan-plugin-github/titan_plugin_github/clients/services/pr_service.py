@@ -161,6 +161,10 @@ class PRService:
             ClientResult[List[UIPullRequest]]
         """
         try:
+            # Get current user
+            user_output = self.gh.run_command(["api", "user", "--jq", ".login"])
+            current_user = user_output.strip()
+
             # Fetch PRs
             args = [
                 "pr", "list",
@@ -172,10 +176,10 @@ class PRService:
             output = self.gh.run_command(args)
             all_prs = json.loads(output)
 
-            # Filter to DaniAguion's PRs
+            # Filter to current user's PRs
             my_prs = [
                 pr for pr in all_prs
-                if pr.get("author") and pr["author"].get("login") == "DaniAguion"
+                if pr.get("author") and pr["author"].get("login") == current_user
             ]
 
             # Parse and map
