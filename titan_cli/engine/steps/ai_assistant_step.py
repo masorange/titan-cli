@@ -196,13 +196,6 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     ctx.textual.text("")  # spacing
     ctx.textual.primary_text(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name))
 
-    # Show prompt preview
-    prompt_preview_text = msg.AIAssistant.PROMPT_PREVIEW.format(
-        prompt_preview=f"{prompt[:100]}..." if len(prompt) > 100 else prompt
-    )
-    ctx.textual.dim_text(prompt_preview_text)
-    ctx.textual.text("")  # spacing
-
     project_root = ctx.get("project_root", ".")
 
     # Launch CLI and suspend TUI while it runs

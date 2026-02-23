@@ -286,22 +286,24 @@ Once you have completed your single action (code fix OR written the response fil
 
         else:
             # No code changes - check for text response
-            ctx.textual.dim_text("No code changes were made")
-
             response_found_at = find_ai_response_file(main_comment.id, response_file)
 
             if response_found_at:
                 with open(response_found_at, 'r') as f:
                     ai_response = f.read().strip()
 
-                if response_found_at != response_file:
-                    ctx.textual.dim_text(f"Found response at: {response_found_at}")
-
-                ctx.textual.success_text("✓ AI provided a response (will review all at the end)")
+                ctx.textual.panel(
+                    "No code changes — AI wrote a response, queued for review at the end",
+                    panel_type="success",
+                    show_icon=False,
+                )
                 pending_responses[main_comment.id] = {"text": ai_response, "source": "ai"}
             else:
-                ctx.textual.warning_text("⚠ No AI response found - AI may have skipped this comment")
-                ctx.textual.dim_text(f"Searched for: {os.path.basename(response_file)}")
+                ctx.textual.panel(
+                    "No code changes and no response file found — AI may have skipped this comment",
+                    panel_type="warning",
+                    show_icon=False,
+                )
                 return False
 
         return True
@@ -779,9 +781,7 @@ def push_commits_step(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No commits to push")
 
     # Show commits to push
-    ctx.textual.text("")
     ctx.textual.bold_text(f"Push {len(comment_commits)} commit(s) to `{head_branch}`")
-    ctx.textual.text("")
 
     # Ask confirmation
     should_push = ctx.textual.ask_confirm(
@@ -793,8 +793,6 @@ def push_commits_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text("Push cancelled")
         ctx.textual.end_step("skip")
         return Skip("Push cancelled by user", metadata={"push_successful": False})
-
-    ctx.textual.text("")
 
     with ctx.textual.loading(f"Pushing to {head_branch}..."):
         push_result = ctx.git.push(branch=head_branch)
@@ -951,7 +949,6 @@ def request_review_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No commits pushed")
 
-    ctx.textual.text("")
     should_rerequest = ctx.textual.ask_confirm(
         "Do you want to re-request review from existing reviewers?",
         default=True
