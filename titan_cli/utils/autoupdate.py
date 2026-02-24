@@ -40,7 +40,7 @@ def _is_check_due() -> bool:
         return True
     now = datetime.now(tz=timezone.utc)
     hours_since_check = (now - last_check).total_seconds() / 3600
-    return hours_since_check < UPDATE_CHECK_COOLDOWN_HOURS
+    return hours_since_check >= UPDATE_CHECK_COOLDOWN_HOURS
 
 
 def is_dev_install() -> bool:
