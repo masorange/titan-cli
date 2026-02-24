@@ -3,10 +3,44 @@
 import os
 import sys
 import subprocess
+from datetime import datetime, timezone
 from typing import Dict, Optional
 from pathlib import Path
 
 from titan_cli import __version__
+
+UPDATE_CHECK_COOLDOWN_HOURS = 24
+_TIMESTAMP_FILE = Path.home() / ".titan" / ".update_check"
+
+
+def _get_last_check_timestamp() -> Optional[datetime]:
+    """Read the last update check timestamp from disk."""
+    try:
+        if _TIMESTAMP_FILE.exists():
+            ts = float(_TIMESTAMP_FILE.read_text().strip())
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+    except (ValueError, OSError):
+        pass
+    return None
+
+
+def _save_check_timestamp() -> None:
+    """Save the current time as the last update check timestamp."""
+    try:
+        _TIMESTAMP_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _TIMESTAMP_FILE.write_text(str(datetime.now(tz=timezone.utc).timestamp()))
+    except OSError:
+        pass
+
+
+def _is_check_due() -> bool:
+    """Return True if enough time has passed since the last update check."""
+    last_check = _get_last_check_timestamp()
+    if last_check is None:
+        return True
+    now = datetime.now(tz=timezone.utc)
+    hours_since_check = (now - last_check).total_seconds() / 3600
+    return hours_since_check < UPDATE_CHECK_COOLDOWN_HOURS
 
 
 def is_dev_install() -> bool:
@@ -68,6 +102,10 @@ def check_for_updates() -> Dict[str, any]:
     if result["is_dev_install"]:
         return result
 
+    # Skip check if we checked recently (cooldown)
+    if not _is_check_due():
+        return result
+
     try:
         import requests
 
@@ -90,6 +128,7 @@ def check_for_updates() -> Dict[str, any]:
         latest = version.parse(latest_version)
 
         result["update_available"] = latest > current
+        _save_check_timestamp()
 
     except ImportError:
         result["error"] = "Missing dependencies (requests, packaging)"
