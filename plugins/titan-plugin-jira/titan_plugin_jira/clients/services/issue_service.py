@@ -145,7 +145,8 @@ class IssueService:
         description: Optional[str] = None,
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
-        priority: Optional[str] = None
+        priority: Optional[str] = None,
+        epic_name: Optional[str] = None
     ) -> ClientResult[UIJiraIssue]:
         """
         Create new issue.
@@ -158,6 +159,7 @@ class IssueService:
             assignee: Assignee username or email
             labels: List of labels
             priority: Priority name
+            epic_name: Epic name (required for Epic issue type)
 
         Returns:
             ClientResult[UIJiraIssue]
@@ -174,22 +176,30 @@ class IssueService:
 
             # Add description if provided
             if description:
-                payload["fields"]["description"] = {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [{
-                        "type": "paragraph",
-                        "content": [{"type": "text", "text": description}]
-                    }]
-                }
+                # Try plain text first (some Jira instances don't support ADF)
+                payload["fields"]["description"] = description
 
             # Add optional fields
             if assignee:
-                payload["fields"]["assignee"] = {"name": assignee}
+                # Support both accountId (Jira Cloud) and name (Jira Server)
+                if assignee.startswith("accountId:"):
+                    # Extract accountId from "accountId:xxx" format
+                    payload["fields"]["assignee"] = {"accountId": assignee.replace("accountId:", "")}
+                else:
+                    # Assume it's accountId if it looks like one, otherwise use name
+                    # AccountIds are typically long alphanumeric strings
+                    if len(assignee) > 20 and "-" not in assignee:
+                        payload["fields"]["assignee"] = {"accountId": assignee}
+                    else:
+                        payload["fields"]["assignee"] = {"name": assignee}
             if labels:
                 payload["fields"]["labels"] = labels
             if priority:
                 payload["fields"]["priority"] = {"name": priority}
+
+            # Add Epic Name for Epic issue types (customfield_10102)
+            if epic_name:
+                payload["fields"]["customfield_10102"] = epic_name
 
             # 2. Network call
             data = self.network.make_request("POST", "issue", json=payload)
@@ -238,14 +248,8 @@ class IssueService:
             }
 
             if description:
-                payload["fields"]["description"] = {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [{
-                        "type": "paragraph",
-                        "content": [{"type": "text", "text": description}]
-                    }]
-                }
+                # Try plain text first (some Jira instances don't support ADF)
+                payload["fields"]["description"] = description
 
             # 2. Network call
             data = self.network.make_request("POST", "issue", json=payload)
@@ -259,6 +263,46 @@ class IssueService:
                 error_message=f"Failed to create subtask under {parent_key}: {e.message}",
                 error_code="CREATE_SUBTASK_ERROR"
             )
+
+    # ==================== INTERNAL HELPERS ====================
+
+    def _convert_text_to_adf(self, text: str) -> dict:
+        """
+        Convert plain text to Atlassian Document Format (ADF).
+
+        Handles multi-line text by creating separate paragraphs for each line.
+
+        Args:
+            text: Plain text (may contain newlines)
+
+        Returns:
+            ADF document structure
+        """
+        # Split by lines and filter out empty lines at start/end
+        lines = text.strip().split('\n')
+
+        # Create ADF paragraphs
+        content = []
+        for line in lines:
+            line = line.strip()
+            if line:  # Skip empty lines
+                content.append({
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": line}]
+                })
+
+        # If no content, create empty paragraph
+        if not content:
+            content = [{
+                "type": "paragraph",
+                "content": [{"type": "text", "text": ""}]
+            }]
+
+        return {
+            "type": "doc",
+            "version": 1,
+            "content": content
+        }
 
     # ==================== INTERNAL PARSERS ====================
 
