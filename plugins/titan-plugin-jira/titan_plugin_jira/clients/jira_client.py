@@ -7,7 +7,7 @@ Delegates to internal services.
 
 from typing import List, Optional
 
-from titan_cli.core.result import ClientResult, ClientError
+from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
 from .network import JiraNetwork
 from .services import (
@@ -266,6 +266,9 @@ class JiraClient:
                 error_code="INVALID_ISSUE_TYPE"
             )
 
+        # If creating an Epic, use summary as Epic Name (required custom field)
+        epic_name = summary if issue_type_obj.name.lower() == "epic" else None
+
         return self._issue_service.create_issue(
             project_key=project_key,
             issue_type_id=issue_type_obj.id,
@@ -273,7 +276,8 @@ class JiraClient:
             description=description,
             assignee=assignee,
             labels=labels,
-            priority=priority
+            priority=priority,
+            epic_name=epic_name
         )
 
     def create_subtask(
@@ -391,6 +395,28 @@ class JiraClient:
             )
 
         return self._metadata_service.list_project_versions(key)
+
+    def get_priorities(self) -> ClientResult[List["UIPriority"]]:
+        """
+        Get all available priorities in Jira.
+
+        Returns:
+            ClientResult[List[UIPriority]] with priority info
+        """
+        from ..models.view import UIPriority
+        from ..models.mappers import from_network_priority
+
+        result = self._metadata_service.get_priorities()
+
+        match result:
+            case ClientSuccess(data=network_priorities):
+                ui_priorities = [from_network_priority(p) for p in network_priorities]
+                return ClientSuccess(
+                    data=ui_priorities,
+                    message=result.message
+                )
+            case ClientError():
+                return result
 
     # ==================== LINK OPERATIONS ====================
 

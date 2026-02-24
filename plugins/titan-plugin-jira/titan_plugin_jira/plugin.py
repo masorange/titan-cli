@@ -242,19 +242,74 @@ class JiraPlugin(TitanPlugin):
         """
         Returns a dictionary of available workflow steps.
         """
+        # Original steps
         from .steps.search_saved_query_step import search_saved_query_step
         from .steps.search_jql_step import search_jql_step
         from .steps.prompt_select_issue_step import prompt_select_issue_step
         from .steps.get_issue_step import get_issue_step
         from .steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
         from .steps.list_versions_step import list_versions_step
+
+        # Technical Specification Workflow steps (COMMENTED - steps don't exist)
+        # from .steps.select_initiative_step import select_initiative
+        # from .steps.select_epic_step import select_epic
+        # from .steps.select_base_request_step import select_base_request
+        # from .steps.ai_suggest_platforms_step import ai_suggest_platforms
+        # from .steps.analyze_request_impact_step import analyze_request_impact
+        # from .steps.select_affected_brands_step import select_affected_brands
+        # from .steps.select_components_step import select_components
+        # from .steps.prompt_requirement_step import prompt_requirement
+        # from .steps.ai_analyze_technical_spec_step import ai_analyze_technical_spec
+        # from .steps.review_technical_spec_step import review_technical_spec
+        # from .steps.create_technical_issues_step import create_technical_issues
+
+        # Technical Specification Ultra Simple Workflow steps (COMMENTED - steps don't exist)
+        # from .steps.capture_technical_data_step import capture_technical_data
+        # from .steps.create_issues_from_data_step import create_issues_from_data
+
+        # Generic Issue Creation Workflow steps
+        from .steps.prompt_issue_description_step import prompt_issue_description
+        from .steps.select_issue_type_step import select_issue_type
+        from .steps.select_issue_priority_step import select_issue_priority
+        from .steps.ai_enhance_issue_description_step import ai_enhance_issue_description
+        from .steps.review_issue_description_step import review_issue_description
+        from .steps.confirm_auto_assign_step import confirm_auto_assign
+        from .steps.create_generic_issue_step import create_generic_issue
+
         return {
+            # Original steps
             "search_saved_query": search_saved_query_step,
             "search_jql": search_jql_step,
             "prompt_select_issue": prompt_select_issue_step,
             "get_issue": get_issue_step,
             "ai_analyze_issue_requirements": ai_analyze_issue_requirements_step,
             "list_versions": list_versions_step,
+
+            # Technical Specification Workflow steps (COMMENTED - steps don't exist)
+            # "select_initiative": select_initiative,
+            # "select_epic": select_epic,
+            # "select_base_request": select_base_request,
+            # "ai_suggest_platforms": ai_suggest_platforms,
+            # "analyze_request_impact": analyze_request_impact,
+            # "select_affected_brands": select_affected_brands,
+            # "select_components": select_components,
+            # "prompt_requirement": prompt_requirement,
+            # "ai_analyze_technical_spec": ai_analyze_technical_spec,
+            # "review_technical_spec": review_technical_spec,
+            # "create_technical_issues": create_technical_issues,
+
+            # Technical Specification Ultra Simple Workflow steps (COMMENTED - steps don't exist)
+            # "capture_technical_data": capture_technical_data,
+            # "create_issues_from_data": create_issues_from_data,
+
+            # Generic Issue Creation Workflow steps
+            "prompt_issue_description": prompt_issue_description,
+            "select_issue_type": select_issue_type,
+            "select_issue_priority": select_issue_priority,
+            "ai_enhance_issue_description": ai_enhance_issue_description,
+            "review_issue_description": review_issue_description,
+            "confirm_auto_assign": confirm_auto_assign,
+            "create_generic_issue": create_generic_issue,
         }
 
     @property

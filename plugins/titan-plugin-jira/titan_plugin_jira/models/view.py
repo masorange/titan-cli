@@ -89,9 +89,23 @@ class UIJiraTransition:
     to_status_icon: str              # Icon for target status
 
 
+@dataclass
+class UIPriority:
+    """
+    UI model for displaying a Jira priority.
+
+    Optimized for rendering priority options in the TUI.
+    """
+    id: str
+    name: str                        # "High", "Medium", "Low"
+    icon: str                        # "🔴" "🟡" "🟢" etc.
+    label: str                       # Pre-formatted label with icon for selection widgets
+
+
 __all__ = [
     "UIJiraIssue",
     "UIJiraProject",
     "UIJiraComment",
     "UIJiraTransition",
+    "UIPriority",
 ]
