@@ -23,6 +23,7 @@ from .comment_operations import (
 
 from .pr_operations import (
     fetch_pr_threads,
+    fetch_pr_general_comments,
 )
 
 from .worktree_operations import (
@@ -53,6 +54,7 @@ __all__ = [
 
     # PR operations
     "fetch_pr_threads",
+    "fetch_pr_general_comments",
 
     # Worktree operations
     "setup_worktree",

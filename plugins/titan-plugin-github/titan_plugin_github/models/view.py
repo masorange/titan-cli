@@ -94,6 +94,36 @@ class UICommentThread:
         from .mappers import from_graphql_review_thread
         return from_graphql_review_thread(thread)
 
+    @classmethod
+    def from_issue_comment(cls, comment: 'Any') -> 'UICommentThread':
+        """
+        Wrap a GraphQLIssueComment as a pseudo-thread for uniform rendering.
+
+        General PR comments have no thread concept, so they are wrapped in a
+        UICommentThread with a synthetic thread_id ("general_{id}") that
+        downstream code uses to distinguish them from review threads.
+
+        Args:
+            comment: GraphQLIssueComment instance from GraphQL
+
+        Returns:
+            UICommentThread with thread_id="general_{id}", no replies, not resolved
+        """
+        from .mappers import from_graphql_issue_comment
+        ui_comment = from_graphql_issue_comment(comment)
+        return cls(
+            thread_id=f"general_{comment.databaseId}",
+            main_comment=ui_comment,
+            replies=[],
+            is_resolved=False,
+            is_outdated=False
+        )
+
+    @property
+    def is_general_comment(self) -> bool:
+        """True if this thread wraps a general PR comment (not an inline review thread)."""
+        return self.thread_id.startswith("general_")
+
 
 @dataclass
 class UIPullRequest:

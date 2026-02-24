@@ -14,6 +14,7 @@ from titan_plugin_github.widgets import CommentThread
 from ..models import UICommentThread
 from ..operations import (
     fetch_pr_threads,
+    fetch_pr_general_comments,
     build_ai_review_context,
     build_ai_review_prompt,
     find_ai_response_file,
@@ -48,8 +49,11 @@ def _show_thread_and_get_action(
         ChoiceOption(value="change_manually", label="Change", variant="default"),
         ChoiceOption(value="reply", label="Reply", variant="default"),
         ChoiceOption(value="skip", label="Skip", variant="default"),
-        ChoiceOption(value="resolve", label="Resolve", variant="success"),
     ]
+
+    # "Resolve" only applies to inline review threads, not general PR comments
+    if not pr_thread.is_general_comment:
+        options.append(ChoiceOption(value="resolve", label="Resolve", variant="success"))
 
     # Add "Exit" option if not the last thread
     if thread_idx < total_threads - 1:
@@ -513,29 +517,37 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         with ctx.textual.loading(f"Fetching comments for PR #{pr_number}..."):
-            filtered_threads = fetch_pr_threads(ctx.github, pr_number, include_resolved=False)
+            review_threads = fetch_pr_threads(ctx.github, pr_number, include_resolved=False)
+            general_comments = fetch_pr_general_comments(ctx.github, pr_number)
 
-        if not filtered_threads:
-            ctx.textual.dim_text(f"No unresolved threads found for PR #{pr_number}")
+        all_threads = general_comments + review_threads
+
+        if not all_threads:
+            ctx.textual.dim_text(f"No pending comments found for PR #{pr_number}")
             ctx.textual.end_step("skip")
-            return Exit("No unresolved threads")
+            return Exit("No pending comments")
 
-        ctx.textual.success_text(f"Found {len(filtered_threads)} unresolved thread(s)")
+        parts = []
+        if general_comments:
+            parts.append(f"{len(general_comments)} general comment(s)")
+        if review_threads:
+            parts.append(f"{len(review_threads)} review thread(s)")
+        ctx.textual.success_text(f"Found {', '.join(parts)}")
 
         metadata = {
-            "review_threads": filtered_threads,
-            "total_pending": len(filtered_threads),
+            "review_threads": all_threads,
+            "total_pending": len(all_threads),
         }
 
         ctx.textual.end_step("success")
 
         return Success(
-            f"Found {len(filtered_threads)} unresolved threads",
+            f"Found {len(all_threads)} comment(s)",
             metadata=metadata
         )
 
     except Exception as e:
-        ctx.textual.error_text(f"Failed to fetch threads: {e}")
+        ctx.textual.error_text(f"Failed to fetch comments: {e}")
         ctx.textual.end_step("error")
         return Error(str(e))
 
@@ -707,6 +719,11 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         # Track state
         comment_commits = {}
         pending_responses = {}
+        general_comment_ids = {
+            t.main_comment.id
+            for t in review_threads
+            if t.is_general_comment and t.main_comment
+        }
         processed_count = 0
         skipped_count = 0
 
@@ -725,6 +742,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                         "total_threads": len(review_threads),
                         "comment_commits": comment_commits,
                         "pending_responses": pending_responses,
+                        "general_comment_ids": list(general_comment_ids),
                     }
                 )
 
@@ -776,6 +794,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 "total_threads": len(review_threads),
                 "comment_commits": comment_commits,
                 "pending_responses": pending_responses,
+                "general_comment_ids": list(general_comment_ids),
             }
         )
 
@@ -887,6 +906,7 @@ def send_comment_replies_step(ctx: WorkflowContext) -> WorkflowResult:
     comment_commits = ctx.get("comment_commits", {})
     pending_responses = ctx.get("pending_responses", {})
     push_successful = ctx.get("push_successful", False)
+    general_comment_ids = set(ctx.get("general_comment_ids", []))
 
     replies_to_send = prepare_replies_for_sending(
         pending_responses,
@@ -956,8 +976,20 @@ def send_comment_replies_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No replies sent")
 
+    # Split replies: general comments use add_issue_comment, review comments use reply_to_comment
+    general_replies = {cid: text for cid, text in final_replies.items() if cid in general_comment_ids}
+    review_replies = {cid: text for cid, text in final_replies.items() if cid not in general_comment_ids}
+
     with ctx.textual.loading(f"Sending {len(final_replies)} reply(s)..."):
-        results = reply_to_comment_batch(ctx.github, pr_number, final_replies)
+        results = {}
+        for comment_id, text in general_replies.items():
+            result = ctx.github.add_issue_comment(pr_number, text)
+            match result:
+                case ClientSuccess():
+                    results[comment_id] = True
+                case ClientError():
+                    results[comment_id] = False
+        results.update(reply_to_comment_batch(ctx.github, pr_number, review_replies))
 
     replied_count = sum(results.values())
     failed_count = len(results) - replied_count

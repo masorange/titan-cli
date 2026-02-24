@@ -10,6 +10,55 @@ from titan_cli.core.result import ClientSuccess, ClientError
 from ..models.view import UICommentThread
 
 
+def fetch_pr_general_comments(
+    github_client,
+    pr_number: int,
+) -> List[UICommentThread]:
+    """
+    Fetch general PR comments (not attached to code lines).
+
+    Filters out:
+    - Bot comments
+    - Empty comments
+    - JSON-only comments (coverage reports, CI badges, etc.)
+
+    Args:
+        github_client: GitHub client instance
+        pr_number: PR number
+
+    Returns:
+        List of UICommentThread pseudo-threads (thread_id starts with "general_")
+
+    Raises:
+        Exception: If fetching comments fails
+    """
+    result = github_client.get_pr_general_comments(pr_number)
+
+    match result:
+        case ClientSuccess(data=threads):
+            all_threads = threads
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to fetch general comments: {err}")
+        case _:
+            raise Exception("Unexpected result type")
+
+    filtered = []
+    for thread in all_threads:
+        comment = thread.main_comment
+        if not comment:
+            continue
+        if comment.author_login and 'bot' in comment.author_login.lower():
+            continue
+        if not comment.body or not comment.body.strip():
+            continue
+        body_stripped = comment.body.strip()
+        if body_stripped.startswith('{') and body_stripped.endswith('}'):
+            continue
+        filtered.append(thread)
+
+    return filtered
+
+
 def fetch_pr_threads(
     github_client,
     pr_number: int,
