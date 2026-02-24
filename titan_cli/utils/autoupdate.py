@@ -91,47 +91,64 @@ def perform_update() -> Dict[str, any]:
     """
     Perform auto-update using pipx or pip.
 
+    Both the core CLI and injected plugins must update successfully.
+
     Returns:
         Dictionary with update result:
         {
-            "success": bool,
-            "method": str,  # "pipx" or "pip"
-            "installed_version": Optional[str],  # Version actually installed
-            "error": Optional[str]
+            "success": bool,           # True only if core AND plugins updated
+            "method": str,             # "pipx" or "pip"
+            "installed_version": Optional[str],
+            "error": Optional[str],    # Core update error
+            "plugins_error": Optional[str]  # Plugin update error (pipx only)
         }
     """
     result = {
         "success": False,
         "method": None,
         "installed_version": None,
-        "error": None
+        "error": None,
+        "plugins_error": None,
     }
 
     # Try pipx first (recommended)
     try:
-        # Run upgrade
+        # Step 1: force-upgrade titan-cli core (without --include-injected to avoid
+        # pip resolving plugin constraints and skipping the core upgrade)
         proc = subprocess.run(
-            ["pipx", "upgrade", "--include-injected", "--force", "titan-cli"],
+            ["pipx", "upgrade", "--force", "titan-cli"],
             capture_output=True,
             text=True,
             timeout=60
         )
 
-        # Check if upgrade was successful
-        if proc.returncode == 0:
-            # Verify installed version
+        if proc.returncode != 0:
+            pass  # Fall through to pip fallback
+        else:
+            result["method"] = "pipx"
+
+            # Step 2: upgrade injected plugins to match new core
+            proc2 = subprocess.run(
+                ["pipx", "upgrade", "--include-injected", "titan-cli"],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+
             installed_version = _get_installed_version_pipx()
-            if installed_version:
-                result["success"] = True
-                result["method"] = "pipx"
-                result["installed_version"] = installed_version
-                return result
-            else:
+            result["installed_version"] = installed_version
+
+            if not installed_version:
                 result["error"] = "Could not verify installed version"
                 return result
-        else:
-            # pipx failed, try pip as fallback
-            pass
+
+            if proc2.returncode != 0:
+                result["plugins_error"] = proc2.stderr.strip() or "Plugin upgrade failed"
+                return result
+
+            result["success"] = True
+            return result
+
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass  # Try pip as fallback
 

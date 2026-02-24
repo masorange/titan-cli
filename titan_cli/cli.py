@@ -68,7 +68,7 @@ def main(
 
                 # Ask user if they want to update
                 if typer.confirm("Would you like to update now?", default=True):
-                    typer.echo("⏳ Updating Titan CLI...")
+                    typer.echo("⏳ Updating Titan CLI and plugins...")
                     typer.echo()
                     logger.info("update_initiated")
                     result = perform_update()
@@ -89,15 +89,24 @@ def main(
                         )
                         sys.exit(0)
                     else:
-                        logger.error("update_failed", error=result['error'])
-                        typer.echo(f"❌ Update failed: {result['error']}")
-                        typer.echo("   Please try manually: pipx upgrade titan-cli")
+                        if result["error"]:
+                            logger.error("update_core_failed", error=result['error'])
+                            typer.echo(f"❌ Failed to update Titan CLI: {result['error']}")
+                        if result["plugins_error"]:
+                            logger.error("update_plugins_failed", error=result['plugins_error'])
+                            typer.echo(f"❌ Failed to update plugins: {result['plugins_error']}")
                         typer.echo()
-                        # Continue to TUI even if update fails
+                        typer.echo("   Please update manually:")
+                        typer.echo("     pipx upgrade --force titan-cli")
+                        typer.echo("     pipx upgrade --include-injected titan-cli")
+                        sys.exit(1)
                 else:
                     logger.info("update_skipped")
-                    typer.echo("⏭  Skipping update. Run 'pipx upgrade titan-cli' to update later.")
                     typer.echo()
+                    typer.echo("   Please update manually:")
+                    typer.echo("     pipx upgrade --force titan-cli")
+                    typer.echo("     pipx upgrade --include-injected titan-cli")
+                    sys.exit(1)
         except (typer.Exit, SystemExit):
             raise
         except Exception as e:
