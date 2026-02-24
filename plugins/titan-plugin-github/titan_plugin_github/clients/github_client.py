@@ -215,6 +215,10 @@ class GitHubClient:
         """Reply to a PR comment."""
         return self._review_service.reply_to_comment(pr_number, comment_id, body)
 
+    def get_pr_general_comments(self, pr_number: int) -> ClientResult[List[UICommentThread]]:
+        """Get general PR comments (not attached to code lines)."""
+        return self._review_service.get_pr_general_comments(pr_number)
+
     def add_issue_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """Add a general comment to PR (issue comment)."""
         return self._review_service.add_issue_comment(pr_number, body)

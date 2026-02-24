@@ -13,7 +13,7 @@ from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
 from ..network import GHNetwork, GraphQLNetwork, graphql_queries
 from ...models.network.rest import NetworkReview
-from ...models.network.graphql import GraphQLPullRequestReviewThread
+from ...models.network.graphql import GraphQLPullRequestReviewThread, GraphQLIssueComment
 from ...models.view import UICommentThread, UIReview
 from ...models.mappers import from_graphql_review_thread, from_network_review
 from ...exceptions import GitHubAPIError
@@ -101,6 +101,66 @@ class ReviewService:
         except (KeyError, ValueError) as e:
             return ClientError(
                 error_message=f"Failed to parse review threads: {e}",
+                error_code="PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @log_client_operation()
+    def get_pr_general_comments(
+        self, pr_number: int
+    ) -> ClientResult[List[UICommentThread]]:
+        """
+        Get general PR comments (not attached to code lines).
+
+        Uses GraphQL to fetch top-level PR comments and wraps each one as
+        a pseudo-thread (thread_id = "general_{id}") for uniform rendering.
+
+        Args:
+            pr_number: PR number
+
+        Returns:
+            ClientResult[List[UICommentThread]]
+        """
+        try:
+            repo_string = self.gh.get_repo_string()
+            owner, repo = repo_string.split('/')
+
+            variables = {
+                "owner": owner,
+                "repo": repo,
+                "prNumber": pr_number
+            }
+
+            response = self.graphql.run_query(
+                graphql_queries.GET_PR_ISSUE_COMMENTS,
+                variables
+            )
+
+            comments_data = (
+                response.get("data", {})
+                .get("repository", {})
+                .get("pullRequest", {})
+                .get("comments", {})
+                .get("nodes", [])
+            )
+
+            network_comments = [
+                GraphQLIssueComment.from_graphql(c) for c in comments_data
+            ]
+
+            ui_threads = [
+                UICommentThread.from_issue_comment(c) for c in network_comments
+            ]
+
+            return ClientSuccess(
+                data=ui_threads,
+                message=f"Found {len(ui_threads)} general comments"
+            )
+
+        except (KeyError, ValueError) as e:
+            return ClientError(
+                error_message=f"Failed to parse general comments: {e}",
                 error_code="PARSE_ERROR"
             )
         except GitHubAPIError as e:

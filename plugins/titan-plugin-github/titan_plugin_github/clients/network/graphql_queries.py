@@ -44,6 +44,29 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 }
 '''
 
+GET_PR_ISSUE_COMMENTS = '''
+query($owner: String!, $repo: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      comments(first: 100) {
+        nodes {
+          databaseId
+          body
+          author {
+            login
+            ... on User {
+              name
+            }
+          }
+          createdAt
+          updatedAt
+        }
+      }
+    }
+  }
+}
+'''
+
 GET_PR_NODE_ID = '''
 query($owner: String!, $repo: String!, $prNumber: Int!) {
   repository(owner: $owner, name: $repo) {
