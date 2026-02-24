@@ -23,7 +23,6 @@ def prompt_log_path(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Select Log File")
     ctx.textual.text("")
     ctx.textual.dim_text(f"Default log path: {DEFAULT_LOG_PATH}")
-    ctx.textual.text("")
 
     use_default = ctx.textual.ask_confirm("Use default log path?", default=True)
 
@@ -51,7 +50,6 @@ def prompt_log_path(ctx: WorkflowContext) -> WorkflowResult:
         return Error(f"Not a file: {log_path}")
 
     size_mb = log_path.stat().st_size / (1024 * 1024)
-    ctx.textual.text("")
     ctx.textual.success_text(f"✓ {log_path}")
     ctx.textual.dim_text(f"  Size: {size_mb:.2f} MB")
 

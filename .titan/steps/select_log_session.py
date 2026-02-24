@@ -31,7 +31,6 @@ def select_log_session(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No log path in context. Run prompt_log_path first.")
 
-    ctx.textual.text("")
     ctx.textual.dim_text(f"Parsing {log_path}...")
 
     try:
@@ -50,7 +49,6 @@ def select_log_session(ctx: WorkflowContext) -> WorkflowResult:
 
     if len(sessions) == 1:
         selected = sessions[0]
-        ctx.textual.text("")
         ctx.textual.success_text("✓ Single session found, selecting it automatically")
     else:
         # Show latest sessions first
@@ -65,7 +63,6 @@ def select_log_session(ctx: WorkflowContext) -> WorkflowResult:
             for i, s in enumerate(sessions_desc)
         ]
 
-        ctx.textual.text("")
         selected_idx = ctx.textual.ask_option("Select a session to analyze:", options)
 
         if selected_idx is None:

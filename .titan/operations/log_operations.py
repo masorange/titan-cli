@@ -172,8 +172,14 @@ def analyze_session(session: LogSession) -> SessionAnalysis:
     Returns:
         SessionAnalysis with all extracted information
     """
+    # Events already represented in the workflow timeline
+    _WORKFLOW_ENGINE_EVENTS = {"step_failed", "step_success", "step_skipped", "step_exit", "step_exception", "workflow_started", "workflow_completed", "workflow_failed"}
+
     workflows = _extract_workflows(session.entries)
-    errors = [e for e in session.entries if e.level in ("error", "exception")]
+    errors = [
+        e for e in session.entries
+        if e.level in ("error", "exception") and e.event not in _WORKFLOW_ENGINE_EVENTS
+    ]
     warnings = [e for e in session.entries if e.level == "warning"]
     slow_ops = [
         e for e in session.entries

@@ -10,7 +10,7 @@ Display a structured analysis of the selected log session:
 from textual.app import ComposeResult
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
-from titan_cli.ui.tui.widgets import Table, PanelContainer, ErrorText, DimText
+from titan_cli.ui.tui.widgets import Table, PanelContainer, DimText, MultilineInput
 
 from operations import (
     WorkflowRun,
@@ -40,8 +40,6 @@ class _WorkflowPanel(PanelContainer):
 
     def compose(self) -> ComposeResult:
         wf = self._wf
-        if wf.failed_at:
-            yield ErrorText(f"Failed at step: {wf.failed_at}")
         if wf.steps:
             rows = []
             for step in wf.steps:
@@ -52,6 +50,14 @@ class _WorkflowPanel(PanelContainer):
             yield Table(headers=["", "Step", "Duration", "Info"], rows=rows)
         else:
             yield DimText("No steps recorded")
+        failed_steps = [s for s in wf.steps if s.result == "failed" and s.error]
+        if failed_steps:
+            error_text = "\n".join(
+                f"{s.step_id}: {s.error}" for s in failed_steps
+            )
+            ta = MultilineInput(error_text, read_only=True)
+            ta.styles.height = max(3, error_text.count("\n") + 3)
+            yield ta
 
 
 def analyze_log_session(ctx: WorkflowContext) -> WorkflowResult:
