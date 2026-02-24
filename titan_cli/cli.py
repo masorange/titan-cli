@@ -87,7 +87,7 @@ def main(
                             shell=False,
                             check=False
                         )
-                        raise typer.Exit(0)
+                        sys.exit(0)
                     else:
                         logger.error("update_failed", error=result['error'])
                         typer.echo(f"❌ Update failed: {result['error']}")
