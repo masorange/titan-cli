@@ -10,7 +10,7 @@ import typer
 from titan_cli import __version__
 from titan_cli.messages import msg
 from titan_cli.ui.tui import launch_tui
-from titan_cli.utils.autoupdate import check_for_updates, perform_update
+from titan_cli.utils.autoupdate import check_for_updates, update_core, update_plugins
 from titan_cli.core.logging import setup_logging, get_logger
 
 
@@ -68,36 +68,54 @@ def main(
 
                 # Ask user if they want to update
                 if typer.confirm("Would you like to update now?", default=True):
-                    typer.echo("⏳ Updating Titan CLI...")
-                    typer.echo()
                     logger.info("update_initiated")
-                    result = perform_update()
 
-                    if result["success"]:
-                        installed_version = result.get("installed_version", latest)
-                        logger.info("update_successful", version=installed_version, method=result['method'])
-                        typer.echo(f"✅ Successfully updated to v{installed_version} using {result['method']}")
-                        typer.echo("🔄 Relaunching Titan with new version...")
-                        typer.echo()
+                    # Step 1: update core
+                    typer.echo("⏳ Updating Titan CLI...")
+                    core_result = update_core()
 
-                        # Relaunch titan
-                        # Use 'titan' command directly (works for both pipx and pip)
-                        subprocess.run(
-                            ["titan"] + sys.argv[1:],
-                            shell=False,
-                            check=False
-                        )
-                        sys.exit(0)
-                    else:
-                        logger.error("update_failed", error=result['error'])
-                        typer.echo(f"❌ Update failed: {result['error']}")
-                        typer.echo("   Please try manually: pipx upgrade titan-cli")
+                    if not core_result["success"]:
+                        logger.error("update_core_failed", error=core_result["error"])
+                        typer.echo(f"❌ Failed to update Titan CLI: {core_result['error']}")
                         typer.echo()
-                        # Continue to TUI even if update fails
+                        typer.echo("   Please update manually:")
+                        typer.echo("     pipx upgrade --force titan-cli")
+                        typer.echo("     pipx upgrade --include-injected titan-cli")
+                        sys.exit(1)
+
+                    installed_version = core_result.get("installed_version", latest)
+                    logger.info("update_core_successful", version=installed_version, method=core_result["method"])
+                    typer.echo(f"✅ Titan CLI updated to v{installed_version}")
+
+                    # Step 2: update plugins
+                    typer.echo("⏳ Updating plugins...")
+                    plugins_result = update_plugins()
+
+                    if not plugins_result["success"]:
+                        logger.error("update_plugins_failed", error=plugins_result["error"])
+                        typer.echo(f"❌ Failed to update plugins: {plugins_result['error']}")
+                        typer.echo()
+                        typer.echo("   Please run manually:")
+                        typer.echo("     pipx upgrade --include-injected titan-cli")
+                        sys.exit(1)
+
+                    if not plugins_result.get("skipped"):
+                        typer.echo("✅ Plugins updated")
+
+                    logger.info("update_successful", version=installed_version)
+                    typer.echo()
+                    typer.echo("🔄 Relaunching Titan with new version...")
+                    typer.echo()
+
+                    subprocess.run(["titan"] + sys.argv[1:], shell=False, check=False)
+                    sys.exit(0)
                 else:
                     logger.info("update_skipped")
-                    typer.echo("⏭  Skipping update. Run 'pipx upgrade titan-cli' to update later.")
                     typer.echo()
+                    typer.echo("   Please update manually:")
+                    typer.echo("     pipx upgrade --force titan-cli")
+                    typer.echo("     pipx upgrade --include-injected titan-cli")
+                    sys.exit(1)
         except (typer.Exit, SystemExit):
             raise
         except Exception as e:

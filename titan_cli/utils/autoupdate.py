@@ -1,5 +1,6 @@
 """Auto-update utility for Titan CLI."""
 
+import os
 import sys
 import subprocess
 from typing import Dict, Optional
@@ -44,6 +45,17 @@ def check_for_updates() -> Dict[str, any]:
             "error": Optional[str]
         }
     """
+    # Mock support: TITAN_MOCK_UPDATE=0.1.15 simulates an update available
+    mock_version = os.environ.get("TITAN_MOCK_UPDATE")
+    if mock_version:
+        return {
+            "update_available": True,
+            "current_version": __version__,
+            "latest_version": mock_version,
+            "is_dev_install": False,
+            "error": None,
+        }
+
     result = {
         "update_available": False,
         "current_version": __version__,
@@ -87,53 +99,57 @@ def check_for_updates() -> Dict[str, any]:
     return result
 
 
-def perform_update() -> Dict[str, any]:
+def update_core() -> Dict[str, any]:
     """
-    Perform auto-update using pipx or pip.
+    Upgrade the titan-cli core package.
 
     Returns:
-        Dictionary with update result:
         {
             "success": bool,
-            "method": str,  # "pipx" or "pip"
-            "installed_version": Optional[str],  # Version actually installed
+            "method": str,        # "pipx" or "pip"
+            "installed_version": Optional[str],
             "error": Optional[str]
         }
     """
+    # Mock support: TITAN_MOCK_CORE_FAIL=1 simulates a core update failure
+    mock_version = os.environ.get("TITAN_MOCK_UPDATE")
+    if mock_version:
+        if os.environ.get("TITAN_MOCK_CORE_FAIL"):
+            return {"success": False, "method": None, "installed_version": None, "error": "Mock core failure"}
+        return {"success": True, "method": "pipx", "installed_version": mock_version, "error": None}
+
     result = {
         "success": False,
         "method": None,
         "installed_version": None,
-        "error": None
+        "error": None,
     }
 
-    # Try pipx first (recommended)
+    # Try pipx first (without --include-injected to avoid pip resolving plugin
+    # constraints and skipping the core upgrade)
     try:
-        # Run upgrade
         proc = subprocess.run(
-            ["pipx", "upgrade", "--include-injected", "--force", "titan-cli"],
+            ["pipx", "upgrade", "--force", "titan-cli"],
             capture_output=True,
             text=True,
             timeout=60
         )
 
-        # Check if upgrade was successful
         if proc.returncode == 0:
-            # Verify installed version
             installed_version = _get_installed_version_pipx()
             if installed_version:
                 result["success"] = True
                 result["method"] = "pipx"
                 result["installed_version"] = installed_version
-                return result
             else:
                 result["error"] = "Could not verify installed version"
-                return result
-        else:
-            # pipx failed, try pip as fallback
-            pass
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # Try pip as fallback
+            return result
+
+    except FileNotFoundError:
+        pass  # pipx not installed, fall through to pip
+    except subprocess.TimeoutExpired:
+        result["error"] = "Update timed out"
+        return result
 
     # Fallback to pip
     try:
@@ -150,15 +166,64 @@ def perform_update() -> Dict[str, any]:
                 result["success"] = True
                 result["method"] = "pip"
                 result["installed_version"] = installed_version
-                return result
             else:
                 result["error"] = "Could not verify installed version"
-                return result
         else:
-            result["error"] = f"Update failed: {proc.stderr}"
-            return result
+            result["error"] = proc.stderr.strip() or "Core upgrade failed"
+        return result
+
     except subprocess.TimeoutExpired:
         result["error"] = "Update timed out"
+        return result
+
+
+def update_plugins() -> Dict[str, any]:
+    """
+    Upgrade injected plugins via pipx.
+
+    Only applicable when using pipx. pip users don't have injected plugins.
+
+    Returns:
+        {
+            "success": bool,
+            "skipped": bool,   # True if pipx not available (pip users)
+            "error": Optional[str]
+        }
+    """
+    # Mock support: TITAN_MOCK_PLUGINS_FAIL=1 simulates a plugins update failure
+    if os.environ.get("TITAN_MOCK_UPDATE"):
+        if os.environ.get("TITAN_MOCK_PLUGINS_FAIL"):
+            return {"success": False, "skipped": False, "error": "Mock plugins failure"}
+        return {"success": True, "skipped": False, "error": None}
+
+    result = {
+        "success": False,
+        "skipped": False,
+        "error": None,
+    }
+
+    try:
+        proc = subprocess.run(
+            ["pipx", "upgrade", "--include-injected", "titan-cli"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if proc.returncode == 0:
+            result["success"] = True
+        else:
+            error_output = proc.stderr.strip() or proc.stdout.strip() or "Plugin upgrade failed"
+            result["error"] = error_output
+        return result
+
+    except FileNotFoundError:
+        # pipx not installed — no injected plugins to update
+        result["success"] = True
+        result["skipped"] = True
+        return result
+    except subprocess.TimeoutExpired:
+        result["error"] = "Plugin update timed out"
         return result
 
 
