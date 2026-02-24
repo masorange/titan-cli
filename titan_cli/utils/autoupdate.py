@@ -111,7 +111,7 @@ def perform_update() -> Dict[str, any]:
     try:
         # Run upgrade
         proc = subprocess.run(
-            ["pipx", "upgrade", "--force", "titan-cli"],
+            ["pipx", "upgrade", "--include-injected", "--force", "titan-cli"],
             capture_output=True,
             text=True,
             timeout=60
