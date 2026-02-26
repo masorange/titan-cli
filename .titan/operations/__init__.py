@@ -19,6 +19,20 @@ from .pytest_operations import (
     truncate_text,
 )
 
+from .log_operations import (
+    LogEntry,
+    LogSession,
+    WorkflowRun,
+    StepRun,
+    SessionAnalysis,
+    SLOW_THRESHOLD_SECONDS,
+    STEP_RESULT_ICONS,
+    WORKFLOW_STATUS_ICONS,
+    parse_log_file,
+    analyze_session,
+    format_session_label,
+)
+
 __all__ = [
     # Ruff operations
     "parse_ruff_json_output",
@@ -31,4 +45,17 @@ __all__ = [
     "build_failure_table_data",
     "format_failures_for_ai",
     "truncate_text",
+
+    # Log operations
+    "LogEntry",
+    "LogSession",
+    "WorkflowRun",
+    "StepRun",
+    "SessionAnalysis",
+    "SLOW_THRESHOLD_SECONDS",
+    "STEP_RESULT_ICONS",
+    "WORKFLOW_STATUS_ICONS",
+    "parse_log_file",
+    "analyze_session",
+    "format_session_label",
 ]
