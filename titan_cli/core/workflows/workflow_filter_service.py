@@ -51,7 +51,7 @@ class WorkflowFilterService:
                 elif len(real_plugins) == 1:
                     # Single plugin dependency
                     return real_plugins[0].capitalize()
-            # No plugin dependencies, it's a custom workflow
+            # No plugin dependencies, it's a custom project workflow
             return "Custom"
 
         # Fallback for other sources
