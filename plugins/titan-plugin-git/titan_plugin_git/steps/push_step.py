@@ -1,5 +1,5 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/push_step.py
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.messages import msg
 
@@ -57,9 +57,24 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
     exists_result = ctx.git.branch_exists_on_remote(branch=branch_to_use, remote=remote_to_use)
     match exists_result:
         case ClientSuccess(data=exists):
-            # The first push of a branch should set the upstream
             if not exists:
+                # The first push of a branch should set the upstream
                 set_upstream = True
+            else:
+                # Branch exists on remote — check if there's anything to push
+                unpushed_result = ctx.git.count_unpushed_commits(branch=branch_to_use, remote=remote_to_use)
+                match unpushed_result:
+                    case ClientSuccess(data=unpushed_count):
+                        if unpushed_count == 0:
+                            ctx.textual.success_text(f"Branch {branch_to_use} is already up to date with {remote_to_use}")
+                            ctx.textual.end_step("success")
+                            return Exit(
+                                "Branch already pushed",
+                                metadata={"pr_head_branch": branch_to_use}
+                            )
+                    case ClientError():
+                        # If we can't count, proceed with push anyway
+                        pass
         case ClientError(error_message=err):
             ctx.textual.end_step("error")
             return Error(f"Failed to check remote branch: {err}")
