@@ -1,5 +1,5 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/push_step.py
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.messages import msg
 
@@ -68,7 +68,7 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
                         if unpushed_count == 0:
                             ctx.textual.success_text(f"Branch {branch_to_use} is already up to date with {remote_to_use}")
                             ctx.textual.end_step("success")
-                            return Exit(
+                            return Skip(
                                 "Branch already pushed",
                                 metadata={"pr_head_branch": branch_to_use}
                             )
