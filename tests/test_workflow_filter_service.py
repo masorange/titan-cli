@@ -64,7 +64,7 @@ class TestWorkflowFilterService:
         )
 
         result = WorkflowFilterService.detect_plugin_name(wf)
-        assert result == "Custom"
+        assert result == "Project"
 
     def test_detect_plugin_name_from_user_source(self):
         """Test detecting plugin name from user workflow."""
