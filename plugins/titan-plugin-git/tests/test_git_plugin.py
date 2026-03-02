@@ -1,6 +1,6 @@
 # plugins/titan-plugin-git/tests/test_git_plugin.py
 from unittest.mock import MagicMock
-from titan_cli.engine import WorkflowContext, is_success, is_error, is_skip, is_exit, Skip
+from titan_cli.engine import WorkflowContext, is_success, is_error, is_skip, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_git.steps.status_step import get_git_status_step
 from titan_plugin_git.steps.commit_step import create_git_commit_step
@@ -40,9 +40,10 @@ def test_get_git_status_step_success():
     mock_git_client.get_status.assert_called_once()
 
 
-def test_get_git_status_step_exit_when_clean():
+def test_get_git_status_step_skip_when_clean():
     """
-    Test that get_git_status_step returns Exit when the working directory is clean.
+    Test that get_git_status_step returns Skip when the working directory is clean,
+    allowing the workflow to continue to the push step.
     """
     # 1. Arrange
     mock_git_client = MagicMock(spec=GitClient)
@@ -68,7 +69,7 @@ def test_get_git_status_step_exit_when_clean():
     result = get_git_status_step(mock_context)
 
     # 3. Assert
-    assert is_exit(result)
+    assert is_skip(result)
     assert "No changes to commit" in result.message
     assert result.metadata['git_status'] == mock_status
     mock_git_client.get_status.assert_called_once()
