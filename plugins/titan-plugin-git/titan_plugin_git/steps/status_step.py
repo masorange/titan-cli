@@ -16,7 +16,9 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Behavior:
         - If there are uncommitted changes: Returns Success and continues workflow
-        - If working directory is clean: Returns Exit (stops workflow - nothing to commit)
+        - If working directory is clean: Returns Exit — nothing to commit.
+          In nested workflows (e.g. commit-ai called from create-pr-ai), the engine
+          converts Exit to Success so the parent workflow continues normally.
 
     Requires:
         ctx.git: An initialized GitClient.
@@ -26,7 +28,7 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Returns:
         Success: If there are changes to commit (workflow continues)
-        Exit: If working directory is clean (workflow stops - nothing to commit)
+        Exit: If working directory is clean (stops commit workflow; parent continues)
         Error: If the GitClient is not available or the git command fails.
     """
     if not ctx.textual:
@@ -54,13 +56,12 @@ def get_git_status_step(ctx: WorkflowContext) -> WorkflowResult:
                     metadata={"git_status": status}
                 )
             else:
-                # Working directory is clean - exit workflow (nothing to commit)
+                # Working directory is clean — nothing to commit, exit early.
+                # If commit-ai is nested inside another workflow (e.g. create-pr-ai),
+                # the engine converts this Exit to Success so the parent continues.
                 ctx.textual.success_text(msg.Steps.Status.WORKING_DIRECTORY_IS_CLEAN)
-                ctx.textual.text("")
-                ctx.textual.dim_text("Nothing to commit. Skipping workflow.")
                 ctx.textual.end_step("success")
 
-                # Exit workflow early (not an error)
                 return Exit("No changes to commit", metadata={"git_status": status})
 
         case ClientError(error_message=err):

@@ -15,6 +15,14 @@ steps:
     name: "Commit changes with AI"
     workflow: "commit-ai"
 
+  # Push the branch — handles both cases:
+  # - No changes: commit-ai exited early, branch may need pushing
+  # - Had changes: commit-ai already pushed, this step skips (already up to date)
+  - id: push_branch
+    name: "Push Branch"
+    plugin: git
+    step: push
+
   - id: get_head_branch
     name: "Get Head Branch"
     plugin: git
