@@ -216,7 +216,13 @@ class TextualComponents:
             # App is closing or worker was cancelled
             pass
 
-    def panel(self, text: str, panel_type: str = "info", show_icon: bool = True) -> None:
+    def panel(
+        self,
+        text: str,
+        panel_type: str = "info",
+        show_icon: bool = True,
+        use_markdown: bool = False,
+    ) -> None:
         """
         Show a panel with consistent styling.
 
@@ -224,14 +230,62 @@ class TextualComponents:
             text: Text to display in the panel
             panel_type: Type of panel - "info", "success", "warning", or "error"
             show_icon: Whether to show the type icon (default: True)
+            use_markdown: Render content as markdown instead of plain text
 
         Example:
             ctx.textual.panel("Operation completed successfully!", panel_type="success")
             ctx.textual.panel("Warning: This action cannot be undone", panel_type="warning")
-            ctx.textual.panel("Info without icon", panel_type="info", show_icon=False)
+            ctx.textual.panel("## Analysis\n\n- Point one", panel_type="info", use_markdown=True)
         """
-        panel_widget = Panel(text=text, panel_type=panel_type, show_icon=show_icon)
+        panel_widget = Panel(text=text, panel_type=panel_type, show_icon=show_icon, use_markdown=use_markdown)
         self.mount(panel_widget)
+
+    def table(
+        self,
+        headers: List[str],
+        rows: List[List[str]],
+        title: str = "",
+        full_width: bool = True,
+        cell_padding: int = 1,
+        zebra_stripes: bool = False,
+        show_header: bool = True,
+        show_cursor: bool = True,
+        cursor_type: str = "row",
+        row_height: int = 1,
+    ) -> None:
+        """
+        Show a table with consistent styling.
+
+        Args:
+            headers: List of column headers
+            rows: List of rows (each row is a list of cell values)
+            title: Optional title shown on the table border
+            full_width: If False, table uses auto width (compact mode)
+            cell_padding: Horizontal padding inside each cell (default 1)
+            zebra_stripes: Alternate row background colours
+            show_header: Show the column header row
+            show_cursor: Show the cursor highlight
+            cursor_type: Cursor movement mode ("cell", "row", "column", "none")
+            row_height: Number of lines per row (default 1, use 2+ for multiline cells)
+
+        Example:
+            ctx.textual.table(headers=["Name", "Value"], rows=[["foo", "bar"]])
+            ctx.textual.table(headers=headers, rows=rows, title="Results", row_height=2)
+        """
+        from titan_cli.ui.tui.widgets import Table
+        table_widget = Table(
+            headers=headers,
+            rows=rows,
+            title=title,
+            full_width=full_width,
+            cell_padding=cell_padding,
+            zebra_stripes=zebra_stripes,
+            show_header=show_header,
+            show_cursor=show_cursor,
+            cursor_type=cursor_type,
+            row_height=row_height,
+        )
+        self.mount(table_widget)
 
     def dim_text(self, text: str) -> None:
         """
@@ -455,6 +509,66 @@ class TextualComponents:
                 return default
 
         # Check if user cancelled
+        if result_container.get("cancelled", False):
+            raise KeyboardInterrupt("User cancelled input")
+
+        return result_container["value"]
+
+    def ask_password(self, question: str) -> Optional[str]:
+        """
+        Ask user for a password/secret (input hidden, blocks until user responds).
+
+        Args:
+            question: Question to ask
+
+        Returns:
+            User's input text, or None if empty
+
+        Raises:
+            KeyboardInterrupt: If user presses Escape to cancel
+
+        Example:
+            passphrase = ctx.textual.ask_password("Enter GPG passphrase:")
+        """
+        result_event = threading.Event()
+        result_container = {"value": None, "cancelled": False}
+
+        def _mount_input():
+            def on_submitted(value: str):
+                result_container["value"] = value
+                result_container["cancelled"] = False
+                self._append_text_no_truncate("  → ••••••••")
+                input_widget.remove()
+                result_event.set()
+
+            def on_cancelled():
+                result_container["value"] = None
+                result_container["cancelled"] = True
+                self.output_widget.append_output("  [dim](cancelled)[/dim]")
+                input_widget.remove()
+                result_event.set()
+
+            input_widget = PromptInput(
+                question=question,
+                default="",
+                placeholder="Type passphrase and press Enter... (Esc to cancel)",
+                on_submit=on_submitted,
+                on_cancel=on_cancelled,
+                password=True,
+            )
+            self.output_widget.mount(input_widget)
+
+        try:
+            self.app.call_from_thread(_mount_input)
+        except Exception:
+            return None
+
+        while not result_event.is_set():
+            if result_event.wait(timeout=0.5):
+                break
+            if not self.app.is_running:
+                return None
+
         if result_container.get("cancelled", False):
             raise KeyboardInterrupt("User cancelled input")
 
