@@ -12,6 +12,7 @@ from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
 from ...models import NetworkJiraIssueType
+from ...models.network.rest.priority import NetworkJiraPriority
 from ...exceptions import JiraAPIError
 
 
@@ -166,6 +167,38 @@ class MetadataService:
             return ClientError(
                 error_message=f"Failed to list versions for {project_key}: {e.message}",
                 error_code="LIST_VERSIONS_ERROR"
+            )
+
+    def get_priorities(self) -> ClientResult[List[NetworkJiraPriority]]:
+        """
+        Get all available priorities in Jira.
+
+        Returns:
+            ClientResult[List[NetworkJiraPriority]]
+        """
+        try:
+            priorities_data = self.network.make_request("GET", "priority")
+
+            # Parse to network models
+            priorities = []
+            for p_data in priorities_data:
+                priorities.append(
+                    NetworkJiraPriority(
+                        id=p_data.get("id", ""),
+                        name=p_data.get("name", ""),
+                        iconUrl=p_data.get("iconUrl")
+                    )
+                )
+
+            return ClientSuccess(
+                data=priorities,
+                message=f"Found {len(priorities)} priorities"
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to get priorities: {e.message}",
+                error_code="GET_PRIORITIES_ERROR"
             )
 
 
