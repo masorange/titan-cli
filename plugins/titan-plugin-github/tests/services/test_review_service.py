@@ -251,3 +251,51 @@ def test_resolve_review_thread_api_error(review_service, mock_graphql_network):
 
     assert isinstance(result, ClientError)
     assert result.error_code == "API_ERROR"
+
+
+def test_create_draft_review_success(review_service, mock_gh_network):
+    """Test successful draft review creation via GHNetwork (not raw subprocess)."""
+    payload = {
+        "commit_id": "abc123",
+        "body": "Review body",
+        "event": "COMMENT",
+        "comments": []
+    }
+    mock_gh_network.run_command.return_value = json.dumps({"id": 42})
+    mock_gh_network.get_repo_string.return_value = "owner/repo"
+
+    result = review_service.create_draft_review(pr_number=1, payload=payload)
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data == 42
+
+    # Verify it went through GHNetwork, not raw subprocess
+    call_args = mock_gh_network.run_command.call_args
+    args = call_args[0][0]
+    assert "--method" in args
+    assert "POST" in args
+    assert "/pulls/1/reviews" in " ".join(args)
+    # Payload passed as stdin_input, not via subprocess directly
+    assert call_args[1].get("stdin_input") or call_args[0][1]
+
+
+def test_create_draft_review_parse_error(review_service, mock_gh_network):
+    """Test handling invalid JSON response from gh CLI."""
+    mock_gh_network.run_command.return_value = "not-valid-json"
+    mock_gh_network.get_repo_string.return_value = "owner/repo"
+
+    result = review_service.create_draft_review(pr_number=1, payload={})
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "PARSE_ERROR"
+
+
+def test_create_draft_review_api_error(review_service, mock_gh_network):
+    """Test handling gh CLI failure during draft review creation."""
+    mock_gh_network.run_command.side_effect = GitHubAPIError("Unauthorized")
+    mock_gh_network.get_repo_string.return_value = "owner/repo"
+
+    result = review_service.create_draft_review(pr_number=1, payload={})
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "API_ERROR"
