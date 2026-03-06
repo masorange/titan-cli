@@ -274,8 +274,8 @@ class PluginManagementScreen(BaseScreen):
                 details.mount(DimText(clean_desc))
                 details.mount(Text(""))
 
-            if hasattr(plugin, 'version'):
-                details.mount(Static(f"[bold]Version:[/bold] {plugin.version}"))
+            version = self.config.registry.get_plugin_version(plugin_name)
+            details.mount(Static(f"[bold]Version:[/bold] {version}"))
 
         # Check if plugin has configuration schema
         has_config = False

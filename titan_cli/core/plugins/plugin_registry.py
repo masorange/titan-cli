@@ -15,6 +15,7 @@ class PluginRegistry:
         self._plugins: Dict[str, TitanPlugin] = {}
         self._failed_plugins: Dict[str, Exception] = {}
         self._discovered_plugin_names: List[str] = []
+        self._plugin_versions: Dict[str, str] = {}
         if discover_on_init:
             self.discover()
 
@@ -40,6 +41,7 @@ class PluginRegistry:
                 if not issubclass(plugin_class, TitanPlugin):
                     raise TypeError("Plugin class must inherit from TitanPlugin")
                 self._plugins[ep.name] = plugin_class()
+                self._plugin_versions[ep.name] = ep.dist.version if ep.dist else "unknown"
                 logger.debug("plugin_loaded", name=ep.name)
             except Exception as e:
                 logger.exception("plugin_load_failed", name=ep.name)
@@ -170,8 +172,13 @@ class PluginRegistry:
         """Get plugin instance by name."""
         return self._plugins.get(name)
 
+    def get_plugin_version(self, name: str) -> str:
+        """Get the installed package version for a plugin, from distribution metadata."""
+        return self._plugin_versions.get(name, "unknown")
+
     def reset(self):
         """Resets the registry, clearing all loaded plugins and re-discovering."""
         self._plugins.clear()
         self._failed_plugins.clear()
+        self._plugin_versions.clear()
         self.discover()
