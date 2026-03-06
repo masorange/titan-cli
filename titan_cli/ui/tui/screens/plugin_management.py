@@ -23,6 +23,14 @@ from titan_cli.ui.tui.widgets import (
 )
 from .base import BaseScreen
 from .plugin_config_wizard import PluginConfigWizardScreen
+from .install_plugin_screen import InstallPluginScreen
+from titan_cli.core.plugins.community import (
+    get_community_plugin_names,
+    get_community_plugin_by_titan_name,
+    remove_community_plugin,
+    uninstall_community_plugin,
+)
+import asyncio
 import tomli
 import tomli_w
 
@@ -43,6 +51,8 @@ class PluginManagementScreen(BaseScreen):
         ("q", "go_back", "Back"),
         Binding("e", "toggle_plugin", "Enable/Disable"),
         Binding("c", "configure_plugin", "Configure"),
+        Binding("i", "install_plugin", "Install"),
+        Binding("u", "uninstall_plugin", "Uninstall"),
     ]
 
     CSS = """
@@ -72,9 +82,14 @@ class PluginManagementScreen(BaseScreen):
     }
 
     #left-panel OptionList {
-        height: 100%;
+        height: 1fr;
         width: 100%;
         padding: 1;
+    }
+
+    #install-plugin-button {
+        width: 100%;
+        margin: 0;
     }
 
     #left-panel OptionList > .option-list--option {
@@ -147,11 +162,12 @@ class PluginManagementScreen(BaseScreen):
         """Compose the plugin management screen."""
         with Container(id="plugin-container"):
             with Horizontal():
-                # Left panel: Plugin list
+                # Left panel: Plugin list + install button
                 left_panel = Container(id="left-panel")
                 left_panel.border_title = "Installed Plugins"
                 with left_panel:
                     yield OptionList(id="plugin-list")
+                    yield Button(f"{Icons.PLUGIN} Install Plugin", variant="primary", id="install-plugin-button")
 
                 # Right panel: Plugin details and actions
                 right_panel = Container(id="right-panel")
@@ -178,14 +194,16 @@ class PluginManagementScreen(BaseScreen):
             return
 
         # Add plugin options
+        community_names = get_community_plugin_names()
         for plugin_name in self.installed_plugins:
             is_enabled = self.config.is_plugin_enabled(plugin_name)
             status_icon = Icons.SUCCESS if is_enabled else Icons.ERROR
             status_text = "Enabled" if is_enabled else "Disabled"
+            community_badge = " [community]" if plugin_name in community_names else ""
 
             plugin_list.add_option(
                 Option(
-                    f"{status_icon} {plugin_name} - {status_text}",
+                    f"{status_icon} {plugin_name}{community_badge} - {status_text}",
                     id=plugin_name
                 )
             )
@@ -289,20 +307,31 @@ class PluginManagementScreen(BaseScreen):
                         details.mount(DimText(f"  {key}: {value}"))
 
         # Actions
+        # Community plugin info
+        community_record = get_community_plugin_by_titan_name(plugin_name)
+        if community_record:
+            details.mount(Text(""))
+            details.mount(BoldText("Source:"))
+            details.mount(DimText("  Community plugin"))
+            details.mount(DimText(f"  {community_record.repo_url}@{community_record.version}"))
+
         details.mount(Text(""))  # Spacer
         details.mount(BoldText("Actions:"))
         action_verb = "disable" if is_enabled else "enable"
         details.mount(DimText(f"  Press e to {action_verb} this plugin"))
         details.mount(DimText("  Press c to configure this plugin"))
+        if community_record:
+            details.mount(DimText("  Press u to uninstall this plugin"))
 
         # Buttons
         details.mount(Text(""))  # Spacer
-        button_container = Horizontal(
+        buttons = [
             Button("Enable/Disable", variant="default", id="toggle-button"),
             Button("Configure", variant="primary", id="configure-button"),
-            classes="button-container"
-        )
-        details.mount(button_container)
+        ]
+        if community_record:
+            buttons.append(Button("Uninstall", variant="error", id="uninstall-button"))
+        details.mount(Horizontal(*buttons, classes="button-container"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -310,6 +339,10 @@ class PluginManagementScreen(BaseScreen):
             self.action_toggle_plugin()
         elif event.button.id == "configure-button":
             self.action_configure_plugin()
+        elif event.button.id == "install-plugin-button":
+            self.action_install_plugin()
+        elif event.button.id == "uninstall-button":
+            self.action_uninstall_plugin()
 
     def action_toggle_plugin(self) -> None:
         """Toggle enable/disable state of selected plugin."""
@@ -375,3 +408,41 @@ class PluginManagementScreen(BaseScreen):
 
         wizard = PluginConfigWizardScreen(self.config, self.selected_plugin)
         self.app.push_screen(wizard, on_wizard_close)
+
+    def action_install_plugin(self) -> None:
+        """Open the community plugin install wizard."""
+        def on_install_done(result):
+            if result:
+                self._load_plugins()
+                self.app.notify("Plugin installed and loaded!", severity="information")
+
+        self.app.push_screen(InstallPluginScreen(self.config), on_install_done)
+
+    def action_uninstall_plugin(self) -> None:
+        """Uninstall the selected community plugin."""
+        if not self.selected_plugin:
+            self.app.notify("Please select a plugin", severity="warning")
+            return
+
+        record = get_community_plugin_by_titan_name(self.selected_plugin)
+        if not record:
+            self.app.notify("Only community plugins can be uninstalled", severity="warning")
+            return
+
+        self.run_worker(self._run_uninstall(record.package_name), exclusive=True)
+
+    async def _run_uninstall(self, package_name: str) -> None:
+        """Run pipx uninstall and update tracking file."""
+        result = await asyncio.to_thread(uninstall_community_plugin, package_name)
+
+        if result.returncode != 0:
+            self.app.notify(
+                f"Failed to uninstall '{package_name}': {result.stderr or result.stdout}",
+                severity="error",
+            )
+            return
+
+        remove_community_plugin(package_name)
+        self.config.load()
+        self._load_plugins()
+        self.app.notify(f"Plugin '{package_name}' uninstalled.", severity="information")
