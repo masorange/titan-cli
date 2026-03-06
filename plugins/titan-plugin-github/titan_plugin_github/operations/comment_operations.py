@@ -35,13 +35,6 @@ def build_ai_review_context(
             "diff_hunk": str (acotado),
             "thread": [{"author": str, "date": str, "body": str}, ...]
         }
-
-    Example:
-        >>> context = build_ai_review_context(pr_thread, "feat: Add feature")
-        >>> context['pr']
-        'feat: Add feature'
-        >>> len(context['diff_hunk'].split('\\n'))
-        11  # ~11 lines instead of 200+
     """
     main_comment = pr_thread.main_comment
 
@@ -93,11 +86,6 @@ def find_ai_response_file(comment_id: int, expected_path: str) -> Optional[str]:
 
     Returns:
         Path to the found file, or None if not found
-
-    Example:
-        >>> path = find_ai_response_file(123, "/tmp/titan-ai-response-comment-123.txt")
-        >>> path
-        '/home/user/.gemini/tmp/.../titan-ai-response-comment-123.txt'
     """
     # Try expected location first
     if os.path.exists(expected_path):
@@ -252,12 +240,6 @@ def reply_to_comment_batch(
 
     Returns:
         Dictionary mapping comment_id -> success (bool)
-
-    Example:
-        >>> replies = {123: "Fixed", 456: "Done"}
-        >>> results = reply_to_comment_batch(github, 789, replies)
-        >>> results
-        {123: True, 456: True}
     """
     results = {}
 

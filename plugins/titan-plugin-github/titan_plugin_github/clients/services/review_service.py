@@ -6,7 +6,6 @@ Business logic for PR review operations.
 Uses GraphQL for complex operations (threads, comments, resolve).
 """
 import json
-import subprocess
 from typing import List, Optional, Dict, Any
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
@@ -251,16 +250,9 @@ class ReviewService:
                 "--input", "-",
             ]
 
-            # Run with JSON payload via stdin
-            result = subprocess.run(
-                ["gh"] + args,
-                input=json.dumps(payload),
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+            result = self.gh.run_command(args, stdin_input=json.dumps(payload))
 
-            response = json.loads(result.stdout)
+            response = json.loads(result)
             review_id = response["id"]
 
             return ClientSuccess(
@@ -272,11 +264,6 @@ class ReviewService:
             return ClientError(
                 error_message=f"Failed to parse review response: {e}",
                 error_code="PARSE_ERROR"
-            )
-        except subprocess.CalledProcessError as e:
-            return ClientError(
-                error_message=f"Failed to create draft review: gh API returned exit code {e.returncode}",
-                error_code="API_ERROR"
             )
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")

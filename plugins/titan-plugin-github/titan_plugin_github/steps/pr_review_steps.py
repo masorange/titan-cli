@@ -4,8 +4,10 @@ Steps for reviewing and addressing PR comments.
 This module contains steps for reviewing PR comments and UI helpers
 to keep the main step functions clean and readable.
 """
+import json
 import os
 import threading
+import traceback
 from typing import List, Dict
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
@@ -154,6 +156,8 @@ def _commit_review_changes(
     )
 
     with ctx.textual.loading("Committing changes..."):
+        # no_verify=True: skip pre-commit hooks during AI review fixes to avoid
+        # blocking on linting/formatting hooks mid-workflow
         commit_result = ctx.git.commit(commit_msg, all=True, no_verify=True)
 
     match commit_result:
@@ -223,8 +227,6 @@ def _handle_ai_review(
         True if processed successfully, False if failed
     """
     try:
-        import json
-
         main_comment = pr_thread.main_comment
 
         # Build AI review context using operation
@@ -303,7 +305,6 @@ def _handle_ai_review(
 
     except Exception as e:
         ctx.textual.error_text(f"AI review error: {e}")
-        import traceback
         ctx.textual.dim_text(traceback.format_exc())
         return False
 
@@ -799,7 +800,6 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
     except Exception as e:
-        import traceback
         error_msg = f"Error in review_comments_step: {str(e)}"
         ctx.textual.error_text(error_msg)
         ctx.textual.text("")

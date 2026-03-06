@@ -83,13 +83,6 @@ def fetch_pr_threads(
 
     Raises:
         Exception: If fetching threads fails
-
-    Example:
-        >>> threads = fetch_pr_threads(github, 123, include_resolved=False)
-        >>> len(threads)
-        5
-        >>> all(not t.is_resolved for t in threads)
-        True
     """
     # Fetch all threads using GraphQL
     result = github_client.get_pr_review_threads(
