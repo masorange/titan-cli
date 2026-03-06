@@ -63,6 +63,16 @@ class TestFindGitRoot:
         finally:
             os.chdir(original)
 
+    def test_returns_none_when_git_returns_nonzero(self, monkeypatch):
+        """Non-zero exit code (e.g. 128 outside a repo) returns None, not an exception."""
+        import subprocess as sp
+
+        mock_result = sp.CompletedProcess(args=[], returncode=128, stdout="", stderr="")
+        monkeypatch.setattr(sp, "run", lambda *args, **kwargs: mock_result)
+
+        result = find_git_root()
+        assert result is None
+
 
 class TestFindProjectRoot:
     def test_returns_git_root_inside_repo(self, tmp_path):
