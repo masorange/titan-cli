@@ -1,1 +1,5 @@
-* @masmovil/titan-cli-owners
+# CODEOWNERS
+.github/workflows/ @masorange/cloud-cicd @masorange/cloud-sre
+.github/CODEOWNERS @masorange/cloud-cicd @masorange/cloud-sre
+CODEOWNERS @masorange/cloud-cicd @masorange/cloud-sre
+DOCS/CODEOWNERS @masorange/cloud-cicd @masorange/cloud-sre
