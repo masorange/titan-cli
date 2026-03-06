@@ -2,6 +2,10 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from titan_cli.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def find_git_root() -> Optional[Path]:
     """
@@ -18,9 +22,12 @@ def find_git_root() -> Optional[Path]:
             cwd=Path.cwd(),
         )
         if result.returncode == 0:
-            return Path(result.stdout.strip())
+            git_root = Path(result.stdout.strip())
+            logger.debug("git_root_found", path=str(git_root))
+            return git_root
     except Exception:
-        pass
+        logger.debug("git_not_available")
+    logger.debug("git_root_not_found")
     return None
 
 

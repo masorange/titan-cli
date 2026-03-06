@@ -8,6 +8,9 @@ from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
 from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
 from .utils import find_project_root
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
@@ -51,6 +54,7 @@ class TitanConfig:
         project_root = find_project_root()
         self._project_root = project_root
         self._active_project_path = project_root
+        logger.debug("project_root_resolved", path=str(project_root))
 
         # Look for project config starting from project root
         self.project_config_path = self._find_project_config(project_root)
