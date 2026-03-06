@@ -31,10 +31,10 @@ def launch_tui(debug: bool = False):
       (use `textual console` in another terminal to see logs)
     """
     import os
-    from pathlib import Path
     from titan_cli.core.config import TitanConfig
     from titan_cli.core.plugins.plugin_registry import PluginRegistry
     from titan_cli.core.logging import disable_console_logging
+    from titan_cli.core.utils import find_project_root
     from .screens import GlobalSetupWizardScreen, ProjectSetupWizardScreen, MainMenuScreen
 
     # Enable Textual devtools in debug mode
@@ -80,15 +80,16 @@ def launch_tui(debug: bool = False):
                     from titan_cli.core.secrets import SecretManager
                     from titan_cli.core.models import TitanConfigModel
 
-                    self.config.project_config_path = Path.cwd() / ".titan" / "config.toml"
+                    _project_root = find_project_root()
+                    self.config.project_config_path = _project_root / ".titan" / "config.toml"
                     self.config.project_config = self.config._load_toml(self.config.project_config_path)
 
                     # Merge configs and update
                     merged = self.config._merge_configs(self.config.global_config, self.config.project_config)
                     self.config.config = TitanConfigModel(**merged)
 
-                    # Update secrets manager to use current project
-                    self.config.secrets = SecretManager(project_path=Path.cwd())
+                    # Update secrets manager to use project root
+                    self.config.secrets = SecretManager(project_path=_project_root)
 
                     # Initialize only the configured plugins (without reset)
                     self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
@@ -115,13 +116,14 @@ def launch_tui(debug: bool = False):
                     merged = self.config._merge_configs(self.config.global_config, {})
                     self.config.config = TitanConfigModel(**merged)
 
-                    # Check if project config exists
-                    project_config_path = Path.cwd() / ".titan" / "config.toml"
+                    # Check if project config exists at project root (git root or cwd)
+                    _project_root = find_project_root()
+                    project_config_path = _project_root / ".titan" / "config.toml"
 
                     if not project_config_path.exists():
                         # Launch project setup wizard with callback to show main menu
                         self.app.push_screen(
-                            ProjectSetupWizardScreen(self.config, Path.cwd()),
+                            ProjectSetupWizardScreen(self.config, _project_root),
                             on_project_wizard_complete
                         )
                     else:
@@ -136,8 +138,8 @@ def launch_tui(debug: bool = False):
                         merged = self.config._merge_configs(self.config.global_config, self.config.project_config)
                         self.config.config = TitanConfigModel(**merged)
 
-                        # Update secrets manager to use current project
-                        self.config.secrets = SecretManager(project_path=Path.cwd())
+                        # Update secrets manager to use project root
+                        self.config.secrets = SecretManager(project_path=_project_root)
 
                         # Initialize plugins with new config
                         self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
@@ -158,8 +160,8 @@ def launch_tui(debug: bool = False):
         app.run()
         return
 
-    # Global config exists, check if project config exists in current directory
-    project_config_path = Path.cwd() / ".titan" / "config.toml"
+    # Global config exists, check if project config exists at project root (git root or cwd)
+    project_config_path = find_project_root() / ".titan" / "config.toml"
 
     if not project_config_path.exists():
         # Project not configured: Skip plugin initialization until after setup
@@ -185,19 +187,19 @@ def launch_tui(debug: bool = False):
                 def on_project_wizard_complete(_=None):
                     """After project wizard completes, show main menu."""
                     # Reload project config without resetting plugins
-                    from pathlib import Path
                     from titan_cli.core.secrets import SecretManager
                     from titan_cli.core.models import TitanConfigModel
 
-                    self.config.project_config_path = Path.cwd() / ".titan" / "config.toml"
+                    _project_root = find_project_root()
+                    self.config.project_config_path = _project_root / ".titan" / "config.toml"
                     self.config.project_config = self.config._load_toml(self.config.project_config_path)
 
                     # Merge configs and update
                     merged = self.config._merge_configs(self.config.global_config, self.config.project_config)
                     self.config.config = TitanConfigModel(**merged)
 
-                    # Update secrets manager to use current project
-                    self.config.secrets = SecretManager(project_path=Path.cwd())
+                    # Update secrets manager to use project root
+                    self.config.secrets = SecretManager(project_path=_project_root)
 
                     # Initialize only the configured plugins (without reset)
                     self.config.registry.initialize_plugins(config=self.config, secrets=self.config.secrets)
@@ -211,7 +213,7 @@ def launch_tui(debug: bool = False):
 
                 # Push project wizard
                 self.app.push_screen(
-                    ProjectSetupWizardScreen(self.config, Path.cwd()),
+                    ProjectSetupWizardScreen(self.config, find_project_root()),
                     on_project_wizard_complete
                 )
 
