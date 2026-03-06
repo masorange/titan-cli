@@ -7,6 +7,7 @@ from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
 from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
+from .utils import find_project_root
 
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
@@ -46,12 +47,13 @@ class TitanConfig:
         # Load global config
         self.global_config = self._load_toml(self._global_config_path)
 
-        # Set project root to current working directory
-        self._project_root = Path.cwd()
-        self._active_project_path = Path.cwd()
+        # Set project root: git root if inside a repo, otherwise cwd
+        project_root = find_project_root()
+        self._project_root = project_root
+        self._active_project_path = project_root
 
-        # Look for project config in current directory
-        self.project_config_path = self._find_project_config(Path.cwd())
+        # Look for project config starting from project root
+        self.project_config_path = self._find_project_config(project_root)
 
         # Load project config if it exists
         self.project_config = self._load_toml(self.project_config_path)
@@ -61,9 +63,8 @@ class TitanConfig:
         self.config = TitanConfigModel(**merged)
 
         # Re-initialize dependencies that depend on the final config
-        # Use current working directory for secrets
-        secrets_path = Path.cwd()
-        self.secrets = SecretManager(project_path=secrets_path if secrets_path.is_dir() else None)
+        # Use project root for secrets
+        self.secrets = SecretManager(project_path=project_root if project_root.is_dir() else None)
 
         # Reset and re-initialize plugins (unless skipped during setup)
         if not skip_plugin_init:
@@ -71,13 +72,11 @@ class TitanConfig:
             self.registry.initialize_plugins(config=self, secrets=self.secrets)
             self._plugin_warnings = self.registry.list_failed()
 
-        # Re-initialize WorkflowRegistry
-        # Use current working directory for workflows
-        workflow_path = Path.cwd()
-        project_step_source = ProjectStepSource(project_root=workflow_path)
+        # Re-initialize WorkflowRegistry using project root
+        project_step_source = ProjectStepSource(project_root=project_root)
         user_step_source = UserStepSource()
         self._workflow_registry = WorkflowRegistry(
-            project_root=workflow_path,
+            project_root=project_root,
             plugin_registry=self.registry,
             project_step_source=project_step_source,
             user_step_source=user_step_source,
