@@ -1,0 +1,11 @@
+name: Protect workflows folder
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  protect:
+    uses: masorange/masorange-gh-actions/.github/workflows/protect-workflows-folder.yml@master
+    secrets:
+      ORG_TOKEN: ${{ secrets.ORG_TOKEN }}
