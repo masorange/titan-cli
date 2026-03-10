@@ -19,6 +19,7 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Input, LoadingIndicator, Static
 
+from titan_cli.core.logging import get_logger
 from titan_cli.core.plugins.community import (
     CommunityPluginRecord,
     build_raw_pyproject_url,
@@ -45,7 +46,10 @@ from titan_cli.ui.tui.widgets import (
     Text,
     WizardStep,
 )
+
 from .base import BaseScreen
+
+logger = get_logger(__name__)
 
 
 _STEPS = [
@@ -438,6 +442,10 @@ class InstallPluginScreen(BaseScreen):
         if result.returncode != 0:
             self._install_success = False
             pipx_output = result.stderr or result.stdout or "Unknown error"
+            logger.error("community_plugin_install_failed",
+                         base_url=self._base_url,
+                         version=self._version,
+                         output=pipx_output)
             body.mount(Panel(
                 "pipx inject failed.\n\n"
                 "Possible reasons:\n"

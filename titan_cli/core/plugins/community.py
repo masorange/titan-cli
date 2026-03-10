@@ -346,7 +346,7 @@ def install_community_plugin(base_url: str, version: str, token: Optional[str] =
         )
     else:
         return subprocess.run(
-            ["poetry", "run", "pip", "install", spec],
+            [sys.executable, "-m", "pip", "install", spec],
             capture_output=True,
             text=True,
         )
@@ -371,7 +371,7 @@ def uninstall_community_plugin(package_name: str) -> subprocess.CompletedProcess
         )
     else:
         return subprocess.run(
-            ["poetry", "run", "pip", "uninstall", "-y", package_name],
+            [sys.executable, "-m", "pip", "uninstall", "-y", package_name],
             capture_output=True,
             text=True,
         )
