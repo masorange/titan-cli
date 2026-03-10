@@ -10,7 +10,7 @@ from textual.widgets import Static, Input
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
 
-from titan_cli.ui.tui.widgets import Text, DimText, Button, BoldText, StepIndicator, StepStatus, WizardStep
+from titan_cli.ui.tui.widgets import Text, DimText, Button, BoldText, StepIndicator, StepStatus, WizardStep, PromptOptionList, OptionItem
 from titan_cli.ui.tui.icons import Icons
 from .base import BaseScreen
 from titan_cli.core.logging import get_logger
@@ -311,6 +311,24 @@ class PluginConfigWizardScreen(BaseScreen):
                 info = DimText("\n\nAlready configured. Leave blank to keep existing value.")
                 content_body.mount(info)
 
+        # Enum field: render PromptOptionList instead of Input
+        enum_values = field_schema.get("enum")
+        if enum_values:
+            options = [
+                OptionItem(value=v, title=str(v).capitalize())
+                for v in enum_values
+            ]
+            def on_enum_select(value, fn=field_name):
+                self.config_data[fn] = value
+
+            enum_widget = PromptOptionList(
+                question=f"Select {field_name.replace('_', ' ')}",
+                options=options,
+                on_select=on_enum_select,
+            )
+            content_body.mount(enum_widget)
+            return
+
         # Create input
         input_value = ""
         if not is_secret and current_value is not None:
@@ -399,6 +417,15 @@ class PluginConfigWizardScreen(BaseScreen):
         is_required = field_name in self.required_fields
 
         try:
+            # Enum field: value is stored via callback on selection, not via Input widget
+            enum_values = field_schema.get("enum")
+            if enum_values:
+                value = self.config_data.get(field_name)
+                if is_required and not value:
+                    self.app.notify(f"Please select a value for {field_name}", severity="warning")
+                    return False
+                return True
+
             input_widget = self.query_one(f"#input-{field_name}", Input)
             value = input_widget.value.strip()
 

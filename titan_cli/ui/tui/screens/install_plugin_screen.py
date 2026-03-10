@@ -162,6 +162,7 @@ class InstallPluginScreen(BaseScreen):
         self._metadata: dict = {}
         self._install_success = False
         self._installed_record: Optional[CommunityPluginRecord] = None
+        self._plugin_has_config = False
 
     # -----------------------------------------------------------------------
     # Composition
@@ -417,8 +418,8 @@ class InstallPluginScreen(BaseScreen):
         self._set_next_label("Next", disabled=True)
         self._set_cancel_visible(False)
 
-        body.mount(LoadingIndicator())
         body.mount(DimText(f"Running pipx inject for {self._base_url}@{self._version}…"))
+        body.mount(LoadingIndicator())
 
         self.call_after_refresh(self._start_install)
 
@@ -467,9 +468,28 @@ class InstallPluginScreen(BaseScreen):
             # Auto-reload: config.load() resets the registry and re-initializes all plugins
             await asyncio.to_thread(self.config.load)
 
+            # Check if installed plugin needs configuration
+            installed_plugin = self.config.registry._plugins.get(plugin_name)
+            if installed_plugin and hasattr(installed_plugin, "get_config_schema"):
+                try:
+                    schema = installed_plugin.get_config_schema()
+                    self._plugin_has_config = bool(schema.get("properties"))
+                except Exception:
+                    self._plugin_has_config = False
+
             body.mount(SuccessText(f"{Icons.SUCCESS} Plugin installed successfully!"))
 
-        self._set_next_label("Next")
+        if self._plugin_has_config and self._installed_record:
+            # Open config wizard automatically — on close, advance to Done
+            plugin_name = self._installed_record.titan_plugin_name
+            self.call_after_refresh(lambda pn=plugin_name: self._open_config_wizard(pn))
+        else:
+            self._set_next_label("Next")
+
+    def _open_config_wizard(self, plugin_name: str) -> None:
+        from .plugin_config_wizard import PluginConfigWizardScreen
+        wizard = PluginConfigWizardScreen(self.config, plugin_name)
+        self.app.push_screen(wizard, lambda _: self._load_step(self.current_step + 1))
 
     # -----------------------------------------------------------------------
     # Step 4: Done

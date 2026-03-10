@@ -27,6 +27,7 @@ class WorkflowInfo:
     path: Path
     category: Optional[str] = None
     required_plugins: Set[str] = field(default_factory=set)
+    tags: dict = field(default_factory=dict)
 
 def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRegistryProtocol) -> WorkflowInfo:
     """
@@ -57,13 +58,18 @@ def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRe
             plugin_name = plugin_part.split('/', 1)[0]
             required_plugins.add(plugin_name)
 
+    tags = config.get("tags") or {}
+    if not isinstance(tags, dict):
+        tags = {}
+
     return WorkflowInfo(
         name=file.stem,
         description=config.get("description", "No description available."),
         source=source_name,
         path=file,
         category=config.get("category"),
-        required_plugins=required_plugins
+        required_plugins=required_plugins,
+        tags=tags,
     )
 
 

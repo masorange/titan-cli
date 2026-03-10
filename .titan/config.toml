@@ -27,3 +27,6 @@ default_project = "ECAPP"
 
 [plugins.ragnarok]
 enabled = true
+
+[plugins.ragnarok.config]
+platform = "android"

@@ -101,8 +101,24 @@ class TitanPlugin(ABC):
     def workflows_path(self) -> Optional[Path]:
         """
         Optional path to the directory containing workflow definitions for this plugin.
-        
+
         Returns:
             Path to workflows directory or None if the plugin doesn't provide any.
         """
         return None
+
+    def filter_workflows(self, workflows: list, plugin_config: dict) -> list:
+        """
+        Optional hook to filter this plugin's workflows based on its configuration.
+
+        Override to show/hide workflows according to the plugin's own config.
+        The default implementation returns all workflows unchanged.
+
+        Args:
+            workflows: Workflows discovered for this plugin (list of WorkflowInfo).
+            plugin_config: The plugin's config dict from .titan/config.toml.
+
+        Returns:
+            Filtered list of workflows to display.
+        """
+        return workflows

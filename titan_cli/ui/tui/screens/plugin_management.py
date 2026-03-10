@@ -442,6 +442,7 @@ class PluginManagementScreen(BaseScreen):
     async def _run_uninstall(self, package_name: str) -> None:
         """Run pipx/pip uninstall and update tracking file."""
         logger.info("plugin_uninstall_started", package=package_name)
+        self.app.notify(f"Uninstalling '{package_name}'…", severity="information", timeout=30)
         result = await asyncio.to_thread(uninstall_community_plugin, package_name)
 
         if result.returncode != 0:
