@@ -16,7 +16,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 
 import tomli
 import tomli_w
@@ -168,9 +168,34 @@ def build_raw_pyproject_url(base_url: str, version: str, host: PluginHost) -> Op
 # pyproject.toml fetching and parsing
 # ---------------------------------------------------------------------------
 
-def fetch_pyproject_toml(raw_url: str) -> tuple[Optional[str], Optional[str]]:
+def get_github_token() -> Optional[str]:
+    """
+    Try to get a GitHub token from the gh CLI.
+
+    Returns the token string, or None if gh is not installed or not authenticated.
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            token = result.stdout.strip()
+            return token if token else None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def fetch_pyproject_toml(raw_url: str, token: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
     """
     Fetch the pyproject.toml content from a raw URL.
+
+    Args:
+        raw_url: Direct URL to the raw pyproject.toml file.
+        token: Optional bearer token for private repositories.
 
     Returns:
         (content, error) — one of them will be None.
@@ -179,13 +204,19 @@ def fetch_pyproject_toml(raw_url: str) -> tuple[Optional[str], Optional[str]]:
         On network error:(None, "network_error")
     """
     try:
-        with urlopen(raw_url, timeout=_FETCH_TIMEOUT) as resp:
+        req = Request(raw_url)
+        if token:
+            req.add_header("Authorization", f"token {token}")
+        with urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
             return resp.read().decode("utf-8"), None
     except HTTPError as e:
         if e.code == 404:
+            logger.warning("community_plugin_preview_not_found", url=raw_url, status=e.code)
             return None, "not_found"
+        logger.warning("community_plugin_preview_http_error", url=raw_url, status=e.code)
         return None, "network_error"
-    except (URLError, OSError):
+    except (URLError, OSError) as e:
+        logger.warning("community_plugin_preview_network_error", url=raw_url, error=str(e))
         return None, "network_error"
 
 
@@ -266,49 +297,84 @@ def is_running_in_pipx() -> bool:
     return False
 
 
+def is_running_in_poetry() -> bool:
+    """Detect whether Titan is currently running inside a Poetry-managed venv."""
+    if os.environ.get("POETRY_ACTIVE"):
+        return True
+    executable = sys.executable
+    if ".venv" in executable:
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # pipx install / uninstall
 # ---------------------------------------------------------------------------
 
-def build_pipx_spec(base_url: str, version: str) -> str:
+def build_pipx_spec(base_url: str, version: str, token: Optional[str] = None) -> str:
     """
     Build the pip/pipx package spec for a git repo URL.
 
     e.g. git+https://github.com/user/plugin.git@v1.0.0
+    For private repos: git+https://<token>@github.com/user/plugin.git@v1.0.0
     """
     clean = base_url.rstrip("/")
     if not clean.endswith(".git"):
         clean = clean + ".git"
+    if token:
+        clean = clean.replace("https://", f"https://{token}@", 1)
     return f"git+{clean}@{version}"
 
 
-def install_community_plugin(base_url: str, version: str) -> subprocess.CompletedProcess:
+def install_community_plugin(base_url: str, version: str, token: Optional[str] = None) -> subprocess.CompletedProcess:
     """
-    Run `pipx inject titan-cli <spec>` to install a community plugin.
+    Install a community plugin into the active Python environment.
+
+    - pipx environment  → `pipx inject titan-cli <spec>`
+    - Poetry environment → `poetry run pip install <spec>`
 
     Returns the CompletedProcess — caller must check returncode.
     """
-    spec = build_pipx_spec(base_url, version)
-    logger.info("community_plugin_install", spec=spec)
-    return subprocess.run(
-        [_PIPX_CMD, "inject", _TITAN_PACKAGE, spec],
-        capture_output=True,
-        text=True,
-    )
+    spec = build_pipx_spec(base_url, version, token)
+    logger.info("community_plugin_install", base_url=base_url, version=version)
+
+    if is_running_in_pipx():
+        return subprocess.run(
+            [_PIPX_CMD, "inject", _TITAN_PACKAGE, spec],
+            capture_output=True,
+            text=True,
+        )
+    else:
+        return subprocess.run(
+            ["poetry", "run", "pip", "install", spec],
+            capture_output=True,
+            text=True,
+        )
 
 
 def uninstall_community_plugin(package_name: str) -> subprocess.CompletedProcess:
     """
-    Run `pipx runpip titan-cli uninstall -y <package>` to remove a community plugin.
+    Uninstall a community plugin from the active Python environment.
+
+    - pipx environment   → `pipx runpip titan-cli uninstall -y <package>`
+    - Poetry environment → `poetry run pip uninstall -y <package>`
 
     Returns the CompletedProcess — caller must check returncode.
     """
     logger.info("community_plugin_uninstall", package=package_name)
-    return subprocess.run(
-        [_PIPX_CMD, "runpip", _TITAN_PACKAGE, "uninstall", "-y", package_name],
-        capture_output=True,
-        text=True,
-    )
+
+    if is_running_in_pipx():
+        return subprocess.run(
+            [_PIPX_CMD, "runpip", _TITAN_PACKAGE, "uninstall", "-y", package_name],
+            capture_output=True,
+            text=True,
+        )
+    else:
+        return subprocess.run(
+            ["poetry", "run", "pip", "uninstall", "-y", package_name],
+            capture_output=True,
+            text=True,
+        )
 
 
 # ---------------------------------------------------------------------------

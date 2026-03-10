@@ -17,15 +17,15 @@ from typing import Optional
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.widgets import LoadingIndicator, Static
+from textual.widgets import Input, LoadingIndicator, Static
 
 from titan_cli.core.plugins.community import (
     CommunityPluginRecord,
     build_raw_pyproject_url,
     detect_host,
     fetch_pyproject_toml,
+    get_github_token,
     install_community_plugin,
-    is_running_in_pipx,
     parse_plugin_metadata,
     parse_repo_url,
     save_community_plugin,
@@ -158,6 +158,7 @@ class InstallPluginScreen(BaseScreen):
         self._raw_url = ""
         self._base_url = ""
         self._version = ""
+        self._token: Optional[str] = None
         self._metadata: dict = {}
         self._install_success = False
         self._installed_record: Optional[CommunityPluginRecord] = None
@@ -270,6 +271,12 @@ class InstallPluginScreen(BaseScreen):
         ))
 
     def _validate_url_step(self) -> bool:
+        # Read current input value even if the user clicked Next without pressing Enter
+        try:
+            self._raw_url = self.query_one("#prompt-input", Input).value
+        except Exception:
+            pass
+
         body = self.query_one("#content-body", Container)
         for w in body.query(ErrorText):
             w.remove()
@@ -301,6 +308,8 @@ class InstallPluginScreen(BaseScreen):
     async def _fetch_metadata(self) -> None:
         body = self.query_one("#content-body", Container)
 
+        self._token = await asyncio.to_thread(get_github_token)
+
         host    = detect_host(self._base_url)
         raw_url = build_raw_pyproject_url(self._base_url, self._version, host)
 
@@ -315,7 +324,7 @@ class InstallPluginScreen(BaseScreen):
             self._set_next_label("I understand, Install")
             return
 
-        content, error = await asyncio.to_thread(fetch_pyproject_toml, raw_url)
+        content, error = await asyncio.to_thread(fetch_pyproject_toml, raw_url, self._token)
 
         body.remove_children()
 
@@ -325,8 +334,7 @@ class InstallPluginScreen(BaseScreen):
                 "Check that the URL and version tag are correct.",
                 panel_type="error",
             ))
-            self._render_security_warning(body)
-            self._set_next_label("Proceed anyway")
+            self._set_next_label("Proceed anyway", disabled=True)
             return
 
         if error == "network_error":
@@ -409,17 +417,6 @@ class InstallPluginScreen(BaseScreen):
         self._set_next_label("Next", disabled=True)
         self._set_cancel_visible(False)
 
-        if not is_running_in_pipx():
-            body.mount(Panel(
-                "Titan is not running inside a pipx environment.\n\n"
-                "Community plugins require Titan to be installed with:\n"
-                "  pipx install titan-cli",
-                panel_type="error",
-            ))
-            self._set_cancel_visible(True)
-            self._set_next_label("Cancel")
-            return
-
         body.mount(LoadingIndicator())
         body.mount(DimText(f"Running pipx inject for {self._base_url}@{self._version}…"))
 
@@ -432,7 +429,7 @@ class InstallPluginScreen(BaseScreen):
         body = self.query_one("#content-body", Container)
 
         result = await asyncio.to_thread(
-            install_community_plugin, self._base_url, self._version
+            install_community_plugin, self._base_url, self._version, self._token
         )
 
         body.remove_children()
@@ -531,11 +528,6 @@ class InstallPluginScreen(BaseScreen):
 
         if self.current_step == len(_STEPS) - 1:
             self.dismiss(result=self._install_success)
-            return
-
-        # Non-pipx error: Next repurposed as Cancel on the install step
-        if step_id == "install" and not is_running_in_pipx():
-            self.action_cancel()
             return
 
         if step_id == "url" and not self._validate_url_step():

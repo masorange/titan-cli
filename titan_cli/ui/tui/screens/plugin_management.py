@@ -30,9 +30,12 @@ from titan_cli.core.plugins.community import (
     remove_community_plugin,
     uninstall_community_plugin,
 )
+from titan_cli.core.logging import get_logger
 import asyncio
 import tomli
 import tomli_w
+
+logger = get_logger(__name__)
 
 
 
@@ -381,9 +384,11 @@ class PluginManagementScreen(BaseScreen):
             self._load_plugins()
 
             action = "enabled" if new_state else "disabled"
+            logger.info("plugin_toggled", plugin=self.selected_plugin, enabled=new_state)
             self.app.notify(f"Plugin '{self.selected_plugin}' {action}", severity="information")
 
         except Exception as e:
+            logger.exception("plugin_toggle_failed", plugin=self.selected_plugin)
             self.app.notify(f"Failed to toggle plugin: {e}", severity="error")
 
     def action_configure_plugin(self) -> None:
@@ -399,12 +404,15 @@ class PluginManagementScreen(BaseScreen):
             return
 
         # Open configuration wizard
+        logger.info("plugin_configure_opened", plugin=self.selected_plugin)
+
         def on_wizard_close(result):
-            """Handle wizard completion."""
             if result:
-                # Reload config and refresh display
+                logger.info("plugin_configure_saved", plugin=self.selected_plugin)
                 self.config.load()
                 self._load_plugins()
+            else:
+                logger.info("plugin_configure_cancelled", plugin=self.selected_plugin)
 
         wizard = PluginConfigWizardScreen(self.config, self.selected_plugin)
         self.app.push_screen(wizard, on_wizard_close)
@@ -432,16 +440,19 @@ class PluginManagementScreen(BaseScreen):
         self.run_worker(self._run_uninstall(record.package_name), exclusive=True)
 
     async def _run_uninstall(self, package_name: str) -> None:
-        """Run pipx uninstall and update tracking file."""
+        """Run pipx/pip uninstall and update tracking file."""
+        logger.info("plugin_uninstall_started", package=package_name)
         result = await asyncio.to_thread(uninstall_community_plugin, package_name)
 
         if result.returncode != 0:
+            logger.error("plugin_uninstall_failed", package=package_name, stderr=result.stderr or result.stdout)
             self.app.notify(
                 f"Failed to uninstall '{package_name}': {result.stderr or result.stdout}",
                 severity="error",
             )
             return
 
+        logger.info("plugin_uninstalled", package=package_name)
         remove_community_plugin(package_name)
         self.config.load()
         self._load_plugins()

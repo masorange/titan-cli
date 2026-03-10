@@ -32,7 +32,7 @@ class PluginRegistry:
                 unique_eps.append(ep)
 
         self._discovered_plugin_names = [ep.name for ep in unique_eps]
-        logger.debug("plugins_discovered", count=len(self._discovered_plugin_names), plugins=self._discovered_plugin_names)
+        logger.info("plugins_discovered", count=len(self._discovered_plugin_names), plugins=self._discovered_plugin_names)
 
         for ep in unique_eps:
             try:
@@ -48,7 +48,7 @@ class PluginRegistry:
                 error = PluginLoadError(plugin_name=ep.name, original_exception=e)
                 self._failed_plugins[ep.name] = error
 
-        logger.debug("plugin_discovery_completed", loaded=len(self._plugins), failed=len(self._failed_plugins), failed_plugins=list(self._failed_plugins.keys()))
+        logger.info("plugin_discovery_completed", loaded=len(self._plugins), failed=len(self._failed_plugins), failed_plugins=list(self._failed_plugins.keys()))
 
     def initialize_plugins(self, config: Any, secrets: Any) -> None:
         """
@@ -73,7 +73,7 @@ class PluginRegistry:
 
                 # Skip plugins that are disabled in configuration
                 if not config.is_plugin_enabled(name):
-                    logger.debug("plugin_disabled", name=name)
+                    logger.info("plugin_disabled", name=name)
                     initialized.add(name)  # Mark as processed so we don't retry
                     continue
 
@@ -106,7 +106,7 @@ class PluginRegistry:
 
                 # Initialize the plugin if dependencies are met
                 try:
-                    logger.debug("plugin_initializing", name=name)
+                    logger.info("plugin_initializing", name=name)
                     plugin.initialize(config, secrets)
                     initialized.add(name)
                     logger.info("plugin_initialized", name=name)

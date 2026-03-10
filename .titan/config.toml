@@ -24,3 +24,6 @@ enabled = false
 
 [plugins.jira.config]
 default_project = "ECAPP"
+
+[plugins.ragnarok]
+enabled = true
