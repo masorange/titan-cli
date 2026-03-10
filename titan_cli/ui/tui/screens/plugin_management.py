@@ -29,7 +29,13 @@ from titan_cli.core.plugins.community import (
     get_community_plugin_by_titan_name,
     remove_community_plugin,
     uninstall_community_plugin,
+    install_community_plugin,
+    save_community_plugin,
+    CommunityPluginRecord,
+    check_for_update,
+    get_github_token,
 )
+from datetime import datetime, timezone
 from titan_cli.core.logging import get_logger
 import asyncio
 import tomli
@@ -56,6 +62,7 @@ class PluginManagementScreen(BaseScreen):
         Binding("c", "configure_plugin", "Configure"),
         Binding("i", "install_plugin", "Install"),
         Binding("u", "uninstall_plugin", "Uninstall"),
+        Binding("U", "update_plugin", "Update"),
     ]
 
     CSS = """
@@ -333,6 +340,7 @@ class PluginManagementScreen(BaseScreen):
             Button("Configure", variant="primary", id="configure-button"),
         ]
         if community_record:
+            buttons.append(Button("Update", variant="warning", id="update-button"))
             buttons.append(Button("Uninstall", variant="error", id="uninstall-button"))
         details.mount(Horizontal(*buttons, classes="button-container"))
 
@@ -344,6 +352,8 @@ class PluginManagementScreen(BaseScreen):
             self.action_configure_plugin()
         elif event.button.id == "install-plugin-button":
             self.action_install_plugin()
+        elif event.button.id == "update-button":
+            self.action_update_plugin()
         elif event.button.id == "uninstall-button":
             self.action_uninstall_plugin()
 
@@ -425,6 +435,70 @@ class PluginManagementScreen(BaseScreen):
                 self.app.notify("Plugin installed and loaded!", severity="information")
 
         self.app.push_screen(InstallPluginScreen(self.config), on_install_done)
+
+    def action_update_plugin(self) -> None:
+        """Check for and apply an update to the selected community plugin."""
+        if not self.selected_plugin:
+            self.app.notify("Please select a plugin", severity="warning")
+            return
+
+        record = get_community_plugin_by_titan_name(self.selected_plugin)
+        if not record:
+            self.app.notify("Only community plugins can be updated", severity="warning")
+            return
+
+        self.run_worker(self._run_update(record), exclusive=True)
+
+    async def _run_update(self, record: CommunityPluginRecord) -> None:
+        """Check for the latest version and install it if available."""
+        self.app.notify(f"Checking for updates to '{record.titan_plugin_name}'…", severity="information", timeout=30)
+
+        token = await asyncio.to_thread(get_github_token)
+        latest = await asyncio.to_thread(check_for_update, record, token)
+
+        if not latest:
+            self.app.notify(
+                f"'{record.titan_plugin_name}' is already up to date ({record.version}).",
+                severity="information",
+            )
+            return
+
+        self.app.notify(
+            f"Updating '{record.titan_plugin_name}' {record.version} → {latest}…",
+            severity="information",
+            timeout=60,
+        )
+
+        result = await asyncio.to_thread(
+            install_community_plugin, record.repo_url, latest, token
+        )
+
+        if result.returncode != 0:
+            logger.error("plugin_update_failed", plugin=record.titan_plugin_name, stderr=result.stderr)
+            self.app.notify(
+                f"Failed to update '{record.titan_plugin_name}': {result.stderr or result.stdout}",
+                severity="error",
+            )
+            return
+
+        # Update tracking record with new version
+        remove_community_plugin(record.package_name)
+        updated_record = CommunityPluginRecord(
+            repo_url=record.repo_url,
+            version=latest,
+            package_name=record.package_name,
+            titan_plugin_name=record.titan_plugin_name,
+            installed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        save_community_plugin(updated_record)
+
+        self.config.load()
+        self._load_plugins()
+        logger.info("plugin_updated", plugin=record.titan_plugin_name, version=latest)
+        self.app.notify(
+            f"'{record.titan_plugin_name}' updated to {latest}.",
+            severity="information",
+        )
 
     def action_uninstall_plugin(self) -> None:
         """Uninstall the selected community plugin."""

@@ -442,6 +442,83 @@ def remove_community_plugin(package_name: str) -> None:
         tomli_w.dump(data, f)
 
 
+def check_for_update(record: CommunityPluginRecord, token: Optional[str] = None) -> Optional[str]:
+    """
+    Check if a newer version is available for a community plugin.
+
+    Queries the hosting provider's API for the latest release tag and compares
+    it with the installed version. Only works for GitHub, GitLab, Bitbucket with
+    tagged releases. Returns None if already up to date, unreachable, or using
+    a commit SHA as version.
+
+    Args:
+        record: The installed community plugin record.
+        token: Optional bearer token for private repositories.
+
+    Returns:
+        The latest version string if an update is available, None otherwise.
+    """
+    host = detect_host(record.repo_url)
+    clean = record.repo_url.rstrip("/").removesuffix(".git")
+
+    try:
+        if host == PluginHost.GITHUB:
+            path = clean.removeprefix(_BASE_GITHUB)
+            api_url = f"https://api.github.com/repos/{path}/releases/latest"
+            req = Request(api_url)
+            req.add_header("Accept", "application/vnd.github+json")
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
+            with urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
+                import json
+                data = json.loads(resp.read().decode("utf-8"))
+            latest = data.get("tag_name")
+
+        elif host == PluginHost.GITLAB:
+            path = clean.removeprefix(_BASE_GITLAB)
+            encoded = path.replace("/", "%2F")
+            api_url = f"https://gitlab.com/api/v4/projects/{encoded}/releases"
+            req = Request(api_url)
+            if token:
+                req.add_header("PRIVATE-TOKEN", token)
+            with urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
+                import json
+                releases = json.loads(resp.read().decode("utf-8"))
+            latest = releases[0].get("tag_name") if releases else None
+
+        else:
+            return None
+
+        if not latest or latest == record.version:
+            return None
+        return latest
+
+    except Exception:
+        return None
+
+
+def check_for_updates(
+    records: list[CommunityPluginRecord],
+    token: Optional[str] = None,
+) -> list[tuple[CommunityPluginRecord, str]]:
+    """
+    Check for updates for a list of community plugin records.
+
+    Args:
+        records: Installed community plugin records to check.
+        token: Optional bearer token.
+
+    Returns:
+        List of (record, latest_version) tuples for plugins with available updates.
+    """
+    updates = []
+    for record in records:
+        latest = check_for_update(record, token)
+        if latest:
+            updates.append((record, latest))
+    return updates
+
+
 def get_community_plugin_names() -> set[str]:
     """Return the set of titan_plugin_names for all installed community plugins."""
     return {r.titan_plugin_name for r in load_community_plugins()}
