@@ -38,19 +38,21 @@ class PromptInput(Widget):
     }
     """
 
-    def __init__(self, question: str, default: str, placeholder: str, on_submit: Callable[[str], None], on_cancel: Optional[Callable[[], None]] = None, **kwargs):
+    def __init__(self, question: str, default: str, placeholder: str, on_submit: Callable[[str], None], on_cancel: Optional[Callable[[], None]] = None, password: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.question = question
         self.default = default
         self.placeholder = placeholder
         self.on_submit_callback = on_submit
         self.on_cancel_callback = on_cancel
+        self.password = password
 
     def compose(self):
         yield Static(f"[bold cyan]{self.question}[/bold cyan]")
         yield Input(
             value=self.default,
             placeholder=self.placeholder,
+            password=self.password,
             id="prompt-input"
         )
 

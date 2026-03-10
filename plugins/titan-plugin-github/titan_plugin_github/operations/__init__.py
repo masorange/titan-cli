@@ -14,6 +14,7 @@ Modules:
 
 from .comment_operations import (
     build_ai_review_context,
+    build_ai_review_prompt,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
@@ -22,6 +23,7 @@ from .comment_operations import (
 
 from .pr_operations import (
     fetch_pr_threads,
+    fetch_pr_general_comments,
 )
 
 from .worktree_operations import (
@@ -44,6 +46,7 @@ from .issue_operations import (
 __all__ = [
     # Comment operations
     "build_ai_review_context",
+    "build_ai_review_prompt",
     "find_ai_response_file",
     "create_commit_message",
     "reply_to_comment_batch",
@@ -51,6 +54,7 @@ __all__ = [
 
     # PR operations
     "fetch_pr_threads",
+    "fetch_pr_general_comments",
 
     # Worktree operations
     "setup_worktree",
