@@ -206,6 +206,7 @@ Each plugin is an independent Python package that can register:
 #### Modern Plugin Architecture (2026-02)
 
 **📖 [Complete Plugin Architecture Guide](.claude/docs/plugin-architecture.md)**
+**📖 [Community Plugin Installer](.claude/docs/community-plugins.md)** — installing plugins from git repos
 
 Plugins now follow a **5-layer architecture** for clean separation of concerns:
 

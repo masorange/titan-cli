@@ -18,6 +18,7 @@ from .prompt_choice import PromptChoice, ChoiceOption
 from .decision_badge import DecisionBadge
 from .prompt_option_list import PromptOptionList, OptionItem
 from .styled_option_list import StyledOptionList, StyledOption
+from .wizard import StepStatus, WizardStep, StepIndicator
 from .text import (
     Text,
     DimText,
@@ -61,4 +62,7 @@ __all__ = [
     "WarningText",
     "ItalicText",
     "DimItalicText",
+    "StepStatus",
+    "WizardStep",
+    "StepIndicator",
 ]
