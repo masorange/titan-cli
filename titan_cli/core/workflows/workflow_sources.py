@@ -265,15 +265,27 @@ class PluginWorkflowSource(WorkflowSource):
             if plugin_instance and plugin_instance.workflows_path:
                 plugin_workflows_dir = plugin_instance.workflows_path
                 if plugin_workflows_dir.is_dir():
-                    for file in plugin_workflows_dir.glob("*.yaml"):
-                        workflows.append(self._to_workflow_info(file, plugin_name))
-                    for file in plugin_workflows_dir.glob("*.yml"):
-                        if file.stem not in [w.name for w in workflows]:
-                            workflows.append(self._to_workflow_info(file, plugin_name))
+                    seen_in_plugin: set = set()
+                    for file in sorted(plugin_workflows_dir.rglob("*.yaml")):
+                        rel_name = str(file.relative_to(plugin_workflows_dir).with_suffix(""))
+                        if rel_name not in seen_in_plugin:
+                            info = self._to_workflow_info(file, plugin_name)
+                            info.name = rel_name
+                            workflows.append(info)
+                            seen_in_plugin.add(rel_name)
+                    for file in sorted(plugin_workflows_dir.rglob("*.yml")):
+                        rel_name = str(file.relative_to(plugin_workflows_dir).with_suffix(""))
+                        if rel_name not in seen_in_plugin:
+                            info = self._to_workflow_info(file, plugin_name)
+                            info.name = rel_name
+                            workflows.append(info)
+                            seen_in_plugin.add(rel_name)
         return workflows
 
     def find(self, name: str) -> Optional[Path]:
-        # Handle qualified names like "github/create-pr"
+        # If the first path segment matches a known plugin name, treat it as a
+        # qualified reference (e.g. "myplugin/subdir/workflow-name") and only
+        # search within that plugin's workflows directory.
         if "/" in name:
             plugin_name_ref, workflow_name = name.split('/', 1)
             plugin_instance = self._plugin_registry.get_plugin(plugin_name_ref)
@@ -285,9 +297,10 @@ class PluginWorkflowSource(WorkflowSource):
                 yml_file = plugin_workflows_dir / f"{workflow_name}.yml"
                 if yml_file.is_file():
                     return yml_file
-            return None # If qualified name is used, only search that plugin
+                return None  # Plugin found but workflow not in it
 
-        # Fallback to original behavior for unqualified names
+        # General search across all plugins — supports relative paths like
+        # "subdir/workflow-name" when the first segment is not a plugin name.
         for plugin_name in self._plugin_registry.list_installed():
             plugin_instance = self._plugin_registry.get_plugin(plugin_name)
             if plugin_instance and plugin_instance.workflows_path:
