@@ -28,6 +28,7 @@ from .view import (
     UIJiraProject,
     UIJiraComment,
     UIJiraTransition,
+    UIPriority,
 )
 
 # Mappers (network → view)
@@ -36,6 +37,7 @@ from .mappers import (
     from_network_project,
     from_network_comment,
     from_network_transition,
+    from_network_priority,
 )
 
 # Formatting utilities
@@ -65,11 +67,13 @@ __all__ = [
     "UIJiraProject",
     "UIJiraComment",
     "UIJiraTransition",
+    "UIPriority",
     # Mappers
     "from_network_issue",
     "from_network_project",
     "from_network_comment",
     "from_network_transition",
+    "from_network_priority",
     # Formatting
     "format_jira_date",
     "get_status_icon",
