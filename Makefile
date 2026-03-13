@@ -1,7 +1,7 @@
 # Titan CLI - Makefile
 # Development commands for initial setup
 
-.PHONY: help install dev-install test clean
+.PHONY: help install dev-install test clean docs-serve docs-build docs-deploy
 
 # Default target
 help:
@@ -13,6 +13,11 @@ help:
 	@echo ""
 	@echo "For Users:"
 	@echo "  make install        Install production version (NOT recommended - use pipx)"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  make docs-serve     Serve docs locally at http://localhost:8000"
+	@echo "  make docs-build     Build docs to site/"
+	@echo "  make docs-deploy    Deploy docs to GitHub Pages"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean          Remove basic build artifacts"
@@ -56,6 +61,19 @@ install:
 test:
 	@echo "🧪 Running all tests..."
 	poetry run pytest
+
+# Docs commands
+docs-serve:
+	@echo "📖 Serving docs at http://localhost:8000 ..."
+	poetry run mkdocs serve
+
+docs-build:
+	@echo "📖 Building docs to site/ ..."
+	poetry run mkdocs build
+
+docs-deploy:
+	@echo "🚀 Deploying docs to GitHub Pages ..."
+	poetry run mkdocs gh-deploy
 
 # Clean basic build artifacts
 clean:

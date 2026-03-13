@@ -1,0 +1,62 @@
+site_name: Titan CLI
+site_url: https://masorange.github.io/titan-cli/
+site_description: Modular development tools orchestrator — Automate Git, GitHub, Jira workflows with AI assistance
+repo_url: https://github.com/masorange/titan-cli
+repo_name: masorange/titan-cli
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.inlinehilite
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+    - Your First Workflow: getting-started/your-first-workflow.md
+  - Concepts:
+    - Workflows: concepts/workflows.md
+    - Plugins: concepts/plugins.md
+    - AI Integration: concepts/ai-integration.md
+  - Contributing:
+    - Development Setup: contributing/development-setup.md
+    - Architecture: contributing/architecture.md
