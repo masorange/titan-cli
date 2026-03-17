@@ -489,8 +489,19 @@ def check_for_update(record: CommunityPluginRecord, token: Optional[str] = None)
         else:
             return None
 
-        if not latest or latest == record.version:
+        if not latest:
             return None
+
+        # Only suggest update if latest is strictly newer than the recorded version
+        try:
+            from packaging.version import Version
+            if Version(latest.lstrip("v")) <= Version(record.version.lstrip("v")):
+                return None
+        except Exception:
+            # If version parsing fails, fall back to string equality check
+            if latest == record.version:
+                return None
+
         return latest
 
     except Exception:

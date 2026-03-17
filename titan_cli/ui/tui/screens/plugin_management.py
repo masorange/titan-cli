@@ -20,6 +20,7 @@ from titan_cli.ui.tui.widgets import (
     DimText,
     BoldText,
     BoldPrimaryText,
+    WarningText,
 )
 from .base import BaseScreen
 from .plugin_config_wizard import PluginConfigWizardScreen
@@ -99,7 +100,7 @@ class PluginManagementScreen(BaseScreen):
 
     #install-plugin-button {
         width: 100%;
-        margin: 0;
+        margin: 1 1 1 1;
     }
 
     #left-panel OptionList > .option-list--option {
@@ -198,12 +199,19 @@ class PluginManagementScreen(BaseScreen):
         plugin_list = self.query_one("#plugin-list", OptionList)
         plugin_list.clear_options()
 
-        if not self.installed_plugins:
+        # Find plugins enabled in config but not installed
+        missing_plugins = []
+        if self.config.config and self.config.config.plugins:
+            for plugin_name, plugin_cfg in self.config.config.plugins.items():
+                if getattr(plugin_cfg, "enabled", False) and plugin_name not in self.installed_plugins:
+                    missing_plugins.append(plugin_name)
+
+        if not self.installed_plugins and not missing_plugins:
             plugin_list.add_option(Option("No plugins installed", id="none", disabled=True))
             self._show_no_plugin_selected()
             return
 
-        # Add plugin options
+        # Add installed plugin options
         community_names = get_community_plugin_names()
         for plugin_name in self.installed_plugins:
             is_enabled = self.config.is_plugin_enabled(plugin_name)
@@ -218,15 +226,33 @@ class PluginManagementScreen(BaseScreen):
                 )
             )
 
+        # Add missing plugin options
+        for plugin_name in missing_plugins:
+            plugin_list.add_option(
+                Option(
+                    f"{Icons.WARNING} {plugin_name} - Not installed",
+                    id=f"missing:{plugin_name}"
+                )
+            )
+
         # Select first plugin by default
-        if self.installed_plugins:
+        all_plugins = self.installed_plugins + [f"missing:{p}" for p in missing_plugins]
+        if all_plugins:
             plugin_list.highlighted = 0
-            self.selected_plugin = self.installed_plugins[0]
-            self._show_plugin_details(self.selected_plugin)
+            first = all_plugins[0]
+            if first.startswith("missing:"):
+                self._show_plugin_missing(first.removeprefix("missing:"))
+            else:
+                self.selected_plugin = first
+                self._show_plugin_details(first)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle plugin selection (Enter key)."""
         if event.option.id == "none":
+            return
+
+        if event.option.id.startswith("missing:"):
+            self._show_plugin_missing(event.option.id.removeprefix("missing:"))
             return
 
         self.selected_plugin = event.option.id
@@ -235,6 +261,10 @@ class PluginManagementScreen(BaseScreen):
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         """Handle plugin highlight change (arrow keys navigation)."""
         if event.option.id == "none":
+            return
+
+        if event.option.id.startswith("missing:"):
+            self._show_plugin_missing(event.option.id.removeprefix("missing:"))
             return
 
         self.selected_plugin = event.option.id
@@ -247,6 +277,27 @@ class PluginManagementScreen(BaseScreen):
 
         details.mount(DimText("No plugins installed."))
         details.mount(DimText("Plugins are automatically discovered from installed packages."))
+
+    def _show_plugin_missing(self, plugin_name: str) -> None:
+        """Display details for a plugin enabled in config but not installed."""
+        details = self.query_one("#details-content", Container)
+        details.remove_children()
+
+        details.mount(BoldPrimaryText(plugin_name))
+        details.mount(Text(""))
+        details.mount(WarningText(f"{Icons.WARNING} Not installed"))
+        details.mount(Text(""))
+        details.mount(DimText(
+            f"The plugin '{plugin_name}' is enabled in your project config "
+            "but is not installed in this Titan environment."
+        ))
+        details.mount(Text(""))
+        details.mount(DimText("Press i to install it from a community plugin URL."))
+        details.mount(Text(""))
+        details.mount(Horizontal(
+            Button("Install Plugin", variant="primary", id="install-plugin-button-details"),
+            classes="button-container"
+        ))
 
     def _show_plugin_details(self, plugin_name: str) -> None:
         """Display details for the selected plugin."""
@@ -350,7 +401,7 @@ class PluginManagementScreen(BaseScreen):
             self.action_toggle_plugin()
         elif event.button.id == "configure-button":
             self.action_configure_plugin()
-        elif event.button.id == "install-plugin-button":
+        elif event.button.id in ("install-plugin-button", "install-plugin-button-details"):
             self.action_install_plugin()
         elif event.button.id == "update-button":
             self.action_update_plugin()
