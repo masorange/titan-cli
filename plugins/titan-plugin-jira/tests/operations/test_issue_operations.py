@@ -11,7 +11,7 @@ from titan_plugin_jira.operations.issue_operations import (
     find_ready_to_dev_transition,
     transition_issue_to_ready_for_dev,
 )
-from titan_plugin_jira.models import UITransition
+from titan_plugin_jira.models import UIJiraTransition
 
 
 class TestFindReadyToDevTransition:
@@ -22,16 +22,16 @@ class TestFindReadyToDevTransition:
         # Setup
         mock_client = Mock()
         transitions = [
-            UITransition(
+            UIJiraTransition(
                 id="11",
                 name="Start Progress",
                 to_status="In Progress",
-                has_screen=False,
+                to_status_icon="🔵",
             ),
-            UITransition(
-                id="21", name="Ready to Dev", to_status="Ready to Dev", has_screen=False
+            UIJiraTransition(
+                id="21", name="Ready to Dev", to_status="Ready to Dev", to_status_icon="🔵"
             ),
-            UITransition(id="31", name="Done", to_status="Done", has_screen=False),
+            UIJiraTransition(id="31", name="Done", to_status="Done", to_status_icon="🟢"),
         ]
         mock_client.get_transitions.return_value = ClientSuccess(data=transitions)
 
@@ -49,11 +49,11 @@ class TestFindReadyToDevTransition:
         # Setup
         mock_client = Mock()
         transitions = [
-            UITransition(
+            UIJiraTransition(
                 id="21",
                 name="Ready for Development",
                 to_status="Ready for Dev",
-                has_screen=False,
+                to_status_icon="🔵",
             ),
         ]
         mock_client.get_transitions.return_value = ClientSuccess(data=transitions)
@@ -70,8 +70,8 @@ class TestFindReadyToDevTransition:
         # Setup
         mock_client = Mock()
         transitions = [
-            UITransition(
-                id="21", name="READY TO DEV", to_status="Ready to Dev", has_screen=False
+            UIJiraTransition(
+                id="21", name="READY TO DEV", to_status="Ready to Dev", to_status_icon="🔵"
             ),
         ]
         mock_client.get_transitions.return_value = ClientSuccess(data=transitions)
@@ -87,13 +87,13 @@ class TestFindReadyToDevTransition:
         # Setup
         mock_client = Mock()
         transitions = [
-            UITransition(
+            UIJiraTransition(
                 id="11",
                 name="Start Progress",
                 to_status="In Progress",
-                has_screen=False,
+                to_status_icon="🔵",
             ),
-            UITransition(id="31", name="Done", to_status="Done", has_screen=False),
+            UIJiraTransition(id="31", name="Done", to_status="Done", to_status_icon="🟢"),
         ]
         mock_client.get_transitions.return_value = ClientSuccess(data=transitions)
 
@@ -140,11 +140,11 @@ class TestFindReadyToDevTransition:
         # Setup
         mock_client = Mock()
         transitions = [
-            UITransition(
-                id="11", name="Ready to Start", to_status="Ready", has_screen=False
+            UIJiraTransition(
+                id="11", name="Ready to Start", to_status="Ready", to_status_icon="🟡"
             ),
-            UITransition(
-                id="21", name="In Development", to_status="In Dev", has_screen=False
+            UIJiraTransition(
+                id="21", name="In Development", to_status="In Dev", to_status_icon="🔵"
             ),
         ]
         mock_client.get_transitions.return_value = ClientSuccess(data=transitions)
@@ -164,8 +164,8 @@ class TestTransitionIssueToReadyForDev:
         """Should successfully transition issue when transition exists."""
         # Setup
         mock_client = Mock()
-        transition = UITransition(
-            id="21", name="Ready to Dev", to_status="Ready to Dev", has_screen=False
+        transition = UIJiraTransition(
+            id="21", name="Ready to Dev", to_status="Ready to Dev", to_status_icon="🔵"
         )
 
         # Mock find operation
@@ -191,11 +191,11 @@ class TestTransitionIssueToReadyForDev:
         mock_client = Mock()
         mock_client.get_transitions.return_value = ClientSuccess(
             data=[
-                UITransition(
+                UIJiraTransition(
                     id="11",
                     name="Start Progress",
                     to_status="In Progress",
-                    has_screen=False,
+                    to_status_icon="🔵",
                 )
             ]
         )
@@ -213,8 +213,8 @@ class TestTransitionIssueToReadyForDev:
         """Should return error when transition execution fails."""
         # Setup
         mock_client = Mock()
-        transition = UITransition(
-            id="21", name="Ready to Dev", to_status="Ready to Dev", has_screen=False
+        transition = UIJiraTransition(
+            id="21", name="Ready to Dev", to_status="Ready to Dev", to_status_icon="🔵"
         )
 
         # Mock successful find
@@ -254,11 +254,11 @@ class TestTransitionIssueToReadyForDev:
         """Should work with different case variations."""
         # Setup
         mock_client = Mock()
-        transition = UITransition(
+        transition = UIJiraTransition(
             id="21",
             name="READY FOR DEVELOPMENT",
             to_status="Ready for Dev",
-            has_screen=False,
+            to_status_icon="🔵",
         )
 
         mock_client.get_transitions.return_value = ClientSuccess(data=[transition])
