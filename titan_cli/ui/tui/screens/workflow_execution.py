@@ -9,7 +9,7 @@ from typing import Any, List, Optional, Dict
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
-from textual.containers import Container, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.worker import Worker, WorkerState
 
 from titan_cli.ui.tui.widgets import HeaderWidget
@@ -24,9 +24,10 @@ from titan_cli.core.workflows.workflow_exceptions import (
 )
 from titan_cli.ui.tui.textual_workflow_executor import TextualWorkflowExecutor
 from titan_cli.ui.tui.widgets.text import DimText
+from titan_cli.core.logging import get_logger
 from .base import BaseScreen
 
-from textual.containers import Horizontal
+logger = get_logger(__name__)
 
 class WorkflowExecutionScreen(BaseScreen):
     """
@@ -123,12 +124,11 @@ class WorkflowExecutionScreen(BaseScreen):
         try:
             # Load workflow
             self.workflow = self.config.workflows.get_workflow(self.workflow_name)
-            # if not self.workflow:
-                # TODO Create empty error screen 
-                # self._update_workflow_info(
-                #     f"[red]Error: Workflow '{self.workflow_name}' not found[/red]"
-                # )
-                # return
+            if not self.workflow:
+                logger.error("workflow_not_found", workflow_name=self.workflow_name)
+                self._output(f"[red]{Icons.ERROR} Workflow '{self.workflow_name}' not found.[/red]")
+                self._output("[dim]Press ESC or Q to return[/dim]")
+                return
 
             self._update_header_title(f"{Icons.WORKFLOW} {self.workflow.name}")
             self._update_description(self.workflow.description or "")
@@ -152,6 +152,7 @@ class WorkflowExecutionScreen(BaseScreen):
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
+            logger.exception("workflow_load_unexpected_error", workflow_name=self.workflow_name, error=str(e))
             self._output(f"[red]{Icons.ERROR} Unexpected error loading workflow:[/red]")
             self._output(f"[red]{type(e).__name__}: {e}[/red]")
             self._output(f"[dim]{error_details}[/dim]")

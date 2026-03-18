@@ -32,8 +32,7 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
 
     command = resolve_parameters_in_string(command_template, ctx)
 
-    if ctx.ui:
-        ctx.ui.text.info(f"Executing command: {command}")
+    ctx.textual.text(f"Executing command: {command}")
 
     try:
         use_venv = step.params.get("use_venv", False)
@@ -41,8 +40,7 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
         cwd = ctx.get("cwd") or os.getcwd()
 
         if use_venv:
-            if ctx.ui:
-                ctx.ui.text.body("Activating poetry virtual environment for step...", style="dim")
+            ctx.textual.dim_text("Activating poetry virtual environment for step...")
             
             venv_env = get_poetry_venv_env(cwd=cwd)
             if venv_env:
@@ -70,8 +68,7 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
         stdout_output, stderr_output = process.communicate()
 
         if stdout_output:
-            # Print any output from the command
-            ctx.ui.text.body(stdout_output)
+            ctx.textual.text(stdout_output)
         
         if process.returncode != 0:
             error_message = f"Command failed with exit code {process.returncode}"

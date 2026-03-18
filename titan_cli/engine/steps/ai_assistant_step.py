@@ -151,7 +151,6 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         cli_to_launch = list(available_launchers.keys())[0]
     else:
         # Show available CLIs with numbers
-        ctx.textual.text("")  # spacing
         ctx.textual.bold_primary_text(msg.AIAssistant.SELECT_ASSISTANT_CLI)
 
         cli_options = list(available_launchers.keys())

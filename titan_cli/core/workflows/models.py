@@ -85,4 +85,5 @@ class WorkflowConfigModel(BaseModel):
     # so we define it broadly here and refine during processing.
     hooks: Optional[Union[List[str], Dict[str, List[WorkflowStepModel]]]] = Field(None, description="Hook definitions or steps to inject into hooks.")
     
+    tags: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary metadata tags (e.g., platform='android'). Used by plugins for workflow filtering.")
     steps: List[WorkflowStepModel] = Field(default_factory=list, description="The sequence of steps in the workflow.")
