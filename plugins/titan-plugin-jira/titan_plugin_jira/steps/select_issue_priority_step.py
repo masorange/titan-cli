@@ -44,17 +44,7 @@ def select_issue_priority(ctx: WorkflowContext) -> WorkflowResult:
 
     # Get priorities from Jira
     priorities = None
-    try:
-        result = ctx.jira.get_priorities()
-    except Exception as e:
-        # Fallback to default priorities on any exception
-        ctx.textual.mount(
-            Panel(
-                ErrorMessages.UNEXPECTED_ERROR_PRIORITIES.format(error=str(e)),
-                panel_type="warning",
-            )
-        )
-        result = ClientError(error_message=str(e), error_code="UNEXPECTED_ERROR")
+    result = ctx.jira.get_priorities()
 
     match result:
         case ClientSuccess(data=fetched_priorities):
