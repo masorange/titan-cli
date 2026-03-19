@@ -24,11 +24,11 @@ def validate_numeric_selection(
     """
     try:
         value = int(selection)
-        index = value - 1
 
-        if index < 0 or index >= max_value:
+        if value < min_value or value > max_value:
             return False, None, "out_of_range"
 
+        index = value - min_value  # Convert to zero-based index
         return True, index, None
 
     except (ValueError, TypeError):
