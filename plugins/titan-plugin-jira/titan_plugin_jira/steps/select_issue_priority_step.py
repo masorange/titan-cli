@@ -30,7 +30,7 @@ def select_issue_priority(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.PRIORITY)
 
-    ctx.textual.markdown("## 🔥 Priority")
+    ctx.textual.bold_text("🔥 Priority")
     ctx.textual.text("")
 
     # Verify Jira client is available
