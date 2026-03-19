@@ -108,11 +108,6 @@ def select_issue_type(ctx: WorkflowContext) -> WorkflowResult:
 
             selected_type = issue_types[index]
 
-            if not selected_type:
-                ctx.textual.mount(Panel(ErrorMessages.SELECTED_TYPE_NOT_FOUND, panel_type="error"))
-                ctx.textual.end_step("error")
-                return Error("selected_type_not_found")
-
             # Store in context
             ctx.data["issue_type"] = selected_type.name
             ctx.data["issue_type_id"] = selected_type.id
