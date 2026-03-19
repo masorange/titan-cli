@@ -33,7 +33,7 @@ def select_issue_type(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.ISSUE_TYPE)
 
-    ctx.textual.markdown("## 🏷️ Issue Type")
+    ctx.textual.bold_text("🏷️ Issue Type")
     ctx.textual.text("")
 
     # Get project key from client
