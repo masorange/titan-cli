@@ -124,41 +124,40 @@ def _attempt_transition_to_ready_for_dev(ctx: WorkflowContext, issue_key: str):
         ctx: Workflow context
         issue_key: Issue key (e.g., "PROJ-123")
     """
-    # Use operation for business logic
-    transition_result = transition_issue_to_ready_for_dev(ctx.jira, issue_key)
+    try:
+        # Use operation for business logic (raises on error)
+        transition_issue_to_ready_for_dev(ctx.jira, issue_key)
 
-    match transition_result:
-        case ClientSuccess():
-            # Get transition details to show user
-            find_result = ctx.jira.get_transitions(issue_key)
-            match find_result:
-                case ClientSuccess(data=transitions):
-                    ready_transition = next(
-                        (
-                            t
-                            for t in transitions
-                            if "ready" in t.name.lower() and "dev" in t.name.lower()
-                        ),
-                        None,
+        # Get transition details to show user
+        find_result = ctx.jira.get_transitions(issue_key)
+        match find_result:
+            case ClientSuccess(data=transitions):
+                ready_transition = next(
+                    (
+                        t
+                        for t in transitions
+                        if "ready" in t.name.lower() and "dev" in t.name.lower()
+                    ),
+                    None,
+                )
+                if ready_transition:
+                    ctx.textual.dim_text(
+                        InfoMessages.TRANSITIONING_TO.format(
+                            status=ready_transition.to_status
+                        )
                     )
-                    if ready_transition:
-                        ctx.textual.dim_text(
-                            InfoMessages.TRANSITIONING_TO.format(
-                                status=ready_transition.to_status
-                            )
+                    ctx.textual.success_text(
+                        SuccessMessages.STATUS_CHANGED.format(
+                            status=ready_transition.to_status
                         )
-                        ctx.textual.success_text(
-                            SuccessMessages.STATUS_CHANGED.format(
-                                status=ready_transition.to_status
-                            )
-                        )
-                case ClientError():
-                    pass  # Ignore, not critical
+                    )
+            case ClientError():
+                pass  # Ignore, not critical
 
-        case ClientError(error_message=err):
-            # Check if it's "not found" error (expected)
-            if "not found" in err.lower() or "TRANSITION_NOT_FOUND" in str(err):
-                ctx.textual.dim_text(InfoMessages.NO_READY_TO_DEV_TRANSITION)
-            else:
-                # Unexpected error, log it
-                ctx.textual.dim_text(ErrorMessages.FAILED_TO_TRANSITION.format(error=err))
+    except Exception as err:
+        # Check if it's "not found" error (expected)
+        if "not found" in str(err).lower():
+            ctx.textual.dim_text(InfoMessages.NO_READY_TO_DEV_TRANSITION)
+        else:
+            # Unexpected error, log it
+            ctx.textual.dim_text(ErrorMessages.FAILED_TO_TRANSITION.format(error=str(err)))

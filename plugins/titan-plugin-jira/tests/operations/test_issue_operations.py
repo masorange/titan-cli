@@ -43,9 +43,8 @@ class TestFindReadyToDevTransition:
         result = find_ready_to_dev_transition(mock_client, "TEST-123")
 
         # Assert
-        assert isinstance(result, ClientSuccess)
-        assert result.data.name == "Ready to Dev"
-        assert result.data.to_status == "Ready to Dev"
+        assert result.name == "Ready to Dev"
+        assert result.to_status == "Ready to Dev"
         mock_client.get_transitions.assert_called_once_with("TEST-123")
 
     def test_finds_ready_for_development_variation(self):
@@ -66,8 +65,7 @@ class TestFindReadyToDevTransition:
         result = find_ready_to_dev_transition(mock_client, "TEST-123")
 
         # Assert
-        assert isinstance(result, ClientSuccess)
-        assert result.data.name == "Ready for Development"
+        assert result.name == "Ready for Development"
 
     def test_case_insensitive_matching(self):
         """Should match regardless of case."""
@@ -84,10 +82,10 @@ class TestFindReadyToDevTransition:
         result = find_ready_to_dev_transition(mock_client, "TEST-123")
 
         # Assert
-        assert isinstance(result, ClientSuccess)
+        assert result.name == "READY TO DEV"
 
     def test_transition_not_found(self):
-        """Should return error when transition not found."""
+        """Should raise exception when transition not found."""
         # Setup
         mock_client = Mock()
         transitions = [
@@ -101,29 +99,24 @@ class TestFindReadyToDevTransition:
         ]
         mock_client.get_transitions.return_value = ClientSuccess(data=transitions)
 
-        # Execute
-        result = find_ready_to_dev_transition(mock_client, "TEST-123")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert "TRANSITION_NOT_FOUND" in result.error_code
-        assert "Ready to Dev" in result.error_message
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_ready_to_dev_transition(mock_client, "TEST-123")
+        assert "Ready to Dev" in str(exc_info.value)
 
     def test_empty_transitions_list(self):
-        """Should return error when no transitions available."""
+        """Should raise exception when no transitions available."""
         # Setup
         mock_client = Mock()
         mock_client.get_transitions.return_value = ClientSuccess(data=[])
 
-        # Execute
-        result = find_ready_to_dev_transition(mock_client, "TEST-123")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert "TRANSITION_NOT_FOUND" in result.error_code
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_ready_to_dev_transition(mock_client, "TEST-123")
+        assert "Ready to Dev" in str(exc_info.value)
 
     def test_api_error_propagated(self):
-        """Should propagate error from get_transitions."""
+        """Should raise exception from get_transitions."""
         # Setup
         mock_client = Mock()
         error = ClientError(
@@ -131,13 +124,10 @@ class TestFindReadyToDevTransition:
         )
         mock_client.get_transitions.return_value = error
 
-        # Execute
-        result = find_ready_to_dev_transition(mock_client, "TEST-123")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert result.error_code == "CONNECTION_ERROR"
-        assert "API connection failed" in result.error_message
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_ready_to_dev_transition(mock_client, "TEST-123")
+        assert "API connection failed" in str(exc_info.value)
 
     def test_partial_match_not_accepted(self):
         """Should not match transitions that don't contain both 'ready' and 'dev'."""
@@ -153,12 +143,10 @@ class TestFindReadyToDevTransition:
         ]
         mock_client.get_transitions.return_value = ClientSuccess(data=transitions)
 
-        # Execute
-        result = find_ready_to_dev_transition(mock_client, "TEST-123")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert "TRANSITION_NOT_FOUND" in result.error_code
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_ready_to_dev_transition(mock_client, "TEST-123")
+        assert "Ready to Dev" in str(exc_info.value)
 
 
 class TestTransitionIssueToReadyForDev:
@@ -184,13 +172,13 @@ class TestTransitionIssueToReadyForDev:
         result = transition_issue_to_ready_for_dev(mock_client, "TEST-123")
 
         # Assert
-        assert isinstance(result, ClientSuccess)
+        assert result is None
         mock_client.transition_issue.assert_called_once_with(
             issue_key="TEST-123", new_status="Ready to Dev"
         )
 
     def test_transition_not_found(self):
-        """Should return error when transition not found."""
+        """Should raise exception when transition not found."""
         # Setup
         mock_client = Mock()
         mock_client.get_transitions.return_value = ClientSuccess(
@@ -204,17 +192,15 @@ class TestTransitionIssueToReadyForDev:
             ]
         )
 
-        # Execute
-        result = transition_issue_to_ready_for_dev(mock_client, "TEST-123")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert "TRANSITION_NOT_FOUND" in result.error_code
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            transition_issue_to_ready_for_dev(mock_client, "TEST-123")
+        assert "Ready to Dev" in str(exc_info.value)
         # Should NOT call transition_issue since transition wasn't found
         mock_client.transition_issue.assert_not_called()
 
     def test_transition_execution_fails(self):
-        """Should return error when transition execution fails."""
+        """Should raise exception when transition execution fails."""
         # Setup
         mock_client = Mock()
         transition = UIJiraTransition(
@@ -230,27 +216,22 @@ class TestTransitionIssueToReadyForDev:
         )
         mock_client.transition_issue.return_value = error
 
-        # Execute
-        result = transition_issue_to_ready_for_dev(mock_client, "TEST-123")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert result.error_code == "PERMISSION_DENIED"
-        assert "Insufficient permissions" in result.error_message
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            transition_issue_to_ready_for_dev(mock_client, "TEST-123")
+        assert "Insufficient permissions" in str(exc_info.value)
 
     def test_api_error_when_getting_transitions(self):
-        """Should return error when get_transitions fails."""
+        """Should raise exception when get_transitions fails."""
         # Setup
         mock_client = Mock()
         error = ClientError(error_message="Network error", error_code="NETWORK_ERROR")
         mock_client.get_transitions.return_value = error
 
-        # Execute
-        result = transition_issue_to_ready_for_dev(mock_client, "TEST-123")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert result.error_code == "NETWORK_ERROR"
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            transition_issue_to_ready_for_dev(mock_client, "TEST-123")
+        assert "Network error" in str(exc_info.value)
         # Should NOT attempt transition
         mock_client.transition_issue.assert_not_called()
 
@@ -274,7 +255,7 @@ class TestTransitionIssueToReadyForDev:
         result = transition_issue_to_ready_for_dev(mock_client, "TEST-123")
 
         # Assert
-        assert isinstance(result, ClientSuccess)
+        assert result is None
         mock_client.transition_issue.assert_called_once_with(
             issue_key="TEST-123", new_status="Ready for Dev"
         )
@@ -298,13 +279,12 @@ class TestFindIssueTypeByName:
         result = find_issue_type_by_name(mock_client, "PROJ", "bug")
 
         # Assert
-        assert isinstance(result, ClientSuccess)
-        assert result.data.id == "1"
-        assert result.data.name == "Bug"
+        assert result.id == "1"
+        assert result.name == "Bug"
         mock_client.get_issue_types.assert_called_once_with("PROJ")
 
     def test_issue_type_not_found(self):
-        """Should return error when issue type not found."""
+        """Should raise exception when issue type not found."""
         # Setup
         mock_client = Mock()
         issue_types = [
@@ -313,29 +293,24 @@ class TestFindIssueTypeByName:
         ]
         mock_client.get_issue_types.return_value = ClientSuccess(data=issue_types)
 
-        # Execute
-        result = find_issue_type_by_name(mock_client, "PROJ", "Epic")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert "Epic" in result.error_message
-        assert "Bug, Story" in result.error_message
-        assert result.error_code == "INVALID_ISSUE_TYPE"
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_issue_type_by_name(mock_client, "PROJ", "Epic")
+        assert "Epic" in str(exc_info.value)
+        assert "Bug, Story" in str(exc_info.value)
 
     def test_propagates_api_error(self):
-        """Should propagate API error from get_issue_types."""
+        """Should raise exception from get_issue_types."""
         # Setup
         mock_client = Mock()
         mock_client.get_issue_types.return_value = ClientError(
             error_message="API Error", error_code="API_ERROR"
         )
 
-        # Execute
-        result = find_issue_type_by_name(mock_client, "PROJ", "Bug")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert result.error_message == "API Error"
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_issue_type_by_name(mock_client, "PROJ", "Bug")
+        assert "API Error" in str(exc_info.value)
 
 
 class TestPrepareEpicName:
@@ -393,13 +368,12 @@ class TestFindSubtaskIssueType:
         result = find_subtask_issue_type(mock_client, "PROJ")
 
         # Assert
-        assert isinstance(result, ClientSuccess)
-        assert result.data.id == "5"
-        assert result.data.name == "Sub-task"
-        assert result.data.subtask is True
+        assert result.id == "5"
+        assert result.name == "Sub-task"
+        assert result.subtask is True
 
     def test_no_subtask_type_found(self):
-        """Should return error when no subtask type exists."""
+        """Should raise exception when no subtask type exists."""
         # Setup
         mock_client = Mock()
         issue_types = [
@@ -408,25 +382,20 @@ class TestFindSubtaskIssueType:
         ]
         mock_client.get_issue_types.return_value = ClientSuccess(data=issue_types)
 
-        # Execute
-        result = find_subtask_issue_type(mock_client, "PROJ")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert "No subtask issue type found" in result.error_message
-        assert result.error_code == "NO_SUBTASK_TYPE"
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_subtask_issue_type(mock_client, "PROJ")
+        assert "No subtask issue type found" in str(exc_info.value)
 
     def test_propagates_api_error(self):
-        """Should propagate API error from get_issue_types."""
+        """Should raise exception from get_issue_types."""
         # Setup
         mock_client = Mock()
         mock_client.get_issue_types.return_value = ClientError(
             error_message="API Error", error_code="API_ERROR"
         )
 
-        # Execute
-        result = find_subtask_issue_type(mock_client, "PROJ")
-
-        # Assert
-        assert isinstance(result, ClientError)
-        assert result.error_message == "API Error"
+        # Execute & Assert
+        with pytest.raises(Exception) as exc_info:
+            find_subtask_issue_type(mock_client, "PROJ")
+        assert "API Error" in str(exc_info.value)

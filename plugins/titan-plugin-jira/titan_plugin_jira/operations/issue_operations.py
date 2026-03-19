@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def find_ready_to_dev_transition(
     jira_client: "JiraClient", issue_key: str
-) -> ClientResult["UITransition"]:
+) -> "UITransition":
     """
     Find "Ready to Dev" transition for an issue.
 
@@ -25,7 +25,10 @@ def find_ready_to_dev_transition(
         issue_key: Issue key (e.g., "PROJ-123")
 
     Returns:
-        ClientResult with UITransition if found, error otherwise
+        UITransition if found
+
+    Raises:
+        Exception: If transition not found or API call fails
     """
     transitions_result = jira_client.get_transitions(issue_key)
 
@@ -42,51 +45,45 @@ def find_ready_to_dev_transition(
             )
 
             if ready_transition:
-                return ClientSuccess(data=ready_transition)
+                return ready_transition
 
-            return ClientError(
-                error_message="No 'Ready to Dev' transition found",
-                error_code="TRANSITION_NOT_FOUND",
-            )
+            raise Exception("No 'Ready to Dev' transition found")
 
-        case ClientError() as error:
-            return error
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to get transitions: {err}")
 
 
 def transition_issue_to_ready_for_dev(
     jira_client: "JiraClient", issue_key: str
-) -> ClientResult[None]:
+) -> None:
     """
     Attempt to transition issue to "Ready to Dev" status.
-
-    This is a best-effort operation:
-    - If transition is found and succeeds, returns success
-    - If transition is not found or fails, returns error (not critical)
 
     Args:
         jira_client: Jira client instance
         issue_key: Issue key (e.g., "PROJ-123")
 
-    Returns:
-        ClientResult indicating success or failure
+    Raises:
+        Exception: If transition not found or execution fails
     """
-    # Find transition
-    find_result = find_ready_to_dev_transition(jira_client, issue_key)
+    # Find transition (raises if not found)
+    transition = find_ready_to_dev_transition(jira_client, issue_key)
 
-    match find_result:
-        case ClientSuccess(data=transition):
-            # Execute transition
-            return jira_client.transition_issue(
-                issue_key=issue_key, new_status=transition.to_status
-            )
+    # Execute transition
+    result = jira_client.transition_issue(
+        issue_key=issue_key, new_status=transition.to_status
+    )
 
-        case ClientError() as error:
-            return error
+    match result:
+        case ClientSuccess():
+            return
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to transition issue: {err}")
 
 
 def find_issue_type_by_name(
     jira_client: "JiraClient", project_key: str, issue_type_name: str
-) -> ClientResult["NetworkJiraIssueType"]:
+) -> "NetworkJiraIssueType":
     """
     Find issue type by name in a project.
 
@@ -96,7 +93,10 @@ def find_issue_type_by_name(
         issue_type_name: Issue type name to search (case-insensitive)
 
     Returns:
-        ClientResult with NetworkJiraIssueType if found, error otherwise
+        NetworkJiraIssueType if found
+
+    Raises:
+        Exception: If issue type not found or API call fails
     """
     issue_types_result = jira_client.get_issue_types(project_key)
 
@@ -109,17 +109,16 @@ def find_issue_type_by_name(
             )
 
             if issue_type:
-                return ClientSuccess(data=issue_type)
+                return issue_type
 
-            # Not found - return helpful error with available types
+            # Not found - raise helpful error with available types
             available = [it.name for it in issue_types]
-            return ClientError(
-                error_message=f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}",
-                error_code="INVALID_ISSUE_TYPE",
+            raise Exception(
+                f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}"
             )
 
-        case ClientError() as error:
-            return error
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to get issue types: {err}")
 
 
 def prepare_epic_name(issue_type: "NetworkJiraIssueType", summary: str) -> Optional[str]:
@@ -142,7 +141,7 @@ def prepare_epic_name(issue_type: "NetworkJiraIssueType", summary: str) -> Optio
 
 def find_subtask_issue_type(
     jira_client: "JiraClient", project_key: str
-) -> ClientResult["NetworkJiraIssueType"]:
+) -> "NetworkJiraIssueType":
     """
     Find subtask issue type for a project.
 
@@ -151,7 +150,10 @@ def find_subtask_issue_type(
         project_key: Project key
 
     Returns:
-        ClientResult with NetworkJiraIssueType if found, error otherwise
+        NetworkJiraIssueType if found
+
+    Raises:
+        Exception: If no subtask type found or API call fails
     """
     issue_types_result = jira_client.get_issue_types(project_key)
 
@@ -161,12 +163,9 @@ def find_subtask_issue_type(
             subtask_type = next((it for it in issue_types if it.subtask), None)
 
             if subtask_type:
-                return ClientSuccess(data=subtask_type)
+                return subtask_type
 
-            return ClientError(
-                error_message="No subtask issue type found for project",
-                error_code="NO_SUBTASK_TYPE",
-            )
+            raise Exception("No subtask issue type found for project")
 
-        case ClientError() as error:
-            return error
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to get issue types: {err}")
