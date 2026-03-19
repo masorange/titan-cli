@@ -105,7 +105,12 @@ def _get_log_file_path(custom_path: Optional[Path] = None) -> Path:
 
     # XDG Base Directory: logs go in ~/.local/state/
     log_dir = Path.home() / ".local" / "state" / "titan" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError):
+        import tempfile
+        log_dir = Path(tempfile.gettempdir()) / "titan" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
 
     return log_dir / "titan.log"
 
