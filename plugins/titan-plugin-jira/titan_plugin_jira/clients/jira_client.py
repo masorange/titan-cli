@@ -241,6 +241,8 @@ class JiraClient:
         Returns:
             ClientResult[UIJiraIssue]
         """
+        from ..operations.issue_operations import find_issue_type_by_name, prepare_epic_name
+
         project_key = project or self.project_key
         if not project_key:
             return ClientError(
@@ -248,37 +250,26 @@ class JiraClient:
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Get issue type ID
-        issue_types_result = self._metadata_service.get_issue_types(project_key)
-        if isinstance(issue_types_result, ClientError):
-            return issue_types_result
+        # Find issue type (delegated to operation)
+        issue_type_result = find_issue_type_by_name(self, project_key, issue_type)
 
-        issue_type_obj = None
-        for it in issue_types_result.data:
-            if it.name.lower() == issue_type.lower():
-                issue_type_obj = it
-                break
+        match issue_type_result:
+            case ClientSuccess(data=issue_type_obj):
+                # Prepare Epic name if needed (delegated to operation)
+                epic_name = prepare_epic_name(issue_type_obj, summary)
 
-        if not issue_type_obj:
-            available = [it.name for it in issue_types_result.data]
-            return ClientError(
-                error_message=f"Issue type '{issue_type}' not found. Available: {', '.join(available)}",
-                error_code="INVALID_ISSUE_TYPE"
-            )
-
-        # If creating an Epic, use summary as Epic Name (required custom field)
-        epic_name = summary if issue_type_obj.name.lower() == "epic" else None
-
-        return self._issue_service.create_issue(
-            project_key=project_key,
-            issue_type_id=issue_type_obj.id,
-            summary=summary,
-            description=description,
-            assignee=assignee,
-            labels=labels,
-            priority=priority,
-            epic_name=epic_name
-        )
+                return self._issue_service.create_issue(
+                    project_key=project_key,
+                    issue_type_id=issue_type_obj.id,
+                    summary=summary,
+                    description=description,
+                    assignee=assignee,
+                    labels=labels,
+                    priority=priority,
+                    epic_name=epic_name
+                )
+            case ClientError() as error:
+                return error
 
     def create_subtask(
         self,
@@ -297,36 +288,28 @@ class JiraClient:
         Returns:
             ClientResult[UIJiraIssue]
         """
+        from ..operations.issue_operations import find_subtask_issue_type
+
         if not self.project_key:
             return ClientError(
                 error_message="No default project configured",
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Get subtask issue type
-        issue_types_result = self._metadata_service.get_issue_types(self.project_key)
-        if isinstance(issue_types_result, ClientError):
-            return issue_types_result
+        # Find subtask issue type (delegated to operation)
+        subtask_result = find_subtask_issue_type(self, self.project_key)
 
-        subtask_type = None
-        for it in issue_types_result.data:
-            if it.subtask:
-                subtask_type = it
-                break
-
-        if not subtask_type:
-            return ClientError(
-                error_message="No subtask issue type found for project",
-                error_code="NO_SUBTASK_TYPE"
-            )
-
-        return self._issue_service.create_subtask(
-            parent_key=parent_key,
-            project_key=self.project_key,
-            subtask_type_id=subtask_type.id,
-            summary=summary,
-            description=description
-        )
+        match subtask_result:
+            case ClientSuccess(data=subtask_type):
+                return self._issue_service.create_subtask(
+                    parent_key=parent_key,
+                    project_key=self.project_key,
+                    subtask_type_id=subtask_type.id,
+                    summary=summary,
+                    description=description
+                )
+            case ClientError() as error:
+                return error
 
     # ==================== METADATA OPERATIONS ====================
 
@@ -403,20 +386,7 @@ class JiraClient:
         Returns:
             ClientResult[List[UIPriority]] with priority info
         """
-        from ..models.view import UIPriority
-        from ..models.mappers import from_network_priority
-
-        result = self._metadata_service.get_priorities()
-
-        match result:
-            case ClientSuccess(data=network_priorities):
-                ui_priorities = [from_network_priority(p) for p in network_priorities]
-                return ClientSuccess(
-                    data=ui_priorities,
-                    message=result.message
-                )
-            case ClientError():
-                return result
+        return self._metadata_service.get_priorities()
 
     # ==================== LINK OPERATIONS ====================
 

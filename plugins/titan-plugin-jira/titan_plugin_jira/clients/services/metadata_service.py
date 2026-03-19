@@ -169,20 +169,23 @@ class MetadataService:
                 error_code="LIST_VERSIONS_ERROR"
             )
 
-    def get_priorities(self) -> ClientResult[List[NetworkJiraPriority]]:
+    def get_priorities(self) -> ClientResult[List["UIPriority"]]:
         """
         Get all available priorities in Jira.
 
         Returns:
-            ClientResult[List[NetworkJiraPriority]]
+            ClientResult[List[UIPriority]]
         """
+        from ...models.view import UIPriority
+        from ...models.mappers import from_network_priority
+
         try:
             priorities_data = self.network.make_request("GET", "priority")
 
             # Parse to network models
-            priorities = []
+            network_priorities = []
             for p_data in priorities_data:
-                priorities.append(
+                network_priorities.append(
                     NetworkJiraPriority(
                         id=p_data.get("id", ""),
                         name=p_data.get("name", ""),
@@ -190,9 +193,12 @@ class MetadataService:
                     )
                 )
 
+            # Map to UI models
+            ui_priorities = [from_network_priority(p) for p in network_priorities]
+
             return ClientSuccess(
-                data=priorities,
-                message=f"Found {len(priorities)} priorities"
+                data=ui_priorities,
+                message=f"Found {len(ui_priorities)} priorities"
             )
 
         except JiraAPIError as e:
