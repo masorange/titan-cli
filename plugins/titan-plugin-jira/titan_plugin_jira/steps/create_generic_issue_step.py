@@ -125,34 +125,16 @@ def _attempt_transition_to_ready_for_dev(ctx: WorkflowContext, issue_key: str):
         issue_key: Issue key (e.g., "PROJ-123")
     """
     try:
-        # Use operation for business logic (raises on error)
-        transition_issue_to_ready_for_dev(ctx.jira, issue_key)
+        # Use operation for business logic (raises on error, returns transition)
+        transition = transition_issue_to_ready_for_dev(ctx.jira, issue_key)
 
-        # Get transition details to show user
-        find_result = ctx.jira.get_transitions(issue_key)
-        match find_result:
-            case ClientSuccess(data=transitions):
-                ready_transition = next(
-                    (
-                        t
-                        for t in transitions
-                        if "ready" in t.name.lower() and "dev" in t.name.lower()
-                    ),
-                    None,
-                )
-                if ready_transition:
-                    ctx.textual.dim_text(
-                        InfoMessages.TRANSITIONING_TO.format(
-                            status=ready_transition.to_status
-                        )
-                    )
-                    ctx.textual.success_text(
-                        SuccessMessages.STATUS_CHANGED.format(
-                            status=ready_transition.to_status
-                        )
-                    )
-            case ClientError():
-                pass  # Ignore, not critical
+        # Show transition details to user
+        ctx.textual.dim_text(
+            InfoMessages.TRANSITIONING_TO.format(status=transition.to_status)
+        )
+        ctx.textual.success_text(
+            SuccessMessages.STATUS_CHANGED.format(status=transition.to_status)
+        )
 
     except Exception as err:
         # Check if it's "not found" error (expected)

@@ -55,13 +55,16 @@ def find_ready_to_dev_transition(
 
 def transition_issue_to_ready_for_dev(
     jira_client: "JiraClient", issue_key: str
-) -> None:
+) -> "UITransition":
     """
     Attempt to transition issue to "Ready to Dev" status.
 
     Args:
         jira_client: Jira client instance
         issue_key: Issue key (e.g., "PROJ-123")
+
+    Returns:
+        UITransition object with transition details
 
     Raises:
         Exception: If transition not found or execution fails
@@ -76,7 +79,7 @@ def transition_issue_to_ready_for_dev(
 
     match result:
         case ClientSuccess():
-            return
+            return transition
         case ClientError(error_message=err):
             raise Exception(f"Failed to transition issue: {err}")
 
