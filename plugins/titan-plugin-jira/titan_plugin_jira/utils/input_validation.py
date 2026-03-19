@@ -21,16 +21,6 @@ def validate_numeric_selection(
         - is_valid: True if selection is valid
         - index: Zero-based index if valid, None otherwise
         - error_message: Error description if invalid, None otherwise
-
-    Examples:
-        >>> validate_numeric_selection("2", 1, 5)
-        (True, 1, None)
-
-        >>> validate_numeric_selection("10", 1, 5)
-        (False, None, "out_of_range")
-
-        >>> validate_numeric_selection("abc", 1, 5)
-        (False, None, "not_a_number")
     """
     try:
         value = int(selection)
@@ -57,16 +47,6 @@ def validate_non_empty_text(text: str | None) -> tuple[bool, str | None, str | N
         - is_valid: True if text is valid
         - cleaned_text: Stripped text if valid, None otherwise
         - error_message: Error description if invalid, None otherwise
-
-    Examples:
-        >>> validate_non_empty_text("hello")
-        (True, "hello", None)
-
-        >>> validate_non_empty_text("  ")
-        (False, None, "empty_or_whitespace")
-
-        >>> validate_non_empty_text(None)
-        (False, None, "empty_or_whitespace")
     """
     if not text or not text.strip():
         return False, None, "empty_or_whitespace"
