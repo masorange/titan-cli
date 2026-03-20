@@ -128,6 +128,7 @@ class WorkflowRegistry:
                 continue
 
         workflows = self._apply_plugin_filters(workflows)
+        workflows = self._filter_base_workflows(workflows)
 
         self._discovered = workflows
         return workflows
@@ -420,6 +421,60 @@ class WorkflowRegistry:
             if source.contains(file_path):
                 return source.name
         return "unknown"
+
+    def _normalize_extends_ref(self, extends_ref: str) -> str:
+        """
+        Normalizes an 'extends' reference to match the format used by discovered workflow names.
+
+        Handles all reference formats:
+        - "release-notes"                      -> "release-notes"
+        - "common/release-notes"               -> "common/release-notes"
+        - "plugin:myplugin/common/release-notes" -> "common/release-notes"
+        - "plugin:git/commit-ai"               -> "commit-ai"
+        - "system/quick-commit"                -> "quick-commit"
+        """
+        if ":" in extends_ref:
+            # "plugin:myplugin/common/release-notes" -> "myplugin/common/release-notes"
+            _, ref_path = extends_ref.split(":", 1)
+            # First segment is the plugin name, the rest is the workflow path within the plugin
+            parts = ref_path.split("/", 1)
+            if len(parts) == 2:
+                return parts[1]  # "common/release-notes"
+            return parts[0]
+        return extends_ref
+
+    def _filter_base_workflows(self, workflows: List[WorkflowInfo]) -> List[WorkflowInfo]:
+        """
+        Filters out workflows that are extended by other workflows in the same list.
+
+        A workflow is hidden from the menu if at least one other discovered workflow
+        explicitly extends it. Works for both flat naming ("release-notes") and
+        directory-based naming ("common/release-notes", "android/release-notes").
+        """
+        # Map each workflow name to the normalised form of its own extends_ref (or None).
+        name_to_normalized_base = {
+            wf.name: (self._normalize_extends_ref(wf.extends_ref) if wf.extends_ref else None)
+            for wf in workflows
+        }
+
+        extended_names: set = set()
+        for wf in workflows:
+            if not wf.extends_ref:
+                continue
+            normalized = self._normalize_extends_ref(wf.extends_ref)
+            if normalized == wf.name:
+                # Same-name override (e.g. project "commit-ai" extends plugin:git/commit-ai).
+                # Precedence over the plugin base is already handled by discover(); skip.
+                continue
+            # Only hide `normalized` if the target workflow is NOT a peer override of
+            # the same plugin base.  A peer override is detected when the target itself
+            # resolves to `normalized` as its own base name — meaning both this workflow
+            # and the target are siblings extending the same upstream, not a base/child pair.
+            target_base = name_to_normalized_base.get(normalized)
+            if target_base != normalized:
+                extended_names.add(normalized)
+
+        return [wf for wf in workflows if wf.name not in extended_names]
 
     def _apply_plugin_filters(self, workflows: List[WorkflowInfo]) -> List[WorkflowInfo]:
         """Let each plugin filter its own workflows based on its current configuration."""

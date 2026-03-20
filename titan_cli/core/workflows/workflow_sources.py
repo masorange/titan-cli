@@ -28,6 +28,7 @@ class WorkflowInfo:
     category: Optional[str] = None
     required_plugins: Set[str] = field(default_factory=set)
     tags: dict = field(default_factory=dict)
+    extends_ref: Optional[str] = None  # Raw 'extends' value from YAML, if present
 
 def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRegistryProtocol) -> WorkflowInfo:
     """
@@ -41,22 +42,34 @@ def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRe
         config = {}
 
     required_plugins: Set[str] = set()
-    
+
+    def _extract_plugin_from_step(step: dict) -> None:
+        if isinstance(step, dict) and "plugin" in step and step["plugin"] not in ["core", "project", "user"]:
+            required_plugins.add(step["plugin"])
+
     # Check direct plugin dependencies in steps
     steps = config.get("steps", [])
     if isinstance(steps, list):
         for step in steps:
-            if isinstance(step, dict) and "plugin" in step and step["plugin"] not in ["core", "project", "user"]:
-                required_plugins.add(step["plugin"])
+            _extract_plugin_from_step(step)
 
-    # Check 'extends' field for plugin dependencies
+    # Check plugin dependencies in hooks
+    hooks = config.get("hooks", {})
+    if isinstance(hooks, dict):
+        for hook_steps in hooks.values():
+            if isinstance(hook_steps, list):
+                for step in hook_steps:
+                    _extract_plugin_from_step(step)
+
+    # Check 'extends' field for plugin dependencies and save the raw reference
     extends_ref = config.get("extends")
-    if extends_ref and isinstance(extends_ref, str):
-        if extends_ref.startswith("plugin:"):
-            # Extract plugin name from "plugin:git/commit-ai" -> "git"
-            plugin_part = extends_ref.split(':', 1)[1]
-            plugin_name = plugin_part.split('/', 1)[0]
-            required_plugins.add(plugin_name)
+    if not isinstance(extends_ref, str):
+        extends_ref = None
+    if extends_ref and extends_ref.startswith("plugin:"):
+        # Extract plugin name from "plugin:git/commit-ai" -> "git"
+        plugin_part = extends_ref.split(':', 1)[1]
+        plugin_name = plugin_part.split('/', 1)[0]
+        required_plugins.add(plugin_name)
 
     tags = config.get("tags") or {}
     if not isinstance(tags, dict):
@@ -70,6 +83,7 @@ def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRe
         category=config.get("category"),
         required_plugins=required_plugins,
         tags=tags,
+        extends_ref=extends_ref,
     )
 
 
@@ -320,7 +334,7 @@ class PluginWorkflowSource(WorkflowSource):
         return "plugins" in path.parts # Heuristic, might need refinement
 
     def _to_workflow_info(self, file: Path, plugin_name: str) -> WorkflowInfo:
-        info = _parse_workflow_info(file, f"plugin:{plugin_name}", self._plugin_registry) # Pass plugin_registry
-        # For plugin workflows, the name is qualified, e.g., "github/create-pr"
-        # but the file.stem is just "create-pr". We'll handle this in the registry.
+        info = _parse_workflow_info(file, f"plugin:{plugin_name}", self._plugin_registry)
+        # The source plugin is always a required dependency
+        info.required_plugins.add(plugin_name)
         return info
