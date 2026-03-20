@@ -5,7 +5,7 @@ Commit Service
 Business logic for Git commit operations.
 Uses network layer to execute commands, parses to network models, maps to view models.
 """
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
@@ -67,6 +67,37 @@ class CommitService:
                 message=f"Commit created: {commit_hash[:7]}"
             )
 
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
+
+    @log_client_operation()
+    def commit_files(
+        self, files: Sequence[str], message: str, no_verify: bool = True
+    ) -> ClientResult[str]:
+        """
+        Create a commit with specific files only.
+
+        Args:
+            files: File paths to stage and commit
+            message: Commit message
+            no_verify: Skip pre-commit and commit-msg hooks
+
+        Returns:
+            ClientResult[str] with commit hash
+        """
+        try:
+            self.git.run_command(["git", "add", "--"] + list(files))
+
+            args = ["git", "commit", "-m", message]
+            if no_verify:
+                args.append("--no-verify")
+            self.git.run_command(args)
+
+            commit_hash = self.git.run_command(["git", "rev-parse", "HEAD"])
+            return ClientSuccess(
+                data=commit_hash,
+                message=f"Commit created: {commit_hash[:7]}"
+            )
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
 
