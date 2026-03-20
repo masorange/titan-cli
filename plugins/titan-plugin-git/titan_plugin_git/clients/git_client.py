@@ -243,6 +243,12 @@ class GitClient:
         """Create a commit."""
         return self.commit_service.commit(message, all, no_verify)
 
+    def commit_files(
+        self, files: list, message: str, no_verify: bool = True
+    ) -> ClientResult[str]:
+        """Create a commit with specific files only."""
+        return self.commit_service.commit_files(files, message, no_verify)
+
     def get_current_commit(self) -> ClientResult[str]:
         """Get current commit SHA (HEAD)."""
         return self.commit_service.get_current_commit()

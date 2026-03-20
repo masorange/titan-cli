@@ -53,9 +53,14 @@ def create_git_commit_step(ctx: WorkflowContext) -> WorkflowResult:
 
     all_files = ctx.get('all_files', True)
     no_verify = ctx.get('no_verify', False)
+    selected_files = ctx.data.get("selected_files")
 
     # Create commit using ClientResult pattern
-    result = ctx.git.commit(message=commit_message, all=all_files, no_verify=no_verify)
+    # If the user picked a specific subset of files, stage only those
+    if selected_files is not None:
+        result = ctx.git.commit_files(files=selected_files, message=commit_message, no_verify=no_verify)
+    else:
+        result = ctx.git.commit(message=commit_message, all=all_files, no_verify=no_verify)
 
     match result:
         case ClientSuccess(data=commit_hash):
