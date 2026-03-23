@@ -276,6 +276,47 @@ class GitHubClient:
                 error_code="API_ERROR"
             )
 
+    def get_user_display_name(self, login: str) -> ClientResult[str]:
+        """
+        Get the display name of any GitHub user by login.
+
+        Returns the full name if configured, falls back to the login.
+
+        Args:
+            login: GitHub username (login)
+
+        Returns:
+            ClientResult[str] with display name (e.g. "Alex García" or "finxo")
+        """
+        try:
+            output = self._gh_network.run_command(["api", f"users/{login}", "-q", ".name // .login"])
+            name = output.strip()
+            return ClientSuccess(data=name, message="User display name retrieved")
+        except Exception as e:
+            return ClientError(
+                error_message=f"Failed to get display name for {login}: {e}",
+                error_code="API_ERROR"
+            )
+
+    def get_current_user_display_name(self) -> ClientResult[str]:
+        """
+        Get the display name of the authenticated GitHub user.
+
+        Returns the full name if configured, falls back to the username login.
+
+        Returns:
+            ClientResult[str] with display name (e.g. "Alex García" or "finxo")
+        """
+        try:
+            output = self._gh_network.run_command(["api", "user", "-q", ".name // .login"])
+            name = output.strip()
+            return ClientSuccess(data=name, message="Current user display name retrieved")
+        except Exception as e:
+            return ClientError(
+                error_message=f"Failed to get current user display name: {e}",
+                error_code="API_ERROR"
+            )
+
     def get_default_branch(self) -> ClientResult[str]:
         """
         Get the default branch for the repository.
