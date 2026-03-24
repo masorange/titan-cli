@@ -11,6 +11,7 @@ from textual.containers import Horizontal
 from ..models.view import UIReviewSuggestion
 from titan_cli.ui.tui.widgets import DimText, ItalicText, Text
 from .code_block import CodeBlock
+from .comment_utils import extract_diff_context
 
 
 class ReviewSuggestion(Widget):
@@ -111,9 +112,13 @@ class ReviewSuggestion(Widget):
         return container
 
     def _code_context_widget(self) -> CodeBlock:
-        """Create code block with syntax-highlighted diff context."""
+        """Create code block with relevant diff context around the target line."""
+        context_code = extract_diff_context(
+            diff_hunk=self.suggestion.diff_context,
+            target_line=self.suggestion.line,
+        )
         code_block = CodeBlock(
-            code=self.suggestion.diff_context,
+            code=context_code,
             language="diff",
             theme="native",
             line_numbers=True,

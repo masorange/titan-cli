@@ -6,28 +6,29 @@ Pure business logic functions for loading project skills, building review
 context, and constructing review payloads. All functions are UI-agnostic.
 """
 
+import json
+import logging
 import re
-from pathlib import Path, PurePath
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..models.view import UIPullRequest, UIReviewSuggestion
 
+logger = logging.getLogger(__name__)
 
-def load_project_skills(changed_files: List[str]) -> List[Dict]:
+
+def load_all_project_skills() -> List[Dict]:
     """
-    Load project skills from .claude/skills/ that match changed files.
-
-    Args:
-        changed_files: List of file paths changed in the PR
+    Load all project skills from .claude/skills/ without filtering.
 
     Returns:
-        List of {"name": str, "content": str} dicts for matching skills
+        List of {"name": str, "description": str, "content": str} dicts
     """
     skills_dir = Path(".claude/skills")
     if not skills_dir.exists() or not skills_dir.is_dir():
         return []
 
-    matching_skills = []
+    skills = []
 
     for skill_file in sorted(skills_dir.glob("*.md")):
         try:
@@ -35,56 +36,83 @@ def load_project_skills(changed_files: List[str]) -> List[Dict]:
         except OSError:
             continue
 
-        # Parse YAML frontmatter between --- delimiters
+        # Extract description from frontmatter if present
+        description = skill_file.stem
         frontmatter_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-        file_patterns: List[str] = []
-
         if frontmatter_match:
-            frontmatter_text = frontmatter_match.group(1)
-            # Extract file_patterns list from frontmatter
-            patterns_match = re.search(
-                r"file_patterns\s*:\s*\n((?:\s+-\s+.+\n?)+)",
-                frontmatter_text
-            )
-            if patterns_match:
-                pattern_lines = patterns_match.group(1).strip().split("\n")
-                for line in pattern_lines:
-                    stripped = line.strip().lstrip("- ").strip()
-                    # Strip surrounding quotes (YAML quoted strings like "*Models.kt")
-                    stripped = stripped.strip('"').strip("'")
-                    if stripped:
-                        file_patterns.append(stripped)
+            desc_match = re.search(r"description\s*:\s*(.+)", frontmatter_match.group(1))
+            if desc_match:
+                description = desc_match.group(1).strip()
 
-        # If no file_patterns in frontmatter, skill applies to all files
-        if not file_patterns:
-            matching_skills.append({
-                "name": skill_file.stem,
-                "content": content,
-            })
-            continue
+        skills.append({
+            "name": skill_file.stem,
+            "description": description,
+            "content": content,
+        })
 
-        # Check if any changed file matches any pattern.
-        # PurePath.match() matches from the right, so "network/*.kt" matches
-        # "app/src/main/network/Foo.kt" correctly.
-        matched = False
-        for changed_file in changed_files:
-            for pattern in file_patterns:
-                try:
-                    if PurePath(changed_file).match(pattern):
-                        matched = True
-                        break
-                except (ValueError, TypeError):
-                    continue
-            if matched:
-                break
+    return skills
 
-        if matched:
-            matching_skills.append({
-                "name": skill_file.stem,
-                "content": content,
-            })
 
-    return matching_skills
+def select_relevant_skills(
+    all_skills: List[Dict],
+    diff: str,
+    ai_generator: Any,
+) -> List[Dict]:
+    """
+    Use AI to select which skills are relevant for the given diff.
+
+    Args:
+        all_skills: All available skills (from load_all_project_skills)
+        diff: Unified diff of the PR
+        ai_generator: AI generator (ctx.ai)
+
+    Returns:
+        Filtered list of relevant skill dicts
+    """
+    if not all_skills or not ai_generator:
+        return all_skills
+
+    skills_summary = "\n".join(
+        f"- {s['name']}: {s['description']}" for s in all_skills
+    )
+    diff_preview = diff[:8000]
+
+    prompt = f"""Given this pull request diff, select which of the following project skills are relevant to apply during code review.
+
+Available skills:
+{skills_summary}
+
+Diff (preview):
+```diff
+{diff_preview}
+```
+
+Respond with a JSON array of skill names that are relevant. Only include skills that provide useful guidelines for reviewing the changed code. If none are relevant, return [].
+
+Example: ["kotlin", "architecture"]"""
+
+    from titan_cli.ai.models import AIMessage
+    try:
+        response = ai_generator.generate(
+            messages=[AIMessage(role="user", content=prompt)],
+            max_tokens=200,
+            temperature=0.1,
+        )
+        text = response.content.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+
+        selected_names = json.loads(text)
+        if not isinstance(selected_names, list):
+            return all_skills
+
+        selected = [s for s in all_skills if s["name"] in selected_names]
+        return selected
+    except Exception as e:
+        logger.warning(f"Skill selection failed, using all skills: {e}")
+        return all_skills
 
 
 def build_review_context(
@@ -239,6 +267,51 @@ def compute_diff_stat(diff: str) -> Tuple[List[str], List[str]]:
               f"{total_dels} deletions[red](-)[/red]"
 
     return formatted_files, [summary]
+
+
+def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optional[str]:
+    """
+    Extract the diff hunk (starting with @@) that contains the target line.
+
+    Args:
+        file_diff: Full file diff (starting with "diff --git ...")
+        target_line: Line number to find
+
+    Returns:
+        The hunk string starting with @@, or None if not found
+    """
+    if not file_diff or not target_line:
+        return None
+
+    lines = file_diff.split("\n")
+    hunks = []
+    current_hunk: List[str] = []
+
+    for line in lines:
+        if line.startswith("@@"):
+            if current_hunk:
+                hunks.append("\n".join(current_hunk))
+            current_hunk = [line]
+        elif current_hunk:
+            current_hunk.append(line)
+
+    if current_hunk:
+        hunks.append("\n".join(current_hunk))
+
+    for hunk in hunks:
+        hunk_lines = hunk.split("\n")
+        header_match = re.search(r"\+(\d+),?(\d*)", hunk_lines[0])
+        if not header_match:
+            continue
+        new_start = int(header_match.group(1))
+        count_str = header_match.group(2)
+        count = int(count_str) if count_str else 1
+        new_end = new_start + count
+        if new_start <= target_line <= new_end:
+            return hunk
+
+    # Fallback: return first hunk if no match found
+    return hunks[0] if hunks else None
 
 
 def build_review_payload(

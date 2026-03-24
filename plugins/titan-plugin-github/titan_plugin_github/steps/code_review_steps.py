@@ -13,9 +13,11 @@ from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
 
 from ..models.view import UIReviewSuggestion
 from ..operations.code_review_operations import (
-    load_project_skills,
+    load_all_project_skills,
+    select_relevant_skills,
     build_review_context,
     extract_diff_for_file,
+    extract_hunk_for_line,
     build_review_payload,
     compute_diff_stat,
 )
@@ -270,8 +272,13 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.warning_text(f"Could not get commit SHA: {err}")
             commit_sha = ""
 
-    # Load matching project skills
-    skills = load_project_skills(changed_files)
+    # Load all skills and select relevant ones via AI
+    all_skills = load_all_project_skills()
+    if all_skills and ctx.ai:
+        with ctx.textual.loading("Selecting relevant project skills..."):
+            skills = select_relevant_skills(all_skills, diff, ctx.ai)
+    else:
+        skills = all_skills
 
     # Display file changes summary using diff stat
     formatted_files, formatted_summary = compute_diff_stat(diff)
@@ -279,11 +286,14 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         formatted_files,
         formatted_summary,
         title="Files affected:",
-        use_panel=True
     )
 
     ctx.textual.text("")
-    ctx.textual.success_text(f"✓ {len(skills)} project skill(s) loaded")
+    if skills:
+        skill_names = ", ".join(s["name"] for s in skills)
+        ctx.textual.success_text(f"✓ {len(skills)} project skill(s) loaded: {skill_names}")
+    else:
+        ctx.textual.dim_text("No project skills matched changed files")
     if commit_sha:
         ctx.textual.dim_text(f"  Latest commit: {commit_sha[:7]}")
 
@@ -349,11 +359,12 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No AI review suggestions generated")
 
-    # Enrich suggestions with diff context
+    # Enrich suggestions with the specific hunk around the commented line
     for suggestion in suggestions:
         file_diff = extract_diff_for_file(diff, suggestion.file_path)
         if file_diff:
-            suggestion.diff_context = file_diff[:3000]  # Limit context size
+            hunk = extract_hunk_for_line(file_diff, suggestion.line)
+            suggestion.diff_context = hunk or file_diff[:3000]
 
     # Show summary
     counts = {"critical": 0, "improvement": 0, "suggestion": 0}

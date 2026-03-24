@@ -44,9 +44,11 @@ from .issue_operations import (
 )
 
 from .code_review_operations import (
-    load_project_skills,
+    load_all_project_skills,
+    select_relevant_skills,
     build_review_context,
     extract_diff_for_file,
+    extract_hunk_for_line,
     build_review_payload,
     compute_diff_stat,
 )
@@ -79,9 +81,11 @@ __all__ = [
     "parse_assignees_and_labels",
 
     # Code review operations
-    "load_project_skills",
+    "load_all_project_skills",
+    "select_relevant_skills",
     "build_review_context",
     "extract_diff_for_file",
+    "extract_hunk_for_line",
     "build_review_payload",
     "compute_diff_stat",
 ]
