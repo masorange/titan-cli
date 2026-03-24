@@ -85,7 +85,7 @@ def transition_issue_to_ready_for_dev(
 
 def find_issue_type_by_name(
     jira_client: "JiraClient", project_key: str, issue_type_name: str
-) -> ClientResult["UIJiraIssueType"]:
+) -> "UIJiraIssueType":
     """
     Find issue type by name in a project.
 
@@ -95,7 +95,10 @@ def find_issue_type_by_name(
         issue_type_name: Issue type name to search (case-insensitive)
 
     Returns:
-        ClientResult[UIJiraIssueType]
+        UIJiraIssueType if found
+
+    Raises:
+        Exception: If issue type not found or API call fails
     """
     issue_types_result = jira_client.get_issue_types(project_key)
 
@@ -108,17 +111,16 @@ def find_issue_type_by_name(
             )
 
             if issue_type:
-                return ClientSuccess(data=issue_type)
+                return issue_type
 
-            # Not found - return error with available types
+            # Not found - raise with available types
             available = [it.name for it in issue_types]
-            return ClientError(
-                error_message=f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}",
-                error_code="ISSUE_TYPE_NOT_FOUND"
+            raise Exception(
+                f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}"
             )
 
-        case ClientError() as error:
-            return error
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to get issue types: {err}")
 
 
 def prepare_epic_name(issue_type: "UIJiraIssueType", summary: str) -> Optional[str]:
@@ -141,7 +143,7 @@ def prepare_epic_name(issue_type: "UIJiraIssueType", summary: str) -> Optional[s
 
 def find_subtask_issue_type(
     jira_client: "JiraClient", project_key: str
-) -> ClientResult["UIJiraIssueType"]:
+) -> "UIJiraIssueType":
     """
     Find subtask issue type for a project.
 
@@ -150,7 +152,10 @@ def find_subtask_issue_type(
         project_key: Project key
 
     Returns:
-        ClientResult[UIJiraIssueType]
+        UIJiraIssueType if found
+
+    Raises:
+        Exception: If subtask type not found or API call fails
     """
     issue_types_result = jira_client.get_issue_types(project_key)
 
@@ -160,12 +165,9 @@ def find_subtask_issue_type(
             subtask_type = next((it for it in issue_types if it.subtask), None)
 
             if subtask_type:
-                return ClientSuccess(data=subtask_type)
+                return subtask_type
 
-            return ClientError(
-                error_message="No subtask issue type found for project",
-                error_code="NO_SUBTASK_TYPE"
-            )
+            raise Exception("No subtask issue type found for project")
 
-        case ClientError() as error:
-            return error
+        case ClientError(error_message=err):
+            raise Exception(f"Failed to get issue types: {err}")
