@@ -36,11 +36,8 @@ def confirm_auto_assign(ctx: WorkflowContext) -> WorkflowResult:
     user_result = ctx.jira.get_current_user()
 
     match user_result:
-        case ClientSuccess(data=user_data):
-            display_name = user_data.get("displayName", "Unknown")
-            account_id = user_data.get("accountId")
-
-            ctx.textual.dim_text(InfoMessages.CURRENT_USER_LABEL.format(user=display_name))
+        case ClientSuccess(data=user):
+            ctx.textual.dim_text(InfoMessages.CURRENT_USER_LABEL.format(user=user.display_name))
             ctx.textual.text("")
 
             # Ask if want to auto-assign
@@ -48,10 +45,10 @@ def confirm_auto_assign(ctx: WorkflowContext) -> WorkflowResult:
 
             ctx.data["auto_assign"] = auto_assign
 
-            if auto_assign and account_id:
-                ctx.data["assignee_id"] = account_id
+            if auto_assign and user.account_id:
+                ctx.data["assignee_id"] = user.account_id
                 ctx.textual.success_text(
-                    SuccessMessages.WILL_ASSIGN_TO.format(user=display_name)
+                    SuccessMessages.WILL_ASSIGN_TO.format(user=user.display_name)
                 )
             else:
                 ctx.data["assignee_id"] = None

@@ -18,7 +18,17 @@ from .services import (
     MetadataService,
     LinkService,
 )
-from ..models import UIJiraIssue, UIJiraProject, UIJiraComment, UIJiraTransition, NetworkJiraIssueType
+from ..models import (
+    UIJiraIssue,
+    UIJiraProject,
+    UIJiraComment,
+    UIJiraTransition,
+    UIJiraIssueType,
+    UIJiraStatus,
+    UIJiraUser,
+    UIJiraVersion,
+    UIPriority
+)
 
 
 class JiraClient:
@@ -313,7 +323,7 @@ class JiraClient:
 
     # ==================== METADATA OPERATIONS ====================
 
-    def get_issue_types(self, project_key: Optional[str] = None) -> ClientResult[List[NetworkJiraIssueType]]:
+    def get_issue_types(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraIssueType]]:
         """
         Get issue types for a project.
 
@@ -321,7 +331,7 @@ class JiraClient:
             project_key: Project key (uses default if not provided)
 
         Returns:
-            ClientResult[List[NetworkJiraIssueType]]
+            ClientResult[List[UIJiraIssueType]]
         """
         key = project_key or self.project_key
         if not key:
@@ -332,7 +342,7 @@ class JiraClient:
 
         return self._metadata_service.get_issue_types(key)
 
-    def list_statuses(self, project_key: Optional[str] = None) -> ClientResult[List[dict]]:
+    def list_statuses(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraStatus]]:
         """
         List all available statuses for a project.
 
@@ -340,7 +350,7 @@ class JiraClient:
             project_key: Project key (uses default if not provided)
 
         Returns:
-            ClientResult[List[dict]]
+            ClientResult[List[UIJiraStatus]]
         """
         key = project_key or self.project_key
         if not key:
@@ -351,16 +361,16 @@ class JiraClient:
 
         return self._metadata_service.list_statuses(key)
 
-    def get_current_user(self) -> ClientResult[dict]:
+    def get_current_user(self) -> ClientResult[UIJiraUser]:
         """
         Get current authenticated user info.
 
         Returns:
-            ClientResult[dict]
+            ClientResult[UIJiraUser]
         """
         return self._metadata_service.get_current_user()
 
-    def list_project_versions(self, project_key: Optional[str] = None) -> ClientResult[List[dict]]:
+    def list_project_versions(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraVersion]]:
         """
         List all versions for a project.
 
@@ -368,7 +378,7 @@ class JiraClient:
             project_key: Project key (uses default if not provided)
 
         Returns:
-            ClientResult[List[dict]]
+            ClientResult[List[UIJiraVersion]]
         """
         key = project_key or self.project_key
         if not key:
@@ -379,12 +389,12 @@ class JiraClient:
 
         return self._metadata_service.list_project_versions(key)
 
-    def get_priorities(self) -> ClientResult[List["UIPriority"]]:
+    def get_priorities(self) -> ClientResult[List[UIPriority]]:
         """
         Get all available priorities in Jira.
 
         Returns:
-            ClientResult[List[UIPriority]] with priority info
+            ClientResult[List[UIPriority]]
         """
         return self._metadata_service.get_priorities()
 

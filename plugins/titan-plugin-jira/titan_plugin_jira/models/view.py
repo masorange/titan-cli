@@ -102,10 +102,70 @@ class UIPriority:
     label: str                       # Pre-formatted label with icon for selection widgets
 
 
+@dataclass
+class UIJiraStatus:
+    """
+    UI model for displaying a Jira status.
+
+    Optimized for rendering status information in the TUI.
+    """
+    id: str
+    name: str                        # "To Do", "In Progress", "Done"
+    description: str                 # "No description" if empty
+    category: str                    # "To Do", "In Progress", "Done"
+    icon: str                        # "🟡" "🔵" "🟢" etc.
+
+
+@dataclass
+class UIJiraUser:
+    """
+    UI model for displaying a Jira user.
+
+    Optimized for rendering user information in the TUI.
+    """
+    account_id: str
+    display_name: str                # User's full name
+    email: str                       # "Unknown" if not available
+    active: bool                     # User active status
+
+
+@dataclass
+class UIJiraIssueType:
+    """
+    UI model for displaying a Jira issue type.
+
+    Optimized for rendering issue type information in the TUI.
+    """
+    id: str
+    name: str                        # "Bug", "Story", "Task", "Epic"
+    description: str                 # "No description" if empty
+    subtask: bool                    # Whether this is a subtask type
+    icon: str                        # "🐛" "📖" "✅" etc.
+    label: str                       # Pre-formatted label with icon for selection widgets
+
+
+@dataclass
+class UIJiraVersion:
+    """
+    UI model for displaying a Jira version.
+
+    Optimized for rendering version information in the TUI.
+    """
+    id: str
+    name: str                        # Version name
+    description: str                 # "No description" if empty
+    released: bool                   # Release status
+    release_date: str                # "Not set" or formatted date
+
+
 __all__ = [
     "UIJiraIssue",
     "UIJiraProject",
     "UIJiraComment",
     "UIJiraTransition",
     "UIPriority",
+    "UIJiraStatus",
+    "UIJiraUser",
+    "UIJiraIssueType",
+    "UIJiraVersion",
 ]

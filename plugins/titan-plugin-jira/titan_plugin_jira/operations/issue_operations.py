@@ -10,8 +10,7 @@ from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
 if TYPE_CHECKING:
     from titan_plugin_jira.clients.jira_client import JiraClient
-    from titan_plugin_jira.models.view import UITransition
-    from titan_plugin_jira.models.network.rest.issue_type import NetworkJiraIssueType
+    from titan_plugin_jira.models.view import UITransition, UIJiraIssueType
 
 
 def find_ready_to_dev_transition(
@@ -86,7 +85,7 @@ def transition_issue_to_ready_for_dev(
 
 def find_issue_type_by_name(
     jira_client: "JiraClient", project_key: str, issue_type_name: str
-) -> "NetworkJiraIssueType":
+) -> ClientResult["UIJiraIssueType"]:
     """
     Find issue type by name in a project.
 
@@ -96,10 +95,7 @@ def find_issue_type_by_name(
         issue_type_name: Issue type name to search (case-insensitive)
 
     Returns:
-        NetworkJiraIssueType if found
-
-    Raises:
-        Exception: If issue type not found or API call fails
+        ClientResult[UIJiraIssueType]
     """
     issue_types_result = jira_client.get_issue_types(project_key)
 
@@ -112,19 +108,20 @@ def find_issue_type_by_name(
             )
 
             if issue_type:
-                return issue_type
+                return ClientSuccess(data=issue_type)
 
-            # Not found - raise helpful error with available types
+            # Not found - return error with available types
             available = [it.name for it in issue_types]
-            raise Exception(
-                f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}"
+            return ClientError(
+                error_message=f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}",
+                error_code="ISSUE_TYPE_NOT_FOUND"
             )
 
-        case ClientError(error_message=err):
-            raise Exception(f"Failed to get issue types: {err}")
+        case ClientError() as error:
+            return error
 
 
-def prepare_epic_name(issue_type: "NetworkJiraIssueType", summary: str) -> Optional[str]:
+def prepare_epic_name(issue_type: "UIJiraIssueType", summary: str) -> Optional[str]:
     """
     Prepare Epic Name field if issue type is Epic.
 
@@ -144,7 +141,7 @@ def prepare_epic_name(issue_type: "NetworkJiraIssueType", summary: str) -> Optio
 
 def find_subtask_issue_type(
     jira_client: "JiraClient", project_key: str
-) -> "NetworkJiraIssueType":
+) -> ClientResult["UIJiraIssueType"]:
     """
     Find subtask issue type for a project.
 
@@ -153,10 +150,7 @@ def find_subtask_issue_type(
         project_key: Project key
 
     Returns:
-        NetworkJiraIssueType if found
-
-    Raises:
-        Exception: If no subtask type found or API call fails
+        ClientResult[UIJiraIssueType]
     """
     issue_types_result = jira_client.get_issue_types(project_key)
 
@@ -166,9 +160,12 @@ def find_subtask_issue_type(
             subtask_type = next((it for it in issue_types if it.subtask), None)
 
             if subtask_type:
-                return subtask_type
+                return ClientSuccess(data=subtask_type)
 
-            raise Exception("No subtask issue type found for project")
+            return ClientError(
+                error_message="No subtask issue type found for project",
+                error_code="NO_SUBTASK_TYPE"
+            )
 
-        case ClientError(error_message=err):
-            raise Exception(f"Failed to get issue types: {err}")
+        case ClientError() as error:
+            return error
