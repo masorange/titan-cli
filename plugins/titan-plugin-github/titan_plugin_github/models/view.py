@@ -199,6 +199,16 @@ class UIPRMergeResult:
     message: str
 
 
+@dataclass
+class UIReviewSuggestion:
+    """AI-generated review comment for a PR."""
+    file_path: str
+    line: Optional[int]
+    body: str
+    severity: str  # "critical", "improvement", "suggestion"
+    diff_context: Optional[str] = None  # Extracted diff hunk around the line
+
+
 __all__ = [
     "UIComment",
     "UICommentThread",
@@ -206,4 +216,5 @@ __all__ = [
     "UIIssue",
     "UIReview",
     "UIPRMergeResult",
+    "UIReviewSuggestion",
 ]

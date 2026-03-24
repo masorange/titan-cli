@@ -1,4 +1,4 @@
-name: "Review PR Comments"
+name: "Respond to PR Comments"
 description: "Review and address pending comments on your pull requests"
 
 hooks:

@@ -43,6 +43,14 @@ from .issue_operations import (
     parse_assignees_and_labels,
 )
 
+from .code_review_operations import (
+    load_project_skills,
+    build_review_context,
+    extract_diff_for_file,
+    build_review_payload,
+    compute_diff_stat,
+)
+
 __all__ = [
     # Comment operations
     "build_ai_review_context",
@@ -69,4 +77,11 @@ __all__ = [
     "parse_comma_separated_list",
     "filter_valid_labels",
     "parse_assignees_and_labels",
+
+    # Code review operations
+    "load_project_skills",
+    "build_review_context",
+    "extract_diff_for_file",
+    "build_review_payload",
+    "compute_diff_stat",
 ]
