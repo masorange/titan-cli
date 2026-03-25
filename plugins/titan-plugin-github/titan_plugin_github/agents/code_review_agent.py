@@ -30,13 +30,21 @@ IMPORTANT rules:
 - If a change looks correct and has no issues, skip it entirely — return nothing for that file/line.
 - Every comment must propose a concrete change or flag a real problem.
 - If the code looks good overall, return an empty array [].
-- If "Existing Open Review Comments" are provided, do NOT suggest the same change that was already requested. Check each existing comment before generating suggestions.
+
+If "Existing Open Review Comments" are provided:
+- Check each thread before suggesting changes — do NOT duplicate an issue already in the conversation.
+- Only reply to a thread (using `reply_to_comment_id`) if needed to continue the conversation:
+  - If author says it's fixed and they're RIGHT → skip, don't reply
+  - If author disagrees and they're RIGHT → skip, don't reply
+  - If author is WRONG or hasn't addressed it yet → reply with clarification, evidence, or escalation
+- Never suggest a reply just to repeat the original comment. Replies must add new context or refute the author's reasoning.
 
 Output your review as a JSON array of comment objects. Each comment must have:
-- "file": the file path (string)
-- "snippet": the exact line of code where the problem is (copy-paste the line verbatim from the diff, without the leading + or - character). Use null for general file-level comments not tied to a specific line.
+- "file": the file path (string). Use empty string "" when replying to a thread.
+- "snippet": the exact line of code where the problem is (copy-paste the line verbatim from the diff, without the leading + or - character). Use null for general file-level comments or replies.
 - "body": the review comment text (string, be concise and actionable)
 - "severity": one of "critical", "improvement", or "suggestion"
+- "reply_to_comment_id": (optional) the integer comment ID from `[comment_id:N]` if this is a follow-up reply to an existing thread. Omit or use null for new comments.
 
 Severity guide:
 - "critical": bugs, security issues, broken logic that must be fixed
@@ -131,12 +139,16 @@ class CodeReviewAgent(BaseAIAgent):
             if not body:
                 continue
 
+            reply_to_raw = item.get("reply_to_comment_id")
+            reply_to_comment_id = int(reply_to_raw) if isinstance(reply_to_raw, (int, float)) and reply_to_raw else None
+
             suggestions.append(UIReviewSuggestion(
                 file_path=file_path,
                 line=None,   # Will be resolved deterministically from snippet
                 body=body,
                 severity=severity,
                 snippet=snippet,
+                reply_to_comment_id=reply_to_comment_id,
             ))
 
         return suggestions

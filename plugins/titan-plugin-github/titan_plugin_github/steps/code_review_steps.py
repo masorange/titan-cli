@@ -49,7 +49,10 @@ def _show_suggestion_and_get_action(
     """
     # Display header with comment number
     ctx.textual.text("")
-    ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
+    if suggestion.reply_to_comment_id:
+        ctx.textual.bold_text(f"Comment {idx + 1} of {total} — Reply to existing thread #{suggestion.reply_to_comment_id}")
+    else:
+        ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
     ctx.textual.text("")
 
     # Mount the ReviewSuggestion widget (handles all display: severity, file, line, diff, body)

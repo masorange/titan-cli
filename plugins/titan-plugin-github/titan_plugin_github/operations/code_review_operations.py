@@ -278,18 +278,33 @@ def build_review_context(
 
     # Existing open review comments
     if open_threads:
-        thread_lines = []
-        for thread in open_threads:
+        thread_sections = []
+        for i, thread in enumerate(open_threads, 1):
             c = thread.main_comment
             location = f"`{c.path}` line {c.line}" if c.path else "general comment"
-            thread_lines.append(f"- **{c.author_login}** on {location}: {c.body}")
-            for reply in thread.replies:
-                thread_lines.append(f"  - **{reply.author_login}**: {reply.body}")
+
+            thread_text = f"### Thread {i} [comment_id:{c.id}]\n"
+            thread_text += f"**{c.author_login}** on {location}:\n"
+            thread_text += f"> {c.body}\n"
+
+            if thread.replies:
+                thread_text += "\n**Responses:**\n"
+                for reply in thread.replies:
+                    thread_text += f"- **{reply.author_login}**: {reply.body}\n"
+            else:
+                thread_text += "\n*(No responses yet)*\n"
+
+            thread_sections.append(thread_text)
+
         sections.append(
             "## Existing Open Review Comments\n\n"
-            "These comments have already been requested and are NOT resolved yet. "
-            "Do NOT suggest the same change again.\n\n"
-            + "\n".join(thread_lines)
+            "These comments have already been made and are waiting for discussion or implementation.\n\n"
+            "Guidelines for replies:\n"
+            "- If the author says the issue is fixed or acknowledged it — and they're right — do NOT reply.\n"
+            "- If the author disagrees but has a valid point — do NOT reply, skip the issue.\n"
+            "- If the author disagrees and they're WRONG, or the comment is still unaddressed — reply with `reply_to_comment_id` "
+            "to continue the conversation (clarify, insist, or provide additional context).\n\n"
+            + "\n".join(thread_sections)
         )
 
     # Changed files
@@ -704,6 +719,15 @@ def build_review_payload(
     general_comments: List[str] = []
 
     for s in suggestions:
+        # Replies to existing threads use in_reply_to — no path/line needed
+        if s.reply_to_comment_id is not None:
+            inline_comments.append({
+                "body": s.body,
+                "in_reply_to": s.reply_to_comment_id,
+            })
+            logger.info(f"Reply comment to thread {s.reply_to_comment_id}")
+            continue
+
         # Resolve line from snippet if available (more accurate than AI-reported line)
         resolved_line = s.line
 
