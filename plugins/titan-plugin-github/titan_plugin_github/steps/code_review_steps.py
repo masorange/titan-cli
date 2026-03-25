@@ -549,6 +549,7 @@ def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
                     body=new_body.strip(),
                     severity=suggestion.severity,
                     diff_context=suggestion.diff_context,
+                    snippet=suggestion.snippet,
                 )
                 approved.append(edited)
             else:

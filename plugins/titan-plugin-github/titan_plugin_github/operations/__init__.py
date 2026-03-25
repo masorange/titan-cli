@@ -55,6 +55,7 @@ from .code_review_operations import (
     extract_diff_for_file,
     extract_hunk_for_line,
     extract_valid_diff_lines,
+    find_line_by_snippet,
     build_review_payload,
     compute_diff_stat,
 )
@@ -98,6 +99,7 @@ __all__ = [
     "extract_diff_for_file",
     "extract_hunk_for_line",
     "extract_valid_diff_lines",
+    "find_line_by_snippet",
     "build_review_payload",
     "compute_diff_stat",
 ]

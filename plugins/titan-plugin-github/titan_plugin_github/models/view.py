@@ -234,6 +234,7 @@ class UIReviewSuggestion:
     body: str
     severity: str  # "critical", "improvement", "suggestion"
     diff_context: Optional[str] = None  # Extracted diff hunk around the line
+    snippet: Optional[str] = None  # Exact code line reported by AI for line lookup
 
 
 __all__ = [

@@ -577,6 +577,44 @@ def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optiona
     return hunks[0] if hunks else None
 
 
+def find_line_by_snippet(file_diff: str, snippet: str) -> Optional[int]:
+    """
+    Find the new-file line number of a code snippet within a file's diff.
+
+    Scans the diff hunks tracking the new-file line counter, and returns
+    the line number of the first added/context line that contains the snippet.
+
+    Args:
+        file_diff: Diff section for a single file (from extract_diff_for_file)
+        snippet: Exact code text to search for (trimmed match)
+
+    Returns:
+        New-file line number if found, or None
+    """
+    if not file_diff or not snippet:
+        return None
+
+    snippet_stripped = snippet.strip()
+    current_line = 0
+
+    for line in file_diff.split("\n"):
+        if line.startswith("@@"):
+            match = re.search(r"\+(\d+)", line)
+            if match:
+                current_line = int(match.group(1)) - 1
+        elif line.startswith("+") and not line.startswith("+++"):
+            current_line += 1
+            if snippet_stripped in line[1:].strip():
+                return current_line
+        elif line.startswith(" "):
+            current_line += 1
+            if snippet_stripped in line[1:].strip():
+                return current_line
+        # Lines starting with "-" are deleted — skip
+
+    return None
+
+
 def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
     """
     Parse a unified diff and extract which line numbers of the new file are present.
@@ -644,23 +682,36 @@ def build_review_payload(
     general_comments: List[str] = []
 
     for s in suggestions:
-        if s.line is not None:
+        # Resolve line from snippet if available (more accurate than AI-reported line)
+        resolved_line = s.line
+        if s.snippet and diff:
+            file_diff = extract_diff_for_file(diff, s.file_path)
+            if file_diff:
+                snippet_line = find_line_by_snippet(file_diff, s.snippet)
+                if snippet_line is not None:
+                    logger.info(
+                        f"Snippet lookup: {s.file_path} snippet={s.snippet!r:.40} "
+                        f"→ line {snippet_line} (was {s.line})"
+                    )
+                    resolved_line = snippet_line
+
+        if resolved_line is not None:
             file_valid_lines = valid_lines_by_file.get(s.file_path, set())
 
-            if s.line in file_valid_lines:
+            if resolved_line in file_valid_lines:
                 inline_comments.append({
                     "path": s.file_path,
-                    "line": s.line,
+                    "line": resolved_line,
                     "side": "RIGHT",
                     "body": s.body,
                 })
-                logger.info(f"Inline comment: {s.file_path}:{s.line}")
+                logger.info(f"Inline comment: {s.file_path}:{resolved_line}")
             else:
                 logger.info(
-                    f"Line {s.line} not in diff for {s.file_path} "
+                    f"Line {resolved_line} not in diff for {s.file_path} "
                     f"(valid: {sorted(file_valid_lines)[:20]}) → general comment"
                 )
-                general_comments.append(f"**{s.file_path}** (line {s.line}):\n{s.body}")
+                general_comments.append(f"**{s.file_path}** (line {resolved_line}):\n{s.body}")
         else:
             general_comments.append(f"**{s.file_path}**: {s.body}")
 

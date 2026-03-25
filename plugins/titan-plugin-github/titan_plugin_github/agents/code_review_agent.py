@@ -33,7 +33,7 @@ IMPORTANT rules:
 
 Output your review as a JSON array of comment objects. Each comment must have:
 - "file": the file path (string)
-- "line": the line number in the NEW version of the file (right side), as it appears in the diff hunk header (e.g. if the hunk starts at +42, lines are 42, 43, 44...). Use null for general file-level comments not tied to a specific line.
+- "snippet": the exact line of code where the problem is (copy-paste the line verbatim from the diff, without the leading + or - character). Use null for general file-level comments not tied to a specific line.
 - "body": the review comment text (string, be concise and actionable)
 - "severity": one of "critical", "improvement", or "suggestion"
 
@@ -123,8 +123,8 @@ class CodeReviewAgent(BaseAIAgent):
             if severity not in valid_severities:
                 severity = "suggestion"
 
-            line_raw = item.get("line")
-            line = int(line_raw) if isinstance(line_raw, (int, float)) and line_raw else None
+            snippet_raw = item.get("snippet")
+            snippet = snippet_raw.strip() if isinstance(snippet_raw, str) and snippet_raw else None
 
             body = item.get("body", "").strip()
             if not body:
@@ -132,9 +132,10 @@ class CodeReviewAgent(BaseAIAgent):
 
             suggestions.append(UIReviewSuggestion(
                 file_path=file_path,
-                line=line,
+                line=None,   # Will be resolved deterministically from snippet
                 body=body,
                 severity=severity,
+                snippet=snippet,
             ))
 
         return suggestions
