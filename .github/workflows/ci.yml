@@ -8,4 +8,4 @@ on:
 
 jobs:
   ci:
-    uses: masorange/masorange-gh-actions/titan-cli/.github/workflows/ci.yml@master
+    uses: masorange/masorange-gh-actions/.github/workflows/titan-cli-ci.yml@master
