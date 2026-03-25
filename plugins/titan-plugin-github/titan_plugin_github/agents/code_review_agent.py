@@ -33,6 +33,9 @@ IMPORTANT rules:
 
 If "Existing Open Review Comments" are provided:
 - Check each thread before suggesting changes — do NOT duplicate an issue already in the conversation.
+- If the author/reviewer has already responded (even with a short note), and the issue seems addressed, do NOT suggest it again.
+  - Example: If someone says "This variable exists as an org secret", don't suggest validating it.
+  - Example: If someone says "Already fixed in commit X", don't repeat the same issue.
 - Only reply to a thread (using `reply_to_comment_id`) if needed to continue the conversation:
   - If author says it's fixed and they're RIGHT → skip, don't reply
   - If author disagrees and they're RIGHT → skip, don't reply

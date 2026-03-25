@@ -237,12 +237,56 @@ Example: {{"skills": ["store", "testing"], "docs": ["architecture-mvi"]}}"""
         return [], []
 
 
+_SUMMARY_HEADING_KEYWORDS = {
+    "summary", "overview", "introduction", "about", "description",
+    "resumen", "introducción", "descripción",
+}
+
+
+def extract_doc_summary(content: str, max_chars: int = 2000) -> str:
+    """
+    Extract an introductory summary from a doc file for AI context.
+
+    Strategy (in order):
+    1. If a known summary-like heading (## Summary, ## Overview, etc.) exists,
+       extract only that section.
+    2. Otherwise, return the first max_chars characters of the document.
+
+    This is robust to any doc structure regardless of authoring tool.
+    """
+    lines = content.split("\n")
+    in_summary_section = False
+    summary_lines: List[str] = []
+
+    for line in lines:
+        if line.startswith("## "):
+            heading_text = line[3:].strip().lower().rstrip(":")
+            if heading_text in _SUMMARY_HEADING_KEYWORDS:
+                in_summary_section = True
+                summary_lines.append(line)
+                continue
+            elif in_summary_section:
+                break  # End of the summary section
+
+        if in_summary_section:
+            summary_lines.append(line)
+
+    if summary_lines:
+        result = "\n".join(summary_lines).strip()
+        if len(result) > max_chars:
+            result = result[:max_chars] + "\n... (truncated)"
+        return result
+
+    # Fallback: plain truncation — works for any structure
+    if len(content) <= max_chars:
+        return content
+    return content[:max_chars] + "\n... (truncated)"
+
+
 def build_review_context(
     pr: UIPullRequest,
     diff: str,
-    changed_files: List[str],
     skills: List[Dict],
-    project_instructions: Optional[str] = None,
     docs: Optional[List[Dict]] = None,
     open_threads: Optional[List] = None,
 ) -> str:
@@ -252,10 +296,8 @@ def build_review_context(
     Args:
         pr: UIPullRequest model
         diff: Full unified diff of the PR
-        changed_files: List of changed file paths
-        skills: List of {"name", "content"} skill dicts
-        project_instructions: Content of the project instructions file (CLAUDE.md, GEMINI.md, etc.)
-        docs: List of {"name", "content"} architecture doc dicts
+        skills: List of {"name", "content"} skill dicts (full content, already filtered)
+        docs: List of {"name", "content"} architecture doc dicts (summarized to intro only)
         open_threads: List of UICommentThread with existing unresolved review comments
 
     Returns:
@@ -270,11 +312,7 @@ def build_review_context(
 
 **Author**: {pr.author_name}
 **Branches**: {pr.branch_info}
-**Stats**: {pr.stats} across {pr.files_changed} file(s)
-**Draft**: {"Yes" if pr.is_draft else "No"}
-
-### Description
-{pr.body or "(no description)"}""")
+**Description**: {pr.body or "(no description)"}""")
 
     # Existing open review comments
     if open_threads:
@@ -307,30 +345,17 @@ def build_review_context(
             + "\n".join(thread_sections)
         )
 
-    # Changed files
-    if changed_files:
-        files_list = "\n".join(f"  - {f}" for f in changed_files)
-        sections.append(f"## Changed Files\n{files_list}")
-
-    # Project instructions (always included if available, truncated)
-    if project_instructions:
-        max_instructions_chars = 6_000
-        instructions_preview = project_instructions[:max_instructions_chars]
-        if len(project_instructions) > max_instructions_chars:
-            instructions_preview += "\n\n... (truncated)"
-        sections.append(f"## Project Overview\n\n{instructions_preview}")
-
-    # Code guidelines (skills)
+    # Code guidelines (skills — full content, already filtered by relevance)
     if skills:
         skill_sections = [f"### {skill['name']}\n{skill['content']}" for skill in skills]
         sections.append("## Code Guidelines\n\n" + "\n\n".join(skill_sections))
 
-    # Architecture docs
+    # Architecture docs (summary only — introductory section, not full tutorial)
     if docs:
-        doc_sections = [f"### {doc['name']}\n{doc['content']}" for doc in docs]
-        sections.append("## Architecture Documentation\n\n" + "\n\n".join(doc_sections))
+        doc_sections = [f"### {doc['name']}\n{extract_doc_summary(doc['content'])}" for doc in docs]
+        sections.append("## Architecture Context\n\n" + "\n\n".join(doc_sections))
 
-    if not skills and not docs and not project_instructions:
+    if not skills and not docs:
         sections.append(
             "## Project Guidelines\n\nNo project-specific guidelines found. "
             "Apply general best practices for code review."
@@ -376,7 +401,7 @@ def extract_diff_for_file(full_diff: str, file_path: str) -> Optional[str]:
             if in_file:
                 break  # We've passed the target file
             # Check if this is our target file
-            if f"b/{file_path}" in line or line.endswith(file_path):
+            if f" b/{file_path}" in line or line.endswith(file_path):
                 in_file = True
                 result_lines.append(line)
         elif in_file:
@@ -402,7 +427,7 @@ def compute_diff_stat(diff: str) -> Tuple[List[str], List[str]]:
     for line in diff.split("\n"):
         # Match "diff --git" lines to track file
         if line.startswith("diff --git"):
-            match = re.search(r"b/(.+)$", line)
+            match = re.search(r" b/(.+)$", line)
             if match:
                 current_file = match.group(1)
                 file_stats[current_file] = (0, 0)
@@ -670,7 +695,7 @@ def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
 
     for line in diff.split("\n"):
         if line.startswith("diff --git"):
-            match = re.search(r"b/(.+)$", line)
+            match = re.search(r" b/(.+)$", line)
             if match:
                 current_file = match.group(1)
                 result[current_file] = set()

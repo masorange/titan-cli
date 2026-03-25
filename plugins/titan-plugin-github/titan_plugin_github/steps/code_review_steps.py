@@ -10,11 +10,10 @@ from typing import List
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
-from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
+from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..models.view import UIReviewSuggestion
 from ..operations.code_review_operations import (
-    load_project_instructions,
     load_all_project_skills,
     load_project_docs,
     select_relevant_skills,
@@ -76,7 +75,6 @@ def _show_suggestion_and_get_action(
         result_container["choice"] = value
         result_event.set()
 
-    from titan_cli.ui.tui.widgets import PromptChoice
     prompt = PromptChoice(
         question="What would you like to do with this comment?",
         options=options,
@@ -129,7 +127,9 @@ def _show_suggestion_and_get_action(
 
 def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     """
-    List PRs pending review and ask user to select one.
+    List all open PRs and ask user to select one.
+
+    Assigned PRs (pending your review) appear first marked with ⭐.
 
     Outputs (saved to ctx.data):
         review_pr_number (int): Selected PR number
@@ -149,61 +149,75 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
-    with ctx.textual.loading("Fetching PRs pending your review..."):
-        result = ctx.github.list_pending_review_prs()
+    with ctx.textual.loading("Fetching open PRs..."):
+        all_result = ctx.github.list_all_prs()
+        assigned_result = ctx.github.list_pending_review_prs()
 
-    match result:
-        case ClientSuccess(data=prs):
-            if not prs:
-                ctx.textual.dim_text("No PRs are currently assigned for your review.")
-                ctx.textual.end_step("skip")
-                return Exit("No PRs pending review")
-
-            options = [
-                OptionItem(
-                    value=pr.number,
-                    title=f"#{pr.number}: {pr.title}",
-                    description=f"by {pr.author_name} · {pr.branch_info}",
-                )
-                for pr in prs
-            ]
-
-            try:
-                selected = ctx.textual.ask_option(
-                    f"Select a PR to review ({len(prs)} assigned):",
-                    options,
-                )
-            except Exception as e:
-                ctx.textual.end_step("error")
-                return Error(str(e))
-
-            if not selected:
-                ctx.textual.warning_text("No PR selected")
-                ctx.textual.end_step("skip")
-                return Exit("User cancelled PR selection")
-
-            selected_pr = next((pr for pr in prs if pr.number == selected), None)
-            if not selected_pr:
-                ctx.textual.end_step("error")
-                return Error(f"PR #{selected} not found in list")
-
-            ctx.textual.success_text(f"Selected PR #{selected_pr.number}: {selected_pr.title}")
-            ctx.textual.end_step("success")
-
-            return Success(
-                f"Selected PR #{selected_pr.number}",
-                metadata={
-                    "review_pr_number": selected_pr.number,
-                    "review_pr_title": selected_pr.title,
-                    "review_pr_head": selected_pr.head_ref,
-                    "review_pr_base": selected_pr.base_ref,
-                },
-            )
-
+    match all_result:
         case ClientError(error_message=err):
             ctx.textual.error_text(f"Failed to fetch PRs: {err}")
             ctx.textual.end_step("error")
             return Error(f"Failed to fetch PRs: {err}")
+        case ClientSuccess(data=all_prs_list):
+            pass
+
+    if not all_prs_list:
+        ctx.textual.dim_text("No open PRs found in this repository.")
+        ctx.textual.end_step("skip")
+        return Exit("No open PRs found")
+
+    # Build set of assigned PR numbers (ignore errors — best effort)
+    assigned_numbers: set = set()
+    match assigned_result:
+        case ClientSuccess(data=assigned_prs):
+            assigned_numbers = {pr.number for pr in assigned_prs}
+        case ClientError():
+            pass
+
+    # Sort: assigned first, then the rest (preserving original order within each group)
+    sorted_prs = [pr for pr in all_prs_list if pr.number in assigned_numbers] + \
+                 [pr for pr in all_prs_list if pr.number not in assigned_numbers]
+
+    options = [
+        OptionItem(
+            value=pr.number,
+            title=f"⭐ #{pr.number}: {pr.title}" if pr.number in assigned_numbers else f"#{pr.number}: {pr.title}",
+            description=f"by {pr.author_name} · {pr.branch_info}",
+        )
+        for pr in sorted_prs
+    ]
+
+    assigned_count = len(assigned_numbers)
+    question = f"Select a PR to review ({len(all_prs_list)} total{f', {assigned_count} asignados ⭐' if assigned_count else ''}):"
+
+    try:
+        selected = ctx.textual.ask_option(question, options)
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(str(e))
+
+    if not selected:
+        ctx.textual.warning_text("No PR selected")
+        ctx.textual.end_step("skip")
+        return Exit("User cancelled PR selection")
+
+    selected_pr = next((pr for pr in sorted_prs if pr.number == selected), None)
+    if not selected_pr:
+        ctx.textual.end_step("error")
+        return Error(f"PR #{selected} not found in list")
+
+    ctx.textual.success_text(f"Selected PR #{selected_pr.number}: {selected_pr.title}")
+    ctx.textual.end_step("success")
+
+    return Success(
+        f"Selected PR #{selected_pr.number}",
+        metadata={
+            "review_pr_number": selected_pr.number,
+            "review_pr_title": selected_pr.title,
+            "review_pr_head": selected_pr.head_ref,
+            "review_pr_base": selected_pr.base_ref,
+        },
+    )
 
 
 def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
@@ -317,8 +331,7 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.warning_text(f"Could not get commit SHA: {err}")
             commit_sha = ""
 
-    # Load project context: instructions file, skills and docs
-    project_instructions = load_project_instructions()
+    # Load project context: skills and docs (no project_instructions — too noisy for code review)
     all_skills = load_all_project_skills()
     all_docs = load_project_docs()
 
@@ -354,16 +367,14 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
                 pass
 
     ctx.textual.text("")
-    if project_instructions:
-        ctx.textual.success_text("✓ Project instructions loaded")
     if skills:
         skill_names = ", ".join(s["name"] for s in skills)
         ctx.textual.success_text(f"✓ {len(skills)} guideline(s): {skill_names}")
     if docs:
         doc_names = ", ".join(d["name"] for d in docs)
         ctx.textual.success_text(f"✓ {len(docs)} doc(s): {doc_names}")
-    if not project_instructions and not skills and not docs:
-        ctx.textual.dim_text("No project context found")
+    if not skills and not docs:
+        ctx.textual.dim_text("No project context found — applying general best practices")
     if open_threads:
         ctx.textual.dim_text(f"  {len(open_threads)} existing open comment(s) found")
     if commit_sha:
@@ -379,7 +390,6 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             "review_commit_sha": commit_sha,
             "review_skills": skills,
             "review_docs": docs,
-            "review_project_instructions": project_instructions,
             "review_pr": pr,
             "review_open_threads": open_threads,
         },
@@ -409,10 +419,8 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
 
     pr = ctx.get("review_pr")
     diff = ctx.get("review_diff", "")
-    changed_files = ctx.get("review_changed_files", [])
     skills = ctx.get("review_skills", [])
     docs = ctx.get("review_docs", [])
-    project_instructions = ctx.get("review_project_instructions")
     open_threads = ctx.get("review_open_threads", [])
 
     if not pr or not diff:
@@ -426,7 +434,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
 
     from ..agents.code_review_agent import CodeReviewAgent
 
-    context_str = build_review_context(pr, diff, changed_files, skills, project_instructions, docs, open_threads)
+    context_str = build_review_context(pr, diff, skills, docs, open_threads)
 
     with ctx.textual.loading("Generating AI review comments..."):
         agent = CodeReviewAgent(ctx.ai)
@@ -634,11 +642,6 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
     commit_sha = ctx.get("review_commit_sha", "")
     diff = ctx.get("review_diff", "")
 
-    if not approved:
-        ctx.textual.dim_text("No approved comments to submit.")
-        ctx.textual.end_step("skip")
-        return Skip("No approved comments")
-
     if not pr_number:
         ctx.textual.end_step("error")
         return Error("No PR number in context")
@@ -647,13 +650,17 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
-    if not commit_sha:
+    # Commit SHA is needed for inline comments, but not for general review (COMMENT/APPROVE/REQUEST_CHANGES)
+    if not commit_sha and approved:
         ctx.textual.error_text("No commit SHA available — cannot submit inline comments")
         ctx.textual.end_step("error")
-        return Error("Missing commit SHA for review")
+        return Error("Missing commit SHA for inline review")
 
     # Show summary
-    ctx.textual.text(f"Ready to submit {len(approved)} comment(s) on PR #{pr_number}")
+    if approved:
+        ctx.textual.text(f"Ready to submit {len(approved)} comment(s) on PR #{pr_number}")
+    else:
+        ctx.textual.warning_text("No review comments — you can still submit a review decision")
     ctx.textual.text("")
 
     # Ask review event type
