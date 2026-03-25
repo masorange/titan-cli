@@ -4,6 +4,7 @@ Steps for AI-powered PR code review.
 This module contains steps for reviewing pull requests authored by others using
 AI analysis combined with project-specific skill guidelines.
 """
+import logging
 import threading
 from typing import List
 
@@ -25,6 +26,8 @@ from ..operations.code_review_operations import (
     build_review_payload,
     compute_diff_stat,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -411,10 +414,20 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No AI review suggestions generated")
 
     # Enrich suggestions with the specific hunk around the commented line
+    from ..operations.code_review_operations import find_line_by_snippet
     for suggestion in suggestions:
         file_diff = extract_diff_for_file(diff, suggestion.file_path)
         if file_diff:
-            hunk = extract_hunk_for_line(file_diff, suggestion.line)
+            # If we have a snippet but no line, resolve the snippet to a line first
+            target_line = suggestion.line
+            if suggestion.snippet and not target_line:
+                target_line = find_line_by_snippet(file_diff, suggestion.snippet)
+                if target_line:
+                    # Update the suggestion object with the resolved line
+                    suggestion.line = target_line
+
+            # Extract the hunk around the target line
+            hunk = extract_hunk_for_line(file_diff, target_line)
             suggestion.diff_context = hunk or file_diff[:3000]
 
     # Show summary

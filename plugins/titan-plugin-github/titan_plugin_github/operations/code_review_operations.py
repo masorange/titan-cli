@@ -604,11 +604,13 @@ def find_line_by_snippet(file_diff: str, snippet: str) -> Optional[int]:
                 current_line = int(match.group(1)) - 1
         elif line.startswith("+") and not line.startswith("+++"):
             current_line += 1
-            if snippet_stripped in line[1:].strip():
+            line_content = line[1:].strip()
+            if snippet_stripped in line_content:
                 return current_line
         elif line.startswith(" "):
             current_line += 1
-            if snippet_stripped in line[1:].strip():
+            line_content = line[1:].strip()
+            if snippet_stripped in line_content:
                 return current_line
         # Lines starting with "-" are deleted — skip
 
@@ -675,8 +677,9 @@ def build_review_payload(
     Returns:
         Dict payload for create_draft_review
     """
+
     valid_lines_by_file = extract_valid_diff_lines(diff) if diff else {}
-    logger.info(f"Valid diff lines by file: { {f: sorted(lines) for f, lines in valid_lines_by_file.items()} }")
+    logger.info(f"Valid diff lines by file: { {f: sorted(list(lines)[:5]) for f, lines in valid_lines_by_file.items()} }")
 
     inline_comments = []
     general_comments: List[str] = []
@@ -684,15 +687,12 @@ def build_review_payload(
     for s in suggestions:
         # Resolve line from snippet if available (more accurate than AI-reported line)
         resolved_line = s.line
+
         if s.snippet and diff:
             file_diff = extract_diff_for_file(diff, s.file_path)
             if file_diff:
                 snippet_line = find_line_by_snippet(file_diff, s.snippet)
                 if snippet_line is not None:
-                    logger.info(
-                        f"Snippet lookup: {s.file_path} snippet={s.snippet!r:.40} "
-                        f"→ line {snippet_line} (was {s.line})"
-                    )
                     resolved_line = snippet_line
 
         if resolved_line is not None:

@@ -103,7 +103,17 @@ class ReviewSuggestion(Widget):
         file_widget.styles.width = "auto"
         file_widget.styles.margin = (0, 1, 0, 0)
 
-        line_info = f"Line {self.suggestion.line}" if self.suggestion.line else "General file comment"
+        # Show line number if available
+        if self.suggestion.line:
+            line_info = f"Line {self.suggestion.line}"
+        # Show snippet if available (will be resolved to line at submission)
+        elif self.suggestion.snippet:
+            snippet_preview = self.suggestion.snippet[:40] + "..." if len(self.suggestion.snippet) > 40 else self.suggestion.snippet
+            line_info = f"Inline (snippet: {snippet_preview})"
+        # Otherwise it's a general comment
+        else:
+            line_info = "General file comment"
+
         line_widget = DimText(line_info)
         line_widget.styles.width = "auto"
 
