@@ -244,6 +244,7 @@ def build_review_context(
     skills: List[Dict],
     project_instructions: Optional[str] = None,
     docs: Optional[List[Dict]] = None,
+    open_threads: Optional[List] = None,
 ) -> str:
     """
     Build the full context string for the CodeReviewAgent.
@@ -255,11 +256,13 @@ def build_review_context(
         skills: List of {"name", "content"} skill dicts
         project_instructions: Content of the project instructions file (CLAUDE.md, GEMINI.md, etc.)
         docs: List of {"name", "content"} architecture doc dicts
+        open_threads: List of UICommentThread with existing unresolved review comments
 
     Returns:
         Formatted context string for AI review
     """
     docs = docs or []
+    open_threads = open_threads or []
     sections = []
 
     # PR metadata
@@ -272,6 +275,22 @@ def build_review_context(
 
 ### Description
 {pr.body or "(no description)"}""")
+
+    # Existing open review comments
+    if open_threads:
+        thread_lines = []
+        for thread in open_threads:
+            c = thread.main_comment
+            location = f"`{c.path}` line {c.line}" if c.path else "general comment"
+            thread_lines.append(f"- **{c.author_login}** on {location}: {c.body}")
+            for reply in thread.replies:
+                thread_lines.append(f"  - **{reply.author_login}**: {reply.body}")
+        sections.append(
+            "## Existing Open Review Comments\n\n"
+            "These comments have already been requested and are NOT resolved yet. "
+            "Do NOT suggest the same change again.\n\n"
+            + "\n".join(thread_lines)
+        )
 
     # Changed files
     if changed_files:

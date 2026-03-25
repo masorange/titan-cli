@@ -30,6 +30,7 @@ IMPORTANT rules:
 - If a change looks correct and has no issues, skip it entirely — return nothing for that file/line.
 - Every comment must propose a concrete change or flag a real problem.
 - If the code looks good overall, return an empty array [].
+- If "Existing Open Review Comments" are provided, do NOT suggest the same change that was already requested. Check each existing comment before generating suggestions.
 
 Output your review as a JSON array of comment objects. Each comment must have:
 - "file": the file path (string)

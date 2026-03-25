@@ -333,6 +333,23 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         title="Files affected:",
     )
 
+    # Fetch open review threads (non-blocking)
+    open_threads = []
+    with ctx.textual.loading("Fetching existing review comments..."):
+        threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=False)
+        match threads_result:
+            case ClientSuccess(data=threads):
+                open_threads = threads
+            case ClientError():
+                pass
+
+        general_result = ctx.github.get_pr_general_comments(pr_number)
+        match general_result:
+            case ClientSuccess(data=general):
+                open_threads += general
+            case ClientError():
+                pass
+
     ctx.textual.text("")
     if project_instructions:
         ctx.textual.success_text("✓ Project instructions loaded")
@@ -344,6 +361,8 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.success_text(f"✓ {len(docs)} doc(s): {doc_names}")
     if not project_instructions and not skills and not docs:
         ctx.textual.dim_text("No project context found")
+    if open_threads:
+        ctx.textual.dim_text(f"  {len(open_threads)} existing open comment(s) found")
     if commit_sha:
         ctx.textual.dim_text(f"  Latest commit: {commit_sha[:7]}")
 
@@ -359,6 +378,7 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             "review_docs": docs,
             "review_project_instructions": project_instructions,
             "review_pr": pr,
+            "review_open_threads": open_threads,
         },
     )
 
@@ -390,6 +410,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
     skills = ctx.get("review_skills", [])
     docs = ctx.get("review_docs", [])
     project_instructions = ctx.get("review_project_instructions")
+    open_threads = ctx.get("review_open_threads", [])
 
     if not pr or not diff:
         ctx.textual.end_step("error")
@@ -402,7 +423,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
 
     from ..agents.code_review_agent import CodeReviewAgent
 
-    context_str = build_review_context(pr, diff, changed_files, skills, project_instructions, docs)
+    context_str = build_review_context(pr, diff, changed_files, skills, project_instructions, docs, open_threads)
 
     with ctx.textual.loading("Generating AI review comments..."):
         agent = CodeReviewAgent(ctx.ai)
