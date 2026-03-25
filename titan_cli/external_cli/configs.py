@@ -13,5 +13,10 @@ CLI_REGISTRY = {
         "display_name": "Gemini CLI",
         "install_instructions": None,
         "prompt_flag": "-i"
+    },
+    "codex": {
+        "display_name": "Codex CLI",
+        "install_instructions": "Install: pip install openai[cli]",
+        "prompt_flag": None
     }
 }
