@@ -13,7 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..models.view import UIPullRequest, UIReviewSuggestion
+from ..models.view import UIPullRequest, UIReviewSuggestion, UIFileChange
 
 logger = logging.getLogger(__name__)
 
@@ -412,42 +412,53 @@ MAX_FILES_FOR_REVIEW = 20
 
 
 def select_files_for_review(
-    changed_files: List[str],
+    files_with_stats: List[UIFileChange],
     ai_generator: Any,
-    max_files: int = MAX_FILES_FOR_REVIEW,
 ) -> List[str]:
     """
-    Use AI to select the most relevant files to review from a large PR.
+    Use AI to select the most important files to review from a large PR.
+
+    Passes full file stats (additions, deletions, status) so AI can make
+    informed decisions. The AI decides how many files matter — no hardcoded limit.
 
     Args:
-        changed_files: All changed file paths in the PR
+        files_with_stats: All changed files with stats as UIFileChange objects
         ai_generator: AI generator (ctx.ai)
-        max_files: Maximum number of files to select
 
     Returns:
-        Selected file paths to review
+        Selected file paths — number decided by AI based on importance
     """
-    if len(changed_files) <= max_files:
-        return changed_files
+    all_paths = [f.path for f in files_with_stats]
 
-    files_list = "\n".join(f"  - {f}" for f in changed_files)
-    prompt = f"""A pull request has {len(changed_files)} changed files, which is too large to review entirely.
+    if not ai_generator:
+        return all_paths[:MAX_FILES_FOR_REVIEW]
 
-Select the {max_files} most important files to review. Prioritize:
-1. Core business logic and production code
-2. Files with complex changes (avoid trivial/generated files)
-3. Avoid: auto-generated files, test fixtures, resource files (strings.xml, drawables), build files, lock files
+    files_summary = "\n".join(
+        f"  {f.status:8} +{f.additions:<4} -{f.deletions:<4}  {f.path}"
+        for f in files_with_stats
+    )
 
-Changed files:
-{files_list}
+    prompt = f"""A pull request has {len(files_with_stats)} changed files.
 
-Respond with a JSON array of file paths (exact strings from the list above). Example: ["app/src/main/Foo.kt", "lib/Bar.kt"]"""
+Select the files that genuinely need code review for correctness, bugs, security, and business logic.
+Return ONLY files that are worth reviewing. Skip trivial files like:
+- Auto-generated code
+- Resource/asset files (strings.xml, drawables, icons, translations)
+- Lock files or build configs (package-lock.json, *.gradle, *.podspec)
+- Test fixtures or snapshots
+- Purely cosmetic changes (only whitespace/formatting)
+
+Changed files (status | +additions | -deletions | path):
+{files_summary}
+
+Respond with a JSON array of file paths that need review. The number is up to you based on what actually matters.
+Example: ["app/src/main/Foo.kt", "lib/Bar.kt"]"""
 
     from titan_cli.ai.models import AIMessage
     try:
         response = ai_generator.generate(
             messages=[AIMessage(role="user", content=prompt)],
-            max_tokens=1000,
+            max_tokens=2000,
             temperature=0.1,
         )
         text = response.content.strip()
@@ -455,16 +466,20 @@ Respond with a JSON array of file paths (exact strings from the list above). Exa
             lines = text.split("\n")
             text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
 
-        selected = json.loads(text)
-        if not isinstance(selected, list):
-            return changed_files[:max_files]
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start == -1 or end == 0:
+            return all_paths[:MAX_FILES_FOR_REVIEW]
 
-        # Keep only valid paths from the original list
-        valid = [f for f in selected if f in changed_files]
-        return valid[:max_files] if valid else changed_files[:max_files]
+        selected = json.loads(text[start:end])
+        if not isinstance(selected, list):
+            return all_paths[:MAX_FILES_FOR_REVIEW]
+
+        valid = [f for f in selected if f in all_paths]
+        return valid if valid else all_paths[:MAX_FILES_FOR_REVIEW]
     except Exception as e:
-        logger.warning(f"File selection failed, using first {max_files} files: {e}")
-        return changed_files[:max_files]
+        logger.warning(f"File selection failed, using first {MAX_FILES_FOR_REVIEW} files: {e}")
+        return all_paths[:MAX_FILES_FOR_REVIEW]
 
 
 def build_pr_summary_prompt(

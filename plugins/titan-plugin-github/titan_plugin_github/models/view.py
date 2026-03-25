@@ -200,6 +200,33 @@ class UIPRMergeResult:
 
 
 @dataclass
+class UIFileChange:
+    """
+    UI model for a changed file in a PR.
+
+    Pre-formatted fields ready for display in lists and AI prompts.
+    """
+    path: str
+    additions: int
+    deletions: int
+    status: str       # "added", "removed", "modified", "renamed", etc.
+    status_icon: str  # "+", "−", "~", "→", etc.
+
+
+@dataclass
+class UIPRCreated:
+    """
+    UI model for a newly created pull request.
+
+    Returned after create_pull_request — contains identifiers needed
+    to display the result or navigate to the PR.
+    """
+    number: int
+    url: str
+    state: str  # "open" or "draft"
+
+
+@dataclass
 class UIReviewSuggestion:
     """AI-generated review comment for a PR."""
     file_path: str
@@ -216,5 +243,7 @@ __all__ = [
     "UIIssue",
     "UIReview",
     "UIPRMergeResult",
+    "UIFileChange",
+    "UIPRCreated",
     "UIReviewSuggestion",
 ]

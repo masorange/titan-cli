@@ -7,15 +7,15 @@ Uses network layer to fetch data, parses to network models, maps to view models.
 """
 import json
 import re
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
 
 from ..network import GHNetwork
-from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult
-from ...models.view import UIPullRequest, UIPRMergeResult
-from ...models.mappers import from_rest_pr, from_network_pr_merge_result
+from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
+from ...models.view import UIPullRequest, UIPRMergeResult, UIFileChange, UIPRCreated
+from ...models.mappers import from_rest_pr, from_network_pr_merge_result, from_network_pr_file, from_network_pr_created
 from ...exceptions import GitHubAPIError
 from ...messages import msg
 
@@ -305,6 +305,58 @@ class PRService:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
+    def get_pr_files_with_stats(self, pr_number: int) -> ClientResult[List[UIFileChange]]:
+        """
+        Get all changed files with stats for a PR.
+
+        Fetches stats for every file without loading patch content.
+        Suitable for AI-based file selection on large PRs.
+
+        Args:
+            pr_number: PR number
+
+        Returns:
+            ClientResult[List[UIFileChange]] with path, additions, deletions, status
+        """
+        try:
+            repo = self.gh.get_repo_string()
+            all_files = []
+            page = 1
+
+            while True:
+                args = [
+                    "api",
+                    f"/repos/{repo}/pulls/{pr_number}/files?per_page=100&page={page}",
+                ]
+                output = self.gh.run_command(args)
+                files_data = json.loads(output)
+
+                if not files_data:
+                    break
+
+                for f in files_data:
+                    network_file = NetworkPRFile.from_json(f)
+                    all_files.append(from_network_pr_file(network_file))
+
+                if len(files_data) < 100:
+                    break
+
+                page += 1
+
+            return ClientSuccess(
+                data=all_files,
+                message=f"Found {len(all_files)} changed files with stats"
+            )
+
+        except json.JSONDecodeError as e:
+            return ClientError(
+                error_message=f"Failed to parse files: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @log_client_operation()
     def get_pr_file_patches(
         self, pr_number: int, file_paths: List[str]
     ) -> ClientResult[str]:
@@ -330,9 +382,7 @@ class PRService:
             while target_files:
                 args = [
                     "api",
-                    f"/repos/{repo}/pulls/{pr_number}/files",
-                    "-F", "per_page=100",
-                    "-F", f"page={page}",
+                    f"/repos/{repo}/pulls/{pr_number}/files?per_page=100&page={page}",
                 ]
                 output = self.gh.run_command(args)
                 files_data = json.loads(output)
@@ -423,7 +473,7 @@ class PRService:
         assignees: Optional[List[str]] = None,
         reviewers: Optional[List[str]] = None,
         labels: Optional[List[str]] = None,
-    ) -> ClientResult[Dict[str, Any]]:
+    ) -> ClientResult[UIPRCreated]:
         """
         Create a pull request.
 
@@ -438,7 +488,7 @@ class PRService:
             labels: List of labels
 
         Returns:
-            ClientResult[Dict] with number, url, state
+            ClientResult[UIPRCreated] with number, url, state
         """
         try:
             args = [
@@ -479,12 +529,13 @@ class PRService:
                     error_code="PARSE_ERROR"
                 )
 
+            network_created = NetworkPRCreated(
+                number=pr_number,
+                url=pr_url,
+                state="draft" if draft else "open",
+            )
             return ClientSuccess(
-                data={
-                    "number": pr_number,
-                    "url": pr_url,
-                    "state": "draft" if draft else "open",
-                },
+                data=from_network_pr_created(network_created),
                 message=f"PR #{pr_number} created"
             )
 

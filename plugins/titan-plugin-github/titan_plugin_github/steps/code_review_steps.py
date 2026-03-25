@@ -264,19 +264,31 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("skip")
                 return Skip("Empty PR diff")
         case ClientError(error_message=err) if "too_large" in err or "too large" in err.lower():
-            ctx.textual.warning_text(f"PR diff is too large ({len(changed_files)} files). Selecting key files to review...")
+            ctx.textual.warning_text("PR diff is too large. Fetching file stats to select what matters...")
 
+            # Step 1: Get all files with stats (no patches yet)
+            with ctx.textual.loading("Fetching file stats..."):
+                files_stats_result = ctx.github.get_pr_files_with_stats(pr_number)
+
+            match files_stats_result:
+                case ClientSuccess(data=files_with_stats):
+                    pass
+                case ClientError(error_message=err):
+                    ctx.textual.end_step("error")
+                    return Error(f"Could not fetch file stats: {err}")
+
+            # Step 2: AI selects which files actually matter
             if ctx.ai:
-                with ctx.textual.loading("Selecting files to review..."):
-                    selected_files = select_files_for_review(changed_files, ctx.ai)
+                with ctx.textual.loading(f"AI selecting important files from {len(files_with_stats)} changed..."):
+                    selected_files = select_files_for_review(files_with_stats, ctx.ai)
             else:
                 from ..operations.code_review_operations import MAX_FILES_FOR_REVIEW
-                selected_files = changed_files[:MAX_FILES_FOR_REVIEW]
+                selected_files = [f.path for f in files_with_stats[:MAX_FILES_FOR_REVIEW]]
 
-            ctx.textual.dim_text(f"Reviewing {len(selected_files)} of {len(changed_files)} files")
+            ctx.textual.dim_text(f"Reviewing {len(selected_files)} of {len(files_with_stats)} files")
             changed_files = selected_files
 
-            # Get patches per file via the files REST API
+            # Step 3: Fetch patches only for selected files
             with ctx.textual.loading("Fetching patches for selected files..."):
                 patches_result = ctx.github.get_pr_file_patches(pr_number, selected_files)
 

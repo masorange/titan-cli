@@ -15,7 +15,7 @@ from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
 from .services import PRService, ReviewService, IssueService, TeamService
-from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview
+from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated
 
 
 class GitHubClient:
@@ -113,6 +113,10 @@ class GitHubClient:
         """Get list of changed files in PR."""
         return self._pr_service.get_pr_files(pr_number)
 
+    def get_pr_files_with_stats(self, pr_number: int) -> ClientResult[List[UIFileChange]]:
+        """Get all changed files with stats (path, additions, deletions, status)."""
+        return self._pr_service.get_pr_files_with_stats(pr_number)
+
     def checkout_pr(self, pr_number: int) -> ClientResult[str]:
         """Checkout a PR locally."""
         return self._pr_service.checkout_pr(pr_number)
@@ -128,7 +132,7 @@ class GitHubClient:
         reviewers: Optional[List[str]] = None,
         labels: Optional[List[str]] = None,
         excluded_reviewers: Optional[List[str]] = None
-    ) -> ClientResult[Dict[str, Any]]:
+    ) -> ClientResult[UIPRCreated]:
         """
         Create a pull request.
 

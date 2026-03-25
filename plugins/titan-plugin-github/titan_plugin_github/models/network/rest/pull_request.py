@@ -132,6 +132,47 @@ class NetworkPRSearchResult:
 
 
 @dataclass
+class NetworkPRFile:
+    """
+    Changed file in a PR from REST API.
+
+    Faithful to /repos/{owner}/{repo}/pulls/{pr_number}/files response.
+    """
+    filename: str
+    status: str  # "added", "removed", "modified", "renamed", "copied", "changed"
+    additions: int
+    deletions: int
+    changes: int
+    patch: Optional[str] = None  # Missing for binary files or files exceeding size limit
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> 'NetworkPRFile':
+        return cls(
+            filename=data.get("filename", ""),
+            status=data.get("status", "modified"),
+            additions=data.get("additions", 0),
+            deletions=data.get("deletions", 0),
+            changes=data.get("changes", 0),
+            patch=data.get("patch"),
+        )
+
+
+@dataclass
+class NetworkPRCreated:
+    """
+    Result of creating a PR via REST API.
+
+    Attributes:
+        number: PR number
+        url: Full PR URL
+        state: "open" or "draft"
+    """
+    number: int
+    url: str
+    state: str
+
+
+@dataclass
 class NetworkPRMergeResult:
     """
     Result of merging a pull request via REST API.
