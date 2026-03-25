@@ -13,7 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..models.view import UIPullRequest, UIReviewSuggestion, UIFileChange
+from ..models.view import UIPullRequest, UIReviewSuggestion, UIFileChange, UICommentThread
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +289,7 @@ def build_review_context(
     skills: List[Dict],
     docs: Optional[List[Dict]] = None,
     open_threads: Optional[List] = None,
+    current_user: Optional[str] = None,
 ) -> str:
     """
     Build the full context string for the CodeReviewAgent.
@@ -299,6 +300,7 @@ def build_review_context(
         skills: List of {"name", "content"} skill dicts (full content, already filtered)
         docs: List of {"name", "content"} architecture doc dicts (summarized to intro only)
         open_threads: List of UICommentThread with existing unresolved review comments
+        current_user: GitHub login of the current reviewer (used to skip own comments)
 
     Returns:
         Formatted context string for AI review
@@ -314,9 +316,12 @@ def build_review_context(
 **Branches**: {pr.branch_info}
 **Description**: {pr.body or "(no description)"}""")
 
-    # Existing open review comments
+    # Existing open review comments — split by ownership and response status
     if open_threads:
-        thread_sections = []
+        own_pending: List[str] = []    # Your comments with NO replies (already open, don't re-suggest)
+        own_active: List[str] = []     # Your comments WITH replies (discussion in progress)
+        other_threads: List[str] = []  # Other reviewers' comments
+
         for i, thread in enumerate(open_threads, 1):
             c = thread.main_comment
             location = f"`{c.path}` line {c.line}" if c.path else "general comment"
@@ -332,18 +337,47 @@ def build_review_context(
             else:
                 thread_text += "\n*(No responses yet)*\n"
 
-            thread_sections.append(thread_text)
+            if current_user and c.author_login == current_user:
+                if not thread.replies:
+                    own_pending.append(thread_text)
+                else:
+                    own_active.append(thread_text)
+            else:
+                other_threads.append(thread_text)
 
-        sections.append(
-            "## Existing Open Review Comments\n\n"
-            "These comments have already been made and are waiting for discussion or implementation.\n\n"
-            "Guidelines for replies:\n"
-            "- If the author says the issue is fixed or acknowledged it — and they're right — do NOT reply.\n"
-            "- If the author disagrees but has a valid point — do NOT reply, skip the issue.\n"
-            "- If the author disagrees and they're WRONG, or the comment is still unaddressed — reply with `reply_to_comment_id` "
-            "to continue the conversation (clarify, insist, or provide additional context).\n\n"
-            + "\n".join(thread_sections)
-        )
+        section_parts: List[str] = []
+
+        if own_pending:
+            pending_block = (
+                "## Your Pending Comments (Awaiting Response)\n\n"
+                f"**CRITICAL**: You ({current_user}) already submitted {len(own_pending)} comment(s) below "
+                "that have received NO response yet. These issues are already open and pending.\n"
+                "**DO NOT** suggest these issues again — they are already raised.\n"
+                "**DO NOT** reply to your own pending comments.\n\n"
+            )
+            section_parts.append(pending_block + "\n".join(own_pending))
+
+        if own_active:
+            active_block = (
+                f"## Your Comments Under Discussion\n\n"
+                f"You ({current_user}) have {len(own_active)} comment(s) with responses. "
+                "Do not re-suggest these issues.\n\n"
+            )
+            section_parts.append(active_block + "\n".join(own_active))
+
+        if other_threads:
+            others_block = (
+                "## Other Reviewers' Open Comments\n\n"
+                "Guidelines for replies:\n"
+                "- If the author says the issue is fixed or acknowledged it — and they're right — do NOT reply.\n"
+                "- If the author disagrees but has a valid point — do NOT reply, skip the issue.\n"
+                "- If the author disagrees and they're WRONG, or the comment is still unaddressed — reply with `reply_to_comment_id` "
+                "to continue the conversation (clarify, insist, or provide additional context).\n\n"
+            )
+            section_parts.append(others_block + "\n".join(other_threads))
+
+        if section_parts:
+            sections.append("\n\n".join(section_parts))
 
     # Code guidelines (skills — full content, already filtered by relevance)
     if skills:
@@ -794,3 +828,101 @@ def build_review_payload(
         payload["body"] = "\n\n".join(general_comments)
 
     return payload
+
+
+_KEYWORD_STOP_WORDS = {
+    "the", "a", "an", "is", "it", "this", "that", "in", "on", "at", "to",
+    "for", "of", "and", "or", "not", "should", "would", "could", "be", "are",
+    "has", "have", "been", "was", "were", "with", "from", "use", "used",
+    "also", "here", "there", "can", "may", "must", "will", "do", "does",
+}
+
+_DUPLICATE_THRESHOLD = 0.25  # 25% keyword overlap to consider as duplicate
+
+
+def _extract_keywords(text: str) -> set:
+    words = re.findall(r'\b[a-z_]{3,}\b', text.lower())
+    return {w for w in words if w not in _KEYWORD_STOP_WORDS}
+
+
+def _is_likely_duplicate(suggestion_body: str, existing_body: str) -> bool:
+    s_kws = _extract_keywords(suggestion_body)
+    e_kws = _extract_keywords(existing_body)
+    if not s_kws or not e_kws:
+        return False
+    overlap = len(s_kws & e_kws)
+    union = len(s_kws | e_kws)
+    return overlap / union >= _DUPLICATE_THRESHOLD
+
+
+def filter_own_duplicate_suggestions(
+    suggestions: List[UIReviewSuggestion],
+    own_threads: List[UICommentThread],
+) -> Tuple[List[UIReviewSuggestion], List[UIReviewSuggestion]]:
+    """
+    Filter AI suggestions that likely duplicate the current user's existing comments.
+
+    A suggestion is filtered if it targets the same file as an existing own comment
+    AND its body has significant keyword overlap with that comment.
+
+    Args:
+        suggestions: AI-generated suggestions
+        own_threads: Existing comment threads authored by the current user
+
+    Returns:
+        Tuple of (kept_suggestions, filtered_suggestions)
+    """
+    if not own_threads:
+        return suggestions, []
+
+    # Collect own comment IDs (to detect replies-to-self)
+    own_comment_ids: set = set()
+    own_by_file: Dict[str, List[str]] = {}
+    for thread in own_threads:
+        c = thread.main_comment
+        own_comment_ids.add(c.id)
+        file_path = c.path or ""
+        if file_path not in own_by_file:
+            own_by_file[file_path] = []
+        own_by_file[file_path].append(c.body)
+        for reply in thread.replies:
+            if hasattr(reply, "id"):
+                own_comment_ids.add(reply.id)
+            key = reply.path if hasattr(reply, "path") and reply.path else file_path
+            if key not in own_by_file:
+                own_by_file[key] = []
+            own_by_file[key].append(reply.body)
+
+    kept: List[UIReviewSuggestion] = []
+    filtered: List[UIReviewSuggestion] = []
+
+    for suggestion in suggestions:
+        # Never reply to your own comments
+        if suggestion.reply_to_comment_id is not None and suggestion.reply_to_comment_id in own_comment_ids:
+            logger.info(
+                f"Filtered reply-to-self on comment {suggestion.reply_to_comment_id}: "
+                f"{suggestion.body[:80]!r}"
+            )
+            filtered.append(suggestion)
+            continue
+
+        if suggestion.reply_to_comment_id is not None:
+            # Reply to someone else's comment — keep it
+            kept.append(suggestion)
+            continue
+
+        existing_bodies = own_by_file.get(suggestion.file_path, [])
+        if not existing_bodies:
+            kept.append(suggestion)
+            continue
+
+        if any(_is_likely_duplicate(suggestion.body, body) for body in existing_bodies):
+            logger.info(
+                f"Filtered duplicate suggestion on {suggestion.file_path}: "
+                f"{suggestion.body[:80]!r}"
+            )
+            filtered.append(suggestion)
+        else:
+            kept.append(suggestion)
+
+    return kept, filtered

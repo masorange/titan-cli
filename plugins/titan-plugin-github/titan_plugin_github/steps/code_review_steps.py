@@ -24,6 +24,7 @@ from ..operations.code_review_operations import (
     extract_hunk_for_line,
     build_review_payload,
     compute_diff_stat,
+    filter_own_duplicate_suggestions,
 )
 
 logger = logging.getLogger(__name__)
@@ -432,9 +433,19 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("AI client not available")
 
+    # Get current user to filter out their own comments from the context
+    current_user = None
+    if ctx.github:
+        user_result = ctx.github.get_current_user()
+        match user_result:
+            case ClientSuccess(data=login):
+                current_user = login
+            case ClientError():
+                pass  # Best effort — continue without filtering
+
     from ..agents.code_review_agent import CodeReviewAgent
 
-    context_str = build_review_context(pr, diff, skills, docs, open_threads)
+    context_str = build_review_context(pr, diff, skills, docs, open_threads, current_user)
 
     with ctx.textual.loading("Generating AI review comments..."):
         agent = CodeReviewAgent(ctx.ai)
@@ -461,6 +472,24 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
             # Extract the hunk around the target line
             hunk = extract_hunk_for_line(file_diff, target_line)
             suggestion.diff_context = hunk or file_diff[:3000]
+
+    # Post-process: filter suggestions that duplicate own existing comments
+    own_threads = ctx.get("review_open_threads", [])
+    own_threads_by_user = [
+        t for t in own_threads
+        if current_user and t.main_comment.author_login == current_user
+    ]
+    if own_threads_by_user:
+        suggestions, duplicates = filter_own_duplicate_suggestions(suggestions, own_threads_by_user)
+        if duplicates:
+            ctx.textual.dim_text(
+                f"  {len(duplicates)} suggestion(s) removed — already commented by you"
+            )
+
+    if not suggestions:
+        ctx.textual.dim_text("AI found no new issues to comment on (all were duplicates of your existing comments).")
+        ctx.textual.end_step("skip")
+        return Skip("No new AI review suggestions (all duplicates filtered)")
 
     # Show summary
     counts = {"critical": 0, "improvement": 0, "suggestion": 0}
