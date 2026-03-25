@@ -137,6 +137,7 @@ class GitHubPlugin(TitanPlugin):
             select_pr_for_code_review,
             fetch_pr_changes,
             ai_review_pr,
+            summarize_pr_review,
             validate_review_comments,
             submit_pr_review,
         )
@@ -166,6 +167,7 @@ class GitHubPlugin(TitanPlugin):
             "select_pr_for_code_review": select_pr_for_code_review,
             "fetch_pr_changes": fetch_pr_changes,
             "ai_review_pr": ai_review_pr,
+            "summarize_pr_review": summarize_pr_review,
             "validate_review_comments": validate_review_comments,
             "submit_pr_review": submit_pr_review,
         }

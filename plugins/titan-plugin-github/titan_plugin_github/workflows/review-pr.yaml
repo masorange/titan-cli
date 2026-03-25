@@ -17,6 +17,11 @@ steps:
     plugin: github
     step: ai_review_pr
 
+  - id: summarize
+    name: "PR Review Summary"
+    plugin: github
+    step: summarize_pr_review
+
   - id: validate
     name: "Validate Review Comments"
     plugin: github

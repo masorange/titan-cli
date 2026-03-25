@@ -246,23 +246,18 @@ class PRService:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
-    def get_pr_diff(self, pr_number: int, file_path: Optional[str] = None) -> ClientResult[str]:
+    def get_pr_diff(self, pr_number: int) -> ClientResult[str]:
         """
         Get diff for a PR.
 
         Args:
             pr_number: PR number
-            file_path: Optional specific file to get diff for
 
         Returns:
             ClientResult[str] with diff content
         """
         try:
             args = ["pr", "diff", str(pr_number)] + self.gh.get_repo_arg()
-
-            if file_path:
-                args.extend(["--", file_path])
-
             diff = self.gh.run_command(args)
             return ClientSuccess(data=diff, message=f"PR #{pr_number} diff retrieved")
 
@@ -304,6 +299,75 @@ class PRService:
         except json.JSONDecodeError as e:
             return ClientError(
                 error_message=f"Failed to parse files: {e}",
+                error_code="JSON_PARSE_ERROR"
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @log_client_operation()
+    def get_pr_file_patches(
+        self, pr_number: int, file_paths: List[str]
+    ) -> ClientResult[str]:
+        """
+        Get patches for specific files in a PR using the files REST API.
+
+        Used as fallback when the full PR diff is too large. The files API
+        returns individual file patches even for very large PRs.
+
+        Args:
+            pr_number: PR number
+            file_paths: List of file paths to retrieve patches for
+
+        Returns:
+            ClientResult[str] with combined unified diff for the requested files
+        """
+        try:
+            repo = self.gh.get_repo_string()
+            target_files = set(file_paths)
+            patches = []
+            page = 1
+
+            while target_files:
+                args = [
+                    "api",
+                    f"/repos/{repo}/pulls/{pr_number}/files",
+                    "-F", "per_page=100",
+                    "-F", f"page={page}",
+                ]
+                output = self.gh.run_command(args)
+                files_data = json.loads(output)
+
+                if not files_data:
+                    break
+
+                for file_data in files_data:
+                    filename = file_data.get("filename", "")
+                    patch = file_data.get("patch", "")
+                    if filename in target_files and patch:
+                        patches.append(
+                            f"diff --git a/{filename} b/{filename}\n"
+                            f"--- a/{filename}\n"
+                            f"+++ b/{filename}\n"
+                            f"{patch}"
+                        )
+                        target_files.discard(filename)
+
+                page += 1
+
+            if not patches:
+                return ClientError(
+                    error_message="No patches found for selected files",
+                    error_code="NO_PATCHES"
+                )
+
+            return ClientSuccess(
+                data="\n".join(patches),
+                message=f"Got patches for {len(patches)} file(s)"
+            )
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return ClientError(
+                error_message=f"Failed to parse file patches: {e}",
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:

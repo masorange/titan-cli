@@ -5,13 +5,14 @@ Widget for displaying an AI-generated review suggestion.
 Shows: severity badge, file path, line, diff context, and suggestion body.
 """
 
+from typing import List, Any
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.containers import Horizontal
 from ..models.view import UIReviewSuggestion
 from titan_cli.ui.tui.widgets import DimText, ItalicText, Text
 from .code_block import CodeBlock
-from .comment_utils import extract_diff_context
+from .comment_utils import extract_diff_context, render_comment_elements
 
 
 class ReviewSuggestion(Widget):
@@ -90,10 +91,11 @@ class ReviewSuggestion(Widget):
         if self.suggestion.diff_context:
             yield self._code_context_widget()
 
-        # Suggestion body
+        # Suggestion body (parsed for markdown, code blocks, etc.)
         if self.suggestion.body and self.suggestion.body.strip():
             yield Text("")
-            yield Text(self.suggestion.body)
+            for widget in self._parse_and_render_body():
+                yield widget
 
     def _file_info_container(self) -> Horizontal:
         """Create container for file path and line info."""
@@ -124,6 +126,14 @@ class ReviewSuggestion(Widget):
             line_numbers=True,
         )
         return code_block
+
+    def _parse_and_render_body(self) -> List[Any]:
+        """Parse suggestion body and render as Textual widgets (markdown, code blocks, etc.)."""
+        return render_comment_elements(
+            body=self.suggestion.body,
+            diff_hunk=self.suggestion.diff_context,
+            line=self.suggestion.line
+        )
 
 
 __all__ = ["ReviewSuggestion"]

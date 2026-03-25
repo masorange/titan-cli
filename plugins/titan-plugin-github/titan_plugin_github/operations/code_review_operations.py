@@ -9,12 +9,55 @@ context, and constructing review payloads. All functions are UI-agnostic.
 import json
 import logging
 import re
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..models.view import UIPullRequest, UIReviewSuggestion
 
 logger = logging.getLogger(__name__)
+
+
+def load_project_claude_md() -> Optional[str]:
+    """
+    Load the project's CLAUDE.md file if it exists.
+
+    Returns:
+        Content of CLAUDE.md, or None if not found
+    """
+    for candidate in (Path("CLAUDE.md"), Path(".claude/CLAUDE.md")):
+        if candidate.exists() and candidate.is_file():
+            try:
+                return candidate.read_text(encoding="utf-8")
+            except OSError:
+                return None
+    return None
+
+
+class ProjectInstructionFile(StrEnum):
+    CLAUDE = "CLAUDE.md"   # Claude Code (Anthropic)
+    GEMINI = "GEMINI.md"   # Gemini CLI (Google)
+    CODEX  = "AGENTS.md"   # Codex (OpenAI)
+
+
+def load_project_instructions() -> Optional[str]:
+    """
+    Load the project's AI instructions file if it exists.
+
+    Checks for known instruction files used by Claude Code, Gemini CLI,
+    and OpenAI Codex, in that order.
+
+    Returns:
+        Content of the first found instructions file, or None
+    """
+    for candidate in ProjectInstructionFile:
+        path = Path(candidate)
+        if path.exists() and path.is_file():
+            try:
+                return path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+    return None
 
 
 def load_all_project_skills() -> List[Dict]:
@@ -24,95 +67,174 @@ def load_all_project_skills() -> List[Dict]:
     Returns:
         List of {"name": str, "description": str, "content": str} dicts
     """
-    skills_dir = Path(".claude/skills")
-    if not skills_dir.exists() or not skills_dir.is_dir():
+    return _load_markdown_files(Path(".claude/skills"))
+
+
+def load_project_docs() -> List[Dict]:
+    """
+    Load all project docs from .claude/docs/ without filtering.
+
+    Excludes the private/ subdirectory.
+
+    Returns:
+        List of {"name": str, "description": str, "content": str} dicts
+    """
+    docs_dir = Path(".claude/docs")
+    if not docs_dir.exists() or not docs_dir.is_dir():
         return []
 
-    skills = []
-
-    for skill_file in sorted(skills_dir.glob("*.md")):
+    result = []
+    for md_file in sorted(docs_dir.glob("*.md")):
+        # Exclude files in private/ subdirectories (only top-level .md files)
         try:
-            content = skill_file.read_text(encoding="utf-8")
+            content = md_file.read_text(encoding="utf-8")
         except OSError:
             continue
 
-        # Extract description from frontmatter if present
-        description = skill_file.stem
+        description = md_file.stem
         frontmatter_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
         if frontmatter_match:
             desc_match = re.search(r"description\s*:\s*(.+)", frontmatter_match.group(1))
             if desc_match:
                 description = desc_match.group(1).strip()
 
-        skills.append({
-            "name": skill_file.stem,
+        result.append({
+            "name": md_file.stem,
             "description": description,
             "content": content,
         })
 
-    return skills
+    return result
+
+
+def _load_markdown_files(directory: Path) -> List[Dict]:
+    """
+    Load all .md files from a directory.
+
+    Returns:
+        List of {"name": str, "description": str, "content": str} dicts
+    """
+    if not directory.exists() or not directory.is_dir():
+        return []
+
+    result = []
+    for md_file in sorted(directory.glob("*.md")):
+        try:
+            content = md_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        description = md_file.stem
+        frontmatter_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        if frontmatter_match:
+            desc_match = re.search(r"description\s*:\s*(.+)", frontmatter_match.group(1))
+            if desc_match:
+                description = desc_match.group(1).strip()
+
+        result.append({
+            "name": md_file.stem,
+            "description": description,
+            "content": content,
+        })
+
+    return result
 
 
 def select_relevant_skills(
     all_skills: List[Dict],
     diff: str,
     ai_generator: Any,
-) -> List[Dict]:
+    all_docs: Optional[List[Dict]] = None,
+) -> Tuple[List[Dict], List[Dict]]:
     """
-    Use AI to select which skills are relevant for the given diff.
+    Use AI to select which skills and docs are relevant for the given diff.
 
     Args:
         all_skills: All available skills (from load_all_project_skills)
         diff: Unified diff of the PR
         ai_generator: AI generator (ctx.ai)
+        all_docs: All available docs (from load_project_docs), optional
 
     Returns:
-        Filtered list of relevant skill dicts
+        Tuple of (selected_skills, selected_docs)
     """
-    if not all_skills or not ai_generator:
-        return all_skills
+    all_docs = all_docs or []
 
-    skills_summary = "\n".join(
-        f"- {s['name']}: {s['description']}" for s in all_skills
-    )
+    if not ai_generator or (not all_skills and not all_docs):
+        return all_skills, all_docs
+
+    sections = []
+
+    if all_skills:
+        skills_summary = "\n".join(
+            f"- {s['name']}: {s['description']}" for s in all_skills
+        )
+        sections.append(f"Code guidelines:\n{skills_summary}")
+
+    if all_docs:
+        docs_summary = "\n".join(
+            f"- {d['name']}: {d['description']}" for d in all_docs
+        )
+        sections.append(f"Architecture documentation:\n{docs_summary}")
+
+    context_summary = "\n\n".join(sections)
     diff_preview = diff[:8000]
 
-    prompt = f"""Given this pull request diff, select which of the following project skills are relevant to apply during code review.
+    prompt = f"""Given this pull request diff, select which project guidelines and documentation are relevant for code review.
 
-Available skills:
-{skills_summary}
+Available project context:
+{context_summary}
 
 Diff (preview):
 ```diff
 {diff_preview}
 ```
 
-Respond with a JSON array of skill names that are relevant. Only include skills that provide useful guidelines for reviewing the changed code. If none are relevant, return [].
+Respond with a JSON object with two arrays:
+- "skills": names from "Code guidelines" relevant to the changed code
+- "docs": names from "Architecture documentation" relevant to the changed code
 
-Example: ["kotlin", "architecture"]"""
+Only include items that provide useful guidelines for reviewing these specific changes. If none are relevant, use empty arrays.
+
+Example: {{"skills": ["store", "testing"], "docs": ["architecture-mvi"]}}"""
 
     from titan_cli.ai.models import AIMessage
     try:
         response = ai_generator.generate(
             messages=[AIMessage(role="user", content=prompt)],
-            max_tokens=200,
+            max_tokens=300,
             temperature=0.1,
         )
         text = response.content.strip()
-        # Strip markdown fences if present
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
 
-        selected_names = json.loads(text)
-        if not isinstance(selected_names, list):
-            return all_skills
+        # Extract only the JSON object, ignoring any trailing text
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start == -1 or end == 0:
+            logger.warning(f"No JSON object found in skill selection response: {text[:200]}")
+            return [], []
+        text = text[start:end]
 
-        selected = [s for s in all_skills if s["name"] in selected_names]
-        return selected
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            logger.warning(f"Skill/doc selection returned unexpected type: {type(data)}, response: {text[:200]}")
+            return [], []
+
+        selected_skill_names = data.get("skills", [])
+        selected_doc_names = data.get("docs", [])
+
+        logger.debug(f"AI selected skills: {selected_skill_names}, docs: {selected_doc_names}")
+
+        selected_skills = [s for s in all_skills if s["name"] in selected_skill_names]
+        selected_docs = [d for d in all_docs if d["name"] in selected_doc_names]
+
+        return selected_skills, selected_docs
     except Exception as e:
-        logger.warning(f"Skill selection failed, using all skills: {e}")
-        return all_skills
+        logger.warning(f"Skill/doc selection failed: {e}")
+        return [], []
 
 
 def build_review_context(
@@ -120,6 +242,8 @@ def build_review_context(
     diff: str,
     changed_files: List[str],
     skills: List[Dict],
+    project_instructions: Optional[str] = None,
+    docs: Optional[List[Dict]] = None,
 ) -> str:
     """
     Build the full context string for the CodeReviewAgent.
@@ -129,10 +253,13 @@ def build_review_context(
         diff: Full unified diff of the PR
         changed_files: List of changed file paths
         skills: List of {"name", "content"} skill dicts
+        project_instructions: Content of the project instructions file (CLAUDE.md, GEMINI.md, etc.)
+        docs: List of {"name", "content"} architecture doc dicts
 
     Returns:
         Formatted context string for AI review
     """
+    docs = docs or []
     sections = []
 
     # PR metadata
@@ -151,15 +278,27 @@ def build_review_context(
         files_list = "\n".join(f"  - {f}" for f in changed_files)
         sections.append(f"## Changed Files\n{files_list}")
 
-    # Project skills context
+    # Project instructions (always included if available, truncated)
+    if project_instructions:
+        max_instructions_chars = 6_000
+        instructions_preview = project_instructions[:max_instructions_chars]
+        if len(project_instructions) > max_instructions_chars:
+            instructions_preview += "\n\n... (truncated)"
+        sections.append(f"## Project Overview\n\n{instructions_preview}")
+
+    # Code guidelines (skills)
     if skills:
-        skill_sections = []
-        for skill in skills:
-            skill_sections.append(f"### Skill: {skill['name']}\n{skill['content']}")
-        sections.append("## Project Guidelines (Skills)\n\n" + "\n\n".join(skill_sections))
-    else:
+        skill_sections = [f"### {skill['name']}\n{skill['content']}" for skill in skills]
+        sections.append("## Code Guidelines\n\n" + "\n\n".join(skill_sections))
+
+    # Architecture docs
+    if docs:
+        doc_sections = [f"### {doc['name']}\n{doc['content']}" for doc in docs]
+        sections.append("## Architecture Documentation\n\n" + "\n\n".join(doc_sections))
+
+    if not skills and not docs and not project_instructions:
         sections.append(
-            "## Project Guidelines\n\nNo project-specific skills found. "
+            "## Project Guidelines\n\nNo project-specific guidelines found. "
             "Apply general best practices for code review."
         )
 
@@ -255,7 +394,7 @@ def compute_diff_stat(diff: str) -> Tuple[List[str], List[str]]:
         total_adds += adds
         total_dels += dels
         # Format: "file.py | 5 ++---"
-        bar = "[green]+" * adds + "[/green]" + "[red]-" * dels + "[/red]"
+        bar = f"[green]{'+'*adds}[/green][red]{'-'*dels}[/red]"
         line = f"{file_path} | {adds + dels:4} {bar}"
         formatted_files.append(line)
 
@@ -267,6 +406,115 @@ def compute_diff_stat(diff: str) -> Tuple[List[str], List[str]]:
               f"{total_dels} deletions[red](-)[/red]"
 
     return formatted_files, [summary]
+
+
+MAX_FILES_FOR_REVIEW = 20
+
+
+def select_files_for_review(
+    changed_files: List[str],
+    ai_generator: Any,
+    max_files: int = MAX_FILES_FOR_REVIEW,
+) -> List[str]:
+    """
+    Use AI to select the most relevant files to review from a large PR.
+
+    Args:
+        changed_files: All changed file paths in the PR
+        ai_generator: AI generator (ctx.ai)
+        max_files: Maximum number of files to select
+
+    Returns:
+        Selected file paths to review
+    """
+    if len(changed_files) <= max_files:
+        return changed_files
+
+    files_list = "\n".join(f"  - {f}" for f in changed_files)
+    prompt = f"""A pull request has {len(changed_files)} changed files, which is too large to review entirely.
+
+Select the {max_files} most important files to review. Prioritize:
+1. Core business logic and production code
+2. Files with complex changes (avoid trivial/generated files)
+3. Avoid: auto-generated files, test fixtures, resource files (strings.xml, drawables), build files, lock files
+
+Changed files:
+{files_list}
+
+Respond with a JSON array of file paths (exact strings from the list above). Example: ["app/src/main/Foo.kt", "lib/Bar.kt"]"""
+
+    from titan_cli.ai.models import AIMessage
+    try:
+        response = ai_generator.generate(
+            messages=[AIMessage(role="user", content=prompt)],
+            max_tokens=1000,
+            temperature=0.1,
+        )
+        text = response.content.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+
+        selected = json.loads(text)
+        if not isinstance(selected, list):
+            return changed_files[:max_files]
+
+        # Keep only valid paths from the original list
+        valid = [f for f in selected if f in changed_files]
+        return valid[:max_files] if valid else changed_files[:max_files]
+    except Exception as e:
+        logger.warning(f"File selection failed, using first {max_files} files: {e}")
+        return changed_files[:max_files]
+
+
+def build_pr_summary_prompt(
+    pr: UIPullRequest,
+    changed_files: List[str],
+    suggestions: List[UIReviewSuggestion],
+) -> str:
+    """
+    Build the prompt for generating an AI PR summary.
+
+    Args:
+        pr: The pull request UI model
+        changed_files: List of changed file paths
+        suggestions: AI-generated review suggestions
+
+    Returns:
+        Prompt string for the summary agent
+    """
+    files_list = "\n".join(f"  - {f}" for f in changed_files)
+
+    suggestion_lines = []
+    for s in suggestions:
+        line_info = f"line {s.line}" if s.line else "general"
+        suggestion_lines.append(f"  - [{s.severity.upper()}] {s.file_path} ({line_info}): {s.body[:100]}")
+    suggestions_text = "\n".join(suggestion_lines) if suggestion_lines else "  (none)"
+
+    return f"""You are reviewing a pull request. Provide a brief summary in markdown.
+
+## PR: #{pr.number} — {pr.title}
+**Author**: {pr.author_name}
+**Branches**: {pr.branch_info}
+**Stats**: {pr.stats} across {pr.files_changed} file(s)
+
+### Description
+{pr.body or "(no description)"}
+
+### Changed Files
+{files_list}
+
+### AI-Generated Comments ({len(suggestions)} total)
+{suggestions_text}
+
+---
+
+Write a concise PR summary in markdown with these sections:
+1. **Overview** — what this PR does in 1-2 sentences
+2. **Areas to pay attention to** — specific files or patterns that deserve careful review
+3. **Recommendation** — one of: ✅ APPROVE / 🔴 REQUEST CHANGES / 💬 COMMENT, with a one-line justification based on the severity and number of issues found
+
+Be direct and concise. Use bullet points where helpful."""
 
 
 def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optional[str]:
@@ -314,36 +562,97 @@ def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optiona
     return hunks[0] if hunks else None
 
 
+def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
+    """
+    Parse a unified diff and extract which line numbers of the new file are present.
+
+    Only lines reachable on the RIGHT side (added or context lines) are valid
+    targets for inline review comments.
+
+    Args:
+        diff: Full unified diff string
+
+    Returns:
+        Dict mapping file_path -> set of valid new-file line numbers
+    """
+    result: Dict[str, set] = {}
+    current_file: Optional[str] = None
+    current_line = 0
+
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            match = re.search(r"b/(.+)$", line)
+            if match:
+                current_file = match.group(1)
+                result[current_file] = set()
+                current_line = 0
+        elif line.startswith("@@") and current_file is not None:
+            match = re.search(r"\+(\d+)", line)
+            if match:
+                current_line = int(match.group(1)) - 1
+        elif current_file is not None and current_line > 0:
+            if line.startswith("+"):
+                current_line += 1
+                result[current_file].add(current_line)
+            elif line.startswith(" "):
+                current_line += 1
+                result[current_file].add(current_line)
+            # Lines starting with "-" are deleted — not valid for RIGHT side comments
+
+    return result
+
+
 def build_review_payload(
     suggestions: List[UIReviewSuggestion],
     commit_id: str,
+    diff: str = "",
 ) -> Dict:
     """
     Build the GitHub API payload for creating a draft review.
 
+    Validates inline comment line numbers against the actual diff to ensure
+    GitHub accepts them. Comments on lines not present in the diff fall back
+    to general comments.
+
     Args:
         suggestions: List of approved UIReviewSuggestion objects
         commit_id: Latest commit SHA for the PR
+        diff: Full unified diff (used to validate line numbers)
 
     Returns:
         Dict payload for create_draft_review
     """
+    valid_lines_by_file = extract_valid_diff_lines(diff) if diff else {}
+    logger.info(f"Valid diff lines by file: { {f: sorted(lines) for f, lines in valid_lines_by_file.items()} }")
+
     inline_comments = []
     general_comments: List[str] = []
 
     for s in suggestions:
         if s.line is not None:
-            inline_comments.append({
-                "path": s.file_path,
-                "line": s.line,
-                "body": s.body,
-            })
+            file_valid_lines = valid_lines_by_file.get(s.file_path, set())
+
+            if s.line in file_valid_lines:
+                inline_comments.append({
+                    "path": s.file_path,
+                    "line": s.line,
+                    "side": "RIGHT",
+                    "body": s.body,
+                })
+                logger.info(f"Inline comment: {s.file_path}:{s.line}")
+            else:
+                logger.info(
+                    f"Line {s.line} not in diff for {s.file_path} "
+                    f"(valid: {sorted(file_valid_lines)[:20]}) → general comment"
+                )
+                general_comments.append(f"**{s.file_path}** (line {s.line}):\n{s.body}")
         else:
             general_comments.append(f"**{s.file_path}**: {s.body}")
 
+    logger.info(f"Review payload: {len(inline_comments)} inline, {len(general_comments)} general")
+
     payload: Dict = {
         "commit_id": commit_id,
-        "event": "PENDING",
         "comments": inline_comments,
     }
 

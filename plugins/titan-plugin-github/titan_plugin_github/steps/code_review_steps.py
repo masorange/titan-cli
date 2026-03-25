@@ -13,9 +13,13 @@ from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
 
 from ..models.view import UIReviewSuggestion
 from ..operations.code_review_operations import (
+    load_project_instructions,
     load_all_project_skills,
+    load_project_docs,
     select_relevant_skills,
+    select_files_for_review,
     build_review_context,
+    build_pr_summary_prompt,
     extract_diff_for_file,
     extract_hunk_for_line,
     build_review_payload,
@@ -252,13 +256,36 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("error")
             return Error(f"Failed to fetch files: {err}")
 
-    # Validate diff
+    # Validate diff — fallback to per-file diffs if PR is too large
     match diff_result:
         case ClientSuccess(data=diff):
             if not diff or not diff.strip():
                 ctx.textual.dim_text("PR diff is empty — nothing to review.")
                 ctx.textual.end_step("skip")
                 return Skip("Empty PR diff")
+        case ClientError(error_message=err) if "too_large" in err or "too large" in err.lower():
+            ctx.textual.warning_text(f"PR diff is too large ({len(changed_files)} files). Selecting key files to review...")
+
+            if ctx.ai:
+                with ctx.textual.loading("Selecting files to review..."):
+                    selected_files = select_files_for_review(changed_files, ctx.ai)
+            else:
+                from ..operations.code_review_operations import MAX_FILES_FOR_REVIEW
+                selected_files = changed_files[:MAX_FILES_FOR_REVIEW]
+
+            ctx.textual.dim_text(f"Reviewing {len(selected_files)} of {len(changed_files)} files")
+            changed_files = selected_files
+
+            # Get patches per file via the files REST API
+            with ctx.textual.loading("Fetching patches for selected files..."):
+                patches_result = ctx.github.get_pr_file_patches(pr_number, selected_files)
+
+            match patches_result:
+                case ClientSuccess(data=patches_diff) if patches_diff:
+                    diff = patches_diff
+                case _:
+                    ctx.textual.end_step("error")
+                    return Error("Could not fetch file patches for large PR")
         case ClientError(error_message=err):
             ctx.textual.error_text(f"Failed to fetch diff: {err}")
             ctx.textual.end_step("error")
@@ -272,13 +299,16 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.warning_text(f"Could not get commit SHA: {err}")
             commit_sha = ""
 
-    # Load all skills and select relevant ones via AI
+    # Load project context: instructions file, skills and docs
+    project_instructions = load_project_instructions()
     all_skills = load_all_project_skills()
-    if all_skills and ctx.ai:
-        with ctx.textual.loading("Selecting relevant project skills..."):
-            skills = select_relevant_skills(all_skills, diff, ctx.ai)
+    all_docs = load_project_docs()
+
+    if (all_skills or all_docs) and ctx.ai:
+        with ctx.textual.loading("Selecting relevant project context..."):
+            skills, docs = select_relevant_skills(all_skills, diff, ctx.ai, all_docs)
     else:
-        skills = all_skills
+        skills, docs = all_skills, all_docs
 
     # Display file changes summary using diff stat
     formatted_files, formatted_summary = compute_diff_stat(diff)
@@ -289,11 +319,16 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     ctx.textual.text("")
+    if project_instructions:
+        ctx.textual.success_text("✓ Project instructions loaded")
     if skills:
         skill_names = ", ".join(s["name"] for s in skills)
-        ctx.textual.success_text(f"✓ {len(skills)} project skill(s) loaded: {skill_names}")
-    else:
-        ctx.textual.dim_text("No project skills matched changed files")
+        ctx.textual.success_text(f"✓ {len(skills)} guideline(s): {skill_names}")
+    if docs:
+        doc_names = ", ".join(d["name"] for d in docs)
+        ctx.textual.success_text(f"✓ {len(docs)} doc(s): {doc_names}")
+    if not project_instructions and not skills and not docs:
+        ctx.textual.dim_text("No project context found")
     if commit_sha:
         ctx.textual.dim_text(f"  Latest commit: {commit_sha[:7]}")
 
@@ -306,6 +341,8 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             "review_diff": diff,
             "review_commit_sha": commit_sha,
             "review_skills": skills,
+            "review_docs": docs,
+            "review_project_instructions": project_instructions,
             "review_pr": pr,
         },
     )
@@ -336,6 +373,8 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
     diff = ctx.get("review_diff", "")
     changed_files = ctx.get("review_changed_files", [])
     skills = ctx.get("review_skills", [])
+    docs = ctx.get("review_docs", [])
+    project_instructions = ctx.get("review_project_instructions")
 
     if not pr or not diff:
         ctx.textual.end_step("error")
@@ -348,7 +387,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
 
     from ..agents.code_review_agent import CodeReviewAgent
 
-    context_str = build_review_context(pr, diff, changed_files, skills)
+    context_str = build_review_context(pr, diff, changed_files, skills, project_instructions, docs)
 
     with ctx.textual.loading("Generating AI review comments..."):
         agent = CodeReviewAgent(ctx.ai)
@@ -385,6 +424,56 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
         f"Generated {len(suggestions)} review comment(s)",
         metadata={"review_suggestions": suggestions},
     )
+
+
+def summarize_pr_review(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Generate and display an AI summary of the PR before validating comments.
+
+    Requires (from ctx.data):
+        review_pr (UIPullRequest)
+        review_changed_files (List[str])
+        review_suggestions (List[UIReviewSuggestion])
+
+    Returns:
+        Success or Skip (if AI unavailable)
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("PR Review Summary")
+
+    pr = ctx.get("review_pr")
+    changed_files = ctx.get("review_changed_files", [])
+    suggestions = ctx.get("review_suggestions", [])
+
+    if not pr:
+        ctx.textual.end_step("skip")
+        return Skip("No PR data available")
+
+    if not ctx.ai:
+        ctx.textual.end_step("skip")
+        return Skip("AI client not available")
+
+    prompt = build_pr_summary_prompt(pr, changed_files, suggestions)
+
+    from titan_cli.ai.models import AIMessage
+    with ctx.textual.loading("Generating PR summary..."):
+        try:
+            response = ctx.ai.generate(
+                messages=[AIMessage(role="user", content=prompt)],
+                max_tokens=600,
+                temperature=0.3,
+            )
+            summary = response.content.strip()
+        except Exception as e:
+            ctx.textual.warning_text(f"Could not generate summary: {e}")
+            ctx.textual.end_step("skip")
+            return Skip("Summary generation failed")
+
+    ctx.textual.markdown(summary)
+    ctx.textual.end_step("success")
+    return Success("PR summary generated")
 
 
 def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
@@ -493,6 +582,7 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
     approved: List[UIReviewSuggestion] = ctx.get("approved_suggestions", [])
     pr_number = ctx.get("review_pr_number")
     commit_sha = ctx.get("review_commit_sha", "")
+    diff = ctx.get("review_diff", "")
 
     if not approved:
         ctx.textual.dim_text("No approved comments to submit.")
@@ -544,17 +634,14 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
     if add_body:
         review_body = ctx.textual.ask_multiline("General review comment:", default="")
 
-    # Build payload
-    payload = build_review_payload(approved, commit_sha)
-
-    # If user chose APPROVE or REQUEST_CHANGES, override the event
-    payload["event"] = event
+    # Build payload — always create as PENDING, submit separately with the chosen event
+    payload = build_review_payload(approved, commit_sha, diff)
 
     if review_body and review_body.strip():
         existing_body = payload.get("body", "")
         payload["body"] = (existing_body + "\n\n" + review_body.strip()).strip()
 
-    # Create draft review and submit
+    # Create draft review (PENDING)
     with ctx.textual.loading("Creating review..."):
         draft_result = ctx.github.create_draft_review(pr_number, payload)
 
