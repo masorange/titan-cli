@@ -5,7 +5,7 @@ Handles Jira metadata operations (issue types, statuses, etc.).
 Network → NetworkModel → UIModel → Result
 """
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
@@ -20,6 +20,15 @@ from ...models.network.rest import (
     NetworkJiraVersion
 )
 from ...exceptions import JiraAPIError
+
+if TYPE_CHECKING:
+    from ...models.view import (
+        UIJiraIssueType,
+        UIJiraStatus,
+        UIJiraUser,
+        UIJiraVersion,
+        UIPriority
+    )
 
 
 class MetadataService:
@@ -220,7 +229,6 @@ class MetadataService:
         Returns:
             ClientResult[List[UIPriority]]
         """
-        from ...models.view import UIPriority
         from ...models.mappers import from_network_priority
 
         try:
