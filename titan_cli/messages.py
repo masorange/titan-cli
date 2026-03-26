@@ -78,6 +78,24 @@ class Messages:
         ASSISTANT_EXITED_WITH_CODE = "{cli_name} exited with code {exit_code}"
 
     # ═══════════════════════════════════════════════════════════════
+    # AI CLI Headless Step
+    # ═══════════════════════════════════════════════════════════════
+
+    class AICLIHeadless:
+        """Messages for the AI CLI headless step."""
+        CONTEXT_KEY_REQUIRED = "Parameter 'context_key' is required for ai_cli_headless step"
+        NO_DATA_IN_CONTEXT = "No data found in context key '{context_key}' - skipping headless analysis"
+        INVALID_PROMPT_TEMPLATE = "Invalid prompt_template: missing placeholder {e}"
+        FAILED_TO_BUILD_PROMPT = "Failed to build prompt: {e}"
+        NO_ADAPTER_AVAILABLE = "No headless CLI adapter available. Install Claude CLI or Gemini CLI."
+        CLI_NOT_AVAILABLE = "CLI '{cli_name}' is not installed or not found in PATH"
+        UNKNOWN_CLI = "Unknown CLI '{cli_name}'. Valid options: {valid}"
+        RUNNING = "Running {cli_name} headless analysis..."
+        COMPLETED = "{cli_name} analysis completed"
+        FAILED = "{cli_name} exited with code {exit_code}"
+        TIMEOUT = "{cli_name} timed out after {timeout}s"
+
+    # ═══════════════════════════════════════════════════════════════
     # Generic Error Messages
     # ═══════════════════════════════════════════════════════════════
 
