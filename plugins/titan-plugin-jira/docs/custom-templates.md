@@ -1,58 +1,58 @@
-# Plantillas Personalizadas para Issues
+# Custom Templates for Issues
 
-El workflow **Crear Issue de JIRA** permite usar plantillas personalizadas para generar descripciones de issues.
+The **Create JIRA Issue** workflow allows using custom templates to generate issue descriptions.
 
-## Ubicación de Plantillas
+## Template Locations
 
-### Plantilla del Proyecto (Recomendada)
+### Project Template (Recommended)
 
-Crea tu plantilla personalizada en:
+Create your custom template at:
 
 ```
 .titan/templates/issue_templates/default.md.j2
 ```
 
-Esta plantilla se usará automáticamente cuando ejecutes el workflow.
+This template will be automatically used when you run the workflow.
 
-### Plantilla por Defecto del Plugin
+### Plugin Default Template
 
-Si no existe una plantilla de proyecto, se usa la plantilla por defecto del plugin:
+If no project template exists, the plugin's default template is used:
 
 ```
 plugins/titan-plugin-jira/titan_plugin_jira/config/templates/generic_issue.md.j2
 ```
 
-## Formato de la Plantilla
+## Template Format
 
-Las plantillas usan **Jinja2** y reciben las siguientes variables desde la IA:
+Templates use **Jinja2** and receive the following variables from the AI:
 
-| Variable | Tipo | Descripción |
+| Variable | Type | Description |
 |----------|------|-------------|
-| `description` | string | Descripción expandida de la tarea |
-| `objective` | string | Objetivo de la issue |
-| `acceptance_criteria` | string | Criterios de aceptación (checkboxes) |
-| `technical_notes` | string o None | Notas técnicas (opcional) |
-| `dependencies` | string o None | Dependencias (opcional) |
+| `description` | string | Extended task description |
+| `objective` | string | Issue objective |
+| `acceptance_criteria` | string | Acceptance criteria (checkboxes) |
+| `technical_notes` | string or None | Technical notes (optional) |
+| `dependencies` | string or None | Dependencies (optional) |
 
-## Ejemplo de Plantilla Personalizada
+## Custom Template Example
 
 ```jinja2
-## 📋 Descripción
+## 📋 Description
 
 {{ description }}
 
-## 🎯 Objetivo
+## 🎯 Objective
 
 {{ objective }}
 
-## ✅ Criterios de Aceptación
+## ✅ Acceptance Criteria
 
 {{ acceptance_criteria }}
 
 {% if technical_notes %}
 ---
 
-### 🔧 Notas Técnicas
+### 🔧 Technical Notes
 
 {{ technical_notes }}
 {% endif %}
@@ -60,79 +60,79 @@ Las plantillas usan **Jinja2** y reciben las siguientes variables desde la IA:
 {% if dependencies %}
 ---
 
-### 🔗 Dependencias
+### 🔗 Dependencies
 
 {{ dependencies }}
 {% endif %}
 
 ---
 
-*Creado con Titan CLI*
+*Created with Titan CLI*
 ```
 
-## Crear Tu Plantilla Personalizada
+## Creating Your Custom Template
 
-1. **Crea el directorio** (si no existe):
+1. **Create the directory** (if it doesn't exist):
 
 ```bash
 mkdir -p .titan/templates/issue_templates
 ```
 
-2. **Crea la plantilla**:
+2. **Create the template**:
 
 ```bash
 cat > .titan/templates/issue_templates/default.md.j2 << 'EOF'
-## Descripción
+## Description
 
 {{ description }}
 
-## Objetivo
+## Objective
 
 {{ objective }}
 
-## Criterios de Aceptación
+## Acceptance Criteria
 
 {{ acceptance_criteria }}
 
 {% if technical_notes %}
-### Notas Técnicas
+### Technical Notes
 
 {{ technical_notes }}
 {% endif %}
 EOF
 ```
 
-3. **Ejecuta el workflow**:
+3. **Run the workflow**:
 
-El workflow automáticamente detectará y usará tu plantilla.
+The workflow will automatically detect and use your template.
 
-## Consejos
+## Tips
 
-- **Usa Markdown**: Las plantillas soportan Markdown completo
-- **Secciones opcionales**: Usa `{% if variable %}` para contenido condicional
-- **Formato limpio**: La IA genera el contenido, tu plantilla lo estructura
-- **Emojis**: Añade emojis para mejor legibilidad (opcional)
-- **Commits**: Versiona tu plantilla con Git para compartirla con el equipo
+- **Use Markdown**: Templates support full Markdown
+- **Optional sections**: Use `{% if variable %}` for conditional content
+- **Clean format**: The AI generates the content, your template structures it
+- **Emojis**: Add emojis for better readability (optional)
+- **Commits**: Version your template with Git to share it with the team
 
-## Ejemplo Avanzado: Plantilla con Checklist de QA
+## Advanced Example: Template with QA Checklist
 
 ```jinja2
-## 📋 Descripción
+## 📋 Description
 
 {{ description }}
 
-## 🎯 Objetivo
+## 🎯 Objective
 
 {{ objective }}
 
-## ✅ Criterios de Aceptación
+## ✅ Acceptance Criteria
 
 {{ acceptance_criteria }}
 
 {% if technical_notes %}
 ---
 
-### 🔧 Implementación
+### 🔧 Implementation
 
 {{ technical_notes }}
 {% endif %}
@@ -140,7 +140,7 @@ El workflow automáticamente detectará y usará tu plantilla.
 {% if dependencies %}
 ---
 
-### 🔗 Dependencias
+### 🔗 Dependencies
 
 {{ dependencies }}
 {% endif %}
@@ -149,19 +149,19 @@ El workflow automáticamente detectará y usará tu plantilla.
 
 ## 🧪 QA Checklist
 
-- [ ] Tests unitarios implementados
-- [ ] Tests de integración pasando
-- [ ] Documentación actualizada
-- [ ] Code review aprobado
-- [ ] Funciona en staging
+- [ ] Unit tests implemented
+- [ ] Integration tests passing
+- [ ] Documentation updated
+- [ ] Code review approved
+- [ ] Works in staging
 
 ---
 
-*Generado automáticamente por Titan CLI*
+*Automatically generated by Titan CLI*
 ```
 
-## Hooks y Extensibilidad
+## Hooks and Extensibility
 
-Este workflow es extensible mediante hooks en Titan. Puedes añadir pasos custom antes o después de cualquier step del workflow.
+This workflow is extensible via hooks in Titan. You can add custom steps before or after any workflow step.
 
-Consulta la documentación de Titan para más información sobre hooks.
+Refer to Titan documentation for more information about hooks.
