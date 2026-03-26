@@ -56,6 +56,13 @@ class UserDecision(StrEnum):
     PENDING = "pending"
 
 
+class RefinementAction(StrEnum):
+    """Actions the user can take on a single AI suggestion."""
+    APPROVE = "approve"
+    REJECT = "reject"
+    REFINE = "refine"
+
+
 @dataclass
 class RefinementIteration:
     """One round of the user→agent refinement loop for a single comment."""

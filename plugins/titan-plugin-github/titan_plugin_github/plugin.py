@@ -141,6 +141,8 @@ class GitHubPlugin(TitanPlugin):
             validate_review_comments,
             submit_pr_review,
         )
+        from .steps.ai_cli_initial_review_step import ai_cli_initial_review
+        from .steps.ai_cli_validate_with_refinement_step import ai_cli_validate_with_refinement
         return {
             "create_pr": create_pr_step,
             "prompt_for_pr_title": prompt_for_pr_title_step,
@@ -170,4 +172,7 @@ class GitHubPlugin(TitanPlugin):
             "summarize_pr_review": summarize_pr_review,
             "validate_review_comments": validate_review_comments,
             "submit_pr_review": submit_pr_review,
+            # Iterative AI review steps
+            "ai_cli_initial_review": ai_cli_initial_review,
+            "ai_cli_validate_with_refinement": ai_cli_validate_with_refinement,
         }
