@@ -172,7 +172,9 @@ class TestTransitionIssueToReadyForDev:
         result = transition_issue_to_ready_for_dev(mock_client, "TEST-123")
 
         # Assert
-        assert result is None
+        assert result == transition
+        assert result.id == "21"
+        assert result.name == "Ready to Dev"
         mock_client.transition_issue.assert_called_once_with(
             issue_key="TEST-123", new_status="Ready to Dev"
         )
@@ -255,7 +257,10 @@ class TestTransitionIssueToReadyForDev:
         result = transition_issue_to_ready_for_dev(mock_client, "TEST-123")
 
         # Assert
-        assert result is None
+        assert result == transition
+        assert result.id == "21"
+        assert result.name == "READY FOR DEVELOPMENT"
+        assert result.to_status == "Ready for Dev"
         mock_client.transition_issue.assert_called_once_with(
             issue_key="TEST-123", new_status="Ready for Dev"
         )

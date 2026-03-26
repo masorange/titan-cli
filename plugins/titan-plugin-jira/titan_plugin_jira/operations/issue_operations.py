@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 def find_ready_to_dev_transition(
     jira_client: "JiraClient", issue_key: str
-) -> UITransition:
+) -> "UITransition":
     """
     Find "Ready to Dev" transition for an issue.
 
@@ -54,7 +54,7 @@ def find_ready_to_dev_transition(
 
 def transition_issue_to_ready_for_dev(
     jira_client: "JiraClient", issue_key: str
-) -> UITransition:
+) -> "UITransition":
     """
     Attempt to transition issue to "Ready to Dev" status.
 
