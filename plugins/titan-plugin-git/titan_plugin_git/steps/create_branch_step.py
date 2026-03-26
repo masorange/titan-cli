@@ -2,6 +2,8 @@
 Create a new Git branch.
 """
 
+import traceback
+
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
 from ..operations import (
@@ -150,7 +152,6 @@ def create_branch_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
     except Exception as e:
-        import traceback
         tb = traceback.format_exc()
         ctx.textual.text("")
         ctx.textual.error_text(f"Failed to create branch: {str(e)}")
