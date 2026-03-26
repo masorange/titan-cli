@@ -264,8 +264,6 @@ class IssueService:
                 error_code="CREATE_SUBTASK_ERROR"
             )
 
-    # ==================== INTERNAL HELPERS ====================
-
     def _convert_text_to_adf(self, text: str) -> dict:
         """
         Convert plain text to Atlassian Document Format (ADF).
