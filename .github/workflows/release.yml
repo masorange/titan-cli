@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   release:
-    uses: masorange/masorange-gh-actions/titan-cli/.github/workflows/release.yml@master
+    uses: masorange/masorange-gh-actions/.github/workflows/titan-cli-release.yml@master
     with:
       version: ${{ inputs.version || '' }}
       prerelease: ${{ inputs.prerelease || false }}
