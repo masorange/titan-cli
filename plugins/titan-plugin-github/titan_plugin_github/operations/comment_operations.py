@@ -35,13 +35,6 @@ def build_ai_review_context(
             "diff_hunk": str (acotado),
             "thread": [{"author": str, "date": str, "body": str}, ...]
         }
-
-    Example:
-        >>> context = build_ai_review_context(pr_thread, "feat: Add feature")
-        >>> context['pr']
-        'feat: Add feature'
-        >>> len(context['diff_hunk'].split('\\n'))
-        11  # ~11 lines instead of 200+
     """
     main_comment = pr_thread.main_comment
 
@@ -93,11 +86,6 @@ def find_ai_response_file(comment_id: int, expected_path: str) -> Optional[str]:
 
     Returns:
         Path to the found file, or None if not found
-
-    Example:
-        >>> path = find_ai_response_file(123, "/tmp/titan-ai-response-comment-123.txt")
-        >>> path
-        '/home/user/.gemini/tmp/.../titan-ai-response-comment-123.txt'
     """
     # Try expected location first
     if os.path.exists(expected_path):
@@ -143,6 +131,56 @@ def create_commit_message(comment_body: str, comment_author: str, comment_path: 
     message += f"\n\nBy: {comment_author}"
 
     return message
+
+
+def build_ai_review_prompt(response_file: str) -> str:
+    """
+    Build the prompt template for AI review of a PR comment thread.
+
+    Args:
+        response_file: Path where the AI should write text responses
+
+    Returns:
+        Prompt string with {context} placeholder for the JSON context
+    """
+    return f"""Review this PR comment thread:
+
+```json
+{{context}}
+```
+
+## Your Task
+
+1. **First, evaluate if the review comment makes sense:**
+   - Is the feedback valid and applicable to the current code?
+   - Is the requested change appropriate?
+   - Could previous attempts have already addressed this (check the thread conversation)?
+
+2. **Then, based on your evaluation:**
+   - **If the comment makes sense**: Make the necessary code changes to address it
+   - **If the comment doesn't make sense or is outdated**:
+     * DO NOT make code changes
+     * Write your explanation/response EXACTLY to this file path: {response_file}
+     * IMPORTANT: Use this exact command to write the response:
+       ```bash
+       cat > {response_file} << 'EOF'
+       Your response text here
+       EOF
+       ```
+
+## Response Style (CRITICAL)
+- **Keep responses SHORT and CONCISE** (maximum 2-3 sentences)
+- **Be direct and to the point** - no verbose explanations
+- **Avoid multiple paragraphs** - use a single short paragraph
+- **Don't over-explain** - state the key point clearly and move on
+- Example GOOD: "This is intentional. The logic handles X at layer Y, ensuring Z."
+- Example BAD: Long multi-paragraph explanations with bullet points and detailed justifications
+
+Note: Review the entire conversation thread carefully - previous fix attempts may have failed or been incomplete.
+
+## When You're Done
+Once you have completed your single action (code fix OR written the response file), tell the user:
+"Done. Press Ctrl+C twice to exit and return to Titan." """
 
 
 def prepare_replies_for_sending(
@@ -202,12 +240,6 @@ def reply_to_comment_batch(
 
     Returns:
         Dictionary mapping comment_id -> success (bool)
-
-    Example:
-        >>> replies = {123: "Fixed", 456: "Done"}
-        >>> results = reply_to_comment_batch(github, 789, replies)
-        >>> results
-        {123: True, 456: True}
     """
     results = {}
 

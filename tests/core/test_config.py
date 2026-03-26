@@ -1,7 +1,14 @@
 # tests/core/test_config.py
+import os
+import subprocess
 import tomli_w
 from pathlib import Path
 from titan_cli.core.config import TitanConfig
+
+
+def _git_init(path: Path) -> None:
+    """Initialize a git repository at the given path."""
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
 
 def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     """
@@ -175,5 +182,198 @@ def test_config_deep_merges_plugins(tmp_path: Path, monkeypatch, mocker):
         assert github_plugin_config.enabled is True  # This should be preserved from global
         assert github_plugin_config.config["user"] == "project-user"  # This should be overridden by project
         assert github_plugin_config.config["repo"] == "global-repo"  # This should be preserved from global
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_config_uses_git_root_as_project_root(tmp_path: Path, monkeypatch, mocker):
+    """
+    Monorepo scenario: when running from a subdirectory, project_root should be
+    the git root, not the current working directory.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    # Setup: git repo at tmp_path/monorepo, .titan config at monorepo root
+    git_root = tmp_path / "monorepo"
+    git_root.mkdir()
+    _git_init(git_root)
+
+    titan_dir = git_root / ".titan"
+    titan_dir.mkdir()
+    project_config_path = titan_dir / "config.toml"
+    project_config_data = {"project": {"name": "My Monorepo"}}
+    with open(project_config_path, "wb") as f:
+        tomli_w.dump(project_config_data, f)
+
+    # Global config (empty)
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    # Run from a subdirectory (simulating working in /monorepo/app)
+    app_dir = git_root / "app"
+    app_dir.mkdir()
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(app_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.project_root == git_root.resolve()
+        assert config_instance.config.project.name == "My Monorepo"
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_config_uses_cwd_as_project_root_when_no_git(tmp_path: Path, monkeypatch, mocker):
+    """
+    When not inside a git repo, project_root falls back to the current
+    working directory.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "my_project"
+    project_dir.mkdir()
+    titan_dir = project_dir / ".titan"
+    titan_dir.mkdir()
+    project_config_path = titan_dir / "config.toml"
+    with open(project_config_path, "wb") as f:
+        tomli_w.dump({"project": {"name": "No Git Project"}}, f)
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.project_root == project_dir.resolve()
+        assert config_instance.config.project.name == "No Git Project"
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_config_finds_titan_at_git_root_not_subdir(tmp_path: Path, monkeypatch, mocker):
+    """
+    When running from /monorepo/app with .titan only at /monorepo,
+    the wizard should NOT trigger (config is found at git root).
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    git_root = tmp_path / "monorepo"
+    git_root.mkdir()
+    _git_init(git_root)
+
+    titan_dir = git_root / ".titan"
+    titan_dir.mkdir()
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump({"project": {"name": "Monorepo"}}, f)
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    # Running from a nested package dir — no .titan here
+    pkg_dir = git_root / "packages" / "backend"
+    pkg_dir.mkdir(parents=True)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(pkg_dir)
+        config_instance = TitanConfig()
+
+        # Config should be found — no wizard needed
+        assert config_instance.project_config_path == titan_dir / "config.toml"
+        assert config_instance.config.project.name == "Monorepo"
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_config_no_titan_in_subdir_triggers_wizard_scenario(tmp_path: Path, monkeypatch, mocker):
+    """
+    .titan only exists in a subdirectory (/monorepo/app/.titan) but NOT at git root (/monorepo).
+    Running from /monorepo/app should NOT find the config — project_root is the git root,
+    and _find_project_config searches from there upward, missing the subdir config.
+    This documents the intentional behavior: configs must live at the git root.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    git_root = tmp_path / "monorepo"
+    git_root.mkdir()
+    _git_init(git_root)
+
+    # .titan is in the app subdir, NOT at git root
+    app_dir = git_root / "app"
+    app_dir.mkdir()
+    app_titan_dir = app_dir / ".titan"
+    app_titan_dir.mkdir()
+    with open(app_titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump({"project": {"name": "App Only"}}, f)
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(app_dir)
+        config_instance = TitanConfig()
+
+        # Config at subdir is NOT found — project_root is git root, not app_dir
+        assert config_instance.project_root == git_root.resolve()
+        assert config_instance.project_config_path is None
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_config_workflow_registry_uses_git_root(tmp_path: Path, monkeypatch, mocker):
+    """
+    WorkflowRegistry should be initialized with the git root as project_root,
+    so workflows defined at the monorepo level are discoverable from any subdirectory.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+    mock_registry_cls = mocker.patch('titan_cli.core.config.WorkflowRegistry')
+
+    git_root = tmp_path / "monorepo"
+    git_root.mkdir()
+    _git_init(git_root)
+
+    titan_dir = git_root / ".titan"
+    titan_dir.mkdir()
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump({"project": {"name": "Monorepo"}}, f)
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    app_dir = git_root / "app"
+    app_dir.mkdir()
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(app_dir)
+        TitanConfig()
+
+        # WorkflowRegistry must be initialized with git root, not app_dir
+        call_kwargs = mock_registry_cls.call_args
+        assert call_kwargs.kwargs["project_root"] == git_root.resolve()
     finally:
         os.chdir(original_cwd)

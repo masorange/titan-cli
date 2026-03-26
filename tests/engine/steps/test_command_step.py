@@ -13,8 +13,7 @@ from titan_cli.engine.results import Success, Error
 def mock_context():
     """Provides a mock WorkflowContext."""
     ctx = MagicMock(spec=WorkflowContext)
-    ctx.ui = MagicMock()
-    ctx.ui.text = MagicMock()
+    ctx.textual = MagicMock()
     ctx.get.side_effect = lambda key, default=None: {"cwd": "/tmp/mock_cwd"}.get(key, default)
     return ctx
 
@@ -48,8 +47,8 @@ def test_execute_command_step_success(mock_context, mock_popen):
     assert isinstance(result, Success)
     assert result.message == "Command 'echo hello' executed successfully."
     assert "hello\n" == result.metadata["command_output"]
-    mock_context.ui.text.info.assert_called_with("Executing command: echo hello")
-    mock_context.ui.text.body.assert_called_with("hello\n")
+    mock_context.textual.text.assert_any_call("Executing command: echo hello")
+    mock_context.textual.text.assert_any_call("hello\n")
     mock_popen.assert_called_once()
 
 def test_execute_command_step_failure(mock_context, mock_popen):
@@ -63,8 +62,8 @@ def test_execute_command_step_failure(mock_context, mock_popen):
     assert isinstance(result, Error)
     assert "Command failed with exit code 1" in result.message
     assert "error stderr" in result.message
-    mock_context.ui.text.info.assert_called_with("Executing command: exit 1")
-    mock_context.ui.text.body.assert_called_with("error stdout")
+    mock_context.textual.text.assert_any_call("Executing command: exit 1")
+    mock_context.textual.text.assert_any_call("error stdout")
     mock_popen.assert_called_once()
 
 
@@ -79,7 +78,7 @@ def test_execute_command_step_command_not_found(mock_context, mock_popen):
 
     assert isinstance(result, Error)
     assert "Command not found: non_existent_command" in result.message
-    mock_context.ui.text.info.assert_called_with("Executing command: non_existent_command")
+    mock_context.textual.text.assert_any_call("Executing command: non_existent_command")
 
 def test_execute_command_step_with_venv(mock_context, mock_get_poetry_venv_env, mock_popen):
     """Tests command execution when use_venv is true."""
@@ -93,8 +92,8 @@ def test_execute_command_step_with_venv(mock_context, mock_get_poetry_venv_env, 
     assert result.message == "Command 'echo venv_activated' executed successfully."
     mock_get_poetry_venv_env.assert_called_once_with(cwd="/tmp/mock_cwd")
     # Check that both UI messages were called
-    assert any(call[0][0] == "Activating poetry virtual environment for step..." for call in mock_context.ui.text.body.call_args_list)
-    assert any(call[0][0] == "venv_activated\n" for call in mock_context.ui.text.body.call_args_list)
+    mock_context.textual.dim_text.assert_any_call("Activating poetry virtual environment for step...")
+    mock_context.textual.text.assert_any_call("venv_activated\n")
     mock_popen.assert_called_once()
     assert mock_popen.call_args[1]['env'] == mock_get_poetry_venv_env.return_value # Check env is passed
 
@@ -106,7 +105,7 @@ def test_execute_command_step_venv_not_found(mock_context, mock_get_poetry_venv_
 
     assert isinstance(result, Error)
     assert "Could not determine poetry virtual environment." in result.message
-    mock_context.ui.text.body.assert_called_with("Activating poetry virtual environment for step...", style="dim")
+    mock_context.textual.dim_text.assert_called_with("Activating poetry virtual environment for step...")
     mock_popen.assert_not_called() # Popen should not be called if venv not found
 
 def test_execute_command_step_parameter_substitution(mock_context, mock_popen):
@@ -121,8 +120,8 @@ def test_execute_command_step_parameter_substitution(mock_context, mock_popen):
     assert isinstance(result, Success)
     assert result.message == "Command 'echo substituted_value' executed successfully."
     assert "substituted_value\n" == result.metadata["command_output"]
-    mock_context.ui.text.info.assert_called_with("Executing command: echo substituted_value")
-    mock_context.ui.text.body.assert_called_with("substituted_value\n")
+    mock_context.textual.text.assert_any_call("Executing command: echo substituted_value")
+    mock_context.textual.text.assert_any_call("substituted_value\n")
 
 def test_execute_command_step_no_command_template(mock_context, mock_popen):
     """Tests when command attribute is empty."""

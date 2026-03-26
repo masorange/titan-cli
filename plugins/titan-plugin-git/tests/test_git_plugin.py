@@ -40,9 +40,10 @@ def test_get_git_status_step_success():
     mock_git_client.get_status.assert_called_once()
 
 
-def test_get_git_status_step_exit_when_clean():
+def test_get_git_status_step_skip_when_clean():
     """
-    Test that get_git_status_step returns Exit when the working directory is clean.
+    Test that get_git_status_step returns Skip when the working directory is clean,
+    allowing the workflow to continue to the push step.
     """
     # 1. Arrange
     mock_git_client = MagicMock(spec=GitClient)

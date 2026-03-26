@@ -77,7 +77,6 @@ def _is_development_mode(debug: bool) -> bool:
     Checks:
     1. TITAN_ENV environment variable
     2. Debug flag
-    3. Running in TTY (terminal)
 
     Returns:
         True if development mode, False otherwise
@@ -85,8 +84,6 @@ def _is_development_mode(debug: bool) -> bool:
     if os.getenv("TITAN_ENV") == "development":
         return True
     if debug:
-        return True
-    if sys.stdout.isatty():
         return True
     return False
 
@@ -108,7 +105,12 @@ def _get_log_file_path(custom_path: Optional[Path] = None) -> Path:
 
     # XDG Base Directory: logs go in ~/.local/state/
     log_dir = Path.home() / ".local" / "state" / "titan" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError):
+        import tempfile
+        log_dir = Path(tempfile.gettempdir()) / "titan" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
 
     return log_dir / "titan.log"
 

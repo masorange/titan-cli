@@ -79,6 +79,21 @@ Calls another workflow as a step. The sub-workflow's result is returned to the p
   workflow: "commit-ai"
 ```
 
+**Two resolution modes:**
+
+- **Without prefix** (`"commit-ai"`): resolved by source precedence (project → user → plugin). If a project has its own `commit-ai`, that one wins.
+- **With prefix** (`"plugin:git/commit-ai"`): targets a specific plugin's workflow directly, bypassing precedence. Use this when you explicitly need the base workflow, not a project override.
+
+```yaml
+# Uses whichever commit-ai has highest precedence (e.g. project's extended version)
+- workflow: "commit-ai"
+
+# Always uses the base commit-ai from the git plugin, ignoring any project overrides
+- workflow: "plugin:git/commit-ai"
+```
+
+This is especially useful in hooks where you want to call the base workflow without triggering a project's extended version of it.
+
 ---
 
 ## Parameters

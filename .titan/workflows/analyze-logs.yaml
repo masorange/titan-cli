@@ -1,0 +1,22 @@
+name: "Analyze Logs"
+description: "Parse and analyze titan log sessions to diagnose issues and errors."
+
+steps:
+  - id: log-path
+    name: "Select Log File"
+    plugin: project
+    step: prompt_log_path
+
+  - id: log-session
+    name: "Select Session"
+    plugin: project
+    step: select_log_session
+    requires:
+      - log_path
+
+  - id: analyze
+    name: "Analyze Session"
+    plugin: project
+    step: analyze_log_session
+    requires:
+      - log_session

@@ -127,6 +127,8 @@ class WorkflowRegistry:
                 # For now, we continue silently to maintain graceful degradation.
                 continue
 
+        workflows = self._apply_plugin_filters(workflows)
+
         self._discovered = workflows
         return workflows
 
@@ -152,8 +154,19 @@ class WorkflowRegistry:
         if name in self._workflows:
             return self._workflows[name]
 
-        # Find the highest-precedence workflow file for the given name
-        workflow_file = self._find_workflow_file(name)
+        # Find the highest-precedence workflow file for the given name.
+        # Support "plugin:git/commit-ai" syntax to target a specific plugin's workflow directly.
+        if ":" in name:
+            source_type, ref_path = name.split(":", 1)
+            workflow_file = None
+            for source in self._sources:
+                if source.name == source_type or source.name.startswith(f"{source_type}:"):
+                    workflow_file = source.find(ref_path)
+                    if workflow_file:
+                        break
+        else:
+            workflow_file = self._find_workflow_file(name)
+
         if not workflow_file:
             return None
 
@@ -407,6 +420,48 @@ class WorkflowRegistry:
             if source.contains(file_path):
                 return source.name
         return "unknown"
+
+    def _apply_plugin_filters(self, workflows: List[WorkflowInfo]) -> List[WorkflowInfo]:
+        """Let each plugin filter its own workflows based on its current configuration."""
+        # Group plugin workflows by plugin name for batch filtering
+        plugin_to_wfs: Dict[str, List[WorkflowInfo]] = {}
+        for wf in workflows:
+            if wf.source.startswith("plugin:"):
+                pname = wf.source.removeprefix("plugin:")
+                plugin_to_wfs.setdefault(pname, []).append(wf)
+
+        if not plugin_to_wfs:
+            return workflows
+
+        # Build the set of allowed workflow object ids after each plugin filters its own list
+        allowed_ids: set = set()
+        for pname, plugin_wfs in plugin_to_wfs.items():
+            plugin = self.plugin_registry._plugins.get(pname)
+            if plugin is not None:
+                config_dict = self._get_plugin_config_dict(pname)
+                filtered = plugin.filter_workflows(plugin_wfs, config_dict)
+                allowed_ids.update(id(wf) for wf in filtered)
+            else:
+                allowed_ids.update(id(wf) for wf in plugin_wfs)
+
+        # Return in original order, keeping non-plugin workflows untouched
+        return [
+            wf for wf in workflows
+            if not wf.source.startswith("plugin:") or id(wf) in allowed_ids
+        ]
+
+    def _get_plugin_config_dict(self, plugin_name: str) -> dict:
+        """Return the raw config dict for a plugin from the project config file."""
+        try:
+            project_path = self._config.project_config_path if self._config else None
+            if not project_path or not project_path.exists():
+                return {}
+            import tomli
+            with open(project_path, "rb") as f:
+                data = tomli.load(f)
+            return data.get("plugins", {}).get(plugin_name, {}).get("config", {})
+        except Exception:
+            return {}
 
     def reload(self):
         """Clears all caches, forcing re-discovery and re-parsing."""

@@ -10,36 +10,12 @@ from textual.widgets import Static, Input
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.binding import Binding
 
+from titan_cli.ui.tui.widgets import Text, DimText, Button, BoldText, StepIndicator, StepStatus, WizardStep, PromptOptionList, OptionItem
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import Text, DimText, Button, BoldText
 from .base import BaseScreen
 from titan_cli.core.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-class StepIndicator(Static):
-    """Widget showing a single step with status indicator."""
-
-    def __init__(self, step_number: int, title: str, status: str = "pending"):
-        self.step_number = step_number
-        self.title = title
-        self.status = status
-        super().__init__()
-
-    def render(self) -> str:
-        """Render the step with appropriate icon."""
-        if self.status == "completed":
-            icon = Icons.SUCCESS
-            style = "dim"
-        elif self.status == "in_progress":
-            icon = Icons.RUNNING
-            style = "bold cyan"
-        else:  # pending
-            icon = Icons.PENDING
-            style = "dim"
-
-        return f"[{style}]{icon} {self.step_number}. {self.title}[/{style}]"
 
 
 class PluginConfigWizardScreen(BaseScreen):
@@ -249,8 +225,8 @@ class PluginConfigWizardScreen(BaseScreen):
         steps_content = self.query_one("#steps-content", Container)
 
         for i, step in enumerate(self.steps, 1):
-            status = "in_progress" if i == 1 else "pending"
-            steps_content.mount(StepIndicator(i, step["title"], status=status))
+            status = StepStatus.IN_PROGRESS if i == 1 else StepStatus.PENDING
+            steps_content.mount(StepIndicator(i, WizardStep(id=step["id"], title=step["title"]), status=status))
 
     def load_step(self, step_index: int):
         """Load content for the given step."""
@@ -260,11 +236,11 @@ class PluginConfigWizardScreen(BaseScreen):
         # Update step indicators
         for i, indicator in enumerate(self.query(StepIndicator)):
             if i < step_index:
-                indicator.status = "completed"
+                indicator.status = StepStatus.COMPLETED
             elif i == step_index:
-                indicator.status = "in_progress"
+                indicator.status = StepStatus.IN_PROGRESS
             else:
-                indicator.status = "pending"
+                indicator.status = StepStatus.PENDING
             indicator.refresh()
 
         # Update buttons
@@ -334,6 +310,24 @@ class PluginConfigWizardScreen(BaseScreen):
             if existing_secret:
                 info = DimText("\n\nAlready configured. Leave blank to keep existing value.")
                 content_body.mount(info)
+
+        # Enum field: render PromptOptionList instead of Input
+        enum_values = field_schema.get("enum")
+        if enum_values:
+            options = [
+                OptionItem(value=v, title=str(v).capitalize())
+                for v in enum_values
+            ]
+            def on_enum_select(value, fn=field_name):
+                self.config_data[fn] = value
+
+            enum_widget = PromptOptionList(
+                question=f"Select {field_name.replace('_', ' ')}",
+                options=options,
+                on_select=on_enum_select,
+            )
+            content_body.mount(enum_widget)
+            return
 
         # Create input
         input_value = ""
@@ -423,6 +417,15 @@ class PluginConfigWizardScreen(BaseScreen):
         is_required = field_name in self.required_fields
 
         try:
+            # Enum field: value is stored via callback on selection, not via Input widget
+            enum_values = field_schema.get("enum")
+            if enum_values:
+                value = self.config_data.get(field_name)
+                if is_required and not value:
+                    self.app.notify(f"Please select a value for {field_name}", severity="warning")
+                    return False
+                return True
+
             input_widget = self.query_one(f"#input-{field_name}", Input)
             value = input_widget.value.strip()
 

@@ -206,6 +206,7 @@ Each plugin is an independent Python package that can register:
 #### Modern Plugin Architecture (2026-02)
 
 **📖 [Complete Plugin Architecture Guide](.claude/docs/plugin-architecture.md)**
+**📖 [Community Plugin Installer](.claude/docs/community-plugins.md)** — installing plugins from git repos
 
 Plugins now follow a **5-layer architecture** for clean separation of concerns:
 
@@ -337,12 +338,16 @@ Titan uses a two-level configuration system:
    - AI provider settings (shared across all projects)
    - Global preferences
 
-2. **Project Configuration** (`./.titan/config.toml` in each project):
+2. **Project Configuration** (`.titan/config.toml` at the git root):
    - Project name and settings
    - Plugin enablement (per project)
    - Plugin configuration (per project)
 
-**Important:** Titan must be run from within a project directory. It no longer uses a global `project_root` setting.
+**Important:** Titan resolves the project root using the git repository root (`git rev-parse --show-toplevel`), falling back to the current working directory if not inside a git repo. This means:
+- **Monorepos**: Running `titan` from any subdirectory (e.g. `/monorepo/app`) will use the git root (`/monorepo`) as the project root and look for `.titan/config.toml` there.
+- **Normal repos**: Running from the repo root works as before.
+- **No git**: Falls back to the current working directory.
+- **Config location**: `.titan/config.toml` must always be at the git root, not in subdirectories.
 
 Example global config:
 ```toml
@@ -471,11 +476,11 @@ Two new wizards guide users through initial setup:
    - Optional AI configuration
    - Creates global configuration
 
-2. **Project Setup Wizard**: Runs when Titan is launched in an unconfigured directory
+2. **Project Setup Wizard**: Runs when Titan is launched in an unconfigured project
    - Detects project type (Git repo, etc.)
    - Project naming
    - Plugin selection
-   - Creates `.titan/config.toml` in project directory
+   - Creates `.titan/config.toml` at the git root (or cwd if no git repo)
 
 ### Migration Notes
 

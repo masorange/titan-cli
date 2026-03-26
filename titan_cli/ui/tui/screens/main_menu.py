@@ -4,6 +4,8 @@ Main Menu Screen
 The primary navigation screen for Titan TUI.
 """
 
+import asyncio
+
 from textual.app import ComposeResult
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
@@ -12,6 +14,11 @@ from textual.containers import Container
 from titan_cli import __version__
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import StatusBarWidget
+from titan_cli.core.plugins.community import (
+    load_community_plugins,
+    get_github_token,
+    check_for_updates,
+)
 from .base import BaseScreen
 
 from .cli_launcher import CLILauncherScreen
@@ -124,6 +131,24 @@ class MainMenuScreen(BaseScreen):
             )
 
             yield OptionList(*options)
+
+    def on_mount(self) -> None:
+        self.run_worker(self._check_plugin_updates(), exclusive=False)
+
+    async def _check_plugin_updates(self) -> None:
+        records = await asyncio.to_thread(load_community_plugins)
+        if not records:
+            return
+        token = await asyncio.to_thread(get_github_token)
+        updates = await asyncio.to_thread(check_for_updates, records, token)
+        for record, latest in updates:
+            self.app.notify(
+                f"Update available for '{record.titan_plugin_name}': "
+                f"{record.version} → {latest}\n"
+                "Go to Plugin Management to update.",
+                severity="warning",
+                timeout=12,
+            )
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle menu option selection."""
