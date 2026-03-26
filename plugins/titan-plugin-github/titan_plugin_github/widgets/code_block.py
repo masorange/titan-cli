@@ -80,7 +80,6 @@ class CodeBlock(Static):
                 suggested_lines_list = code.split('\n')
 
                 # Detect indentation from first original line
-                import re
                 indent = ""
                 if original_lines_list:
                     indent_match = re.match(r'^(\s*)', original_lines_list[0])

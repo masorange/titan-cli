@@ -8,7 +8,7 @@ No transformations or computed fields.
 
 from .user import NetworkUser
 from .review import NetworkReview
-from .pull_request import NetworkPullRequest, NetworkPRSearchResult, NetworkPRMergeResult
+from .pull_request import NetworkPullRequest, NetworkPRSearchResult, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
 from .issue import NetworkIssue
 
 __all__ = [
@@ -17,5 +17,7 @@ __all__ = [
     "NetworkPullRequest",
     "NetworkPRSearchResult",
     "NetworkPRMergeResult",
+    "NetworkPRFile",
+    "NetworkPRCreated",
     "NetworkIssue",
 ]

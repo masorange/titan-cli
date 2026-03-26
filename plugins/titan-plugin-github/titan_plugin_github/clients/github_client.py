@@ -15,7 +15,7 @@ from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
 from .services import PRService, ReviewService, IssueService, TeamService
-from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview
+from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated
 
 
 class GitHubClient:
@@ -99,15 +99,23 @@ class GitHubClient:
         """List all PRs in the repository."""
         return self._pr_service.list_all_prs(state, max_results)
 
-    def get_pr_diff(
-        self, pr_number: int, file_path: Optional[str] = None
-    ) -> ClientResult[str]:
+    def get_pr_diff(self, pr_number: int) -> ClientResult[str]:
         """Get diff for a PR."""
-        return self._pr_service.get_pr_diff(pr_number, file_path)
+        return self._pr_service.get_pr_diff(pr_number)
+
+    def get_pr_file_patches(
+        self, pr_number: int, file_paths: List[str]
+    ) -> ClientResult[str]:
+        """Get patches for specific files in a PR (fallback for too-large diffs)."""
+        return self._pr_service.get_pr_file_patches(pr_number, file_paths)
 
     def get_pr_files(self, pr_number: int) -> ClientResult[List[str]]:
         """Get list of changed files in PR."""
         return self._pr_service.get_pr_files(pr_number)
+
+    def get_pr_files_with_stats(self, pr_number: int) -> ClientResult[List[UIFileChange]]:
+        """Get all changed files with stats (path, additions, deletions, status)."""
+        return self._pr_service.get_pr_files_with_stats(pr_number)
 
     def checkout_pr(self, pr_number: int) -> ClientResult[str]:
         """Checkout a PR locally."""
@@ -124,7 +132,7 @@ class GitHubClient:
         reviewers: Optional[List[str]] = None,
         labels: Optional[List[str]] = None,
         excluded_reviewers: Optional[List[str]] = None
-    ) -> ClientResult[Dict[str, Any]]:
+    ) -> ClientResult[UIPRCreated]:
         """
         Create a pull request.
 

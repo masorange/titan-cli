@@ -5,8 +5,8 @@ Pull Request Mappers
 Converts network models (REST/GraphQL) to view models (UI).
 All presentation logic and transformations live here.
 """
-from ..network.rest import NetworkPullRequest, NetworkPRMergeResult
-from ..view import UIPullRequest, UIPRMergeResult
+from ..network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
+from ..view import UIPullRequest, UIPRMergeResult, UIFileChange, UIPRCreated
 from ..formatting import (
     format_date,
     get_pr_status_icon,
@@ -50,6 +50,51 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         labels=label_names,
         formatted_created_at=format_date(rest_pr.createdAt) if rest_pr.createdAt else "",
         formatted_updated_at=format_date(rest_pr.updatedAt) if rest_pr.updatedAt else "",
+    )
+
+
+_STATUS_ICONS = {
+    "added": "+",
+    "removed": "−",
+    "modified": "~",
+    "renamed": "→",
+    "copied": "⎘",
+}
+
+
+def from_network_pr_file(network_file: NetworkPRFile) -> UIFileChange:
+    """
+    Convert Network PR File to UI File Change.
+
+    Args:
+        network_file: NetworkPRFile from REST API
+
+    Returns:
+        UIFileChange ready for display or AI prompts
+    """
+    return UIFileChange(
+        path=network_file.filename,
+        additions=network_file.additions,
+        deletions=network_file.deletions,
+        status=network_file.status,
+        status_icon=_STATUS_ICONS.get(network_file.status, "~"),
+    )
+
+
+def from_network_pr_created(network_created: NetworkPRCreated) -> UIPRCreated:
+    """
+    Convert Network PR Created to UI PR Created.
+
+    Args:
+        network_created: NetworkPRCreated from REST API
+
+    Returns:
+        UIPRCreated ready for display
+    """
+    return UIPRCreated(
+        number=network_created.number,
+        url=network_created.url,
+        state=network_created.state,
     )
 
 

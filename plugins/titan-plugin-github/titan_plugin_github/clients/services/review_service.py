@@ -250,7 +250,10 @@ class ReviewService:
                 "--input", "-",
             ]
 
-            result = self.gh.run_command(args, stdin_input=json.dumps(payload))
+            payload_json = json.dumps(payload)
+            import logging as _logging
+            _logging.getLogger(__name__).debug(f"create_draft_review payload: {payload_json}")
+            result = self.gh.run_command(args, stdin_input=payload_json)
 
             response = json.loads(result)
             review_id = response["id"]
