@@ -143,6 +143,8 @@ class GitHubPlugin(TitanPlugin):
         )
         from .steps.ai_cli_initial_review_step import ai_cli_initial_review
         from .steps.ai_cli_validate_with_refinement_step import ai_cli_validate_with_refinement
+        from .steps.select_cli_step import select_cli_step
+        from .steps.fetch_pr_threads_step import fetch_pr_threads_step
         return {
             "create_pr": create_pr_step,
             "prompt_for_pr_title": prompt_for_pr_title_step,
@@ -173,6 +175,8 @@ class GitHubPlugin(TitanPlugin):
             "validate_review_comments": validate_review_comments,
             "submit_pr_review": submit_pr_review,
             # Iterative AI review steps
+            "select_cli": select_cli_step,
+            "fetch_pr_threads": fetch_pr_threads_step,
             "ai_cli_initial_review": ai_cli_initial_review,
             "ai_cli_validate_with_refinement": ai_cli_validate_with_refinement,
         }

@@ -1,10 +1,8 @@
 """
 Headless adapter for Gemini CLI (gemini).
 
-Gemini CLI does not have an official non-interactive flag as of 2026-03.
-This adapter closes stdin to signal non-interactive mode and passes the
-prompt via -i. Update the command construction here when Gemini adds
-an official --print / --headless flag.
+Uses Gemini's prompt flag in one-shot mode (`--prompt`) so Titan can run
+Gemini without opening an interactive session.
 """
 
 import re
@@ -21,8 +19,8 @@ class GeminiHeadlessAdapter:
     """
     Runs Gemini CLI in headless mode.
 
-    Passes the prompt via `-i <prompt>` and closes stdin so the CLI
-    does not wait for interactive input.
+    Uses `--prompt <prompt>` to avoid interactive prompt mode (`-i` /
+    `--prompt-interactive`), which fails when stdin is not a TTY.
     """
 
     @property
@@ -38,13 +36,12 @@ class GeminiHeadlessAdapter:
         cwd: Optional[str] = None,
         timeout: int = 60,
     ) -> HeadlessResponse:
-        cmd = ["gemini", "-i", prompt]
+        cmd = ["gemini", "--prompt", prompt]
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                stdin=subprocess.DEVNULL,
                 cwd=cwd,
                 timeout=timeout,
             )

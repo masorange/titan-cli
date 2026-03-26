@@ -1,0 +1,49 @@
+name: "Review PR (Iterative AI)"
+description: "Review a pull request with iterative AI refinement loop"
+
+steps:
+  - id: select_pr
+    name: "Select PR to Review"
+    plugin: github
+    step: select_pr_for_code_review
+
+  - id: select_cli
+    name: "Select AI CLI"
+    plugin: github
+    step: select_cli
+
+  - id: fetch_changes
+    name: "Fetch PR Changes"
+    plugin: github
+    step: fetch_pr_changes
+
+  - id: fetch_threads
+    name: "Fetch PR Comments"
+    plugin: github
+    step: fetch_pr_threads
+
+  - id: initial_review
+    name: "Initial AI Analysis"
+    plugin: github
+    step: ai_cli_initial_review
+    params:
+      pr_key: review_pr
+      diff_key: review_diff
+      threads_key: review_threads
+      output_key: initial_review
+      cli_preference: ${cli_preference}
+      timeout: 120
+    on_error: continue
+
+  - id: validate_with_refinement
+    name: "Validate & Refine with User"
+    plugin: github
+    step: ai_cli_validate_with_refinement
+    params:
+      threads_key: review_threads
+      diff_key: review_diff
+      output_key: code_review_session_result
+      cli_preference: ${cli_preference}
+      timeout: 60
+      max_iterations: 4
+    on_error: continue

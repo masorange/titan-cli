@@ -132,10 +132,9 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("my prompt", cwd="/repo", timeout=45)
 
         mock_run.assert_called_once_with(
-            ["gemini", "-i", "my prompt"],
+            ["gemini", "--prompt", "my prompt"],
             capture_output=True,
             text=True,
-            stdin=subprocess.DEVNULL,
             cwd="/repo",
             timeout=45,
         )

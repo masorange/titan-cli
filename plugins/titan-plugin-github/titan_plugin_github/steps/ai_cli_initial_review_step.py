@@ -117,7 +117,7 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
 
     # ── display ─────────────────────────────────────────────────────────────
     if findings:
-        ctx.textual.markdown(markdown_output)
+        ctx.textual.text(markdown_output)
         critical_count = sum(1 for f in findings if f.severity == "critical")
         ctx.textual.success_text(
             msg.AIInitialReview.FINDINGS_SUMMARY.format(
