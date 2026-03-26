@@ -251,8 +251,6 @@ class JiraClient:
         Returns:
             ClientResult[UIJiraIssue]
         """
-        from ..operations.issue_operations import find_issue_type_by_name, prepare_epic_name
-
         project_key = project or self.project_key
         if not project_key:
             return ClientError(
@@ -260,13 +258,26 @@ class JiraClient:
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Find issue type (delegated to operation)
-        issue_type_result = find_issue_type_by_name(self, project_key, issue_type)
+        # Find issue type by name
+        issue_types_result = self.get_issue_types(project_key)
 
-        match issue_type_result:
-            case ClientSuccess(data=issue_type_obj):
-                # Prepare Epic name if needed (delegated to operation)
-                epic_name = prepare_epic_name(issue_type_obj, summary)
+        match issue_types_result:
+            case ClientSuccess(data=issue_types):
+                # Search for issue type (case-insensitive)
+                issue_type_obj = next(
+                    (it for it in issue_types if it.name.lower() == issue_type.lower()),
+                    None,
+                )
+
+                if not issue_type_obj:
+                    available = [it.name for it in issue_types]
+                    return ClientError(
+                        error_message=f"Issue type '{issue_type}' not found. Available: {', '.join(available)}",
+                        error_code="ISSUE_TYPE_NOT_FOUND"
+                    )
+
+                # Prepare Epic name if issue type is Epic
+                epic_name = summary if issue_type_obj.name.lower() == "epic" else None
 
                 return self._issue_service.create_issue(
                     project_key=project_key,
