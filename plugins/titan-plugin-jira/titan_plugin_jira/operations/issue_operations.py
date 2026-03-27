@@ -4,18 +4,12 @@ Issue operations.
 Pure business logic for issue-related operations.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
-if TYPE_CHECKING:
-    from titan_plugin_jira.clients.jira_client import JiraClient
-    from titan_plugin_jira.models.view import UITransition, UIJiraIssueType
 
-
-def find_ready_to_dev_transition(
-    jira_client: "JiraClient", issue_key: str
-) -> "UITransition":
+def find_ready_to_dev_transition(jira_client, issue_key: str):
     """
     Find "Ready to Dev" transition for an issue.
 
@@ -52,9 +46,7 @@ def find_ready_to_dev_transition(
             raise Exception(f"Failed to get transitions: {err}")
 
 
-def transition_issue_to_ready_for_dev(
-    jira_client: "JiraClient", issue_key: str
-) -> "UITransition":
+def transition_issue_to_ready_for_dev(jira_client, issue_key: str):
     """
     Attempt to transition issue to "Ready to Dev" status.
 
@@ -83,9 +75,7 @@ def transition_issue_to_ready_for_dev(
             raise Exception(f"Failed to transition issue: {err}")
 
 
-def find_issue_type_by_name(
-    jira_client: "JiraClient", project_key: str, issue_type_name: str
-) -> "UIJiraIssueType":
+def find_issue_type_by_name(jira_client, project_key: str, issue_type_name: str):
     """
     Find issue type by name in a project.
 
@@ -123,7 +113,7 @@ def find_issue_type_by_name(
             raise Exception(f"Failed to get issue types: {err}")
 
 
-def prepare_epic_name(issue_type: "UIJiraIssueType", summary: str) -> Optional[str]:
+def prepare_epic_name(issue_type, summary: str) -> Optional[str]:
     """
     Prepare Epic Name field if issue type is Epic.
 
@@ -141,9 +131,7 @@ def prepare_epic_name(issue_type: "UIJiraIssueType", summary: str) -> Optional[s
     return None
 
 
-def find_subtask_issue_type(
-    jira_client: "JiraClient", project_key: str
-) -> "UIJiraIssueType":
+def find_subtask_issue_type(jira_client, project_key: str):
     """
     Find subtask issue type for a project.
 
