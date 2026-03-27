@@ -367,6 +367,11 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.end_step("success")
 
+    # Get PR template from GitHub client if available
+    pr_template = None
+    if ctx.github:
+        pr_template = ctx.github.get_pr_template()
+
     return Success(
         f"Fetched PR #{pr_number} data",
         metadata={
@@ -374,6 +379,7 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             "review_diff": diff,
             "review_pr": pr,
             "review_threads": review_threads,
+            "pr_template": pr_template,
         },
     )
 

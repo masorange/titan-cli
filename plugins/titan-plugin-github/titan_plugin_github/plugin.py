@@ -52,10 +52,20 @@ class GitHubPlugin(TitanPlugin):
             if detected_owner and detected_name:
                 repo_owner = repo_owner or detected_owner
                 repo_name = repo_name or detected_name
-        
+
         # If still missing, raise an error
         if not repo_owner or not repo_name:
             raise GitHubError("GitHub repository owner and name must be configured or auto-detected from git remote.")
+
+        # Load PR template if configured
+        pr_template = None
+        template_path = validated_config.pr_template_path or ".github/pull_request_template.md"
+        template_file = Path(template_path)
+        if template_file.exists() and template_file.is_file():
+            try:
+                pr_template = template_file.read_text(encoding="utf-8")
+            except OSError:
+                pass  # Template not found, use None
 
         # Initialize client with validated configuration and git_client
         self._client = GitHubClient(
@@ -63,7 +73,8 @@ class GitHubPlugin(TitanPlugin):
             secrets=secrets,
             git_client=git_client,
             repo_owner=repo_owner, # Pass detected/configured owner
-            repo_name=repo_name # Pass detected/configured name
+            repo_name=repo_name, # Pass detected/configured name
+            pr_template=pr_template # Pass loaded PR template
         )
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:

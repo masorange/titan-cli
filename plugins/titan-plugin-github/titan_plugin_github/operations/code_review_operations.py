@@ -625,6 +625,54 @@ Write a concise PR summary in markdown with these sections:
 Be direct and concise. Use bullet points where helpful."""
 
 
+def extract_line_number_from_hunk(hunk: str) -> Optional[int]:
+    """
+    Find the first added line (+) in a diff hunk and return its correct line number.
+
+    Parses the hunk header to get the starting line, then counts through the hunk
+    to find where the first added line falls.
+
+    Args:
+        hunk: Diff hunk string starting with @@
+
+    Returns:
+        Correct line number of the first added line in the new file, or None
+    """
+    if not hunk:
+        return None
+
+    lines = hunk.split("\n")
+    if not lines:
+        return None
+
+    # Extract starting line from header: @@ -X,Y +A,B @@
+    header_match = re.search(r"\+(\d+)", lines[0])
+    if not header_match:
+        return None
+
+    start_line = int(header_match.group(1))
+    current_line = start_line
+
+    # Scan through hunk lines to find first added (+) line
+    for line in lines[1:]:
+        if line.startswith("@@"):
+            break  # End of this hunk
+
+        if line.startswith(" ") or line.startswith("+") or line.startswith("-"):
+            # Context or change line exists
+            if line.startswith("+") and not line.startswith("+++"):
+                # This is an added line — return its correct line number
+                return current_line
+            elif line.startswith(" ") or (line.startswith("-") and not line.startswith("---")):
+                # Context or deleted line — still counts toward line number
+                if line.startswith(" "):
+                    current_line += 1
+                # Deleted lines don't increment in new file
+
+    # Fallback: return starting line if no added line found
+    return start_line
+
+
 def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optional[str]:
     """
     Extract the diff hunk (starting with @@) that contains the target line.

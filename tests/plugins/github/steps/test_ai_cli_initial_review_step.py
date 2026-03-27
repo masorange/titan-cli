@@ -191,7 +191,7 @@ class TestPromptBuilding(unittest.TestCase):
         })
         ai_cli_initial_review(ctx)
 
-        mock_build.assert_called_once_with(pr=pr, diff="full diff", comments=threads)
+        mock_build.assert_called_once_with(pr=pr, diff="full diff", comments=threads, pr_template=None)
 
     @patch(f"{_MODULE}.build_initial_review_prompt_headless", side_effect=RuntimeError("boom"))
     @patch(f"{_MODULE}.get_headless_adapter")

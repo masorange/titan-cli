@@ -26,6 +26,8 @@ YAML usage:
         timeout: 120
 """
 
+import threading
+import time
 from rich.markup import escape as escape_markup
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
@@ -35,7 +37,13 @@ from titan_cli.messages import msg
 
 from ..operations.ai_review_operations import (
     build_initial_review_prompt_headless,
+    clean_summary_markdown,
     parse_cli_review_output,
+)
+from ..operations.code_review_operations import (
+    extract_diff_for_file,
+    extract_hunk_for_line,
+    extract_line_number_from_hunk,
 )
 
 _VALID_CLI_PREFERENCES = {"auto"} | set(SupportedCLI)
@@ -89,8 +97,14 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
         return _fail(ctx, msg.AICLIHeadless.CLI_NOT_AVAILABLE.format(cli_name=cli_preference))
 
     # ── build prompt ────────────────────────────────────────────────────────
+    pr_template = ctx.data.get("pr_template")
     try:
-        prompt = build_initial_review_prompt_headless(pr=pr, diff=diff, comments=threads)
+        prompt = build_initial_review_prompt_headless(
+            pr=pr,
+            diff=diff,
+            comments=threads,
+            pr_template=pr_template,
+        )
     except Exception as e:
         return _fail(ctx, msg.AIInitialReview.PROMPT_BUILD_ERROR.format(e=e))
 
@@ -109,8 +123,15 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
     cli_display = adapter.cli_name.value.capitalize()
     project_root = ctx.data.get("project_root")
 
-    with ctx.textual.loading(f"Running {cli_display} initial review..."):
-        response = adapter.execute(prompt, cwd=project_root, timeout=timeout)
+    # Execute with time counter
+    response = _execute_with_timer(
+        textual_ui=ctx.textual,
+        cli_display=cli_display,
+        adapter=adapter,
+        prompt=prompt,
+        project_root=project_root,
+        timeout=timeout,
+    )
 
     if not response.succeeded:
         # Log the raw error for debugging (avoid markup issues)
@@ -137,6 +158,50 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
     markdown_output = response.stdout
     summary, suggestions = parse_cli_review_output(markdown_output)
 
+    # ── enrich suggestions with diff context ─────────────────────────────────
+    diff = ctx.data.get(diff_key, "")
+    for suggestion in suggestions:
+        file_diff = extract_diff_for_file(diff, suggestion.file_path)
+        if file_diff:
+            # For general file comments (line == 0 or None), show header + first few lines
+            if not suggestion.line:
+                # For new files, show header + first added lines
+                # For existing files, show header + first hunk
+                lines = file_diff.split("\n")
+                context_lines = []
+
+                # Add header lines until we hit a hunk or reach limit
+                for line in lines[:15]:
+                    context_lines.append(line)
+                    if line.startswith("@@"):
+                        break
+
+                # For new files, include some of the new content
+                if "new file mode" in file_diff:
+                    in_new_content = False
+                    new_content_count = 0
+                    for line in lines:
+                        if line.startswith("@@"):
+                            in_new_content = True
+                            continue
+                        if in_new_content and line.startswith("+") and not line.startswith("+++"):
+                            context_lines.append(line)
+                            new_content_count += 1
+                            if new_content_count >= 8:  # Show first 8 lines of new content
+                                break
+
+                suggestion.diff_context = "\n".join(context_lines)
+            else:
+                # For line-specific comments, extract the relevant hunk
+                hunk = extract_hunk_for_line(file_diff, suggestion.line)
+                suggestion.diff_context = hunk
+
+                # Correct the line number using the hunk header
+                if hunk:
+                    correct_line = extract_line_number_from_hunk(hunk)
+                    if correct_line:
+                        suggestion.line = correct_line
+
     # ── store results ───────────────────────────────────────────────────────
     ctx.data[f"{output_key}_suggestions"] = suggestions
     ctx.data[f"{output_key}_markdown"] = markdown_output
@@ -145,7 +210,8 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
     # Show summary section
     if summary:
         ctx.textual.text("")
-        ctx.textual.markdown(summary)
+        cleaned_summary = clean_summary_markdown(summary)
+        ctx.textual.markdown(cleaned_summary)
 
     # Show findings section
     if suggestions:
@@ -194,3 +260,46 @@ def _fail(ctx: WorkflowContext, message: str) -> Error:
     ctx.textual.error_text(message)
     ctx.textual.end_step("error")
     return Error(message)
+
+
+def _execute_with_timer(textual_ui, cli_display: str, adapter, prompt: str, project_root: str, timeout: int):
+    """
+    Execute the headless CLI adapter with a live timer showing elapsed time.
+
+    Args:
+        textual_ui: Textual UI context (ctx.textual) for displaying progress
+        cli_display: Display name of the CLI (Claude, Gemini, etc.)
+        adapter: Headless adapter instance
+        prompt: The prompt to execute
+        project_root: Working directory
+        timeout: Timeout in seconds
+
+    Returns:
+        Response from adapter.execute()
+    """
+    response_container = {}
+    start_time = time.time()
+    stop_timer = threading.Event()
+
+    def timer_thread():
+        """Update loading message with elapsed time every second."""
+        while not stop_timer.is_set():
+            elapsed = int(time.time() - start_time)
+            minutes = elapsed // 60
+            seconds = elapsed % 60
+            time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+            textual_ui.set_loading_message(f"Running {cli_display} initial review... ({time_str})")
+            stop_timer.wait(timeout=1)
+
+    # Start timer thread
+    timer = threading.Thread(target=timer_thread, daemon=True)
+    timer.start()
+
+    try:
+        with textual_ui.loading(f"Running {cli_display} initial review..."):
+            response_container["response"] = adapter.execute(prompt, cwd=project_root, timeout=timeout)
+    finally:
+        stop_timer.set()
+        timer.join(timeout=1)
+
+    return response_container.get("response")

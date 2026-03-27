@@ -20,6 +20,122 @@ from ..models.view import UICommentThread, UIPullRequest, UIReviewSuggestion
 
 # ── Diff utilities ────────────────────────────────────────────────────────────
 
+def _extract_template_sections(template: str) -> List[str]:
+    """Extract section headings from a PR template (lowercase)."""
+    sections = []
+    for line in template.splitlines():
+        match = re.match(r"^#{1,4}\s+(.+?)\s*(?:#.*)?$", line.strip())
+        if match:
+            section_name = match.group(1).strip().lower()
+            sections.append(section_name)
+    return sections
+
+
+def _extract_sections_from_body(body: str, section_names: List[str], max_chars: int = 400) -> str:
+    """Extract specific sections from PR body based on template section names."""
+    if not body or not section_names:
+        return ""
+
+    result_lines: List[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+
+        # Skip empty lines and boilerplate
+        if not stripped or stripped.startswith("<!--"):
+            continue
+        if stripped in ("- [ ]", "- [x]", "- [X]"):
+            continue
+        if re.match(r"^\*?\s*(JIRA|Jira|Issue|Ticket|Link)\s*[:：]", stripped, re.IGNORECASE):
+            continue
+        if re.match(r"^[-*]\s*https?://", stripped):
+            continue
+
+        result_lines.append(stripped)
+
+    result = "\n".join(result_lines).strip()
+    if len(result) > max_chars:
+        result = result[:max_chars] + "..."
+
+    return result if result else ""
+
+
+def extract_pr_description_keypoints(body: str, pr_template: Optional[str] = None, max_chars: int = 400) -> str:
+    """
+    Extract key points from a PR description markdown.
+
+    Strategy:
+    1. If template provided, extract those specific sections from body
+    2. Fallback to heuristic extraction (bullet points, section headers)
+    3. Truncate to max_chars
+
+    Args:
+        body: PR description markdown text
+        pr_template: PR template content (optional, loaded from config)
+        max_chars: Maximum characters for the result
+
+    Returns:
+        Condensed key points string, or original body truncated if nothing extracted
+    """
+    if not body or not body.strip():
+        return "(none)"
+
+    # Try template-based extraction if template is provided
+    if pr_template:
+        section_names = _extract_template_sections(pr_template)
+        if section_names:
+            template_extraction = _extract_sections_from_body(body, section_names, max_chars)
+            if template_extraction:
+                return template_extraction
+
+    # Fallback: heuristic extraction
+    lines = body.splitlines()
+    key_lines: List[str] = []
+    next_is_section_first_line = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Skip empty lines, HTML comments, and boilerplate
+        if not stripped:
+            continue
+        if stripped.startswith("<!--"):
+            continue
+        if stripped in ("- [ ]", "- [x]", "- [X]"):
+            continue
+        if re.match(r"^[-*]\s*$", stripped):
+            continue
+        # Skip pure JIRA/URL lines
+        if re.match(r"^\*?\s*(JIRA|Jira|Issue|Ticket|Link)\s*[:：]", stripped, re.IGNORECASE):
+            continue
+        if re.match(r"^[-*]\s*https?://", stripped):
+            continue
+
+        # Section header → capture next non-empty content line
+        if re.match(r"^#{1,4}\s+", stripped):
+            next_is_section_first_line = True
+            continue
+
+        if next_is_section_first_line:
+            key_lines.append(stripped)
+            next_is_section_first_line = False
+            continue
+
+        # Bullet points with actual content (at least 10 chars)
+        if re.match(r"^[-*]\s+.{10,}", stripped):
+            key_lines.append(stripped)
+
+    result = "\n".join(key_lines).strip()
+
+    # Fallback: plain truncation if nothing meaningful was extracted
+    if not result:
+        result = body.strip()
+
+    if len(result) > max_chars:
+        result = result[:max_chars] + "..."
+
+    return result
+
+
 def build_diff_summary(diff: str, max_diff_chars: int = 8_000) -> str:
     """
     Build a concise summary of the diff for headless CLI consumption.
@@ -141,6 +257,7 @@ def build_initial_review_prompt_headless(
     diff: str,
     comments: List[UICommentThread],
     project_instructions: Optional[str] = None,
+    pr_template: Optional[str] = None,
 ) -> str:
     """
     Build the prompt for headless CLI review (optimized for size).
@@ -153,64 +270,64 @@ def build_initial_review_prompt_headless(
         diff: Full unified diff of the PR.
         comments: Existing open comment threads (limited to first 5).
         project_instructions: Content of CLAUDE.md / GEMINI.md if available.
+        pr_template: PR template content (optional, for description extraction).
 
     Returns:
         Optimized prompt string for headless CLI.
     """
     sections: List[str] = []
 
+    pr_description = extract_pr_description_keypoints(pr.body or "", pr_template)
     sections.append(
-        f"You are an expert code reviewer. Analyze the following pull request "
-        f"and report issues you find.\n\n"
-        f"## PR #{pr.number} — {pr.title}\n"
-        f"**Author**: {pr.author_name}\n"
-        f"**Branches**: {pr.branch_info}\n"
-        f"**Description**: {pr.body or '(none)'}"
+        f"Review this PR for issues.\n\n"
+        f"PR #{pr.number}: {pr.title}\n"
+        f"Author: {pr.author_name} | {pr.branch_info}\n"
+        f"Description: {pr_description}"
     )
 
-    if project_instructions:
-        sections.append(f"## Project Guidelines\n\n{project_instructions[:2000]}")
-
-    # Limit comments to first 5 to keep prompt manageable
-    comments_to_include = comments[:5]
+    # Existing comments — limit to 3, truncated to 100 chars
+    comments_to_include = comments[:3]
     if comments_to_include:
         thread_lines: List[str] = []
-        for i, thread in enumerate(comments_to_include, 1):
+        for thread in comments_to_include:
             c = thread.main_comment
-            location = f"`{c.path}` line {c.line}" if c.path else "general"
-            # Truncate comment body to 200 chars
-            body_preview = (c.body[:200] + "...") if len(c.body) > 200 else c.body
-            entry = f"### Thread {i} [comment_id:{c.id}]\n**{c.author_login}** on {location}:\n> {body_preview}"
-            thread_lines.append(entry)
-
-        if len(comments) > 5:
-            thread_lines.append(f"... and {len(comments) - 5} more comment(s)")
-
-        sections.append("## Existing Comments\n\n" + "\n\n".join(thread_lines))
+            location = f"`{c.path}`:{c.line}" if c.path else "general"
+            body_preview = (c.body[:100] + "...") if len(c.body) > 100 else c.body
+            thread_lines.append(f"- {c.author_login} on {location}: {body_preview}")
+        if len(comments) > 3:
+            thread_lines.append(f"(+{len(comments) - 3} more)")
+        sections.append("## Existing Comments\n" + "\n".join(thread_lines))
 
     # Use summarized diff
     diff_summary = build_diff_summary(diff, max_diff_chars=8_000)
     sections.append(diff_summary)
 
     sections.append(
-        "## Instructions\n\n"
-        "First, provide a ## Summary section with exactly these 3 subsections:\n\n"
+        "## Summary\n"
         "### OVERVIEW\n"
-        "What this PR does in 1-2 sentences.\n\n"
+        "1-2 sentences describing what this PR does.\n\n"
         "### AREAS TO PAY ATTENTION TO\n"
-        "List each area as a bullet point with a brief explanation. Example:\n"
-        "- Authentication module refactoring: switches from session-based to JWT tokens\n"
-        "- New database migration: adds user profile table with custom fields\n"
-        "- Performance-critical API endpoint: optimizes database queries for /api/users\n\n"
+        "For each important area, use a bullet point:\n"
+        "- <area>: <brief reason why>\n\n"
         "### RECOMMENDATION\n"
-        "One of: ✅ APPROVE / 🔴 REQUEST CHANGES / 💬 COMMENT, followed by a one-line justification.\n\n"
-        "Then, identify issues related to security, correctness, performance, and maintainability.\n"
-        "For each issue use this format:\n\n"
+        "One of: ✅ APPROVE / 🔴 REQUEST CHANGES / 💬 COMMENT\n"
+        "Followed by a brief justification (1-2 lines).\n\n"
+        "## Issues Found\n"
+        "For each issue (security, correctness, performance, maintainability), use this EXACT format:\n\n"
         "### 🔴 CRITICAL | 🟡 HIGH | 🟢 MEDIUM | 🟠 LOW: <title>\n"
-        "**File**: `path/to/file.py`:line\n"
-        "**Problem**: description\n"
-        "**Suggestion**: specific fix\n\n"
-        "Be direct and concise."
+        "**File**: `path/to/file.kt`:LINE_NUMBER\n"
+        "**Problem**: one line description\n"
+        "**Suggestion**: specific recommended fix\n\n"
+        "IMPORTANT:\n"
+        "- For general file comments (not on a specific line), use LINE_NUMBER = 0\n"
+        "- Always use backticks around the file path\n"
+        "- Always include the line number after a colon\n"
+        "- Do not include any text after the line number on the **File** line\n\n"
+        "Example:\n"
+        "### 🔴 CRITICAL: Missing null check\n"
+        "**File**: `app/src/Main.kt`:42\n"
+        "**Problem**: Variable is not checked before use\n"
+        "**Suggestion**: Add null safety check: if (variable != null)"
     )
 
     return "\n\n".join(sections)
@@ -282,6 +399,28 @@ def _severity_to_ui(severity: ReviewSeverity) -> str:
             return "suggestion"
 
 
+def clean_summary_markdown(summary: str) -> str:
+    """
+    Remove visual separators and unwanted formatting from summary markdown.
+
+    Removes lines that are purely separators (---, ***, ===) which Textual
+    might render as visual elements.
+    """
+    if not summary:
+        return ""
+
+    lines = summary.split("\n")
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip pure separator lines
+        if re.match(r"^[-*=]{3,}\s*$", stripped):
+            continue
+        cleaned.append(line)
+
+    return "\n".join(cleaned).strip()
+
+
 def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion]]:
     """
     Parse CLI review markdown into a summary string and a list of suggestions.
@@ -295,21 +434,27 @@ def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion
         objects built from the parsed findings.
     """
     # Extract summary: include nested "### OVERVIEW / AREAS / RECOMMENDATION"
-    # and stop only when issue findings begin.
+    # and stop only when issue findings begin (### with severity emojis).
     summary = ""
-    summary_header = re.search(r"##\s+Summary\s*$", markdown, re.IGNORECASE | re.MULTILINE)
-    if summary_header:
-        after_summary = markdown[summary_header.end():]
-        finding_heading = re.search(
-            r"^###\s*(?:🔴|🟡|🟢|🟠|CRITICAL\b|HIGH\b|MEDIUM\b|LOW\b)",
+
+    # Find the ## Summary section
+    summary_start = markdown.find("## Summary")
+    if summary_start >= 0:
+        # Look for the first ### heading with a severity emoji after "## Summary"
+        after_summary = markdown[summary_start:]
+
+        # Find the first finding (### with 🔴🟡🟢🟠)
+        finding_match = re.search(
+            r"^###\s*[🔴🟡🟢🟠]",
             after_summary,
-            re.IGNORECASE | re.MULTILINE,
+            re.MULTILINE
         )
-        if finding_heading:
-            summary = after_summary[:finding_heading.start()].strip()
+
+        if finding_match:
+            summary = after_summary[len("## Summary"):finding_match.start()].strip()
         else:
-            # No findings; keep everything after "## Summary".
-            summary = after_summary.strip()
+            # No findings found, take everything after ## Summary
+            summary = after_summary[len("## Summary"):].strip()
 
     findings = parse_initial_review_markdown(markdown)
 
@@ -319,7 +464,7 @@ def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion
             UIReviewSuggestion(
                 file_path=finding.file or "",
                 line=finding.line,
-                body=f"**{finding.title}**\n\n{finding.description}\n\n{finding.suggestion or ''}".strip(),
+                body=f"{finding.description}\n\n{finding.suggestion or ''}".strip(),
                 severity=_severity_to_ui(finding.severity),
                 diff_context=None,
                 snippet=None,
