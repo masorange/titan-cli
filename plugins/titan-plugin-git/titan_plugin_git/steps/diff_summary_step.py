@@ -1,19 +1,22 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/diff_summary_step.py
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
 from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.ui.tui.widgets import SelectionOption
 from titan_plugin_git.messages import msg
-from ..operations import format_diff_stat_display
+from ..operations import parse_diff_stat_output, colorize_diff_stats, colorize_diff_summary, format_diff_stat_display
 
 
 def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Show summary of uncommitted changes (git diff --stat).
+    Show uncommitted changes and let the user select which files to include
+    in the commit. Each checkbox shows the filename and its diff stats inline.
 
-    Provides a visual overview of files changed and lines modified
-    before generating commit messages.
+    Saves selected file paths to ctx.data["selected_files"].
 
     Returns:
-        Success: Always (even if no changes, for workflow continuity)
+        Success: Files selected and saved to context
+        Exit: No files selected by the user
+        Skip: Could not retrieve diff stat
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -24,7 +27,6 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
     # Begin step container
     ctx.textual.begin_step("Show Changes Summary")
 
-    # Get diff stat for uncommitted changes using ClientResult pattern
     result = ctx.git.get_uncommitted_diff_stat()
 
     match result:
@@ -34,17 +36,45 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("success")
                 return Success("No changes")
 
-            # Format and render diff stat
-            formatted_files, formatted_summary = format_diff_stat_display(stat_output)
-            ctx.textual.show_diff_stat(formatted_files, formatted_summary, "Changes summary:")
+            file_lines, summary_lines = parse_diff_stat_output(stat_output)
 
-            # End step container with success
+            if file_lines:
+                max_len = max(len(filename) for filename, _ in file_lines)
+                options = [
+                    SelectionOption(
+                        value=filename,
+                        label=f"{filename.ljust(max_len)} |{colorize_diff_stats(stats)}",
+                        selected=True,
+                    )
+                    for filename, stats in file_lines
+                ]
+
+                summary_text = colorize_diff_summary(summary_lines[0].strip()) if summary_lines else ""
+                question = f"Select files to include in the commit:  {summary_text}"
+
+                selected = ctx.textual.ask_multiselect(question, options)
+
+                if not selected:
+                    ctx.textual.warning_text("No files selected. Select at least one file to commit.")
+                    ctx.textual.end_step("skip")
+                    return Exit("No files selected for commit")
+
+                ctx.data["selected_files"] = selected
+
+                # Show what was selected
+                selected_set = set(selected)
+                selected_lines = [(f, s) for f, s in file_lines if f in selected_set]
+                formatted_selected = [
+                    f"{f.ljust(max_len)} |{colorize_diff_stats(s)}"
+                    for f, s in selected_lines
+                ]
+                formatted_summary = [colorize_diff_summary(summary_lines[0].strip())] if summary_lines else []
+                ctx.textual.show_diff_stat(formatted_selected, formatted_summary, "Files to commit:")
+
             ctx.textual.end_step("success")
-
             return Success("Diff summary displayed")
 
         case ClientError(error_message=err):
-            # Don't fail the workflow, just skip
             ctx.textual.end_step("skip")
             return Skip(f"Could not show diff summary: {err}")
 
