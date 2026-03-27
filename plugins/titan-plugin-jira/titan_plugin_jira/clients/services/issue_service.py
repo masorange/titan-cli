@@ -34,14 +34,16 @@ class IssueService:
     Handles: get, search, create, update issues.
     """
 
-    def __init__(self, network: JiraNetwork):
+    def __init__(self, network: JiraNetwork, metadata_service=None):
         """
         Initialize issue service.
 
         Args:
             network: JiraNetwork instance for HTTP operations
+            metadata_service: MetadataService instance (optional, for type lookup)
         """
         self.network = network
+        self.metadata_service = metadata_service
 
     @log_client_operation()
     def get_issue(
