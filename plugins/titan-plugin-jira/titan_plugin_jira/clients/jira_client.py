@@ -38,12 +38,8 @@ class JiraClient:
     Public API for the Jira plugin.
     Delegates all work to internal services.
 
-    Examples:
-        >>> client = JiraClient("https://jira.example.com", "user@example.com", "token")
-        >>> result = client.get_issue("PROJ-123")
-        >>> match result:
-        ...     case ClientSuccess(data=issue):
-        ...         print(issue.summary)
+    All methods return ClientResult[T] for type-safe error handling.
+    Use pattern matching to handle success and error cases.
     """
 
     def __init__(
@@ -96,15 +92,7 @@ class JiraClient:
             expand: Optional fields to expand
 
         Returns:
-            ClientResult[UIJiraIssue]
-
-        Examples:
-            >>> result = client.get_issue("PROJ-123")
-            >>> match result:
-            ...     case ClientSuccess(data=issue):
-            ...         print(f"{issue.status_icon} {issue.summary}")
-            ...     case ClientError(error_message=err):
-            ...         print(f"Error: {err}")
+            ClientResult[UIJiraIssue] - Success contains the issue data, Error contains error details
         """
         return self._issue_service.get_issue(key, expand)
 
@@ -123,14 +111,7 @@ class JiraClient:
             fields: List of fields to return
 
         Returns:
-            ClientResult[List[UIJiraIssue]]
-
-        Examples:
-            >>> result = client.search_issues('project=PROJ AND status="To Do"')
-            >>> match result:
-            ...     case ClientSuccess(data=issues):
-            ...         for issue in issues:
-            ...             print(issue.key, issue.summary)
+            ClientResult[List[UIJiraIssue]] - Success contains list of issues matching the query
         """
         return self._issue_service.search_issues(jql, max_results, fields)
 
