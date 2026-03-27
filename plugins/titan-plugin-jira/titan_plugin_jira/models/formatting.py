@@ -118,24 +118,11 @@ def get_priority_icon(priority: str) -> str:
     Get icon for Jira priority.
 
     Args:
-        priority: Priority name ("Highest", "High", "Medium", "Low", "Lowest")
+        priority: Priority name (case-insensitive). Supports standard Jira priorities:
+                 Highest, High, Medium, Low, Lowest. Returns a default icon for unknown values.
 
     Returns:
-        Icon string
-
-    Examples:
-        >>> get_priority_icon("Highest")
-        '🔴'
-        >>> get_priority_icon("High")
-        '🟠'
-        >>> get_priority_icon("Medium")
-        '🟡'
-        >>> get_priority_icon("Low")
-        '🟢'
-        >>> get_priority_icon("Lowest")
-        '🔵'
-        >>> get_priority_icon("Unknown")
-        '⚪'
+        Icon string representing the priority level
     """
     icons = {
         "highest": "🔴",

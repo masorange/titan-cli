@@ -1,0 +1,34 @@
+{{ description }}
+
+---
+
+**Objective:**
+{{ objective }}
+
+---
+
+**Acceptance Criteria:**
+{{ acceptance_criteria }}
+
+{% if gherkin_tests %}
+---
+
+**Tests (Gherkin):**
+```gherkin
+{{ gherkin_tests }}
+```
+{% endif %}
+
+{% if technical_notes %}
+---
+
+**Technical Notes:**
+{{ technical_notes }}
+{% endif %}
+
+{% if dependencies %}
+---
+
+**Dependencies:**
+{{ dependencies }}
+{% endif %}
