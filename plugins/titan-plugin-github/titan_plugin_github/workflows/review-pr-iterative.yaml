@@ -27,7 +27,7 @@ steps:
       threads_key: review_threads
       output_key: review
       cli_preference: ${cli_preference}
-      timeout: 120
+      timeout: 300
     on_error: continue
 
   - id: validate_comments

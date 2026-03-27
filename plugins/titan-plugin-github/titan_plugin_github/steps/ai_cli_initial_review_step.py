@@ -142,26 +142,32 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
     ctx.data[f"{output_key}_markdown"] = markdown_output
 
     # ── display ─────────────────────────────────────────────────────────────
+    # Show summary section
     if summary:
+        ctx.textual.text("")
         ctx.textual.markdown(summary)
 
+    # Show findings section
     if suggestions:
+        ctx.textual.text("")
         critical_count = sum(1 for s in suggestions if s.severity == "critical")
-        ctx.textual.success_text(
-            msg.AIInitialReview.FINDINGS_SUMMARY.format(
-                n=len(suggestions),
-                critical=critical_count,
-            )
-        )
+        improvement_count = sum(1 for s in suggestions if s.severity == "improvement")
+        suggestion_count = sum(1 for s in suggestions if s.severity == "suggestion")
+
+        ctx.textual.bold_text("Issues Found:")
+        if critical_count:
+            ctx.textual.error_text(f"  🔴 {critical_count} critical")
+        if improvement_count:
+            ctx.textual.warning_text(f"  🟡 {improvement_count} improvement(s)")
+        if suggestion_count:
+            ctx.textual.dim_text(f"  🔵 {suggestion_count} suggestion(s)")
     else:
+        ctx.textual.text("")
         ctx.textual.panel(msg.AIInitialReview.NO_FINDINGS, panel_type="success")
 
     ctx.textual.end_step("success")
     return Success(
-        msg.AIInitialReview.FINDINGS_SUMMARY.format(
-            n=len(suggestions),
-            critical=sum(1 for s in suggestions if s.severity == "critical"),
-        )
+        f"Initial review complete: {len(suggestions)} issue(s) found"
     )
 
 

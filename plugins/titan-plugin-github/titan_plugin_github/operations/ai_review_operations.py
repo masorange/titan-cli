@@ -194,13 +194,23 @@ def build_initial_review_prompt_headless(
 
     sections.append(
         "## Instructions\n\n"
-        "Identify issues related to security, correctness, performance, and maintainability.\n"
+        "First, provide a ## Summary section with exactly these 3 subsections:\n\n"
+        "### OVERVIEW\n"
+        "What this PR does in 1-2 sentences.\n\n"
+        "### AREAS TO PAY ATTENTION TO\n"
+        "List each area as a bullet point with a brief explanation. Example:\n"
+        "- Authentication module refactoring: switches from session-based to JWT tokens\n"
+        "- New database migration: adds user profile table with custom fields\n"
+        "- Performance-critical API endpoint: optimizes database queries for /api/users\n\n"
+        "### RECOMMENDATION\n"
+        "One of: ✅ APPROVE / 🔴 REQUEST CHANGES / 💬 COMMENT, followed by a one-line justification.\n\n"
+        "Then, identify issues related to security, correctness, performance, and maintainability.\n"
         "For each issue use this format:\n\n"
         "### 🔴 CRITICAL | 🟡 HIGH | 🟢 MEDIUM | 🟠 LOW: <title>\n"
         "**File**: `path/to/file.py`:line\n"
         "**Problem**: description\n"
         "**Suggestion**: specific fix\n\n"
-        "Start with a brief ## Summary section. Be direct and concise."
+        "Be direct and concise."
     )
 
     return "\n\n".join(sections)
@@ -284,13 +294,22 @@ def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion
         ## Summary section text and suggestions is a list of UIReviewSuggestion
         objects built from the parsed findings.
     """
-    # Extract summary: stop at the first ### finding heading, not just next ##
-    summary_match = re.search(
-        r"##\s+Summary\s*\n(.*?)(?=\n###\s|\n##\s|\Z)",
-        markdown,
-        re.IGNORECASE | re.DOTALL,
-    )
-    summary = summary_match.group(1).strip() if summary_match else ""
+    # Extract summary: include nested "### OVERVIEW / AREAS / RECOMMENDATION"
+    # and stop only when issue findings begin.
+    summary = ""
+    summary_header = re.search(r"##\s+Summary\s*$", markdown, re.IGNORECASE | re.MULTILINE)
+    if summary_header:
+        after_summary = markdown[summary_header.end():]
+        finding_heading = re.search(
+            r"^###\s*(?:🔴|🟡|🟢|🟠|CRITICAL\b|HIGH\b|MEDIUM\b|LOW\b)",
+            after_summary,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        if finding_heading:
+            summary = after_summary[:finding_heading.start()].strip()
+        else:
+            # No findings; keep everything after "## Summary".
+            summary = after_summary.strip()
 
     findings = parse_initial_review_markdown(markdown)
 
