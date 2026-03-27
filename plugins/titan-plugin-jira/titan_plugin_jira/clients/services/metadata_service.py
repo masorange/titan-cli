@@ -5,7 +5,7 @@ Handles Jira metadata operations (issue types, statuses, etc.).
 Network → NetworkModel → UIModel → Result
 """
 
-from typing import TYPE_CHECKING, List
+from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
@@ -19,16 +19,14 @@ from ...models.network.rest import (
     NetworkJiraUser,
     NetworkJiraVersion
 )
+from ...models.view import (
+    UIJiraIssueType,
+    UIJiraStatus,
+    UIJiraUser,
+    UIJiraVersion,
+    UIPriority
+)
 from ...exceptions import JiraAPIError
-
-if TYPE_CHECKING:
-    from ...models.view import (
-        UIJiraIssueType,
-        UIJiraStatus,
-        UIJiraUser,
-        UIJiraVersion,
-        UIPriority
-    )
 
 
 class MetadataService:
@@ -43,7 +41,7 @@ class MetadataService:
         self.network = network
 
     @log_client_operation()
-    def get_issue_types(self, project_key: str) -> ClientResult[List["UIJiraIssueType"]]:
+    def get_issue_types(self, project_key: str) -> ClientResult[List[UIJiraIssueType]]:
         """
         Get issue types for a project.
 
@@ -86,7 +84,7 @@ class MetadataService:
             )
 
     @log_client_operation()
-    def list_statuses(self, project_key: str) -> ClientResult[List["UIJiraStatus"]]:
+    def list_statuses(self, project_key: str) -> ClientResult[List[UIJiraStatus]]:
         """
         List all available statuses for a project.
 
@@ -142,7 +140,7 @@ class MetadataService:
             )
 
     @log_client_operation()
-    def get_current_user(self) -> ClientResult["UIJiraUser"]:
+    def get_current_user(self) -> ClientResult[UIJiraUser]:
         """
         Get current authenticated user info.
 
@@ -180,7 +178,7 @@ class MetadataService:
             )
 
     @log_client_operation()
-    def list_project_versions(self, project_key: str) -> ClientResult[List["UIJiraVersion"]]:
+    def list_project_versions(self, project_key: str) -> ClientResult[List[UIJiraVersion]]:
         """
         List all versions for a project.
 
@@ -222,7 +220,7 @@ class MetadataService:
                 error_code="LIST_VERSIONS_ERROR"
             )
 
-    def get_priorities(self) -> ClientResult[List["UIPriority"]]:
+    def get_priorities(self) -> ClientResult[List[UIPriority]]:
         """
         Get all available priorities in Jira.
 
@@ -260,7 +258,7 @@ class MetadataService:
             )
 
     @log_client_operation()
-    def find_subtask_issue_type(self, project_key: str) -> ClientResult["UIJiraIssueType"]:
+    def find_subtask_issue_type(self, project_key: str) -> ClientResult[UIJiraIssueType]:
         """
         Find the first subtask issue type for a project.
 
