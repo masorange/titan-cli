@@ -133,6 +133,14 @@ class GitHubPlugin(TitanPlugin):
             create_worktree_step,
             cleanup_worktree_step,
         )
+        from .steps.code_review_steps import (
+            select_pr_for_code_review,
+            fetch_pr_changes,
+            ai_review_pr,
+            summarize_pr_review,
+            validate_review_comments,
+            submit_pr_review,
+        )
         return {
             "create_pr": create_pr_step,
             "prompt_for_pr_title": prompt_for_pr_title_step,
@@ -155,4 +163,11 @@ class GitHubPlugin(TitanPlugin):
             "checkout_original_branch": checkout_original_branch_step,
             "create_worktree": create_worktree_step,
             "cleanup_worktree": cleanup_worktree_step,
+            # Code review steps
+            "select_pr_for_code_review": select_pr_for_code_review,
+            "fetch_pr_changes": fetch_pr_changes,
+            "ai_review_pr": ai_review_pr,
+            "summarize_pr_review": summarize_pr_review,
+            "validate_review_comments": validate_review_comments,
+            "submit_pr_review": submit_pr_review,
         }

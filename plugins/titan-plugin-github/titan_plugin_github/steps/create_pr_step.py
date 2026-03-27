@@ -98,13 +98,13 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     match result:
         case ClientSuccess(data=pr):
             ctx.textual.text("")  # spacing
-            ctx.textual.success_text(msg.GitHub.PR_CREATED.format(number=pr["number"], url=pr["url"]))
+            ctx.textual.success_text(msg.GitHub.PR_CREATED.format(number=pr.number, url=pr.url))
 
             # Return Success with PR info
             ctx.textual.end_step("success")
             return Success(
                 "Pull request created successfully.",
-                metadata={"pr_number": pr["number"], "pr_url": pr["url"]},
+                metadata={"pr_number": pr.number, "pr_url": pr.url},
             )
         case ClientError(error_message=error_msg):
             # Check for common errors and provide helpful guidance
