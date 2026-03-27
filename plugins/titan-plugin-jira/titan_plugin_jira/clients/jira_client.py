@@ -309,19 +309,26 @@ class JiraClient:
         Returns:
             ClientResult[UIJiraIssue]
         """
-        from ..operations.issue_operations import find_subtask_issue_type
-
         if not self.project_key:
             return ClientError(
                 error_message="No default project configured",
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Find subtask issue type (delegated to operation)
-        subtask_result = find_subtask_issue_type(self, self.project_key)
+        # Find subtask issue type
+        issue_types_result = self.get_issue_types(self.project_key)
 
-        match subtask_result:
-            case ClientSuccess(data=subtask_type):
+        match issue_types_result:
+            case ClientSuccess(data=issue_types):
+                # Find first subtask type
+                subtask_type = next((it for it in issue_types if it.subtask), None)
+
+                if not subtask_type:
+                    return ClientError(
+                        error_message="No subtask issue type found for project",
+                        error_code="SUBTASK_TYPE_NOT_FOUND"
+                    )
+
                 return self._issue_service.create_subtask(
                     parent_key=parent_key,
                     project_key=self.project_key,
