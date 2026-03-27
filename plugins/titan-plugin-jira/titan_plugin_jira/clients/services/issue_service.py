@@ -217,6 +217,80 @@ class IssueService:
             )
 
     @log_client_operation()
+    def create_issue_with_type_search(
+        self,
+        project_key: str,
+        issue_type_name: str,
+        summary: str,
+        description: Optional[str] = None,
+        assignee: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        priority: Optional[str] = None
+    ) -> ClientResult[UIJiraIssue]:
+        """
+        Create issue with issue type search by name (internal).
+
+        Handles:
+        - Finding issue type by name (case-insensitive)
+        - Epic name preparation if needed
+        - Issue creation
+
+        Args:
+            project_key: Project key
+            issue_type_name: Issue type name (e.g., "Bug", "Story", "Epic")
+            summary: Issue summary/title
+            description: Issue description
+            assignee: Assignee username or email
+            labels: List of labels
+            priority: Priority name
+
+        Returns:
+            ClientResult[UIJiraIssue]
+        """
+        if not self.metadata_service:
+            return ClientError(
+                error_message="MetadataService not available",
+                error_code="SERVICE_NOT_AVAILABLE"
+            )
+
+        # Get issue types for project
+        issue_types_result = self.metadata_service.get_issue_types(project_key)
+
+        match issue_types_result:
+            case ClientSuccess(data=issue_types):
+                # Search for issue type (case-insensitive)
+                issue_type = next(
+                    (it for it in issue_types if it.name.lower() == issue_type_name.lower()),
+                    None,
+                )
+
+                if not issue_type:
+                    # Not found - return error with available types
+                    available = [it.name for it in issue_types]
+                    return ClientError(
+                        error_message=f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}",
+                        error_code="ISSUE_TYPE_NOT_FOUND"
+                    )
+
+                # Prepare Epic name if issue type is Epic
+                epic_name = summary if issue_type.name.lower() == "epic" else None
+
+                # Create issue with resolved type ID
+                return self.create_issue(
+                    project_key=project_key,
+                    issue_type_id=issue_type.id,
+                    summary=summary,
+                    description=description,
+                    assignee=assignee,
+                    labels=labels,
+                    priority=priority,
+                    epic_name=epic_name
+                )
+
+            case ClientError() as error:
+                return error
+
+    @log_client_operation()
     def create_subtask(
         self,
         parent_key: str,

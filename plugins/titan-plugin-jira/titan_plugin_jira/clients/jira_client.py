@@ -74,11 +74,11 @@ class JiraClient:
 
         # Internal dependencies (private)
         self._network = JiraNetwork(base_url, email, api_token, timeout)
-        self._issue_service = IssueService(self._network)
+        self._metadata_service = MetadataService(self._network)
+        self._issue_service = IssueService(self._network, self._metadata_service)
         self._project_service = ProjectService(self._network)
         self._comment_service = CommentService(self._network)
         self._transition_service = TransitionService(self._network)
-        self._metadata_service = MetadataService(self._network)
         self._link_service = LinkService(self._network)
 
     # ==================== ISSUE OPERATIONS ====================
@@ -258,39 +258,16 @@ class JiraClient:
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Find issue type by name
-        issue_types_result = self.get_issue_types(project_key)
-
-        match issue_types_result:
-            case ClientSuccess(data=issue_types):
-                # Search for issue type (case-insensitive)
-                issue_type_obj = next(
-                    (it for it in issue_types if it.name.lower() == issue_type.lower()),
-                    None,
-                )
-
-                if not issue_type_obj:
-                    available = [it.name for it in issue_types]
-                    return ClientError(
-                        error_message=f"Issue type '{issue_type}' not found. Available: {', '.join(available)}",
-                        error_code="ISSUE_TYPE_NOT_FOUND"
-                    )
-
-                # Prepare Epic name if issue type is Epic
-                epic_name = summary if issue_type_obj.name.lower() == "epic" else None
-
-                return self._issue_service.create_issue(
-                    project_key=project_key,
-                    issue_type_id=issue_type_obj.id,
-                    summary=summary,
-                    description=description,
-                    assignee=assignee,
-                    labels=labels,
-                    priority=priority,
-                    epic_name=epic_name
-                )
-            case ClientError() as error:
-                return error
+        # Delegate to service (handles type search and Epic name logic)
+        return self._issue_service.create_issue_with_type_search(
+            project_key=project_key,
+            issue_type_name=issue_type,
+            summary=summary,
+            description=description,
+            assignee=assignee,
+            labels=labels,
+            priority=priority
+        )
 
     def create_subtask(
         self,
