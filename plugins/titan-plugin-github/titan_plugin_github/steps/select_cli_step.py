@@ -6,7 +6,7 @@ Saves the choice to ctx.data["cli_preference"] for subsequent steps.
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success
-from titan_cli.ui.tui.widgets import ChoiceOption
+from titan_cli.ui.tui.widgets import OptionItem
 
 
 def select_cli_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -19,15 +19,23 @@ def select_cli_step(ctx: WorkflowContext) -> WorkflowResult:
     Returns:
         Success with the chosen CLI name stored in ctx.data
     """
-    ctx.textual.begin_step("Select AI CLI for Review")
+    ctx.textual.begin_step("Select AI CLI")
 
     options = [
-        ChoiceOption(value="claude", label="Claude", variant="primary"),
-        ChoiceOption(value="gemini", label="Gemini", variant="default"),
+        OptionItem(
+            value="claude",
+            title="Claude",
+            description="Anthropic's Claude AI"
+        ),
+        OptionItem(
+            value="gemini",
+            title="Gemini",
+            description="Google's Gemini AI"
+        ),
     ]
 
     try:
-        choice = ctx.textual.ask_choice(
+        choice = ctx.textual.ask_option(
             "Which AI CLI do you want to use for this PR review?",
             options=options,
         )

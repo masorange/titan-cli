@@ -74,7 +74,7 @@ class PromptOptionList(Widget):
     PromptOptionList > DimText {
         width: 100%;
         height: auto;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
 
     PromptOptionList > OptionList {

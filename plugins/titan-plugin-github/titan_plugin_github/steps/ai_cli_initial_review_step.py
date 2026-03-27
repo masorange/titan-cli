@@ -11,8 +11,8 @@ ctx.data reads (configurable via workflow params):
     review_threads    (List[UICommentThread]) — existing comment threads
 
 ctx.data writes:
-    initial_review_findings  (List[ReviewFinding])
-    initial_review_markdown  (str)
+    initial_review_suggestions  (List[UIReviewSuggestion])
+    initial_review_markdown     (str)
 
 YAML usage:
     - plugin: github
@@ -26,14 +26,16 @@ YAML usage:
         timeout: 120
 """
 
+from rich.markup import escape as escape_markup
+
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.external_cli.adapters.base import SupportedCLI
 from titan_cli.messages import msg
 
 from ..operations.ai_review_operations import (
-    build_initial_review_prompt,
-    parse_review_findings,
+    build_initial_review_prompt_headless,
+    parse_cli_review_output,
 )
 
 _VALID_CLI_PREFERENCES = {"auto"} | set(SupportedCLI)
@@ -88,9 +90,20 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
 
     # ── build prompt ────────────────────────────────────────────────────────
     try:
-        prompt = build_initial_review_prompt(pr=pr, diff=diff, comments=threads)
+        prompt = build_initial_review_prompt_headless(pr=pr, diff=diff, comments=threads)
     except Exception as e:
         return _fail(ctx, msg.AIInitialReview.PROMPT_BUILD_ERROR.format(e=e))
+
+    # ── DEBUG: Log prompt details (temporary) ────────────────────────────────
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"HEADLESS_CLI_PROMPT_SIZE: {len(prompt)} chars (original diff: {len(diff)} chars, saved: {len(diff) - len(prompt)} chars)")
+    logger.info(f"HEADLESS_CLI_PR: {pr.title if pr else 'N/A'} (PR #{pr.number})")
+    logger.info(f"HEADLESS_CLI_THREADS: {len(threads)} comment threads")
+    logger.info("HEADLESS_CLI_PROMPT_STRUCTURE: 5 sections (intro, guidelines, comments, diff-summary, instructions)")
+    logger.info(f"HEADLESS_CLI_PROMPT_FIRST_800_CHARS:\n{prompt[:800]}\n---")
+    logger.info(f"HEADLESS_CLI_PROMPT_LAST_800_CHARS:\n{prompt[-800:]}\n---")
+    logger.info("HEADLESS_CLI_OPTIMIZATION: Using summarized diff instead of full diff to reduce OOM risk on Node.js-based CLIs")
 
     # ── execute ─────────────────────────────────────────────────────────────
     cli_display = adapter.cli_name.value.capitalize()
@@ -100,28 +113,43 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
         response = adapter.execute(prompt, cwd=project_root, timeout=timeout)
 
     if not response.succeeded:
+        # Log the raw error for debugging (avoid markup issues)
+        ctx.data[f"{output_key}_error"] = {
+            "exit_code": response.exit_code,
+            "stderr": response.stderr,
+            "cwd": project_root,
+        }
+
+        # Display error safely (escape markup to avoid MarkupError)
         if response.stderr:
-            ctx.textual.dim_text(response.stderr)
+            try:
+                safe_stderr = escape_markup(response.stderr)
+                ctx.textual.dim_text(safe_stderr)
+            except Exception:
+                ctx.textual.dim_text("(Error output could not be displayed)")
+
         return _fail(ctx, msg.AIInitialReview.FAILED.format(
             cli_name=cli_display,
             exit_code=response.exit_code,
         ))
 
-    # ── parse findings ──────────────────────────────────────────────────────
+    # ── parse output ────────────────────────────────────────────────────────
     markdown_output = response.stdout
-    findings = parse_review_findings(markdown_output)
+    summary, suggestions = parse_cli_review_output(markdown_output)
 
     # ── store results ───────────────────────────────────────────────────────
-    ctx.data[f"{output_key}_findings"] = findings
+    ctx.data[f"{output_key}_suggestions"] = suggestions
     ctx.data[f"{output_key}_markdown"] = markdown_output
 
     # ── display ─────────────────────────────────────────────────────────────
-    if findings:
-        ctx.textual.text(markdown_output)
-        critical_count = sum(1 for f in findings if f.severity == "critical")
+    if summary:
+        ctx.textual.markdown(summary)
+
+    if suggestions:
+        critical_count = sum(1 for s in suggestions if s.severity == "critical")
         ctx.textual.success_text(
             msg.AIInitialReview.FINDINGS_SUMMARY.format(
-                n=len(findings),
+                n=len(suggestions),
                 critical=critical_count,
             )
         )
@@ -131,8 +159,8 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.end_step("success")
     return Success(
         msg.AIInitialReview.FINDINGS_SUMMARY.format(
-            n=len(findings),
-            critical=sum(1 for f in findings if f.severity == "critical"),
+            n=len(suggestions),
+            critical=sum(1 for s in suggestions if s.severity == "critical"),
         )
     )
 

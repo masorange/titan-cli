@@ -29,7 +29,10 @@ YAML usage:
 """
 
 import threading
+import logging
 from typing import Optional
+
+from rich.markup import escape as escape_markup
 
 from titan_cli.core.models.code_review import (
     CodeReviewSessionResult,
@@ -131,10 +134,28 @@ def ai_cli_validate_with_refinement(ctx: WorkflowContext) -> WorkflowResult:
             previous_suggestion=None,
         )
 
+        # Debug logging for refinement prompts (temporary)
+        logger = logging.getLogger(__name__)
+        logger.info(f"HEADLESS_CLI_REFINEMENT_INITIAL: thread_idx={thread_idx}, comment_id={comment_id}, prompt_size={len(initial_prompt)} chars")
+
         with ctx.textual.loading(f"Getting suggestion from {cli_display}…"):
             initial_response = adapter.execute(initial_prompt, cwd=project_root, timeout=timeout)
 
         if not initial_response.succeeded:
+            # Log raw error
+            ctx.data[f"refinement_{comment_id}_error"] = {
+                "exit_code": initial_response.exit_code,
+                "stderr": initial_response.stderr,
+            }
+
+            # Display error safely
+            if initial_response.stderr:
+                try:
+                    safe_stderr = escape_markup(initial_response.stderr)
+                    ctx.textual.dim_text(f"Error: {safe_stderr}")
+                except Exception:
+                    pass
+
             ctx.textual.warning_text(
                 msg.AIRefinement.INITIAL_SUGGESTION_FAILED.format(id=comment_id)
             )
@@ -275,10 +296,28 @@ def _run_refinement_loop(
             previous_suggestion=session.current_suggestion,
         )
 
+        # Debug logging for refinement iteration prompts (temporary)
+        logger = logging.getLogger(__name__)
+        logger.info(f"HEADLESS_CLI_REFINEMENT_ITERATE: thread_idx={thread_idx}, comment_id={session.comment_id}, iteration={current_iteration}, prompt_size={len(refine_prompt)} chars")
+
         with ctx.textual.loading(f"Refining with {cli_display}…"):
             response = adapter.execute(refine_prompt, cwd=project_root, timeout=timeout)
 
         if not response.succeeded:
+            # Log raw error
+            ctx.data[f"refinement_{session.comment_id}_error_iter_{current_iteration}"] = {
+                "exit_code": response.exit_code,
+                "stderr": response.stderr,
+            }
+
+            # Display error safely
+            if response.stderr:
+                try:
+                    safe_stderr = escape_markup(response.stderr)
+                    ctx.textual.dim_text(f"Error: {safe_stderr}")
+                except Exception:
+                    pass
+
             ctx.textual.warning_text(
                 msg.AIRefinement.REFINEMENT_FAILED.format(code=response.exit_code)
             )

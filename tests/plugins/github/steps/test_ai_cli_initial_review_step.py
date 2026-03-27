@@ -106,30 +106,31 @@ class TestAdapterResolution(unittest.TestCase):
 
 class TestHappyPath(unittest.TestCase):
 
-    @patch(f"{_MODULE}.parse_review_findings")
-    @patch(f"{_MODULE}.build_initial_review_prompt", return_value="prompt text")
+    @patch(f"{_MODULE}.parse_cli_review_output")
+    @patch(f"{_MODULE}.build_initial_review_prompt_headless", return_value="prompt text")
     @patch(f"{_MODULE}.get_headless_adapter")
     @patch(f"{_MODULE}.HEADLESS_ADAPTER_REGISTRY", {SupportedCLI.CLAUDE: None})
     def test_stores_findings_and_markdown(self, mock_get, _build, mock_parse):
         from titan_plugin_github.steps.ai_cli_initial_review_step import ai_cli_initial_review
-        from titan_cli.core.models.code_review import ReviewFinding, ReviewSeverity
+        from titan_plugin_github.models.view import UIReviewSuggestion
 
         mock_get.return_value = _make_adapter(stdout="## Summary\n\n### 🔴 CRITICAL: Bug")
-        mock_parse.return_value = [
-            ReviewFinding(severity=ReviewSeverity.CRITICAL, title="Bug", description="Bad code")
-        ]
+        mock_parse.return_value = (
+            "## Summary",
+            [UIReviewSuggestion(file_path="", line=None, body="Bug", severity="critical")],
+        )
 
         ctx = _make_ctx({"selected_pr": _make_pr(), "pr_diff": "diff text"})
         result = ai_cli_initial_review(ctx)
 
         self.assertIsInstance(result, Success)
-        self.assertIn("initial_review_findings", ctx.data)
+        self.assertIn("initial_review_suggestions", ctx.data)
         self.assertIn("initial_review_markdown", ctx.data)
-        self.assertEqual(len(ctx.data["initial_review_findings"]), 1)
+        self.assertEqual(len(ctx.data["initial_review_suggestions"]), 1)
         self.assertIn("CRITICAL", ctx.data["initial_review_markdown"])
 
-    @patch(f"{_MODULE}.parse_review_findings", return_value=[])
-    @patch(f"{_MODULE}.build_initial_review_prompt", return_value="prompt")
+    @patch(f"{_MODULE}.parse_cli_review_output", return_value=("", []))
+    @patch(f"{_MODULE}.build_initial_review_prompt_headless", return_value="prompt")
     @patch(f"{_MODULE}.get_headless_adapter")
     @patch(f"{_MODULE}.HEADLESS_ADAPTER_REGISTRY", {SupportedCLI.CLAUDE: None})
     def test_no_findings_still_succeeds(self, mock_get, _build, _parse):
@@ -138,10 +139,10 @@ class TestHappyPath(unittest.TestCase):
         ctx = _make_ctx({"selected_pr": _make_pr()})
         result = ai_cli_initial_review(ctx)
         self.assertIsInstance(result, Success)
-        self.assertEqual(ctx.data["initial_review_findings"], [])
+        self.assertEqual(ctx.data["initial_review_suggestions"], [])
 
-    @patch(f"{_MODULE}.parse_review_findings", return_value=[])
-    @patch(f"{_MODULE}.build_initial_review_prompt", return_value="prompt")
+    @patch(f"{_MODULE}.parse_cli_review_output", return_value=("", []))
+    @patch(f"{_MODULE}.build_initial_review_prompt_headless", return_value="prompt")
     @patch(f"{_MODULE}.get_headless_adapter")
     @patch(f"{_MODULE}.HEADLESS_ADAPTER_REGISTRY", {SupportedCLI.CLAUDE: None})
     def test_custom_output_key(self, mock_get, _build, _parse):
@@ -149,7 +150,7 @@ class TestHappyPath(unittest.TestCase):
         mock_get.return_value = _make_adapter()
         ctx = _make_ctx({"selected_pr": _make_pr(), "output_key": "my_review"})
         ai_cli_initial_review(ctx)
-        self.assertIn("my_review_findings", ctx.data)
+        self.assertIn("my_review_suggestions", ctx.data)
         self.assertIn("my_review_markdown", ctx.data)
 
 
@@ -157,7 +158,7 @@ class TestHappyPath(unittest.TestCase):
 
 class TestAdapterFailure(unittest.TestCase):
 
-    @patch(f"{_MODULE}.build_initial_review_prompt", return_value="prompt")
+    @patch(f"{_MODULE}.build_initial_review_prompt_headless", return_value="prompt")
     @patch(f"{_MODULE}.get_headless_adapter")
     @patch(f"{_MODULE}.HEADLESS_ADAPTER_REGISTRY", {SupportedCLI.CLAUDE: None})
     def test_failed_execution_returns_error(self, mock_get, _build):
@@ -172,8 +173,8 @@ class TestAdapterFailure(unittest.TestCase):
 
 class TestPromptBuilding(unittest.TestCase):
 
-    @patch(f"{_MODULE}.parse_review_findings", return_value=[])
-    @patch(f"{_MODULE}.build_initial_review_prompt")
+    @patch(f"{_MODULE}.parse_cli_review_output", return_value=("", []))
+    @patch(f"{_MODULE}.build_initial_review_prompt_headless")
     @patch(f"{_MODULE}.get_headless_adapter")
     @patch(f"{_MODULE}.HEADLESS_ADAPTER_REGISTRY", {SupportedCLI.CLAUDE: None})
     def test_diff_and_threads_passed_to_prompt_builder(self, mock_get, mock_build, _parse):
@@ -192,7 +193,7 @@ class TestPromptBuilding(unittest.TestCase):
 
         mock_build.assert_called_once_with(pr=pr, diff="full diff", comments=threads)
 
-    @patch(f"{_MODULE}.build_initial_review_prompt", side_effect=RuntimeError("boom"))
+    @patch(f"{_MODULE}.build_initial_review_prompt_headless", side_effect=RuntimeError("boom"))
     @patch(f"{_MODULE}.get_headless_adapter")
     @patch(f"{_MODULE}.HEADLESS_ADAPTER_REGISTRY", {SupportedCLI.CLAUDE: None})
     def test_prompt_build_failure_returns_error(self, mock_get, _build):

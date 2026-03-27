@@ -8,15 +8,16 @@ import logging
 import threading
 from typing import List
 
+from rich.markup import escape as escape_markup
+
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..models.view import UIReviewSuggestion
+from ..operations.ai_review_operations import build_refinement_prompt, parse_reply_suggestion
 from ..operations.code_review_operations import (
-    load_all_project_skills,
-    load_project_docs,
-    select_relevant_skills,
     select_files_for_review,
     build_review_context,
     build_pr_summary_prompt,
@@ -40,12 +41,13 @@ def _show_suggestion_and_get_action(
     suggestion: UIReviewSuggestion,
     idx: int,
     total: int,
+    can_refine: bool = False,
 ) -> str:
     """
     Display a review suggestion and return the user's chosen action.
 
     Returns:
-        "approve", "edit", "skip", or "exit"
+        "approve", "edit", "refine", "skip", or "exit"
     """
     # Display header with comment number
     ctx.textual.text("")
@@ -64,8 +66,10 @@ def _show_suggestion_and_get_action(
     options = [
         ChoiceOption(value="approve", label="✓ Approve", variant="success"),
         ChoiceOption(value="edit", label="✎ Edit", variant="default"),
-        ChoiceOption(value="skip", label="— Skip", variant="default"),
     ]
+    if can_refine:
+        options.append(ChoiceOption(value="refine", label="↻ Refine", variant="primary"))
+    options.append(ChoiceOption(value="skip", label="— Skip", variant="default"))
     if idx < total - 1:
         options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
 
@@ -90,12 +94,14 @@ def _show_suggestion_and_get_action(
     action_labels = {
         "approve": "✓ Approved",
         "edit": "✎ Edited",
+        "refine": "↻ Refining…",
         "skip": "— Skipped",
         "exit": "✗ Exit review",
     }
     action_variants = {
         "approve": "success",
         "edit": "default",
+        "refine": "primary",
         "skip": "default",
         "exit": "warning",
     }
@@ -223,17 +229,16 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
 
 def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Fetch diff, changed files, latest commit SHA, and matching project skills.
+    Fetch and display PR changes, including diff and existing comments.
 
     Requires (from ctx.data):
         review_pr_number (int): PR number
 
     Outputs (saved to ctx.data):
-        review_changed_files (List[str])
-        review_diff (str)
-        review_commit_sha (str)
-        review_skills (List[dict])
-        review_pr (UIPullRequest)
+        review_changed_files (List[str]): List of changed file paths
+        review_diff (str): Full unified diff
+        review_pr (UIPullRequest): Pull request details
+        review_threads (List[UICommentThread]): Existing review threads and comments
 
     Returns:
         Success, Skip (empty diff), or Error
@@ -332,16 +337,6 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.warning_text(f"Could not get commit SHA: {err}")
             commit_sha = ""
 
-    # Load project context: skills and docs (no project_instructions — too noisy for code review)
-    all_skills = load_all_project_skills()
-    all_docs = load_project_docs()
-
-    if (all_skills or all_docs) and ctx.ai:
-        with ctx.textual.loading("Selecting relevant project context..."):
-            skills, docs = select_relevant_skills(all_skills, diff, ctx.ai, all_docs)
-    else:
-        skills, docs = all_skills, all_docs
-
     # Display file changes summary using diff stat
     formatted_files, formatted_summary = compute_diff_stat(diff)
     ctx.textual.show_diff_stat(
@@ -350,36 +345,25 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         title="Files affected:",
     )
 
-    # Fetch open review threads (non-blocking)
-    open_threads = []
+    # Fetch review threads and general comments
+    review_threads = []
     with ctx.textual.loading("Fetching existing review comments..."):
         threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=False)
         match threads_result:
             case ClientSuccess(data=threads):
-                open_threads = threads
+                review_threads = threads
             case ClientError():
                 pass
 
         general_result = ctx.github.get_pr_general_comments(pr_number)
         match general_result:
             case ClientSuccess(data=general):
-                open_threads += general
+                review_threads += general
             case ClientError():
                 pass
 
-    ctx.textual.text("")
-    if skills:
-        skill_names = ", ".join(s["name"] for s in skills)
-        ctx.textual.success_text(f"✓ {len(skills)} guideline(s): {skill_names}")
-    if docs:
-        doc_names = ", ".join(d["name"] for d in docs)
-        ctx.textual.success_text(f"✓ {len(docs)} doc(s): {doc_names}")
-    if not skills and not docs:
-        ctx.textual.dim_text("No project context found — applying general best practices")
-    if open_threads:
-        ctx.textual.dim_text(f"  {len(open_threads)} existing open comment(s) found")
-    if commit_sha:
-        ctx.textual.dim_text(f"  Latest commit: {commit_sha[:7]}")
+    if review_threads:
+        ctx.textual.dim_text(f"{len(review_threads)} existing comment(s)")
 
     ctx.textual.end_step("success")
 
@@ -388,11 +372,8 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         metadata={
             "review_changed_files": changed_files,
             "review_diff": diff,
-            "review_commit_sha": commit_sha,
-            "review_skills": skills,
-            "review_docs": docs,
             "review_pr": pr,
-            "review_open_threads": open_threads,
+            "review_threads": review_threads,
         },
     )
 
@@ -422,7 +403,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
     diff = ctx.get("review_diff", "")
     skills = ctx.get("review_skills", [])
     docs = ctx.get("review_docs", [])
-    open_threads = ctx.get("review_open_threads", [])
+    threads = ctx.get("review_threads", [])
 
     if not pr or not diff:
         ctx.textual.end_step("error")
@@ -445,7 +426,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
 
     from ..agents.code_review_agent import CodeReviewAgent
 
-    context_str = build_review_context(pr, diff, skills, docs, open_threads, current_user)
+    context_str = build_review_context(pr, diff, skills, docs, threads, current_user)
 
     with ctx.textual.loading("Generating AI review comments..."):
         agent = CodeReviewAgent(ctx.ai)
@@ -474,7 +455,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
             suggestion.diff_context = hunk or file_diff[:3000]
 
     # Post-process: filter suggestions that duplicate own existing comments
-    own_threads = ctx.get("review_open_threads", [])
+    own_threads = ctx.get("review_threads", [])
     own_threads_by_user = [
         t for t in own_threads
         if current_user and t.main_comment.author_login == current_user
@@ -564,11 +545,15 @@ def summarize_pr_review(ctx: WorkflowContext) -> WorkflowResult:
 
 def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Present each AI suggestion to the user for approval, editing, or skipping.
+    Present each AI suggestion to the user for approval, editing, refining, or skipping.
 
     Requires (from ctx.data):
         review_suggestions (List[UIReviewSuggestion])
-        review_changed_files (List[str]): For display purposes
+
+    Optional (from ctx.data):
+        cli_preference (str): Which headless CLI to use for refinement (default "auto")
+        review_diff (str): PR diff for snippet context during refinement
+        timeout (int): CLI timeout in seconds (default 60)
 
     Outputs (saved to ctx.data):
         approved_suggestions (List[UIReviewSuggestion])
@@ -588,8 +573,16 @@ def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No suggestions to validate")
 
+    # Resolve CLI adapter for Refine option (best effort — may be None)
+    cli_preference = ctx.data.get("cli_preference", "auto")
+    timeout = int(ctx.data.get("timeout", 60))
+    diff = ctx.get("review_diff", "")
+    project_root = ctx.data.get("project_root")
+    adapter = _resolve_headless_adapter(cli_preference)
+
     approved: List[UIReviewSuggestion] = []
     skipped = 0
+    exit_requested = False
 
     # Sort by severity: critical → improvement → suggestion
     severity_order = {"critical": 0, "improvement": 1, "suggestion": 2}
@@ -599,39 +592,94 @@ def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     for idx, suggestion in enumerate(sorted_suggestions):
-        choice = _show_suggestion_and_get_action(ctx, suggestion, idx, len(sorted_suggestions))
-
-        if choice == "exit":
-            ctx.textual.warning_text(
-                f"Exiting validation. Approved {len(approved)}, skipped {skipped}."
-            )
+        if exit_requested:
             break
 
-        elif choice == "approve":
-            approved.append(suggestion)
+        current = suggestion  # may be replaced after refinement
 
-        elif choice == "edit":
-            ctx.textual.text("")
-            new_body = ctx.textual.ask_multiline(
-                "Edit the review comment:",
-                default=suggestion.body,
+        while True:
+            choice = _show_suggestion_and_get_action(
+                ctx, current, idx, len(sorted_suggestions), can_refine=adapter is not None
             )
-            if new_body and new_body.strip():
-                edited = UIReviewSuggestion(
-                    file_path=suggestion.file_path,
-                    line=suggestion.line,
-                    body=new_body.strip(),
-                    severity=suggestion.severity,
-                    diff_context=suggestion.diff_context,
-                    snippet=suggestion.snippet,
-                )
-                approved.append(edited)
-            else:
-                ctx.textual.warning_text("Empty body, comment skipped")
-                skipped += 1
 
-        else:  # skip
-            skipped += 1
+            if choice == "exit":
+                exit_requested = True
+                ctx.textual.warning_text(
+                    f"Exiting validation. Approved {len(approved)}, skipped {skipped}."
+                )
+                break
+
+            elif choice == "approve":
+                approved.append(current)
+                break
+
+            elif choice == "edit":
+                ctx.textual.text("")
+                new_body = ctx.textual.ask_multiline(
+                    "Edit the review comment:",
+                    default=current.body,
+                )
+                if new_body and new_body.strip():
+                    approved.append(UIReviewSuggestion(
+                        file_path=current.file_path,
+                        line=current.line,
+                        body=new_body.strip(),
+                        severity=current.severity,
+                        diff_context=current.diff_context,
+                        snippet=current.snippet,
+                    ))
+                else:
+                    ctx.textual.warning_text("Empty body, comment skipped")
+                    skipped += 1
+                break
+
+            elif choice == "refine" and adapter:
+                ctx.textual.text("")
+                feedback = ctx.textual.ask_multiline(
+                    "What should the AI improve in this suggestion?",
+                )
+                if not feedback or not feedback.strip():
+                    ctx.textual.dim_text("No feedback provided, showing suggestion again.")
+                    continue
+
+                refine_prompt = build_refinement_prompt(
+                    original_comment=f"Review comment for `{current.file_path}`:\n{current.body}",
+                    existing_replies=[],
+                    diff_snippet=current.diff_context or (diff[:8_000] if diff else None),
+                    user_feedback=feedback,
+                    previous_suggestion=current.body,
+                )
+
+                cli_display = adapter.cli_name.value.capitalize()
+                with ctx.textual.loading(f"Refining with {cli_display}…"):
+                    response = adapter.execute(refine_prompt, cwd=project_root, timeout=timeout)
+
+                if not response.succeeded:
+                    if response.stderr:
+                        try:
+                            ctx.textual.dim_text(escape_markup(response.stderr))
+                        except Exception:
+                            pass
+                    ctx.textual.warning_text("Refinement failed — showing previous suggestion.")
+                    continue
+
+                refined_body = parse_reply_suggestion(response.stdout)
+                if refined_body and refined_body.strip():
+                    current = UIReviewSuggestion(
+                        file_path=current.file_path,
+                        line=current.line,
+                        body=refined_body.strip(),
+                        severity=current.severity,
+                        diff_context=current.diff_context,
+                        snippet=current.snippet,
+                    )
+                else:
+                    ctx.textual.warning_text("Empty refinement — showing previous suggestion.")
+                continue  # re-show refined suggestion
+
+            else:  # skip
+                skipped += 1
+                break
 
     if not approved:
         ctx.textual.dim_text("No comments approved.")
@@ -649,13 +697,29 @@ def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 
+def _resolve_headless_adapter(cli_preference: str):
+    """Return the first available headless adapter, or None."""
+    if cli_preference == "auto":
+        for cli_name in HEADLESS_ADAPTER_REGISTRY:
+            candidate = get_headless_adapter(cli_name)
+            if candidate.is_available():
+                return candidate
+        return None
+
+    try:
+        candidate = get_headless_adapter(cli_preference)
+    except ValueError:
+        return None
+
+    return candidate if candidate.is_available() else None
+
+
 def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
     """
     Submit the approved review comments as a GitHub review.
 
     Requires (from ctx.data):
         review_pr_number (int)
-        review_commit_sha (str)
         approved_suggestions (List[UIReviewSuggestion])
 
     Returns:
@@ -679,11 +743,17 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
-    # Commit SHA is needed for inline comments, but not for general review (COMMENT/APPROVE/REQUEST_CHANGES)
+    # Get commit SHA if not available (needed for inline comments)
     if not commit_sha and approved:
-        ctx.textual.error_text("No commit SHA available — cannot submit inline comments")
-        ctx.textual.end_step("error")
-        return Error("Missing commit SHA for inline review")
+        with ctx.textual.loading("Fetching latest commit SHA..."):
+            sha_result = ctx.github.get_pr_commit_sha(pr_number)
+        match sha_result:
+            case ClientSuccess(data=sha):
+                commit_sha = sha
+            case ClientError(error_message=err):
+                ctx.textual.error_text("No commit SHA available — cannot submit inline comments")
+                ctx.textual.end_step("error")
+                return Error(f"Missing commit SHA for inline review: {err}")
 
     # Show summary
     if approved:

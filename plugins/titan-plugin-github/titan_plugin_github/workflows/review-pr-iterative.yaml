@@ -17,11 +17,6 @@ steps:
     plugin: github
     step: fetch_pr_changes
 
-  - id: fetch_threads
-    name: "Fetch PR Comments"
-    plugin: github
-    step: fetch_pr_threads
-
   - id: initial_review
     name: "Initial AI Analysis"
     plugin: github
@@ -30,20 +25,22 @@ steps:
       pr_key: review_pr
       diff_key: review_diff
       threads_key: review_threads
-      output_key: initial_review
+      output_key: review
       cli_preference: ${cli_preference}
       timeout: 120
     on_error: continue
 
-  - id: validate_with_refinement
-    name: "Validate & Refine with User"
+  - id: validate_comments
+    name: "Validate & Refine Comments"
     plugin: github
-    step: ai_cli_validate_with_refinement
+    step: validate_review_comments
     params:
-      threads_key: review_threads
-      diff_key: review_diff
-      output_key: code_review_session_result
       cli_preference: ${cli_preference}
       timeout: 60
-      max_iterations: 4
+    on_error: continue
+
+  - id: submit_review
+    name: "Submit Review"
+    plugin: github
+    step: submit_pr_review
     on_error: continue
