@@ -21,6 +21,7 @@ class SupportedCLI(StrEnum):
     """
     CLAUDE = "claude"
     GEMINI = "gemini"
+    CODEX = "codex"
 
 
 @dataclass

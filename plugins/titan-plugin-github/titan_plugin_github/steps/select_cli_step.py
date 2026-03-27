@@ -1,7 +1,7 @@
 """
 Select CLI Step
 
-Asks user which headless AI CLI to use for PR analysis (Claude or Gemini).
+Asks user which headless AI CLI to use for PR analysis (Claude, Gemini, or Codex).
 Saves the choice to ctx.data["cli_preference"] for subsequent steps.
 """
 
@@ -13,7 +13,7 @@ def select_cli_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Ask user to explicitly choose which AI CLI to use for PR analysis.
 
-    Only offers Claude or Gemini (no Auto, since user must decide).
+    Offers Claude, Gemini, or Codex (no Auto, since user must decide).
     Stores the choice in ctx.data["cli_preference"].
 
     Returns:
@@ -31,6 +31,11 @@ def select_cli_step(ctx: WorkflowContext) -> WorkflowResult:
             value="gemini",
             title="Gemini",
             description="Google's Gemini AI"
+        ),
+        OptionItem(
+            value="codex",
+            title="Codex",
+            description="OpenAI's Codex"
         ),
     ]
 
