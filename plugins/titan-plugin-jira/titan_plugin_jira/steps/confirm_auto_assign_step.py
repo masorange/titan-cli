@@ -29,7 +29,7 @@ def confirm_auto_assign(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.ASSIGNMENT)
 
-    ctx.textual.markdown("## 👤 Assignment")
+    ctx.textual.bold_text("👤 Assignment")
     ctx.textual.text("")
 
     # Get current user

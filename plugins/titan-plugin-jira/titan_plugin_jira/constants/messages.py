@@ -135,8 +135,8 @@ class InfoMessages:
     )
 
     # Preview
-    PREVIEW_LABEL = "**Preview:**"
-    GENERATED_DESC_LABEL = "**Generated description:**"
+    PREVIEW_LABEL = "Preview:"
+    GENERATED_DESC_LABEL = "Generated description:"
 
     # Project info
     PROJECT_LABEL = "Project: {project}"

@@ -49,7 +49,7 @@ def ai_enhance_issue_description(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("missing_required_data")
 
-    ctx.textual.markdown("## 🤖 Generating Description with AI")
+    ctx.textual.bold_text("🤖 Generating Description with AI")
     ctx.textual.text("")
     ctx.textual.dim_text(InfoMessages.GENERATING_AI_DESC)
     ctx.textual.text("")
@@ -122,7 +122,7 @@ def ai_enhance_issue_description(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.text("")
 
     # Show preview
-    ctx.textual.markdown(InfoMessages.PREVIEW_LABEL)
+    ctx.textual.bold_text(InfoMessages.PREVIEW_LABEL)
     ctx.textual.text("")
     preview = (
         enhanced_description[:500] + "..."

@@ -57,7 +57,7 @@ def create_generic_issue(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("no_project_configured")
 
-    ctx.textual.markdown(f"## 🚀 {InfoMessages.CREATING_ISSUE_HEADING}")
+    ctx.textual.bold_text(f"🚀 {InfoMessages.CREATING_ISSUE_HEADING}")
     ctx.textual.text("")
     ctx.textual.dim_text(InfoMessages.PROJECT_LABEL.format(project=project_key))
     ctx.textual.dim_text(InfoMessages.TYPE_LABEL.format(type=issue_type))

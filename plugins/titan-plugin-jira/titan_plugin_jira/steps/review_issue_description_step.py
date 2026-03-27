@@ -37,11 +37,11 @@ def review_issue_description(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("no_enhanced_description")
 
-    ctx.textual.markdown("## 📋 Review Description")
+    ctx.textual.bold_text("📋 Review Description")
     ctx.textual.text("")
 
     # Show full description
-    ctx.textual.markdown(InfoMessages.GENERATED_DESC_LABEL)
+    ctx.textual.bold_text(InfoMessages.GENERATED_DESC_LABEL)
     ctx.textual.text("")
     ctx.textual.markdown(enhanced_description)
     ctx.textual.text("")
