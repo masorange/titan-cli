@@ -6,21 +6,7 @@ Maps NetworkJiraPriority (network layer) to UIPriority (view layer).
 
 from ..network.rest.priority import NetworkJiraPriority
 from ..view import UIPriority
-
-
-# Priority icons mapping
-PRIORITY_ICONS = {
-    "highest": "🔴",
-    "high": "🟠",
-    "medium": "🟡",
-    "low": "🟢",
-    "lowest": "⚪",
-    "blocker": "🚨",
-    "critical": "🔴",
-    "major": "🟠",
-    "minor": "🟢",
-    "trivial": "⚪"
-}
+from ..enums import JiraPriority
 
 
 def from_network_priority(network_priority: NetworkJiraPriority) -> UIPriority:
@@ -33,8 +19,7 @@ def from_network_priority(network_priority: NetworkJiraPriority) -> UIPriority:
     Returns:
         UIPriority optimized for rendering
     """
-    priority_name_lower = network_priority.name.lower()
-    icon = PRIORITY_ICONS.get(priority_name_lower, "⚫")
+    icon = JiraPriority.get_icon(network_priority.name)
     label = f"{icon} {network_priority.name}"
 
     return UIPriority(

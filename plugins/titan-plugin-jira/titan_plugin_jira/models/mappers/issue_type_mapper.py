@@ -6,20 +6,7 @@ Maps NetworkJiraIssueType (network layer) to UIJiraIssueType (view layer).
 
 from ..network.rest.issue_type import NetworkJiraIssueType
 from ..view import UIJiraIssueType
-
-
-# Issue type icons mapping
-ISSUE_TYPE_ICONS = {
-    "bug": "🐛",
-    "story": "📖",
-    "task": "✅",
-    "epic": "🎯",
-    "sub-task": "📋",
-    "subtask": "📋",
-    "improvement": "⬆️",
-    "new feature": "✨",
-    "test": "🧪",
-}
+from ..enums import JiraIssueType
 
 
 def from_network_issue_type(network_issue_type: NetworkJiraIssueType) -> UIJiraIssueType:
@@ -32,8 +19,7 @@ def from_network_issue_type(network_issue_type: NetworkJiraIssueType) -> UIJiraI
     Returns:
         UIJiraIssueType optimized for rendering
     """
-    issue_type_name_lower = network_issue_type.name.lower()
-    icon = ISSUE_TYPE_ICONS.get(issue_type_name_lower, "📄")
+    icon = JiraIssueType.get_icon(network_issue_type.name)
     description = network_issue_type.description or "No description"
     label = f"{icon} {network_issue_type.name}"
 
