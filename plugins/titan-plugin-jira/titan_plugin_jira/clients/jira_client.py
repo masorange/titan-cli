@@ -315,20 +315,11 @@ class JiraClient:
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Find subtask issue type
-        issue_types_result = self.get_issue_types(self.project_key)
+        # Find subtask issue type (delegated to service)
+        subtask_type_result = self._metadata_service.find_subtask_issue_type(self.project_key)
 
-        match issue_types_result:
-            case ClientSuccess(data=issue_types):
-                # Find first subtask type
-                subtask_type = next((it for it in issue_types if it.subtask), None)
-
-                if not subtask_type:
-                    return ClientError(
-                        error_message="No subtask issue type found for project",
-                        error_code="SUBTASK_TYPE_NOT_FOUND"
-                    )
-
+        match subtask_type_result:
+            case ClientSuccess(data=subtask_type):
                 return self._issue_service.create_subtask(
                     parent_key=parent_key,
                     project_key=self.project_key,

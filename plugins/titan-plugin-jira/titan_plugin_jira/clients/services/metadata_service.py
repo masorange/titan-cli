@@ -259,5 +259,37 @@ class MetadataService:
                 error_code="GET_PRIORITIES_ERROR"
             )
 
+    @log_client_operation()
+    def find_subtask_issue_type(self, project_key: str) -> ClientResult["UIJiraIssueType"]:
+        """
+        Find the first subtask issue type for a project.
+
+        Args:
+            project_key: Project key
+
+        Returns:
+            ClientResult[UIJiraIssueType]
+        """
+        # Delegate to get_issue_types
+        issue_types_result = self.get_issue_types(project_key)
+
+        match issue_types_result:
+            case ClientSuccess(data=issue_types):
+                # Find first subtask type
+                subtask_type = next((it for it in issue_types if it.subtask), None)
+
+                if not subtask_type:
+                    return ClientError(
+                        error_message=f"No subtask issue type found for project {project_key}",
+                        error_code="SUBTASK_TYPE_NOT_FOUND"
+                    )
+
+                return ClientSuccess(
+                    data=subtask_type,
+                    message=f"Found subtask issue type: {subtask_type.name}"
+                )
+            case ClientError() as error:
+                return error
+
 
 __all__ = ["MetadataService"]
