@@ -33,10 +33,24 @@ def test_network_initialization(jira_network):
 def test_network_builds_correct_auth_header(jira_network):
     """Test that authentication header is built correctly with Basic Auth"""
     import base64
-    # The session should have Basic Auth in headers (email:api_token base64 encoded)
+
+    # Verify header exists
     assert "Authorization" in jira_network.session.headers
+    auth_header = jira_network.session.headers["Authorization"]
+
+    # Verify format (should start with "Basic ")
+    assert auth_header.startswith("Basic "), "Should use Basic Auth (not Bearer)"
+
+    # Decode and verify credentials
+    encoded_part = auth_header.split()[1]
+    decoded = base64.b64decode(encoded_part).decode()
+
+    assert decoded == "test@example.com:test-token-123", \
+        f"Expected 'email:token' format, got '{decoded}'"
+
+    # Verify it matches expected encoding
     expected_credentials = base64.b64encode(b"test@example.com:test-token-123").decode()
-    assert jira_network.session.headers["Authorization"] == f"Basic {expected_credentials}"
+    assert auth_header == f"Basic {expected_credentials}"
 
 
 @patch('titan_plugin_jira.clients.network.jira_network.requests.Session')
@@ -280,3 +294,24 @@ def test_network_custom_timeout():
         timeout=60
     )
     assert network.timeout == 60
+
+
+@patch('titan_plugin_jira.clients.network.jira_network.requests.Session')
+def test_network_uses_api_v3_endpoint(mock_session_class):
+    """Test that API v3 endpoint is used, not v2 (critical for migration)."""
+    mock_session = MagicMock()
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"key": "TEST-123", "id": "10123"}
+    mock_response.content = b'{"key": "TEST-123"}'
+    mock_session.request.return_value = mock_response
+    mock_session_class.return_value = mock_session
+
+    network = JiraNetwork("https://test.atlassian.net", "test@example.com", "token")
+    network.make_request("GET", "issue/TEST-123")
+
+    # Verify URL contains /rest/api/3/ (not /rest/api/2/)
+    call_args = mock_session.request.call_args
+    url = call_args[0][1]  # Second positional argument is the URL
+    assert "/rest/api/3/" in url, f"Expected API v3, got: {url}"
+    assert "/rest/api/2/" not in url, f"Still using API v2: {url}"
