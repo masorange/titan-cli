@@ -31,10 +31,12 @@ def test_network_initialization(jira_network):
 
 
 def test_network_builds_correct_auth_header(jira_network):
-    """Test that authentication header is built correctly"""
-    # The session should have Bearer token in headers
+    """Test that authentication header is built correctly with Basic Auth"""
+    import base64
+    # The session should have Basic Auth in headers (email:api_token base64 encoded)
     assert "Authorization" in jira_network.session.headers
-    assert jira_network.session.headers["Authorization"] == "Bearer test-token-123"
+    expected_credentials = base64.b64encode(b"test@example.com:test-token-123").decode()
+    assert jira_network.session.headers["Authorization"] == f"Basic {expected_credentials}"
 
 
 @patch('titan_plugin_jira.clients.network.jira_network.requests.Session')
