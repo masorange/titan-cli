@@ -27,7 +27,7 @@ from titan_cli.ui.tui.widgets import (
 )
 
 from ..models import UICommentThread
-from .comment import Comment
+from .comment_view import CommentView
 from .reply_comment import ReplyComment
 
 
@@ -112,8 +112,8 @@ class CommentRefinementWidget(PanelContainer):
     def compose(self) -> ComposeResult:
         # ── Original comment ─────────────────────────────────────────────────
         if self.thread.main_comment:
-            yield Comment(
-                comment=self.thread.main_comment,
+            yield CommentView.from_ui_comment(
+                self.thread.main_comment,
                 is_outdated=self.thread.is_outdated,
             )
 

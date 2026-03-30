@@ -425,6 +425,10 @@ def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion
     """
     Parse CLI review markdown into a summary string and a list of suggestions.
 
+    Extracts the ## Summary section (including nested ### subsections) and stops
+    when findings begin. Falls back to extracting the first paragraph if no
+    ## Summary section is found.
+
     Args:
         markdown: Full markdown output from the headless CLI initial review.
 
@@ -433,17 +437,14 @@ def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion
         ## Summary section text and suggestions is a list of UIReviewSuggestion
         objects built from the parsed findings.
     """
-    # Extract summary: include nested "### OVERVIEW / AREAS / RECOMMENDATION"
-    # and stop only when issue findings begin (### with severity emojis).
     summary = ""
 
-    # Find the ## Summary section
+    # Try to extract ## Summary section
     summary_start = markdown.find("## Summary")
     if summary_start >= 0:
-        # Look for the first ### heading with a severity emoji after "## Summary"
-        after_summary = markdown[summary_start:]
+        after_summary = markdown[summary_start + len("## Summary"):]
 
-        # Find the first finding (### with 🔴🟡🟢🟠)
+        # Find the first finding (### with severity emoji)
         finding_match = re.search(
             r"^###\s*[🔴🟡🟢🟠]",
             after_summary,
@@ -451,10 +452,36 @@ def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion
         )
 
         if finding_match:
-            summary = after_summary[len("## Summary"):finding_match.start()].strip()
+            summary = after_summary[:finding_match.start()].strip()
         else:
-            # No findings found, take everything after ## Summary
-            summary = after_summary[len("## Summary"):].strip()
+            # No findings, take everything after ## Summary until next ## heading
+            next_section = re.search(r"\n##\s", after_summary)
+            if next_section:
+                summary = after_summary[:next_section.start()].strip()
+            else:
+                summary = after_summary.strip()
+    else:
+        # Fallback: extract first meaningful paragraph before any findings
+        # This handles cases where the AI doesn't include a "## Summary" header
+        lines = markdown.split("\n")
+        first_para_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Stop at first finding header or ## Issues Found
+            if re.match(r"^#{2,4}\s*[🔴🟡🟢🟠]|^##\s+Issues Found", line, re.IGNORECASE):
+                break
+            # Stop at section headers
+            if re.match(r"^##\s", line):
+                continue
+            # Collect non-empty lines
+            if stripped and not re.match(r"^###\s*[🔴🟡🟢🟠]", line):
+                first_para_lines.append(line)
+
+        if first_para_lines:
+            summary = "\n".join(first_para_lines).strip()
+            # Clean up: remove trailing "## Issues Found" or similar
+            if "## Issues Found" in summary or "## Findings" in summary:
+                summary = re.sub(r"##\s+(Issues Found|Findings).*", "", summary, flags=re.IGNORECASE).strip()
 
     findings = parse_initial_review_markdown(markdown)
 

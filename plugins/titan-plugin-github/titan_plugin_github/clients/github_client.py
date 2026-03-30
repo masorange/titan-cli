@@ -215,9 +215,9 @@ class GitHubClient:
         return self._review_service.create_draft_review(pr_number, payload)
 
     def submit_review(
-        self, pr_number: int, review_id: int, event: str, body: str = ""
+        self, pr_number: int, review_id: int | None, event: str, body: str = ""
     ) -> ClientResult[None]:
-        """Submit a review."""
+        """Submit a review. If review_id is None, creates directly with event."""
         return self._review_service.submit_review(pr_number, review_id, event, body)
 
     def delete_review(self, pr_number: int, review_id: int) -> ClientResult[None]:

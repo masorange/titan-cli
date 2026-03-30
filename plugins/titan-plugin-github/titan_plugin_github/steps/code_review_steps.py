@@ -57,9 +57,9 @@ def _show_suggestion_and_get_action(
         ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
     ctx.textual.text("")
 
-    # Mount the ReviewSuggestion widget (handles all display: severity, file, line, diff, body)
-    from titan_plugin_github.widgets import ReviewSuggestion
-    ctx.textual.mount(ReviewSuggestion(suggestion))
+    # Mount the CommentView widget (handles all display: severity, file, line, diff, body)
+    from titan_plugin_github.widgets import CommentView
+    ctx.textual.mount(CommentView.from_suggestion(suggestion))
     ctx.textual.text("")
 
     # Build options
@@ -803,7 +803,32 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
         existing_body = payload.get("body", "")
         payload["body"] = (existing_body + "\n\n" + review_body.strip()).strip()
 
-    # Create draft review (PENDING)
+    # Check if payload is empty (no comments, no body)
+    has_inline_comments = bool(payload.get("comments"))
+    has_body = bool(payload.get("body"))
+    is_empty_payload = not has_inline_comments and not has_body
+
+    # If payload is empty, skip draft creation and submit directly with event
+    if is_empty_payload:
+        ctx.textual.text("")
+        ctx.textual.dim_text("Submitting review without comments...")
+
+        with ctx.textual.loading("Submitting review..."):
+            submit_result = ctx.github.submit_review(pr_number, None, event, review_body)
+
+        match submit_result:
+            case ClientSuccess():
+                ctx.textual.success_text(
+                    f"✓ Review submitted as '{event}' on PR #{pr_number}"
+                )
+                ctx.textual.end_step("success")
+                return Success(f"Review submitted on PR #{pr_number}")
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"Failed to submit review: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to submit review: {err}")
+
+    # Create draft review (PENDING) when there are comments
     with ctx.textual.loading("Creating review..."):
         draft_result = ctx.github.create_draft_review(pr_number, payload)
 

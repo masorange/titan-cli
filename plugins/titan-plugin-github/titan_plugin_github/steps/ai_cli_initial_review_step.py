@@ -156,7 +156,19 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
 
     # ── parse output ────────────────────────────────────────────────────────
     markdown_output = response.stdout
+
+    # DEBUG: Log raw output
+    logger.info(f"RAW_CLI_OUTPUT_LENGTH: {len(markdown_output)} chars")
+    logger.info(f"RAW_CLI_OUTPUT_FIRST_500:\n{markdown_output[:500]}\n---")
+    logger.info(f"RAW_CLI_OUTPUT_CONTAINS_SUMMARY: {'## Summary' in markdown_output}")
+    logger.info(f"RAW_CLI_OUTPUT_CONTAINS_CRITICAL: {'🔴' in markdown_output}")
+
     summary, suggestions = parse_cli_review_output(markdown_output)
+
+    # DEBUG: Log parsed results
+    logger.info(f"PARSED_SUMMARY_LENGTH: {len(summary)} chars")
+    logger.info(f"PARSED_SUMMARY_FIRST_200: {summary[:200]}")
+    logger.info(f"PARSED_SUGGESTIONS_COUNT: {len(suggestions)}")
 
     # ── enrich suggestions with diff context ─────────────────────────────────
     diff = ctx.data.get(diff_key, "")
