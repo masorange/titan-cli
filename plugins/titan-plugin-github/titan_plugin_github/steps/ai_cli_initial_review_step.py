@@ -26,6 +26,7 @@ YAML usage:
         timeout: 120
 """
 
+import re
 import threading
 import time
 from rich.markup import escape as escape_markup
@@ -208,11 +209,21 @@ def ai_cli_initial_review(ctx: WorkflowContext) -> WorkflowResult:
                 hunk = extract_hunk_for_line(file_diff, suggestion.line)
                 suggestion.diff_context = hunk
 
-                # Correct the line number using the hunk header
+                # Only correct the line number if the AI-reported line is outside the hunk range.
+                # extract_line_number_from_hunk always returns the first + line of the hunk,
+                # which would overwrite a valid AI line with the first changed line — wrong.
                 if hunk:
-                    correct_line = extract_line_number_from_hunk(hunk)
-                    if correct_line:
-                        suggestion.line = correct_line
+                    hunk_header = hunk.split("\n")[0]
+                    header_match = re.search(r"\+(\d+),?(\d*)", hunk_header)
+                    if header_match:
+                        hunk_start = int(header_match.group(1))
+                        count = int(header_match.group(2)) if header_match.group(2) else 1
+                        hunk_end = hunk_start + count
+                        if not (hunk_start <= (suggestion.line or 0) <= hunk_end):
+                            # Line is outside hunk range — fall back to first added line
+                            correct_line = extract_line_number_from_hunk(hunk)
+                            if correct_line:
+                                suggestion.line = correct_line
 
     # ── store results ───────────────────────────────────────────────────────
     ctx.data[f"{output_key}_suggestions"] = suggestions

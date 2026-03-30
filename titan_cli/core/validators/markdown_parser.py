@@ -31,7 +31,11 @@ _KEYWORD_TO_SEVERITY = {
 
 def extract_severity(text: str) -> ReviewSeverity:
     """
-    Detect severity from a heading line like '### 🔴 CRITICAL: Title'.
+    Detect severity from a heading line like '### 🔴 CRITICAL: Title' or '### CRITICAL - Title'.
+
+    Checks for:
+    1. Severity emojis (🔴🟡🟢🟠) — any position
+    2. Severity keywords (CRITICAL, HIGH, MEDIUM, LOW) — case-insensitive, any position
 
     Falls back to HIGH if nothing matches.
     """
@@ -45,6 +49,31 @@ def extract_severity(text: str) -> ReviewSeverity:
             return severity
 
     return ReviewSeverity.HIGH
+
+
+# ── Severity detection helper ─────────────────────────────────────────────────
+
+def _is_severity_heading(line: str) -> bool:
+    """
+    Check if a line is a severity-tagged heading (### with severity keyword or emoji).
+
+    Matches patterns like:
+    - ### 🔴 CRITICAL: Title
+    - ### CRITICAL - Title
+    - ### CRITICAL Title
+    - ### High: Something
+    - ### 🟡 HIGH - Issue
+
+    This is intentionally very lax to handle AI-generated markdown variations.
+    """
+    if not line.strip().startswith("#"):
+        return False
+
+    # Has emoji OR keyword?
+    has_emoji = any(e in line for e in _EMOJI_TO_SEVERITY)
+    has_keyword = any(k in line.lower() for k in _KEYWORD_TO_SEVERITY)
+
+    return has_emoji or has_keyword
 
 
 # ── Section extraction ────────────────────────────────────────────────────────

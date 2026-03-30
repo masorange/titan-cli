@@ -246,15 +246,20 @@ class PRService:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
-    def get_pr_diff(self, pr_number: int) -> ClientResult[str]:
+    def get_pr_diff(self, pr_number: int, context_lines: int = 3) -> ClientResult[str]:
         """
         Get diff for a PR.
 
         Args:
             pr_number: PR number
+            context_lines: Number of unchanged context lines (for future use with git diff)
 
         Returns:
             ClientResult[str] with diff content
+
+        Note:
+            Currently uses 'gh pr diff' which doesn't support custom context lines.
+            The context_lines parameter is reserved for future implementation using git diff.
         """
         try:
             args = ["pr", "diff", str(pr_number)] + self.gh.get_repo_arg()

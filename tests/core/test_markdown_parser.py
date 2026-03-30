@@ -44,6 +44,46 @@ MOCK_NO_FINDINGS = """
 Everything looks good. No issues found.
 """
 
+MOCK_CLAUDE_NO_EMOJIS = """
+## Summary
+
+PR introduces a headless AI CLI review feature.
+
+## Issues Found
+
+### CRITICAL - Missing JSON validation
+**File**: `launcher.py`:42
+**Problem**: Parsed output is not validated before use
+**Suggestion**: Use json.loads with error handling
+
+### HIGH - No timeout handling
+**File**: `launcher.py`:80
+**Problem**: Subprocess can hang indefinitely
+**Suggestion**: Add timeout parameter to subprocess.run
+
+### MEDIUM: Magic number
+**Problem**: Hardcoded value 60 should be a named constant
+**Suggestion**: Define DEFAULT_TIMEOUT = 60
+"""
+
+MOCK_CLAUDE_DIFFERENT_FORMAT = """
+## Summary
+
+This PR fixes several issues with error handling and validation.
+
+## Identified Issues
+
+### Critical: Missing null check
+**File**: `app.py`:15
+**Problem**: Variable used without null safety check
+**Suggestion**: Add null guard before use
+
+### High: Unsafe string concatenation
+**File**: `utils.py`:42
+**Problem**: No input sanitization
+**Suggestion**: Use safe string building methods
+"""
+
 MOCK_REFINEMENT = """
 Good point! If `use_pydantic: true` is set in the config, we should use it.
 Will update the implementation accordingly.
@@ -151,6 +191,22 @@ class TestParseInitialReviewMarkdown(unittest.TestCase):
             parse_initial_review_markdown("# Not a review\nSome random text\n123")
         except Exception as e:
             self.fail(f"parse_initial_review_markdown raised: {e}")
+
+    def test_claude_format_without_emojis(self):
+        """Claude sometimes outputs without emojis — should still parse."""
+        findings = parse_initial_review_markdown(MOCK_CLAUDE_NO_EMOJIS)
+        self.assertEqual(len(findings), 3)
+        # Should detect CRITICAL even without emoji
+        self.assertEqual(findings[0].severity, ReviewSeverity.CRITICAL)
+        self.assertEqual(findings[0].file, "launcher.py")
+
+    def test_claude_different_separator(self):
+        """Claude might use hyphen instead of colon."""
+        findings = parse_initial_review_markdown(MOCK_CLAUDE_DIFFERENT_FORMAT)
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(findings[0].severity, ReviewSeverity.CRITICAL)
+        # Should extract title even with hyphen separator
+        self.assertIn("null check", findings[0].title.lower())
 
 
 # ── parse_refined_suggestion ──────────────────────────────────────────────────

@@ -106,9 +106,9 @@ class GitHubClient:
         """List all PRs in the repository."""
         return self._pr_service.list_all_prs(state, max_results)
 
-    def get_pr_diff(self, pr_number: int) -> ClientResult[str]:
+    def get_pr_diff(self, pr_number: int, context_lines: int = 3) -> ClientResult[str]:
         """Get diff for a PR."""
-        return self._pr_service.get_pr_diff(pr_number)
+        return self._pr_service.get_pr_diff(pr_number, context_lines)
 
     def get_pr_file_patches(
         self, pr_number: int, file_paths: List[str]

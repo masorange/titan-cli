@@ -261,8 +261,32 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
     with ctx.textual.loading(f"Fetching PR #{pr_number} data..."):
         pr_result = ctx.github.get_pull_request(pr_number)
         files_result = ctx.github.get_pr_files(pr_number)
-        diff_result = ctx.github.get_pr_diff(pr_number)
         sha_result = ctx.github.get_pr_commit_sha(pr_number)
+
+    # Fetch diff — prefer git diff with extended context (20 lines) for better AI review quality
+    with ctx.textual.loading(f"Fetching PR #{pr_number} diff..."):
+        match (ctx.git, pr_result):
+            case (git, ClientSuccess(data=pr_for_diff)) if git:
+                # For PR review, both branches are remote refs (we're not checking out the PR)
+                # Ensure remote refs are up-to-date before computing diff
+                fetch_result = git.fetch(all=True)
+                match fetch_result:
+                    case ClientError(error_message=err):
+                        logger.warning(f"Git fetch failed: {err}, will try diff anyway")
+                    case _:
+                        pass
+
+                # use_remote=True ensures both refs use the git client's configured default_remote
+                diff_result = git.get_branch_diff(
+                    pr_for_diff.base_ref,
+                    pr_for_diff.head_ref,
+                    context_lines=20,
+                    use_remote=True
+                )
+            case _:
+                # Fallback: git plugin not available, using basic gh diff with limited context
+                logger.debug("Git plugin not available; using gh pr diff")
+                diff_result = ctx.github.get_pr_diff(pr_number)
 
     # Validate PR
     match pr_result:
@@ -376,6 +400,7 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         f"Fetched PR #{pr_number} data",
         metadata={
             "review_changed_files": changed_files,
+            "review_commit_sha": commit_sha,
             "review_diff": diff,
             "review_pr": pr,
             "review_threads": review_threads,

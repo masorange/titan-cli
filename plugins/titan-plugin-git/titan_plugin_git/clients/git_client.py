@@ -309,9 +309,20 @@ class GitClient:
         """Get diff for a specific file."""
         return self.diff_service.get_file_diff(file_path)
 
-    def get_branch_diff(self, base_branch: str, head_branch: str) -> ClientResult[str]:
-        """Get diff between two branches."""
-        return self.diff_service.get_branch_diff(base_branch, head_branch)
+    def get_branch_diff(self, base_branch: str, head_branch: str, context_lines: int = 3, use_remote: bool = False) -> ClientResult[str]:
+        """
+        Get diff between two branches.
+
+        Args:
+            base_branch: Base branch name
+            head_branch: Head branch name
+            context_lines: Number of context lines (default: 3)
+            use_remote: If True, both branches are treated as remote refs (default: False)
+
+        Returns:
+            ClientResult[str] with diff output
+        """
+        return self.diff_service.get_branch_diff(base_branch, head_branch, context_lines, use_remote)
 
     def get_diff_stat(self, base_ref: str, head_ref: str = "HEAD") -> ClientResult[str]:
         """Get diff stat summary."""

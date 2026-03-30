@@ -5,53 +5,51 @@ Tests for ai_review_operations.
 from titan_plugin_github.operations.ai_review_operations import parse_cli_review_output
 
 
-def test_parse_cli_review_output_keeps_all_summary_subsections():
+def test_parse_cli_review_output_keeps_summary_content():
     markdown = """
 ## Summary
 
-### OVERVIEW
-This PR updates authentication and token refresh flow.
+**Overview**: This PR updates authentication and token refresh flow.
 
-### AREAS TO PAY ATTENTION TO
+**Attention**:
 - Auth middleware migration
 - Token expiry edge cases
 
-### RECOMMENDATION
-💬 COMMENT: Validate rollout strategy before merge.
+**Recommendation**: COMMENT — Validate rollout strategy before merge.
 
-### 🔴 CRITICAL: Missing token validation
+## Issues Found
+
+### CRITICAL: Missing token validation
 **File**: `auth.py`:42
 **Problem**: Access token is trusted without signature verification.
 **Suggestion**: Verify JWT signature before claims access.
 """
 
-    summary, _ = parse_cli_review_output(markdown)
+    summary, suggestions = parse_cli_review_output(markdown)
 
-    assert "### OVERVIEW" in summary
-    assert "### AREAS TO PAY ATTENTION TO" in summary
-    assert "### RECOMMENDATION" in summary
-    assert "### 🔴 CRITICAL" not in summary
+    assert "**Overview**" in summary
+    assert "**Attention**" in summary
+    assert "**Recommendation**" in summary
+    assert "CRITICAL" not in summary
+    assert len(suggestions) == 1
 
 
 def test_parse_cli_review_output_keeps_summary_when_no_findings():
     markdown = """
 ## Summary
 
-### OVERVIEW
-Small refactor with no behavioral changes.
+**Overview**: Small refactor with no behavioral changes.
 
-### AREAS TO PAY ATTENTION TO
+**Attention**:
 - None
 
-### RECOMMENDATION
-✅ APPROVE: Looks safe.
+**Recommendation**: APPROVE — Looks safe.
 """
 
     summary, suggestions = parse_cli_review_output(markdown)
 
-    assert "### OVERVIEW" in summary
-    assert "### AREAS TO PAY ATTENTION TO" in summary
-    assert "### RECOMMENDATION" in summary
+    assert "**Overview**" in summary
+    assert "**Recommendation**" in summary
     assert suggestions == []
 
 
@@ -110,3 +108,71 @@ No critical issues found. Code quality is good.
     severities = [s.severity for s in real_suggestions]
     assert "improvement" in severities
     assert "suggestion" in severities
+
+
+def test_parse_cli_review_output_claude_format_without_emojis():
+    """Test Claude format without emojis — common case where Claude doesn't follow emoji format."""
+    markdown = """## Summary
+
+**Overview**: This PR introduces a headless CLI review feature with good structure overall.
+
+**Recommendation**: APPROVE — No blocking issues.
+
+## Issues Found
+
+### CRITICAL: Missing JSON validation
+**File**: `launcher.py`:42
+**Problem**: Parsed output is not validated before use
+**Suggestion**: Use json.loads with error handling
+
+### HIGH - No timeout handling
+**File**: `launcher.py`:80
+**Problem**: Subprocess can hang indefinitely
+**Suggestion**: Add timeout parameter to subprocess.run
+
+### MEDIUM: Magic number
+**Problem**: Hardcoded value 60 should be a named constant
+**Suggestion**: Define DEFAULT_TIMEOUT = 60
+"""
+
+    summary, suggestions = parse_cli_review_output(markdown)
+
+    # Summary should be extracted correctly even without emojis
+    assert "Overview" in summary
+    assert "CRITICAL" not in summary
+    # Should find all three findings despite no emojis
+    assert len(suggestions) == 3
+    # Check severity mapping
+    assert suggestions[0].severity == "critical"
+    assert suggestions[0].file_path == "launcher.py"
+    assert suggestions[1].severity == "improvement"
+    assert suggestions[1].file_path == "launcher.py"
+    assert suggestions[2].severity == "improvement"  # MEDIUM -> improvement
+
+
+def test_parse_cli_review_output_lowercase_keywords():
+    """Test that lowercase severity keywords are recognized."""
+    markdown = """## Summary
+
+Good PR with minor issues.
+
+## Findings
+
+### critical: Missing null check
+**File**: `app.py`:15
+**Problem**: Variable used without null safety
+**Suggestion**: Add null guard
+
+### high: Unsafe concatenation
+**File**: `utils.py`:42
+**Problem**: No input sanitization
+**Suggestion**: Use safe string building
+"""
+
+    summary, suggestions = parse_cli_review_output(markdown)
+
+    assert "Good PR with minor issues" in summary
+    assert len(suggestions) == 2
+    # Both should be parsed despite lowercase keyword
+    assert suggestions[0].severity == "critical"
+    assert suggestions[1].severity == "improvement"

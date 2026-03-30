@@ -136,54 +136,119 @@ def extract_pr_description_keypoints(body: str, pr_template: Optional[str] = Non
     return result
 
 
+def _split_into_hunks(diff: str) -> List[tuple]:
+    """
+    Split a unified diff into (file_header, hunk_header, hunk_lines) tuples.
+
+    Returns a list of (file_path, hunk_header_line, content_lines) tuples.
+    """
+    hunks = []
+    current_file = ""
+    current_file_header: List[str] = []
+    current_hunk_header = ""
+    current_hunk_lines: List[str] = []
+    in_file_header = False
+
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            # Save previous hunk
+            if current_hunk_header:
+                hunks.append((current_file, current_file_header[:], current_hunk_header, current_hunk_lines[:]))
+            # Start new file
+            m = re.search(r'diff --git a/.+ b/(.+)', line)
+            current_file = m.group(1).strip() if m else ""
+            current_file_header = [line]
+            current_hunk_header = ""
+            current_hunk_lines = []
+            in_file_header = True
+        elif in_file_header and not line.startswith("@@"):
+            current_file_header.append(line)
+        elif line.startswith("@@"):
+            # Save previous hunk
+            if current_hunk_header:
+                hunks.append((current_file, current_file_header[:], current_hunk_header, current_hunk_lines[:]))
+            current_hunk_header = line
+            current_hunk_lines = []
+            in_file_header = False
+        elif current_hunk_header:
+            current_hunk_lines.append(line)
+
+    if current_hunk_header:
+        hunks.append((current_file, current_file_header[:], current_hunk_header, current_hunk_lines[:]))
+
+    return hunks
+
+
 def build_diff_summary(diff: str, max_diff_chars: int = 8_000) -> str:
     """
     Build a concise summary of the diff for headless CLI consumption.
 
-    Extracts file list with change counts, then includes a truncated diff.
-    This reduces verbosity while preserving context.
+    Budget is distributed evenly across all hunks so the AI sees context
+    from every changed region — not just the first file or first hunk.
+    All hunk headers (@@ lines) are always included so line numbers are visible.
 
     Args:
         diff: Full unified diff string
-        max_diff_chars: Maximum characters to include from the diff
+        max_diff_chars: Total character budget for hunk content (headers excluded)
 
     Returns:
-        A summary with file changes + limited diff content
+        A summary with file changes + budget-distributed diff content
     """
     if not diff or not diff.strip():
         return "(No diff available)"
 
-    # Parse file headers and count changes per file
-    file_stats: dict[str, tuple[int, int]] = {}  # {filename: (additions, deletions)}
+    hunks = _split_into_hunks(diff)
 
-    # Split diff into per-file sections
-    file_blocks = re.split(r'^diff --git', diff, flags=re.MULTILINE)
+    # Build file stats summary
+    file_stats: dict[str, tuple[int, int]] = {}
+    for file_path, _, _, hunk_lines in hunks:
+        if file_path not in file_stats:
+            file_stats[file_path] = (0, 0)
+        adds, dels = file_stats[file_path]
+        adds += sum(1 for line in hunk_lines if line.startswith("+") and not line.startswith("+++"))
+        dels += sum(1 for line in hunk_lines if line.startswith("-") and not line.startswith("---"))
+        file_stats[file_path] = (adds, dels)
 
-    for block in file_blocks[1:]:  # Skip the first empty split
-        # Extract filename from "a/path b/path" header
-        header_match = re.match(r' a/(.+) b/(.+)\n', block)
-        if not header_match:
-            continue
-
-        filename = header_match.group(2)
-        # Count + and - lines (excluding ++ and -- which are file markers)
-        additions = len(re.findall(r'\n\+(?!\+)', block))
-        deletions = len(re.findall(r'\n-(?!-)', block))
-        file_stats[filename] = (additions, deletions)
-
-    # Build file summary
-    file_summary_lines = []
-    for filename, (adds, deletes) in sorted(file_stats.items()):
-        file_summary_lines.append(f"  {filename}: +{adds} -{deletes}")
-
+    file_summary_lines = [f"  {f}: +{a} -{d}" for f, (a, d) in sorted(file_stats.items())]
     file_summary = "## Files Changed\n" + "\n".join(file_summary_lines) if file_summary_lines else ""
 
-    # Include truncated diff
-    diff_truncated = diff[:max_diff_chars]
-    if len(diff) > max_diff_chars:
-        diff_truncated += f"\n\n... ({len(diff) - max_diff_chars} more characters truncated)"
+    if not hunks:
+        diff_section = f"## Diff\n\n```diff\n{diff[:max_diff_chars]}\n```"
+        return (file_summary + "\n\n" + diff_section).strip() if file_summary else diff_section
 
-    diff_section = f"## Diff\n\n```diff\n{diff_truncated}\n```"
+    # Distribute content budget evenly across hunks (minimum 200 chars per hunk)
+    per_hunk_budget = max(max_diff_chars // len(hunks), 200)
+
+    diff_parts: List[str] = []
+    seen_file_headers: set = set()
+
+    for file_path, file_header_lines, hunk_header, hunk_lines in hunks:
+        # Emit file header once per file
+        if file_path not in seen_file_headers:
+            diff_parts.append("\n".join(file_header_lines))
+            seen_file_headers.add(file_path)
+
+        # Always emit hunk header (so the AI sees line numbers)
+        hunk_block = [hunk_header]
+
+        # Include hunk content up to per_hunk_budget
+        content_chars = 0
+        truncated = 0
+        for line in hunk_lines:
+            line_len = len(line) + 1
+            if content_chars + line_len <= per_hunk_budget:
+                hunk_block.append(line)
+                content_chars += line_len
+            else:
+                truncated += 1
+
+        if truncated:
+            hunk_block.append(f"  ... ({truncated} more lines in this hunk)")
+
+        diff_parts.append("\n".join(hunk_block))
+
+    diff_body = "\n".join(diff_parts)
+    diff_section = f"## Diff\n\n```diff\n{diff_body}\n```"
 
     return (file_summary + "\n\n" + diff_section).strip() if file_summary else diff_section
 
@@ -304,27 +369,22 @@ def build_initial_review_prompt_headless(
 
     sections.append(
         "## Summary\n"
-        "### OVERVIEW\n"
-        "1-2 sentences describing what this PR does.\n\n"
-        "### AREAS TO PAY ATTENTION TO\n"
-        "For each important area, use a bullet point:\n"
-        "- <area>: <brief reason why>\n\n"
-        "### RECOMMENDATION\n"
-        "One of: ✅ APPROVE / 🔴 REQUEST CHANGES / 💬 COMMENT\n"
-        "Followed by a brief justification (1-2 lines).\n\n"
+        "**Overview**: 1-2 sentences describing what this PR does.\n\n"
+        "**Attention**: List the most important areas to verify (as bullet points).\n\n"
+        "**Recommendation**: APPROVE | REQUEST CHANGES | COMMENT — brief justification.\n\n"
         "## Issues Found\n"
         "For each issue (security, correctness, performance, maintainability), use this EXACT format:\n\n"
-        "### 🔴 CRITICAL | 🟡 HIGH | 🟢 MEDIUM | 🟠 LOW: <title>\n"
+        "### CRITICAL | HIGH | MEDIUM | LOW: <title>\n"
         "**File**: `path/to/file.kt`:LINE_NUMBER\n"
         "**Problem**: one line description\n"
         "**Suggestion**: specific recommended fix\n\n"
         "IMPORTANT:\n"
+        "- Only use ### headings for issues in the '## Issues Found' section\n"
         "- For general file comments (not on a specific line), use LINE_NUMBER = 0\n"
         "- Always use backticks around the file path\n"
-        "- Always include the line number after a colon\n"
-        "- Do not include any text after the line number on the **File** line\n\n"
+        "- Always include the line number after a colon\n\n"
         "Example:\n"
-        "### 🔴 CRITICAL: Missing null check\n"
+        "### CRITICAL: Missing null check\n"
         "**File**: `app/src/Main.kt`:42\n"
         "**Problem**: Variable is not checked before use\n"
         "**Suggestion**: Add null safety check: if (variable != null)"
@@ -421,13 +481,35 @@ def clean_summary_markdown(summary: str) -> str:
     return "\n".join(cleaned).strip()
 
 
+def _is_severity_heading(line: str) -> bool:
+    """
+    Check if a line is a severity-tagged heading (### with severity keyword or emoji).
+
+    Very lax to handle AI-generated markdown variations:
+    - ### 🔴 CRITICAL: Title
+    - ### CRITICAL - Title
+    - ### HIGH: Something
+    - ### high severity issue
+    """
+    if not line.strip().startswith("#"):
+        return False
+
+    lower = line.lower()
+    # Check for severity keywords (case-insensitive)
+    keywords = ("critical", "high", "medium", "low")
+    return any(k in lower for k in keywords)
+
+
 def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion]]:
     """
     Parse CLI review markdown into a summary string and a list of suggestions.
 
-    Extracts the ## Summary section (including nested ### subsections) and stops
-    when findings begin. Falls back to extracting the first paragraph if no
-    ## Summary section is found.
+    Extracts the ## Summary section and stops when findings begin. Falls back to
+    extracting the first paragraph if no ## Summary section is found.
+
+    Flexible parsing to handle different AI models:
+    - Gemini: generates with emojis (🔴 CRITICAL: Title)
+    - Claude: may generate without emojis (CRITICAL - Title, CRITICAL: Title, etc.)
 
     Args:
         markdown: Full markdown output from the headless CLI initial review.
@@ -439,49 +521,41 @@ def parse_cli_review_output(markdown: str) -> Tuple[str, List[UIReviewSuggestion
     """
     summary = ""
 
-    # Try to extract ## Summary section
+    # Try to extract ## Summary section.
+    # With the new prompt format, the Summary block contains only bold text
+    # (**Overview**, **Attention**, **Recommendation**) — no ### subheadings.
+    # The first ### heading in the document is always a finding.
     summary_start = markdown.find("## Summary")
     if summary_start >= 0:
-        after_summary = markdown[summary_start + len("## Summary"):]
+        after_summary = markdown[summary_start + len("## Summary"):].lstrip("\n")
 
-        # Find the first finding (### with severity emoji)
-        finding_match = re.search(
-            r"^###\s*[🔴🟡🟢🟠]",
-            after_summary,
-            re.MULTILINE
-        )
+        # Find the first ### heading (always a finding in the new format)
+        next_h3 = re.search(r"^###\s", after_summary, re.MULTILINE)
+        # Find the next ## section heading
+        next_h2 = re.search(r"^##\s", after_summary, re.MULTILINE)
 
-        if finding_match:
-            summary = after_summary[:finding_match.start()].strip()
-        else:
-            # No findings, take everything after ## Summary until next ## heading
-            next_section = re.search(r"\n##\s", after_summary)
-            if next_section:
-                summary = after_summary[:next_section.start()].strip()
-            else:
-                summary = after_summary.strip()
+        # Cut at whichever comes first
+        cut_at = None
+        if next_h3:
+            cut_at = next_h3.start()
+        if next_h2 and (cut_at is None or next_h2.start() < cut_at):
+            cut_at = next_h2.start()
+
+        summary = (after_summary[:cut_at].strip() if cut_at is not None else after_summary.strip())
     else:
-        # Fallback: extract first meaningful paragraph before any findings
-        # This handles cases where the AI doesn't include a "## Summary" header
+        # Fallback: collect lines before the first ## or ### heading with a severity keyword
         lines = markdown.split("\n")
         first_para_lines = []
         for line in lines:
             stripped = line.strip()
-            # Stop at first finding header or ## Issues Found
-            if re.match(r"^#{2,4}\s*[🔴🟡🟢🟠]|^##\s+Issues Found", line, re.IGNORECASE):
-                break
-            # Stop at section headers
             if re.match(r"^##\s", line):
-                continue
-            # Collect non-empty lines
-            if stripped and not re.match(r"^###\s*[🔴🟡🟢🟠]", line):
+                break
+            if _is_severity_heading(line):
+                break
+            if stripped:
                 first_para_lines.append(line)
 
-        if first_para_lines:
-            summary = "\n".join(first_para_lines).strip()
-            # Clean up: remove trailing "## Issues Found" or similar
-            if "## Issues Found" in summary or "## Findings" in summary:
-                summary = re.sub(r"##\s+(Issues Found|Findings).*", "", summary, flags=re.IGNORECASE).strip()
+        summary = "\n".join(first_para_lines).strip()
 
     findings = parse_initial_review_markdown(markdown)
 
