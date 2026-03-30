@@ -766,7 +766,6 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text(f"Ready to submit {len(approved)} comment(s) on PR #{pr_number}")
     else:
         ctx.textual.warning_text("No review comments — you can still submit a review decision")
-    ctx.textual.text("")
 
     # Ask review event type
     event_options = [
@@ -787,7 +786,6 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("User cancelled review submission")
 
     # Optional general body
-    ctx.textual.text("")
     add_body = ctx.textual.ask_confirm(
         "Add a general review comment (optional)?",
         default=False,
@@ -808,67 +806,12 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
     has_body = bool(payload.get("body"))
     is_empty_payload = not has_inline_comments and not has_body
 
-    # If payload is empty, require a body for APPROVE/REQUEST_CHANGES
+    # If payload is empty, submit directly without draft
     if is_empty_payload:
-        if event in ("APPROVE", "REQUEST_CHANGES"):
-            ctx.textual.text("")
-            ctx.textual.error_text(f"Cannot submit '{event}' without comments or a review message.")
-            ctx.textual.text("")
+        ctx.textual.dim_text("Submitting review without comments...")
 
-            # Ask user to add a body now
-            add_body_now = ctx.textual.ask_confirm(
-                "Would you like to add a review message?",
-                default=True
-            )
-
-            if add_body_now:
-                review_body = ctx.textual.ask_multiline(
-                    "Enter your review message:",
-                    default=""
-                )
-
-                if review_body and review_body.strip():
-                    review_body = review_body.strip()
-                    has_body = True
-                    is_empty_payload = False
-                else:
-                    ctx.textual.warning_text("Empty message, review cancelled")
-                    ctx.textual.end_step("skip")
-                    return Skip("Review submission cancelled — no message provided")
-            else:
-                ctx.textual.warning_text("Review cancelled")
-                ctx.textual.end_step("skip")
-                return Skip("Review submission cancelled")
-
-        # For COMMENT event, can submit without body
-        if is_empty_payload:
-            ctx.textual.text("")
-            ctx.textual.dim_text("Submitting review without comments...")
-
-            with ctx.textual.loading("Submitting review..."):
-                submit_result = ctx.github.submit_review(pr_number, None, event, review_body)
-
-            match submit_result:
-                case ClientSuccess():
-                    ctx.textual.success_text(
-                        f"✓ Review submitted as '{event}' on PR #{pr_number}"
-                    )
-                    ctx.textual.end_step("success")
-                    return Success(f"Review submitted on PR #{pr_number}")
-                case ClientError(error_message=err):
-                    ctx.textual.error_text(f"Failed to submit review: {err}")
-                    ctx.textual.end_step("error")
-                    return Error(f"Failed to submit review: {err}")
-
-    # Create draft review only if payload has actual comments or body
-    # (GitHub rejects drafts with empty comments list)
-    payload_has_comments = bool(payload.get("comments"))
-    payload_has_body = bool(payload.get("body"))
-
-    if not payload_has_comments and not payload_has_body:
-        # Payload is empty, submit directly without draft
         with ctx.textual.loading("Submitting review..."):
-            submit_result = ctx.github.submit_review(pr_number, None, event, review_body)
+            submit_result = ctx.github.submit_review(pr_number, None, event, "")
 
         match submit_result:
             case ClientSuccess():
