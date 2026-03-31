@@ -6,7 +6,7 @@ AI analysis combined with project-specific skill guidelines.
 """
 import logging
 import threading
-from typing import List
+from typing import List, Optional
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
@@ -14,6 +14,7 @@ from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headl
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..models.review_models import ReviewActionProposal
+from ..models.view import UICommentThread
 from ..operations.code_review_operations import (
     select_files_for_review,
     build_review_context,
@@ -49,9 +50,13 @@ def _show_review_action_and_get_decision(
     diff_hunk: str,
     idx: int,
     total: int,
+    review_threads: Optional[List[UICommentThread]] = None,
 ) -> str:
     """
     Display a ReviewActionProposal and return the user's chosen decision.
+
+    For reply_to_thread actions, shows the original thread context.
+    For new_comment actions, shows just the proposed comment.
 
     Returns:
         "approve", "edit", "skip", or "exit"
@@ -60,6 +65,27 @@ def _show_review_action_and_get_decision(
     ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
     ctx.textual.text("")
 
+    # For reply_to_thread actions, show the original thread context
+    if action.action_type == "reply_to_thread" and review_threads:
+        from titan_plugin_github.widgets import CommentThread
+
+        # Find the original thread
+        original_thread = next(
+            (t for t in review_threads if t.thread_id == action.thread_id),
+            None
+        )
+        if original_thread:
+            ctx.textual.text("📌 Original comment:")
+            ctx.textual.mount(
+                CommentThread(
+                    thread=original_thread,
+                    options=[],  # No buttons in this display
+                )
+            )
+            ctx.textual.text("")
+            ctx.textual.text("📝 Your reply:")
+
+    # Show the action (proposed reply or new comment)
     from titan_plugin_github.widgets import CommentView
     ctx.textual.mount(CommentView.from_action(action, diff_hunk=diff_hunk))
     ctx.textual.text("")
@@ -1218,6 +1244,7 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No actions to validate")
 
     diff = ctx.get("review_diff", "")
+    review_threads: List[UICommentThread] = ctx.get("review_threads", [])
 
     # Sort by severity: blocking → important → nit
     severity_order = {"blocking": 0, "important": 1, "nit": 2}
@@ -1239,7 +1266,8 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
 
         while True:
             choice = _show_review_action_and_get_decision(
-                ctx, current, diff_hunk or "", idx, len(sorted_actions)
+                ctx, current, diff_hunk or "", idx, len(sorted_actions),
+                review_threads=review_threads
             )
 
             if choice == "exit":
@@ -1322,20 +1350,32 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     if not approved:
         ctx.textual.dim_text("No approved actions — you can still submit a review decision.")
 
-    # Resolve thread actions first (direct API, outside the review)
+    # Handle thread actions first (direct API, outside the review draft)
     resolve_actions = [a for a in approved if a.action_type == "resolve_thread"]
-    comment_actions = [a for a in approved if a.action_type != "resolve_thread"]
+    reply_actions = [a for a in approved if a.action_type == "reply_to_thread"]
+    comment_actions = [a for a in approved if a.action_type == "new_comment"]
 
     for action in resolve_actions:
         if not action.thread_id:
             continue
-        with ctx.textual.loading(f"Resolving thread {action.thread_id}..."):
+        with ctx.textual.loading(f"Resolving thread..."):
             result = ctx.github.resolve_review_thread(action.thread_id)
         match result:
             case ClientSuccess():
                 ctx.textual.success_text("✓ Thread resolved")
             case ClientError(error_message=err):
                 ctx.textual.warning_text(f"Could not resolve thread: {err}")
+
+    for action in reply_actions:
+        if not action.comment_id or not pr_number:
+            continue
+        with ctx.textual.loading(f"Posting reply to comment..."):
+            result = ctx.github.reply_to_comment(pr_number, action.comment_id, action.body)
+        match result:
+            case ClientSuccess():
+                ctx.textual.success_text("✓ Reply posted")
+            case ClientError(error_message=err):
+                ctx.textual.warning_text(f"Could not post reply: {err}")
 
     # Get commit SHA if not available (needed for inline comments)
     if not commit_sha and comment_actions:
@@ -1438,12 +1478,17 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     """
     Select open inline threads worth AI analysis.
 
-    Filters out general comments (no GraphQL resolve API), already-resolved
-    threads, and outdated threads without replies. All remaining open inline
-    threads become candidates for the AI thread resolution call.
+    Filters out:
+    - General comments (no GraphQL resolve API)
+    - Already-resolved threads
+    - Threads where the PR author has not replied (reviewer is waiting for response)
+
+    Only includes threads where the last comment is from the PR author,
+    indicating they have responded to the review.
 
     Requires (from ctx.data):
         review_threads (List[UICommentThread]): Unresolved inline review threads
+        review_pr (UIPullRequest): PR object with author info
 
     Outputs (saved to ctx.data):
         thread_review_candidates (List[ThreadReviewCandidate])
@@ -1457,16 +1502,25 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Build Thread Review Candidates")
 
     threads = ctx.get("review_threads", [])
+    pr = ctx.get("review_pr")
 
-    candidates = _build_thread_review_candidates(threads)
+    if not pr:
+        ctx.textual.dim_text("No PR info available")
+        ctx.textual.end_step("skip")
+        return Skip("No PR data in context")
+
+    candidates = _build_thread_review_candidates(threads, pr.author_name)
 
     if not candidates:
-        ctx.textual.dim_text("No open inline threads to review")
+        if not threads:
+            ctx.textual.dim_text("No open inline threads on this PR")
+        else:
+            ctx.textual.dim_text("Author has not replied to review threads yet (waiting for responses)")
         ctx.textual.end_step("skip")
-        return Skip("No open threads to review")
+        return Skip("No threads to review")
 
     ctx.data["thread_review_candidates"] = candidates
-    ctx.textual.success_text(f"✓ {len(candidates)} thread(s) selected for AI analysis")
+    ctx.textual.success_text(f"✓ {len(candidates)} thread(s) with author replies selected")
     ctx.textual.end_step("success")
     return Success("Thread candidates built", metadata={"thread_review_candidates_count": len(candidates)})
 
@@ -1487,7 +1541,7 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
         thread_review_contexts (List[ThreadReviewContext])
 
     Returns:
-        Success or Error
+        Success, Skip (no candidates), or Error
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1499,8 +1553,9 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
     diff = ctx.get("review_diff", "")
 
     if not candidates:
-        ctx.textual.end_step("error")
-        return Error("No thread_review_candidates in context (run build_thread_review_candidates first)")
+        ctx.textual.dim_text("No thread candidates available")
+        ctx.textual.end_step("skip")
+        return Skip("No thread_review_candidates in context")
 
     contexts = _build_thread_review_contexts(candidates, threads, diff)
 
@@ -1540,8 +1595,9 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
     project_root = ctx.data.get("project_root")
 
     if not contexts:
-        ctx.textual.end_step("error")
-        return Error("No thread_review_contexts in context (run build_thread_review_contexts first)")
+        ctx.textual.dim_text("No thread contexts available")
+        ctx.textual.end_step("skip")
+        return Skip("No thread_review_contexts in context")
 
     import json
 
@@ -1616,8 +1672,9 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
     raw = ctx.get("raw_thread_decisions")
 
     if raw is None:
-        ctx.textual.end_step("error")
-        return Error("No raw_thread_decisions in context (run ai_thread_resolution first)")
+        ctx.textual.dim_text("No thread decisions to normalize")
+        ctx.textual.end_step("skip")
+        return Skip("No raw_thread_decisions in context")
 
     from ..models.review_models import ThreadDecision
     from pydantic import ValidationError
@@ -1636,10 +1693,35 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
 
     decisions: list[ThreadDecision] = []
     skipped = 0
+    auto_resolved = 0
 
     for i, item in enumerate(raw):
         try:
             decision = ThreadDecision.model_validate(item)
+
+            # Validate: if decision is "reply" or "insist" but suggested_reply is empty,
+            # convert to "resolved" (avoid posting empty comments)
+            if decision.decision in ("reply", "insist"):
+                reply_body = (decision.suggested_reply or "").strip()
+                reasoning = (decision.reasoning or "").strip()
+
+                if not reply_body:
+                    # Try to use reasoning as fallback, otherwise convert to skip
+                    if reasoning and len(reasoning) > 10:
+                        # Use reasoning as the reply body
+                        ctx.textual.dim_text(f"⚠ Decision {i + 1}: using reasoning as reply")
+                        decision = decision.model_copy(update={"suggested_reply": reasoning})
+                    else:
+                        # Both empty - convert to skip
+                        ctx.textual.dim_text(f"⚠ Decision {i + 1}: empty reply → skip")
+                        decision = decision.model_copy(update={"decision": "skip", "suggested_reply": None})
+                        auto_resolved += 1
+
+            # Ensure suggested_reply is None for "resolved" and "skip"
+            if decision.decision in ("resolved", "skip"):
+                if decision.suggested_reply:
+                    decision = decision.model_copy(update={"suggested_reply": None})
+
             decisions.append(decision)
         except ValidationError as e:
             skipped += 1
@@ -1649,11 +1731,16 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
     ctx.data["thread_decisions"] = decisions
 
     summary = f"✓ {len(decisions)} decision(s) normalized"
+    if auto_resolved:
+        summary += f" ({auto_resolved} empty replies → resolved)"
     if skipped:
         summary += f" ({skipped} skipped)"
     ctx.textual.success_text(summary)
     ctx.textual.end_step("success")
-    return Success("Thread decisions normalized", metadata={"thread_decisions_count": len(decisions)})
+    return Success("Thread decisions normalized", metadata={
+        "thread_decisions_count": len(decisions),
+        "auto_resolved_empty_replies": auto_resolved
+    })
 
 
 def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
@@ -1662,7 +1749,7 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     Maps AI decisions to concrete GitHub actions:
     - resolved → resolve_thread (mark thread as resolved via GraphQL)
-    - insist / reply → reply_to_thread (post a follow-up comment)
+    - insist / reply → reply_to_thread (post a follow-up comment via REST API)
     - skip → (no action created)
 
     Saves results under the same key as new_findings workflow so that
@@ -1670,6 +1757,7 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     Requires (from ctx.data):
         thread_decisions (List[ThreadDecision])
+        thread_review_contexts (List[ThreadReviewContext])
 
     Outputs (saved to ctx.data):
         review_action_proposals (List[ReviewActionProposal])
@@ -1683,12 +1771,14 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Build Thread Actions")
 
     decisions = ctx.get("thread_decisions")
+    contexts = ctx.get("thread_review_contexts", [])
 
     if decisions is None:
-        ctx.textual.end_step("error")
-        return Error("No thread_decisions in context (run normalize_thread_decisions first)")
+        ctx.textual.dim_text("No thread decisions available")
+        ctx.textual.end_step("skip")
+        return Skip("No thread_decisions in context")
 
-    actions = _build_thread_actions(decisions)
+    actions = _build_thread_actions(decisions, contexts)
 
     if not actions:
         ctx.textual.dim_text("No actionable thread decisions")
