@@ -175,6 +175,36 @@ class ThreadDecision(BaseModel):
     )
 
 
+class ThreadReviewCandidate(BaseModel):
+    """Thread selected for AI analysis (open inline threads only)."""
+    thread_id: str = Field(..., description="GitHub thread ID (GraphQL node ID)")
+    path: Optional[str] = Field(default=None, description="File path (None for general comments)")
+    line: Optional[int] = Field(default=None, description="Line number of the original comment")
+    main_comment_body: str = Field(..., description="Body of the main comment")
+    main_comment_author: str = Field(..., description="Author login of the main comment")
+    replies_count: int = Field(default=0, description="Number of replies in the thread")
+    last_reply_author: Optional[str] = Field(default=None, description="Author of the last reply")
+    last_reply_body: Optional[str] = Field(default=None, description="Body of the last reply")
+    is_outdated: bool = Field(default=False, description="Whether the underlying code has changed")
+
+
+class ThreadReviewContext(BaseModel):
+    """Enriched context for AI to decide what to do with a thread."""
+    thread_id: str = Field(..., description="GitHub thread ID")
+    path: Optional[str] = Field(default=None)
+    line: Optional[int] = Field(default=None)
+    main_comment_body: str = Field(..., description="Original comment body")
+    main_comment_author: str = Field(..., description="Original comment author")
+    all_replies: list[dict] = Field(
+        default_factory=list,
+        description="All replies as list of {author, body} dicts"
+    )
+    current_code_hunk: Optional[str] = Field(
+        default=None, description="Diff hunk near the thread's line"
+    )
+    is_outdated: bool = Field(default=False)
+
+
 # ============================================================================
 # PHASE C: ACTION MODELS
 # ============================================================================
@@ -273,6 +303,8 @@ __all__ = [
     "ReviewPlan",
     "Finding",
     "ThreadDecision",
+    "ThreadReviewCandidate",
+    "ThreadReviewContext",
     "ReviewActionProposal",
     "FileContextEntry",
     "ReviewContextPackage",

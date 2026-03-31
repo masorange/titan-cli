@@ -161,6 +161,11 @@ class GitHubPlugin(TitanPlugin):
             build_new_comment_actions,
             validate_review_actions,
             submit_review_actions,
+            build_thread_review_candidates,
+            build_thread_review_contexts,
+            ai_thread_resolution,
+            normalize_thread_decisions,
+            build_thread_actions,
         )
         from .steps.ai_cli_initial_review_step import ai_cli_initial_review
         from .steps.ai_cli_validate_with_refinement_step import ai_cli_validate_with_refinement
@@ -212,4 +217,10 @@ class GitHubPlugin(TitanPlugin):
             "build_new_comment_actions": build_new_comment_actions,
             "validate_review_actions": validate_review_actions,
             "submit_review_actions": submit_review_actions,
+            # Phase 6: thread resolution
+            "build_thread_review_candidates": build_thread_review_candidates,
+            "build_thread_review_contexts": build_thread_review_contexts,
+            "ai_thread_resolution": ai_thread_resolution,
+            "normalize_thread_decisions": normalize_thread_decisions,
+            "build_thread_actions": build_thread_actions,
         }

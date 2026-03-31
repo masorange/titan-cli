@@ -28,6 +28,12 @@ from ..operations.review_action_operations import (
     build_review_action_payload,
     extract_diff_hunk_for_action,
 )
+from ..operations.thread_resolution_operations import (
+    build_thread_review_candidates as _build_thread_review_candidates,
+    build_thread_review_contexts as _build_thread_review_contexts,
+    build_thread_resolution_prompt,
+    build_thread_actions as _build_thread_actions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1421,3 +1427,283 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.error_text(f"Failed to submit review: {err}")
             ctx.textual.end_step("error")
             return Error(f"Failed to submit review: {err}")
+
+
+# ============================================================================
+# PHASE 6: THREAD RESOLUTION PIPELINE
+# ============================================================================
+
+
+def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Select open inline threads worth AI analysis.
+
+    Filters out general comments (no GraphQL resolve API), already-resolved
+    threads, and outdated threads without replies. All remaining open inline
+    threads become candidates for the AI thread resolution call.
+
+    Requires (from ctx.data):
+        review_threads (List[UICommentThread]): Unresolved inline review threads
+
+    Outputs (saved to ctx.data):
+        thread_review_candidates (List[ThreadReviewCandidate])
+
+    Returns:
+        Success, Skip (no candidates), or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Thread Review Candidates")
+
+    threads = ctx.get("review_threads", [])
+
+    candidates = _build_thread_review_candidates(threads)
+
+    if not candidates:
+        ctx.textual.dim_text("No open inline threads to review")
+        ctx.textual.end_step("skip")
+        return Skip("No open threads to review")
+
+    ctx.data["thread_review_candidates"] = candidates
+    ctx.textual.success_text(f"✓ {len(candidates)} thread(s) selected for AI analysis")
+    ctx.textual.end_step("success")
+    return Success("Thread candidates built", metadata={"thread_review_candidates_count": len(candidates)})
+
+
+def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Enrich thread candidates with diff hunk context and full reply history.
+
+    For each candidate, extracts the diff hunk near the commented line and
+    collects all replies from the full UICommentThread object.
+
+    Requires (from ctx.data):
+        thread_review_candidates (List[ThreadReviewCandidate])
+        review_threads (List[UICommentThread]): For extracting reply history
+        review_diff (str): Full PR unified diff
+
+    Outputs (saved to ctx.data):
+        thread_review_contexts (List[ThreadReviewContext])
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Thread Review Contexts")
+
+    candidates = ctx.get("thread_review_candidates")
+    threads = ctx.get("review_threads", [])
+    diff = ctx.get("review_diff", "")
+
+    if not candidates:
+        ctx.textual.end_step("error")
+        return Error("No thread_review_candidates in context (run build_thread_review_candidates first)")
+
+    contexts = _build_thread_review_contexts(candidates, threads, diff)
+
+    ctx.data["thread_review_contexts"] = contexts
+    ctx.textual.success_text(f"✓ {len(contexts)} thread context(s) built")
+    ctx.textual.end_step("success")
+    return Success("Thread contexts built", metadata={"thread_review_contexts_count": len(contexts)})
+
+
+def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    AI call: decide what to do with each open thread.
+
+    Sends thread contexts (original comment + replies + current code) to the
+    selected headless CLI. The AI decides per thread: resolved / insist /
+    reply / skip.
+
+    On CLI failure or parse failure, falls back to empty decisions (no actions).
+
+    Requires (from ctx.data):
+        thread_review_contexts (List[ThreadReviewContext])
+        cli_preference (str): "claude" | "gemini" | "codex" | "auto"
+
+    Outputs (saved to ctx.data):
+        raw_thread_decisions (list): Raw AI output before normalization
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("AI Thread Resolution")
+
+    contexts = ctx.get("thread_review_contexts")
+    cli_preference = ctx.data.get("cli_preference", "auto")
+    project_root = ctx.data.get("project_root")
+
+    if not contexts:
+        ctx.textual.end_step("error")
+        return Error("No thread_review_contexts in context (run build_thread_review_contexts first)")
+
+    import json
+
+    adapter = _resolve_headless_adapter(cli_preference)
+
+    if not adapter:
+        ctx.textual.warning_text("No headless CLI available — skipping AI thread resolution")
+        ctx.data["raw_thread_decisions"] = []
+        ctx.textual.end_step("success")
+        return Success("No decisions (no CLI available)", metadata={"raw_thread_decisions": []})
+
+    prompt = build_thread_resolution_prompt(contexts)
+
+    cli_display = adapter.cli_name.value.capitalize()
+    thread_count = len(contexts)
+    with ctx.textual.loading(f"Asking {cli_display} to analyse {thread_count} thread(s)…"):
+        response = adapter.execute(prompt, cwd=project_root, timeout=300)
+
+    if not response.succeeded:
+        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no thread decisions")
+        if response.stderr:
+            ctx.textual.dim_text(response.stderr[:200])
+        ctx.data["raw_thread_decisions"] = []
+        ctx.textual.end_step("success")
+        return Success("No decisions (CLI error)", metadata={"raw_thread_decisions": []})
+
+    # Parse JSON array response
+    try:
+        text = response.stdout.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON array found in response")
+        raw = json.loads(text[start:end])
+    except (json.JSONDecodeError, ValueError) as e:
+        ctx.textual.warning_text(f"Thread decisions parsing failed ({e}) — no decisions")
+        ctx.data["raw_thread_decisions"] = []
+        ctx.textual.end_step("success")
+        return Success("No decisions (parse error)", metadata={"raw_thread_decisions": []})
+
+    ctx.data["raw_thread_decisions"] = raw
+    ctx.textual.success_text(f"✓ AI returned {len(raw)} thread decision(s)")
+    ctx.textual.end_step("success")
+    return Success("AI thread decisions retrieved", metadata={"raw_thread_decisions_count": len(raw)})
+
+
+def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Parse and validate raw AI output into ThreadDecision models.
+
+    Accepts raw_thread_decisions as a list of dicts or a JSON string.
+    Each item is validated as a ThreadDecision model. Invalid items are
+    skipped with a warning rather than failing the entire step.
+
+    Requires (from ctx.data):
+        raw_thread_decisions (list | str): Raw AI output from ai_thread_resolution
+
+    Outputs (saved to ctx.data):
+        thread_decisions (List[ThreadDecision]): Validated ThreadDecision objects
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Normalize Thread Decisions")
+
+    raw = ctx.get("raw_thread_decisions")
+
+    if raw is None:
+        ctx.textual.end_step("error")
+        return Error("No raw_thread_decisions in context (run ai_thread_resolution first)")
+
+    from ..models.review_models import ThreadDecision
+    from pydantic import ValidationError
+    import json
+
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as e:
+            ctx.textual.end_step("error")
+            return Error(f"Failed to parse raw_thread_decisions JSON: {e}")
+
+    if not isinstance(raw, list):
+        ctx.textual.end_step("error")
+        return Error(f"raw_thread_decisions must be a list, got {type(raw).__name__}")
+
+    decisions: list[ThreadDecision] = []
+    skipped = 0
+
+    for i, item in enumerate(raw):
+        try:
+            decision = ThreadDecision.model_validate(item)
+            decisions.append(decision)
+        except ValidationError as e:
+            skipped += 1
+            ctx.textual.dim_text(f"⚠ Decision {i + 1} invalid, skipping: {e.error_count()} error(s)")
+            logger.debug("ThreadDecision %d validation error: %s", i + 1, e)
+
+    ctx.data["thread_decisions"] = decisions
+
+    summary = f"✓ {len(decisions)} decision(s) normalized"
+    if skipped:
+        summary += f" ({skipped} skipped)"
+    ctx.textual.success_text(summary)
+    ctx.textual.end_step("success")
+    return Success("Thread decisions normalized", metadata={"thread_decisions_count": len(decisions)})
+
+
+def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Transform ThreadDecision objects into ReviewActionProposal objects.
+
+    Maps AI decisions to concrete GitHub actions:
+    - resolved → resolve_thread (mark thread as resolved via GraphQL)
+    - insist / reply → reply_to_thread (post a follow-up comment)
+    - skip → (no action created)
+
+    Saves results under the same key as new_findings workflow so that
+    validate_review_actions and submit_review_actions can be reused directly.
+
+    Requires (from ctx.data):
+        thread_decisions (List[ThreadDecision])
+
+    Outputs (saved to ctx.data):
+        review_action_proposals (List[ReviewActionProposal])
+
+    Returns:
+        Success, Skip (no actionable decisions), or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Thread Actions")
+
+    decisions = ctx.get("thread_decisions")
+
+    if decisions is None:
+        ctx.textual.end_step("error")
+        return Error("No thread_decisions in context (run normalize_thread_decisions first)")
+
+    actions = _build_thread_actions(decisions)
+
+    if not actions:
+        ctx.textual.dim_text("No actionable thread decisions")
+        ctx.textual.end_step("skip")
+        return Skip("No actionable thread decisions")
+
+    ctx.data["review_action_proposals"] = actions
+
+    resolve_count = sum(1 for a in actions if a.action_type == "resolve_thread")
+    reply_count = sum(1 for a in actions if a.action_type == "reply_to_thread")
+    summary_parts = []
+    if resolve_count:
+        summary_parts.append(f"{resolve_count} resolve")
+    if reply_count:
+        summary_parts.append(f"{reply_count} reply")
+    ctx.textual.success_text(f"✓ {len(actions)} action(s) built: {', '.join(summary_parts)}")
+    ctx.textual.end_step("success")
+    return Success("Thread actions built", metadata={"thread_actions_count": len(actions)})
