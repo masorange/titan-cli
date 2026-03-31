@@ -275,13 +275,13 @@ def test_workflow_step_2_select_issue(workflow_context):
     assert workflow_context.get("selected_issue") is not None
 
 
-def test_workflow_step_3_get_issue_details(workflow_context, mock_jira_client):
-    """Test step 3: Fetch full issue details."""
+def test_get_issue_step_standalone(workflow_context, mock_jira_client):
+    """Test get_issue step as standalone functionality (not part of main workflow)."""
     from titan_plugin_jira.steps.get_issue_step import get_issue_step
 
-    # Setup: Issue key from step 2
+    # Setup: Issue key
     workflow_context.data["jira_issue_key"] = "ECAPP-123"
-    workflow_context.current_step = 3
+    workflow_context.current_step = 1
 
     # Execute step
     result = execute_step_with_metadata(get_issue_step, workflow_context)
@@ -295,12 +295,12 @@ def test_workflow_step_3_get_issue_details(workflow_context, mock_jira_client):
     mock_jira_client.get_issue.assert_called_once_with(key="ECAPP-123", expand=None)
 
 
-def test_workflow_step_4_ai_analysis(workflow_context, mock_ai_client):
-    """Test step 4: AI analyzes the issue."""
+def test_workflow_step_3_ai_analysis(workflow_context, mock_ai_client):
+    """Test step 3: AI analyzes the selected issue (uses selected_issue, not jira_issue)."""
     from titan_plugin_jira.steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
 
-    # Setup: Issue from step 3
-    workflow_context.data["jira_issue"] = create_mock_ticket(
+    # Setup: Use selected_issue from step 2 (not jira_issue from API call)
+    workflow_context.data["selected_issue"] = create_mock_ticket(
         key="ECAPP-123",
         summary="Fix login bug",
         description="Users can't login",
@@ -309,7 +309,7 @@ def test_workflow_step_4_ai_analysis(workflow_context, mock_ai_client):
         issue_type="Bug",
         assignee="john.doe@example.com"
     )
-    workflow_context.current_step = 4
+    workflow_context.current_step = 3
 
     # Execute step with metadata merge
     result = execute_step_with_metadata(ai_analyze_issue_requirements_step, workflow_context)
@@ -331,11 +331,10 @@ def test_workflow_step_4_ai_analysis(workflow_context, mock_ai_client):
 
 
 def test_workflow_full_execution(workflow_context, mock_jira_client, mock_ai_client):
-    """Test complete workflow execution (all 4 steps)."""
+    """Test complete workflow execution (3 steps: search → select → AI analyze)."""
     # Import all steps
     from titan_plugin_jira.steps.search_saved_query_step import search_saved_query_step
     from titan_plugin_jira.steps.prompt_select_issue_step import prompt_select_issue_step
-    from titan_plugin_jira.steps.get_issue_step import get_issue_step
     from titan_plugin_jira.steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
 
     # Step 1: Search issues
@@ -349,19 +348,14 @@ def test_workflow_full_execution(workflow_context, mock_jira_client, mock_ai_cli
     result2 = execute_step_with_metadata(prompt_select_issue_step, workflow_context)
     assert isinstance(result2, Success)
 
-    # Step 3: Get issue details
+    # Step 3: AI analysis (uses selected_issue directly, no API call)
     workflow_context.current_step = 3
-    result3 = execute_step_with_metadata(get_issue_step, workflow_context)
+    result3 = execute_step_with_metadata(ai_analyze_issue_requirements_step, workflow_context)
     assert isinstance(result3, Success)
-
-    # Step 4: AI analysis
-    workflow_context.current_step = 4
-    result4 = execute_step_with_metadata(ai_analyze_issue_requirements_step, workflow_context)
-    assert isinstance(result4, Success)
 
     # Verify final state
     assert workflow_context.get("ai_analysis") is not None
-    assert workflow_context.get("jira_issue").key == "ECAPP-123"
+    assert workflow_context.get("selected_issue").key == "ECAPP-123"
     # Verify template header is present
     assert "# JIRA Issue Analysis" in workflow_context.get("ai_analysis")
 
@@ -662,3 +656,146 @@ def test_agent_feature_flags_all_disabled(mock_ai_client, mock_jira_client):
     assert len(analysis.suggested_subtasks) == 0
     assert analysis.complexity_score is None
     assert analysis.estimated_effort is None
+
+
+# New tests for workflow YAML structure (TESTING.md Section 7)
+
+def test_workflow_yaml_structure():
+    """Test that workflow YAML has correct structure after removing get_issue step."""
+    import yaml
+    from pathlib import Path
+
+    # Path relative to this test file
+    workflow_path = Path(__file__).parent.parent.parent / "titan_plugin_jira" / "workflows" / "analyze-jira-issues.yaml"
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+
+    # Verify basic structure
+    assert workflow["name"] == "Analyze JIRA Open and Ready to Dev Issues"
+    assert "steps" in workflow
+
+    # Verify step count (should be 3, not 4 - get_issue was removed)
+    steps = workflow["steps"]
+    assert len(steps) == 3, \
+        f"Expected 3 steps after removing get_issue, got {len(steps)}"
+
+    # Verify step IDs
+    step_ids = [s["id"] for s in steps]
+    assert step_ids == [
+        "search_open_issues",
+        "prompt_select_issue",
+        "ai_analyze_issue"  # No get_issue_details anymore
+    ], f"Unexpected step IDs: {step_ids}"
+
+    # Verify ai_analyze_issue doesn't require jira_issue
+    # (it uses selected_issue from prompt_select_issue instead)
+    ai_step = next(s for s in steps if s["id"] == "ai_analyze_issue")
+    requires = ai_step.get("requires", [])
+    assert "jira_issue" not in requires, \
+        "ai_analyze_issue should not require jira_issue (uses selected_issue instead)"
+
+
+def test_workflow_data_flow_without_get_issue():
+    """Test that data flows correctly without the get_issue step."""
+    from titan_plugin_jira.steps.search_saved_query_step import search_saved_query_step
+    from titan_plugin_jira.steps.prompt_select_issue_step import prompt_select_issue_step
+    from titan_plugin_jira.steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
+    from unittest.mock import Mock
+
+    # Create context
+    mock_jira = Mock()
+    mock_ai = Mock()
+    mock_textual = Mock()
+
+    # Mock Jira search
+    issues = [
+        create_mock_ticket(key="ECAPP-123", summary="Bug 1"),
+        create_mock_ticket(key="ECAPP-124", summary="Bug 2"),
+    ]
+    mock_jira.search_issues.return_value = ClientSuccess(data=issues)
+
+    # Mock AI
+    mock_ai.is_available.return_value = True
+    mock_response = Mock()
+    mock_response.content = "AI analysis result"
+    mock_ai.generate.return_value = mock_response
+
+    # Mock textual input (user selects first issue)
+    mock_textual.ask_text.return_value = "1"
+    mock_textual.begin_step = Mock()
+    mock_textual.end_step = Mock()
+    mock_textual.loading = Mock()
+    mock_textual.loading.return_value.__enter__ = Mock()
+    mock_textual.loading.return_value.__exit__ = Mock()
+    mock_textual.text = Mock()
+    mock_textual.success_text = Mock()
+    mock_textual.bold_text = Mock()
+    mock_textual.dim_text = Mock()
+    mock_textual.mount = Mock()
+
+    ctx = Mock()
+    ctx.data = {}
+    ctx.get = lambda key, default=None: ctx.data.get(key, default)
+    ctx.jira = mock_jira
+    ctx.ai = mock_ai
+    ctx.textual = mock_textual
+
+    # Mock plugin_manager (needed for saved queries lookup)
+    mock_plugin = Mock()
+    mock_config = Mock()
+    mock_config.saved_queries = None  # No custom queries
+    mock_plugin._config = mock_config
+    mock_plugin_manager = Mock()
+    mock_plugin_manager.get_plugin.return_value = mock_plugin
+    ctx.plugin_manager = mock_plugin_manager
+
+    # Step 1: Search
+    ctx.data["query_name"] = "open_issues"
+    result1 = search_saved_query_step(ctx)
+    assert isinstance(result1, Success)
+    ctx.data.update(result1.metadata)
+
+    # Verify jira_issues is available
+    assert "jira_issues" in ctx.data
+    assert len(ctx.data["jira_issues"]) == 2
+
+    # Step 2: Select (no get_issue step needed!)
+    result2 = prompt_select_issue_step(ctx)
+    assert isinstance(result2, Success)
+    ctx.data.update(result2.metadata)
+
+    # Verify selected_issue is available (from prompt_select_issue)
+    assert "selected_issue" in ctx.data, \
+        "selected_issue should be available from prompt_select_issue"
+    assert ctx.data["selected_issue"].key == "ECAPP-123"
+
+    # Mock get_issue for AI agent (agent needs full issue data)
+    full_issue = create_mock_ticket(key="ECAPP-123", summary="Bug 1")
+    mock_jira.get_issue.return_value = ClientSuccess(data=full_issue)
+
+    # Step 3: AI analyze (uses selected_issue to get key, then agent fetches full data)
+    result3 = ai_analyze_issue_requirements_step(ctx)
+    assert isinstance(result3, Success)
+
+    # The workflow completes successfully. The get_issue_details STEP was removed
+    # (which was redundant), but the AI agent still fetches the issue internally
+    # for full analysis. This is expected - the optimization was removing the
+    # intermediate step, not the agent's internal fetch.
+    mock_jira.get_issue.assert_called_once_with("ECAPP-123")
+
+
+def test_workflow_params_structure():
+    """Test that workflow params are correctly defined."""
+    import yaml
+    from pathlib import Path
+
+    # Path relative to this test file
+    workflow_path = Path(__file__).parent.parent.parent / "titan_plugin_jira" / "workflows" / "analyze-jira-issues.yaml"
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+
+    # Verify params
+    if "params" in workflow:
+        params = workflow["params"]
+        # Check expected params
+        assert "query_name" in params, "query_name param should be defined"
