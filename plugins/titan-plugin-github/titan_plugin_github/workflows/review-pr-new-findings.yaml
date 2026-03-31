@@ -62,7 +62,20 @@ steps:
     plugin: github
     step: dedupe_findings
 
-  # Phase 5 steps will be added here:
-  # - build_new_comment_actions
-  # - validate_review_actions
-  # - submit_review_actions
+  - id: build_actions
+    name: "Build Comment Actions"
+    plugin: github
+    step: build_new_comment_actions
+    on_error: continue
+
+  - id: validate_actions
+    name: "Validate & Approve Actions"
+    plugin: github
+    step: validate_review_actions
+    on_error: continue
+
+  - id: submit_actions
+    name: "Submit Review"
+    plugin: github
+    step: submit_review_actions
+    on_error: continue

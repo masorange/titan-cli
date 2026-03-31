@@ -8,24 +8,25 @@ import logging
 import threading
 from typing import List
 
-from rich.markup import escape as escape_markup
-
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
-from ..models.view import UIReviewSuggestion
-from ..operations.ai_review_operations import build_refinement_prompt, parse_reply_suggestion
+from ..models.review_models import ReviewActionProposal
 from ..operations.code_review_operations import (
     select_files_for_review,
     build_review_context,
     build_pr_summary_prompt,
     extract_diff_for_file,
     extract_hunk_for_line,
-    build_review_payload,
     compute_diff_stat,
     filter_own_duplicate_suggestions,
+)
+from ..operations.review_action_operations import (
+    build_new_comment_actions as _build_new_comment_actions,
+    build_review_action_payload,
+    extract_diff_hunk_for_action,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,40 +37,32 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-def _show_suggestion_and_get_action(
+def _show_review_action_and_get_decision(
     ctx: WorkflowContext,
-    suggestion: UIReviewSuggestion,
+    action: ReviewActionProposal,
+    diff_hunk: str,
     idx: int,
     total: int,
-    can_refine: bool = False,
 ) -> str:
     """
-    Display a review suggestion and return the user's chosen action.
+    Display a ReviewActionProposal and return the user's chosen decision.
 
     Returns:
-        "approve", "edit", "refine", "skip", or "exit"
+        "approve", "edit", "skip", or "exit"
     """
-    # Display header with comment number
     ctx.textual.text("")
-    if suggestion.reply_to_comment_id:
-        ctx.textual.bold_text(f"Comment {idx + 1} of {total} — Reply to existing thread #{suggestion.reply_to_comment_id}")
-    else:
-        ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
+    ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
     ctx.textual.text("")
 
-    # Mount the CommentView widget (handles all display: severity, file, line, diff, body)
     from titan_plugin_github.widgets import CommentView
-    ctx.textual.mount(CommentView.from_suggestion(suggestion))
+    ctx.textual.mount(CommentView.from_action(action, diff_hunk=diff_hunk))
     ctx.textual.text("")
 
-    # Build options
     options = [
         ChoiceOption(value="approve", label="✓ Approve", variant="success"),
         ChoiceOption(value="edit", label="✎ Edit", variant="default"),
+        ChoiceOption(value="skip", label="— Skip", variant="default"),
     ]
-    if can_refine:
-        options.append(ChoiceOption(value="refine", label="↻ Refine", variant="primary"))
-    options.append(ChoiceOption(value="skip", label="— Skip", variant="default"))
     if idx < total - 1:
         options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
 
@@ -90,18 +83,15 @@ def _show_suggestion_and_get_action(
 
     choice = result_container.get("choice", "skip")
 
-    # Replace buttons with a decision badge
     action_labels = {
         "approve": "✓ Approved",
         "edit": "✎ Edited",
-        "refine": "↻ Refining…",
         "skip": "— Skipped",
         "exit": "✗ Exit review",
     }
     action_variants = {
         "approve": "success",
         "edit": "default",
-        "refine": "primary",
         "skip": "default",
         "exit": "warning",
     }
@@ -562,158 +552,6 @@ def summarize_pr_review(ctx: WorkflowContext) -> WorkflowResult:
     return Success("PR summary generated")
 
 
-def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Present each AI suggestion to the user for approval, editing, refining, or skipping.
-
-    Requires (from ctx.data):
-        review_suggestions (List[UIReviewSuggestion])
-
-    Optional (from ctx.data):
-        cli_preference (str): Which headless CLI to use for refinement (default "auto")
-        review_diff (str): PR diff for snippet context during refinement
-        timeout (int): CLI timeout in seconds (default 60)
-
-    Outputs (saved to ctx.data):
-        approved_suggestions (List[UIReviewSuggestion])
-
-    Returns:
-        Success, Skip (none approved), or Error
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Validate Review Comments")
-
-    suggestions: List[UIReviewSuggestion] = ctx.get("review_suggestions", [])
-
-    if not suggestions:
-        ctx.textual.dim_text("No suggestions to validate.")
-        ctx.textual.end_step("skip")
-        return Skip("No suggestions to validate")
-
-    # Resolve CLI adapter for Refine option (best effort — may be None)
-    cli_preference = ctx.data.get("cli_preference", "auto")
-    timeout = int(ctx.data.get("timeout", 60))
-    diff = ctx.get("review_diff", "")
-    project_root = ctx.data.get("project_root")
-    adapter = _resolve_headless_adapter(cli_preference)
-
-    approved: List[UIReviewSuggestion] = []
-    skipped = 0
-    exit_requested = False
-
-    # Sort by severity: critical → improvement → suggestion
-    severity_order = {"critical": 0, "improvement": 1, "suggestion": 2}
-    sorted_suggestions = sorted(
-        suggestions,
-        key=lambda s: severity_order.get(s.severity, 99),
-    )
-
-    for idx, suggestion in enumerate(sorted_suggestions):
-        if exit_requested:
-            break
-
-        current = suggestion  # may be replaced after refinement
-
-        while True:
-            choice = _show_suggestion_and_get_action(
-                ctx, current, idx, len(sorted_suggestions), can_refine=adapter is not None
-            )
-
-            if choice == "exit":
-                exit_requested = True
-                ctx.textual.warning_text(
-                    f"Exiting validation. Approved {len(approved)}, skipped {skipped}."
-                )
-                break
-
-            elif choice == "approve":
-                approved.append(current)
-                break
-
-            elif choice == "edit":
-                ctx.textual.text("")
-                new_body = ctx.textual.ask_multiline(
-                    "Edit the review comment:",
-                    default=current.body,
-                )
-                if new_body and new_body.strip():
-                    approved.append(UIReviewSuggestion(
-                        file_path=current.file_path,
-                        line=current.line,
-                        body=new_body.strip(),
-                        severity=current.severity,
-                        diff_context=current.diff_context,
-                        snippet=current.snippet,
-                    ))
-                else:
-                    ctx.textual.warning_text("Empty body, comment skipped")
-                    skipped += 1
-                break
-
-            elif choice == "refine" and adapter:
-                ctx.textual.text("")
-                feedback = ctx.textual.ask_multiline(
-                    "What should the AI improve in this suggestion?",
-                )
-                if not feedback or not feedback.strip():
-                    ctx.textual.dim_text("No feedback provided, showing suggestion again.")
-                    continue
-
-                refine_prompt = build_refinement_prompt(
-                    original_comment=f"Review comment for `{current.file_path}`:\n{current.body}",
-                    existing_replies=[],
-                    diff_snippet=current.diff_context or (diff[:8_000] if diff else None),
-                    user_feedback=feedback,
-                    previous_suggestion=current.body,
-                )
-
-                cli_display = adapter.cli_name.value.capitalize()
-                with ctx.textual.loading(f"Refining with {cli_display}…"):
-                    response = adapter.execute(refine_prompt, cwd=project_root, timeout=timeout)
-
-                if not response.succeeded:
-                    if response.stderr:
-                        try:
-                            ctx.textual.dim_text(escape_markup(response.stderr))
-                        except Exception:
-                            pass
-                    ctx.textual.warning_text("Refinement failed — showing previous suggestion.")
-                    continue
-
-                refined_body = parse_reply_suggestion(response.stdout)
-                if refined_body and refined_body.strip():
-                    current = UIReviewSuggestion(
-                        file_path=current.file_path,
-                        line=current.line,
-                        body=refined_body.strip(),
-                        severity=current.severity,
-                        diff_context=current.diff_context,
-                        snippet=current.snippet,
-                    )
-                else:
-                    ctx.textual.warning_text("Empty refinement — showing previous suggestion.")
-                continue  # re-show refined suggestion
-
-            else:  # skip
-                skipped += 1
-                break
-
-    if not approved:
-        ctx.textual.dim_text("No comments approved.")
-        ctx.textual.end_step("skip")
-        return Skip("No approved review comments")
-
-    ctx.textual.success_text(
-        f"✓ {len(approved)} comment(s) approved, {skipped} skipped"
-    )
-    ctx.textual.end_step("success")
-
-    return Success(
-        f"{len(approved)} comment(s) approved",
-        metadata={"approved_suggestions": approved},
-    )
 
 
 def _resolve_headless_adapter(cli_preference: str):
@@ -731,140 +569,6 @@ def _resolve_headless_adapter(cli_preference: str):
         return None
 
     return candidate if candidate.is_available() else None
-
-
-def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Submit the approved review comments as a GitHub review.
-
-    Requires (from ctx.data):
-        review_pr_number (int)
-        approved_suggestions (List[UIReviewSuggestion])
-
-    Returns:
-        Success, Skip (no approved comments), or Error
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Submit Review")
-
-    approved: List[UIReviewSuggestion] = ctx.get("approved_suggestions", [])
-    pr_number = ctx.get("review_pr_number")
-    commit_sha = ctx.get("review_commit_sha", "")
-    diff = ctx.get("review_diff", "")
-
-    if not pr_number:
-        ctx.textual.end_step("error")
-        return Error("No PR number in context")
-
-    if not ctx.github:
-        ctx.textual.end_step("error")
-        return Error("GitHub client not available")
-
-    # Get commit SHA if not available (needed for inline comments)
-    if not commit_sha and approved:
-        with ctx.textual.loading("Fetching latest commit SHA..."):
-            sha_result = ctx.github.get_pr_commit_sha(pr_number)
-        match sha_result:
-            case ClientSuccess(data=sha):
-                commit_sha = sha
-            case ClientError(error_message=err):
-                ctx.textual.error_text("No commit SHA available — cannot submit inline comments")
-                ctx.textual.end_step("error")
-                return Error(f"Missing commit SHA for inline review: {err}")
-
-    # Show summary
-    if approved:
-        ctx.textual.text(f"Ready to submit {len(approved)} comment(s) on PR #{pr_number}")
-    else:
-        ctx.textual.warning_text("No review comments — you can still submit a review decision")
-
-    # Ask review event type
-    event_options = [
-        OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
-        OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
-        OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR"),
-    ]
-
-    try:
-        event = ctx.textual.ask_option("Select review type:", event_options)
-    except Exception as e:
-        ctx.textual.end_step("error")
-        return Error(str(e))
-
-    if not event:
-        ctx.textual.warning_text("Review cancelled")
-        ctx.textual.end_step("skip")
-        return Skip("User cancelled review submission")
-
-    # Optional general body
-    add_body = ctx.textual.ask_confirm(
-        "Add a general review comment (optional)?",
-        default=False,
-    )
-    review_body = ""
-    if add_body:
-        review_body = ctx.textual.ask_multiline("General review comment:", default="")
-
-    # Build payload — always create as PENDING, submit separately with the chosen event
-    payload = build_review_payload(approved, commit_sha, diff)
-
-    if review_body and review_body.strip():
-        existing_body = payload.get("body", "")
-        payload["body"] = (existing_body + "\n\n" + review_body.strip()).strip()
-
-    # Check if payload is empty (no comments, no body)
-    has_inline_comments = bool(payload.get("comments"))
-    has_body = bool(payload.get("body"))
-    is_empty_payload = not has_inline_comments and not has_body
-
-    # If payload is empty, submit directly without draft
-    if is_empty_payload:
-        ctx.textual.dim_text("Submitting review without comments...")
-
-        with ctx.textual.loading("Submitting review..."):
-            submit_result = ctx.github.submit_review(pr_number, None, event, "")
-
-        match submit_result:
-            case ClientSuccess():
-                ctx.textual.success_text(
-                    f"✓ Review submitted as '{event}' on PR #{pr_number}"
-                )
-                ctx.textual.end_step("success")
-                return Success(f"Review submitted on PR #{pr_number}")
-            case ClientError(error_message=err):
-                ctx.textual.error_text(f"Failed to submit review: {err}")
-                ctx.textual.end_step("error")
-                return Error(f"Failed to submit review: {err}")
-
-    # Create draft review when there are comments
-    with ctx.textual.loading("Creating review..."):
-        draft_result = ctx.github.create_draft_review(pr_number, payload)
-
-    match draft_result:
-        case ClientSuccess(data=review_id):
-            ctx.textual.success_text(f"✓ Review #{review_id} created")
-        case ClientError(error_message=err):
-            ctx.textual.error_text(f"Failed to create review: {err}")
-            ctx.textual.end_step("error")
-            return Error(f"Failed to create draft review: {err}")
-
-    with ctx.textual.loading("Submitting review..."):
-        submit_result = ctx.github.submit_review(pr_number, review_id, event, review_body)
-
-    match submit_result:
-        case ClientSuccess():
-            ctx.textual.success_text(
-                f"✓ Review submitted as '{event}' on PR #{pr_number} "
-                f"with {len(approved)} comment(s)"
-            )
-            ctx.textual.end_step("success")
-            return Success(f"Review submitted on PR #{pr_number}")
-        case ClientError(error_message=err):
-            ctx.textual.error_text(f"Failed to submit review: {err}")
-            ctx.textual.end_step("error")
-            return Error(f"Failed to submit review: {err}")
 
 
 # ============================================================================
@@ -1435,3 +1139,281 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.success_text(summary)
     ctx.textual.end_step("success")
     return Success("Findings deduplicated", metadata={"deduped_findings_count": len(deduped)})
+
+
+# ============================================================================
+# PHASE 5: UI + SUBMIT
+# ============================================================================
+
+
+def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Convert deduplicated findings into ReviewActionProposal objects.
+
+    Requires (from ctx.data):
+        deduped_findings (List[Finding])
+
+    Outputs (saved to ctx.data):
+        review_action_proposals (List[ReviewActionProposal])
+
+    Returns:
+        Success or Skip (no findings)
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Comment Actions")
+
+    findings = ctx.get("deduped_findings", [])
+
+    if not findings:
+        ctx.textual.dim_text("No findings to convert into actions.")
+        ctx.textual.end_step("skip")
+        return Skip("No findings to submit")
+
+    actions = _build_new_comment_actions(findings)
+    ctx.data["review_action_proposals"] = actions
+
+    ctx.textual.success_text(f"✓ {len(actions)} action(s) ready for review")
+    ctx.textual.end_step("success")
+    return Success("Actions built", metadata={"review_action_proposals_count": len(actions)})
+
+
+def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Present each ReviewActionProposal to the user for approval, editing, or skipping.
+
+    Requires (from ctx.data):
+        review_action_proposals (List[ReviewActionProposal])
+
+    Optional (from ctx.data):
+        review_diff (str): Full PR diff for extracting diff context per comment
+
+    Outputs (saved to ctx.data):
+        approved_action_proposals (List[ReviewActionProposal])
+
+    Returns:
+        Success, Skip (none approved), or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Validate Review Actions")
+
+    actions: List[ReviewActionProposal] = ctx.get("review_action_proposals", [])
+
+    if not actions:
+        ctx.textual.dim_text("No actions to validate.")
+        ctx.textual.end_step("skip")
+        return Skip("No actions to validate")
+
+    diff = ctx.get("review_diff", "")
+
+    # Sort by severity: blocking → important → nit
+    severity_order = {"blocking": 0, "important": 1, "nit": 2}
+    sorted_actions = sorted(
+        actions,
+        key=lambda a: severity_order.get(a.severity or "", 99),
+    )
+
+    approved: List[ReviewActionProposal] = []
+    skipped = 0
+    exit_requested = False
+
+    for idx, action in enumerate(sorted_actions):
+        if exit_requested:
+            break
+
+        current = action
+        diff_hunk = extract_diff_hunk_for_action(current, diff)
+
+        while True:
+            choice = _show_review_action_and_get_decision(
+                ctx, current, diff_hunk or "", idx, len(sorted_actions)
+            )
+
+            if choice == "exit":
+                exit_requested = True
+                ctx.textual.warning_text(
+                    f"Exiting validation. Approved {len(approved)}, skipped {skipped}."
+                )
+                break
+
+            elif choice == "approve":
+                approved.append(current)
+                break
+
+            elif choice == "edit":
+                ctx.textual.text("")
+                new_body = ctx.textual.ask_multiline(
+                    "Edit the review comment:",
+                    default=current.body,
+                )
+                if new_body and new_body.strip():
+                    approved.append(current.model_copy(update={"body": new_body.strip()}))
+                else:
+                    ctx.textual.warning_text("Empty body, comment skipped")
+                    skipped += 1
+                break
+
+            else:  # skip
+                skipped += 1
+                break
+
+    if not approved:
+        ctx.textual.dim_text("No actions approved.")
+        ctx.textual.end_step("skip")
+        return Skip("No approved review actions")
+
+    ctx.textual.success_text(f"✓ {len(approved)} action(s) approved, {skipped} skipped")
+    ctx.textual.end_step("success")
+    return Success(
+        f"{len(approved)} action(s) approved",
+        metadata={"approved_action_proposals": approved},
+    )
+
+
+def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Submit approved ReviewActionProposal objects to GitHub.
+
+    Handles resolve_thread actions directly, then submits new_comment and
+    reply_to_thread actions as a GitHub draft review.
+
+    Requires (from ctx.data):
+        approved_action_proposals (List[ReviewActionProposal])
+        review_pr_number (int)
+
+    Optional (from ctx.data):
+        review_commit_sha (str): Head commit SHA (fetched if missing)
+        review_diff (str): Full PR diff for inline comment validation
+
+    Returns:
+        Success, Skip (no approved actions), or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Submit Review")
+
+    approved: List[ReviewActionProposal] = ctx.get("approved_action_proposals", [])
+    pr_number = ctx.get("review_pr_number")
+    commit_sha = ctx.get("review_commit_sha", "")
+    diff = ctx.get("review_diff", "")
+
+    if not pr_number:
+        ctx.textual.end_step("error")
+        return Error("No PR number in context")
+
+    if not ctx.github:
+        ctx.textual.end_step("error")
+        return Error("GitHub client not available")
+
+    if not approved:
+        ctx.textual.dim_text("No approved actions — you can still submit a review decision.")
+
+    # Resolve thread actions first (direct API, outside the review)
+    resolve_actions = [a for a in approved if a.action_type == "resolve_thread"]
+    comment_actions = [a for a in approved if a.action_type != "resolve_thread"]
+
+    for action in resolve_actions:
+        if not action.thread_id:
+            continue
+        with ctx.textual.loading(f"Resolving thread {action.thread_id}..."):
+            result = ctx.github.resolve_review_thread(action.thread_id)
+        match result:
+            case ClientSuccess():
+                ctx.textual.success_text("✓ Thread resolved")
+            case ClientError(error_message=err):
+                ctx.textual.warning_text(f"Could not resolve thread: {err}")
+
+    # Get commit SHA if not available (needed for inline comments)
+    if not commit_sha and comment_actions:
+        with ctx.textual.loading("Fetching latest commit SHA..."):
+            sha_result = ctx.github.get_pr_commit_sha(pr_number)
+        match sha_result:
+            case ClientSuccess(data=sha):
+                commit_sha = sha
+            case ClientError(error_message=err):
+                ctx.textual.error_text("No commit SHA available — cannot submit inline comments")
+                ctx.textual.end_step("error")
+                return Error(f"Missing commit SHA for inline review: {err}")
+
+    if comment_actions:
+        ctx.textual.text(f"Ready to submit {len(comment_actions)} comment(s) on PR #{pr_number}")
+
+    # Ask review event type
+    event_options = [
+        OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
+        OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+        OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR"),
+    ]
+
+    try:
+        event = ctx.textual.ask_option("Select review type:", event_options)
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(str(e))
+
+    if not event:
+        ctx.textual.warning_text("Review cancelled")
+        ctx.textual.end_step("skip")
+        return Skip("User cancelled review submission")
+
+    # Optional general body
+    add_body = ctx.textual.ask_confirm("Add a general review comment (optional)?", default=False)
+    review_body = ""
+    if add_body:
+        review_body = ctx.textual.ask_multiline("General review comment:", default="")
+
+    # Build payload from comment actions
+    payload = build_review_action_payload(comment_actions, commit_sha, diff)
+
+    if review_body and review_body.strip():
+        existing_body = payload.get("body", "")
+        payload["body"] = (existing_body + "\n\n" + review_body.strip()).strip()
+
+    has_inline_comments = bool(payload.get("comments"))
+    has_body = bool(payload.get("body"))
+    is_empty_payload = not has_inline_comments and not has_body
+
+    if is_empty_payload:
+        ctx.textual.dim_text("Submitting review without comments...")
+        with ctx.textual.loading("Submitting review..."):
+            submit_result = ctx.github.submit_review(pr_number, None, event, "")
+        match submit_result:
+            case ClientSuccess():
+                ctx.textual.success_text(f"✓ Review submitted as '{event}' on PR #{pr_number}")
+                ctx.textual.end_step("success")
+                return Success(f"Review submitted on PR #{pr_number}")
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"Failed to submit review: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to submit review: {err}")
+
+    with ctx.textual.loading("Creating review..."):
+        draft_result = ctx.github.create_draft_review(pr_number, payload)
+
+    match draft_result:
+        case ClientSuccess(data=review_id):
+            ctx.textual.success_text(f"✓ Review #{review_id} created")
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to create review: {err}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to create draft review: {err}")
+
+    with ctx.textual.loading("Submitting review..."):
+        submit_result = ctx.github.submit_review(pr_number, review_id, event, review_body)
+
+    match submit_result:
+        case ClientSuccess():
+            ctx.textual.success_text(
+                f"✓ Review submitted as '{event}' on PR #{pr_number}"
+                + (f" with {len(comment_actions)} comment(s)" if comment_actions else "")
+            )
+            ctx.textual.end_step("success")
+            return Success(f"Review submitted on PR #{pr_number}")
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to submit review: {err}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to submit review: {err}")

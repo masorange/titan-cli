@@ -149,8 +149,6 @@ class GitHubPlugin(TitanPlugin):
             fetch_pr_review_bundle,
             ai_review_pr,
             summarize_pr_review,
-            validate_review_comments,
-            submit_pr_review,
             build_change_manifest,
             build_existing_comments_index,
             build_review_checklist,
@@ -160,6 +158,9 @@ class GitHubPlugin(TitanPlugin):
             ai_review_findings,
             normalize_findings,
             dedupe_findings,
+            build_new_comment_actions,
+            validate_review_actions,
+            submit_review_actions,
         )
         from .steps.ai_cli_initial_review_step import ai_cli_initial_review
         from .steps.ai_cli_validate_with_refinement_step import ai_cli_validate_with_refinement
@@ -191,9 +192,7 @@ class GitHubPlugin(TitanPlugin):
             "fetch_pr_review_bundle": fetch_pr_review_bundle,
             "ai_review_pr": ai_review_pr,
             "summarize_pr_review": summarize_pr_review,
-            "validate_review_comments": validate_review_comments,
-            "submit_pr_review": submit_pr_review,
-            # Iterative AI review steps
+            # CLI selection
             "select_cli": select_cli_step,
             "ai_cli_initial_review": ai_cli_initial_review,
             "ai_cli_validate_with_refinement": ai_cli_validate_with_refinement,
@@ -209,4 +208,8 @@ class GitHubPlugin(TitanPlugin):
             "ai_review_findings": ai_review_findings,
             "normalize_findings": normalize_findings,
             "dedupe_findings": dedupe_findings,
+            # Phase 5: UI + submit
+            "build_new_comment_actions": build_new_comment_actions,
+            "validate_review_actions": validate_review_actions,
+            "submit_review_actions": submit_review_actions,
         }

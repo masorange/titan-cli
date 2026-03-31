@@ -65,17 +65,17 @@ class CommentView(Widget):
         margin-bottom: 1;
     }
 
-    CommentView .severity-badge.critical {
+    CommentView .severity-badge.blocking {
         border: round $error;
         padding: 0 2;
     }
 
-    CommentView .severity-badge.improvement {
+    CommentView .severity-badge.important {
         border: round $warning;
         padding: 0 2;
     }
 
-    CommentView .severity-badge.suggestion {
+    CommentView .severity-badge.nit {
         border: round $accent;
         padding: 0 2;
     }
@@ -161,6 +161,26 @@ class CommentView(Widget):
             severity=suggestion.severity,
         )
 
+    @classmethod
+    def from_action(cls, action: Any, diff_hunk: Optional[str] = None) -> "CommentView":
+        """
+        Build a CommentView from a ReviewActionProposal model.
+
+        Args:
+            action: ReviewActionProposal instance from the new review pipeline.
+            diff_hunk: Pre-extracted diff hunk for the action's file/line (optional).
+
+        Returns:
+            CommentView configured to display the review action.
+        """
+        return cls(
+            body=action.body,
+            file_path=action.path,
+            line=action.line,
+            diff_hunk=diff_hunk,
+            severity=action.severity,
+        )
+
     def compose(self) -> ComposeResult:
         """Compose the comment view: severity badge, metadata, location, code, body."""
         # 1. Severity badge (AI suggestions only)
@@ -201,9 +221,9 @@ class CommentView(Widget):
     def _severity_badge(self) -> Text:
         """Create severity badge widget for AI suggestions."""
         badge_labels = {
-            "critical": "🔴 CRITICAL",
-            "improvement": "🟡 IMPROVEMENT",
-            "suggestion": "🔵 SUGGESTION",
+            "blocking": "🔴 BLOCKING",
+            "important": "🟡 IMPORTANT",
+            "nit": "🔵 NIT",
         }
         badge_text = badge_labels.get(self.severity, self.severity.upper())
         badge = Text(badge_text)
