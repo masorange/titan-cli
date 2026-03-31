@@ -55,48 +55,88 @@ def _show_review_action_and_get_decision(
     """
     Display a ReviewActionProposal and return the user's chosen decision.
 
-    For reply_to_thread actions, shows the original thread context.
+    For resolve_thread actions, shows thread context and resolve confirmation.
+    For reply_to_thread actions, shows the original thread context and proposed reply.
     For new_comment actions, shows just the proposed comment.
 
     Returns:
         "approve", "edit", "skip", or "exit"
     """
     ctx.textual.text("")
-    ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
-    ctx.textual.text("")
 
-    # For reply_to_thread actions, show the original thread context
-    if action.action_type == "reply_to_thread" and review_threads:
-        from titan_plugin_github.widgets import CommentThread
+    # Handle resolve_thread actions differently
+    if action.action_type == "resolve_thread":
+        ctx.textual.bold_text(f"Thread {idx + 1} of {total}")
+        ctx.textual.text("")
 
-        # Find the original thread
-        original_thread = next(
-            (t for t in review_threads if t.thread_id == action.thread_id),
-            None
-        )
-        if original_thread:
-            ctx.textual.text("📌 Original comment:")
-            ctx.textual.mount(
-                CommentThread(
-                    thread=original_thread,
-                    options=[],  # No buttons in this display
-                )
+        # Show the original thread to be resolved
+        if review_threads:
+            from titan_plugin_github.widgets import CommentThread
+
+            original_thread = next(
+                (t for t in review_threads if t.thread_id == action.thread_id),
+                None
             )
-            ctx.textual.text("")
-            ctx.textual.text("📝 Your reply:")
+            if original_thread:
+                ctx.textual.text("📌 Thread to resolve:")
+                ctx.textual.mount(
+                    CommentThread(
+                        thread=original_thread,
+                        options=[],  # No buttons in this display
+                    )
+                )
+                ctx.textual.text("")
 
-    # Show the action (proposed reply or new comment)
-    from titan_plugin_github.widgets import CommentView
-    ctx.textual.mount(CommentView.from_action(action, diff_hunk=diff_hunk))
-    ctx.textual.text("")
+        ctx.textual.text("✓ Mark this thread as resolved")
+        ctx.textual.text("")
 
-    options = [
-        ChoiceOption(value="approve", label="✓ Approve", variant="success"),
-        ChoiceOption(value="edit", label="✎ Edit", variant="default"),
-        ChoiceOption(value="skip", label="— Skip", variant="default"),
-    ]
-    if idx < total - 1:
-        options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
+        options = [
+            ChoiceOption(value="approve", label="✓ Resolve", variant="success"),
+            ChoiceOption(value="skip", label="— Skip", variant="default"),
+        ]
+        if idx < total - 1:
+            options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
+
+        question = "What would you like to do with this thread?"
+    else:
+        # For reply_to_thread and new_comment actions
+        ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
+        ctx.textual.text("")
+
+        # For reply_to_thread actions, show the original thread context
+        if action.action_type == "reply_to_thread" and review_threads:
+            from titan_plugin_github.widgets import CommentThread
+
+            # Find the original thread
+            original_thread = next(
+                (t for t in review_threads if t.thread_id == action.thread_id),
+                None
+            )
+            if original_thread:
+                ctx.textual.text("📌 Original comment:")
+                ctx.textual.mount(
+                    CommentThread(
+                        thread=original_thread,
+                        options=[],  # No buttons in this display
+                    )
+                )
+                ctx.textual.text("")
+                ctx.textual.text("📝 Your reply:")
+
+        # Show the action (proposed reply or new comment)
+        from titan_plugin_github.widgets import CommentView
+        ctx.textual.mount(CommentView.from_action(action, diff_hunk=diff_hunk))
+        ctx.textual.text("")
+
+        options = [
+            ChoiceOption(value="approve", label="✓ Approve", variant="success"),
+            ChoiceOption(value="edit", label="✎ Edit", variant="default"),
+            ChoiceOption(value="skip", label="— Skip", variant="default"),
+        ]
+        if idx < total - 1:
+            options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
+
+        question = "What would you like to do with this comment?"
 
     result_container: dict = {}
     result_event = threading.Event()
@@ -106,7 +146,7 @@ def _show_review_action_and_get_decision(
         result_event.set()
 
     prompt = PromptChoice(
-        question="What would you like to do with this comment?",
+        question=question,
         options=options,
         on_select=on_choice,
     )
@@ -116,7 +156,7 @@ def _show_review_action_and_get_decision(
     choice = result_container.get("choice", "skip")
 
     action_labels = {
-        "approve": "✓ Approved",
+        "approve": "✓ Resolved" if action.action_type == "resolve_thread" else "✓ Approved",
         "edit": "✎ Edited",
         "skip": "— Skipped",
         "exit": "✗ Exit review",
