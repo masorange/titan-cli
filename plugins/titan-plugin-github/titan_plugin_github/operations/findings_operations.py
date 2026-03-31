@@ -50,6 +50,13 @@ The first pass already decided WHAT to read. Now your task is to read the exact 
 {pr_context}
 
 ## Code to Review
+
+Each file section shows either numbered lines (format: `  N | code`) for full files, or annotated diff hunks where each line is explicitly labelled:
+- `[DELETED - do not review]` — OLD code being removed by this PR. Will NOT exist after merge. Never report findings about these lines.
+- `[ADDED]` — NEW code introduced by this PR. This is your primary review target.
+- `[CONTEXT]` — Unchanged lines surrounding the change.
+The `@@` header in hunks shows the starting line number of the new file.
+
 {files_text}{related_text}
 
 ## Review Checklist (applicable to this PR)
@@ -67,9 +74,15 @@ Find problems in the code above. For each problem, produce one Finding JSON obje
 
 Rules:
 - Only report ACTIONABLE problems (bugs, missing error handling, incorrect logic, security issues)
+- VERIFY the problem actually exists: re-read the relevant code before reporting — do NOT report problems based on what you expect the code to look like
+- The problem must be PRESENT in the code shown above — do NOT report missing features or suggest upgrades unless the current code is clearly broken
+- Do NOT report problems about lines prefixed with `-` in diffs — those lines are being DELETED by this PR and will not exist after merge
+- Do NOT report deprecated API/library versions if the code already uses the current version (check `+` and ` ` lines, not `-` lines)
 - Do NOT report style preferences unless they indicate a real bug
 - Do NOT duplicate existing comments (listed above)
 - Severity: "blocking" = will cause bugs/failures, "important" = should be fixed, "nit" = minor improvement
+- `line` must be the EXACT line number from the numbered code shown above — use the line number prefix (`  N |`) for full files, or count from the `@@` hunk header for diffs. Never guess.
+- `evidence` must quote the exact line(s) of code that prove the problem exists
 - `suggested_comment` must be a ready-to-post GitHub review comment (include the evidence and why)
 - If there are no findings, return an empty array: []
 
@@ -120,6 +133,37 @@ def _existing_comments_to_json(comments: list[ExistingCommentIndexEntry]) -> str
     return json.dumps(data, indent=2)
 
 
+def _add_line_numbers(content: str) -> str:
+    lines = content.splitlines()
+    width = len(str(len(lines)))
+    return "\n".join(f"{str(i + 1).rjust(width)} | {line}" for i, line in enumerate(lines))
+
+
+def _annotate_diff_hunk(hunk: str) -> str:
+    """
+    Replace diff prefixes with explicit labels so the AI cannot confuse
+    deleted code with current code.
+
+      -  →  [DELETED - do not review]
+      +  →  [ADDED]
+      (space)  →  [CONTEXT]
+    """
+    lines = hunk.splitlines()
+    result = []
+    for line in lines:
+        if line.startswith("@@"):
+            result.append(line)
+        elif line.startswith("---") or line.startswith("+++"):
+            result.append(line)
+        elif line.startswith("-"):
+            result.append(f"[DELETED - do not review] {line[1:]}")
+        elif line.startswith("+"):
+            result.append(f"[ADDED] {line[1:]}")
+        else:
+            result.append(f"[CONTEXT] {line[1:] if line.startswith(' ') else line}")
+    return "\n".join(result)
+
+
 def _files_context_to_text(files_context: dict[str, FileContextEntry]) -> str:
     if not files_context:
         return "(no files to review)\n"
@@ -130,17 +174,17 @@ def _files_context_to_text(files_context: dict[str, FileContextEntry]) -> str:
 
         if entry.full_content:
             parts.append("```")
-            parts.append(entry.full_content)
+            parts.append(_add_line_numbers(entry.full_content))
             parts.append("```")
         elif entry.expanded_hunks:
             for hunk in entry.expanded_hunks:
-                parts.append("```diff")
-                parts.append(hunk)
+                parts.append("```")
+                parts.append(_annotate_diff_hunk(hunk))
                 parts.append("```")
         elif entry.hunks:
             for hunk in entry.hunks:
-                parts.append("```diff")
-                parts.append(hunk)
+                parts.append("```")
+                parts.append(_annotate_diff_hunk(hunk))
                 parts.append("```")
         else:
             parts.append("(no content available)")
@@ -169,11 +213,11 @@ def _finding_schema() -> str:
             {
                 "severity": "<blocking|important|nit>",
                 "category": "<problem category, e.g. error_handling>",
-                "path": "<file path>",
-                "line": "<line number or null for file-level>",
+                "path": "<file path, exactly as shown in the section header>",
+                "line": "<integer line number from the numbered code, or null for file-level findings>",
                 "title": "<short, actionable problem description>",
                 "why": "<explanation of why this is a problem>",
-                "evidence": "<code snippet or specific reference>",
+                "evidence": "<exact code snippet quoted from the file that proves the problem>",
                 "suggested_comment": "<ready-to-post GitHub review comment>",
             }
         ],

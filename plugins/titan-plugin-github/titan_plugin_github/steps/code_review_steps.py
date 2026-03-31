@@ -763,7 +763,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
 
     cli_display = adapter.cli_name.value.capitalize()
     with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
-        response = adapter.execute(prompt, cwd=project_root, timeout=120)
+        response = adapter.execute(prompt, cwd=project_root, timeout=240)
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — using default plan")
@@ -892,7 +892,8 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     diff = ctx.get("review_diff", "")
     comments_index = ctx.get("existing_comments_index", [])
     checklist = ctx.get("review_checklist", [])
-    project_root = ctx.data.get("project_root")
+    worktree_path = ctx.data.get("worktree_path")
+    project_root = worktree_path or ctx.data.get("project_root")
 
     if not plan or not manifest:
         ctx.textual.end_step("error")
@@ -903,6 +904,9 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         return Error("No diff in context (run fetch_pr_review_bundle first)")
 
     from ..operations.context_resolution_operations import build_review_context_package
+
+    if worktree_path:
+        ctx.textual.dim_text(f"Using worktree: {worktree_path}")
 
     try:
         with ctx.textual.loading("Extracting code context…"):
@@ -987,7 +991,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     cli_display = adapter.cli_name.value.capitalize()
     file_count = len(package.files_context)
     with ctx.textual.loading(f"Asking {cli_display} to review {file_count} file(s)…"):
-        response = adapter.execute(prompt, cwd=project_root, timeout=180)
+        response = adapter.execute(prompt, cwd=project_root, timeout=300)
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no findings")

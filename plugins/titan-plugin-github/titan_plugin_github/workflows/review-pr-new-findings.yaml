@@ -42,6 +42,11 @@ steps:
     plugin: github
     step: validate_review_plan
 
+  - id: create_worktree
+    name: "Create PR Worktree"
+    plugin: github
+    step: create_worktree
+
   - id: resolve_context
     name: "Resolve Review Context"
     plugin: github
@@ -51,6 +56,11 @@ steps:
     name: "AI Review Findings"
     plugin: github
     step: ai_review_findings
+
+  - id: cleanup_worktree
+    name: "Cleanup PR Worktree"
+    plugin: github
+    step: cleanup_worktree
 
   - id: normalize
     name: "Normalize Findings"

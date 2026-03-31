@@ -219,7 +219,7 @@ class PRService:
                 "pr", "list",
                 "--state", state,
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,reviewRequests",
+                "--json", "number,title,author,updatedAt,labels,isDraft,state,reviewRequests,headRefName,baseRefName",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
