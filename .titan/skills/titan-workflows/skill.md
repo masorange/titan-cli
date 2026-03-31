@@ -1,7 +1,10 @@
 ---
 name: titan-workflows
-description: Create and extend Titan CLI workflows with YAML, hooks, and parameter substitution. Use when user asks to create workflows, add hooks, extend workflows, or implement workflow patterns.
+description: Create and extend Titan CLI workflows with YAML, hooks, and parameter substitution. Use when user says "create workflow", "add hooks", "extend workflow", "workflow YAML", "implement workflow pattern", or asks about "workflow structure", "parameters", or "cleanup pattern".
 keywords: workflow, yaml, hooks, extends, parameters, workflow extension, steps
+metadata:
+  author: MasOrange
+  version: 1.0.0
 ---
 
 # Titan CLI - Complete Workflows Guide
@@ -878,6 +881,85 @@ Workflows in Titan CLI are:
 7. Hooks: Define extension points, implement in extending workflows
 
 For more details on creating plugin steps, see the [Textual Workflow Steps Guide](../../.claude/docs/textual.md) and [Plugin Architecture Guide](../../.claude/docs/plugin-architecture.md).
+
+---
+
+## Quick Examples
+
+### Example 1: User asks "Create a deployment workflow"
+
+**User says**: "Create a deployment workflow that runs tests first"
+
+**What Claude does**:
+1. Creates `.titan/workflows/deploy.yaml`
+2. Adds test step before deployment
+3. Includes error handling with `on_error: fail`
+4. Adds verification step after deployment
+
+**Result**: Complete workflow with test → build → deploy → verify steps
+
+### Example 2: User asks "Extend the commit workflow with linting"
+
+**User says**: "I want to run linting before commits"
+
+**What Claude does**:
+1. Creates `.titan/workflows/commit-ai.yaml` extending base workflow
+2. Implements `before_commit` hook
+3. Adds linting step with `on_error: fail`
+4. Preserves base workflow behavior
+
+**Result**: Extended workflow that runs linter before committing
+
+### Example 3: User asks "How do I guarantee cleanup?"
+
+**User says**: "My workflow creates a worktree but cleanup doesn't always run"
+
+**What Claude does**:
+1. Explains Skip vs Exit pattern
+2. Shows how to use `on_error: continue` after resource creation
+3. Provides complete example with guaranteed cleanup
+
+**Result**: Workflow that always cleans up resources
+
+---
+
+## Troubleshooting
+
+### Issue: "Workflow not found"
+**User says**: "When I run the workflow it says not found"
+
+**Cause**: Workflow file not in correct location or wrong reference format
+
+**Solution**:
+- Project workflows must be in `.titan/workflows/` at git root
+- Use `plugin:plugin_name/workflow-name` for plugin workflows
+- Check plugin is enabled in `.titan/config.toml`
+
+### Issue: "Step function not found"
+**User says**: "Error: step function 'my_step' not found"
+
+**Cause**: Function name in Python doesn't match `step:` field in YAML
+
+**Solution**:
+```python
+# File: .titan/steps/my_step.py
+def my_step(ctx):  # ← Function name must match exactly
+    ...
+```
+```yaml
+# YAML
+step: my_step  # ← Must match function name
+```
+
+### Issue: "Cleanup doesn't run after error"
+**User says**: "My cleanup step doesn't run when earlier steps fail"
+
+**Cause**: Missing `on_error: continue` or using `Exit` instead of `Skip`
+
+**Solution**:
+- Add `on_error: continue` to all steps after resource creation
+- Use `Skip` (not `Exit`) after creating resources
+- See "Guaranteed Cleanup Pattern" section above
 
 ---
 

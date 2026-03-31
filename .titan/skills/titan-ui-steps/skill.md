@@ -1,7 +1,10 @@
 ---
 name: titan-ui-steps
-description: Create Textual TUI steps with ctx.textual API - widgets, user input, pattern matching. Use when building workflow steps or working with the TUI framework.
+description: Create Textual TUI steps with ctx.textual API - widgets, user input, pattern matching. Use when user says "create step", "textual widget", "ctx.textual", "TUI framework", "add widget", or asks about "how to display", "user input", "pattern matching", "scroll behavior".
 keywords: steps, textual, tui, widgets, ctx.textual, user interface, pattern matching
+metadata:
+  author: MasOrange
+  version: 1.0.0
 ---
 
 # Titan UI Steps - Textual TUI Step Development
@@ -1066,6 +1069,68 @@ return Exit("msg")
 ```python
 # Use ctx.client or operations
 ```
+
+---
+
+## Quick Examples
+
+### Example 1: User asks "Create a step that displays a list"
+
+**User says**: "Create a step to show Jira issues in a table"
+
+**What Claude creates**:
+1. Step file with proper structure
+2. Pattern matching for ClientResult
+3. Table widget with formatted data
+4. Success/Error handling
+5. begin_step/end_step lifecycle
+
+**Result**: Complete step with table display
+
+### Example 2: User asks "How do I get user input?"
+
+**User says**: "I need to ask the user for confirmation"
+
+**What Claude shows**:
+- ctx.textual.ask_confirm() example
+- Pattern: get input → validate → proceed
+- Error handling
+- Return appropriate WorkflowResult
+
+**Result**: Interactive step with user input
+
+### Example 3: User asks "My step has business logic"
+
+**User says**: "Should this filtering logic be in the step?"
+
+**What Claude explains**:
+- Steps are UI only - extract logic to operation
+- Shows refactoring: step → operation
+- Updates step to call operation
+- Cleaner separation of concerns
+
+**Result**: Step calls operation for logic
+
+---
+
+## Troubleshooting
+
+### Issue: "Pattern matching error with ClientResult"
+**Cause**: Using try/except instead of pattern matching
+
+**Solution**: Always use `match result: case ClientSuccess(data=x): ...`
+
+### Issue: "Forgot to call begin_step/end_step"
+**Cause**: Missing lifecycle methods
+
+**Solution**: Every step must start with begin_step() and end with end_step("success"|"error")
+
+### Issue: "Should I use text() or markdown()?"
+**Cause**: Unclear when to use each
+
+**Solution**:
+- text(): Simple strings, single lines
+- markdown(): Formatted content, multiple paragraphs, lists
 
 ---
 

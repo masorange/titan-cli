@@ -1,7 +1,10 @@
 ---
 name: titan-layer-details
-description: Deep dive into each of the 5 architectural layers - detailed responsibilities, capabilities, and constraints for Steps, Operations, Client, Services, and Network. Use when you need to understand what each layer can and cannot do.
+description: Deep dive into each of the 5 architectural layers - detailed responsibilities, capabilities, and constraints for Steps, Operations, Client, Services, and Network. Use when user says "what can Layer X do", "layer constraints", "layer details", "what must Steps do", "what can't Services do", or asks for "detailed layer guide", "layer responsibilities deep dive".
 keywords: layers, architecture details, responsibilities, constraints, layer boundaries, what can do, what cannot do
+metadata:
+  author: MasOrange
+  version: 1.0.0
 ---
 
 # Titan CLI - Layer-by-Layer Deep Dive
@@ -834,6 +837,64 @@ Network       CAN import: requests, subprocess
 
 For architectural overview, see [Plugin Architecture](../titan-plugin-architecture/skill.md).
 For common mistakes, see [Antipatterns](../titan-antipatterns/skill.md).
+
+---
+
+## Quick Examples
+
+### Example 1: User asks "What can Steps do?"
+
+**User says**: "Can my step call the network layer directly?"
+
+**What Claude explains**:
+- Shows Layer 1: Steps section
+- Lists what Steps MUST do (pattern matching, lifecycle)
+- Lists what Steps MUST NOT do (no Services/Network imports)
+- Provides correct alternative (use operations or ctx.client)
+
+**Result**: Clear boundaries for Step layer
+
+### Example 2: User asks "Should this go in Service or Operation?"
+
+**User says**: "Where should I put this filtering logic?"
+
+**What Claude explains**:
+- Service: Network → UI transformation (data access)
+- Operation: Business logic (filtering, validation)
+- Shows both layers with examples
+- Recommends Operation for filtering
+
+**Result**: Logic placed in correct layer
+
+### Example 3: User asks "What does each layer return?"
+
+**User says**: "I'm confused about return types"
+
+**What Claude shows**:
+- Summary table with all 5 layers
+- Return types for each (ClientResult, UIModel, dict, etc.)
+- Import rules (who can import what)
+- Data flow diagram
+
+**Result**: Complete layer interaction guide
+
+---
+
+## Troubleshooting
+
+### Issue: "Can I import X from Y layer?"
+**Solution**: Check Layer Interaction Rules section. General rule: can import DOWN the stack, never UP.
+
+### Issue: "Which layer should this code go in?"
+**Checklist**:
+- Talks to HTTP/CLI? → Network
+- Transforms Network → UI? → Service
+- Business logic? → Operation
+- User interaction? → Step
+- Just delegates? → Client
+
+### Issue: "My layer is doing too much"
+**Solution**: Likely mixing responsibilities. Review "What Layer X MUST NOT Do" for your layer.
 
 ---
 

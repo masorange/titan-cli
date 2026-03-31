@@ -1,7 +1,10 @@
 ---
 name: titan-operations
-description: Extract business logic to operations layer - pure functions that work with UI models. Use when refactoring steps or creating reusable business logic.
+description: Extract business logic to operations layer - pure functions that work with UI models. Use when user says "extract operation", "business logic", "refactor step", "create operation", "pure function", or asks about "operations pattern", "how to test operations", "where does logic go".
 keywords: operations, business logic, pure functions, refactoring, extract logic
+metadata:
+  author: MasOrange
+  version: 1.0.0
 ---
 
 # Titan Operations Skill
@@ -934,3 +937,63 @@ from ..operations import (
 - ✅ Return workflow results
 
 **Remember**: When you find yourself writing complex logic in a step, ask: "Can this be tested independently?" If yes, extract it to an operation!
+
+---
+
+## Quick Examples
+
+### Example 1: User asks "How do I extract this logic to an operation?"
+
+**User says**: "This step has too much logic, how do I refactor it?"
+
+**What Claude does**:
+1. Identifies business logic in the step
+2. Creates operation file in `operations/`
+3. Shows operation signature (returns UIModel or raises)
+4. Updates step to call operation
+5. Adds unit tests for operation
+
+**Result**: Clean step + tested operation
+
+### Example 2: User asks "Where should filtering logic go?"
+
+**User says**: "I need to filter issues by priority, where does that go?"
+
+**What Claude explains**:
+- Filtering is business logic → goes in Operation
+- Shows example operation function
+- Explains why NOT in Step or Service
+- Provides complete code example
+
+**Result**: Properly placed filtering logic
+
+### Example 3: User asks "How do I test operations?"
+
+**User says**: "Write tests for my operations"
+
+**What Claude provides**:
+- Unit test examples (operations are pure functions)
+- Test fixtures and mocks
+- 100% coverage strategy
+- AAA pattern (Arrange-Act-Assert)
+
+**Result**: Complete test suite for operations
+
+---
+
+## Troubleshooting
+
+### Issue: "My operation returns ClientResult"
+**Cause**: Wrong return type for operations layer
+
+**Solution**: Operations return UIModel directly or raise exception. Only Client/Services return ClientResult.
+
+### Issue: "Can operations call services directly?"
+**Cause**: Trying to bypass Client facade
+
+**Solution**: Operations can only call Client facade (public API). Never import services directly.
+
+### Issue: "My operation needs ctx.textual"
+**Cause**: UI dependency in operation (wrong layer)
+
+**Solution**: Operations are UI-agnostic. Move UI code back to Step. Operation should just return data.

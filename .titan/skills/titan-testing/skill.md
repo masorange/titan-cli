@@ -1,7 +1,10 @@
 ---
 name: titan-testing
-description: Write comprehensive tests for Titan CLI plugins - unit tests, fixtures, mocks, and coverage strategies. Use when creating tests or improving test coverage.
+description: Write comprehensive tests for Titan CLI plugins - unit tests, fixtures, mocks, and coverage strategies. Use when user says "write tests", "test this", "add unit tests", "create fixtures", "test coverage", or asks about "how to test", "pytest", "mocking", "test strategy".
 keywords: testing, unit tests, fixtures, mocks, coverage, pytest, test strategy
+metadata:
+  author: MasOrange
+  version: 1.0.0
 ---
 
 # Titan Testing Skill
@@ -1119,6 +1122,66 @@ When creating tests for a plugin:
 3. **Test behavior**: Not implementation details
 4. **Fast tests**: Should run in milliseconds
 5. **No doctests**: Write real pytest tests instead
+
+---
+
+## Quick Examples
+
+### Example 1: User asks "Write tests for this service"
+
+**User says**: "Add tests for ResourceService"
+
+**What Claude creates**:
+1. Test file: `tests/services/test_resource_service.py`
+2. Fixtures for network mocks
+3. Test cases for success and error scenarios
+4. Pattern matching validation
+5. 100% coverage for the service
+
+**Result**: Complete test suite with fixtures
+
+### Example 2: User asks "How do I test operations?"
+
+**User says**: "Write unit tests for my operations"
+
+**What Claude provides**:
+- Pure function tests (no mocks needed)
+- Parametrized tests for multiple inputs
+- Edge case coverage
+- AAA pattern examples
+
+**Result**: High-coverage operation tests
+
+### Example 3: User asks "What's my test coverage?"
+
+**User says**: "Check test coverage"
+
+**What Claude does**:
+1. Runs `pytest --cov`
+2. Shows coverage report
+3. Identifies untested code
+4. Suggests tests to add for 100% coverage
+
+**Result**: Coverage report with action items
+
+---
+
+## Troubleshooting
+
+### Issue: "Tests are slow"
+**Cause**: Making real HTTP calls or not using mocks
+
+**Solution**: Mock all network calls. Tests should never hit real APIs.
+
+### Issue: "Fixtures not found"
+**Cause**: Missing conftest.py or wrong fixture scope
+
+**Solution**: Create `tests/conftest.py` with shared fixtures. Use appropriate scope (function/module/session).
+
+### Issue: "How do I test ClientResult?"
+**Cause**: Unclear how to test pattern matching
+
+**Solution**: Mock client to return `ClientSuccess` or `ClientError`. Test both paths.
 
 ---
 

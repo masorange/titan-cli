@@ -1,6 +1,6 @@
 ---
 name: titan-plugin-architecture
-description: Understand the 5-layer architecture for Titan CLI official plugins. Learn layer responsibilities, data flow, Result wrapper pattern, and when to use full architecture vs simple pattern. Essential for building maintainable, testable plugins.
+description: Understand the 5-layer architecture for Titan CLI official plugins (Steps, Operations, Client, Services, Network). Learn layer responsibilities, data flow, Result wrapper pattern, and when to use full architecture vs simple pattern. Use when user says "plugin architecture", "5 layers", "what does each layer do", "architecture overview", "layer responsibilities", or asks about "Result wrapper", "ClientResult pattern".
 keywords:
   - architecture
   - 5-layer
@@ -12,6 +12,9 @@ keywords:
   - ui models
   - services
   - operations
+metadata:
+  author: MasOrange
+  version: 1.0.0
 ---
 
 # Titan Plugin Architecture
@@ -649,6 +652,71 @@ Network models isolate UI from API changes:
 - API adds field → Only update Network model and mapper
 - API renames field → Only update mapper
 - UI needs different format → Only update UI model
+
+---
+
+## Quick Examples
+
+### Example 1: User asks "What's the 5-layer architecture?"
+
+**User says**: "Explain the plugin architecture"
+
+**What Claude provides**:
+- Overview of all 5 layers
+- Visual diagram
+- Responsibilities of each layer
+- Quick reference table
+
+**Result**: Complete understanding of architecture layers
+
+### Example 2: User asks "Should I use the full 5-layer architecture?"
+
+**User says**: "Do I need all 5 layers for my custom step?"
+
+**What Claude explains**:
+- Full architecture is for OFFICIAL plugins only (Git, GitHub, Jira)
+- Custom user steps can use simple pattern: WorkflowContext → WorkflowResult
+- Decision criteria for choosing approach
+
+**Result**: Clear guidance on when to use which pattern
+
+### Example 3: User asks "What does each layer return?"
+
+**User says**: "What should my service method return?"
+
+**What Claude shows**:
+- Quick reference table with return types
+- ClientResult[UIModel] for Services
+- Pattern matching examples
+- Common mistakes to avoid
+
+**Result**: Type-safe implementation guidance
+
+---
+
+## Troubleshooting
+
+### Issue: "Should I create a Service or Operation?"
+**Cause**: Confusion about layer responsibilities
+
+**Solution**:
+- **Service**: Network → UI transformation (data access)
+- **Operation**: Business logic (filtering, validation, multi-step processes)
+- If it talks to network: Service
+- If it processes data: Operation
+
+### Issue: "My Client method has business logic"
+**Cause**: Logic in wrong layer
+
+**Solution**: Move logic to Service or Operation. Client should only delegate.
+
+### Issue: "What's ClientResult vs returning data directly?"
+**Cause**: Confusion about return types
+
+**Solution**:
+- **Client/Services**: Return ClientResult[UIModel]
+- **Operations**: Return UIModel directly or raise exception
+- See Quick Reference table
 
 ---
 

@@ -1,7 +1,10 @@
 ---
 name: titan-antipatterns
-description: Common mistakes and anti-patterns in Titan CLI plugin development - what to avoid and how to fix it. Use when reviewing code or debugging architectural issues.
+description: Common mistakes and anti-patterns in Titan CLI plugin development - what to avoid and how to fix it. Use when user says "common mistakes", "antipatterns", "what not to do", "code review", "debugging architecture", or asks about "wrong patterns", "errors to avoid", "best practices violations".
 keywords: antipatterns, common mistakes, code review, debugging, best practices, wrong patterns
+metadata:
+  author: MasOrange
+  version: 1.0.0
 ---
 
 # Common Mistakes & Anti-Patterns
@@ -1447,6 +1450,59 @@ icon = JiraPriority.get_icon("Critical")  # "🔴"
 - ✅ Values are dynamic/user-configurable
 - ✅ Values come from external config/database
 - ✅ Simple key-value lookup with no associated logic
+
+---
+
+## Quick Examples
+
+### Example 1: User asks "Why is my code failing review?"
+
+**User says**: "My PR was rejected, what's wrong with my code?"
+
+**What Claude checks**:
+1. Reviews code against 12 common mistakes
+2. Identifies violations (e.g., operations returning ClientResult)
+3. Shows WRONG vs CORRECT pattern
+4. Explains why it matters
+
+**Result**: Specific fixes with explanations
+
+### Example 2: User asks "Is this the right pattern?"
+
+**User says**: "Should my service method look like this?"
+
+**What Claude validates**:
+- Checks return type (should be ClientResult[UIModel])
+- Validates exception handling (catch base class)
+- Confirms Network → UI transformation
+- References Quick Reference table
+
+**Result**: Pattern validation with corrections
+
+### Example 3: User asks "What's wrong with this step?"
+
+**User says**: "My step has a try/except around ClientResult"
+
+**What Claude explains**:
+- Identifies Mistake #5
+- Shows why try/except is wrong (bypasses pattern matching)
+- Provides CORRECT pattern with match/case
+- Explains type safety benefits
+
+**Result**: Refactored step with pattern matching
+
+---
+
+## Troubleshooting
+
+### Issue: "Not sure which mistake applies to my code"
+**Solution**: Check the Quick Reference table first. Match your layer (Client/Service/Operation) to expected return type.
+
+### Issue: "I'm doing multiple mistakes"
+**Solution**: Fix in order of severity: CRITICAL → HIGH → MEDIUM → LOW (marked in each mistake)
+
+### Issue: "The CORRECT example doesn't work for my case"
+**Solution**: The patterns are templates. Adapt to your specific domain, but maintain the architectural principles (return types, separation of concerns, etc.)
 
 ---
 
