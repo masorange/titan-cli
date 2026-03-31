@@ -8,11 +8,15 @@ the GitHub API payload for submission.
 
 from typing import Dict, List, Optional
 
+from titan_cli.core.logging.config import get_logger
+
 from ..models.review_models import Finding, ReviewActionProposal
 from .code_review_operations import (
     extract_diff_for_file,
     extract_valid_diff_lines,
 )
+
+logger = get_logger(__name__)
 
 
 def build_new_comment_actions(findings: List[Finding]) -> List[ReviewActionProposal]:
@@ -67,10 +71,18 @@ def build_review_action_payload(
         Dict with keys: commit_id, comments (list), body (str, optional)
     """
     valid_lines = extract_valid_diff_lines(diff) if diff else {}
+    logger.info("build_review_payload_start", action_count=len(actions), files_in_diff=len(valid_lines))
+    if valid_lines:
+        for path, lines in valid_lines.items():  # Log TODOS los archivos
+            sorted_lines = sorted(list(lines))[:10]  # First 10 lines
+            logger.info("valid_lines_for_file", path=path, line_count=len(lines), sample_lines=sorted_lines)
+    else:
+        logger.warning("no_valid_lines_in_diff", diff_length=len(diff) if diff else 0)
+
     inline_comments = []
     general_parts: List[str] = []
 
-    for action in actions:
+    for idx, action in enumerate(actions):
         if action.action_type == "resolve_thread":
             continue
 
@@ -84,6 +96,10 @@ def build_review_action_payload(
         # new_comment — try inline first, fall back to general body
         if action.path and action.line:
             file_valid_lines = valid_lines.get(action.path, set())
+            logger.info("validate_comment_action",
+                action_idx=idx, path=action.path, line=action.line,
+                file_has_valid_lines=len(file_valid_lines),
+                is_valid=action.line in file_valid_lines)
             if action.line in file_valid_lines:
                 inline_comments.append({
                     "path": action.path,
@@ -91,6 +107,7 @@ def build_review_action_payload(
                     "side": "RIGHT",
                     "body": action.body,
                 })
+                logger.info("inline_comment_added", action_idx=idx, path=action.path, line=action.line)
                 continue
 
         # Fallback: include in the general review body
@@ -98,10 +115,20 @@ def build_review_action_payload(
         if action.line:
             location += f" (line {action.line})"
         general_parts.append(f"{location}:\n{action.body}")
+        logger.info("fallback_to_general_body", action_idx=idx, path=action.path, line=action.line)
 
     payload: Dict = {"commit_id": commit_sha, "comments": inline_comments}
     if general_parts:
         payload["body"] = "\n\n---\n\n".join(general_parts)
+
+    logger.info("build_review_payload_complete",
+        commit_sha=commit_sha,
+        inline_comment_count=len(inline_comments),
+        general_comment_count=len(general_parts),
+        inline_comments_details=[
+            {"path": c.get("path"), "line": c.get("line"), "has_body": len(c.get("body", "")) > 0}
+            for c in inline_comments
+        ])
 
     return payload
 
