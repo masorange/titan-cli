@@ -8,9 +8,9 @@ steps:
     step: select_pr_for_code_review
 
   - id: fetch_changes
-    name: "Fetch PR Changes"
+    name: "Fetch PR Review Bundle"
     plugin: github
-    step: fetch_pr_changes
+    step: fetch_pr_review_bundle
 
   - id: ai_review
     name: "AI Code Review"

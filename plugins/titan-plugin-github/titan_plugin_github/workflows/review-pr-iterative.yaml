@@ -13,9 +13,9 @@ steps:
     step: select_cli
 
   - id: fetch_changes
-    name: "Fetch PR Changes"
+    name: "Fetch PR Review Bundle"
     plugin: github
-    step: fetch_pr_changes
+    step: fetch_pr_review_bundle
 
   - id: initial_review
     name: "Initial AI Analysis"

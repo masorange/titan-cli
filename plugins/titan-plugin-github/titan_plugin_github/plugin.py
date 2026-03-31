@@ -146,11 +146,17 @@ class GitHubPlugin(TitanPlugin):
         )
         from .steps.code_review_steps import (
             select_pr_for_code_review,
-            fetch_pr_changes,
+            fetch_pr_review_bundle,
             ai_review_pr,
             summarize_pr_review,
             validate_review_comments,
             submit_pr_review,
+            build_change_manifest,
+            build_existing_comments_index,
+            build_review_checklist,
+            ai_review_plan,
+            validate_review_plan,
+            resolve_review_context,
         )
         from .steps.ai_cli_initial_review_step import ai_cli_initial_review
         from .steps.ai_cli_validate_with_refinement_step import ai_cli_validate_with_refinement
@@ -179,7 +185,7 @@ class GitHubPlugin(TitanPlugin):
             "cleanup_worktree": cleanup_worktree_step,
             # Code review steps
             "select_pr_for_code_review": select_pr_for_code_review,
-            "fetch_pr_changes": fetch_pr_changes,
+            "fetch_pr_review_bundle": fetch_pr_review_bundle,
             "ai_review_pr": ai_review_pr,
             "summarize_pr_review": summarize_pr_review,
             "validate_review_comments": validate_review_comments,
@@ -188,4 +194,12 @@ class GitHubPlugin(TitanPlugin):
             "select_cli": select_cli_step,
             "ai_cli_initial_review": ai_cli_initial_review,
             "ai_cli_validate_with_refinement": ai_cli_validate_with_refinement,
+            # Phase 2: cheap context steps (pre-AI)
+            "build_change_manifest": build_change_manifest,
+            "build_existing_comments_index": build_existing_comments_index,
+            "build_review_checklist": build_review_checklist,
+            # Phase 3: directed AI analysis (first AI call)
+            "ai_review_plan": ai_review_plan,
+            "validate_review_plan": validate_review_plan,
+            "resolve_review_context": resolve_review_context,
         }

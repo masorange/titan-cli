@@ -227,18 +227,25 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 
-def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
+def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Fetch and display PR changes, including diff and existing comments.
+    Fetch all data needed for a full PR review cycle.
+
+    Builds a complete review bundle: PR metadata, diff, file stats,
+    inline review threads (separate from general comments), and commit SHA.
 
     Requires (from ctx.data):
         review_pr_number (int): PR number
 
     Outputs (saved to ctx.data):
-        review_changed_files (List[str]): List of changed file paths
-        review_diff (str): Full unified diff
         review_pr (UIPullRequest): Pull request details
-        review_threads (List[UICommentThread]): Existing review threads and comments
+        review_diff (str): Full unified diff
+        review_changed_files (List[str]): Changed file paths (may be subset for large PRs)
+        review_changed_files_with_stats (List[UIFileChange]): All files with add/del stats
+        review_commit_sha (str): Head commit SHA
+        review_threads (List[UICommentThread]): Inline review threads (unresolved)
+        review_general_comments (List[UICommentThread]): General PR-level comments
+        pr_template (str | None): PR template content if available
 
     Returns:
         Success, Skip (empty diff), or Error
@@ -246,7 +253,7 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Fetch PR Changes")
+    ctx.textual.begin_step("Fetch PR Review Bundle")
 
     pr_number = ctx.get("review_pr_number")
     if not pr_number:
@@ -257,36 +264,11 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
-    # Fetch PR details, files, diff, and commit SHA in parallel-ish sequence
+    # Fetch PR details, files with stats, and commit SHA
     with ctx.textual.loading(f"Fetching PR #{pr_number} data..."):
         pr_result = ctx.github.get_pull_request(pr_number)
-        files_result = ctx.github.get_pr_files(pr_number)
+        files_result = ctx.github.get_pr_files_with_stats(pr_number)
         sha_result = ctx.github.get_pr_commit_sha(pr_number)
-
-    # Fetch diff — prefer git diff with extended context (20 lines) for better AI review quality
-    with ctx.textual.loading(f"Fetching PR #{pr_number} diff..."):
-        match (ctx.git, pr_result):
-            case (git, ClientSuccess(data=pr_for_diff)) if git:
-                # For PR review, both branches are remote refs (we're not checking out the PR)
-                # Ensure remote refs are up-to-date before computing diff
-                fetch_result = git.fetch(all=True)
-                match fetch_result:
-                    case ClientError(error_message=err):
-                        logger.warning(f"Git fetch failed: {err}, will try diff anyway")
-                    case _:
-                        pass
-
-                # use_remote=True ensures both refs use the git client's configured default_remote
-                diff_result = git.get_branch_diff(
-                    pr_for_diff.base_ref,
-                    pr_for_diff.head_ref,
-                    context_lines=20,
-                    use_remote=True
-                )
-            case _:
-                # Fallback: git plugin not available, using basic gh diff with limited context
-                logger.debug("Git plugin not available; using gh pr diff")
-                diff_result = ctx.github.get_pr_diff(pr_number)
 
     # Validate PR
     match pr_result:
@@ -299,14 +281,35 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
 
     # Validate files
     match files_result:
-        case ClientSuccess(data=changed_files):
-            pass
+        case ClientSuccess(data=all_files_with_stats):
+            changed_file_paths = [f.path for f in all_files_with_stats]
         case ClientError(error_message=err):
             ctx.textual.error_text(f"Failed to fetch changed files: {err}")
             ctx.textual.end_step("error")
             return Error(f"Failed to fetch files: {err}")
 
-    # Validate diff — fallback to per-file diffs if PR is too large
+    # Fetch diff — prefer git diff with extended context (20 lines) for better AI review quality
+    with ctx.textual.loading(f"Fetching PR #{pr_number} diff..."):
+        match (ctx.git, pr_result):
+            case (git, ClientSuccess(data=pr_for_diff)) if git:
+                fetch_result = git.fetch(all=True)
+                match fetch_result:
+                    case ClientError(error_message=err):
+                        logger.warning(f"Git fetch failed: {err}, will try diff anyway")
+                    case _:
+                        pass
+
+                diff_result = git.get_branch_diff(
+                    pr_for_diff.base_ref,
+                    pr_for_diff.head_ref,
+                    context_lines=20,
+                    use_remote=True
+                )
+            case _:
+                logger.debug("Git plugin not available; using gh pr diff")
+                diff_result = ctx.github.get_pr_diff(pr_number)
+
+    # Validate diff — fallback to per-file patches if PR is too large
     match diff_result:
         case ClientSuccess(data=diff):
             if not diff or not diff.strip():
@@ -314,33 +317,21 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("skip")
                 return Skip("Empty PR diff")
         case ClientError(error_message=err) if "too_large" in err or "too large" in err.lower():
-            ctx.textual.warning_text("PR diff is too large. Fetching file stats to select what matters...")
+            ctx.textual.warning_text("PR diff is too large. Selecting files that matter...")
 
-            # Step 1: Get all files with stats (no patches yet)
-            with ctx.textual.loading("Fetching file stats..."):
-                files_stats_result = ctx.github.get_pr_files_with_stats(pr_number)
-
-            match files_stats_result:
-                case ClientSuccess(data=files_with_stats):
-                    pass
-                case ClientError(error_message=err):
-                    ctx.textual.end_step("error")
-                    return Error(f"Could not fetch file stats: {err}")
-
-            # Step 2: AI selects which files actually matter
+            # AI selects which files to review from the already-fetched stats
             if ctx.ai:
-                with ctx.textual.loading(f"AI selecting important files from {len(files_with_stats)} changed..."):
-                    selected_files = select_files_for_review(files_with_stats, ctx.ai)
+                with ctx.textual.loading(f"AI selecting from {len(all_files_with_stats)} files..."):
+                    selected_paths = select_files_for_review(all_files_with_stats, ctx.ai)
             else:
                 from ..operations.code_review_operations import MAX_FILES_FOR_REVIEW
-                selected_files = [f.path for f in files_with_stats[:MAX_FILES_FOR_REVIEW]]
+                selected_paths = [f.path for f in all_files_with_stats[:MAX_FILES_FOR_REVIEW]]
 
-            ctx.textual.dim_text(f"Reviewing {len(selected_files)} of {len(files_with_stats)} files")
-            changed_files = selected_files
+            ctx.textual.dim_text(f"Reviewing {len(selected_paths)} of {len(all_files_with_stats)} files")
+            changed_file_paths = selected_paths
 
-            # Step 3: Fetch patches only for selected files
             with ctx.textual.loading("Fetching patches for selected files..."):
-                patches_result = ctx.github.get_pr_file_patches(pr_number, selected_files)
+                patches_result = ctx.github.get_pr_file_patches(pr_number, selected_paths)
 
             match patches_result:
                 case ClientSuccess(data=patches_diff) if patches_diff:
@@ -361,16 +352,13 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.warning_text(f"Could not get commit SHA: {err}")
             commit_sha = ""
 
-    # Display file changes summary using diff stat
+    # Display file changes summary
     formatted_files, formatted_summary = compute_diff_stat(diff)
-    ctx.textual.show_diff_stat(
-        formatted_files,
-        formatted_summary,
-        title="Files affected:",
-    )
+    ctx.textual.show_diff_stat(formatted_files, formatted_summary, title="Files affected:")
 
-    # Fetch review threads and general comments
+    # Fetch inline review threads and general comments separately
     review_threads = []
+    general_comments = []
     with ctx.textual.loading("Fetching existing review comments..."):
         threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=False)
         match threads_result:
@@ -382,28 +370,28 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         general_result = ctx.github.get_pr_general_comments(pr_number)
         match general_result:
             case ClientSuccess(data=general):
-                review_threads += general
+                general_comments = general
             case ClientError():
                 pass
 
-    if review_threads:
-        ctx.textual.dim_text(f"{len(review_threads)} existing comment(s)")
+    total_comments = len(review_threads) + len(general_comments)
+    if total_comments:
+        ctx.textual.dim_text(f"{total_comments} existing comment(s)")
 
     ctx.textual.end_step("success")
 
-    # Get PR template from GitHub client if available
-    pr_template = None
-    if ctx.github:
-        pr_template = ctx.github.get_pr_template()
+    pr_template = ctx.github.get_pr_template()
 
     return Success(
-        f"Fetched PR #{pr_number} data",
+        f"Fetched PR #{pr_number} review bundle",
         metadata={
-            "review_changed_files": changed_files,
-            "review_commit_sha": commit_sha,
-            "review_diff": diff,
             "review_pr": pr,
+            "review_diff": diff,
+            "review_changed_files": changed_file_paths,
+            "review_changed_files_with_stats": all_files_with_stats,
+            "review_commit_sha": commit_sha,
             "review_threads": review_threads,
+            "review_general_comments": general_comments,
             "pr_template": pr_template,
         },
     )
@@ -438,7 +426,7 @@ def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
 
     if not pr or not diff:
         ctx.textual.end_step("error")
-        return Error("Missing PR data (run fetch_pr_changes first)")
+        return Error("Missing PR data (run fetch_pr_review_bundle first)")
 
     if not ctx.ai:
         ctx.textual.error_text("AI client not available")
@@ -877,3 +865,364 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.error_text(f"Failed to submit review: {err}")
             ctx.textual.end_step("error")
             return Error(f"Failed to submit review: {err}")
+
+
+# ============================================================================
+# PHASE 2: CHEAP CONTEXT STEPS (pre-AI, deterministic)
+# ============================================================================
+
+
+def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Build a structured manifest of the PR changes (no AI involved).
+
+    Converts UIFileChange objects into a typed ChangeManifest that serves
+    as cheap context for both AI-directed workflows.
+
+    Requires (from ctx.data):
+        review_pr (UIPullRequest): Pull request details
+        review_changed_files_with_stats (List[UIFileChange]): Files with add/del stats
+
+    Outputs (saved to ctx.data):
+        change_manifest (ChangeManifest): Structured PR context
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Change Manifest")
+
+    pr = ctx.get("review_pr")
+    files = ctx.get("review_changed_files_with_stats", [])
+
+    if not pr:
+        ctx.textual.end_step("error")
+        return Error("No PR data in context (run fetch_pr_review_bundle first)")
+
+    from ..operations.manifest_operations import build_change_manifest as _build
+
+    try:
+        manifest = _build(pr, files)
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(f"Failed to build change manifest: {e}")
+
+    ctx.data["change_manifest"] = manifest
+
+    test_count = sum(1 for f in manifest.files if f.is_test)
+    ctx.textual.success_text(
+        f"✓ {len(manifest.files)} files analysed"
+        + (f" ({test_count} test files)" if test_count else "")
+        + f" · +{manifest.total_additions} -{manifest.total_deletions}"
+    )
+    ctx.textual.end_step("success")
+    return Success("Change manifest built", metadata={"change_manifest": manifest})
+
+
+def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Build a compact index of existing PR comments for deduplication.
+
+    Flattens inline review threads and general PR comments into a lightweight
+    list of ExistingCommentIndexEntry objects. The index is used later to
+    avoid AI findings that duplicate comments already posted.
+
+    Requires (from ctx.data):
+        review_threads (List[UICommentThread]): Inline review threads
+        review_general_comments (List[UICommentThread]): General PR-level comments
+
+    Outputs (saved to ctx.data):
+        existing_comments_index (List[ExistingCommentIndexEntry])
+
+    Returns:
+        Success
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Existing Comments Index")
+
+    threads = ctx.get("review_threads", [])
+    general = ctx.get("review_general_comments", [])
+
+    from ..operations.manifest_operations import build_existing_comments_index as _build
+
+    try:
+        index = _build(threads, general)
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(f"Failed to build comments index: {e}")
+
+    ctx.data["existing_comments_index"] = index
+
+    resolved_count = sum(1 for e in index if e.is_resolved)
+    msg = f"✓ {len(index)} existing comment(s) indexed"
+    if resolved_count:
+        msg += f" ({resolved_count} resolved)"
+    ctx.textual.success_text(msg)
+    ctx.textual.end_step("success")
+    return Success("Comments index built", metadata={"existing_comments_index": index})
+
+
+def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Assemble the review checklist for this PR.
+
+    Loads the default checklist (all 10 categories). In the future, this step
+    can be extended to load per-project overrides from .titan/config.toml.
+
+    Outputs (saved to ctx.data):
+        review_checklist (List[ReviewChecklistItem])
+
+    Returns:
+        Success
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Review Checklist")
+
+    from ..operations.checklist_operations import build_default_checklist
+
+    checklist = build_default_checklist()
+    ctx.data["review_checklist"] = checklist
+
+    ctx.textual.success_text(f"✓ {len(checklist)} checklist categories ready")
+    ctx.textual.end_step("success")
+    return Success("Review checklist built", metadata={"review_checklist": checklist})
+
+
+# ============================================================================
+# PHASE 3: DIRECTED AI ANALYSIS (first AI call)
+# ============================================================================
+
+
+def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    First AI call: decide which files to read and which checklist items apply.
+
+    Sends a structured prompt to the selected headless CLI (Claude, Gemini, Codex).
+    The prompt includes the change manifest, existing comments index, and review
+    checklist. It also instructs the AI to use any project-specific skills or
+    guidelines available in its context (each CLI knows where its own skills live).
+
+    On parse failure, falls back to a local conservative heuristic plan.
+
+    Requires (from ctx.data):
+        change_manifest (ChangeManifest)
+        existing_comments_index (List[ExistingCommentIndexEntry])
+        review_checklist (List[ReviewChecklistItem])
+        cli_preference (str): "claude" | "gemini" | "codex" | "auto"
+
+    Outputs (saved to ctx.data):
+        review_plan (ReviewPlan)
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("AI Review Plan")
+
+    manifest = ctx.get("change_manifest")
+    comments_index = ctx.get("existing_comments_index", [])
+    checklist = ctx.get("review_checklist", [])
+    cli_preference = ctx.data.get("cli_preference", "auto")
+    project_root = ctx.data.get("project_root")
+
+    if not manifest:
+        ctx.textual.end_step("error")
+        return Error("No change manifest in context (run build_change_manifest first)")
+
+    from ..operations.plan_prompt_operations import (
+        build_review_plan_prompt,
+        build_default_review_plan,
+    )
+    from pydantic import ValidationError
+    import json
+
+    adapter = _resolve_headless_adapter(cli_preference)
+
+    if not adapter:
+        ctx.textual.warning_text("No headless CLI available — using default review plan")
+        fallback = build_default_review_plan(manifest, checklist)
+        ctx.data["review_plan"] = fallback
+        ctx.textual.dim_text(f"Default plan: {len(fallback.file_plan)} files, {len(fallback.applicable_checklist)} checklist items")
+        ctx.textual.end_step("success")
+        return Success("Default review plan used (no CLI available)", metadata={"review_plan": fallback})
+
+    prompt = build_review_plan_prompt(manifest, comments_index, checklist)
+
+    cli_display = adapter.cli_name.value.capitalize()
+    with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
+        response = adapter.execute(prompt, cwd=project_root, timeout=120)
+
+    if not response.succeeded:
+        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — using default plan")
+        if response.stderr:
+            ctx.textual.dim_text(response.stderr[:200])
+        fallback = build_default_review_plan(manifest, checklist)
+        ctx.data["review_plan"] = fallback
+        ctx.textual.end_step("success")
+        return Success("Default review plan used (CLI error)", metadata={"review_plan": fallback})
+
+    # Parse JSON response
+    try:
+        text = response.stdout.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON object found in response")
+        plan = ReviewPlan.model_validate_json(text[start:end])
+    except (json.JSONDecodeError, ValidationError, ValueError) as e:
+        ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
+        fallback = build_default_review_plan(manifest, checklist)
+        ctx.data["review_plan"] = fallback
+        ctx.textual.end_step("success")
+        return Success("Default review plan used (parse error)", metadata={"review_plan": fallback})
+
+    ctx.data["review_plan"] = plan
+    ctx.textual.success_text(
+        f"✓ Plan: {len(plan.file_plan)} files · "
+        f"{len(plan.applicable_checklist)} categories · "
+        f"{len(plan.extra_context_requests)} extra context request(s)"
+    )
+    ctx.textual.end_step("success")
+    return Success("Review plan built", metadata={"review_plan": plan})
+
+
+def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Validate the AI-generated ReviewPlan against local semantic rules.
+
+    Checks that all file paths exist in the manifest, read modes are valid,
+    extra context requests don't exceed the limit, and full_file mode is only
+    used for small or new files.
+
+    Requires (from ctx.data):
+        review_plan (ReviewPlan)
+        change_manifest (ChangeManifest)
+
+    Outputs (saved to ctx.data):
+        validated_review_plan (ReviewPlan): Same plan if valid
+
+    Returns:
+        Success or Error (halts workflow on validation failure)
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Validate Review Plan")
+
+    plan = ctx.get("review_plan")
+    manifest = ctx.get("change_manifest")
+    checklist = ctx.get("review_checklist", [])
+
+    if not plan or not manifest:
+        ctx.textual.end_step("error")
+        return Error("Missing review_plan or change_manifest in context")
+
+    from ..models.validators import ReviewPlanValidator
+
+    offered_ids = frozenset(item.id for item in checklist)
+    validator = ReviewPlanValidator(manifest, offered_ids)
+    is_valid, errors = validator.validate_semantically(plan)
+
+    if not is_valid:
+        # Log errors but don't halt — auto-correct by falling back to default plan
+        for err in errors:
+            ctx.textual.warning_text(f"  ⚠ {err}")
+
+        from ..operations.plan_prompt_operations import build_default_review_plan
+        corrected = build_default_review_plan(manifest, checklist)
+        ctx.data["validated_review_plan"] = corrected
+        ctx.textual.warning_text("Plan corrected: using conservative fallback")
+        ctx.textual.end_step("success")
+        return Success("Review plan corrected (validation issues)", metadata={"validated_review_plan": corrected})
+
+    ctx.data["validated_review_plan"] = plan
+    ctx.textual.success_text("✓ Plan validated")
+    ctx.textual.end_step("success")
+    return Success("Review plan validated", metadata={"validated_review_plan": plan})
+
+
+def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Fetch the exact code context according to the validated review plan.
+
+    For each file in the plan, extracts code using the chosen read_mode:
+    - hunks_only: diff hunks as-is (already has 20 lines of context)
+    - expanded_hunks: hunks + extra surrounding lines from the actual file
+    - full_file: reads the complete file from disk
+
+    Also resolves any extra context requests (related_tests, related_context).
+
+    Requires (from ctx.data):
+        validated_review_plan (ReviewPlan)
+        change_manifest (ChangeManifest)
+        review_diff (str)
+        existing_comments_index (List[ExistingCommentIndexEntry])
+        review_checklist (List[ReviewChecklistItem])
+
+    Outputs (saved to ctx.data):
+        review_context_package (ReviewContextPackage)
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Resolve Review Context")
+
+    plan = ctx.get("validated_review_plan")
+    manifest = ctx.get("change_manifest")
+    diff = ctx.get("review_diff", "")
+    comments_index = ctx.get("existing_comments_index", [])
+    checklist = ctx.get("review_checklist", [])
+    project_root = ctx.data.get("project_root")
+
+    if not plan or not manifest:
+        ctx.textual.end_step("error")
+        return Error("Missing validated_review_plan or change_manifest in context")
+
+    if not diff:
+        ctx.textual.end_step("error")
+        return Error("No diff in context (run fetch_pr_review_bundle first)")
+
+    from ..operations.context_resolution_operations import build_review_context_package
+
+    try:
+        with ctx.textual.loading("Extracting code context…"):
+            package = build_review_context_package(
+                plan=plan,
+                diff=diff,
+                manifest=manifest,
+                checklist=checklist,
+                comments_index=comments_index,
+                cwd=project_root,
+            )
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(f"Failed to resolve review context: {e}")
+
+    ctx.data["review_context_package"] = package
+
+    full_count = sum(1 for e in package.files_context.values() if e.full_content)
+    hunk_count = len(package.files_context) - full_count
+    related_count = len(package.related_files)
+
+    ctx.textual.success_text(
+        f"✓ Context: {full_count} full file(s), {hunk_count} hunk-based · "
+        f"{len(package.checklist_applicable)} checklist items"
+        + (f" · {related_count} related file(s)" if related_count else "")
+    )
+    ctx.textual.end_step("success")
+    return Success("Review context resolved", metadata={"review_context_package": package})
