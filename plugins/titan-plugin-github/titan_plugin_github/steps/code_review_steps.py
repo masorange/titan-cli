@@ -1041,6 +1041,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         build_review_plan_prompt,
         build_default_review_plan,
     )
+    from ..models.review_models import ReviewPlan
     from pydantic import ValidationError
     import json
 
