@@ -157,6 +157,9 @@ class GitHubPlugin(TitanPlugin):
             ai_review_plan,
             validate_review_plan,
             resolve_review_context,
+            ai_review_findings,
+            normalize_findings,
+            dedupe_findings,
         )
         from .steps.ai_cli_initial_review_step import ai_cli_initial_review
         from .steps.ai_cli_validate_with_refinement_step import ai_cli_validate_with_refinement
@@ -202,4 +205,8 @@ class GitHubPlugin(TitanPlugin):
             "ai_review_plan": ai_review_plan,
             "validate_review_plan": validate_review_plan,
             "resolve_review_context": resolve_review_context,
+            # Phase 4: targeted review (second AI call)
+            "ai_review_findings": ai_review_findings,
+            "normalize_findings": normalize_findings,
+            "dedupe_findings": dedupe_findings,
         }

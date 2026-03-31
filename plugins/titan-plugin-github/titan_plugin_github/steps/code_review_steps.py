@@ -1227,3 +1227,211 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     )
     ctx.textual.end_step("success")
     return Success("Review context resolved", metadata={"review_context_package": package})
+
+
+# ============================================================================
+# PHASE 4: TARGETED REVIEW (Second AI Call)
+# ============================================================================
+
+
+def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Second AI call: find actionable problems in the exact code context.
+
+    Sends the ReviewContextPackage (exact file content + applicable checklist +
+    existing comments) to the selected headless CLI. The AI reviews only the
+    code it was specifically directed to read in the planning phase.
+
+    On parse failure or CLI error, falls back to empty findings (safe default).
+
+    Requires (from ctx.data):
+        review_context_package (ReviewContextPackage)
+        cli_preference (str): "claude" | "gemini" | "codex" | "auto"
+
+    Outputs (saved to ctx.data):
+        raw_findings (list | str): Raw AI output before normalization
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("AI Review Findings")
+
+    package = ctx.get("review_context_package")
+    cli_preference = ctx.data.get("cli_preference", "auto")
+    project_root = ctx.data.get("project_root")
+
+    if not package:
+        ctx.textual.end_step("error")
+        return Error("No review_context_package in context (run resolve_review_context first)")
+
+    from ..operations.findings_operations import build_review_findings_prompt, build_default_findings
+    import json
+
+    adapter = _resolve_headless_adapter(cli_preference)
+
+    if not adapter:
+        ctx.textual.warning_text("No headless CLI available — skipping AI findings")
+        ctx.data["raw_findings"] = build_default_findings()
+        ctx.textual.end_step("success")
+        return Success("No findings (no CLI available)", metadata={"raw_findings": []})
+
+    prompt = build_review_findings_prompt(package)
+
+    cli_display = adapter.cli_name.value.capitalize()
+    file_count = len(package.files_context)
+    with ctx.textual.loading(f"Asking {cli_display} to review {file_count} file(s)…"):
+        response = adapter.execute(prompt, cwd=project_root, timeout=180)
+
+    if not response.succeeded:
+        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no findings")
+        if response.stderr:
+            ctx.textual.dim_text(response.stderr[:200])
+        ctx.data["raw_findings"] = build_default_findings()
+        ctx.textual.end_step("success")
+        return Success("No findings (CLI error)", metadata={"raw_findings": []})
+
+    # Parse JSON array response
+    try:
+        text = response.stdout.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON array found in response")
+        raw = json.loads(text[start:end])
+    except (json.JSONDecodeError, ValueError) as e:
+        ctx.textual.warning_text(f"Findings parsing failed ({e}) — no findings")
+        ctx.data["raw_findings"] = build_default_findings()
+        ctx.textual.end_step("success")
+        return Success("No findings (parse error)", metadata={"raw_findings": []})
+
+    ctx.data["raw_findings"] = raw
+    ctx.textual.success_text(f"✓ AI returned {len(raw)} raw finding(s)")
+    ctx.textual.end_step("success")
+    return Success("AI findings retrieved", metadata={"raw_findings_count": len(raw)})
+
+
+def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Parse and validate raw AI output into Finding models.
+
+    Accepts raw_findings as either a JSON string or a list of dicts.
+    Each item is validated as a Finding model. Invalid items are skipped
+    with a warning rather than failing the entire step.
+
+    Requires (from ctx.data):
+        raw_findings (list | str): Raw AI output from ai_review_findings
+
+    Outputs (saved to ctx.data):
+        normalized_findings (List[Finding]): Validated Finding objects
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Normalize Findings")
+
+    raw = ctx.get("raw_findings")
+
+    if raw is None:
+        ctx.textual.end_step("error")
+        return Error("No raw_findings in context (run ai_review_findings first)")
+
+    from ..models.review_models import Finding
+    from pydantic import ValidationError
+    import json
+
+    # Parse JSON string if needed
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as e:
+            ctx.textual.end_step("error")
+            return Error(f"Failed to parse raw_findings JSON: {e}")
+
+    if not isinstance(raw, list):
+        ctx.textual.end_step("error")
+        return Error(f"raw_findings must be a list, got {type(raw).__name__}")
+
+    findings: list[Finding] = []
+    skipped = 0
+
+    for i, item in enumerate(raw):
+        try:
+            finding = Finding.model_validate(item)
+            findings.append(finding)
+        except ValidationError as e:
+            skipped += 1
+            ctx.textual.dim_text(f"⚠ Finding {i + 1} invalid, skipping: {e.error_count()} error(s)")
+            logger.debug("Finding %d validation error: %s", i + 1, e)
+
+    ctx.data["normalized_findings"] = findings
+
+    summary = f"✓ {len(findings)} finding(s) normalized"
+    if skipped:
+        summary += f" ({skipped} skipped)"
+    ctx.textual.success_text(summary)
+    ctx.textual.end_step("success")
+    return Success("Findings normalized", metadata={"normalized_findings_count": len(findings)})
+
+
+def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Remove findings that duplicate existing PR comments.
+
+    Uses the is_duplicate() validator to compare each finding against the
+    existing_comments_index. A finding is a duplicate if it targets the same
+    file, the same area (within 5 lines), and the same topic (same category
+    or similar title).
+
+    Requires (from ctx.data):
+        normalized_findings (List[Finding])
+        existing_comments_index (List[ExistingCommentIndexEntry])
+
+    Outputs (saved to ctx.data):
+        deduped_findings (List[Finding]): Findings after duplicate removal
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Deduplicate Findings")
+
+    findings = ctx.get("normalized_findings")
+    existing_index = ctx.get("existing_comments_index", [])
+
+    if findings is None:
+        ctx.textual.end_step("error")
+        return Error("No normalized_findings in context (run normalize_findings first)")
+
+    from ..models.validators import is_duplicate
+
+    deduped: list = []
+    removed = 0
+
+    for finding in findings:
+        is_dup = any(is_duplicate(finding, ex) for ex in existing_index)
+        if is_dup:
+            removed += 1
+            logger.debug("Deduplicated finding: %s @ %s:%s", finding.title, finding.path, finding.line)
+        else:
+            deduped.append(finding)
+
+    ctx.data["deduped_findings"] = deduped
+
+    summary = f"✓ {len(deduped)} finding(s) ready"
+    if removed:
+        summary += f" ({removed} duplicate(s) removed)"
+    ctx.textual.success_text(summary)
+    ctx.textual.end_step("success")
+    return Success("Findings deduplicated", metadata={"deduped_findings_count": len(deduped)})

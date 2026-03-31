@@ -47,10 +47,20 @@ steps:
     plugin: github
     step: resolve_review_context
 
-  # Phase 4 steps will be added here:
-  # - ai_review_findings
-  # - normalize_findings
-  # - dedupe_findings
+  - id: ai_findings
+    name: "AI Review Findings"
+    plugin: github
+    step: ai_review_findings
+
+  - id: normalize
+    name: "Normalize Findings"
+    plugin: github
+    step: normalize_findings
+
+  - id: dedupe
+    name: "Deduplicate Findings"
+    plugin: github
+    step: dedupe_findings
 
   # Phase 5 steps will be added here:
   # - build_new_comment_actions
