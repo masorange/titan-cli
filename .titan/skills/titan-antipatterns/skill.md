@@ -1,8 +1,14 @@
+---
+name: titan-antipatterns
+description: Common mistakes and anti-patterns in Titan CLI plugin development - what to avoid and how to fix it. Use when reviewing code or debugging architectural issues.
+keywords: antipatterns, common mistakes, code review, debugging, best practices, wrong patterns
+---
+
 # Common Mistakes & Anti-Patterns
 
 **Critical errors to avoid when building Titan CLI plugins**
 
-This document catalogs the 11 most common mistakes found during code reviews. Use this as a checklist when generating code to ensure architectural compliance.
+This document catalogs the 12 most common mistakes found during code reviews. Use this as a checklist when generating code to ensure architectural compliance.
 
 ---
 
@@ -1103,44 +1109,6 @@ def list_project_versions(self, project_key: str) -> ClientResult[List["UIJiraVe
             ))
 ```
 
-### 📋 Real Example from This Project
-
-**File**: `plugins/titan-plugin-jira/titan_plugin_jira/clients/services/metadata_service.py`
-
-**Found Issues** (PR #166, feat/create-issue-jira branch):
-
-1. **TYPE_CHECKING import** (Line 8):
-   ```python
-   from typing import TYPE_CHECKING, List  # ❌ PROHIBITED
-   ```
-
-2. **TYPE_CHECKING block** (Lines 24-31):
-   ```python
-   if TYPE_CHECKING:  # ❌ PROHIBITED
-       from ...models.view import (
-           UIJiraIssueType,
-           UIJiraStatus,
-           UIJiraUser,
-           UIJiraVersion,
-           UIPriority
-       )
-   ```
-
-3. **Imports inside functions** (5 occurrences):
-   - Line 56: `from ...models.mappers import from_network_issue_type`
-   - Line 99: `from ...models.mappers import from_network_status`
-   - Line 152: `from ...models.mappers import from_network_user`
-   - Line 193: `from ...models.mappers import from_network_version`
-   - Line 232: `from ...models.mappers import from_network_priority`
-
-**Impact**: All 5 functions import their mappers inside the function body instead of at module level.
-
-**Why this happened**: Developer tried to avoid circular imports by using TYPE_CHECKING and function-level imports, which is the **wrong solution**.
-
-**Correct fix**: Move all mapper imports to module level (see solution below).
-
----
-
 ### ✅ CORRECT
 
 **Step 1: Fix circular imports at module level**
@@ -1229,33 +1197,6 @@ def list_statuses(self, project_key: str) -> ClientResult[List[UIJiraStatus]]:
 
     except JiraAPIError as e:
         return ClientError(error_message=str(e), error_code="API_ERROR")
-
-def list_project_versions(self, project_key: str) -> ClientResult[List[UIJiraVersion]]:
-    """List versions."""
-    try:
-        project_data = self.network.make_request("GET", f"project/{project_key}")
-
-        network_versions = []
-        for v_data in project_data.get("versions", []):
-            # ✅ Model provides defaults
-            network_versions.append(NetworkJiraVersion(
-                id=v_data.get("id"),
-                name=v_data.get("name"),
-                description=v_data.get("description"),
-                released=v_data.get("released"),
-                releaseDate=v_data.get("releaseDate")
-            ))
-
-        # ✅ Map at module level
-        ui_versions = [from_network_version(v) for v in network_versions]
-
-        return ClientSuccess(
-            data=ui_versions,
-            message=f"Found {len(ui_versions)} versions"
-        )
-
-    except JiraAPIError as e:
-        return ClientError(error_message=str(e), error_code="API_ERROR")
 ```
 
 ### Alternative 1: Use Constants File
@@ -1291,27 +1232,9 @@ status_category = NetworkJiraStatusCategory(
 
 ### Alternative 2: Use StrEnum for Typed Constants
 
-**For fixed sets of values** (like priority names, status categories), use `StrEnum`:
-
 ```python
 # constants.py
 from enum import StrEnum
-
-class PriorityName(StrEnum):
-    """Jira priority names."""
-    HIGHEST = "Highest"
-    HIGH = "High"
-    MEDIUM = "Medium"
-    LOW = "Low"
-    LOWEST = "Lowest"
-
-class PriorityIcon(StrEnum):
-    """Priority icons."""
-    HIGHEST = "🔴"
-    HIGH = "🟠"
-    MEDIUM = "🟡"
-    LOW = "🟢"
-    LOWEST = "🔵"
 
 class StatusCategoryKey(StrEnum):
     """Status category keys."""
@@ -1325,49 +1248,6 @@ class StatusCategoryName(StrEnum):
     IN_PROGRESS = "In Progress"
     DONE = "Done"
 
-# ❌ BEFORE - hardcoded strings in list
-DEFAULT_PRIORITIES = [
-    UIPriority(id="1", name="Highest", icon="🔴", label="🔴 Highest"),
-    UIPriority(id="2", name="High", icon="🟠", label="🟠 High"),
-    UIPriority(id="3", name="Medium", icon="🟡", label="🟡 Medium"),
-    UIPriority(id="4", name="Low", icon="🟢", label="🟢 Low"),
-    UIPriority(id="5", name="Lowest", icon="🔵", label="🔵 Lowest"),
-]
-
-# ✅ AFTER - using StrEnum
-DEFAULT_PRIORITIES = [
-    UIPriority(
-        id="1",
-        name=PriorityName.HIGHEST,
-        icon=PriorityIcon.HIGHEST,
-        label=f"{PriorityIcon.HIGHEST} {PriorityName.HIGHEST}"
-    ),
-    UIPriority(
-        id="2",
-        name=PriorityName.HIGH,
-        icon=PriorityIcon.HIGH,
-        label=f"{PriorityIcon.HIGH} {PriorityName.HIGH}"
-    ),
-    UIPriority(
-        id="3",
-        name=PriorityName.MEDIUM,
-        icon=PriorityIcon.MEDIUM,
-        label=f"{PriorityIcon.MEDIUM} {PriorityName.MEDIUM}"
-    ),
-    UIPriority(
-        id="4",
-        name=PriorityName.LOW,
-        icon=PriorityIcon.LOW,
-        label=f"{PriorityIcon.LOW} {PriorityName.LOW}"
-    ),
-    UIPriority(
-        id="5",
-        name=PriorityName.LOWEST,
-        icon=PriorityIcon.LOWEST,
-        label=f"{PriorityIcon.LOWEST} {PriorityName.LOWEST}"
-    ),
-]
-
 # clients/services/metadata_service.py
 from ...constants import StatusCategoryName, StatusCategoryKey
 
@@ -1378,13 +1258,6 @@ status_category = NetworkJiraStatusCategory(
     colorName=status_category_data.get("colorName")
 )
 ```
-
-**Benefits of StrEnum:**
-- ✅ Type-safe: IDE autocomplete and mypy validation
-- ✅ Centralized: Single source of truth
-- ✅ Refactorable: Rename in one place
-- ✅ Discoverable: `PriorityName.` shows all options
-- ✅ No typos: `PriorityName.HGIHEST` → error at type-check time
 
 ### Why This Matters
 
@@ -1413,15 +1286,15 @@ status_category = NetworkJiraStatusCategory(
 
 ---
 
-## ❌ MISTAKE #12: Using Dict Constants Instead of StrEnum
+## ❌ Mistake #12: Using Dict Constants Instead of StrEnum
 
-**Problem**: Using dictionary constants for mappings that could be type-safe enums.
+**Severity**: HIGH
 
-**Impact**: No type safety, no IDE autocomplete, scattered logic, harder to maintain.
+### The Problem
 
-### Where This Happens
+Using dictionary constants for mappings that could be type-safe enums.
 
-**Icon/Label Mappings** - When mapping names to icons, labels, or display values:
+### ❌ WRONG
 
 ```python
 # ❌ WRONG: Dict constant
@@ -1437,52 +1310,7 @@ def map_priority(name: str) -> str:
     return PRIORITY_ICONS.get(name.lower(), "⚫")
 ```
 
-**Status/Category Mappings** - When mapping status keys to icons:
-
-```python
-# ❌ WRONG: Dict constant
-STATUS_CATEGORY_ICONS = {
-    "to do": "🟡",
-    "new": "🟡",
-    "in progress": "🔵",
-    "done": "🟢",
-}
-```
-
-**Type Mappings** - When mapping type names to icons:
-
-```python
-# ❌ WRONG: Dict constant
-ISSUE_TYPE_ICONS = {
-    "bug": "🐛",
-    "story": "📖",
-    "task": "✅",
-    "epic": "🎯",
-}
-```
-
-### Why This Is Wrong
-
-1. **No Type Safety**
-   - String keys are error-prone (typos, case sensitivity)
-   - No IDE autocomplete for valid values
-   - No compile-time validation
-
-2. **Scattered Logic**
-   - Icon mapping in one file
-   - Label formatting in another
-   - Business logic spread across codebase
-
-3. **Hard to Extend**
-   - Adding new values requires updating multiple places
-   - No central source of truth
-   - Aliases/variations require duplicate entries
-
-4. **No Runtime Validation**
-   - Invalid values silently fall back to defaults
-   - No way to validate before use
-
-### ✅ CORRECT: Use StrEnum with Properties
+### ✅ CORRECT
 
 **Create enum with properties:**
 
@@ -1586,71 +1414,26 @@ icon = JiraPriority.get_icon("Blocker")  # "🚨"
 icon = JiraPriority.get_icon("Critical")  # "🔴"
 ```
 
-### Pattern for All Enum Mappings
+### Why This Matters
 
-**1. Define enum with standard values:**
+1. **No Type Safety** (with dicts)
+   - String keys are error-prone (typos, case sensitivity)
+   - No IDE autocomplete for valid values
+   - No compile-time validation
 
-```python
-class JiraStatusCategory(StrEnum):
-    TO_DO = "new"
-    IN_PROGRESS = "indeterminate"
-    DONE = "done"
-```
+2. **Scattered Logic** (with dicts)
+   - Icon mapping in one file
+   - Label formatting in another
+   - Business logic spread across codebase
 
-**2. Add icon property:**
+3. **Hard to Extend** (with dicts)
+   - Adding new values requires updating multiple places
+   - No central source of truth
+   - Aliases/variations require duplicate entries
 
-```python
-    @property
-    def icon(self) -> str:
-        icons = {
-            JiraStatusCategory.TO_DO: "🟡",
-            JiraStatusCategory.IN_PROGRESS: "🔵",
-            JiraStatusCategory.DONE: "🟢",
-        }
-        return icons[self]
-```
-
-**3. Add class method for flexible lookup:**
-
-```python
-    @classmethod
-    def get_icon(cls, category_key: str) -> str:
-        """Handle both keys and name aliases."""
-        category_lower = category_key.lower()
-
-        # Name aliases
-        name_to_key = {
-            "to do": cls.TO_DO,
-            "in progress": cls.IN_PROGRESS,
-        }
-
-        if category_lower in name_to_key:
-            return name_to_key[category_lower].icon
-
-        try:
-            category = cls(category_lower)
-            return category.icon
-        except ValueError:
-            return "⚫"
-```
-
-**4. Use in mappers:**
-
-```python
-def from_network_status(network_status: NetworkJiraStatus) -> UIJiraStatus:
-    """Map NetworkJiraStatus to UIJiraStatus."""
-    category_key = network_status.statusCategory.key if network_status.statusCategory else "new"
-
-    # ✅ CORRECT: Use enum class method
-    icon = JiraStatusCategory.get_icon(category_key)
-
-    return UIJiraStatus(
-        id=network_status.id,
-        name=network_status.name,
-        icon=icon,
-        category=category_name
-    )
-```
+4. **No Runtime Validation** (with dicts)
+   - Invalid values silently fall back to defaults
+   - No way to validate before use
 
 ### When to Use StrEnum vs Dict
 
@@ -1664,53 +1447,6 @@ def from_network_status(network_status: NetworkJiraStatus) -> UIJiraStatus:
 - ✅ Values are dynamic/user-configurable
 - ✅ Values come from external config/database
 - ✅ Simple key-value lookup with no associated logic
-
-### Real-World Example (From PR #166)
-
-**Before (3 separate dicts):**
-
-```python
-# priority_mapper.py
-PRIORITY_ICONS = {
-    "highest": "🔴", "high": "🟠", "medium": "🟡",
-    "low": "🟢", "lowest": "⚪",
-    "blocker": "🚨", "critical": "🔴", ...
-}
-
-# issue_type_mapper.py
-ISSUE_TYPE_ICONS = {
-    "bug": "🐛", "story": "📖", "task": "✅", ...
-}
-
-# status_mapper.py
-STATUS_CATEGORY_ICONS = {
-    "to do": "🟡", "new": "🟡", ...
-}
-```
-
-**After (centralized enums):**
-
-```python
-# models/enums.py
-class JiraPriority(StrEnum):
-    HIGHEST = "Highest"
-    # ... with .icon, .label properties and .get_icon() method
-
-class JiraIssueType(StrEnum):
-    BUG = "Bug"
-    # ... with .icon property and .get_icon() method
-
-class JiraStatusCategory(StrEnum):
-    TO_DO = "new"
-    # ... with .icon property and .get_icon() method
-```
-
-**Benefits:**
-- Single source of truth for all icon mappings
-- Type-safe access with IDE autocomplete
-- Centralized alias handling
-- Easy to extend with new properties
-- Self-documenting (enum members show all valid values)
 
 ---
 
@@ -1736,7 +1472,7 @@ When generating code, verify:
 ---
 
 **Last Updated**: 2026-03-27 (Added Mistake #12: Dict Constants vs StrEnum)
-**Source**: Production code review patterns (PR #166)
+**Source**: Production code review patterns
 **Status**: Active Reference
 
 **Total Mistakes**: 12 critical anti-patterns
