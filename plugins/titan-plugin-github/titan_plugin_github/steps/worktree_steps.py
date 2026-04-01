@@ -5,12 +5,8 @@ Steps for creating and cleaning up git worktrees.
 Available for use in any workflow that needs isolated branch checkouts.
 """
 import os
-from titan_cli.core.logging.config import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit
 from ..operations import setup_worktree, cleanup_worktree
-
-logger = get_logger(__name__)
-
 
 def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
     """
@@ -37,8 +33,6 @@ def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
     head_branch = ctx.get("selected_pr_head_branch") or ctx.get("review_pr_head") or ""
 
     if not pr_number or not head_branch:
-        pr_keys = [k for k in ctx.data if "pr" in k.lower() or "review" in k.lower() or "selected" in k.lower()]
-        logger.error("create_worktree_missing_data", pr_number=pr_number, head_branch=head_branch, available_keys=pr_keys)
         ctx.textual.end_step("error")
         return Error("Missing required data")
 

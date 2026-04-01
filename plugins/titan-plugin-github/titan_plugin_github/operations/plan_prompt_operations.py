@@ -23,9 +23,6 @@ from ..models.review_models import (
 )
 
 
-# ── Prompt building ───────────────────────────────────────────────────────────
-
-
 def build_review_plan_prompt(
     manifest: ChangeManifest,
     comments_index: list[ExistingCommentIndexEntry],
@@ -170,9 +167,6 @@ def _review_plan_schema() -> str:
         },
         indent=2,
     )
-
-
-# ── Fallback heuristic ────────────────────────────────────────────────────────
 
 
 def build_default_review_plan(

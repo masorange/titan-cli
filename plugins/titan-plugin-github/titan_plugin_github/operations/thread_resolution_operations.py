@@ -24,9 +24,6 @@ from ..models.review_models import (
 from ..models.view import UICommentThread
 
 
-# ── Candidate selection ───────────────────────────────────────────────────────
-
-
 def build_thread_review_candidates(
     threads: list[UICommentThread],
     pr_author: str,
@@ -83,9 +80,6 @@ def build_thread_review_candidates(
         )
 
     return candidates
-
-
-# ── Context enrichment ────────────────────────────────────────────────────────
 
 
 def build_thread_review_contexts(
@@ -154,9 +148,6 @@ def _extract_hunk_near_line(diff: str, path: str, line: int, context: int = 5) -
     if not file_diff:
         return None
     return extract_hunk_for_line(file_diff, line)
-
-
-# ── Prompt building ───────────────────────────────────────────────────────────
 
 
 def build_thread_resolution_prompt(contexts: list[ThreadReviewContext]) -> str:
@@ -275,9 +266,6 @@ def _thread_decision_schema() -> str:
         ],
         indent=2,
     )
-
-
-# ── Action building ───────────────────────────────────────────────────────────
 
 
 def build_thread_actions(
