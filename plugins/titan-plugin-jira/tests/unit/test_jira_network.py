@@ -115,13 +115,13 @@ def test_network_make_request_with_params(mock_session_class):
 
     # Create network and make request
     network = JiraNetwork("https://test.atlassian.net", "test@example.com", "token")
-    result = network.make_request("GET", "search", params={"jql": "project=TEST", "maxResults": 50})
+    result = network.make_request("POST", "search/jql", json={"jql": "project=TEST", "maxResults": 50})
 
     # Assertions
     assert result == {"issues": []}
     call_args = mock_session.request.call_args
-    assert call_args[1]["params"]["jql"] == "project=TEST"
-    assert call_args[1]["params"]["maxResults"] == 50
+    assert call_args[1]["json"]["jql"] == "project=TEST"
+    assert call_args[1]["json"]["maxResults"] == 50
 
 
 @patch('titan_plugin_jira.clients.network.jira_network.requests.Session')

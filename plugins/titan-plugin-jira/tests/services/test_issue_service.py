@@ -188,7 +188,7 @@ def test_search_issues_success(issue_service, mock_network, sample_api_issue_res
     mock_network.make_request.assert_called_once()
     call_args = mock_network.make_request.call_args
     assert call_args[0][0] == "POST"
-    assert call_args[0][1] == "search"
+    assert call_args[0][1] == "search/jql"
     assert call_args[1]["json"]["jql"] == "project=TEST AND status='In Progress'"
     assert call_args[1]["json"]["maxResults"] == 50
 
