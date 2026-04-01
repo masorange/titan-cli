@@ -78,35 +78,6 @@ class Messages:
         ASSISTANT_EXITED_WITH_CODE = "{cli_name} exited with code {exit_code}"
 
     # ═══════════════════════════════════════════════════════════════
-    # AI Initial Review Step
-    # ═══════════════════════════════════════════════════════════════
-
-    class AIInitialReview:
-        """Messages for the AI CLI initial review step."""
-        NO_PR_IN_CONTEXT = "No PR found at ctx.data['{key}'] — skipping initial review"
-        NO_FINDINGS = "No issues detected in initial review."
-        FINDINGS_SUMMARY = "Found {n} finding(s) — {critical} critical"
-        FAILED = "{cli_name} analysis failed (exit code {exit_code})"
-        IMPORT_ERROR = "GitHub plugin not available: {e}"
-        PROMPT_BUILD_ERROR = "Failed to build initial review prompt: {e}"
-
-    # ═══════════════════════════════════════════════════════════════
-    # AI Validate With Refinement Step
-    # ═══════════════════════════════════════════════════════════════
-
-    class AIRefinement:
-        """Messages for the AI CLI validate with refinement step."""
-        NO_THREADS = "No review threads to validate"
-        REQUIRES_TUI = "Refinement step requires interactive TUI — skipping"
-        INITIAL_SUGGESTION_FAILED = "Could not get suggestion for thread #{id} — skipping"
-        MAX_ITERATIONS_WARNING = "Maximum iterations ({max}) reached for this thread."
-        CANNOT_REFINE_FURTHER = "Cannot refine further — max iterations reached. Approve or Reject."
-        NO_FEEDBACK = "No feedback entered — keeping current suggestion"
-        REFINEMENT_FAILED = "Refinement failed (exit code {code}) — keeping previous suggestion"
-        COMPLETE = "Validated {total} thread(s): {approved} approved ({iterations} total iterations)"
-        IMPORT_ERROR = "GitHub plugin not available: {e}"
-
-    # ═══════════════════════════════════════════════════════════════
     # Generic Error Messages
     # ═══════════════════════════════════════════════════════════════
 
