@@ -147,8 +147,6 @@ class GitHubPlugin(TitanPlugin):
         from .steps.code_review_steps import (
             select_pr_for_code_review,
             fetch_pr_review_bundle,
-            ai_review_pr,
-            summarize_pr_review,
             build_change_manifest,
             build_existing_comments_index,
             build_review_checklist,
@@ -167,8 +165,6 @@ class GitHubPlugin(TitanPlugin):
             normalize_thread_decisions,
             build_thread_actions,
         )
-        from .steps.ai_cli_initial_review_step import ai_cli_initial_review
-        from .steps.ai_cli_validate_with_refinement_step import ai_cli_validate_with_refinement
         from .steps.select_cli_step import select_cli_step
         return {
             "create_pr": create_pr_step,
@@ -195,12 +191,8 @@ class GitHubPlugin(TitanPlugin):
             # Code review steps
             "select_pr_for_code_review": select_pr_for_code_review,
             "fetch_pr_review_bundle": fetch_pr_review_bundle,
-            "ai_review_pr": ai_review_pr,
-            "summarize_pr_review": summarize_pr_review,
             # CLI selection
             "select_cli": select_cli_step,
-            "ai_cli_initial_review": ai_cli_initial_review,
-            "ai_cli_validate_with_refinement": ai_cli_validate_with_refinement,
             # Phase 2: cheap context steps (pre-AI)
             "build_change_manifest": build_change_manifest,
             "build_existing_comments_index": build_existing_comments_index,

@@ -4,10 +4,10 @@ Steps for AI-powered PR code review.
 This module contains steps for reviewing pull requests authored by others using
 AI analysis combined with project-specific skill guidelines.
 """
-import logging
 import threading
 from typing import List, Optional
 
+from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
@@ -17,12 +17,7 @@ from ..models.review_models import ReviewActionProposal
 from ..models.view import UICommentThread
 from ..operations.code_review_operations import (
     select_files_for_review,
-    build_review_context,
-    build_pr_summary_prompt,
-    extract_diff_for_file,
-    extract_hunk_for_line,
     compute_diff_stat,
-    filter_own_duplicate_suggestions,
 )
 from ..operations.review_action_operations import (
     build_new_comment_actions as _build_new_comment_actions,
@@ -36,7 +31,66 @@ from ..operations.thread_resolution_operations import (
     build_thread_actions as _build_thread_actions,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+_PROMPT_PREVIEW_CHARS = 2000
+_RESPONSE_PREVIEW_CHARS = 1500
+
+
+def _preview_edges(text: str, limit: int) -> tuple[str, str]:
+    """Return start/end previews for large text blobs."""
+    if len(text) <= limit:
+        return text, text
+    return text[:limit], text[-limit:]
+
+
+def _log_ai_prompt(step_name: str, cli_name: str, prompt: str, **extra) -> None:
+    """Log prompt metadata plus previews for review debugging."""
+    first, last = _preview_edges(prompt, _PROMPT_PREVIEW_CHARS)
+    logger.info(
+        "ai_prompt_built",
+        step=step_name,
+        cli=cli_name,
+        prompt_chars=len(prompt),
+        prompt_first_chars=first,
+        prompt_last_chars=last,
+        **extra,
+    )
+    logger.info(
+        "ai_prompt_full",
+        step=step_name,
+        cli=cli_name,
+        prompt=prompt,
+        **extra,
+    )
+
+
+def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, exit_code: int, **extra) -> None:
+    """Log response metadata plus previews for review debugging."""
+    stdout_first, stdout_last = _preview_edges(stdout, _RESPONSE_PREVIEW_CHARS)
+    stderr_first, stderr_last = _preview_edges(stderr, _RESPONSE_PREVIEW_CHARS)
+    logger.info(
+        "ai_response_received",
+        step=step_name,
+        cli=cli_name,
+        exit_code=exit_code,
+        stdout_chars=len(stdout),
+        stderr_chars=len(stderr),
+        stdout_first_chars=stdout_first,
+        stdout_last_chars=stdout_last,
+        stderr_first_chars=stderr_first,
+        stderr_last_chars=stderr_last,
+        **extra,
+    )
+    logger.info(
+        "ai_response_full",
+        step=step_name,
+        cli=cli_name,
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        **extra,
+    )
 
 
 # ============================================================================
@@ -459,173 +513,6 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 
-def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Use AI to generate review comments for the PR.
-
-    Requires (from ctx.data):
-        review_pr (UIPullRequest)
-        review_diff (str)
-        review_changed_files (List[str])
-        review_skills (List[dict])
-
-    Outputs (saved to ctx.data):
-        review_suggestions (List[UIReviewSuggestion]): with diff_context filled in
-
-    Returns:
-        Success, Skip (no comments), or Error
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("AI Code Review")
-
-    pr = ctx.get("review_pr")
-    diff = ctx.get("review_diff", "")
-    skills = ctx.get("review_skills", [])
-    docs = ctx.get("review_docs", [])
-    threads = ctx.get("review_threads", [])
-
-    if not pr or not diff:
-        ctx.textual.end_step("error")
-        return Error("Missing PR data (run fetch_pr_review_bundle first)")
-
-    if not ctx.ai:
-        ctx.textual.error_text("AI client not available")
-        ctx.textual.end_step("error")
-        return Error("AI client not available")
-
-    # Get current user to filter out their own comments from the context
-    current_user = None
-    if ctx.github:
-        user_result = ctx.github.get_current_user()
-        match user_result:
-            case ClientSuccess(data=login):
-                current_user = login
-            case ClientError():
-                pass  # Best effort — continue without filtering
-
-    from ..agents.code_review_agent import CodeReviewAgent
-
-    context_str = build_review_context(pr, diff, skills, docs, threads, current_user)
-
-    with ctx.textual.loading("Generating AI review comments..."):
-        agent = CodeReviewAgent(ctx.ai)
-        suggestions = agent.review(context_str)
-
-    if not suggestions:
-        ctx.textual.dim_text("AI found no issues to comment on.")
-        ctx.textual.end_step("skip")
-        return Skip("No AI review suggestions generated")
-
-    # Enrich suggestions with the specific hunk around the commented line
-    from ..operations.code_review_operations import find_line_by_snippet
-    for suggestion in suggestions:
-        file_diff = extract_diff_for_file(diff, suggestion.file_path)
-        if file_diff:
-            # If we have a snippet but no line, resolve the snippet to a line first
-            target_line = suggestion.line
-            if suggestion.snippet and not target_line:
-                target_line = find_line_by_snippet(file_diff, suggestion.snippet)
-                if target_line:
-                    # Update the suggestion object with the resolved line
-                    suggestion.line = target_line
-
-            # Extract the hunk around the target line
-            hunk = extract_hunk_for_line(file_diff, target_line)
-            suggestion.diff_context = hunk or file_diff[:3000]
-
-    # Post-process: filter suggestions that duplicate own existing comments
-    own_threads = ctx.get("review_threads", [])
-    own_threads_by_user = [
-        t for t in own_threads
-        if current_user and t.main_comment.author_login == current_user
-    ]
-    if own_threads_by_user:
-        suggestions, duplicates = filter_own_duplicate_suggestions(suggestions, own_threads_by_user)
-        if duplicates:
-            ctx.textual.dim_text(
-                f"  {len(duplicates)} suggestion(s) removed — already commented by you"
-            )
-
-    if not suggestions:
-        ctx.textual.dim_text("AI found no new issues to comment on (all were duplicates of your existing comments).")
-        ctx.textual.end_step("skip")
-        return Skip("No new AI review suggestions (all duplicates filtered)")
-
-    # Show summary
-    counts = {"critical": 0, "improvement": 0, "suggestion": 0}
-    for s in suggestions:
-        counts[s.severity] = counts.get(s.severity, 0) + 1
-
-    ctx.textual.success_text(f"Generated {len(suggestions)} review comment(s):")
-    if counts["critical"]:
-        ctx.textual.error_text(f"  🔴 {counts['critical']} critical")
-    if counts["improvement"]:
-        ctx.textual.warning_text(f"  🟡 {counts['improvement']} improvement(s)")
-    if counts["suggestion"]:
-        ctx.textual.dim_text(f"  🔵 {counts['suggestion']} suggestion(s)")
-
-    ctx.textual.end_step("success")
-
-    return Success(
-        f"Generated {len(suggestions)} review comment(s)",
-        metadata={"review_suggestions": suggestions},
-    )
-
-
-def summarize_pr_review(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Generate and display an AI summary of the PR before validating comments.
-
-    Requires (from ctx.data):
-        review_pr (UIPullRequest)
-        review_changed_files (List[str])
-        review_suggestions (List[UIReviewSuggestion])
-
-    Returns:
-        Success or Skip (if AI unavailable)
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("PR Review Summary")
-
-    pr = ctx.get("review_pr")
-    changed_files = ctx.get("review_changed_files", [])
-    suggestions = ctx.get("review_suggestions", [])
-
-    if not pr:
-        ctx.textual.end_step("skip")
-        return Skip("No PR data available")
-
-    if not ctx.ai:
-        ctx.textual.end_step("skip")
-        return Skip("AI client not available")
-
-    prompt = build_pr_summary_prompt(pr, changed_files, suggestions)
-
-    from titan_cli.ai.models import AIMessage
-    with ctx.textual.loading("Generating PR summary..."):
-        try:
-            response = ctx.ai.generate(
-                messages=[AIMessage(role="user", content=prompt)],
-                max_tokens=600,
-                temperature=0.3,
-            )
-            summary = response.content.strip()
-        except Exception as e:
-            ctx.textual.warning_text(f"Could not generate summary: {e}")
-            ctx.textual.end_step("skip")
-            return Skip("Summary generation failed")
-
-    ctx.textual.markdown(summary)
-    ctx.textual.end_step("success")
-    return Success("PR summary generated")
-
-
-
-
 def _resolve_headless_adapter(cli_preference: str):
     """Return the first available headless adapter, or None."""
     if cli_preference == "auto":
@@ -834,8 +721,26 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     prompt = build_review_plan_prompt(manifest, comments_index, checklist)
 
     cli_display = adapter.cli_name.value.capitalize()
+    _log_ai_prompt(
+        step_name="ai_review_plan",
+        cli_name=adapter.cli_name.value,
+        prompt=prompt,
+        manifest_files=len(manifest.files),
+        existing_comments=len(comments_index),
+        checklist_items=len(checklist),
+    )
     with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
         response = adapter.execute(prompt, cwd=project_root, timeout=240)
+    _log_ai_response(
+        step_name="ai_review_plan",
+        cli_name=adapter.cli_name.value,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+        manifest_files=len(manifest.files),
+        existing_comments=len(comments_index),
+        checklist_items=len(checklist),
+    )
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — using default plan")
@@ -1062,8 +967,28 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     cli_display = adapter.cli_name.value.capitalize()
     file_count = len(package.files_context)
+    _log_ai_prompt(
+        step_name="ai_review_findings",
+        cli_name=adapter.cli_name.value,
+        prompt=prompt,
+        files_context=file_count,
+        related_files=len(package.related_files),
+        checklist_items=len(package.checklist_applicable),
+        existing_comments=len(package.existing_comments_compact),
+    )
     with ctx.textual.loading(f"Asking {cli_display} to review {file_count} file(s)…"):
         response = adapter.execute(prompt, cwd=project_root, timeout=300)
+    _log_ai_response(
+        step_name="ai_review_findings",
+        cli_name=adapter.cli_name.value,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+        files_context=file_count,
+        related_files=len(package.related_files),
+        checklist_items=len(package.checklist_applicable),
+        existing_comments=len(package.existing_comments_compact),
+    )
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no findings")
