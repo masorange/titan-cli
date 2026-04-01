@@ -10,6 +10,7 @@ from typing import Optional
 
 from ..models.review_enums import (
     ChecklistCategory,
+    FileChangeStatus,
     FileReadMode,
     FileReviewPriority,
 )
@@ -204,7 +205,7 @@ def build_default_review_plan(
         if f.is_test:
             priority = FileReviewPriority.LOW
             read_mode = FileReadMode.HUNKS_ONLY
-        elif f.status == "added" and f.size_lines < 300:
+        elif f.status == FileChangeStatus.ADDED and f.size_lines < 300:
             priority = FileReviewPriority.HIGH
             read_mode = FileReadMode.FULL_FILE
         elif total_changes > 50:

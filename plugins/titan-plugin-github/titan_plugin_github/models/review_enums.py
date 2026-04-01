@@ -37,6 +37,15 @@ class FileTypeIndicator(StrEnum):
     TRANSFORMER = "transformer"
 
 
+class FileChangeStatus(StrEnum):
+    """Normalized file change status used in review manifests."""
+
+    ADDED = "added"
+    MODIFIED = "modified"
+    RENAMED = "renamed"
+    DELETED = "deleted"
+
+
 class ContextRequestType(StrEnum):
     """Supported extra-context requests for targeted review."""
 

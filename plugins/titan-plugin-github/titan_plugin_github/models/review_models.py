@@ -5,12 +5,13 @@ Models for building cheap context, AI analysis, and review actions.
 Follows two-phase architecture: cheap context → AI-directed analysis → targeted review.
 """
 
-from typing import Literal, Optional
+from typing import Optional
 from pydantic import BaseModel, Field
 
 from .review_enums import (
     ChecklistCategory,
     ContextRequestType,
+    FileChangeStatus,
     FileReadMode,
     FileReviewPriority,
     FindingSeverity,
@@ -24,7 +25,7 @@ from .review_enums import (
 class ChangedFileEntry(BaseModel):
     """Single file changed in the PR."""
     path: str = Field(..., description="File path in repo")
-    status: Literal["added", "modified", "renamed", "deleted"] = Field(
+    status: FileChangeStatus = Field(
         ..., description="Change type"
     )
     additions: int = Field(default=0, description="Lines added")

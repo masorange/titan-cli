@@ -14,6 +14,7 @@ from ..models.review_models import (
     ExistingCommentIndexEntry,
     PullRequestManifest,
 )
+from ..models.review_enums import FileChangeStatus
 from ..models.view import UICommentThread, UIFileChange, UIPullRequest
 
 
@@ -44,17 +45,17 @@ def is_test_file(path: str) -> bool:
     return any(rx.search(path) for rx in _TEST_REGEXES)
 
 
-def _map_status(ui_status: str) -> str:
-    """Map UIFileChange.status to ChangedFileEntry.status literal."""
+def _map_status(ui_status: str) -> FileChangeStatus:
+    """Map UIFileChange.status to normalized review file status."""
     mapping = {
-        "added": "added",
-        "modified": "modified",
-        "renamed": "renamed",
-        "removed": "deleted",
-        "deleted": "deleted",
-        "changed": "modified",
+        "added": FileChangeStatus.ADDED,
+        "modified": FileChangeStatus.MODIFIED,
+        "renamed": FileChangeStatus.RENAMED,
+        "removed": FileChangeStatus.DELETED,
+        "deleted": FileChangeStatus.DELETED,
+        "changed": FileChangeStatus.MODIFIED,
     }
-    return mapping.get(ui_status.lower(), "modified")
+    return mapping.get(ui_status.lower(), FileChangeStatus.MODIFIED)
 
 
 def build_change_manifest(

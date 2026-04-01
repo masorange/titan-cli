@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 from .review_enums import (
     ChecklistCategory,
     ContextRequestType,
+    FileChangeStatus,
     FileReadMode,
     FileTypeIndicator,
 )
@@ -107,7 +108,7 @@ class ReviewPlanValidator:
             if entry.size_lines <= LARGE_FILE_THRESHOLD_LINES:
                 continue  # Small file: full_file is fine
 
-            if entry.status in ("added", "deleted"):
+            if entry.status in (FileChangeStatus.ADDED, FileChangeStatus.DELETED):
                 continue  # New or deleted file: full_file is fine
 
             is_special = any(indicator in fp.path for indicator in _ALL_FILE_INDICATORS)
@@ -116,12 +117,6 @@ class ReviewPlanValidator:
                     f"full_file requested for large file ({entry.size_lines} lines) "
                     f"without special type indicator: {fp.path}"
                 )
-
-
-# ============================================================================
-# DEDUPLICATION
-# ============================================================================
-
 
 def is_duplicate(
     new_finding: Finding,
