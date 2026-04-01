@@ -13,6 +13,8 @@ These models are GitHub-specific and live in the GitHub plugin, not in the core.
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from .review_enums import FileChangeStatus
+
 
 @dataclass
 class UIComment:
@@ -209,7 +211,7 @@ class UIFileChange:
     path: str
     additions: int
     deletions: int
-    status: str       # "added", "removed", "modified", "renamed", etc.
+    status: FileChangeStatus
     status_icon: str  # "+", "−", "~", "→", etc.
 
 

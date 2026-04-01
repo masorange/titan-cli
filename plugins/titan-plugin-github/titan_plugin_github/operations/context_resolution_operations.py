@@ -28,10 +28,6 @@ from ..models.review_models import (
 
 logger = logging.getLogger(__name__)
 
-
-# ── Hunk extraction ───────────────────────────────────────────────────────────
-
-
 def _split_file_diff_into_hunks(file_diff: str) -> list[str]:
     """
     Split a single file's diff section into individual hunk strings.
@@ -136,10 +132,6 @@ def extract_expanded_hunks(diff: str, path: str, cwd: Optional[str] = None) -> l
 
     return expanded
 
-
-# ── File reading ──────────────────────────────────────────────────────────────
-
-
 def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
     """
     Read a file from the working directory.
@@ -159,10 +151,6 @@ def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
     except (OSError, ValueError) as e:
         logger.debug(f"Could not read {path}: {e}")
     return None
-
-
-# ── Context request resolution ────────────────────────────────────────────────
-
 
 def _find_related_tests(path: str, cwd: Optional[str] = None) -> Optional[str]:
     """
@@ -270,10 +258,6 @@ def resolve_context_requests(
                 logger.debug(f"No related context found for {req.for_path}")
 
     return result
-
-
-# ── Context package assembly ──────────────────────────────────────────────────
-
 
 def _resolve_file_context(
     file_plan: FileReviewPlan,

@@ -15,10 +15,6 @@ from ..models.review_models import (
     ReviewContextPackage,
 )
 
-
-# ── Prompt building ───────────────────────────────────────────────────────────
-
-
 def build_review_findings_prompt(package: ReviewContextPackage) -> str:
     """
     Build the prompt for the second AI call: find actionable problems.
@@ -223,10 +219,6 @@ def _finding_schema() -> str:
         ],
         indent=2,
     )
-
-
-# ── Fallback ──────────────────────────────────────────────────────────────────
-
 
 def build_default_findings() -> list[Finding]:
     """
