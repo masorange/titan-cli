@@ -31,6 +31,8 @@ class UIComment:
     path: Optional[str] = None
     line: Optional[int] = None
     diff_hunk: Optional[str] = None
+    position: Optional[int] = None        # GitHub diff position (None when comment is outdated)
+    original_line: Optional[int] = None   # originalLine from GitHub (line in old file version)
 
     @classmethod
     def from_review_comment(cls, comment: 'Any', is_outdated: bool = False) -> 'UIComment':

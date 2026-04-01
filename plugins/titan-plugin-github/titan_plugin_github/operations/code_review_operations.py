@@ -13,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..managers.diff_context_manager import DiffContextManager
 from ..models.view import UIReviewSuggestion, UIFileChange
 
 logger = logging.getLogger(__name__)
@@ -451,9 +452,6 @@ def extract_line_number_from_hunk(hunk: str) -> Optional[int]:
     """
     Find the first added line (+) in a diff hunk and return its correct line number.
 
-    Parses the hunk header to get the starting line, then counts through the hunk
-    to find where the first added line falls.
-
     Args:
         hunk: Diff hunk string starting with @@
 
@@ -462,37 +460,18 @@ def extract_line_number_from_hunk(hunk: str) -> Optional[int]:
     """
     if not hunk:
         return None
-
-    lines = hunk.split("\n")
-    if not lines:
+    manager = DiffContextManager.from_file_diff(hunk, "__hunk__")
+    parsed_hunks = manager.get_hunks("__hunk__")
+    if not parsed_hunks:
         return None
-
-    # Extract starting line from header: @@ -X,Y +A,B @@
-    header_match = re.search(r"\+(\d+)", lines[0])
-    if not header_match:
-        return None
-
-    start_line = int(header_match.group(1))
-    current_line = start_line
-
-    # Scan through hunk lines to find first added (+) line
-    for line in lines[1:]:
-        if line.startswith("@@"):
-            break  # End of this hunk
-
-        if line.startswith(" ") or line.startswith("+") or line.startswith("-"):
-            # Context or change line exists
-            if line.startswith("+") and not line.startswith("+++"):
-                # This is an added line — return its correct line number
-                return current_line
-            elif line.startswith(" ") or (line.startswith("-") and not line.startswith("---")):
-                # Context or deleted line — still counts toward line number
-                if line.startswith(" "):
-                    current_line += 1
-                # Deleted lines don't increment in new file
-
-    # Fallback: return starting line if no added line found
-    return start_line
+    first_hunk = parsed_hunks[0]
+    current = first_hunk.new_line_start
+    for line in first_hunk.content.split("\n")[1:]:
+        if line.startswith("+") and not line.startswith("+++"):
+            return current
+        elif line.startswith(" "):
+            current += 1
+    return first_hunk.new_line_start
 
 
 def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optional[str]:
@@ -500,7 +479,7 @@ def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optiona
     Extract the diff hunk (starting with @@) that contains the target line.
 
     Args:
-        file_diff: Full file diff (starting with "diff --git ...")
+        file_diff: File diff section (from extract_diff_for_file)
         target_line: Line number to find
 
     Returns:
@@ -508,44 +487,14 @@ def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optiona
     """
     if not file_diff or not target_line:
         return None
-
-    lines = file_diff.split("\n")
-    hunks = []
-    current_hunk: List[str] = []
-
-    for line in lines:
-        if line.startswith("@@"):
-            if current_hunk:
-                hunks.append("\n".join(current_hunk))
-            current_hunk = [line]
-        elif current_hunk:
-            current_hunk.append(line)
-
-    if current_hunk:
-        hunks.append("\n".join(current_hunk))
-
-    for hunk in hunks:
-        hunk_lines = hunk.split("\n")
-        header_match = re.search(r"\+(\d+),?(\d*)", hunk_lines[0])
-        if not header_match:
-            continue
-        new_start = int(header_match.group(1))
-        count_str = header_match.group(2)
-        count = int(count_str) if count_str else 1
-        new_end = new_start + count
-        if new_start <= target_line <= new_end:
-            return hunk
-
-    # Fallback: return first hunk if no match found
-    return hunks[0] if hunks else None
+    manager = DiffContextManager.from_file_diff(file_diff, "__file__")
+    hunk = manager.get_hunk_for_line("__file__", target_line)
+    return hunk.content if hunk else None
 
 
 def find_line_by_snippet(file_diff: str, snippet: str) -> Optional[int]:
     """
     Find the new-file line number of a code snippet within a file's diff.
-
-    Scans the diff hunks tracking the new-file line counter, and returns
-    the line number of the first added/context line that contains the snippet.
 
     Args:
         file_diff: Diff section for a single file (from extract_diff_for_file)
@@ -556,28 +505,7 @@ def find_line_by_snippet(file_diff: str, snippet: str) -> Optional[int]:
     """
     if not file_diff or not snippet:
         return None
-
-    snippet_stripped = snippet.strip()
-    current_line = 0
-
-    for line in file_diff.split("\n"):
-        if line.startswith("@@"):
-            match = re.search(r"\+(\d+)", line)
-            if match:
-                current_line = int(match.group(1)) - 1
-        elif line.startswith("+") and not line.startswith("+++"):
-            current_line += 1
-            line_content = line[1:].strip()
-            if snippet_stripped in line_content:
-                return current_line
-        elif line.startswith(" "):
-            current_line += 1
-            line_content = line[1:].strip()
-            if snippet_stripped in line_content:
-                return current_line
-        # Lines starting with "-" are deleted — skip
-
-    return None
+    return DiffContextManager.from_file_diff(file_diff, "__file__").find_line_by_snippet("__file__", snippet)
 
 
 def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
@@ -593,31 +521,10 @@ def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
     Returns:
         Dict mapping file_path -> set of valid new-file line numbers
     """
-    result: Dict[str, set] = {}
-    current_file: Optional[str] = None
-    current_line = 0
-
-    for line in diff.split("\n"):
-        if line.startswith("diff --git"):
-            match = re.search(r" b/(.+)$", line)
-            if match:
-                current_file = match.group(1)
-                result[current_file] = set()
-                current_line = 0
-        elif line.startswith("@@") and current_file is not None:
-            match = re.search(r"\+(\d+)", line)
-            if match:
-                current_line = int(match.group(1)) - 1
-        elif current_file is not None and current_line > 0:
-            if line.startswith("+"):
-                current_line += 1
-                result[current_file].add(current_line)
-            elif line.startswith(" "):
-                current_line += 1
-                result[current_file].add(current_line)
-            # Lines starting with "-" are deleted — not valid for RIGHT side comments
-
-    return result
+    return {
+        path: set(lines)
+        for path, lines in DiffContextManager.from_diff(diff).get_all_valid_lines().items()
+    }
 
 
 def build_review_payload(

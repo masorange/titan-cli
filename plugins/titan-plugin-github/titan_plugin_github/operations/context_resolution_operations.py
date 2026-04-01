@@ -5,7 +5,7 @@ Pure functions that extract exact code from a diff or filesystem
 according to FileReviewPlan decisions (hunks_only, expanded_hunks, full_file).
 No UI, no side effects.
 
-Reuses extract_diff_for_file from code_review_operations for diff section extraction.
+Diff parsing delegated to DiffContextManager.
 """
 
 import logging
@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from .code_review_operations import extract_diff_for_file
+from ..managers.diff_context_manager import DiffContextManager
 from ..models.review_enums import ContextRequestType, FileReadMode
 from ..models.review_models import (
     ChangeManifest,
@@ -27,36 +27,6 @@ from ..models.review_models import (
 )
 
 logger = logging.getLogger(__name__)
-
-def _split_file_diff_into_hunks(file_diff: str) -> list[str]:
-    """
-    Split a single file's diff section into individual hunk strings.
-
-    Each hunk starts with @@ and includes all following lines until
-    the next @@ or end of input.
-
-    Args:
-        file_diff: Diff section for one file (from extract_diff_for_file)
-
-    Returns:
-        List of hunk strings, each starting with @@
-    """
-    hunks: list[str] = []
-    current_hunk: list[str] = []
-
-    for line in file_diff.split("\n"):
-        if line.startswith("@@"):
-            if current_hunk:
-                hunks.append("\n".join(current_hunk))
-            current_hunk = [line]
-        elif current_hunk:
-            current_hunk.append(line)
-
-    if current_hunk:
-        hunks.append("\n".join(current_hunk))
-
-    return hunks
-
 
 def extract_hunks_only(diff: str, path: str) -> list[str]:
     """
@@ -72,10 +42,7 @@ def extract_hunks_only(diff: str, path: str) -> list[str]:
     Returns:
         List of hunk strings (each starts with @@)
     """
-    file_section = extract_diff_for_file(diff, path)
-    if not file_section:
-        return []
-    return _split_file_diff_into_hunks(file_section)
+    return [h.content for h in DiffContextManager.from_diff(diff).get_hunks(path)]
 
 
 def extract_expanded_hunks(diff: str, path: str, cwd: Optional[str] = None) -> list[str]:

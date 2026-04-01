@@ -56,6 +56,25 @@ class DiffContextManager:
         """
         return cls(_parse_diff(diff))
 
+    @classmethod
+    def from_file_diff(cls, file_diff: str, path: str) -> DiffContextManager:
+        """
+        Parse a single-file diff section (with or without ``diff --git`` header).
+
+        Use when only a per-file slice is available (e.g. from ``extract_diff_for_file``).
+        The ``path`` argument is the key used to look up results via ``get_hunks(path)``.
+
+        Args:
+            file_diff: Diff section for a single file
+            path: Logical path key for this diff (used in subsequent lookups)
+
+        Returns:
+            DiffContextManager with hunks indexed under ``path``
+        """
+        parsed_file = _parse_file_diff_section(path, file_diff)
+        files = {path: parsed_file} if parsed_file else {}
+        return cls(ParsedDiff(files=files, raw=file_diff))
+
     # ------------------------------------------------------------------
     # File / hunk lookups
     # ------------------------------------------------------------------
@@ -241,6 +260,34 @@ class DiffContextManager:
 # ------------------------------------------------------------------
 # Internal parsing helpers
 # ------------------------------------------------------------------
+
+def _parse_file_diff_section(path: str, file_section: str) -> Optional[ParsedFileDiff]:
+    """
+    Parse a per-file diff section into a ``ParsedFileDiff``.
+
+    Handles sections that may or may not include a ``diff --git`` header —
+    only ``@@`` hunk lines are required.
+    """
+    hunks: list[ParsedHunk] = []
+    current_hunk_lines: list[str] = []
+
+    for line in file_section.split("\n"):
+        if line.startswith("@@"):
+            if current_hunk_lines:
+                hunk = _parse_hunk(path, "\n".join(current_hunk_lines))
+                if hunk:
+                    hunks.append(hunk)
+            current_hunk_lines = [line]
+        elif current_hunk_lines:
+            current_hunk_lines.append(line)
+
+    if current_hunk_lines:
+        hunk = _parse_hunk(path, "\n".join(current_hunk_lines))
+        if hunk:
+            hunks.append(hunk)
+
+    return ParsedFileDiff(path=path, hunks=hunks) if hunks else None
+
 
 def _parse_diff(raw: str) -> ParsedDiff:
     """Parse a full unified diff into structured ``ParsedDiff``."""
@@ -447,4 +494,30 @@ def _extract_lines_from_hunk(
     return "\n".join(extracted) if extracted else None
 
 
-__all__ = ["DiffContextManager"]
+def extract_lines_from_hunk(hunk_content: str, target_line: int, count: int = 1) -> Optional[str]:
+    """
+    Extract ``count`` consecutive new-file lines starting at ``target_line`` from a hunk string.
+
+    Convenience wrapper for callers that only have a single hunk string (e.g. comment_utils),
+    not a full diff. Delegates to the internal helper.
+    """
+    return _extract_lines_from_hunk(hunk_content, target_line, count)
+
+
+def build_focused_diff_from_hunk(
+    hunk_content: str,
+    target_line: Optional[int],
+    is_outdated: bool = False,
+    before: int = 7,
+    after: int = 3,
+) -> str:
+    """
+    Trim a hunk string to a focused window around ``target_line``.
+
+    Convenience wrapper for callers that only have a single hunk string (e.g. comment_utils
+    and comment_view), not a full diff. Delegates to the internal helper.
+    """
+    return _build_focused_diff_from_hunk(hunk_content, target_line, is_outdated, before, after)
+
+
+__all__ = ["DiffContextManager", "extract_lines_from_hunk", "build_focused_diff_from_hunk"]
