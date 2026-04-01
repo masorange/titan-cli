@@ -204,12 +204,6 @@ class ThreadReviewContext(BaseModel):
     )
     is_outdated: bool = Field(default=False)
 
-
-# ============================================================================
-# PHASE C: ACTION MODELS
-# ============================================================================
-
-
 class ReviewActionProposal(BaseModel):
     """
     Unified action ready for user review and GitHub submission.
@@ -242,12 +236,6 @@ class ReviewActionProposal(BaseModel):
         default_factory=list,
         description="Existing comment IDs this action is related to"
     )
-
-
-# ============================================================================
-# PHASE D: CONTEXT PACKAGE (Internal)
-# ============================================================================
-
 
 class FileContextEntry(BaseModel):
     """Single file's content for the review context package."""
