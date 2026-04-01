@@ -43,6 +43,7 @@ textual = ">=1.0.0,<2.0.0"
 requests = ">=2.31.0,<3.0.0"
 packaging = ">=23.0,<25.0"
 structlog = ">=25.5.0,<26.0.0"
+titan-plugin-ragnarok = {path = "/home/alex/git/ragnarok-titan-cli-workflows", develop = true}
 
 [tool.poetry.group.docs]
 optional = true

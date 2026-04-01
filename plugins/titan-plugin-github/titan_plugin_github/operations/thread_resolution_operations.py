@@ -23,16 +23,19 @@ from ..models.view import UICommentThread
 
 def build_thread_review_candidates(
     threads: list[UICommentThread],
+    pr_author: str,
 ) -> list[ThreadReviewCandidate]:
     """
     Filter threads worth AI analysis from the full list of open PR threads.
 
-    Includes only inline (non-general) unresolved threads — general comments
-    (thread_id starts with 'general_') cannot be resolved via GraphQL and
-    are excluded.
+    Includes only inline (non-general) unresolved threads where the last
+    comment is from the PR author (meaning they have replied to the review).
+    General comments (thread_id starts with 'general_') cannot be resolved
+    via GraphQL and are excluded.
 
     Args:
         threads: All unresolved inline review threads from fetch_pr_review_bundle
+        pr_author: GitHub login of the PR author
 
     Returns:
         ThreadReviewCandidate list ready for context enrichment
@@ -42,6 +45,15 @@ def build_thread_review_candidates(
         if thread.is_general_comment:
             continue
         if thread.is_resolved:
+            continue
+
+        # Skip if no replies — reviewer is waiting for author response
+        if not thread.replies:
+            continue
+
+        # Skip if last reply is not from PR author — reviewer is waiting for response
+        last_reply = thread.replies[-1]
+        if last_reply.author_login != pr_author:
             continue
 
         main = thread.main_comment
@@ -103,6 +115,7 @@ def build_thread_review_contexts(
         contexts.append(
             ThreadReviewContext(
                 thread_id=candidate.thread_id,
+                comment_id=thread.main_comment.id if thread else 0,
                 path=candidate.path,
                 line=candidate.line,
                 main_comment_body=candidate.main_comment_body,
@@ -172,20 +185,34 @@ For each thread, you have:
 
 For each thread, decide one of the following actions:
 
-- **resolved**: The author's changes or replies have fully addressed the issue. The thread can be marked as resolved.
-- **insist**: The issue still exists in the code. The reply did not fix it. Post a follow-up comment insisting on the fix.
-- **reply**: The concern is valid but needs clarification, reformulation, or acknowledgment. Post a reply.
-- **skip**: The thread is not actionable now (e.g., out of scope, already agreed to fix later, administrative).
+- **resolved**: The author's changes or replies have fully addressed the issue. The thread can be marked as resolved. Use this when:
+  - The code hunk shows the problem has been fixed
+  - The author acknowledged and applied the fix
+  - The concern is no longer relevant due to code changes
+  - The original issue is gone
 
-Rules:
-- Base your decision on the **current code** shown, not assumptions
-- If the code hunk shows the fix was applied, prefer "resolved"
-- If no code hunk is available and the author replied affirmatively, lean toward "resolved"
-- "insist" is for cases where the problem clearly persists in code
-- "reply" is for nuanced situations requiring clarification
-- "skip" only when the thread is clearly not actionable
-- `suggested_reply` is REQUIRED when decision is "insist" or "reply". It must be a complete, ready-to-post reply.
-- `suggested_reply` must be null when decision is "resolved" or "skip"
+- **insist**: The issue still exists in the code. The author's reply did not address it. Post a follow-up comment explaining why the problem persists.
+
+- **reply**: The concern is partially addressed or needs clarification/acknowledgment. The author's approach seems right but needs:
+  - Minor tweaks or explanations
+  - Acknowledgment that the fix was applied
+  - Clarification on edge cases
+
+- **skip**: The thread is not actionable now (out of scope, already agreed to fix later, administrative discussion, etc.)
+
+## Critical Rules:
+
+1. **NEVER use "reply" or "insist" with empty or whitespace-only body**. If you have nothing substantive to say, use "resolved" or "skip".
+2. Base decisions on **actual code shown**, not assumptions.
+3. If code hunk shows the fix applied → **resolved** (suggested_reply: null)
+4. If author replied but problem still visible in code → **insist** (with detailed explanation of why it's still broken)
+5. If you need confirmation or minor fixes → **reply** (with specific, actionable request)
+6. `suggested_reply` is MANDATORY when decision is "insist" or "reply":
+   - Must be non-empty (at least 10 characters of actual content, not whitespace)
+   - Must be a complete, ready-to-post GitHub comment
+   - Can reference the author's changes or code
+7. `suggested_reply` must be null when decision is "resolved" or "skip"
+8. If you cannot think of a substantive reply, change decision to "resolved"
 
 Respond ONLY with a valid JSON array matching this exact schema for each element:
 {schema}
@@ -249,24 +276,32 @@ def _thread_decision_schema() -> str:
 
 def build_thread_actions(
     decisions: list[ThreadDecision],
+    contexts: list[ThreadReviewContext],
 ) -> list[ReviewActionProposal]:
     """
     Transform ThreadDecision objects into ReviewActionProposal objects.
 
     Maps decisions to action types:
-    - resolved → resolve_thread
-    - insist / reply → reply_to_thread (with suggested_reply as body)
+    - resolved → resolve_thread (uses thread_id for GraphQL)
+    - insist / reply → reply_to_thread (uses comment_id for REST API)
     - skip → (excluded, no action created)
 
     Args:
         decisions: Validated ThreadDecision objects from normalize_thread_decisions
+        contexts: ThreadReviewContext list to look up comment IDs by thread_id
 
     Returns:
         List of ReviewActionProposal with source='thread_followup'
     """
+    context_map = {ctx.thread_id: ctx for ctx in contexts}
     actions = []
+
     for decision in decisions:
         if decision.decision == "skip":
+            continue
+
+        context = context_map.get(decision.thread_id)
+        if not context:
             continue
 
         if decision.decision == "resolved":
@@ -283,13 +318,23 @@ def build_thread_actions(
                 )
             )
         elif decision.decision in ("insist", "reply"):
-            reply_body = decision.suggested_reply or decision.reasoning
+            # Fallback: use reasoning if suggested_reply is empty
+            reply_body = (decision.suggested_reply or "").strip()
+            if not reply_body:
+                # Should not happen after validation, but be safe
+                reply_body = decision.reasoning
+
+            if not reply_body or not reply_body.strip():
+                # Still empty after fallback - skip creating action
+                continue
+
             label = "Insist" if decision.decision == "insist" else "Reply"
             actions.append(
                 ReviewActionProposal(
                     action_type="reply_to_thread",
                     source="thread_followup",
                     thread_id=decision.thread_id,
+                    comment_id=context.comment_id,
                     title=f"{label}: {decision.category or 'follow-up'}",
                     body=reply_body,
                     reasoning=decision.reasoning,

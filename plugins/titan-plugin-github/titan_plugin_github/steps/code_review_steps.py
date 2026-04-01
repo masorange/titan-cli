@@ -1398,7 +1398,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     for action in resolve_actions:
         if not action.thread_id:
             continue
-        with ctx.textual.loading(f"Resolving thread..."):
+        with ctx.textual.loading("Resolving thread..."):
             result = ctx.github.resolve_review_thread(action.thread_id)
         match result:
             case ClientSuccess():
@@ -1409,7 +1409,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     for action in reply_actions:
         if not action.comment_id or not pr_number:
             continue
-        with ctx.textual.loading(f"Posting reply to comment..."):
+        with ctx.textual.loading("Posting reply to comment..."):
             result = ctx.github.reply_to_comment(pr_number, action.comment_id, action.body)
         match result:
             case ClientSuccess():
@@ -1429,15 +1429,28 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("error")
                 return Error(f"Missing commit SHA for inline review: {err}")
 
+    # Show AI's opinion and prepare action options
+    ctx.textual.text("")
     if comment_actions:
+        ctx.textual.text(f"📋 Found {len(comment_actions)} issue(s) to address")
         ctx.textual.text(f"Ready to submit {len(comment_actions)} comment(s) on PR #{pr_number}")
+        ctx.textual.text("")
 
-    # Ask review event type
-    event_options = [
-        OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
-        OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
-        OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR"),
-    ]
+        # With findings - offer Comment or Request Changes
+        event_options = [
+            OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
+            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+        ]
+    else:
+        ctx.textual.success_text("✅ No issues found - PR looks good and can be approved")
+        ctx.textual.text("")
+
+        # No findings - offer all options
+        event_options = [
+            OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR"),
+            OptionItem(value="COMMENT", title="💬 Comment", description="Post a general comment"),
+            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+        ]
 
     try:
         event = ctx.textual.ask_option("Select review type:", event_options)

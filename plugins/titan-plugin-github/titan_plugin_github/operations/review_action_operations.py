@@ -55,9 +55,9 @@ def build_review_action_payload(
     """
     Build the GitHub API payload from approved ReviewActionProposal objects.
 
-    Handles new_comment and reply_to_thread action types. Actions with
-    action_type='resolve_thread' are excluded — they are handled separately
-    via direct API call in the submit step.
+    Handles new_comment action type only. Actions with action_type='resolve_thread'
+    or 'reply_to_thread' are excluded — they are handled separately via direct API
+    calls in the submit step.
 
     For new_comment actions, tries to place the comment inline if the line
     is present in the diff. Falls back to the general review body otherwise.
@@ -83,14 +83,7 @@ def build_review_action_payload(
     general_parts: List[str] = []
 
     for idx, action in enumerate(actions):
-        if action.action_type == "resolve_thread":
-            continue
-
-        if action.action_type == "reply_to_thread" and action.thread_id:
-            inline_comments.append({
-                "body": action.body,
-                "in_reply_to": int(action.thread_id),
-            })
+        if action.action_type in ("resolve_thread", "reply_to_thread"):
             continue
 
         # new_comment — try inline first, fall back to general body

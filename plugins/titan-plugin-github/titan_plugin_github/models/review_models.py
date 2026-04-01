@@ -190,7 +190,8 @@ class ThreadReviewCandidate(BaseModel):
 
 class ThreadReviewContext(BaseModel):
     """Enriched context for AI to decide what to do with a thread."""
-    thread_id: str = Field(..., description="GitHub thread ID")
+    thread_id: str = Field(..., description="GitHub thread ID (GraphQL node ID)")
+    comment_id: int = Field(..., description="Comment ID of main comment (for REST API)")
     path: Optional[str] = Field(default=None)
     line: Optional[int] = Field(default=None)
     main_comment_body: str = Field(..., description="Original comment body")
@@ -228,7 +229,10 @@ class ReviewActionProposal(BaseModel):
     )
     line: Optional[int] = Field(default=None, description="Line number for inline comments")
     thread_id: Optional[str] = Field(
-        default=None, description="Thread ID (required for reply/resolve actions)"
+        default=None, description="Thread ID (required for resolve_thread actions)"
+    )
+    comment_id: Optional[int] = Field(
+        default=None, description="Comment ID (required for reply_to_thread actions)"
     )
     title: str = Field(..., description="Short action description shown to the user")
     body: str = Field(..., description="Full comment text to post")
