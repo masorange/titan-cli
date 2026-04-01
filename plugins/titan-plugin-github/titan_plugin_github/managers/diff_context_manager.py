@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
 
@@ -23,6 +24,8 @@ from ..models.diff_models import (
     ResolvedCommentContext,
 )
 from ..models.view import UIComment
+
+logger = logging.getLogger(__name__)
 
 _HUNK_HEADER_RE = re.compile(r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@(.*)")
 _FILE_HEADER_RE = re.compile(r"^diff --git a/.+ b/(.+)$")
@@ -54,7 +57,10 @@ class DiffContextManager:
         Returns:
             DiffContextManager with all hunks indexed
         """
-        return cls(_parse_diff(diff))
+        logger.debug(f"Parsing diff: {len(diff)} bytes")
+        parsed = _parse_diff(diff)
+        logger.debug(f"Parsed diff: {len(parsed.files)} files, {sum(len(f.hunks) for f in parsed.files.values())} hunks")
+        return cls(parsed)
 
     @classmethod
     def from_file_diff(cls, file_diff: str, path: str) -> DiffContextManager:
@@ -71,7 +77,10 @@ class DiffContextManager:
         Returns:
             DiffContextManager with hunks indexed under ``path``
         """
+        logger.debug(f"Parsing file diff: path={path}, size={len(file_diff)} bytes")
         parsed_file = _parse_file_diff_section(path, file_diff)
+        hunks_count = len(parsed_file.hunks) if parsed_file else 0
+        logger.debug(f"Parsed file diff: {hunks_count} hunks")
         files = {path: parsed_file} if parsed_file else {}
         return cls(ParsedDiff(files=files, raw=file_diff))
 
@@ -81,12 +90,16 @@ class DiffContextManager:
 
     def get_file(self, path: str) -> Optional[ParsedFileDiff]:
         """Return parsed file diff for ``path``, or None if not in diff."""
-        return self._parsed.files.get(path)
+        result = self._parsed.files.get(path)
+        logger.debug(f"get_file: path={path}, found={result is not None}")
+        return result
 
     def get_hunks(self, path: str) -> list[ParsedHunk]:
         """Return all hunks for ``path``, empty list if file not in diff."""
         file_diff = self._parsed.files.get(path)
-        return file_diff.hunks if file_diff else []
+        hunks = file_diff.hunks if file_diff else []
+        logger.debug(f"get_hunks: path={path}, count={len(hunks)}")
+        return hunks
 
     def get_hunk_for_line(self, path: str, line: int) -> Optional[ParsedHunk]:
         """
@@ -96,10 +109,13 @@ class DiffContextManager:
         """
         hunks = self.get_hunks(path)
         if not hunks:
+            logger.debug(f"get_hunk_for_line: path={path}, line={line} → no hunks")
             return None
         for hunk in hunks:
             if hunk.contains_new_line(line):
+                logger.debug(f"get_hunk_for_line: path={path}, line={line} → exact match ({hunk.new_line_start}-{hunk.new_line_end})")
                 return hunk
+        logger.debug(f"get_hunk_for_line: path={path}, line={line} → fallback to first hunk ({hunks[0].new_line_start}-{hunks[0].new_line_end})")
         return hunks[0]
 
     def get_hunk_for_old_line(self, path: str, line: int) -> Optional[ParsedHunk]:
@@ -111,10 +127,13 @@ class DiffContextManager:
         """
         hunks = self.get_hunks(path)
         if not hunks:
+            logger.debug(f"get_hunk_for_old_line: path={path}, old_line={line} → no hunks")
             return None
         for hunk in hunks:
             if hunk.contains_old_line(line):
+                logger.debug(f"get_hunk_for_old_line: path={path}, old_line={line} → exact match ({hunk.old_line_start}-{hunk.old_line_end})")
                 return hunk
+        logger.debug(f"get_hunk_for_old_line: path={path}, old_line={line} → fallback to last hunk ({hunks[-1].old_line_start}-{hunks[-1].old_line_end})")
         return hunks[-1]
 
     # ------------------------------------------------------------------
@@ -128,7 +147,9 @@ class DiffContextManager:
         Only added ('+') and context (' ') lines are valid targets.
         """
         file_diff = self._parsed.files.get(path)
-        return file_diff.valid_review_lines if file_diff else frozenset()
+        valid = file_diff.valid_review_lines if file_diff else frozenset()
+        logger.debug(f"get_valid_review_lines: path={path}, count={len(valid)}, lines={sorted(list(valid))[:10]}...")
+        return valid
 
     def get_all_valid_lines(self) -> dict[str, frozenset]:
         """
@@ -136,7 +157,9 @@ class DiffContextManager:
 
         Replaces ``extract_valid_diff_lines`` from code_review_operations.
         """
-        return {path: fd.valid_review_lines for path, fd in self._parsed.files.items()}
+        result = {path: fd.valid_review_lines for path, fd in self._parsed.files.items()}
+        logger.debug(f"get_all_valid_lines: {len(result)} files, total_valid_lines={sum(len(v) for v in result.values())}")
+        return result
 
     # ------------------------------------------------------------------
     # Snippet search
@@ -150,20 +173,25 @@ class DiffContextManager:
         Returns None if the snippet is not found.
         """
         if not snippet:
+            logger.debug(f"find_line_by_snippet: path={path}, snippet=<empty> → skipped")
             return None
         snippet_stripped = snippet.strip()
+        logger.debug(f"find_line_by_snippet: path={path}, snippet='{snippet_stripped[:50]}...'")
         for hunk in self.get_hunks(path):
             lines = hunk.content.split("\n")
             current = hunk.new_line_start
             for line in lines[1:]:  # skip @@ header
                 if line.startswith("+") and not line.startswith("+++"):
                     if snippet_stripped in line[1:].strip():
+                        logger.debug(f"find_line_by_snippet: found at line {current}")
                         return current
                     current += 1
                 elif line.startswith(" "):
                     if snippet_stripped in line[1:].strip():
+                        logger.debug(f"find_line_by_snippet: found at line {current}")
                         return current
                     current += 1
+        logger.debug(f"find_line_by_snippet: path={path} → not found")
         return None
 
     # ------------------------------------------------------------------
@@ -190,11 +218,14 @@ class DiffContextManager:
             hunk = self.get_hunk_for_line(path, line)
 
         if not hunk:
+            logger.debug(f"build_focused_diff: path={path}, line={line}, is_outdated={is_outdated} → no hunk found")
             return ""
 
-        return _build_focused_diff_from_hunk(
+        result = _build_focused_diff_from_hunk(
             hunk.content, line, is_outdated, before=before, after=after
         )
+        logger.debug(f"build_focused_diff: path={path}, line={line}, is_outdated={is_outdated}, result_size={len(result)} bytes")
+        return result
 
     def extract_original_lines_for_suggestion(
         self,
@@ -210,8 +241,11 @@ class DiffContextManager:
         """
         hunk = self.get_hunk_for_line(path, line)
         if not hunk:
+            logger.debug(f"extract_original_lines_for_suggestion: path={path}, line={line}, count={count} → no hunk")
             return None
-        return _extract_lines_from_hunk(hunk.content, line, count)
+        result = _extract_lines_from_hunk(hunk.content, line, count)
+        logger.debug(f"extract_original_lines_for_suggestion: path={path}, line={line}, count={count} → {len(result.split(chr(10))) if result else 0} lines extracted")
+        return result
 
     def build_comment_context(self, comment: UIComment) -> ResolvedCommentContext:
         """
@@ -226,6 +260,12 @@ class DiffContextManager:
         is_outdated = comment.position is None and comment.original_line is not None
         effective_line = comment.original_line if is_outdated else comment.line
 
+        logger.debug(
+            f"build_comment_context: comment_id={comment.id}, path={comment.path}, "
+            f"line={comment.line}, original_line={comment.original_line}, "
+            f"position={comment.position}, is_outdated={is_outdated}"
+        )
+
         focused = ""
         full_hunk: Optional[str] = None
 
@@ -239,6 +279,7 @@ class DiffContextManager:
                 else self.get_hunk_for_line(comment.path, effective_line)
             )
             full_hunk = hunk.content if hunk else None
+            logger.debug(f"build_comment_context: resolved from diff, focused_diff_len={len(focused)}, full_hunk_len={len(full_hunk) if full_hunk else 0}")
 
         if not focused and comment.diff_hunk:
             # Fallback: use the diffHunk stored on the comment itself
@@ -246,6 +287,7 @@ class DiffContextManager:
                 comment.diff_hunk, effective_line, is_outdated
             )
             full_hunk = full_hunk or comment.diff_hunk
+            logger.debug(f"build_comment_context: fallback to comment.diff_hunk, focused_diff_len={len(focused)}")
 
         return ResolvedCommentContext(
             comment_id=comment.id,
@@ -295,6 +337,7 @@ def _parse_file_diff_section(path: str, file_section: str) -> Optional[ParsedFil
 
 def _parse_diff(raw: str) -> ParsedDiff:
     """Parse a full unified diff into structured ``ParsedDiff``."""
+    logger.debug(f"_parse_diff: parsing {len(raw)} bytes")
     files: dict[str, ParsedFileDiff] = {}
     current_path: Optional[str] = None
     current_hunk_lines: list[str] = []
@@ -312,6 +355,7 @@ def _parse_diff(raw: str) -> ParsedDiff:
             current_hunk_lines = []
             current_path = file_match.group(1)
             if current_path not in files:
+                logger.debug(f"_parse_diff: found file: {current_path}")
                 files[current_path] = ParsedFileDiff(path=current_path, hunks=[])
             continue
 
@@ -324,6 +368,7 @@ def _parse_diff(raw: str) -> ParsedDiff:
             current_hunk_lines.append(raw_line)
 
     _flush_hunk()
+    logger.debug(f"_parse_diff: completed → {len(files)} files, {sum(len(f.hunks) for f in files.values())} hunks")
     return ParsedDiff(files=files, raw=raw)
 
 
