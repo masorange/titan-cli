@@ -18,6 +18,7 @@ from textual.widget import Widget
 
 from titan_cli.ui.tui.widgets import BoldText, DimText, ItalicText, Text, DimItalicText
 
+from ..models.review_enums import FindingSeverity, ThreadSeverity
 from .code_block import CodeBlock
 from .comment_utils import extract_diff_context, render_comment_elements
 
@@ -89,7 +90,7 @@ class CommentView(Widget):
         file_path: Optional[str] = None,
         line: Optional[int] = None,
         diff_hunk: Optional[str] = None,
-        severity: Optional[str] = None,
+        severity: Optional[FindingSeverity | ThreadSeverity] = None,
         is_outdated: bool = False,
         **kwargs,
     ):
@@ -103,7 +104,7 @@ class CommentView(Widget):
             file_path: Path to the file this comment references (None for general comments).
             line: Line number in the file (None for general comments).
             diff_hunk: Diff context snippet around the commented line (None for general comments).
-            severity: AI suggestion severity level ("critical", "improvement", "suggestion").
+            severity: Severity level for AI suggestions or thread follow-ups.
             is_outdated: Whether the comment references outdated code.
         """
         super().__init__(**kwargs)
@@ -221,14 +222,17 @@ class CommentView(Widget):
     def _severity_badge(self) -> Text:
         """Create severity badge widget for AI suggestions."""
         badge_labels = {
-            "blocking": "🔴 BLOCKING",
-            "important": "🟡 IMPORTANT",
-            "nit": "🔵 NIT",
+            FindingSeverity.BLOCKING: "🔴 BLOCKING",
+            FindingSeverity.IMPORTANT: "🟡 IMPORTANT",
+            FindingSeverity.NIT: "🔵 NIT",
+            ThreadSeverity.IMPORTANT: "🟡 IMPORTANT",
+            ThreadSeverity.NIT: "🔵 NIT",
         }
-        badge_text = badge_labels.get(self.severity, self.severity.upper())
+        severity_value = self.severity.value
+        badge_text = badge_labels.get(self.severity, severity_value.upper())
         badge = Text(badge_text)
         badge.add_class("severity-badge")
-        badge.add_class(self.severity)
+        badge.add_class(severity_value)
         return badge
 
     def _metadata_container(self) -> Horizontal:

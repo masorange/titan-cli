@@ -1217,7 +1217,7 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     severity_order = {"blocking": 0, "important": 1, "nit": 2}
     sorted_actions = sorted(
         actions,
-        key=lambda a: severity_order.get(a.severity or "", 99),
+        key=lambda a: severity_order.get(a.severity.value if a.severity else "", 99),
     )
 
     approved: List[ReviewActionProposal] = []

@@ -232,7 +232,10 @@ class ReviewActionProposal(BaseModel):
     body: str = Field(..., description="Full comment text to post")
     reasoning: str = Field(..., description="Why this action is being proposed")
     category: Optional[str] = Field(default=None, description="Issue category")
-    severity: Optional[str] = Field(default=None, description="Issue severity")
+    severity: Optional[FindingSeverity | ThreadSeverity] = Field(
+        default=None,
+        description="Issue severity"
+    )
     related_existing_comment_ids: list[int] = Field(
         default_factory=list,
         description="Existing comment IDs this action is related to"
