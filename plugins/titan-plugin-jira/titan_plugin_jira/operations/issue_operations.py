@@ -113,24 +113,6 @@ def find_issue_type_by_name(jira_client, project_key: str, issue_type_name: str)
             raise Exception(f"Failed to get issue types: {err}")
 
 
-def prepare_epic_name(issue_type, summary: str) -> Optional[str]:
-    """
-    Prepare Epic Name field if issue type is Epic.
-
-    Jira requires Epic Name as a custom field when creating Epics.
-
-    Args:
-        issue_type: Issue type object
-        summary: Issue summary
-
-    Returns:
-        Epic name (same as summary) if Epic type, None otherwise
-    """
-    if issue_type.name.lower() == "epic":
-        return summary
-    return None
-
-
 def find_subtask_issue_type(jira_client, project_key: str):
     """
     Find subtask issue type for a project.

@@ -147,8 +147,7 @@ class IssueService:
         description: Optional[str] = None,
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
-        priority: Optional[str] = None,
-        epic_name: Optional[str] = None
+        priority: Optional[str] = None
     ) -> ClientResult[UIJiraIssue]:
         """
         Create new issue.
@@ -161,7 +160,6 @@ class IssueService:
             assignee: Assignee username or email
             labels: List of labels
             priority: Priority name
-            epic_name: Epic name (required for Epic issue type)
 
         Returns:
             ClientResult[UIJiraIssue]
@@ -176,10 +174,22 @@ class IssueService:
                 }
             }
 
-            # Add description if provided
             if description:
-                # Try plain text first (some Jira instances don't support ADF)
-                payload["fields"]["description"] = description
+                payload["fields"]["description"] = {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": description
+                                }
+                            ]
+                        }
+                    ]
+                }
 
             # Add optional fields
             if assignee:
@@ -198,10 +208,6 @@ class IssueService:
                 payload["fields"]["labels"] = labels
             if priority:
                 payload["fields"]["priority"] = {"name": priority}
-
-            # Add Epic Name for Epic issue types (customfield_10102)
-            if epic_name:
-                payload["fields"]["customfield_10102"] = epic_name
 
             # 2. Network call
             data = self.network.make_request("POST", "issue", json=payload)
@@ -272,9 +278,6 @@ class IssueService:
                         error_code="ISSUE_TYPE_NOT_FOUND"
                     )
 
-                # Prepare Epic name if issue type is Epic
-                epic_name = summary if issue_type.name.lower() == "epic" else None
-
                 # Create issue with resolved type ID
                 return self.create_issue(
                     project_key=project_key,
@@ -283,8 +286,7 @@ class IssueService:
                     description=description,
                     assignee=assignee,
                     labels=labels,
-                    priority=priority,
-                    epic_name=epic_name
+                    priority=priority
                 )
 
             case ClientError() as error:
@@ -324,8 +326,21 @@ class IssueService:
             }
 
             if description:
-                # Try plain text first (some Jira instances don't support ADF)
-                payload["fields"]["description"] = description
+                payload["fields"]["description"] = {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": description
+                                }
+                            ]
+                        }
+                    ]
+                }
 
             # 2. Network call
             data = self.network.make_request("POST", "issue", json=payload)

@@ -11,7 +11,6 @@ from titan_plugin_jira.operations.issue_operations import (
     find_ready_to_dev_transition,
     transition_issue_to_ready_for_dev,
     find_issue_type_by_name,
-    prepare_epic_name,
     find_subtask_issue_type,
 )
 from titan_plugin_jira.models import UIJiraTransition
@@ -316,43 +315,6 @@ class TestFindIssueTypeByName:
         with pytest.raises(Exception) as exc_info:
             find_issue_type_by_name(mock_client, "PROJ", "Bug")
         assert "API Error" in str(exc_info.value)
-
-
-class TestPrepareEpicName:
-    """Tests for prepare_epic_name function."""
-
-    def test_returns_summary_for_epic(self):
-        """Should return summary when issue type is Epic."""
-        # Setup
-        epic_type = NetworkJiraIssueType(id="10", name="Epic", subtask=False)
-
-        # Execute
-        result = prepare_epic_name(epic_type, "My Epic Summary")
-
-        # Assert
-        assert result == "My Epic Summary"
-
-    def test_returns_none_for_non_epic(self):
-        """Should return None when issue type is not Epic."""
-        # Setup
-        bug_type = NetworkJiraIssueType(id="1", name="Bug", subtask=False)
-
-        # Execute
-        result = prepare_epic_name(bug_type, "My Bug Summary")
-
-        # Assert
-        assert result is None
-
-    def test_case_insensitive_epic_check(self):
-        """Should work with different cases of 'epic'."""
-        # Setup
-        epic_type = NetworkJiraIssueType(id="10", name="EPIC", subtask=False)
-
-        # Execute
-        result = prepare_epic_name(epic_type, "My Epic")
-
-        # Assert
-        assert result == "My Epic"
 
 
 class TestFindSubtaskIssueType:
