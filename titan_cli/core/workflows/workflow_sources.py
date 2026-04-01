@@ -23,8 +23,9 @@ class WorkflowInfo:
     """Metadata about a discovered, but not yet parsed, workflow."""
     name: str
     description: str
-    source: str  # "project", "user", "system", "plugin:github"
+    source: str
     path: Path
+    title: Optional[str] = None
     category: Optional[str] = None
     required_plugins: Set[str] = field(default_factory=set)
     tags: dict = field(default_factory=dict)
@@ -80,6 +81,7 @@ def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRe
         description=config.get("description", "No description available."),
         source=source_name,
         path=file,
+        title=config.get("name"),
         category=config.get("category"),
         required_plugins=required_plugins,
         tags=tags,
