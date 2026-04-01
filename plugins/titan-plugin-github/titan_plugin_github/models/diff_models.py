@@ -105,6 +105,9 @@ class ResolvedCommentContext:
         focused_diff: Trimmed diff fragment for UI display (7 before + target + 3 after)
         full_hunk: Complete hunk text when available
         original_lines: Original code lines for suggestion rendering
+        body: Comment body text (for complete context reconstruction)
+        author_name: Author display name (for complete context reconstruction)
+        formatted_date: Pre-formatted date (for complete context reconstruction)
     """
     comment_id: int
     is_outdated: bool
@@ -114,6 +117,9 @@ class ResolvedCommentContext:
     focused_diff: str
     full_hunk: Optional[str] = None
     original_lines: Optional[str] = None
+    body: str = ""
+    author_name: str = ""
+    formatted_date: str = ""
 
 
 __all__ = [

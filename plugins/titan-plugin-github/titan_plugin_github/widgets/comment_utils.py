@@ -1,8 +1,19 @@
 """
-Comment Utilities
+Comment Body Utilities
 
-Utilities for parsing and processing PR/issue comment bodies.
-Diff extraction is delegated to DiffContextManager.
+Pure parsing and rendering of comment body text (markdown, code blocks, suggestions).
+
+This module is responsible ONLY for:
+  - Parsing comment body markdown (TextElement, CodeBlockElement, SuggestionElement)
+  - Rendering parsed elements as Textual widgets
+  - Extracting code lines for suggestion display
+
+This module is NOT responsible for:
+  - Diff parsing or interpretation (use DiffContextManager)
+  - Determining outdated status (use ResolvedCommentContext)
+  - Resolving line numbers or positions (use DiffContextManager)
+
+Keep this separation strict to avoid logic creep back into the UI layer.
 """
 
 import re

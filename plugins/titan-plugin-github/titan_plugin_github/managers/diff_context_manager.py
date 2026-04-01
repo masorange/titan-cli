@@ -217,13 +217,14 @@ class DiffContextManager:
         """
         Build a ``ResolvedCommentContext`` for a UIComment.
 
-        Resolves the focused diff and full hunk. ``is_outdated`` is inferred
-        from ``position is None`` (GitHub sets position=None for outdated comments).
+        Resolves the focused diff and full hunk. ``is_outdated`` is True only when
+        the comment has an ``original_line`` (from old file) but no ``position``
+        (GitHub's marker for outdated comments).
         Falls back to the diffHunk stored on the comment itself when the file
         is not present in the diff.
         """
-        is_outdated = comment.position is None and comment.path is not None
-        effective_line = comment.line
+        is_outdated = comment.position is None and comment.original_line is not None
+        effective_line = comment.original_line if is_outdated else comment.line
 
         focused = ""
         full_hunk: Optional[str] = None
@@ -254,6 +255,9 @@ class DiffContextManager:
             position=comment.position,
             focused_diff=focused,
             full_hunk=full_hunk,
+            body=comment.body,
+            author_name=comment.author_name,
+            formatted_date=comment.formatted_date,
         )
 
 
