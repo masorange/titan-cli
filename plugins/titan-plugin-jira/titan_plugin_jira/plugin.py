@@ -214,10 +214,22 @@ class JiraPlugin(TitanPlugin):
         """
         Return JSON schema for plugin configuration.
 
+        Technical fields (timeout, enable_cache, cache_ttl) are excluded from the wizard
+        since they have sensible defaults and most users don't need to change them.
+
         Returns:
             JSON schema dict with api_token marked as required (even though it's stored in secrets)
         """
         schema = JiraPluginConfig.model_json_schema()
+
+        # Exclude technical fields from wizard (they have good defaults)
+        # Users can still manually edit config.toml if needed
+        technical_fields = ["timeout", "enable_cache", "cache_ttl"]
+        for field in technical_fields:
+            schema.get("properties", {}).pop(field, None)
+            if field in schema.get("required", []):
+                schema["required"].remove(field)
+
         # Ensure api_token is in required list for interactive configuration
         # (even though it's Optional in the model since it's stored in secrets)
         if "api_token" not in schema.get("required", []):
