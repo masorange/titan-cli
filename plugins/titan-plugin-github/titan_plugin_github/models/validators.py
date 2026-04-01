@@ -8,7 +8,12 @@ Contains:
 
 from difflib import SequenceMatcher
 
-from .review_enums import ChecklistCategory, FileTypeIndicator
+from .review_enums import (
+    ChecklistCategory,
+    ContextRequestType,
+    FileReadMode,
+    FileTypeIndicator,
+)
 from .review_models import (
     ChangeManifest,
     ReviewPlan,
@@ -78,7 +83,7 @@ class ReviewPlanValidator:
             )
 
     def _check_context_request_types(self, plan: ReviewPlan, errors: list[str]) -> None:
-        allowed = {"related_tests", "related_context"}
+        allowed = {ContextRequestType.RELATED_TESTS, ContextRequestType.RELATED_CONTEXT}
         for req in plan.extra_context_requests:
             if req.type not in allowed:
                 errors.append(f"Invalid context type: {req.type}")
@@ -92,7 +97,7 @@ class ReviewPlanValidator:
         path_to_entry = {f.path: f for f in self.manifest.files}
 
         for fp in plan.file_plan:
-            if fp.read_mode != "full_file":
+            if fp.read_mode != FileReadMode.FULL_FILE:
                 continue
 
             entry = path_to_entry.get(fp.path)

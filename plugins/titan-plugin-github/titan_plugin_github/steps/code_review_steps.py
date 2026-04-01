@@ -13,6 +13,7 @@ from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
+from ..models.review_enums import ReviewActionType, ThreadDecisionType
 from ..models.review_models import ReviewActionProposal
 from ..models.view import UICommentThread
 from ..operations.code_review_operations import (
@@ -119,7 +120,7 @@ def _show_review_action_and_get_decision(
     ctx.textual.text("")
 
     # Handle resolve_thread actions differently
-    if action.action_type == "resolve_thread":
+    if action.action_type == ReviewActionType.RESOLVE_THREAD:
         ctx.textual.bold_text(f"Thread {idx + 1} of {total}")
         ctx.textual.text("")
 
@@ -158,7 +159,7 @@ def _show_review_action_and_get_decision(
         ctx.textual.text("")
 
         # For reply_to_thread actions, show the original thread context
-        if action.action_type == "reply_to_thread" and review_threads:
+        if action.action_type == ReviewActionType.REPLY_TO_THREAD and review_threads:
             from titan_plugin_github.widgets import CommentThread
 
             # Find the original thread
@@ -210,7 +211,7 @@ def _show_review_action_and_get_decision(
     choice = result_container.get("choice", "skip")
 
     action_labels = {
-        "approve": "✓ Resolved" if action.action_type == "resolve_thread" else "✓ Approved",
+        "approve": "✓ Resolved" if action.action_type == ReviewActionType.RESOLVE_THREAD else "✓ Approved",
         "edit": "✎ Edited",
         "skip": "— Skipped",
         "exit": "✗ Exit review",
@@ -1316,9 +1317,9 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text("No approved actions — you can still submit a review decision.")
 
     # Handle thread actions first (direct API, outside the review draft)
-    resolve_actions = [a for a in approved if a.action_type == "resolve_thread"]
-    reply_actions = [a for a in approved if a.action_type == "reply_to_thread"]
-    comment_actions = [a for a in approved if a.action_type == "new_comment"]
+    resolve_actions = [a for a in approved if a.action_type == ReviewActionType.RESOLVE_THREAD]
+    reply_actions = [a for a in approved if a.action_type == ReviewActionType.REPLY_TO_THREAD]
+    comment_actions = [a for a in approved if a.action_type == ReviewActionType.NEW_COMMENT]
 
     for action in resolve_actions:
         if not action.thread_id:
@@ -1679,7 +1680,7 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
 
             # Validate: if decision is "reply" or "insist" but suggested_reply is empty,
             # convert to "resolved" (avoid posting empty comments)
-            if decision.decision in ("reply", "insist"):
+            if decision.decision in (ThreadDecisionType.REPLY, ThreadDecisionType.INSIST):
                 reply_body = (decision.suggested_reply or "").strip()
                 reasoning = (decision.reasoning or "").strip()
 
@@ -1692,11 +1693,16 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
                     else:
                         # Both empty - convert to skip
                         ctx.textual.dim_text(f"⚠ Decision {i + 1}: empty reply → skip")
-                        decision = decision.model_copy(update={"decision": "skip", "suggested_reply": None})
+                        decision = decision.model_copy(
+                            update={
+                                "decision": ThreadDecisionType.SKIP,
+                                "suggested_reply": None,
+                            }
+                        )
                         auto_resolved += 1
 
             # Ensure suggested_reply is None for "resolved" and "skip"
-            if decision.decision in ("resolved", "skip"):
+            if decision.decision in (ThreadDecisionType.RESOLVED, ThreadDecisionType.SKIP):
                 if decision.suggested_reply:
                     decision = decision.model_copy(update={"suggested_reply": None})
 
@@ -1765,8 +1771,8 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.data["review_action_proposals"] = actions
 
-    resolve_count = sum(1 for a in actions if a.action_type == "resolve_thread")
-    reply_count = sum(1 for a in actions if a.action_type == "reply_to_thread")
+    resolve_count = sum(1 for a in actions if a.action_type == ReviewActionType.RESOLVE_THREAD)
+    reply_count = sum(1 for a in actions if a.action_type == ReviewActionType.REPLY_TO_THREAD)
     summary_parts = []
     if resolve_count:
         summary_parts.append(f"{resolve_count} resolve")

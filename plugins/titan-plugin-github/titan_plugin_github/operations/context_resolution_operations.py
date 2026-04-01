@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from .code_review_operations import extract_diff_for_file
+from ..models.review_enums import ContextRequestType, FileReadMode
 from ..models.review_models import (
     ChangeManifest,
     ContextRequest,
@@ -254,14 +255,14 @@ def resolve_context_requests(
     for req in requests:
         key = f"{req.type}:{req.for_path}"
 
-        if req.type == "related_tests":
+        if req.type == ContextRequestType.RELATED_TESTS:
             content = _find_related_tests(req.for_path, cwd)
             if content:
                 result[key] = content
             else:
                 logger.debug(f"No related tests found for {req.for_path}")
 
-        elif req.type == "related_context":
+        elif req.type == ContextRequestType.RELATED_CONTEXT:
             content = _find_related_context(req.for_path, cwd)
             if content:
                 result[key] = content
@@ -292,11 +293,11 @@ def _resolve_file_context(
     """
     path = file_plan.path
 
-    if file_plan.read_mode == "full_file":
+    if file_plan.read_mode == FileReadMode.FULL_FILE:
         content = read_file_content(path, cwd)
         return FileContextEntry(path=path, full_content=content)
 
-    if file_plan.read_mode == "expanded_hunks":
+    if file_plan.read_mode == FileReadMode.EXPANDED_HUNKS:
         hunks = extract_expanded_hunks(diff, path, cwd)
         return FileContextEntry(path=path, expanded_hunks=hunks)
 

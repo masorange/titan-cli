@@ -8,7 +8,11 @@ and fallback heuristics are defined here for independent testing.
 import json
 from typing import Optional
 
-from ..models.review_enums import ChecklistCategory
+from ..models.review_enums import (
+    ChecklistCategory,
+    FileReadMode,
+    FileReviewPriority,
+)
 from ..models.review_models import (
     ChangeManifest,
     ExistingCommentIndexEntry,
@@ -198,20 +202,20 @@ def build_default_review_plan(
         total_changes = f.additions + f.deletions
 
         if f.is_test:
-            priority = "low"
-            read_mode = "hunks_only"
+            priority = FileReviewPriority.LOW
+            read_mode = FileReadMode.HUNKS_ONLY
         elif f.status == "added" and f.size_lines < 300:
-            priority = "high"
-            read_mode = "full_file"
+            priority = FileReviewPriority.HIGH
+            read_mode = FileReadMode.FULL_FILE
         elif total_changes > 50:
-            priority = "high"
-            read_mode = "expanded_hunks"
+            priority = FileReviewPriority.HIGH
+            read_mode = FileReadMode.EXPANDED_HUNKS
         elif total_changes > 10:
-            priority = "medium"
-            read_mode = "hunks_only"
+            priority = FileReviewPriority.MEDIUM
+            read_mode = FileReadMode.HUNKS_ONLY
         else:
-            priority = "low"
-            read_mode = "hunks_only"
+            priority = FileReviewPriority.LOW
+            read_mode = FileReadMode.HUNKS_ONLY
 
         file_plans.append(
             FileReviewPlan(

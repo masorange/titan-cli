@@ -35,3 +35,66 @@ class FileTypeIndicator(StrEnum):
     SERIALIZER = "serializer"
     DESERIALIZER = "deserializer"
     TRANSFORMER = "transformer"
+
+
+class ContextRequestType(StrEnum):
+    """Supported extra-context requests for targeted review."""
+
+    RELATED_TESTS = "related_tests"
+    RELATED_CONTEXT = "related_context"
+
+
+class FileReviewPriority(StrEnum):
+    """Relative priority assigned to a file during review planning."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class FileReadMode(StrEnum):
+    """How much code to load for a file during targeted review."""
+
+    HUNKS_ONLY = "hunks_only"
+    EXPANDED_HUNKS = "expanded_hunks"
+    FULL_FILE = "full_file"
+
+
+class FindingSeverity(StrEnum):
+    """Severity assigned to a new finding found during review."""
+
+    BLOCKING = "blocking"
+    IMPORTANT = "important"
+    NIT = "nit"
+
+
+class ThreadDecisionType(StrEnum):
+    """AI-selected action for an existing review thread."""
+
+    RESOLVED = "resolved"
+    INSIST = "insist"
+    REPLY = "reply"
+    SKIP = "skip"
+
+
+class ThreadSeverity(StrEnum):
+    """Severity assigned while evaluating an existing review thread."""
+
+    IMPORTANT = "important"
+    NIT = "nit"
+    NONE = "none"
+
+
+class ReviewActionType(StrEnum):
+    """Type of GitHub review action proposed by the workflow."""
+
+    NEW_COMMENT = "new_comment"
+    REPLY_TO_THREAD = "reply_to_thread"
+    RESOLVE_THREAD = "resolve_thread"
+
+
+class ReviewActionSource(StrEnum):
+    """Workflow source that produced a review action."""
+
+    NEW_FINDING = "new_finding"
+    THREAD_FOLLOWUP = "thread_followup"

@@ -8,12 +8,17 @@ Follows two-phase architecture: cheap context → AI-directed analysis → targe
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-from .review_enums import ChecklistCategory
-
-
-# ============================================================================
-# PHASE A: INPUT MODELS (Cheap Context)
-# ============================================================================
+from .review_enums import (
+    ChecklistCategory,
+    ContextRequestType,
+    FileReadMode,
+    FileReviewPriority,
+    FindingSeverity,
+    ReviewActionSource,
+    ReviewActionType,
+    ThreadDecisionType,
+    ThreadSeverity,
+)
 
 
 class ChangedFileEntry(BaseModel):
@@ -80,15 +85,9 @@ class ExistingCommentIndexEntry(BaseModel):
     title: str = Field(..., description="First ~50 chars of comment body")
     author: str = Field(..., description="Comment author login")
 
-
-# ============================================================================
-# PHASE B: AI-DRIVEN MODELS
-# ============================================================================
-
-
 class ContextRequest(BaseModel):
     """Request for additional context beyond the diff."""
-    type: Literal["related_tests", "related_context"] = Field(
+    type: ContextRequestType = Field(
         ..., description="Type of extra context needed"
     )
     for_path: str = Field(..., description="The file this extra context supports")
@@ -98,10 +97,10 @@ class ContextRequest(BaseModel):
 class FileReviewPlan(BaseModel):
     """AI decision on how to read one file."""
     path: str = Field(..., description="File path (must exist in the PR)")
-    priority: Literal["high", "medium", "low"] = Field(
+    priority: FileReviewPriority = Field(
         ..., description="How important this file is for the review"
     )
-    read_mode: Literal["hunks_only", "expanded_hunks", "full_file"] = Field(
+    read_mode: FileReadMode = Field(
         ..., description="How much of the file to read"
     )
     reasons: list[str] = Field(
@@ -137,7 +136,7 @@ class Finding(BaseModel):
 
     Output from second IA call, one per problematic piece of code.
     """
-    severity: Literal["blocking", "important", "nit"] = Field(
+    severity: FindingSeverity = Field(
         ..., description="How serious this problem is"
     )
     category: str = Field(
@@ -162,7 +161,7 @@ class ThreadDecision(BaseModel):
     Output from thread resolution IA call.
     """
     thread_id: str = Field(..., description="GitHub thread ID")
-    decision: Literal["resolved", "insist", "reply", "skip"] = Field(
+    decision: ThreadDecisionType = Field(
         ..., description="Action to take on the thread"
     )
     reasoning: str = Field(..., description="Why this decision was made")
@@ -170,8 +169,8 @@ class ThreadDecision(BaseModel):
         default=None, description="Reply text (only when decision='reply')"
     )
     category: Optional[str] = Field(default=None, description="Issue category")
-    severity: Literal["important", "nit", "none"] = Field(
-        default="none", description="Thread severity assessment"
+    severity: ThreadSeverity = Field(
+        default=ThreadSeverity.NONE, description="Thread severity assessment"
     )
 
 
@@ -218,10 +217,10 @@ class ReviewActionProposal(BaseModel):
     Used in both new_findings and thread_resolution workflows.
     Can represent a new inline comment, a thread reply, or a resolve action.
     """
-    action_type: Literal["new_comment", "reply_to_thread", "resolve_thread"] = Field(
+    action_type: ReviewActionType = Field(
         ..., description="Type of GitHub action to perform"
     )
-    source: Literal["new_finding", "thread_followup"] = Field(
+    source: ReviewActionSource = Field(
         ..., description="Which workflow produced this action"
     )
     path: Optional[str] = Field(

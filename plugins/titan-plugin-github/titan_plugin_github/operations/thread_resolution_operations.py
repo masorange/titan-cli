@@ -9,6 +9,12 @@ validate → submit pipeline.
 import json
 from typing import Optional
 
+from ..models.review_enums import (
+    ReviewActionSource,
+    ReviewActionType,
+    ThreadDecisionType,
+    ThreadSeverity,
+)
 from ..models.review_models import (
     ReviewActionProposal,
     ThreadDecision,
@@ -297,27 +303,27 @@ def build_thread_actions(
     actions = []
 
     for decision in decisions:
-        if decision.decision == "skip":
+        if decision.decision == ThreadDecisionType.SKIP:
             continue
 
         context = context_map.get(decision.thread_id)
         if not context:
             continue
 
-        if decision.decision == "resolved":
+        if decision.decision == ThreadDecisionType.RESOLVED:
             actions.append(
                 ReviewActionProposal(
-                    action_type="resolve_thread",
-                    source="thread_followup",
+                    action_type=ReviewActionType.RESOLVE_THREAD,
+                    source=ReviewActionSource.THREAD_FOLLOWUP,
                     thread_id=decision.thread_id,
                     title="Resolve thread (issue addressed)",
                     body="",
                     reasoning=decision.reasoning,
                     category=decision.category,
-                    severity=decision.severity if decision.severity != "none" else None,
+                    severity=decision.severity if decision.severity != ThreadSeverity.NONE else None,
                 )
             )
-        elif decision.decision in ("insist", "reply"):
+        elif decision.decision in (ThreadDecisionType.INSIST, ThreadDecisionType.REPLY):
             # Fallback: use reasoning if suggested_reply is empty
             reply_body = (decision.suggested_reply or "").strip()
             if not reply_body:
@@ -328,18 +334,18 @@ def build_thread_actions(
                 # Still empty after fallback - skip creating action
                 continue
 
-            label = "Insist" if decision.decision == "insist" else "Reply"
+            label = "Insist" if decision.decision == ThreadDecisionType.INSIST else "Reply"
             actions.append(
                 ReviewActionProposal(
-                    action_type="reply_to_thread",
-                    source="thread_followup",
+                    action_type=ReviewActionType.REPLY_TO_THREAD,
+                    source=ReviewActionSource.THREAD_FOLLOWUP,
                     thread_id=decision.thread_id,
                     comment_id=context.comment_id,
                     title=f"{label}: {decision.category or 'follow-up'}",
                     body=reply_body,
                     reasoning=decision.reasoning,
                     category=decision.category,
-                    severity=decision.severity if decision.severity != "none" else None,
+                    severity=decision.severity if decision.severity != ThreadSeverity.NONE else None,
                 )
             )
 

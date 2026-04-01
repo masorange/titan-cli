@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 from titan_cli.core.logging.config import get_logger
 
+from ..models.review_enums import ReviewActionSource, ReviewActionType
 from ..models.review_models import Finding, ReviewActionProposal
 from .code_review_operations import (
     extract_diff_for_file,
@@ -33,8 +34,8 @@ def build_new_comment_actions(findings: List[Finding]) -> List[ReviewActionPropo
     for finding in findings:
         actions.append(
             ReviewActionProposal(
-                action_type="new_comment",
-                source="new_finding",
+                action_type=ReviewActionType.NEW_COMMENT,
+                source=ReviewActionSource.NEW_FINDING,
                 path=finding.path,
                 line=finding.line,
                 title=finding.title,
@@ -83,7 +84,10 @@ def build_review_action_payload(
     general_parts: List[str] = []
 
     for idx, action in enumerate(actions):
-        if action.action_type in ("resolve_thread", "reply_to_thread"):
+        if action.action_type in (
+            ReviewActionType.RESOLVE_THREAD,
+            ReviewActionType.REPLY_TO_THREAD,
+        ):
             continue
 
         # new_comment — try inline first, fall back to general body
