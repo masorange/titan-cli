@@ -2886,23 +2886,6 @@ type = "directory"
 url = "plugins/titan-plugin-jira"
 
 [[package]]
-name = "titan-plugin-ragnarok"
-version = "0.4.0"
-description = "Titan CLI plugin for Ragnarok Android & iOS workflows"
-optional = false
-python-versions = ">=3.10,<4.0"
-groups = ["main"]
-files = []
-develop = true
-
-[package.dependencies]
-titan-cli = ">=0.1.17"
-
-[package.source]
-type = "directory"
-url = "../ragnarok-titan-cli-workflows"
-
-[[package]]
 name = "tomli"
 version = "2.4.0"
 description = "A lil' TOML parser"
@@ -3340,4 +3323,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0.0"
-content-hash = "369b512480b51f27147feb7a49569db3dddb17d965eba85c466608146209d598"
+content-hash = "883e9888f9a8db6c632d6e53957ac565125ed861b7fe0882c7f8939135a8d444"
