@@ -634,8 +634,8 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
     """
     Assemble the review checklist for this PR.
 
-    Loads the default checklist (all 10 categories). In the future, this step
-    can be extended to load per-project overrides from .titan/config.toml.
+    Delegates checklist resolution to ChecklistManager so project-specific
+    checklist loading can evolve without changing workflow orchestration.
 
     Outputs (saved to ctx.data):
         review_checklist (List[ReviewChecklistItem])
@@ -648,9 +648,10 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Build Review Checklist")
 
-    from ..operations.checklist_operations import build_default_checklist
+    if not ctx.github_managers:
+        return Error("GitHub managers are not available in workflow context.")
 
-    checklist = build_default_checklist()
+    checklist = ctx.github_managers.checklist.get_effective_checklist()
     ctx.data["review_checklist"] = checklist
 
     ctx.textual.success_text(f"✓ {len(checklist)} checklist categories ready")

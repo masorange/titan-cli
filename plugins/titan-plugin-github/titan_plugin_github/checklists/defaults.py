@@ -1,17 +1,11 @@
-"""
-Operations for building the review checklist.
-
-Provides the default checklist and config-based customization.
-The checklist is the set of categories offered to AI during review planning.
-"""
+"""Default checklist definitions for GitHub code review."""
 
 from ..models.review_enums import ChecklistCategory
 from ..models.review_models import ReviewChecklistItem
 
 
-# Default checklist — used when no project config overrides are present.
 # Order matters: higher priority items first (functional correctness before style).
-_DEFAULT_CHECKLIST: list[ReviewChecklistItem] = [
+DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
     ReviewChecklistItem(
         id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
         name="Functional Correctness",
@@ -104,15 +98,3 @@ _DEFAULT_CHECKLIST: list[ReviewChecklistItem] = [
     ),
 ]
 
-
-def build_default_checklist() -> list[ReviewChecklistItem]:
-    """
-    Return the default review checklist.
-
-    This is the full set of categories offered to AI during planning.
-    The AI will select which ones apply to the specific PR.
-
-    Returns:
-        List of ReviewChecklistItem in priority order
-    """
-    return list(_DEFAULT_CHECKLIST)

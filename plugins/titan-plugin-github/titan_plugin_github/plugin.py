@@ -8,6 +8,7 @@ from titan_cli.core.secrets import SecretManager
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from .clients.github_client import GitHubClient
 from .exceptions import GitHubError
+from .managers import ChecklistManager, GitHubManagers
 
 
 class GitHubPlugin(TitanPlugin):
@@ -119,6 +120,12 @@ class GitHubPlugin(TitanPlugin):
         if not hasattr(self, '_client') or self._client is None:
             raise GitHubError("GitHubPlugin not initialized. GitHub client may not be available.")
         return self._client
+
+    def get_workflow_managers(self, project_root: Optional[Path] = None) -> GitHubManagers:
+        """Return workflow-local managers for the GitHub plugin."""
+        return GitHubManagers(
+            checklist=ChecklistManager(project_root=project_root),
+        )
 
     def get_steps(self) -> dict:
         """

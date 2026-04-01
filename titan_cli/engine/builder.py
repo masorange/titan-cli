@@ -50,6 +50,9 @@ class WorkflowContextBuilder:
         self._github = None
         self._jira = None
 
+        # Plugin managers (keyed by plugin name)
+        self._plugin_managers: dict = {}
+
     def with_ai(self, ai_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add AI client.
@@ -71,7 +74,7 @@ class WorkflowContextBuilder:
                 self._ai = None
         return self
 
-    def with_git(self, git_client: Optional[Any] = None) -> "WorkflowContextBuilder":
+    def with_git(self, git_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add Git client.
 
@@ -92,7 +95,7 @@ class WorkflowContextBuilder:
                 self._git = None
         return self
 
-    def with_github(self, github_client: Optional[Any] = None) -> "WorkflowContextBuilder":
+    def with_github(self, github_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add GitHub client.
 
@@ -113,7 +116,18 @@ class WorkflowContextBuilder:
                 self._github = None
         return self
 
-    def with_jira(self, jira_client: Optional[Any] = None) -> "WorkflowContextBuilder":
+    def with_plugin_managers(self, plugin_name: str, managers: Any) -> WorkflowContextBuilder:
+        """
+        Register workflow managers for a plugin.
+
+        Args:
+            plugin_name: Plugin identifier (e.g. "github", "jira")
+            managers: Plugin-specific managers container
+        """
+        self._plugin_managers[plugin_name] = managers
+        return self
+
+    def with_jira(self, jira_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add JIRA client to workflow context.
 
@@ -155,5 +169,6 @@ class WorkflowContextBuilder:
             ai=self._ai,
             git=self._git,
             github=self._github,
+            github_managers=self._plugin_managers.get("github"),
             jira=self._jira,
         )
