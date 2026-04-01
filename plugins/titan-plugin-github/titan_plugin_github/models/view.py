@@ -13,6 +13,8 @@ These models are GitHub-specific and live in the GitHub plugin, not in the core.
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from .review_enums import FileChangeStatus, FindingSeverity
+
 
 @dataclass
 class UIComment:
@@ -209,7 +211,7 @@ class UIFileChange:
     path: str
     additions: int
     deletions: int
-    status: str       # "added", "removed", "modified", "renamed", etc.
+    status: FileChangeStatus
     status_icon: str  # "+", "−", "~", "→", etc.
 
 
@@ -232,7 +234,7 @@ class UIReviewSuggestion:
     file_path: str
     line: Optional[int]
     body: str
-    severity: str  # "critical", "improvement", "suggestion"
+    severity: FindingSeverity
     diff_context: Optional[str] = None  # Extracted diff hunk around the line
     snippet: Optional[str] = None  # Exact code line reported by AI for line lookup
     reply_to_comment_id: Optional[int] = None  # If set, this is a reply to an existing thread

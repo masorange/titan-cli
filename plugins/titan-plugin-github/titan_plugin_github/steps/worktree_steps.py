@@ -8,7 +8,6 @@ import os
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit
 from ..operations import setup_worktree, cleanup_worktree
 
-
 def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Create a worktree for PR review.
@@ -30,11 +29,10 @@ def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Create Worktree")
 
-    pr_number = ctx.get("selected_pr_number")
-    head_branch = ctx.get("selected_pr_head_branch", "")
+    pr_number = ctx.get("selected_pr_number") or ctx.get("review_pr_number")
+    head_branch = ctx.get("selected_pr_head_branch") or ctx.get("review_pr_head") or ""
 
     if not pr_number or not head_branch:
-        ctx.textual.error_text("Missing PR number or branch")
         ctx.textual.end_step("error")
         return Error("Missing required data")
 

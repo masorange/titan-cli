@@ -1,7 +1,7 @@
-# core/models.py
+# core/models/__init__.py
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict
-from .plugins.models import PluginConfig
+from ..plugins.models import PluginConfig
 
 class ProjectConfig(BaseModel):
     """

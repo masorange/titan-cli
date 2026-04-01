@@ -8,6 +8,7 @@ from titan_cli.core.secrets import SecretManager
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from .clients.github_client import GitHubClient
 from .exceptions import GitHubError
+from .managers import ChecklistManager, GitHubManagers
 
 
 class GitHubPlugin(TitanPlugin):
@@ -52,10 +53,20 @@ class GitHubPlugin(TitanPlugin):
             if detected_owner and detected_name:
                 repo_owner = repo_owner or detected_owner
                 repo_name = repo_name or detected_name
-        
+
         # If still missing, raise an error
         if not repo_owner or not repo_name:
             raise GitHubError("GitHub repository owner and name must be configured or auto-detected from git remote.")
+
+        # Load PR template if configured
+        pr_template = None
+        template_path = validated_config.pr_template_path or ".github/pull_request_template.md"
+        template_file = Path(template_path)
+        if template_file.exists() and template_file.is_file():
+            try:
+                pr_template = template_file.read_text(encoding="utf-8")
+            except OSError:
+                pass  # Template not found, use None
 
         # Initialize client with validated configuration and git_client
         self._client = GitHubClient(
@@ -63,7 +74,8 @@ class GitHubPlugin(TitanPlugin):
             secrets=secrets,
             git_client=git_client,
             repo_owner=repo_owner, # Pass detected/configured owner
-            repo_name=repo_name # Pass detected/configured name
+            repo_name=repo_name, # Pass detected/configured name
+            pr_template=pr_template # Pass loaded PR template
         )
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:
@@ -109,6 +121,12 @@ class GitHubPlugin(TitanPlugin):
             raise GitHubError("GitHubPlugin not initialized. GitHub client may not be available.")
         return self._client
 
+    def get_workflow_managers(self, project_root: Optional[Path] = None) -> GitHubManagers:
+        """Return workflow-local managers for the GitHub plugin."""
+        return GitHubManagers(
+            checklist=ChecklistManager(project_root=project_root),
+        )
+
     def get_steps(self) -> dict:
         """
         Returns a dictionary of available workflow steps.
@@ -135,12 +153,26 @@ class GitHubPlugin(TitanPlugin):
         )
         from .steps.code_review_steps import (
             select_pr_for_code_review,
-            fetch_pr_changes,
-            ai_review_pr,
-            summarize_pr_review,
-            validate_review_comments,
-            submit_pr_review,
+            fetch_pr_review_bundle,
+            build_change_manifest,
+            build_existing_comments_index,
+            build_review_checklist,
+            ai_review_plan,
+            validate_review_plan,
+            resolve_review_context,
+            ai_review_findings,
+            normalize_findings,
+            dedupe_findings,
+            build_new_comment_actions,
+            validate_review_actions,
+            submit_review_actions,
+            build_thread_review_candidates,
+            build_thread_review_contexts,
+            ai_thread_resolution,
+            normalize_thread_decisions,
+            build_thread_actions,
         )
+        from .steps.select_cli_step import select_cli_step
         return {
             "create_pr": create_pr_step,
             "prompt_for_pr_title": prompt_for_pr_title_step,
@@ -165,9 +197,29 @@ class GitHubPlugin(TitanPlugin):
             "cleanup_worktree": cleanup_worktree_step,
             # Code review steps
             "select_pr_for_code_review": select_pr_for_code_review,
-            "fetch_pr_changes": fetch_pr_changes,
-            "ai_review_pr": ai_review_pr,
-            "summarize_pr_review": summarize_pr_review,
-            "validate_review_comments": validate_review_comments,
-            "submit_pr_review": submit_pr_review,
+            "fetch_pr_review_bundle": fetch_pr_review_bundle,
+            # CLI selection
+            "select_cli": select_cli_step,
+            # Phase 2: cheap context steps (pre-AI)
+            "build_change_manifest": build_change_manifest,
+            "build_existing_comments_index": build_existing_comments_index,
+            "build_review_checklist": build_review_checklist,
+            # Phase 3: directed AI analysis (first AI call)
+            "ai_review_plan": ai_review_plan,
+            "validate_review_plan": validate_review_plan,
+            "resolve_review_context": resolve_review_context,
+            # Phase 4: targeted review (second AI call)
+            "ai_review_findings": ai_review_findings,
+            "normalize_findings": normalize_findings,
+            "dedupe_findings": dedupe_findings,
+            # Phase 5: UI + submit
+            "build_new_comment_actions": build_new_comment_actions,
+            "validate_review_actions": validate_review_actions,
+            "submit_review_actions": submit_review_actions,
+            # Phase 6: thread resolution
+            "build_thread_review_candidates": build_thread_review_candidates,
+            "build_thread_review_contexts": build_thread_review_contexts,
+            "ai_thread_resolution": ai_thread_resolution,
+            "normalize_thread_decisions": normalize_thread_decisions,
+            "build_thread_actions": build_thread_actions,
         }

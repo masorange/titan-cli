@@ -6,6 +6,7 @@ Tests for pure business logic related to diff parsing and formatting.
 
 from titan_plugin_git.operations.diff_operations import (
     parse_diff_stat_output,
+    expand_rename_path,
     get_max_filename_length,
     colorize_diff_stats,
     colorize_diff_summary,
@@ -185,3 +186,32 @@ class TestFormatDiffStatDisplay:
         assert "diff.py" in files[0]
         assert "commit.py" in files[1]
         assert "77 insertions" in summary[0]
+
+
+class TestExpandRenamePath:
+    """Tests for expand_rename_path function."""
+
+    def test_no_rename_unchanged(self):
+        assert expand_rename_path("titan_cli/core/models.py") == "titan_cli/core/models.py"
+
+    def test_rename_with_prefix(self):
+        result = expand_rename_path("titan_cli/core/{models.py => models/__init__.py}")
+        assert result == "titan_cli/core/models/__init__.py"
+
+    def test_rename_at_root(self):
+        result = expand_rename_path("{old_file.py => new_file.py}")
+        assert result == "new_file.py"
+
+    def test_rename_with_suffix(self):
+        result = expand_rename_path("{old_dir => new_dir}/file.py")
+        assert result == "new_dir/file.py"
+
+    def test_rename_with_prefix_and_suffix(self):
+        result = expand_rename_path("pkg/{old => new}/module.py")
+        assert result == "pkg/new/module.py"
+
+    def test_simple_filename_unchanged(self):
+        assert expand_rename_path("file.py") == "file.py"
+
+    def test_path_without_rename_unchanged(self):
+        assert expand_rename_path("a/b/c/file.py") == "a/b/c/file.py"

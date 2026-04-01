@@ -5,6 +5,7 @@ Commit Service
 Business logic for Git commit operations.
 Uses network layer to execute commands, parses to network models, maps to view models.
 """
+import os
 from typing import List, Optional, Sequence
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
@@ -86,7 +87,33 @@ class CommitService:
             ClientResult[str] with commit hash
         """
         try:
-            self.git.run_command(["git", "add", "--"] + list(files))
+            # Separate existing files from deleted ones
+            # Only include files that exist in the filesystem OR are tracked in git
+            existing_files = []
+            deleted_files = []
+
+            for f in files:
+                if os.path.exists(f):
+                    # File exists in filesystem
+                    existing_files.append(f)
+                else:
+                    # File doesn't exist - check if it's tracked in git
+                    # If it's tracked, we can use git rm; if not, skip it
+                    try:
+                        self.git.run_command(["git", "ls-files", "--error-unmatch", f])
+                        # File is tracked, mark for deletion
+                        deleted_files.append(f)
+                    except GitCommandError:
+                        # File not tracked in git, skip it
+                        pass
+
+            # Stage existing files with git add
+            if existing_files:
+                self.git.run_command(["git", "add", "--"] + existing_files)
+
+            # Stage deleted files with git rm
+            if deleted_files:
+                self.git.run_command(["git", "rm", "--"] + deleted_files)
 
             args = ["git", "commit", "-m", message]
             if no_verify:
