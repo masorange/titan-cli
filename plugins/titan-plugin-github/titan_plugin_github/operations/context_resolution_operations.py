@@ -8,11 +8,11 @@ No UI, no side effects.
 Diff parsing delegated to DiffContextManager.
 """
 
-import logging
 import re
 from pathlib import Path
 from typing import Optional
 
+from titan_cli.core.logging import get_logger
 from ..managers.diff_context_manager import DiffContextManager
 from ..models.review_enums import ContextRequestType, FileReadMode
 from ..models.review_models import (
@@ -26,7 +26,7 @@ from ..models.review_models import (
     ReviewPlan,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def extract_hunks_only(diff: str, path: str) -> list[str]:
     """

@@ -7,16 +7,16 @@ context, and constructing review payloads. All functions are UI-agnostic.
 """
 
 import json
-import logging
 import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from titan_cli.core.logging import get_logger
 from ..managers.diff_context_manager import DiffContextManager
 from ..models.view import UIReviewSuggestion, UIFileChange
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def load_project_claude_md() -> Optional[str]:

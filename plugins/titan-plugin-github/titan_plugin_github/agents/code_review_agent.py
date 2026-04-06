@@ -6,14 +6,14 @@ Analyzes PR diffs and project skills to generate structured review comments.
 """
 
 import json
-import logging
 from typing import List
 
+from titan_cli.core.logging import get_logger
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from ..models.review_enums import FindingSeverity
 from ..models.view import UIReviewSuggestion
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _normalize_suggestion_severity(raw_severity: str) -> FindingSeverity:

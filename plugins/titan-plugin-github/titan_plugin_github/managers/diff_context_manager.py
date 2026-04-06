@@ -13,10 +13,10 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Optional
 
+from titan_cli.core.logging import get_logger
 from ..models.diff_models import (
     ParsedDiff,
     ParsedFileDiff,
@@ -25,7 +25,7 @@ from ..models.diff_models import (
 )
 from ..models.view import UIComment
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _HUNK_HEADER_RE = re.compile(r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@(.*)")
 _FILE_HEADER_RE = re.compile(r"^diff --git a/.+ b/(.+)$")
