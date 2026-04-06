@@ -5,6 +5,7 @@ NO POLLING - Instantaneous data retrieval.
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.core.result import ClientSuccess, ClientError
 from ..clients.appstore_client import AppStoreConnectClient
 from ..credentials import CredentialsManager
 
@@ -79,54 +80,58 @@ def fetch_metrics_step(ctx: WorkflowContext) -> WorkflowResult:
         # ====================================================================
         ctx.textual.text("📊 Fetching Performance Metrics (crashes, hangs)...")
 
-        try:
-            perf_data = metrics.get_performance_metrics(app_id)
-            crash_metrics = metrics.extract_crash_metrics_by_version(perf_data)
+        # Get performance metrics with pattern matching
+        perf_result = metrics.get_performance_metrics(app_id)
 
-            # Get metrics for both versions
-            stab_v1 = crash_metrics.get(version_1_string, {
-                "crash_rate": 0.0,
-                "hang_rate": 0.0,
-                "terminations": 0,
-                "hangs": 0,
-            })
+        match perf_result:
+            case ClientSuccess(data=perf_data):
+                # Extract crash metrics with pattern matching
+                crash_result = metrics.extract_crash_metrics_by_version(perf_data)
 
-            stab_v2 = crash_metrics.get(version_2_string, {
-                "crash_rate": 0.0,
-                "hang_rate": 0.0,
-                "terminations": 0,
-                "hangs": 0,
-            })
+                match crash_result:
+                    case ClientSuccess(data=crash_metrics):
+                        # Get metrics for both versions
+                        stab_v1 = crash_metrics.get(version_1_string, {
+                            "crash_rate": 0.0,
+                            "hang_rate": 0.0,
+                            "terminations": 0,
+                            "hangs": 0,
+                        })
 
-            # Add version strings
-            stab_v1["version_string"] = version_1_string
-            stab_v2["version_string"] = version_2_string
+                        stab_v2 = crash_metrics.get(version_2_string, {
+                            "crash_rate": 0.0,
+                            "hang_rate": 0.0,
+                            "terminations": 0,
+                            "hangs": 0,
+                        })
 
-            ctx.textual.success_text(
-                f"✓ V1 ({version_1_string}): "
-                f"{stab_v1['crash_rate']:.4f}% crash rate, "
-                f"{stab_v1['hang_rate']:.4f}% hang rate"
-            )
-            ctx.textual.success_text(
-                f"✓ V2 ({version_2_string}): "
-                f"{stab_v2['crash_rate']:.4f}% crash rate, "
-                f"{stab_v2['hang_rate']:.4f}% hang rate"
-            )
+                        # Add version strings
+                        stab_v1["version_string"] = version_1_string
+                        stab_v2["version_string"] = version_2_string
 
-            ctx.data["stability_metrics_v1"] = stab_v1
-            ctx.data["stability_metrics_v2"] = stab_v2
+                        ctx.textual.success_text(
+                            f"✓ V1 ({version_1_string}): "
+                            f"{stab_v1['crash_rate']:.4f}% crash rate, "
+                            f"{stab_v1['hang_rate']:.4f}% hang rate"
+                        )
+                        ctx.textual.success_text(
+                            f"✓ V2 ({version_2_string}): "
+                            f"{stab_v2['crash_rate']:.4f}% crash rate, "
+                            f"{stab_v2['hang_rate']:.4f}% hang rate"
+                        )
 
-        except Exception as e:
-            ctx.textual.error_text(f"⚠️  Performance Metrics failed: {e}")
-            # Use fallback for stability
-            ctx.textual.text("   Falling back to review analysis...")
-            from ..clients.services.analytics_service import AnalyticsService
-            analytics = AnalyticsService(client._api)
-            stab_data = analytics.get_stability_metrics_from_reviews(
-                app_id, [version_1_string, version_2_string]
-            )
-            ctx.data["stability_metrics_v1"] = stab_data.get(version_1_string, {})
-            ctx.data["stability_metrics_v2"] = stab_data.get(version_2_string, {})
+                        ctx.data["stability_metrics_v1"] = stab_v1
+                        ctx.data["stability_metrics_v2"] = stab_v2
+
+                    case ClientError(error_message=err):
+                        ctx.textual.error_text(f"⚠️  Failed to extract crash metrics: {err}")
+                        # Use fallback
+                        _use_stability_fallback(ctx, client, app_id, version_1_string, version_2_string)
+
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"⚠️  Performance Metrics failed: {err}")
+                # Use fallback for stability
+                _use_stability_fallback(ctx, client, app_id, version_1_string, version_2_string)
 
         ctx.textual.text("")
 
@@ -136,90 +141,57 @@ def fetch_metrics_step(ctx: WorkflowContext) -> WorkflowResult:
         if vendor_number:
             ctx.textual.text("📈 Fetching Sales Reports (installations)...")
 
-            try:
-                prop_data = metrics.get_propagation_from_sales(
-                    vendor_number=vendor_number,
-                    app_name=app_name,
-                    days=30
-                )
+            # Get propagation metrics with pattern matching
+            prop_result = metrics.get_propagation_from_sales(
+                vendor_number=vendor_number,
+                app_name=app_name,
+                days=30
+            )
 
-                if "error" in prop_data:
-                    raise Exception(prop_data["error"])
+            match prop_result:
+                case ClientSuccess(data=prop_metrics):
+                    # Check if there's an error in the data itself
+                    if prop_metrics.error:
+                        ctx.textual.error_text(f"⚠️  {prop_metrics.error}")
+                        ctx.textual.text("   Falling back to build analysis...")
+                        _use_propagation_fallback(ctx, client, app_id, version_1_string, version_2_string)
+                    else:
+                        # Extract data for each version
+                        prop_v1 = {
+                            "version_string": version_1_string,
+                            "total_units": prop_metrics.by_version.get(version_1_string, 0),
+                            "total_countries": prop_metrics.countries,
+                        }
 
-                # Extract data for each version
-                by_version = prop_data.get("by_version", {})
+                        prop_v2 = {
+                            "version_string": version_2_string,
+                            "total_units": prop_metrics.by_version.get(version_2_string, 0),
+                            "total_countries": prop_metrics.countries,
+                        }
 
-                prop_v1 = {
-                    "version_string": version_1_string,
-                    "total_units": by_version.get(version_1_string, 0),
-                    "total_countries": prop_data.get("countries", 0),
-                }
+                        ctx.textual.success_text(
+                            f"✓ V1 ({version_1_string}): "
+                            f"{prop_v1['total_units']:,} units"
+                        )
+                        ctx.textual.success_text(
+                            f"✓ V2 ({version_2_string}): "
+                            f"{prop_v2['total_units']:,} units"
+                        )
 
-                prop_v2 = {
-                    "version_string": version_2_string,
-                    "total_units": by_version.get(version_2_string, 0),
-                    "total_countries": prop_data.get("countries", 0),
-                }
+                        ctx.data["propagation_metrics_v1"] = prop_v1
+                        ctx.data["propagation_metrics_v2"] = prop_v2
+                        ctx.data["metrics_method"] = "full"
 
-                ctx.textual.success_text(
-                    f"✓ V1 ({version_1_string}): "
-                    f"{prop_v1['total_units']:,} units"
-                )
-                ctx.textual.success_text(
-                    f"✓ V2 ({version_2_string}): "
-                    f"{prop_v2['total_units']:,} units"
-                )
-
-                ctx.data["propagation_metrics_v1"] = prop_v1
-                ctx.data["propagation_metrics_v2"] = prop_v2
-                ctx.data["metrics_method"] = "full"
-
-            except Exception as e:
-                ctx.textual.error_text(f"⚠️  Sales Reports failed: {e}")
-                ctx.textual.text("   Falling back to build analysis...")
-                # Use fallback
-                from ..clients.services.analytics_service import AnalyticsService
-                analytics = AnalyticsService(client._api)
-                version_1_id = ctx.data.get("version_1_id")
-                version_2_id = ctx.data.get("version_2_id")
-                prop_data = analytics.get_propagation_metrics_from_builds(
-                    app_id, [version_1_id, version_2_id]
-                )
-                ctx.data["propagation_metrics_v1"] = prop_data.get(version_1_id, {})
-                ctx.data["propagation_metrics_v2"] = prop_data.get(version_2_id, {})
-                ctx.data["metrics_method"] = "partial"
+                case ClientError(error_message=err):
+                    ctx.textual.error_text(f"⚠️  Sales Reports failed: {err}")
+                    ctx.textual.text("   Falling back to build analysis...")
+                    _use_propagation_fallback(ctx, client, app_id, version_1_string, version_2_string)
 
         else:
             # No vendor number - use fallback
             ctx.textual.text("⚠️  No Vendor Number configured")
             ctx.textual.text("   Using build activity as proxy for propagation...")
-
-            from ..clients.services.analytics_service import AnalyticsService
-            analytics = AnalyticsService(client._api)
-            version_1_id = ctx.data.get("version_1_id")
-            version_2_id = ctx.data.get("version_2_id")
-            prop_data = analytics.get_propagation_metrics_from_builds(
-                app_id, [version_1_id, version_2_id]
-            )
-
-            prop_v1 = prop_data.get(version_1_id, {})
-            prop_v2 = prop_data.get(version_2_id, {})
-
-            if "error" not in prop_v1:
-                ctx.textual.success_text(
-                    f"✓ V1 ({version_1_string}): "
-                    f"{prop_v1.get('total_builds', 0)} builds"
-                )
-
-            if "error" not in prop_v2:
-                ctx.textual.success_text(
-                    f"✓ V2 ({version_2_string}): "
-                    f"{prop_v2.get('total_builds', 0)} builds"
-                )
-
-            ctx.data["propagation_metrics_v1"] = prop_v1
-            ctx.data["propagation_metrics_v2"] = prop_v2
-            ctx.data["metrics_method"] = "partial"
+            _use_propagation_fallback(ctx, client, app_id, version_1_string, version_2_string)
 
         ctx.textual.text("")
         ctx.textual.text("=" * 60)
@@ -235,6 +207,60 @@ def fetch_metrics_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
+
+
+def _use_stability_fallback(
+    ctx: WorkflowContext,
+    client: AppStoreConnectClient,
+    app_id: str,
+    version_1_string: str,
+    version_2_string: str
+) -> None:
+    """Helper to use review analysis fallback for stability metrics."""
+    ctx.textual.text("   Falling back to review analysis...")
+    from ..clients.services.analytics_service import AnalyticsService
+    analytics = AnalyticsService(client._api)
+    stab_data = analytics.get_stability_metrics_from_reviews(
+        app_id, [version_1_string, version_2_string]
+    )
+    ctx.data["stability_metrics_v1"] = stab_data.get(version_1_string, {})
+    ctx.data["stability_metrics_v2"] = stab_data.get(version_2_string, {})
+
+
+def _use_propagation_fallback(
+    ctx: WorkflowContext,
+    client: AppStoreConnectClient,
+    app_id: str,
+    version_1_string: str,
+    version_2_string: str
+) -> None:
+    """Helper to use build analysis fallback for propagation metrics."""
+    from ..clients.services.analytics_service import AnalyticsService
+    analytics = AnalyticsService(client._api)
+    version_1_id = ctx.data.get("version_1_id")
+    version_2_id = ctx.data.get("version_2_id")
+    prop_data = analytics.get_propagation_metrics_from_builds(
+        app_id, [version_1_id, version_2_id]
+    )
+
+    prop_v1 = prop_data.get(version_1_id, {})
+    prop_v2 = prop_data.get(version_2_id, {})
+
+    if "error" not in prop_v1:
+        ctx.textual.success_text(
+            f"✓ V1 ({version_1_string}): "
+            f"{prop_v1.get('total_builds', 0)} builds"
+        )
+
+    if "error" not in prop_v2:
+        ctx.textual.success_text(
+            f"✓ V2 ({version_2_string}): "
+            f"{prop_v2.get('total_builds', 0)} builds"
+        )
+
+    ctx.data["propagation_metrics_v1"] = prop_v1
+    ctx.data["propagation_metrics_v2"] = prop_v2
+    ctx.data["metrics_method"] = "partial"
 
 
 __all__ = ["fetch_metrics_step"]

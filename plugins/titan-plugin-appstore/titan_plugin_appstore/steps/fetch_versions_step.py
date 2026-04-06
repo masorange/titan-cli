@@ -3,6 +3,7 @@ Fetch Versions Step - Interactive version selection for analytics comparison.
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+from titan_cli.core.result import ClientSuccess, ClientError
 from ..clients.appstore_client import AppStoreConnectClient
 from ..credentials import CredentialsManager
 
@@ -58,7 +59,25 @@ def fetch_versions_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Fetch up to 10 latest production versions
         ctx.textual.text("Fetching production versions...")
-        all_versions = analytics.get_app_versions_sorted(app_id, limit=10)
+        versions_result = analytics.get_app_versions_sorted(app_id, limit=10)
+
+        # Handle ClientResult
+        match versions_result:
+            case ClientSuccess(data=all_versions):
+                # Convert VersionInfo objects to dicts for compatibility
+                all_versions = [
+                    {
+                        "id": v.id,
+                        "versionString": v.versionString,
+                        "earliestReleaseDate": v.earliestReleaseDate,
+                        "createdDate": v.createdDate,
+                    }
+                    for v in all_versions
+                ]
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"Failed to fetch versions: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to fetch versions: {err}")
 
         if len(all_versions) < 2:
             ctx.textual.error_text(f"Found only {len(all_versions)} version(s). Need at least 2.")
@@ -67,13 +86,19 @@ def fetch_versions_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Get performance data to check which versions have active users
         ctx.textual.text("Checking which versions have active users...")
-        try:
-            perf_data = metrics_service.get_performance_metrics(app_id, platform="IOS")
-            crash_metrics = metrics_service.extract_crash_metrics_by_version(perf_data)
-            versions_with_data = crash_metrics
-        except:
-            # If performance metrics fail, assume no crash data available
-            versions_with_data = {}
+        versions_with_data = {}
+
+        perf_result = metrics_service.get_performance_metrics(app_id, platform="IOS")
+        match perf_result:
+            case ClientSuccess(data=perf_data):
+                crash_result = metrics_service.extract_crash_metrics_by_version(perf_data)
+                match crash_result:
+                    case ClientSuccess(data=crash_metrics):
+                        versions_with_data = crash_metrics
+                    case _:
+                        pass  # No crash data available
+            case _:
+                pass  # Performance metrics not available
 
         # Format release dates and prepare display data
         from datetime import datetime

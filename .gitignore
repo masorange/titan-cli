@@ -142,3 +142,7 @@ venv.bak/
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Titan secrets (NEVER commit!)
+.titan/secrets.env
+*.p8
