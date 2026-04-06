@@ -61,6 +61,12 @@ class PluginHost(StrEnum):
     UNKNOWN   = "unknown"
 
 
+class PluginChannel(StrEnum):
+    """Installation channel for a community plugin."""
+    STABLE    = "stable"
+    DEV_LOCAL = "dev_local"
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -69,11 +75,14 @@ class PluginHost(StrEnum):
 class CommunityPluginRecord:
     """Record of an installed community plugin."""
 
-    repo_url: str           # Base URL without @version
-    version: str            # Tag or commit SHA
-    package_name: str       # Python package name from pyproject.toml
-    titan_plugin_name: str  # Key registered under titan.plugins entry point
-    installed_at: str       # ISO 8601 datetime
+    repo_url: str                        # Base URL without @version (empty for dev_local)
+    package_name: str                    # Python package name from pyproject.toml
+    titan_plugin_name: str               # Key registered under titan.plugins entry point
+    installed_at: str                    # ISO 8601 datetime
+    channel: str                         # "stable" | "dev_local"
+    dev_local_path: Optional[str]        # Absolute path if channel == dev_local, else None
+    requested_ref: Optional[str]         # Tag/SHA the user asked for (stable only), else None
+    resolved_commit: Optional[str]       # Actual commit SHA installed (stable only), else None
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +134,92 @@ def validate_url(raw_url: str) -> None:
     base_url, _ = parse_repo_url(raw_url)
     if not base_url.startswith("https://"):
         raise ValueError("Repository URL must start with https://")
+
+
+# ---------------------------------------------------------------------------
+# Stable ref → commit SHA resolution
+# ---------------------------------------------------------------------------
+
+_FULL_SHA_LEN = 40
+
+
+def _is_hex(s: str) -> bool:
+    try:
+        int(s, 16)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_ref_to_commit_sha(
+    base_url: str, ref: str, host: PluginHost, token: Optional[str] = None
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Resolve a tag, short SHA, or full SHA to an exact 40-char commit SHA.
+
+    This is the security anchor for stable installs: pipx always installs from
+    the resolved SHA, so a force-pushed tag cannot inject new code without the
+    user explicitly running an update.
+
+    Only full resolution (tag → commit) is supported for GitHub. For other
+    hosts, a full 40-char hex SHA is required — partial refs are rejected.
+
+    Returns:
+        (sha, None)    on success
+        (None, error)  on failure
+    """
+    # Already a full 40-char hex SHA — accept as-is for all hosts
+    if len(ref) == _FULL_SHA_LEN and _is_hex(ref):
+        return ref, None
+
+    if host != PluginHost.GITHUB:
+        return None, (
+            f"Tag resolution is only supported for GitHub. "
+            f"For {host} repositories, provide a full commit SHA (40 hex characters)."
+        )
+
+    clean = base_url.rstrip("/").removesuffix(".git").removeprefix(_BASE_GITHUB)
+
+    def _api_get(url: str) -> tuple[Optional[dict], Optional[str]]:
+        try:
+            req = Request(url)
+            req.add_header("Accept", "application/vnd.github+json")
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
+            with urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
+                import json
+                return json.loads(resp.read().decode("utf-8")), None
+        except HTTPError as e:
+            if e.code == 404:
+                return None, "not_found"
+            return None, f"http_{e.code}"
+        except (URLError, OSError) as e:
+            return None, f"network_error: {e}"
+
+    # Resolve as a tag
+    tag_data, _ = _api_get(f"https://api.github.com/repos/{clean}/git/ref/tags/{ref}")
+    if tag_data:
+        obj = tag_data.get("object", {})
+        sha = obj.get("sha", "")
+        # Annotated tag: sha points to the tag object, not the commit — follow it
+        if obj.get("type") == "tag":
+            tag_obj, _ = _api_get(f"https://api.github.com/repos/{clean}/git/tags/{sha}")
+            if tag_obj:
+                sha = tag_obj.get("object", {}).get("sha", sha)
+        if sha:
+            return sha, None
+
+    # Resolve as a short SHA
+    commit_data, _ = _api_get(f"https://api.github.com/repos/{clean}/commits/{ref}")
+    if commit_data:
+        sha = commit_data.get("sha", "")
+        if sha:
+            return sha, None
+
+    return None, (
+        f"Could not resolve '{ref}' to a commit SHA. "
+        "Provide a version tag (e.g. v1.0.0) or a full commit SHA."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +544,7 @@ def check_for_update(record: CommunityPluginRecord, token: Optional[str] = None)
     Queries the hosting provider's API for the latest release tag and compares
     it with the installed version. Only works for GitHub, GitLab, Bitbucket with
     tagged releases. Returns None if already up to date, unreachable, or using
-    a commit SHA as version.
+    a commit SHA as version. Always returns None for dev_local records.
 
     Args:
         record: The installed community plugin record.
@@ -458,6 +553,9 @@ def check_for_update(record: CommunityPluginRecord, token: Optional[str] = None)
     Returns:
         The latest version string if an update is available, None otherwise.
     """
+    if record.channel == PluginChannel.DEV_LOCAL:
+        return None
+
     host = detect_host(record.repo_url)
     clean = record.repo_url.rstrip("/").removesuffix(".git")
 
@@ -493,13 +591,14 @@ def check_for_update(record: CommunityPluginRecord, token: Optional[str] = None)
             return None
 
         # Only suggest update if latest is strictly newer than the recorded version
+        current = record.requested_ref or ""
         try:
             from packaging.version import Version
-            if Version(latest.lstrip("v")) <= Version(record.version.lstrip("v")):
+            if Version(latest.lstrip("v")) <= Version(current.lstrip("v")):
                 return None
         except Exception:
             # If version parsing fails, fall back to string equality check
-            if latest == record.version:
+            if latest == current:
                 return None
 
         return latest
@@ -541,3 +640,59 @@ def get_community_plugin_by_titan_name(titan_name: str) -> Optional[CommunityPlu
         if record.titan_plugin_name == titan_name:
             return record
     return None
+
+
+def get_community_plugin_by_name_and_channel(
+    titan_name: str, channel: str
+) -> Optional[CommunityPluginRecord]:
+    """Return the record matching both titan_plugin_name and channel, or None."""
+    for record in load_community_plugins():
+        if record.titan_plugin_name == titan_name and record.channel == channel:
+            return record
+    return None
+
+
+def remove_community_plugin_by_channel(titan_plugin_name: str, channel: str) -> None:
+    """Remove the single record matching name + channel, leaving the other channel intact."""
+    path = get_community_plugins_path()
+    if not path.exists():
+        return
+
+    with open(path, "rb") as f:
+        data = tomli.load(f)
+
+    data["plugins"] = [
+        p for p in data.get("plugins", [])
+        if not (
+            p.get("titan_plugin_name") == titan_plugin_name
+            and p.get("channel") == channel
+        )
+    ]
+
+    with open(path, "wb") as f:
+        tomli_w.dump(data, f)
+
+
+def install_community_plugin_dev_local(local_path: str) -> subprocess.CompletedProcess:
+    """
+    Install a community plugin from a local path as an editable install.
+
+    - pipx environment  → `pipx runpip titan-cli install -e <path>`
+    - Poetry environment → `pip install -e <path>`
+
+    Returns the CompletedProcess — caller must check returncode.
+    """
+    logger.info("community_plugin_install_dev_local", local_path=local_path)
+
+    if is_running_in_pipx():
+        return subprocess.run(
+            [_PIPX_CMD, "runpip", _TITAN_PACKAGE, "install", "-e", local_path],
+            capture_output=True,
+            text=True,
+        )
+    else:
+        return subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", local_path],
+            capture_output=True,
+            text=True,
+        )
