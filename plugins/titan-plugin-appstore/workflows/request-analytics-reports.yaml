@@ -1,0 +1,45 @@
+name: "Request Analytics Reports"
+description: "Create Analytics Report request for a version (takes 30-60 min to process)"
+plugin: appstore
+
+params:
+  platform: "IOS"
+
+steps:
+  # Step 1: Configuration check
+  - id: check_config
+    name: "Check Configuration"
+    plugin: appstore
+    step: check_and_setup_step
+    description: |
+      Verify App Store Connect credentials are configured.
+      Will run setup wizard if needed.
+
+  # Step 2: Select app(s)
+  - id: select_app
+    name: "Select App(s)"
+    plugin: appstore
+    step: select_app_step
+    description: |
+      Select one or more apps to request Analytics Reports for.
+
+      ✅ Multiple apps supported (waterfall processing).
+    requires:
+      - credentials_configured
+
+  # Step 3: Request Analytics Reports
+  - id: request_analytics
+    name: "Request Analytics Reports"
+    plugin: appstore
+    step: request_analytics_single_version_step
+    description: |
+      Request Analytics Reports from App Store Connect API.
+
+      This will:
+      1. Check if there are existing reports (already completed)
+      2. If yes: Show you the reports are ready
+      3. If no: Create a new request (takes 30-60 minutes to process)
+
+      After reports are ready, run "Version Health Check" to see the data.
+    requires:
+      - app_id

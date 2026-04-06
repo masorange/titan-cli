@@ -1,5 +1,5 @@
-name: "Version Analytics Report"
-description: "Compare propagation and stability metrics between latest 2 versions"
+name: "Version Comparison Report"
+description: "📊 Detailed HTML report with charts comparing latest 2 versions (for sharing with team/stakeholders)"
 plugin: appstore
 
 params:

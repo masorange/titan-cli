@@ -1,0 +1,72 @@
+name: "Quick Version Health"
+description: "⚡ Fast health check with automatic comparison to previous version (for daily production monitoring)"
+plugin: appstore
+
+params:
+  platform: "IOS"
+
+steps:
+  # Step 1: Configuration check
+  - id: check_config
+    name: "Check Configuration"
+    plugin: appstore
+    step: check_and_setup_step
+    description: |
+      Verify App Store Connect credentials are configured.
+      Will run setup wizard if needed.
+
+  # Step 2: Select app
+  - id: select_app
+    name: "Select App"
+    plugin: appstore
+    step: select_app_step
+    description: |
+      Select which app to analyze.
+    requires:
+      - credentials_configured
+
+  # Step 3: Automatically fetch production version
+  - id: fetch_production
+    name: "Fetch Production Version"
+    plugin: appstore
+    step: fetch_production_version_step
+    description: |
+      Automatically find the latest production version (READY_FOR_SALE).
+
+      Searches for the most recent version in READY_FOR_SALE state,
+      which is the version currently live on the App Store.
+
+      No user interaction needed - fully automatic!
+    requires:
+      - app_id
+
+  # Step 4: Analyze version with comparison
+  - id: analyze_version
+    name: "Analyze Version with Comparison"
+    plugin: appstore
+    step: analyze_version_with_comparison_step
+    description: |
+      Comprehensive version analysis with automatic comparison to previous version:
+
+      📊 Stability Metrics (Performance API):
+         - Crash rate (current vs previous) ↑↓
+         - Hang rate (current vs previous) ↑↓
+         - Total terminations
+
+      📈 Propagation Metrics (Sales Reports API):
+         - Installation units (current vs previous) ↑↓
+         - Geographic distribution
+         - Market share percentage
+
+      🏥 Health Assessment:
+         - Overall health score (0-100)
+         - Status comparison (healthy/warning/critical)
+         - Delta indicators showing improvements/regressions
+
+      🔍 Automatically finds and analyzes previous version for comparison
+
+      ⚡ INSTANT - No polling required!
+    requires:
+      - app_id
+      - version_string
+      - app_name

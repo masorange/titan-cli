@@ -1,0 +1,74 @@
+name: "Product Report"
+description: "Product-oriented report: Analytics reach (active users, new installs) + stability (crash-free rates) per version, with AI executive summary and PDF export"
+
+tags:
+  platform: ios
+
+steps:
+  - id: check_dependencies
+    name: "Check Dependencies"
+    plugin: appstore
+    step: check_product_report_dependencies_step
+    description: "Verify App Store Connect APIs, Analytics packages and PDF export dependencies are installed"
+
+  - id: check_config
+    name: "Check Configuration"
+    plugin: appstore
+    step: check_and_setup_step
+    description: |
+      Verify App Store Connect configuration.
+      Automatically runs setup wizard if not configured.
+
+  - id: select_app
+    name: "Select App"
+    plugin: appstore
+    step: select_app_step
+    description: |
+      Select which app to analyze.
+      Fetches all apps from your App Store Connect account.
+    requires:
+      - credentials_configured
+
+  - id: select_version
+    name: "Select Version"
+    plugin: appstore
+    step: select_product_report_version_step
+    description: "Select a version to focus the stability analysis on"
+    requires:
+      - app_id
+      - app_name
+
+  - id: product_report
+    name: "Product Report"
+    plugin: appstore
+    step: product_report_step
+    on_error: continue
+    description: |
+      Fetch App Store Analytics reach and Performance metrics:
+
+      Reach Metrics:
+        - Active devices (30 days)
+        - New downloads/installs
+        - Active last 30 days vs previous 30
+
+      Stability Metrics (Per Version):
+        - Crash rate (Performance API)
+        - Crash-free sessions %
+        - Hang rate
+        - Disk writes
+
+      Displays per-version data with AI executive analysis
+    requires:
+      - app_id
+      - app_name
+      - selected_version_id
+      - selected_version_string
+
+  - id: export_pdf
+    name: "Export PDF"
+    plugin: appstore
+    step: export_product_report_pdf_step
+    on_error: continue
+    description: "Optionally export the product report as a PDF file"
+    requires:
+      - product_report_data
