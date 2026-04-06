@@ -5,7 +5,35 @@ Pure business logic for Git diff parsing and formatting.
 These functions can be used by any step and are easily testable.
 """
 
+import re
 from typing import List, Tuple
+
+# Matches git rename notation: prefix{old => new}suffix
+# Examples:
+#   titan_cli/core/{models.py => models/__init__.py}  →  titan_cli/core/models/__init__.py
+#   {old_dir => new_dir}/file.py                      →  new_dir/file.py
+_RENAME_PATTERN = re.compile(r'^(.*?)\{[^}]*\s*=>\s*([^}]*)\}(.*)$')
+
+
+def expand_rename_path(path: str) -> str:
+    """
+    Expand a git rename notation path to the actual new file path.
+
+    Git diff --stat uses {old => new} notation for renames.
+    This function converts it to a real file path usable by git add.
+
+    Args:
+        path: A file path, possibly containing git rename notation.
+
+    Returns:
+        Expanded path with the rename resolved to the new name.
+        If no rename notation is present, returns the path unchanged.
+    """
+    match = _RENAME_PATTERN.match(path)
+    if not match:
+        return path
+    prefix, new_part, suffix = match.groups()
+    return prefix + new_part.strip() + suffix
 
 
 def parse_diff_stat_output(stat_output: str) -> Tuple[List[Tuple[str, str]], List[str]]:
@@ -155,6 +183,7 @@ def format_diff_stat_display(stat_output: str) -> Tuple[List[str], List[str]]:
 
 __all__ = [
     "parse_diff_stat_output",
+    "expand_rename_path",
     "get_max_filename_length",
     "colorize_diff_stats",
     "colorize_diff_summary",

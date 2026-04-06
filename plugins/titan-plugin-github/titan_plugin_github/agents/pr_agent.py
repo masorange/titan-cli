@@ -8,18 +8,18 @@ This agent analyzes the complete context of a branch and automatically:
 3. Creates PR title and description following templates
 """
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from titan_cli.core.logging import get_logger
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from titan_cli.core.result import ClientSuccess, ClientError
 from .config_loader import load_agent_config
 from ..utils import calculate_pr_size, is_i18n_change
 
 # Set up logger
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -522,21 +522,27 @@ DESCRIPTION:
         """
         Parse AI response to extract title and description.
 
+        Handles various AI response formats (case-insensitive, with or without preamble).
+
         Returns:
             Tuple of (title, description)
         """
-        if "TITLE:" not in content or "DESCRIPTION:" not in content:
+        # Normalize content for case-insensitive matching
+        content_upper = content.upper()
+        title_idx = content_upper.find("TITLE:")
+        desc_idx = content_upper.find("DESCRIPTION:")
+
+        if title_idx == -1 or desc_idx == -1:
             raise ValueError(
                 f"AI response format incorrect. Expected 'TITLE:' and 'DESCRIPTION:' sections.\n"
                 f"Got: {content[:200]}..."
             )
 
-        # Extract title and description
-        parts = content.split("DESCRIPTION:", 1)
-        title = parts[0].replace("TITLE:", "").strip()
-        description = parts[1].strip() if len(parts) > 1 else ""
+        # Extract title and description using original content (preserves casing)
+        title = content[title_idx + 6:desc_idx].strip()  # +6 for len("TITLE:")
+        description = content[desc_idx + 12:].strip()  # +12 for len("DESCRIPTION:")
 
-        # Clean up title
+        # Clean up title (remove quotes if present)
         title = title.strip('"').strip("'")
 
         # Ensure title subject starts with capital letter (conventional commits requirement)

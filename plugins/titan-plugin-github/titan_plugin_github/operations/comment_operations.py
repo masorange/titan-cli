@@ -9,8 +9,8 @@ import os
 import glob
 from typing import Optional, Dict
 from titan_cli.core.result import ClientSuccess, ClientError
+from ..managers.diff_context_manager import build_focused_diff_from_hunk
 from ..models.view import UICommentThread
-from ..widgets.comment_utils import extract_diff_context
 
 
 def build_ai_review_context(
@@ -40,10 +40,10 @@ def build_ai_review_context(
 
     # Extract only relevant lines from diff_hunk (7 before + target + 3 after)
     # This reduces token usage significantly (e.g., 200 lines → ~11 lines)
-    diff_context = extract_diff_context(
-        diff_hunk=main_comment.diff_hunk,
+    diff_context = build_focused_diff_from_hunk(
+        hunk_content=main_comment.diff_hunk,
         target_line=main_comment.line,
-        is_outdated=False
+        is_outdated=False,
     ) if main_comment.diff_hunk else None
 
     # Build thread conversation

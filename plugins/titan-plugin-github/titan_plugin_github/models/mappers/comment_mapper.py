@@ -42,7 +42,9 @@ def from_graphql_review_comment(
         formatted_date=format_date(comment.createdAt),
         path=comment.path,
         line=line_number,
-        diff_hunk=comment.diffHunk
+        diff_hunk=comment.diffHunk,
+        position=comment.position,
+        original_line=comment.originalLine,
     )
 
 

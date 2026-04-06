@@ -39,6 +39,7 @@ class WorkflowContext:
     ai: Optional[Any] = None
     git: Optional[Any] = None
     github: Optional[Any] = None
+    github_managers: Optional[Any] = None
     jira: Optional[Any] = None
     appstore: Optional[Any] = None
 

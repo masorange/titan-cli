@@ -8,14 +8,15 @@ from .app import TitanApp
 __all__ = ["TitanApp"]
 
 
-def launch_tui(debug: bool = False):
+def launch_tui(debug: bool = False, devtools: bool = False):
     """
     Launch the Titan TUI application.
 
     This is the main entry point for running Titan in TUI mode.
 
     Args:
-        debug: Enable Textual devtools (requires `textual console` in another terminal)
+        debug: Enable DEBUG level logs to console (set by titan-dev or --debug)
+        devtools: Enable Textual devtools for visual debugging (requires `textual console` in another terminal)
 
     Flow:
     1. Check if global config exists (~/.titan/config.toml)
@@ -27,7 +28,8 @@ def launch_tui(debug: bool = False):
 
     Logging:
     - Production (debug=False): Console logging disabled, logs only to file
-    - Development (debug=True): Console logging enabled + Textual devtools
+    - Development (debug=True, devtools=False): Console logging enabled with DEBUG logs
+    - Development + Visual (debug=True, devtools=True): Console logging + Textual devtools
       (use `textual console` in another terminal to see logs)
     """
     import os
@@ -37,15 +39,15 @@ def launch_tui(debug: bool = False):
     from titan_cli.core.utils import find_project_root
     from .screens import GlobalSetupWizardScreen, ProjectSetupWizardScreen, MainMenuScreen
 
-    # Enable Textual devtools in debug mode
+    # Enable Textual devtools only if explicitly requested
     # This allows `textual console` to receive logs
-    if debug:
+    if devtools:
         features = set()
         features.add("debug")
         features.add("devtools")
         os.environ["TEXTUAL"] = ",".join(sorted(features))
-    else:
-        # In production mode, disable console logging (TUI would hide it anyway)
+    elif not debug:
+        # In production mode (no debug, no devtools), disable console logging (TUI would hide it anyway)
         disable_console_logging()
 
     # Check if global config exists

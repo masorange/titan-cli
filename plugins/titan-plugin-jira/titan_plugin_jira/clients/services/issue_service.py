@@ -114,7 +114,7 @@ class IssueService:
                 "fields": fields or ["summary", "status", "assignee", "priority", "created", "updated"]
             }
 
-            data = self.network.make_request("POST", "search", json=payload)
+            data = self.network.make_request("POST", "search/jql", json=payload)
 
             # 2. Parse and map each issue
             ui_issues = []

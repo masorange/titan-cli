@@ -4,30 +4,94 @@ Steps for AI-powered PR code review.
 This module contains steps for reviewing pull requests authored by others using
 AI analysis combined with project-specific skill guidelines.
 """
-import logging
 import threading
-from typing import List
+from typing import List, Optional
 
+from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
-from ..models.view import UIReviewSuggestion
+from ..models.review_enums import ReviewActionType, ThreadDecisionType
+from ..models.review_models import ReviewActionProposal
+from ..models.view import UICommentThread
 from ..operations.code_review_operations import (
-    load_all_project_skills,
-    load_project_docs,
-    select_relevant_skills,
     select_files_for_review,
-    build_review_context,
-    build_pr_summary_prompt,
-    extract_diff_for_file,
-    extract_hunk_for_line,
-    build_review_payload,
     compute_diff_stat,
-    filter_own_duplicate_suggestions,
+)
+from ..operations.review_action_operations import (
+    build_new_comment_actions as _build_new_comment_actions,
+    build_review_action_payload,
+    extract_diff_hunk_for_action,
+)
+from ..operations.thread_resolution_operations import (
+    build_thread_review_candidates as _build_thread_review_candidates,
+    build_thread_review_contexts as _build_thread_review_contexts,
+    build_thread_resolution_prompt,
+    build_thread_actions as _build_thread_actions,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+_PROMPT_PREVIEW_CHARS = 2000
+_RESPONSE_PREVIEW_CHARS = 1500
+
+
+def _preview_edges(text: str, limit: int) -> tuple[str, str]:
+    """Return start/end previews for large text blobs."""
+    if len(text) <= limit:
+        return text, text
+    return text[:limit], text[-limit:]
+
+
+def _log_ai_prompt(step_name: str, cli_name: str, prompt: str, **extra) -> None:
+    """Log prompt metadata plus previews for review debugging."""
+    first, last = _preview_edges(prompt, _PROMPT_PREVIEW_CHARS)
+    logger.info(
+        "ai_prompt_built",
+        step=step_name,
+        cli=cli_name,
+        prompt_chars=len(prompt),
+        prompt_first_chars=first,
+        prompt_last_chars=last,
+        **extra,
+    )
+    logger.info(
+        "ai_prompt_full",
+        step=step_name,
+        cli=cli_name,
+        prompt=prompt,
+        **extra,
+    )
+
+
+def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, exit_code: int, **extra) -> None:
+    """Log response metadata plus previews for review debugging."""
+    stdout_first, stdout_last = _preview_edges(stdout, _RESPONSE_PREVIEW_CHARS)
+    stderr_first, stderr_last = _preview_edges(stderr, _RESPONSE_PREVIEW_CHARS)
+    logger.info(
+        "ai_response_received",
+        step=step_name,
+        cli=cli_name,
+        exit_code=exit_code,
+        stdout_chars=len(stdout),
+        stderr_chars=len(stderr),
+        stdout_first_chars=stdout_first,
+        stdout_last_chars=stdout_last,
+        stderr_first_chars=stderr_first,
+        stderr_last_chars=stderr_last,
+        **extra,
+    )
+    logger.info(
+        "ai_response_full",
+        step=step_name,
+        cli=cli_name,
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        **extra,
+    )
 
 
 # ============================================================================
@@ -35,39 +99,99 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-def _show_suggestion_and_get_action(
+def _show_review_action_and_get_decision(
     ctx: WorkflowContext,
-    suggestion: UIReviewSuggestion,
+    action: ReviewActionProposal,
+    diff_hunk: str,
     idx: int,
     total: int,
+    review_threads: Optional[List[UICommentThread]] = None,
 ) -> str:
     """
-    Display a review suggestion and return the user's chosen action.
+    Display a ReviewActionProposal and return the user's chosen decision.
+
+    For resolve_thread actions, shows thread context and resolve confirmation.
+    For reply_to_thread actions, shows the original thread context and proposed reply.
+    For new_comment actions, shows just the proposed comment.
 
     Returns:
         "approve", "edit", "skip", or "exit"
     """
-    # Display header with comment number
     ctx.textual.text("")
-    if suggestion.reply_to_comment_id:
-        ctx.textual.bold_text(f"Comment {idx + 1} of {total} — Reply to existing thread #{suggestion.reply_to_comment_id}")
+
+    # Handle resolve_thread actions differently
+    if action.action_type == ReviewActionType.RESOLVE_THREAD:
+        ctx.textual.bold_text(f"Thread {idx + 1} of {total}")
+        ctx.textual.text("")
+
+        # Show the original thread to be resolved
+        if review_threads:
+            from titan_plugin_github.widgets import CommentThread
+
+            original_thread = next(
+                (t for t in review_threads if t.thread_id == action.thread_id),
+                None
+            )
+            if original_thread:
+                ctx.textual.text("📌 Thread to resolve:")
+                ctx.textual.mount(
+                    CommentThread(
+                        thread=original_thread,
+                        options=[],  # No buttons in this display
+                    )
+                )
+                ctx.textual.text("")
+
+        ctx.textual.text("✓ Mark this thread as resolved")
+        ctx.textual.text("")
+
+        options = [
+            ChoiceOption(value="approve", label="✓ Resolve", variant="success"),
+            ChoiceOption(value="skip", label="— Skip", variant="default"),
+        ]
+        if idx < total - 1:
+            options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
+
+        question = "What would you like to do with this thread?"
     else:
+        # For reply_to_thread and new_comment actions
         ctx.textual.bold_text(f"Comment {idx + 1} of {total}")
-    ctx.textual.text("")
+        ctx.textual.text("")
 
-    # Mount the ReviewSuggestion widget (handles all display: severity, file, line, diff, body)
-    from titan_plugin_github.widgets import ReviewSuggestion
-    ctx.textual.mount(ReviewSuggestion(suggestion))
-    ctx.textual.text("")
+        # For reply_to_thread actions, show the original thread context
+        if action.action_type == ReviewActionType.REPLY_TO_THREAD and review_threads:
+            from titan_plugin_github.widgets import CommentThread
 
-    # Build options
-    options = [
-        ChoiceOption(value="approve", label="✓ Approve", variant="success"),
-        ChoiceOption(value="edit", label="✎ Edit", variant="default"),
-        ChoiceOption(value="skip", label="— Skip", variant="default"),
-    ]
-    if idx < total - 1:
-        options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
+            # Find the original thread
+            original_thread = next(
+                (t for t in review_threads if t.thread_id == action.thread_id),
+                None
+            )
+            if original_thread:
+                ctx.textual.text("📌 Original comment:")
+                ctx.textual.mount(
+                    CommentThread(
+                        thread=original_thread,
+                        options=[],  # No buttons in this display
+                    )
+                )
+                ctx.textual.text("")
+                ctx.textual.text("📝 Your reply:")
+
+        # Show the action (proposed reply or new comment)
+        from titan_plugin_github.widgets import CommentView
+        ctx.textual.mount(CommentView.from_action(action, diff_hunk=diff_hunk))
+        ctx.textual.text("")
+
+        options = [
+            ChoiceOption(value="approve", label="✓ Approve", variant="success"),
+            ChoiceOption(value="edit", label="✎ Edit", variant="default"),
+            ChoiceOption(value="skip", label="— Skip", variant="default"),
+        ]
+        if idx < total - 1:
+            options.append(ChoiceOption(value="exit", label="✗ Exit review", variant="error"))
+
+        question = "What would you like to do with this comment?"
 
     result_container: dict = {}
     result_event = threading.Event()
@@ -77,7 +201,7 @@ def _show_suggestion_and_get_action(
         result_event.set()
 
     prompt = PromptChoice(
-        question="What would you like to do with this comment?",
+        question=question,
         options=options,
         on_select=on_choice,
     )
@@ -86,9 +210,8 @@ def _show_suggestion_and_get_action(
 
     choice = result_container.get("choice", "skip")
 
-    # Replace buttons with a decision badge
     action_labels = {
-        "approve": "✓ Approved",
+        "approve": "✓ Resolved" if action.action_type == ReviewActionType.RESOLVE_THREAD else "✓ Approved",
         "edit": "✎ Edited",
         "skip": "— Skipped",
         "exit": "✗ Exit review",
@@ -221,19 +344,25 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 
-def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
+def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Fetch diff, changed files, latest commit SHA, and matching project skills.
+    Fetch all data needed for a full PR review cycle.
+
+    Builds a complete review bundle: PR metadata, diff, file stats,
+    inline review threads (separate from general comments), and commit SHA.
 
     Requires (from ctx.data):
         review_pr_number (int): PR number
 
     Outputs (saved to ctx.data):
-        review_changed_files (List[str])
-        review_diff (str)
-        review_commit_sha (str)
-        review_skills (List[dict])
-        review_pr (UIPullRequest)
+        review_pr (UIPullRequest): Pull request details
+        review_diff (str): Full unified diff
+        review_changed_files (List[str]): Changed file paths (may be subset for large PRs)
+        review_changed_files_with_stats (List[UIFileChange]): All files with add/del stats
+        review_commit_sha (str): Head commit SHA
+        review_threads (List[UICommentThread]): Inline review threads (unresolved)
+        review_general_comments (List[UICommentThread]): General PR-level comments
+        pr_template (str | None): PR template content if available
 
     Returns:
         Success, Skip (empty diff), or Error
@@ -241,7 +370,7 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Fetch PR Changes")
+    ctx.textual.begin_step("Fetch PR Review Bundle")
 
     pr_number = ctx.get("review_pr_number")
     if not pr_number:
@@ -252,11 +381,10 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
-    # Fetch PR details, files, diff, and commit SHA in parallel-ish sequence
+    # Fetch PR details, files with stats, and commit SHA
     with ctx.textual.loading(f"Fetching PR #{pr_number} data..."):
         pr_result = ctx.github.get_pull_request(pr_number)
-        files_result = ctx.github.get_pr_files(pr_number)
-        diff_result = ctx.github.get_pr_diff(pr_number)
+        files_result = ctx.github.get_pr_files_with_stats(pr_number)
         sha_result = ctx.github.get_pr_commit_sha(pr_number)
 
     # Validate PR
@@ -270,14 +398,35 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
 
     # Validate files
     match files_result:
-        case ClientSuccess(data=changed_files):
-            pass
+        case ClientSuccess(data=all_files_with_stats):
+            changed_file_paths = [f.path for f in all_files_with_stats]
         case ClientError(error_message=err):
             ctx.textual.error_text(f"Failed to fetch changed files: {err}")
             ctx.textual.end_step("error")
             return Error(f"Failed to fetch files: {err}")
 
-    # Validate diff — fallback to per-file diffs if PR is too large
+    # Fetch diff — prefer git diff with extended context (20 lines) for better AI review quality
+    with ctx.textual.loading(f"Fetching PR #{pr_number} diff..."):
+        match (ctx.git, pr_result):
+            case (git, ClientSuccess(data=pr_for_diff)) if git:
+                fetch_result = git.fetch(all=True)
+                match fetch_result:
+                    case ClientError(error_message=err):
+                        logger.warning(f"Git fetch failed: {err}, will try diff anyway")
+                    case _:
+                        pass
+
+                diff_result = git.get_branch_diff(
+                    pr_for_diff.base_ref,
+                    pr_for_diff.head_ref,
+                    context_lines=20,
+                    use_remote=True
+                )
+            case _:
+                logger.debug("Git plugin not available; using gh pr diff")
+                diff_result = ctx.github.get_pr_diff(pr_number)
+
+    # Validate diff — fallback to per-file patches if PR is too large
     match diff_result:
         case ClientSuccess(data=diff):
             if not diff or not diff.strip():
@@ -285,33 +434,21 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("skip")
                 return Skip("Empty PR diff")
         case ClientError(error_message=err) if "too_large" in err or "too large" in err.lower():
-            ctx.textual.warning_text("PR diff is too large. Fetching file stats to select what matters...")
+            ctx.textual.warning_text("PR diff is too large. Selecting files that matter...")
 
-            # Step 1: Get all files with stats (no patches yet)
-            with ctx.textual.loading("Fetching file stats..."):
-                files_stats_result = ctx.github.get_pr_files_with_stats(pr_number)
-
-            match files_stats_result:
-                case ClientSuccess(data=files_with_stats):
-                    pass
-                case ClientError(error_message=err):
-                    ctx.textual.end_step("error")
-                    return Error(f"Could not fetch file stats: {err}")
-
-            # Step 2: AI selects which files actually matter
+            # AI selects which files to review from the already-fetched stats
             if ctx.ai:
-                with ctx.textual.loading(f"AI selecting important files from {len(files_with_stats)} changed..."):
-                    selected_files = select_files_for_review(files_with_stats, ctx.ai)
+                with ctx.textual.loading(f"AI selecting from {len(all_files_with_stats)} files..."):
+                    selected_paths = select_files_for_review(all_files_with_stats, ctx.ai)
             else:
                 from ..operations.code_review_operations import MAX_FILES_FOR_REVIEW
-                selected_files = [f.path for f in files_with_stats[:MAX_FILES_FOR_REVIEW]]
+                selected_paths = [f.path for f in all_files_with_stats[:MAX_FILES_FOR_REVIEW]]
 
-            ctx.textual.dim_text(f"Reviewing {len(selected_files)} of {len(files_with_stats)} files")
-            changed_files = selected_files
+            ctx.textual.dim_text(f"Reviewing {len(selected_paths)} of {len(all_files_with_stats)} files")
+            changed_file_paths = selected_paths
 
-            # Step 3: Fetch patches only for selected files
             with ctx.textual.loading("Fetching patches for selected files..."):
-                patches_result = ctx.github.get_pr_file_patches(pr_number, selected_files)
+                patches_result = ctx.github.get_pr_file_patches(pr_number, selected_paths)
 
             match patches_result:
                 case ClientSuccess(data=patches_diff) if patches_diff:
@@ -332,246 +469,731 @@ def fetch_pr_changes(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.warning_text(f"Could not get commit SHA: {err}")
             commit_sha = ""
 
-    # Load project context: skills and docs (no project_instructions — too noisy for code review)
-    all_skills = load_all_project_skills()
-    all_docs = load_project_docs()
-
-    if (all_skills or all_docs) and ctx.ai:
-        with ctx.textual.loading("Selecting relevant project context..."):
-            skills, docs = select_relevant_skills(all_skills, diff, ctx.ai, all_docs)
-    else:
-        skills, docs = all_skills, all_docs
-
-    # Display file changes summary using diff stat
+    # Display file changes summary
     formatted_files, formatted_summary = compute_diff_stat(diff)
-    ctx.textual.show_diff_stat(
-        formatted_files,
-        formatted_summary,
-        title="Files affected:",
-    )
+    ctx.textual.show_diff_stat(formatted_files, formatted_summary, title="Files affected:")
 
-    # Fetch open review threads (non-blocking)
-    open_threads = []
+    # Fetch inline review threads and general comments separately
+    review_threads = []
+    general_comments = []
     with ctx.textual.loading("Fetching existing review comments..."):
         threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=False)
         match threads_result:
             case ClientSuccess(data=threads):
-                open_threads = threads
+                review_threads = threads
             case ClientError():
                 pass
 
         general_result = ctx.github.get_pr_general_comments(pr_number)
         match general_result:
             case ClientSuccess(data=general):
-                open_threads += general
+                general_comments = general
             case ClientError():
                 pass
 
-    ctx.textual.text("")
-    if skills:
-        skill_names = ", ".join(s["name"] for s in skills)
-        ctx.textual.success_text(f"✓ {len(skills)} guideline(s): {skill_names}")
-    if docs:
-        doc_names = ", ".join(d["name"] for d in docs)
-        ctx.textual.success_text(f"✓ {len(docs)} doc(s): {doc_names}")
-    if not skills and not docs:
-        ctx.textual.dim_text("No project context found — applying general best practices")
-    if open_threads:
-        ctx.textual.dim_text(f"  {len(open_threads)} existing open comment(s) found")
-    if commit_sha:
-        ctx.textual.dim_text(f"  Latest commit: {commit_sha[:7]}")
+    total_comments = len(review_threads) + len(general_comments)
+    if total_comments:
+        ctx.textual.dim_text(f"{total_comments} existing comment(s)")
 
     ctx.textual.end_step("success")
 
+    pr_template = ctx.github.get_pr_template()
+
     return Success(
-        f"Fetched PR #{pr_number} data",
+        f"Fetched PR #{pr_number} review bundle",
         metadata={
-            "review_changed_files": changed_files,
-            "review_diff": diff,
-            "review_commit_sha": commit_sha,
-            "review_skills": skills,
-            "review_docs": docs,
             "review_pr": pr,
-            "review_open_threads": open_threads,
+            "review_diff": diff,
+            "review_changed_files": changed_file_paths,
+            "review_changed_files_with_stats": all_files_with_stats,
+            "review_commit_sha": commit_sha,
+            "review_threads": review_threads,
+            "review_general_comments": general_comments,
+            "pr_template": pr_template,
         },
     )
 
 
-def ai_review_pr(ctx: WorkflowContext) -> WorkflowResult:
+def _resolve_headless_adapter(cli_preference: str):
+    """Return the first available headless adapter, or None."""
+    if cli_preference == "auto":
+        for cli_name in HEADLESS_ADAPTER_REGISTRY:
+            candidate = get_headless_adapter(cli_name)
+            if candidate.is_available():
+                return candidate
+        return None
+
+    try:
+        candidate = get_headless_adapter(cli_preference)
+    except ValueError:
+        return None
+
+    return candidate if candidate.is_available() else None
+
+
+# ============================================================================
+# PHASE 2: CHEAP CONTEXT STEPS (pre-AI, deterministic)
+# ============================================================================
+
+
+def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Use AI to generate review comments for the PR.
+    Build a structured manifest of the PR changes (no AI involved).
+
+    Converts UIFileChange objects into a typed ChangeManifest that serves
+    as cheap context for both AI-directed workflows.
 
     Requires (from ctx.data):
-        review_pr (UIPullRequest)
-        review_diff (str)
-        review_changed_files (List[str])
-        review_skills (List[dict])
+        review_pr (UIPullRequest): Pull request details
+        review_changed_files_with_stats (List[UIFileChange]): Files with add/del stats
 
     Outputs (saved to ctx.data):
-        review_suggestions (List[UIReviewSuggestion]): with diff_context filled in
+        change_manifest (ChangeManifest): Structured PR context
 
     Returns:
-        Success, Skip (no comments), or Error
+        Success or Error
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("AI Code Review")
+    ctx.textual.begin_step("Build Change Manifest")
 
     pr = ctx.get("review_pr")
-    diff = ctx.get("review_diff", "")
-    skills = ctx.get("review_skills", [])
-    docs = ctx.get("review_docs", [])
-    open_threads = ctx.get("review_open_threads", [])
-
-    if not pr or not diff:
-        ctx.textual.end_step("error")
-        return Error("Missing PR data (run fetch_pr_changes first)")
-
-    if not ctx.ai:
-        ctx.textual.error_text("AI client not available")
-        ctx.textual.end_step("error")
-        return Error("AI client not available")
-
-    # Get current user to filter out their own comments from the context
-    current_user = None
-    if ctx.github:
-        user_result = ctx.github.get_current_user()
-        match user_result:
-            case ClientSuccess(data=login):
-                current_user = login
-            case ClientError():
-                pass  # Best effort — continue without filtering
-
-    from ..agents.code_review_agent import CodeReviewAgent
-
-    context_str = build_review_context(pr, diff, skills, docs, open_threads, current_user)
-
-    with ctx.textual.loading("Generating AI review comments..."):
-        agent = CodeReviewAgent(ctx.ai)
-        suggestions = agent.review(context_str)
-
-    if not suggestions:
-        ctx.textual.dim_text("AI found no issues to comment on.")
-        ctx.textual.end_step("skip")
-        return Skip("No AI review suggestions generated")
-
-    # Enrich suggestions with the specific hunk around the commented line
-    from ..operations.code_review_operations import find_line_by_snippet
-    for suggestion in suggestions:
-        file_diff = extract_diff_for_file(diff, suggestion.file_path)
-        if file_diff:
-            # If we have a snippet but no line, resolve the snippet to a line first
-            target_line = suggestion.line
-            if suggestion.snippet and not target_line:
-                target_line = find_line_by_snippet(file_diff, suggestion.snippet)
-                if target_line:
-                    # Update the suggestion object with the resolved line
-                    suggestion.line = target_line
-
-            # Extract the hunk around the target line
-            hunk = extract_hunk_for_line(file_diff, target_line)
-            suggestion.diff_context = hunk or file_diff[:3000]
-
-    # Post-process: filter suggestions that duplicate own existing comments
-    own_threads = ctx.get("review_open_threads", [])
-    own_threads_by_user = [
-        t for t in own_threads
-        if current_user and t.main_comment.author_login == current_user
-    ]
-    if own_threads_by_user:
-        suggestions, duplicates = filter_own_duplicate_suggestions(suggestions, own_threads_by_user)
-        if duplicates:
-            ctx.textual.dim_text(
-                f"  {len(duplicates)} suggestion(s) removed — already commented by you"
-            )
-
-    if not suggestions:
-        ctx.textual.dim_text("AI found no new issues to comment on (all were duplicates of your existing comments).")
-        ctx.textual.end_step("skip")
-        return Skip("No new AI review suggestions (all duplicates filtered)")
-
-    # Show summary
-    counts = {"critical": 0, "improvement": 0, "suggestion": 0}
-    for s in suggestions:
-        counts[s.severity] = counts.get(s.severity, 0) + 1
-
-    ctx.textual.success_text(f"Generated {len(suggestions)} review comment(s):")
-    if counts["critical"]:
-        ctx.textual.error_text(f"  🔴 {counts['critical']} critical")
-    if counts["improvement"]:
-        ctx.textual.warning_text(f"  🟡 {counts['improvement']} improvement(s)")
-    if counts["suggestion"]:
-        ctx.textual.dim_text(f"  🔵 {counts['suggestion']} suggestion(s)")
-
-    ctx.textual.end_step("success")
-
-    return Success(
-        f"Generated {len(suggestions)} review comment(s)",
-        metadata={"review_suggestions": suggestions},
-    )
-
-
-def summarize_pr_review(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Generate and display an AI summary of the PR before validating comments.
-
-    Requires (from ctx.data):
-        review_pr (UIPullRequest)
-        review_changed_files (List[str])
-        review_suggestions (List[UIReviewSuggestion])
-
-    Returns:
-        Success or Skip (if AI unavailable)
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("PR Review Summary")
-
-    pr = ctx.get("review_pr")
-    changed_files = ctx.get("review_changed_files", [])
-    suggestions = ctx.get("review_suggestions", [])
+    files = ctx.get("review_changed_files_with_stats", [])
 
     if not pr:
-        ctx.textual.end_step("skip")
-        return Skip("No PR data available")
+        ctx.textual.end_step("error")
+        return Error("No PR data in context (run fetch_pr_review_bundle first)")
 
-    if not ctx.ai:
-        ctx.textual.end_step("skip")
-        return Skip("AI client not available")
+    from ..operations.manifest_operations import build_change_manifest as _build
 
-    prompt = build_pr_summary_prompt(pr, changed_files, suggestions)
+    try:
+        manifest = _build(pr, files)
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(f"Failed to build change manifest: {e}")
 
-    from titan_cli.ai.models import AIMessage
-    with ctx.textual.loading("Generating PR summary..."):
-        try:
-            response = ctx.ai.generate(
-                messages=[AIMessage(role="user", content=prompt)],
-                max_tokens=600,
-                temperature=0.3,
-            )
-            summary = response.content.strip()
-        except Exception as e:
-            ctx.textual.warning_text(f"Could not generate summary: {e}")
-            ctx.textual.end_step("skip")
-            return Skip("Summary generation failed")
+    ctx.data["change_manifest"] = manifest
 
-    ctx.textual.markdown(summary)
+    test_count = sum(1 for f in manifest.files if f.is_test)
+    ctx.textual.success_text(
+        f"✓ {len(manifest.files)} files analysed"
+        + (f" ({test_count} test files)" if test_count else "")
+        + f" · +{manifest.total_additions} -{manifest.total_deletions}"
+    )
     ctx.textual.end_step("success")
-    return Success("PR summary generated")
+    return Success("Change manifest built", metadata={"change_manifest": manifest})
 
 
-def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
+def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Present each AI suggestion to the user for approval, editing, or skipping.
+    Build a compact index of existing PR comments for deduplication.
+
+    Flattens inline review threads and general PR comments into a lightweight
+    list of ExistingCommentIndexEntry objects. The index is used later to
+    avoid AI findings that duplicate comments already posted.
 
     Requires (from ctx.data):
-        review_suggestions (List[UIReviewSuggestion])
-        review_changed_files (List[str]): For display purposes
+        review_threads (List[UICommentThread]): Inline review threads
+        review_general_comments (List[UICommentThread]): General PR-level comments
 
     Outputs (saved to ctx.data):
-        approved_suggestions (List[UIReviewSuggestion])
+        existing_comments_index (List[ExistingCommentIndexEntry])
+
+    Returns:
+        Success
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Existing Comments Index")
+
+    threads = ctx.get("review_threads", [])
+    general = ctx.get("review_general_comments", [])
+
+    from ..operations.manifest_operations import build_existing_comments_index as _build
+
+    try:
+        index = _build(threads, general)
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(f"Failed to build comments index: {e}")
+
+    ctx.data["existing_comments_index"] = index
+
+    resolved_count = sum(1 for e in index if e.is_resolved)
+    msg = f"✓ {len(index)} existing comment(s) indexed"
+    if resolved_count:
+        msg += f" ({resolved_count} resolved)"
+    ctx.textual.success_text(msg)
+    ctx.textual.end_step("success")
+    return Success("Comments index built", metadata={"existing_comments_index": index})
+
+
+def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Assemble the review checklist for this PR.
+
+    Delegates checklist resolution to ChecklistManager so project-specific
+    checklist loading can evolve without changing workflow orchestration.
+
+    Outputs (saved to ctx.data):
+        review_checklist (List[ReviewChecklistItem])
+
+    Returns:
+        Success
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Review Checklist")
+
+    if not ctx.github_managers:
+        return Error("GitHub managers are not available in workflow context.")
+
+    checklist = ctx.github_managers.checklist.get_effective_checklist()
+    ctx.data["review_checklist"] = checklist
+
+    ctx.textual.success_text(f"✓ {len(checklist)} checklist categories ready")
+    ctx.textual.end_step("success")
+    return Success("Review checklist built", metadata={"review_checklist": checklist})
+
+
+# ============================================================================
+# PHASE 3: DIRECTED AI ANALYSIS (first AI call)
+# ============================================================================
+
+
+def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    First AI call: decide which files to read and which checklist items apply.
+
+    Sends a structured prompt to the selected headless CLI (Claude, Gemini, Codex).
+    The prompt includes the change manifest, existing comments index, and review
+    checklist. It also instructs the AI to use any project-specific skills or
+    guidelines available in its context (each CLI knows where its own skills live).
+
+    On parse failure, falls back to a local conservative heuristic plan.
+
+    Requires (from ctx.data):
+        change_manifest (ChangeManifest)
+        existing_comments_index (List[ExistingCommentIndexEntry])
+        review_checklist (List[ReviewChecklistItem])
+        cli_preference (str): "claude" | "gemini" | "codex" | "auto"
+
+    Outputs (saved to ctx.data):
+        review_plan (ReviewPlan)
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("AI Review Plan")
+
+    manifest = ctx.get("change_manifest")
+    comments_index = ctx.get("existing_comments_index", [])
+    checklist = ctx.get("review_checklist", [])
+    cli_preference = ctx.data.get("cli_preference", "auto")
+    project_root = ctx.data.get("project_root")
+
+    if not manifest:
+        ctx.textual.end_step("error")
+        return Error("No change manifest in context (run build_change_manifest first)")
+
+    from ..operations.plan_prompt_operations import (
+        build_review_plan_prompt,
+        build_default_review_plan,
+    )
+    from ..models.review_models import ReviewPlan
+    from pydantic import ValidationError
+    import json
+
+    adapter = _resolve_headless_adapter(cli_preference)
+
+    if not adapter:
+        ctx.textual.warning_text("No headless CLI available — using default review plan")
+        fallback = build_default_review_plan(manifest, checklist)
+        ctx.data["review_plan"] = fallback
+        ctx.textual.dim_text(f"Default plan: {len(fallback.file_plan)} files, {len(fallback.applicable_checklist)} checklist items")
+        ctx.textual.end_step("success")
+        return Success("Default review plan used (no CLI available)", metadata={"review_plan": fallback})
+
+    prompt = build_review_plan_prompt(manifest, comments_index, checklist)
+
+    cli_display = adapter.cli_name.value.capitalize()
+    # _log_ai_prompt(
+    #     step_name="ai_review_plan",
+    #     cli_name=adapter.cli_name.value,
+    #     prompt=prompt,
+    #     manifest_files=len(manifest.files),
+    #     existing_comments=len(comments_index),
+    #     checklist_items=len(checklist),
+    # )
+    with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
+        response = adapter.execute(prompt, cwd=project_root, timeout=240)
+    # _log_ai_response(
+    #     step_name="ai_review_plan",
+    #     cli_name=adapter.cli_name.value,
+    #     stdout=response.stdout,
+    #     stderr=response.stderr,
+    #     exit_code=response.exit_code,
+    #     manifest_files=len(manifest.files),
+    #     existing_comments=len(comments_index),
+    #     checklist_items=len(checklist),
+    # )
+
+    if not response.succeeded:
+        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — using default plan")
+        if response.stderr:
+            ctx.textual.dim_text(response.stderr[:200])
+        fallback = build_default_review_plan(manifest, checklist)
+        ctx.data["review_plan"] = fallback
+        ctx.textual.end_step("success")
+        return Success("Default review plan used (CLI error)", metadata={"review_plan": fallback})
+
+    # Parse JSON response
+    try:
+        text = response.stdout.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON object found in response")
+        plan = ReviewPlan.model_validate_json(text[start:end])
+    except (json.JSONDecodeError, ValidationError, ValueError) as e:
+        ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
+        fallback = build_default_review_plan(manifest, checklist)
+        ctx.data["review_plan"] = fallback
+        ctx.textual.end_step("success")
+        return Success("Default review plan used (parse error)", metadata={"review_plan": fallback})
+
+    ctx.data["review_plan"] = plan
+    ctx.textual.success_text(
+        f"✓ Plan: {len(plan.file_plan)} files · "
+        f"{len(plan.applicable_checklist)} categories · "
+        f"{len(plan.extra_context_requests)} extra context request(s)"
+    )
+    ctx.textual.end_step("success")
+    return Success("Review plan built", metadata={"review_plan": plan})
+
+
+def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Validate the AI-generated ReviewPlan against local semantic rules.
+
+    Checks that all file paths exist in the manifest, read modes are valid,
+    extra context requests don't exceed the limit, and full_file mode is only
+    used for small or new files.
+
+    Requires (from ctx.data):
+        review_plan (ReviewPlan)
+        change_manifest (ChangeManifest)
+
+    Outputs (saved to ctx.data):
+        validated_review_plan (ReviewPlan): Same plan if valid
+
+    Returns:
+        Success or Error (halts workflow on validation failure)
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Validate Review Plan")
+
+    plan = ctx.get("review_plan")
+    manifest = ctx.get("change_manifest")
+    checklist = ctx.get("review_checklist", [])
+
+    if not plan or not manifest:
+        ctx.textual.end_step("error")
+        return Error("Missing review_plan or change_manifest in context")
+
+    from ..models.validators import ReviewPlanValidator
+
+    offered_ids = frozenset(item.id for item in checklist)
+    validator = ReviewPlanValidator(manifest, offered_ids)
+    is_valid, errors = validator.validate_semantically(plan)
+
+    if not is_valid:
+        # Log errors but don't halt — auto-correct by falling back to default plan
+        for err in errors:
+            ctx.textual.warning_text(f"  ⚠ {err}")
+
+        from ..operations.plan_prompt_operations import build_default_review_plan
+        corrected = build_default_review_plan(manifest, checklist)
+        ctx.data["validated_review_plan"] = corrected
+        ctx.textual.warning_text("Plan corrected: using conservative fallback")
+        ctx.textual.end_step("success")
+        return Success("Review plan corrected (validation issues)", metadata={"validated_review_plan": corrected})
+
+    ctx.data["validated_review_plan"] = plan
+    ctx.textual.success_text("✓ Plan validated")
+    ctx.textual.end_step("success")
+    return Success("Review plan validated", metadata={"validated_review_plan": plan})
+
+
+def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Fetch the exact code context according to the validated review plan.
+
+    For each file in the plan, extracts code using the chosen read_mode:
+    - hunks_only: diff hunks as-is (already has 20 lines of context)
+    - expanded_hunks: hunks + extra surrounding lines from the actual file
+    - full_file: reads the complete file from disk
+
+    Also resolves any extra context requests (related_tests, related_context).
+
+    Requires (from ctx.data):
+        validated_review_plan (ReviewPlan)
+        change_manifest (ChangeManifest)
+        review_diff (str)
+        existing_comments_index (List[ExistingCommentIndexEntry])
+        review_checklist (List[ReviewChecklistItem])
+
+    Outputs (saved to ctx.data):
+        review_context_package (ReviewContextPackage)
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Resolve Review Context")
+
+    plan = ctx.get("validated_review_plan")
+    manifest = ctx.get("change_manifest")
+    diff = ctx.get("review_diff", "")
+    comments_index = ctx.get("existing_comments_index", [])
+    checklist = ctx.get("review_checklist", [])
+    worktree_path = ctx.data.get("worktree_path")
+    project_root = worktree_path or ctx.data.get("project_root")
+
+    if not plan or not manifest:
+        ctx.textual.end_step("error")
+        return Error("Missing validated_review_plan or change_manifest in context")
+
+    if not diff:
+        ctx.textual.end_step("error")
+        return Error("No diff in context (run fetch_pr_review_bundle first)")
+
+    from ..operations.context_resolution_operations import build_review_context_package
+
+    if worktree_path:
+        ctx.textual.dim_text(f"Using worktree: {worktree_path}")
+
+    try:
+        with ctx.textual.loading("Extracting code context…"):
+            package = build_review_context_package(
+                plan=plan,
+                diff=diff,
+                manifest=manifest,
+                checklist=checklist,
+                comments_index=comments_index,
+                cwd=project_root,
+            )
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(f"Failed to resolve review context: {e}")
+
+    ctx.data["review_context_package"] = package
+
+    full_count = sum(1 for e in package.files_context.values() if e.full_content)
+    hunk_count = len(package.files_context) - full_count
+    related_count = len(package.related_files)
+
+    ctx.textual.success_text(
+        f"✓ Context: {full_count} full file(s), {hunk_count} hunk-based · "
+        f"{len(package.checklist_applicable)} checklist items"
+        + (f" · {related_count} related file(s)" if related_count else "")
+    )
+    ctx.textual.end_step("success")
+    return Success("Review context resolved", metadata={"review_context_package": package})
+
+
+# ============================================================================
+# PHASE 4: TARGETED REVIEW (Second AI Call)
+# ============================================================================
+
+
+def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Second AI call: find actionable problems in the exact code context.
+
+    Sends the ReviewContextPackage (exact file content + applicable checklist +
+    existing comments) to the selected headless CLI. The AI reviews only the
+    code it was specifically directed to read in the planning phase.
+
+    On parse failure or CLI error, falls back to empty findings (safe default).
+
+    Requires (from ctx.data):
+        review_context_package (ReviewContextPackage)
+        cli_preference (str): "claude" | "gemini" | "codex" | "auto"
+
+    Outputs (saved to ctx.data):
+        raw_findings (list | str): Raw AI output before normalization
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("AI Review Findings")
+
+    package = ctx.get("review_context_package")
+    cli_preference = ctx.data.get("cli_preference", "auto")
+    project_root = ctx.data.get("project_root")
+
+    if not package:
+        ctx.textual.end_step("error")
+        return Error("No review_context_package in context (run resolve_review_context first)")
+
+    from ..operations.findings_operations import build_review_findings_prompt, build_default_findings
+    import json
+
+    adapter = _resolve_headless_adapter(cli_preference)
+
+    if not adapter:
+        ctx.textual.warning_text("No headless CLI available — skipping AI findings")
+        ctx.data["raw_findings"] = build_default_findings()
+        ctx.textual.end_step("success")
+        return Success("No findings (no CLI available)", metadata={"raw_findings": []})
+
+    prompt = build_review_findings_prompt(package)
+
+    cli_display = adapter.cli_name.value.capitalize()
+    file_count = len(package.files_context)
+    # _log_ai_prompt(
+    #     step_name="ai_review_findings",
+    #     cli_name=adapter.cli_name.value,
+    #     prompt=prompt,
+    #     files_context=file_count,
+    #     related_files=len(package.related_files),
+    #     checklist_items=len(package.checklist_applicable),
+    #     existing_comments=len(package.existing_comments_compact),
+    # )
+    with ctx.textual.loading(f"Asking {cli_display} to review {file_count} file(s)…"):
+        response = adapter.execute(prompt, cwd=project_root, timeout=300)
+    # _log_ai_response(
+    #     step_name="ai_review_findings",
+    #     cli_name=adapter.cli_name.value,
+    #     stdout=response.stdout,
+    #     stderr=response.stderr,
+    #     exit_code=response.exit_code,
+    #     files_context=file_count,
+    #     related_files=len(package.related_files),
+    #     checklist_items=len(package.checklist_applicable),
+    #     existing_comments=len(package.existing_comments_compact),
+    # )
+
+    if not response.succeeded:
+        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no findings")
+        if response.stderr:
+            ctx.textual.dim_text(response.stderr[:200])
+        ctx.data["raw_findings"] = build_default_findings()
+        ctx.textual.end_step("success")
+        return Success("No findings (CLI error)", metadata={"raw_findings": []})
+
+    # Parse JSON array response
+    try:
+        text = response.stdout.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON array found in response")
+        raw = json.loads(text[start:end])
+    except (json.JSONDecodeError, ValueError) as e:
+        ctx.textual.warning_text(f"Findings parsing failed ({e}) — no findings")
+        ctx.data["raw_findings"] = build_default_findings()
+        ctx.textual.end_step("success")
+        return Success("No findings (parse error)", metadata={"raw_findings": []})
+
+    ctx.data["raw_findings"] = raw
+    ctx.textual.success_text(f"✓ AI returned {len(raw)} raw finding(s)")
+    ctx.textual.end_step("success")
+    return Success("AI findings retrieved", metadata={"raw_findings_count": len(raw)})
+
+
+def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Parse and validate raw AI output into Finding models.
+
+    Accepts raw_findings as either a JSON string or a list of dicts.
+    Each item is validated as a Finding model. Invalid items are skipped
+    with a warning rather than failing the entire step.
+
+    Requires (from ctx.data):
+        raw_findings (list | str): Raw AI output from ai_review_findings
+
+    Outputs (saved to ctx.data):
+        normalized_findings (List[Finding]): Validated Finding objects
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Normalize Findings")
+
+    raw = ctx.get("raw_findings")
+
+    if raw is None:
+        ctx.textual.end_step("error")
+        return Error("No raw_findings in context (run ai_review_findings first)")
+
+    from ..models.review_models import Finding
+    from pydantic import ValidationError
+    import json
+
+    # Parse JSON string if needed
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as e:
+            ctx.textual.end_step("error")
+            return Error(f"Failed to parse raw_findings JSON: {e}")
+
+    if not isinstance(raw, list):
+        ctx.textual.end_step("error")
+        return Error(f"raw_findings must be a list, got {type(raw).__name__}")
+
+    findings: list[Finding] = []
+    skipped = 0
+
+    for i, item in enumerate(raw):
+        try:
+            finding = Finding.model_validate(item)
+            findings.append(finding)
+        except ValidationError as e:
+            skipped += 1
+            ctx.textual.dim_text(f"⚠ Finding {i + 1} invalid, skipping: {e.error_count()} error(s)")
+            logger.debug("Finding %d validation error: %s", i + 1, e)
+
+    ctx.data["normalized_findings"] = findings
+
+    summary = f"✓ {len(findings)} finding(s) normalized"
+    if skipped:
+        summary += f" ({skipped} skipped)"
+    ctx.textual.success_text(summary)
+    ctx.textual.end_step("success")
+    return Success("Findings normalized", metadata={"normalized_findings_count": len(findings)})
+
+
+def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Remove findings that duplicate existing PR comments.
+
+    Uses the is_duplicate() validator to compare each finding against the
+    existing_comments_index. A finding is a duplicate if it targets the same
+    file, the same area (within 5 lines), and the same topic (same category
+    or similar title).
+
+    Requires (from ctx.data):
+        normalized_findings (List[Finding])
+        existing_comments_index (List[ExistingCommentIndexEntry])
+
+    Outputs (saved to ctx.data):
+        deduped_findings (List[Finding]): Findings after duplicate removal
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Deduplicate Findings")
+
+    findings = ctx.get("normalized_findings")
+    existing_index = ctx.get("existing_comments_index", [])
+
+    if findings is None:
+        ctx.textual.end_step("error")
+        return Error("No normalized_findings in context (run normalize_findings first)")
+
+    from ..models.validators import is_duplicate
+
+    deduped: list = []
+    removed = 0
+
+    for finding in findings:
+        is_dup = any(is_duplicate(finding, ex) for ex in existing_index)
+        if is_dup:
+            removed += 1
+            logger.debug("Deduplicated finding: %s @ %s:%s", finding.title, finding.path, finding.line)
+        else:
+            deduped.append(finding)
+
+    ctx.data["deduped_findings"] = deduped
+
+    summary = f"✓ {len(deduped)} finding(s) ready"
+    if removed:
+        summary += f" ({removed} duplicate(s) removed)"
+    ctx.textual.success_text(summary)
+    ctx.textual.end_step("success")
+    return Success("Findings deduplicated", metadata={"deduped_findings_count": len(deduped)})
+
+
+# ============================================================================
+# PHASE 5: UI + SUBMIT
+# ============================================================================
+
+
+def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Convert deduplicated findings into ReviewActionProposal objects.
+
+    Requires (from ctx.data):
+        deduped_findings (List[Finding])
+
+    Outputs (saved to ctx.data):
+        review_action_proposals (List[ReviewActionProposal])
+
+    Returns:
+        Success or Skip (no findings)
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Comment Actions")
+
+    findings = ctx.get("deduped_findings", [])
+
+    if not findings:
+        ctx.textual.dim_text("No findings to convert into actions.")
+        ctx.textual.end_step("skip")
+        return Skip("No findings to submit")
+
+    actions = _build_new_comment_actions(findings)
+    ctx.data["review_action_proposals"] = actions
+
+    ctx.textual.success_text(f"✓ {len(actions)} action(s) ready for review")
+    ctx.textual.end_step("success")
+    return Success("Actions built", metadata={"review_action_proposals_count": len(actions)})
+
+
+def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Present each ReviewActionProposal to the user for approval, editing, or skipping.
+
+    Requires (from ctx.data):
+        review_action_proposals (List[ReviewActionProposal])
+
+    Optional (from ctx.data):
+        review_diff (str): Full PR diff for extracting diff context per comment
+
+    Outputs (saved to ctx.data):
+        approved_action_proposals (List[ReviewActionProposal])
 
     Returns:
         Success, Skip (none approved), or Error
@@ -579,94 +1201,107 @@ def validate_review_comments(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Validate Review Comments")
+    ctx.textual.begin_step("Validate Review Actions")
 
-    suggestions: List[UIReviewSuggestion] = ctx.get("review_suggestions", [])
+    actions: List[ReviewActionProposal] = ctx.get("review_action_proposals", [])
 
-    if not suggestions:
-        ctx.textual.dim_text("No suggestions to validate.")
+    if not actions:
+        ctx.textual.dim_text("No actions to validate.")
         ctx.textual.end_step("skip")
-        return Skip("No suggestions to validate")
+        return Skip("No actions to validate")
 
-    approved: List[UIReviewSuggestion] = []
-    skipped = 0
+    diff = ctx.get("review_diff", "")
+    review_threads: List[UICommentThread] = ctx.get("review_threads", [])
 
-    # Sort by severity: critical → improvement → suggestion
-    severity_order = {"critical": 0, "improvement": 1, "suggestion": 2}
-    sorted_suggestions = sorted(
-        suggestions,
-        key=lambda s: severity_order.get(s.severity, 99),
+    # Sort by severity: blocking → important → nit
+    severity_order = {"blocking": 0, "important": 1, "nit": 2}
+    sorted_actions = sorted(
+        actions,
+        key=lambda a: severity_order.get(a.severity.value if a.severity else "", 99),
     )
 
-    for idx, suggestion in enumerate(sorted_suggestions):
-        choice = _show_suggestion_and_get_action(ctx, suggestion, idx, len(sorted_suggestions))
+    approved: List[ReviewActionProposal] = []
+    skipped = 0
+    exit_requested = False
 
-        if choice == "exit":
-            ctx.textual.warning_text(
-                f"Exiting validation. Approved {len(approved)}, skipped {skipped}."
-            )
+    for idx, action in enumerate(sorted_actions):
+        if exit_requested:
             break
 
-        elif choice == "approve":
-            approved.append(suggestion)
+        current = action
+        diff_hunk = extract_diff_hunk_for_action(current, diff)
 
-        elif choice == "edit":
-            ctx.textual.text("")
-            new_body = ctx.textual.ask_multiline(
-                "Edit the review comment:",
-                default=suggestion.body,
+        while True:
+            choice = _show_review_action_and_get_decision(
+                ctx, current, diff_hunk or "", idx, len(sorted_actions),
+                review_threads=review_threads
             )
-            if new_body and new_body.strip():
-                edited = UIReviewSuggestion(
-                    file_path=suggestion.file_path,
-                    line=suggestion.line,
-                    body=new_body.strip(),
-                    severity=suggestion.severity,
-                    diff_context=suggestion.diff_context,
-                    snippet=suggestion.snippet,
-                )
-                approved.append(edited)
-            else:
-                ctx.textual.warning_text("Empty body, comment skipped")
-                skipped += 1
 
-        else:  # skip
-            skipped += 1
+            if choice == "exit":
+                exit_requested = True
+                ctx.textual.warning_text(
+                    f"Exiting validation. Approved {len(approved)}, skipped {skipped}."
+                )
+                break
+
+            elif choice == "approve":
+                approved.append(current)
+                break
+
+            elif choice == "edit":
+                ctx.textual.text("")
+                new_body = ctx.textual.ask_multiline(
+                    "Edit the review comment:",
+                    default=current.body,
+                )
+                if new_body and new_body.strip():
+                    approved.append(current.model_copy(update={"body": new_body.strip()}))
+                else:
+                    ctx.textual.warning_text("Empty body, comment skipped")
+                    skipped += 1
+                break
+
+            else:  # skip
+                skipped += 1
+                break
 
     if not approved:
-        ctx.textual.dim_text("No comments approved.")
+        ctx.textual.dim_text("No actions approved.")
         ctx.textual.end_step("skip")
-        return Skip("No approved review comments")
+        return Skip("No approved review actions")
 
-    ctx.textual.success_text(
-        f"✓ {len(approved)} comment(s) approved, {skipped} skipped"
-    )
+    ctx.textual.success_text(f"✓ {len(approved)} action(s) approved, {skipped} skipped")
     ctx.textual.end_step("success")
-
     return Success(
-        f"{len(approved)} comment(s) approved",
-        metadata={"approved_suggestions": approved},
+        f"{len(approved)} action(s) approved",
+        metadata={"approved_action_proposals": approved},
     )
 
 
-def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
+def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Submit the approved review comments as a GitHub review.
+    Submit approved ReviewActionProposal objects to GitHub.
+
+    Handles resolve_thread actions directly, then submits new_comment and
+    reply_to_thread actions as a GitHub draft review.
 
     Requires (from ctx.data):
+        approved_action_proposals (List[ReviewActionProposal])
         review_pr_number (int)
-        review_commit_sha (str)
-        approved_suggestions (List[UIReviewSuggestion])
+
+    Optional (from ctx.data):
+        review_commit_sha (str): Head commit SHA (fetched if missing)
+        review_diff (str): Full PR diff for inline comment validation
 
     Returns:
-        Success, Skip (no approved comments), or Error
+        Success, Skip (no approved actions), or Error
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
     ctx.textual.begin_step("Submit Review")
 
-    approved: List[UIReviewSuggestion] = ctx.get("approved_suggestions", [])
+    approved: List[ReviewActionProposal] = ctx.get("approved_action_proposals", [])
     pr_number = ctx.get("review_pr_number")
     commit_sha = ctx.get("review_commit_sha", "")
     diff = ctx.get("review_diff", "")
@@ -679,25 +1314,70 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
 
-    # Commit SHA is needed for inline comments, but not for general review (COMMENT/APPROVE/REQUEST_CHANGES)
-    if not commit_sha and approved:
-        ctx.textual.error_text("No commit SHA available — cannot submit inline comments")
-        ctx.textual.end_step("error")
-        return Error("Missing commit SHA for inline review")
+    if not approved:
+        ctx.textual.dim_text("No approved actions — you can still submit a review decision.")
 
-    # Show summary
-    if approved:
-        ctx.textual.text(f"Ready to submit {len(approved)} comment(s) on PR #{pr_number}")
-    else:
-        ctx.textual.warning_text("No review comments — you can still submit a review decision")
+    # Handle thread actions first (direct API, outside the review draft)
+    resolve_actions = [a for a in approved if a.action_type == ReviewActionType.RESOLVE_THREAD]
+    reply_actions = [a for a in approved if a.action_type == ReviewActionType.REPLY_TO_THREAD]
+    comment_actions = [a for a in approved if a.action_type == ReviewActionType.NEW_COMMENT]
+
+    for action in resolve_actions:
+        if not action.thread_id:
+            continue
+        with ctx.textual.loading("Resolving thread..."):
+            result = ctx.github.resolve_review_thread(action.thread_id)
+        match result:
+            case ClientSuccess():
+                ctx.textual.success_text("✓ Thread resolved")
+            case ClientError(error_message=err):
+                ctx.textual.warning_text(f"Could not resolve thread: {err}")
+
+    for action in reply_actions:
+        if not action.comment_id or not pr_number:
+            continue
+        with ctx.textual.loading("Posting reply to comment..."):
+            result = ctx.github.reply_to_comment(pr_number, action.comment_id, action.body)
+        match result:
+            case ClientSuccess():
+                ctx.textual.success_text("✓ Reply posted")
+            case ClientError(error_message=err):
+                ctx.textual.warning_text(f"Could not post reply: {err}")
+
+    # Get commit SHA if not available (needed for inline comments)
+    if not commit_sha and comment_actions:
+        with ctx.textual.loading("Fetching latest commit SHA..."):
+            sha_result = ctx.github.get_pr_commit_sha(pr_number)
+        match sha_result:
+            case ClientSuccess(data=sha):
+                commit_sha = sha
+            case ClientError(error_message=err):
+                ctx.textual.error_text("No commit SHA available — cannot submit inline comments")
+                ctx.textual.end_step("error")
+                return Error(f"Missing commit SHA for inline review: {err}")
+
+    # Show AI's opinion and prepare action options
     ctx.textual.text("")
+    if comment_actions:
+        ctx.textual.text(f"📋 Found {len(comment_actions)} issue(s) to address")
+        ctx.textual.text(f"Ready to submit {len(comment_actions)} comment(s) on PR #{pr_number}")
+        ctx.textual.text("")
 
-    # Ask review event type
-    event_options = [
-        OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
-        OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
-        OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR"),
-    ]
+        # With findings - offer Comment or Request Changes
+        event_options = [
+            OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
+            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+        ]
+    else:
+        ctx.textual.success_text("✅ No issues found - PR looks good and can be approved")
+        ctx.textual.text("")
+
+        # No findings - offer all options
+        event_options = [
+            OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR"),
+            OptionItem(value="COMMENT", title="💬 Comment", description="Post a general comment"),
+            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+        ]
 
     try:
         event = ctx.textual.ask_option("Select review type:", event_options)
@@ -711,23 +1391,36 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("User cancelled review submission")
 
     # Optional general body
-    ctx.textual.text("")
-    add_body = ctx.textual.ask_confirm(
-        "Add a general review comment (optional)?",
-        default=False,
-    )
+    add_body = ctx.textual.ask_confirm("Add a general review comment (optional)?", default=False)
     review_body = ""
     if add_body:
         review_body = ctx.textual.ask_multiline("General review comment:", default="")
 
-    # Build payload — always create as PENDING, submit separately with the chosen event
-    payload = build_review_payload(approved, commit_sha, diff)
+    # Build payload from comment actions
+    payload = build_review_action_payload(comment_actions, commit_sha, diff)
 
     if review_body and review_body.strip():
         existing_body = payload.get("body", "")
         payload["body"] = (existing_body + "\n\n" + review_body.strip()).strip()
 
-    # Create draft review (PENDING)
+    has_inline_comments = bool(payload.get("comments"))
+    has_body = bool(payload.get("body"))
+    is_empty_payload = not has_inline_comments and not has_body
+
+    if is_empty_payload:
+        ctx.textual.dim_text("Submitting review without comments...")
+        with ctx.textual.loading("Submitting review..."):
+            submit_result = ctx.github.submit_review(pr_number, None, event, "")
+        match submit_result:
+            case ClientSuccess():
+                ctx.textual.success_text(f"✓ Review submitted as '{event}' on PR #{pr_number}")
+                ctx.textual.end_step("success")
+                return Success(f"Review submitted on PR #{pr_number}")
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"Failed to submit review: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to submit review: {err}")
+
     with ctx.textual.loading("Creating review..."):
         draft_result = ctx.github.create_draft_review(pr_number, payload)
 
@@ -745,8 +1438,8 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
     match submit_result:
         case ClientSuccess():
             ctx.textual.success_text(
-                f"✓ Review submitted as '{event}' on PR #{pr_number} "
-                f"with {len(approved)} comment(s)"
+                f"✓ Review submitted as '{event}' on PR #{pr_number}"
+                + (f" with {len(comment_actions)} comment(s)" if comment_actions else "")
             )
             ctx.textual.end_step("success")
             return Success(f"Review submitted on PR #{pr_number}")
@@ -754,3 +1447,338 @@ def submit_pr_review(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.error_text(f"Failed to submit review: {err}")
             ctx.textual.end_step("error")
             return Error(f"Failed to submit review: {err}")
+
+
+# ============================================================================
+# PHASE 6: THREAD RESOLUTION PIPELINE
+# ============================================================================
+
+
+def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Select open inline threads worth AI analysis.
+
+    Filters out:
+    - General comments (no GraphQL resolve API)
+    - Already-resolved threads
+    - Threads where the PR author has not replied (reviewer is waiting for response)
+
+    Only includes threads where the last comment is from the PR author,
+    indicating they have responded to the review.
+
+    Requires (from ctx.data):
+        review_threads (List[UICommentThread]): Unresolved inline review threads
+        review_pr (UIPullRequest): PR object with author info
+
+    Outputs (saved to ctx.data):
+        thread_review_candidates (List[ThreadReviewCandidate])
+
+    Returns:
+        Success, Skip (no candidates), or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Thread Review Candidates")
+
+    threads = ctx.get("review_threads", [])
+    pr = ctx.get("review_pr")
+
+    if not pr:
+        ctx.textual.dim_text("No PR info available")
+        ctx.textual.end_step("skip")
+        return Skip("No PR data in context")
+
+    candidates = _build_thread_review_candidates(threads, pr.author_name)
+
+    if not candidates:
+        if not threads:
+            ctx.textual.dim_text("No open inline threads on this PR")
+        else:
+            ctx.textual.dim_text("Author has not replied to review threads yet (waiting for responses)")
+        ctx.textual.end_step("skip")
+        return Skip("No threads to review")
+
+    ctx.data["thread_review_candidates"] = candidates
+    ctx.textual.success_text(f"✓ {len(candidates)} thread(s) with author replies selected")
+    ctx.textual.end_step("success")
+    return Success("Thread candidates built", metadata={"thread_review_candidates_count": len(candidates)})
+
+
+def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Enrich thread candidates with diff hunk context and full reply history.
+
+    For each candidate, extracts the diff hunk near the commented line and
+    collects all replies from the full UICommentThread object.
+
+    Requires (from ctx.data):
+        thread_review_candidates (List[ThreadReviewCandidate])
+        review_threads (List[UICommentThread]): For extracting reply history
+        review_diff (str): Full PR unified diff
+
+    Outputs (saved to ctx.data):
+        thread_review_contexts (List[ThreadReviewContext])
+
+    Returns:
+        Success, Skip (no candidates), or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Thread Review Contexts")
+
+    candidates = ctx.get("thread_review_candidates")
+    threads = ctx.get("review_threads", [])
+    diff = ctx.get("review_diff", "")
+
+    if not candidates:
+        ctx.textual.dim_text("No thread candidates available")
+        ctx.textual.end_step("skip")
+        return Skip("No thread_review_candidates in context")
+
+    contexts = _build_thread_review_contexts(candidates, threads, diff)
+
+    ctx.data["thread_review_contexts"] = contexts
+    ctx.textual.success_text(f"✓ {len(contexts)} thread context(s) built")
+    ctx.textual.end_step("success")
+    return Success("Thread contexts built", metadata={"thread_review_contexts_count": len(contexts)})
+
+
+def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    AI call: decide what to do with each open thread.
+
+    Sends thread contexts (original comment + replies + current code) to the
+    selected headless CLI. The AI decides per thread: resolved / insist /
+    reply / skip.
+
+    On CLI failure or parse failure, falls back to empty decisions (no actions).
+
+    Requires (from ctx.data):
+        thread_review_contexts (List[ThreadReviewContext])
+        cli_preference (str): "claude" | "gemini" | "codex" | "auto"
+
+    Outputs (saved to ctx.data):
+        raw_thread_decisions (list): Raw AI output before normalization
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("AI Thread Resolution")
+
+    contexts = ctx.get("thread_review_contexts")
+    cli_preference = ctx.data.get("cli_preference", "auto")
+    project_root = ctx.data.get("project_root")
+
+    if not contexts:
+        ctx.textual.dim_text("No thread contexts available")
+        ctx.textual.end_step("skip")
+        return Skip("No thread_review_contexts in context")
+
+    import json
+
+    adapter = _resolve_headless_adapter(cli_preference)
+
+    if not adapter:
+        ctx.textual.warning_text("No headless CLI available — skipping AI thread resolution")
+        ctx.data["raw_thread_decisions"] = []
+        ctx.textual.end_step("success")
+        return Success("No decisions (no CLI available)", metadata={"raw_thread_decisions": []})
+
+    prompt = build_thread_resolution_prompt(contexts)
+
+    cli_display = adapter.cli_name.value.capitalize()
+    thread_count = len(contexts)
+    with ctx.textual.loading(f"Asking {cli_display} to analyse {thread_count} thread(s)…"):
+        response = adapter.execute(prompt, cwd=project_root, timeout=300)
+
+    if not response.succeeded:
+        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no thread decisions")
+        if response.stderr:
+            ctx.textual.dim_text(response.stderr[:200])
+        ctx.data["raw_thread_decisions"] = []
+        ctx.textual.end_step("success")
+        return Success("No decisions (CLI error)", metadata={"raw_thread_decisions": []})
+
+    # Parse JSON array response
+    try:
+        text = response.stdout.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON array found in response")
+        raw = json.loads(text[start:end])
+    except (json.JSONDecodeError, ValueError) as e:
+        ctx.textual.warning_text(f"Thread decisions parsing failed ({e}) — no decisions")
+        ctx.data["raw_thread_decisions"] = []
+        ctx.textual.end_step("success")
+        return Success("No decisions (parse error)", metadata={"raw_thread_decisions": []})
+
+    ctx.data["raw_thread_decisions"] = raw
+    ctx.textual.success_text(f"✓ AI returned {len(raw)} thread decision(s)")
+    ctx.textual.end_step("success")
+    return Success("AI thread decisions retrieved", metadata={"raw_thread_decisions_count": len(raw)})
+
+
+def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Parse and validate raw AI output into ThreadDecision models.
+
+    Accepts raw_thread_decisions as a list of dicts or a JSON string.
+    Each item is validated as a ThreadDecision model. Invalid items are
+    skipped with a warning rather than failing the entire step.
+
+    Requires (from ctx.data):
+        raw_thread_decisions (list | str): Raw AI output from ai_thread_resolution
+
+    Outputs (saved to ctx.data):
+        thread_decisions (List[ThreadDecision]): Validated ThreadDecision objects
+
+    Returns:
+        Success or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Normalize Thread Decisions")
+
+    raw = ctx.get("raw_thread_decisions")
+
+    if raw is None:
+        ctx.textual.dim_text("No thread decisions to normalize")
+        ctx.textual.end_step("skip")
+        return Skip("No raw_thread_decisions in context")
+
+    from ..models.review_models import ThreadDecision
+    from pydantic import ValidationError
+    import json
+
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as e:
+            ctx.textual.end_step("error")
+            return Error(f"Failed to parse raw_thread_decisions JSON: {e}")
+
+    if not isinstance(raw, list):
+        ctx.textual.end_step("error")
+        return Error(f"raw_thread_decisions must be a list, got {type(raw).__name__}")
+
+    decisions: list[ThreadDecision] = []
+    skipped = 0
+    auto_resolved = 0
+
+    for i, item in enumerate(raw):
+        try:
+            decision = ThreadDecision.model_validate(item)
+
+            # Validate: if decision is "reply" or "insist" but suggested_reply is empty,
+            # convert to "resolved" (avoid posting empty comments)
+            if decision.decision in (ThreadDecisionType.REPLY, ThreadDecisionType.INSIST):
+                reply_body = (decision.suggested_reply or "").strip()
+                reasoning = (decision.reasoning or "").strip()
+
+                if not reply_body:
+                    # Try to use reasoning as fallback, otherwise convert to skip
+                    if reasoning and len(reasoning) > 10:
+                        # Use reasoning as the reply body
+                        ctx.textual.dim_text(f"⚠ Decision {i + 1}: using reasoning as reply")
+                        decision = decision.model_copy(update={"suggested_reply": reasoning})
+                    else:
+                        # Both empty - convert to skip
+                        ctx.textual.dim_text(f"⚠ Decision {i + 1}: empty reply → skip")
+                        decision = decision.model_copy(
+                            update={
+                                "decision": ThreadDecisionType.SKIP,
+                                "suggested_reply": None,
+                            }
+                        )
+                        auto_resolved += 1
+
+            # Ensure suggested_reply is None for "resolved" and "skip"
+            if decision.decision in (ThreadDecisionType.RESOLVED, ThreadDecisionType.SKIP):
+                if decision.suggested_reply:
+                    decision = decision.model_copy(update={"suggested_reply": None})
+
+            decisions.append(decision)
+        except ValidationError as e:
+            skipped += 1
+            ctx.textual.dim_text(f"⚠ Decision {i + 1} invalid, skipping: {e.error_count()} error(s)")
+            logger.debug("ThreadDecision %d validation error: %s", i + 1, e)
+
+    ctx.data["thread_decisions"] = decisions
+
+    summary = f"✓ {len(decisions)} decision(s) normalized"
+    if auto_resolved:
+        summary += f" ({auto_resolved} empty replies → resolved)"
+    if skipped:
+        summary += f" ({skipped} skipped)"
+    ctx.textual.success_text(summary)
+    ctx.textual.end_step("success")
+    return Success("Thread decisions normalized", metadata={
+        "thread_decisions_count": len(decisions),
+        "auto_resolved_empty_replies": auto_resolved
+    })
+
+
+def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Transform ThreadDecision objects into ReviewActionProposal objects.
+
+    Maps AI decisions to concrete GitHub actions:
+    - resolved → resolve_thread (mark thread as resolved via GraphQL)
+    - insist / reply → reply_to_thread (post a follow-up comment via REST API)
+    - skip → (no action created)
+
+    Saves results under the same key as new_findings workflow so that
+    validate_review_actions and submit_review_actions can be reused directly.
+
+    Requires (from ctx.data):
+        thread_decisions (List[ThreadDecision])
+        thread_review_contexts (List[ThreadReviewContext])
+
+    Outputs (saved to ctx.data):
+        review_action_proposals (List[ReviewActionProposal])
+
+    Returns:
+        Success, Skip (no actionable decisions), or Error
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Build Thread Actions")
+
+    decisions = ctx.get("thread_decisions")
+    contexts = ctx.get("thread_review_contexts", [])
+
+    if decisions is None:
+        ctx.textual.dim_text("No thread decisions available")
+        ctx.textual.end_step("skip")
+        return Skip("No thread_decisions in context")
+
+    actions = _build_thread_actions(decisions, contexts)
+
+    if not actions:
+        ctx.textual.dim_text("No actionable thread decisions")
+        ctx.textual.end_step("skip")
+        return Skip("No actionable thread decisions")
+
+    ctx.data["review_action_proposals"] = actions
+
+    resolve_count = sum(1 for a in actions if a.action_type == ReviewActionType.RESOLVE_THREAD)
+    reply_count = sum(1 for a in actions if a.action_type == ReviewActionType.REPLY_TO_THREAD)
+    summary_parts = []
+    if resolve_count:
+        summary_parts.append(f"{resolve_count} resolve")
+    if reply_count:
+        summary_parts.append(f"{reply_count} reply")
+    ctx.textual.success_text(f"✓ {len(actions)} action(s) built: {', '.join(summary_parts)}")
+    ctx.textual.end_step("success")
+    return Success("Thread actions built", metadata={"thread_actions_count": len(actions)})

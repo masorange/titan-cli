@@ -36,6 +36,7 @@ dev-install:
 	@mkdir -p ~/.local/bin
 	@echo '#!/bin/bash' > ~/.local/bin/titan-dev
 	@echo '# titan-dev - Development version of Titan CLI' >> ~/.local/bin/titan-dev
+	@echo 'export TITAN_ENV=development' >> ~/.local/bin/titan-dev
 	@echo 'exec "$(shell pwd)/.venv/bin/titan" "$$@"' >> ~/.local/bin/titan-dev
 	@chmod +x ~/.local/bin/titan-dev
 	@echo ""

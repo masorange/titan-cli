@@ -5,6 +5,7 @@ Pull Request Mappers
 Converts network models (REST/GraphQL) to view models (UI).
 All presentation logic and transformations live here.
 """
+from ..review_enums import FileChangeStatus
 from ..network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
 from ..view import UIPullRequest, UIPRMergeResult, UIFileChange, UIPRCreated
 from ..formatting import (
@@ -54,12 +55,25 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
 
 
 _STATUS_ICONS = {
-    "added": "+",
-    "removed": "−",
-    "modified": "~",
-    "renamed": "→",
-    "copied": "⎘",
+    FileChangeStatus.ADDED: "+",
+    FileChangeStatus.DELETED: "−",
+    FileChangeStatus.MODIFIED: "~",
+    FileChangeStatus.RENAMED: "→",
 }
+
+
+def _normalize_file_status(status: str) -> FileChangeStatus:
+    """Normalize GitHub file status values into Titan review statuses."""
+    mapping = {
+        "added": FileChangeStatus.ADDED,
+        "modified": FileChangeStatus.MODIFIED,
+        "renamed": FileChangeStatus.RENAMED,
+        "removed": FileChangeStatus.DELETED,
+        "deleted": FileChangeStatus.DELETED,
+        "changed": FileChangeStatus.MODIFIED,
+        "copied": FileChangeStatus.MODIFIED,
+    }
+    return mapping.get(status.lower(), FileChangeStatus.MODIFIED)
 
 
 def from_network_pr_file(network_file: NetworkPRFile) -> UIFileChange:
@@ -72,12 +86,14 @@ def from_network_pr_file(network_file: NetworkPRFile) -> UIFileChange:
     Returns:
         UIFileChange ready for display or AI prompts
     """
+    status = _normalize_file_status(network_file.status)
+
     return UIFileChange(
         path=network_file.filename,
         additions=network_file.additions,
         deletions=network_file.deletions,
-        status=network_file.status,
-        status_icon=_STATUS_ICONS.get(network_file.status, "~"),
+        status=status,
+        status_icon=_STATUS_ICONS.get(status, "~"),
     )
 
 
