@@ -137,26 +137,73 @@ def _add_line_numbers(content: str) -> str:
 
 def _annotate_diff_hunk(hunk: str) -> str:
     """
-    Replace diff prefixes with explicit labels so the AI cannot confuse
-    deleted code with current code.
+    Replace diff prefixes with explicit line numbers and labels so the AI
+    cannot confuse line numbers or deleted code with current code.
 
+    Format: `  N [TYPE] code`
       -  →  [DELETED - do not review]
       +  →  [ADDED]
       (space)  →  [CONTEXT]
+
+    The new file line numbers are extracted from the @@ header and incremented
+    as we process each line, so the AI always sees the exact line numbers.
     """
+    import re
+
     lines = hunk.splitlines()
-    result = []
+    if not lines:
+        return ""
+
+    # Extract starting line number for new file from @@ header
+    # Format: @@ -old_start,old_count +new_start,new_count @@ [context]
+    new_line_start = None
+    header_line = None
+
+    for i, line in enumerate(lines):
+        if line.startswith("@@"):
+            header_line = line
+            match = re.search(r'\+(\d+)', line)
+            if match:
+                new_line_start = int(match.group(1))
+            break
+
+    if new_line_start is None:
+        # Fallback: if we can't parse the header, return annotated but unnumbered
+        result = []
+        for line in lines:
+            if line.startswith("@@"):
+                result.append(line)
+            elif line.startswith("---") or line.startswith("+++"):
+                result.append(line)
+            elif line.startswith("-"):
+                result.append(f"[DELETED - do not review] {line[1:]}")
+            elif line.startswith("+"):
+                result.append(f"[ADDED] {line[1:]}")
+            else:
+                result.append(f"[CONTEXT] {line[1:] if line.startswith(' ') else line}")
+        return "\n".join(result)
+
+    # Process hunk lines with line numbers
+    result = [header_line] if header_line else []
+    current_line = new_line_start
+    width = len(str(current_line + 100))  # Estimate width for padding
+
     for line in lines:
         if line.startswith("@@"):
-            result.append(line)
+            continue  # Already added header
         elif line.startswith("---") or line.startswith("+++"):
             result.append(line)
         elif line.startswith("-"):
             result.append(f"[DELETED - do not review] {line[1:]}")
         elif line.startswith("+"):
-            result.append(f"[ADDED] {line[1:]}")
+            result.append(f"{str(current_line).rjust(width)} [ADDED] {line[1:]}")
+            current_line += 1
+        elif line.startswith(" "):
+            result.append(f"{str(current_line).rjust(width)} [CONTEXT] {line[1:]}")
+            current_line += 1
         else:
-            result.append(f"[CONTEXT] {line[1:] if line.startswith(' ') else line}")
+            result.append(line)
+
     return "\n".join(result)
 
 

@@ -12,10 +12,7 @@ from titan_cli.core.logging.config import get_logger
 
 from ..models.review_enums import ReviewActionSource, ReviewActionType
 from ..models.review_models import Finding, ReviewActionProposal
-from .code_review_operations import (
-    extract_diff_for_file,
-    extract_valid_diff_lines,
-)
+from ..managers.diff_context_manager import DiffContextManager
 
 logger = get_logger(__name__)
 
@@ -71,7 +68,7 @@ def build_review_action_payload(
     Returns:
         Dict with keys: commit_id, comments (list), body (str, optional)
     """
-    valid_lines = extract_valid_diff_lines(diff) if diff else {}
+    valid_lines = {p: set(ls) for p, ls in DiffContextManager.from_diff(diff).get_all_valid_lines().items()} if diff else {}
     logger.info("build_review_payload_start", action_count=len(actions), files_in_diff=len(valid_lines))
     if valid_lines:
         for path, lines in valid_lines.items():  # Log TODOS los archivos
@@ -144,10 +141,5 @@ def extract_diff_hunk_for_action(action: ReviewActionProposal, diff: str) -> Opt
     if not diff or not action.path or not action.line:
         return None
 
-    from .code_review_operations import extract_hunk_for_line
-
-    file_diff = extract_diff_for_file(diff, action.path)
-    if not file_diff:
-        return None
-
-    return extract_hunk_for_line(file_diff, action.line)
+    hunk = DiffContextManager.from_diff(diff).get_hunk_for_line(action.path, action.line)
+    return hunk.content if hunk else None

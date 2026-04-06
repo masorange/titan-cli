@@ -723,26 +723,26 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     prompt = build_review_plan_prompt(manifest, comments_index, checklist)
 
     cli_display = adapter.cli_name.value.capitalize()
-    _log_ai_prompt(
-        step_name="ai_review_plan",
-        cli_name=adapter.cli_name.value,
-        prompt=prompt,
-        manifest_files=len(manifest.files),
-        existing_comments=len(comments_index),
-        checklist_items=len(checklist),
-    )
+    # _log_ai_prompt(
+    #     step_name="ai_review_plan",
+    #     cli_name=adapter.cli_name.value,
+    #     prompt=prompt,
+    #     manifest_files=len(manifest.files),
+    #     existing_comments=len(comments_index),
+    #     checklist_items=len(checklist),
+    # )
     with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
         response = adapter.execute(prompt, cwd=project_root, timeout=240)
-    _log_ai_response(
-        step_name="ai_review_plan",
-        cli_name=adapter.cli_name.value,
-        stdout=response.stdout,
-        stderr=response.stderr,
-        exit_code=response.exit_code,
-        manifest_files=len(manifest.files),
-        existing_comments=len(comments_index),
-        checklist_items=len(checklist),
-    )
+    # _log_ai_response(
+    #     step_name="ai_review_plan",
+    #     cli_name=adapter.cli_name.value,
+    #     stdout=response.stdout,
+    #     stderr=response.stderr,
+    #     exit_code=response.exit_code,
+    #     manifest_files=len(manifest.files),
+    #     existing_comments=len(comments_index),
+    #     checklist_items=len(checklist),
+    # )
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — using default plan")
@@ -969,28 +969,28 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     cli_display = adapter.cli_name.value.capitalize()
     file_count = len(package.files_context)
-    _log_ai_prompt(
-        step_name="ai_review_findings",
-        cli_name=adapter.cli_name.value,
-        prompt=prompt,
-        files_context=file_count,
-        related_files=len(package.related_files),
-        checklist_items=len(package.checklist_applicable),
-        existing_comments=len(package.existing_comments_compact),
-    )
+    # _log_ai_prompt(
+    #     step_name="ai_review_findings",
+    #     cli_name=adapter.cli_name.value,
+    #     prompt=prompt,
+    #     files_context=file_count,
+    #     related_files=len(package.related_files),
+    #     checklist_items=len(package.checklist_applicable),
+    #     existing_comments=len(package.existing_comments_compact),
+    # )
     with ctx.textual.loading(f"Asking {cli_display} to review {file_count} file(s)…"):
         response = adapter.execute(prompt, cwd=project_root, timeout=300)
-    _log_ai_response(
-        step_name="ai_review_findings",
-        cli_name=adapter.cli_name.value,
-        stdout=response.stdout,
-        stderr=response.stderr,
-        exit_code=response.exit_code,
-        files_context=file_count,
-        related_files=len(package.related_files),
-        checklist_items=len(package.checklist_applicable),
-        existing_comments=len(package.existing_comments_compact),
-    )
+    # _log_ai_response(
+    #     step_name="ai_review_findings",
+    #     cli_name=adapter.cli_name.value,
+    #     stdout=response.stdout,
+    #     stderr=response.stderr,
+    #     exit_code=response.exit_code,
+    #     files_context=file_count,
+    #     related_files=len(package.related_files),
+    #     checklist_items=len(package.checklist_applicable),
+    #     existing_comments=len(package.existing_comments_compact),
+    # )
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no findings")

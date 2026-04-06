@@ -8,18 +8,18 @@ This agent analyzes the complete context of a branch and automatically:
 3. Creates PR title and description following templates
 """
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from titan_cli.core.logging import get_logger
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from titan_cli.core.result import ClientSuccess, ClientError
 from .config_loader import load_agent_config
 from ..utils import calculate_pr_size, is_i18n_change
 
 # Set up logger
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

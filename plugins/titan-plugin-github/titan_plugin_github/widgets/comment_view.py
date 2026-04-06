@@ -18,9 +18,11 @@ from textual.widget import Widget
 
 from titan_cli.ui.tui.widgets import BoldText, DimText, ItalicText, Text, DimItalicText
 
+from ..managers.diff_context_manager import DiffContextManager
+from ..models.diff_models import ResolvedCommentContext
 from ..models.review_enums import FindingSeverity, ThreadSeverity
 from .code_block import CodeBlock
-from .comment_utils import extract_diff_context, render_comment_elements
+from .comment_utils import render_comment_elements
 
 
 class CommentView(Widget):
@@ -90,6 +92,7 @@ class CommentView(Widget):
         file_path: Optional[str] = None,
         line: Optional[int] = None,
         diff_hunk: Optional[str] = None,
+        focused_diff: Optional[str] = None,
         severity: Optional[FindingSeverity | ThreadSeverity] = None,
         is_outdated: bool = False,
         **kwargs,
@@ -103,7 +106,8 @@ class CommentView(Widget):
             formatted_date: Pre-formatted date string (e.g. "27/03/2026 14:30").
             file_path: Path to the file this comment references (None for general comments).
             line: Line number in the file (None for general comments).
-            diff_hunk: Diff context snippet around the commented line (None for general comments).
+            diff_hunk: Full diff context snippet (deprecated, use focused_diff instead).
+            focused_diff: Pre-trimmed diff for display (7 before + target + 3 after).
             severity: Severity level for AI suggestions or thread follow-ups.
             is_outdated: Whether the comment references outdated code.
         """
@@ -114,32 +118,74 @@ class CommentView(Widget):
         self.file_path = file_path
         self.line = line
         self.diff_hunk = diff_hunk
+        self.focused_diff = focused_diff
         self.severity = severity
         self.is_outdated = is_outdated
+
+    @classmethod
+    def from_resolved_context(cls, ctx: ResolvedCommentContext) -> "CommentView":
+        """
+        Build a CommentView from a pre-resolved diff context.
+
+        Use this when you have already built a ResolvedCommentContext (e.g. from
+        DiffContextManager.build_comment_context). The diff is already trimmed
+        and ready for display, and outdated status is correctly inferred.
+
+        Args:
+            ctx: ResolvedCommentContext with pre-computed fields.
+
+        Returns:
+            CommentView with resolved diff and correct line semantics.
+        """
+        return cls(
+            body=ctx.body,
+            author_name=ctx.author_name,
+            formatted_date=ctx.formatted_date,
+            file_path=ctx.path,
+            line=ctx.line,
+            diff_hunk=ctx.full_hunk,
+            focused_diff=ctx.focused_diff,
+            is_outdated=ctx.is_outdated,
+        )
 
     @classmethod
     def from_ui_comment(
         cls,
         comment: Any,
         is_outdated: bool = False,
+        diff: Optional[str] = None,
     ) -> "CommentView":
         """
         Build a CommentView from a UIComment model.
 
+        If ``diff`` is provided, uses DiffContextManager to build the focused diff.
+        Otherwise falls back to the raw diff_hunk on the comment.
+
         Args:
             comment: UIComment instance from the view layer.
-            is_outdated: Whether the thread this comment belongs to is outdated.
+            is_outdated: Override for is_outdated (deprecated, use diff to auto-detect).
+            diff: Full PR diff to resolve focused context (optional).
 
         Returns:
             CommentView configured for the given comment type.
         """
+        focused_diff = None
+        if diff:
+            ctx = DiffContextManager.from_diff(diff).build_comment_context(comment)
+            focused_diff = ctx.focused_diff
+            is_outdated = ctx.is_outdated
+            line = ctx.line
+        else:
+            line = comment.line
+
         return cls(
             body=comment.body,
             author_name=comment.author_name,
             formatted_date=comment.formatted_date,
             file_path=comment.path,
-            line=comment.line,
+            line=line,
             diff_hunk=comment.diff_hunk,
+            focused_diff=focused_diff,
             is_outdated=is_outdated,
         )
 
@@ -203,9 +249,11 @@ class CommentView(Widget):
             # No file path — this is a general PR comment (no file reference)
             yield self._general_comment_badge()
 
-        # 4. Code context (only when diff_hunk is available AND there's a specific line)
+        # 4. Code context (only when diff context is available AND there's a specific line)
         # File-level comments (path but no line) don't show diff — too verbose
-        if self.diff_hunk and self.line:
+        # Use focused_diff if available (from ResolvedCommentContext), fallback to full diff_hunk
+        has_diff = self.focused_diff or self.diff_hunk
+        if has_diff and self.line:
             yield self._code_context_widget()
 
         # 5. Comment body
@@ -228,11 +276,10 @@ class CommentView(Widget):
             ThreadSeverity.IMPORTANT: "🟡 IMPORTANT",
             ThreadSeverity.NIT: "🔵 NIT",
         }
-        severity_value = self.severity.value
-        badge_text = badge_labels.get(self.severity, severity_value.upper())
+        badge_text = badge_labels[self.severity]
         badge = Text(badge_text)
         badge.add_class("severity-badge")
-        badge.add_class(severity_value)
+        badge.add_class(self.severity.value)
         return badge
 
     def _metadata_container(self) -> Horizontal:
@@ -283,11 +330,17 @@ class CommentView(Widget):
 
     def _code_context_widget(self) -> CodeBlock:
         """Create syntax-highlighted diff block around the commented line."""
-        context_code = extract_diff_context(
-            diff_hunk=self.diff_hunk,
-            target_line=self.line,
-            is_outdated=self.is_outdated,
-        )
+        # Use pre-computed focused diff if available (from ResolvedCommentContext)
+        if self.focused_diff:
+            context_code = self.focused_diff
+        else:
+            # Fallback: trim the raw diff_hunk locally
+            from .comment_utils import extract_diff_context
+            context_code = extract_diff_context(
+                diff_hunk=self.diff_hunk,
+                target_line=self.line,
+                is_outdated=self.is_outdated,
+            )
         return CodeBlock(
             code=context_code,
             language="diff",

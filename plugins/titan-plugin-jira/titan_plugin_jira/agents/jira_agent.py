@@ -10,10 +10,10 @@ This agent analyzes JIRA issues and automatically:
 5. Identifies risks and dependencies
 """
 
-import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
+from titan_cli.core.logging import get_logger
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from titan_cli.core.result import ClientSuccess, ClientError
 from .config_loader import load_agent_config
@@ -23,7 +23,7 @@ from .token_tracker import TokenTracker, TokenBudget, OperationType
 from .prompts import JiraAgentPrompts
 
 # Set up logger
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

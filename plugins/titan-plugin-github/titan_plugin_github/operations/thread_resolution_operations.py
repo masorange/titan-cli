@@ -21,6 +21,7 @@ from ..models.review_models import (
     ThreadReviewCandidate,
     ThreadReviewContext,
 )
+from ..managers.diff_context_manager import DiffContextManager
 from ..models.view import UICommentThread
 
 
@@ -137,17 +138,13 @@ def _extract_hunk_near_line(diff: str, path: str, line: int, context: int = 5) -
         diff: Full PR unified diff
         path: File path as it appears in the diff header
         line: Target line number
-        context: Number of lines before/after to include
+        context: Number of lines before/after to include (reserved for future use)
 
     Returns:
         Extracted diff hunk string, or None if the file/line is not in the diff
     """
-    from .code_review_operations import extract_diff_for_file, extract_hunk_for_line
-
-    file_diff = extract_diff_for_file(diff, path)
-    if not file_diff:
-        return None
-    return extract_hunk_for_line(file_diff, line)
+    hunk = DiffContextManager.from_diff(diff).get_hunk_for_line(path, line)
+    return hunk.content if hunk else None
 
 
 def build_thread_resolution_prompt(contexts: list[ThreadReviewContext]) -> str:
