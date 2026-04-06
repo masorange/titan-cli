@@ -471,11 +471,17 @@ class WorkflowExecutionContent(Widget):
         return
         yield  # Make this a generator
 
-    def append_output(self, text: str) -> None:
-        """Append text to the output."""
+    def append_output(self, text: str, markup: bool = True) -> None:
+        """
+        Append text to the output.
+
+        Args:
+            text: Text to append (can contain Rich markup if markup=True)
+            markup: Enable Rich markup for links, bold, etc. (default True)
+        """
         # Mount each line as a separate Static widget to preserve order
         try:
-            text_widget = Static(text)
+            text_widget = Static(text, markup=markup)
             self.mount(text_widget)
             # Auto-scroll to show new content
             self._scroll_to_end()

@@ -40,6 +40,7 @@ class WorkflowContext:
     git: Optional[Any] = None
     github: Optional[Any] = None
     jira: Optional[Any] = None
+    appstore: Optional[Any] = None
 
     # Workflow metadata (set by executor)
     workflow_name: Optional[str] = None

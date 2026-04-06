@@ -1,0 +1,100 @@
+name: "Create App Store Version"
+description: "Create a new version for iOS apps in App Store Connect (with auto-setup)"
+plugin: appstore
+
+params:
+  version_string: "1.0.0"
+  platform: "IOS"
+  release_type: "MANUAL"
+
+steps:
+  - id: check_config
+    name: "Check Configuration"
+    plugin: appstore
+    step: check_and_setup_step
+    description: |
+      Verify App Store Connect configuration.
+      Automatically runs setup wizard if not configured.
+
+  - id: select_app
+    name: "Select App"
+    plugin: appstore
+    step: select_app_step
+    description: |
+      Select which app to create a version for.
+      Fetches all apps from your App Store Connect account.
+    requires:
+      - credentials_configured
+
+  - id: prompt_version
+    name: "Enter Version Number"
+    plugin: appstore
+    step: prompt_version_step
+    description: |
+      Enter the version string for the new release.
+      Shows existing versions and suggests next version.
+    params:
+      default_version: "${version_string}"
+      validate_format: true
+      show_existing: true
+    requires:
+      - app_id
+
+  - id: create_version
+    name: "Create Version"
+    plugin: appstore
+    step: create_version_step
+    description: |
+      Create the new version in App Store Connect.
+      This prepares the version for submission.
+    params:
+      platform: "${platform}"
+      release_type: "${release_type}"
+    requires:
+      - app_id
+      - version_string
+
+  - id: show_whats_new_preview
+    name: "Preview Release Notes"
+    plugin: appstore
+    step: show_whats_new_preview
+    description: |
+      Show preview of What's New text for all selected brands.
+      Displays standard texts in Spanish and English.
+    requires:
+      - selected_apps
+
+  - id: select_build_per_brand
+    name: "Select Build per Brand"
+    plugin: appstore
+    step: select_build_per_brand
+    description: |
+      For each selected app, list available builds and select one.
+      Only shows valid, non-expired builds.
+    requires:
+      - selected_apps
+      - active_version_id
+
+  - id: submit_for_review
+    name: "Submit for Review"
+    plugin: appstore
+    step: submit_for_review
+    description: |
+      Submit each app with its selected build to App Store Review.
+      Updates What's New text in both languages and assigns builds.
+    requires:
+      - selected_apps
+      - selected_builds
+      - active_version_id
+    on_error: continue
+
+  - id: generate_report
+    name: "Generate Submission Report"
+    plugin: appstore
+    step: generate_submission_report
+    description: |
+      Generate a beautiful HTML report summarizing the submission workflow.
+      Shows statistics, per-brand details, and submission status.
+    requires:
+      - submission_packages
+      - version_string

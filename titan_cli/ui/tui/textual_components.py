@@ -154,28 +154,32 @@ class TextualComponents:
         widget.styles.overflow_x = "auto"
         self.output_widget.mount(widget)
 
-    def text(self, text: str) -> None:
+    def text(self, text: str, markup: bool = True) -> None:
         """
         Append plain text without styling.
+
+        Supports Rich markup for links and formatting if markup=True.
 
         For styled text, use specific methods: dim_text(), success_text(), etc.
 
         Args:
-            text: Text to append
+            text: Text to append (can contain Rich markup if markup=True)
+            markup: Enable Rich markup (links, bold, etc.) - default True
 
         Example:
             ctx.textual.text("Processing...")
             ctx.textual.text("")  # Empty line
+            ctx.textual.text("[link=https://example.com]Click here[/link]")  # Clickable link
         """
         def _append():
             # If there's an active step container, append to it; otherwise to output widget
             if self._active_step_container:
                 from textual.widgets import Static
-                widget = Static(text)
+                widget = Static(text, markup=markup)
                 widget.styles.height = "auto"
                 self._active_step_container.mount(widget)
             else:
-                self.output_widget.append_output(text)
+                self.output_widget.append_output(text, markup=markup)
 
         # call_from_thread already blocks until the function completes
         try:
@@ -183,6 +187,22 @@ class TextualComponents:
         except Exception:
             # App is closing or worker was cancelled
             pass
+
+    def link(self, url: str, text: Optional[str] = None) -> None:
+        """
+        Display a clickable link (Cmd+Click on Mac, Ctrl+Click on Linux/Windows).
+
+        Args:
+            url: URL to link to
+            text: Display text (if None, uses the URL itself)
+
+        Example:
+            ctx.textual.link("https://appstoreconnect.apple.com")
+            ctx.textual.link("https://appstoreconnect.apple.com", "Open App Store Connect")
+        """
+        display_text = text if text else url
+        link_markup = f"[link={url}]{display_text}[/link]"
+        self.text(link_markup, markup=True)
 
     def markdown(self, markdown_text: str) -> None:
         """

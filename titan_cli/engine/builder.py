@@ -49,6 +49,7 @@ class WorkflowContextBuilder:
         self._git = None
         self._github = None
         self._jira = None
+        self._appstore = None
 
     def with_ai(self, ai_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
@@ -146,6 +147,29 @@ class WorkflowContextBuilder:
                 self._jira = None
         return self
 
+    def with_appstore(self, appstore_client: Optional[Any] = None) -> "WorkflowContextBuilder":
+        """
+        Add App Store Connect client to workflow context.
+
+        Args:
+            appstore_client: Optional AppStoreClient instance (auto-loaded if None).
+
+        Returns:
+            Self for method chaining
+        """
+        if appstore_client:
+            self._appstore = appstore_client
+        else:
+            # Auto-create from plugin registry
+            appstore_plugin = self._plugin_registry.get_plugin("appstore")
+            if appstore_plugin and appstore_plugin.is_available():
+                try:
+                    self._appstore = appstore_plugin.get_client()
+                except Exception:
+                    self._appstore = None
+            else:
+                self._appstore = None
+        return self
 
     def build(self) -> WorkflowContext:
         """Build the WorkflowContext."""
@@ -156,4 +180,5 @@ class WorkflowContextBuilder:
             git=self._git,
             github=self._github,
             jira=self._jira,
+            appstore=self._appstore,
         )

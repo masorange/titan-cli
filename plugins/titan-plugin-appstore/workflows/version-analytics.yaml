@@ -1,0 +1,119 @@
+name: "Version Analytics Report"
+description: "Compare propagation and stability metrics between latest 2 versions"
+plugin: appstore
+
+params:
+  platform: "IOS"
+
+steps:
+  # Early step: Can use Exit if credentials not configured
+  - id: check_config
+    name: "Check Configuration"
+    plugin: appstore
+    step: check_and_setup_step
+    description: |
+      Verify App Store Connect configuration.
+      Automatically runs setup wizard if not configured.
+
+  # Early step: Can use Exit if no app selected
+  - id: select_app
+    name: "Select App"
+    plugin: appstore
+    step: select_app_step
+    description: |
+      Select which app to analyze.
+      Fetches all apps from your App Store Connect account.
+    requires:
+      - credentials_configured
+
+  # Intermediate step: Use on_error continue (no resources created yet)
+  - id: fetch_versions
+    name: "Fetch Latest Versions"
+    plugin: appstore
+    step: fetch_versions_step
+    on_error: continue
+    description: |
+      Retrieve the latest 2 released versions for comparison.
+      Versions must be in READY_FOR_SALE state.
+    requires:
+      - app_id
+
+  # Intermediate step: Use on_error continue (API calls, can timeout)
+  - id: fetch_metrics
+    name: "Fetch Metrics (Performance + Sales)"
+    plugin: appstore
+    step: fetch_metrics_step
+    on_error: continue
+    description: |
+      Fetch metrics using INSTANT APIs (no polling):
+
+      1. Performance Metrics API:
+         - Crash rates per version (exact data from Apple)
+         - Hang rates per version
+         - Same data as Xcode Organizer
+
+      2. Sales Reports API (if vendor_number configured):
+         - Installation/download units
+         - Geographic distribution
+         - Real propagation data
+
+      Fallback: If Sales Reports unavailable, uses build activity.
+
+      ⚡ INSTANT - No waiting required!
+    requires:
+      - app_id
+      - app_name
+      - version_1_id
+      - version_2_id
+      - version_1_string
+      - version_2_string
+
+  # Intermediate step: Use on_error continue (charts generation can fail)
+  - id: analyze_metrics
+    name: "Analyze Metrics and Generate Charts"
+    plugin: appstore
+    step: analyze_metrics_step
+    on_error: continue
+    description: |
+      Calculate propagation and stability metrics:
+
+      Propagation:
+        - Total sessions per version
+        - Daily growth rate (%)
+        - Active devices trend
+
+      Stability:
+        - Crash rate (crashes / sessions)
+        - Total crashes
+        - Retention D1 and D7
+
+      Generates 3 PNG charts:
+        1. Sessions over time (line chart)
+        2. Daily growth rate (line chart)
+        3. Stability comparison (bar charts)
+    requires:
+      - analytics_usage_data
+      - analytics_crash_data
+      - version_1_id
+      - version_2_id
+
+  # Final step: Generate report (cleanup-like, always attempt)
+  - id: generate_report
+    name: "Generate HTML Report"
+    plugin: appstore
+    step: generate_analytics_report
+    on_error: continue
+    description: |
+      Generate comprehensive HTML report with:
+        - Summary cards
+        - Comparison tables
+        - Embedded charts
+        - Key insights
+
+      Report saved to: ./analytics_reports/analytics_report_YYYYMMDD_HHMMSS.html
+    requires:
+      - propagation_metrics_v1
+      - propagation_metrics_v2
+      - stability_metrics_v1
+      - stability_metrics_v2
+      - chart_paths

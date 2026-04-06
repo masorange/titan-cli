@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "titan-plugin-appstore"
+version = "1.0.0"
+description = "App Store Connect plugin for Titan CLI"
+authors = ["MasMovil <dev@masmovil.com>"]
+packages = [{include = "titan_plugin_appstore"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0.0"
+titan-cli = ">=0.1.17"
+PyJWT = ">=2.8.0"
+cryptography = ">=41.0.0"
+requests = ">=2.31.0"
+pydantic = ">=2.0.0"
+pandas = ">=2.0.0"
+matplotlib = ">=3.7.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.4.0"
+pytest-cov = ">=4.1.0"
+pytest-mock = ">=3.11.0"
+black = ">=23.7.0"
+ruff = ">=0.0.285"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.plugins."titan.plugins"]
+appstore = "titan_plugin_appstore.plugin:AppStorePlugin"
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
