@@ -6,16 +6,14 @@ Lists available priorities from Jira and lets user select one.
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
-from titan_cli.ui.tui.widgets import Panel, Table
+from titan_cli.ui.tui.widgets import Panel, OptionItem
 from titan_plugin_jira.constants import (
     StepTitles,
-    UserPrompts,
     ErrorMessages,
     SuccessMessages,
     InfoMessages,
     DEFAULT_PRIORITIES,
 )
-from titan_plugin_jira.utils import validate_numeric_selection
 
 
 def select_issue_priority(ctx: WorkflowContext) -> WorkflowResult:
@@ -30,7 +28,7 @@ def select_issue_priority(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.PRIORITY)
 
-    ctx.textual.bold_text("🔥 Priority")
+    ctx.textual.bold_text("Priority")
     ctx.textual.text("")
 
     # Verify Jira client is available
@@ -69,67 +67,36 @@ def select_issue_priority(ctx: WorkflowContext) -> WorkflowResult:
             )
             priorities = DEFAULT_PRIORITIES
 
-    # Show table and get selection (common logic)
-    selected_priority = _show_priorities_and_select(ctx, priorities)
+    priorities.sort(key=lambda priority: priority.name == "-")
+
+    option_items = [
+        OptionItem(
+            value=priority,
+            title=priority.label,
+        )
+        for priority in priorities
+    ]
+
+    selected_priority = ctx.textual.ask_option(
+        InfoMessages.AVAILABLE_PRIORITIES,
+        option_items,
+    )
 
     if not selected_priority:
         ctx.textual.end_step("error")
-        return Error("invalid_priority_selection")
+        return Error("no_priority_selected")
 
     # Store in context
-    ctx.data["priority"] = selected_priority
+    ctx.data["priority"] = selected_priority.name
 
-    ctx.textual.success_text(SuccessMessages.PRIORITY_SELECTED.format(priority=selected_priority))
+    ctx.textual.success_text(
+        SuccessMessages.PRIORITY_SELECTED.format(priority=selected_priority.name)
+    )
     ctx.textual.text("")
 
     ctx.textual.end_step("success")
 
     return Success(
-        f"Priority selected: {selected_priority}",
-        metadata={"priority": selected_priority},
+        f"Priority selected: {selected_priority.name}",
+        metadata={"priority": selected_priority.name},
     )
-
-
-def _show_priorities_and_select(ctx: WorkflowContext, priorities: list) -> str | None:
-    """
-    Show priorities table and get user selection.
-
-    Args:
-        ctx: Workflow context
-        priorities: List of UIPriority models
-
-    Returns:
-        Selected priority name, or None if invalid selection
-    """
-    # Show table with priorities
-    ctx.textual.primary_text(InfoMessages.AVAILABLE_PRIORITIES)
-    ctx.textual.text("")
-
-    headers = [UserPrompts.HEADER_NUMBER, UserPrompts.HEADER_PRIORITY]
-    rows = []
-    for i, priority in enumerate(priorities, 1):
-        rows.append([str(i), priority.label])  # Pre-formatted with icon
-
-    ctx.textual.mount(Table(headers=headers, rows=rows, title=UserPrompts.PRIORITIES_TABLE_TITLE))
-    ctx.textual.text("")
-
-    # Ask for selection
-    selection = ctx.textual.ask_text(
-        UserPrompts.SELECT_NUMBER.format(min=1, max=len(priorities)), default=""
-    )
-
-    # Validate selection
-    is_valid, index, error_code = validate_numeric_selection(selection, 1, len(priorities))
-
-    if not is_valid:
-        ctx.textual.mount(
-            Panel(
-                ErrorMessages.INVALID_SELECTION.format(
-                    selection=selection, min=1, max=len(priorities)
-                ),
-                panel_type="error",
-            )
-        )
-        return None
-
-    return priorities[index].name

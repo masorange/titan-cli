@@ -6,15 +6,14 @@ Lists available issue types in the project and lets user select one.
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
-from titan_cli.ui.tui.widgets import Panel, Table
+from titan_cli.ui.tui.widgets import Panel, OptionItem
+from titan_plugin_jira.models.enums import JiraIssueType
 from titan_plugin_jira.constants import (
     StepTitles,
-    UserPrompts,
     ErrorMessages,
     SuccessMessages,
     InfoMessages,
 )
-from titan_plugin_jira.utils import validate_numeric_selection
 
 
 def select_issue_type(ctx: WorkflowContext) -> WorkflowResult:
@@ -33,7 +32,7 @@ def select_issue_type(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.ISSUE_TYPE)
 
-    ctx.textual.bold_text("🏷️ Issue Type")
+    ctx.textual.bold_text("Issue Type")
     ctx.textual.text("")
 
     # Get project key from client
@@ -64,49 +63,43 @@ def select_issue_type(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.end_step("error")
                 return Error("only_subtasks")
 
-            # Show table with issue types
-            ctx.textual.primary_text(InfoMessages.AVAILABLE_ISSUE_TYPES)
-            ctx.textual.text("")
-
-            headers = [
-                UserPrompts.HEADER_NUMBER,
-                UserPrompts.HEADER_TYPE,
-                UserPrompts.HEADER_DESCRIPTION,
-            ]
-            rows = []
-            for i, it in enumerate(issue_types, 1):
-                description = it.description or ""
-                # Limit description length
-                if len(description) > 60:
-                    description = description[:57] + "..."
-                rows.append([str(i), it.name, description])
-
-            ctx.textual.mount(
-                Table(headers=headers, rows=rows, title=UserPrompts.ISSUE_TYPES_TABLE_TITLE)
-            )
-            ctx.textual.text("")
-
-            # Ask for selection
-            selection = ctx.textual.ask_text(
-                UserPrompts.SELECT_NUMBER.format(min=1, max=len(issue_types)), default=""
+            common_issue_type_order = {
+                JiraIssueType.STORY.value: 0,
+                JiraIssueType.TASK.value: 1,
+                JiraIssueType.BUG.value: 2,
+                JiraIssueType.EPIC.value: 3,
+            }
+            issue_types.sort(
+                key=lambda issue_type: (
+                    common_issue_type_order.get(issue_type.name, 999),
+                    issue_type.name.lower(),
+                )
             )
 
-            # Validate selection
-            is_valid, index, error_code = validate_numeric_selection(selection, 1, len(issue_types))
-
-            if not is_valid:
-                ctx.textual.mount(
-                    Panel(
-                        ErrorMessages.INVALID_SELECTION.format(
-                            selection=selection, min=1, max=len(issue_types)
-                        ),
-                        panel_type="error",
+            option_items = []
+            for issue_type in issue_types:
+                description = issue_type.description or ""
+                if len(description) > 80:
+                    description = description[:77] + "..."
+                option_items.append(
+                    OptionItem(
+                        value=issue_type,
+                        title=issue_type.label,
+                        description=description,
                     )
                 )
-                ctx.textual.end_step("error")
-                return Error(f"invalid_selection_{error_code}")
 
-            selected_type = issue_types[index]
+            selected_type = ctx.textual.ask_option(
+                InfoMessages.AVAILABLE_ISSUE_TYPES,
+                option_items,
+            )
+
+            if not selected_type:
+                ctx.textual.mount(
+                    Panel(ErrorMessages.SELECTED_TYPE_NOT_FOUND, panel_type="error")
+                )
+                ctx.textual.end_step("error")
+                return Error("no_issue_type_selected")
 
             # Store in context
             ctx.data["issue_type"] = selected_type.name

@@ -121,17 +121,6 @@ def ai_enhance_issue_description(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.success_text(SuccessMessages.DESCRIPTION_GENERATED)
     ctx.textual.text("")
 
-    # Show preview
-    ctx.textual.bold_text(InfoMessages.PREVIEW_LABEL)
-    ctx.textual.text("")
-    preview = (
-        enhanced_description[:500] + "..."
-        if len(enhanced_description) > 500
-        else enhanced_description
-    )
-    ctx.textual.markdown(preview)
-    ctx.textual.text("")
-
     ctx.textual.end_step("success")
 
     return Success(
