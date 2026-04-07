@@ -3,23 +3,15 @@ Install Plugin Screen
 
 Multi-step wizard for installing community plugins.
 
-Step 0: Channel — choose between Stable (git) or Dev Local (path)
-Stable branch:
+Steps:
   1. URL     — user enters repo URL with @version
   2. Preview — fetch pyproject.toml + resolve tag → commit SHA
   3. Install — pipx inject git+url@<resolved_sha>
-  4. Done    — success or error summary
-
-Dev Local branch:
-  1. Path    — user enters absolute path to local repo
-  2. Preview — read local pyproject.toml (no network)
-  3. Activate — save source override in project config
   4. Done    — success or error summary
 """
 
 import asyncio
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 import tomli
 import tomli_w
@@ -52,7 +44,6 @@ from titan_cli.ui.tui.widgets import (
     DimText,
     ErrorText,
     Panel,
-    PromptChoice,
     PromptInput,
     StepIndicator,
     StepStatus,
@@ -60,7 +51,6 @@ from titan_cli.ui.tui.widgets import (
     Text,
     WizardStep,
 )
-from titan_cli.ui.tui.widgets.prompt_choice import ChoiceOption
 
 from .base import BaseScreen
 
@@ -68,7 +58,6 @@ logger = get_logger(__name__)
 
 
 _STEPS = [
-    WizardStep(id="channel", title="Channel"),
     WizardStep(id="source",  title="Source"),
     WizardStep(id="preview", title="Preview"),
     WizardStep(id="install", title="Install"),
@@ -78,11 +67,7 @@ _STEPS = [
 
 class InstallPluginScreen(BaseScreen):
     """
-    Wizard for installing a community plugin.
-
-    Step 0 lets the user choose between stable (git URL pinned to SHA) and
-    dev_local (editable install from a local path). The remaining four steps
-    share the same layout but render different content depending on the channel.
+    Wizard for installing a community plugin from a stable git source.
     """
 
     BINDINGS = [
@@ -176,17 +161,11 @@ class InstallPluginScreen(BaseScreen):
             show_status_bar=False,
         )
         self.current_step = 0
-        self._channel: str = PluginChannel.STABLE
-
-        # Stable-only state
         self._raw_url: str = ""
         self._base_url: str = ""
         self._requested_ref: str = ""
         self._resolved_commit: Optional[str] = None
         self._token: Optional[str] = None
-
-        # Dev local-only state
-        self._local_path: str = ""
 
         # Shared state
         self._metadata: dict = {}
@@ -266,71 +245,14 @@ class InstallPluginScreen(BaseScreen):
         body.remove_children()
 
         match _STEPS[index].id:
-            case "channel":
-                self._render_channel(title, body)
             case "source":
-                if self._channel == PluginChannel.DEV_LOCAL:
-                    self._render_path(title, body)
-                else:
-                    self._render_url(title, body)
+                self._render_url(title, body)
             case "preview":
-                if self._channel == PluginChannel.DEV_LOCAL:
-                    self._render_preview_dev_local(title, body)
-                else:
-                    self._render_preview_stable(title, body)
+                self._render_preview_stable(title, body)
             case "install":
                 self._render_install(title, body)
             case "done":
                 self._render_done(title, body)
-
-    # -----------------------------------------------------------------------
-    # Step 0: Channel selection
-    # -----------------------------------------------------------------------
-
-    def _render_channel(self, title: Static, body: Container) -> None:
-        title.update("Installation Channel")
-        self._set_next_visible(False)
-        self._set_cancel_visible(True)
-
-        body.mount(DimText("Choose how to install the community plugin."))
-        body.mount(Text(""))
-
-        def on_select(value: str) -> None:
-            self._channel = value
-            self._set_next_visible(True)
-            self._load_step(1)
-
-        body.mount(PromptChoice(
-            question="",
-            options=[
-                ChoiceOption(
-                    value=PluginChannel.STABLE,
-                    label=f"{Icons.PLUGIN} Stable (from git)",
-                    variant="primary",
-                ),
-                ChoiceOption(
-                    value=PluginChannel.DEV_LOCAL,
-                    label=f"{Icons.PLUGIN} Dev Local (from path)",
-                    variant="default",
-                ),
-            ],
-            on_select=on_select,
-            on_cancel=self.action_cancel,
-        ))
-
-        body.mount(Text(""))
-        body.mount(BoldText("Stable"))
-        body.mount(DimText(
-            "  Installs from a git repository pinned to a specific version tag.\n"
-            "  The tag is resolved to a commit SHA at install time — immutable."
-        ))
-        body.mount(Text(""))
-        body.mount(BoldText("Dev Local"))
-        body.mount(DimText(
-            "  Uses a local repository directly from your project config.\n"
-            "  Titan loads the plugin from that path for this project.\n"
-            "  Intended for plugin contributors."
-        ))
 
     # -----------------------------------------------------------------------
     # Step 1 (Stable): URL input
@@ -380,63 +302,6 @@ class InstallPluginScreen(BaseScreen):
             return False
 
     # -----------------------------------------------------------------------
-    # Step 1 (Dev Local): Path input
-    # -----------------------------------------------------------------------
-
-    def _render_path(self, title: Static, body: Container) -> None:
-        title.update("Local Repository Path")
-        self._set_next_label("Next")
-        self._set_next_visible(True)
-        self._set_cancel_visible(True)
-
-        body.mount(DimText(
-            "Enter the absolute path to the local plugin repository.\n"
-            "The directory must contain a pyproject.toml with a Titan entry point."
-        ))
-        body.mount(Text(""))
-        body.mount(DimText("  Example: /path/to/my-titan-plugin"))
-        body.mount(Text(""))
-
-        def on_submit(value: str):
-            self._local_path = value
-            self.query_one("#next-button", Button).action_press()
-
-        body.mount(PromptInput(
-            question="Local path",
-            default=self._local_path,
-            placeholder="/path/to/my-titan-plugin",
-            on_submit=on_submit,
-            on_cancel=self.action_cancel,
-        ))
-
-    def _validate_path_step(self) -> bool:
-        try:
-            self._local_path = self.query_one("#prompt-input", Input).value
-        except Exception:
-            pass
-
-        body = self.query_one("#content-body", Container)
-        for w in body.query(ErrorText):
-            w.remove()
-
-        path = self._local_path.strip()
-        if not path:
-            body.mount(ErrorText(f"{Icons.ERROR} Path cannot be empty."))
-            return False
-
-        p = Path(path)
-        if not p.is_dir():
-            body.mount(ErrorText(f"{Icons.ERROR} Directory does not exist: {path}"))
-            return False
-
-        if not (p / "pyproject.toml").is_file():
-            body.mount(ErrorText(f"{Icons.ERROR} No pyproject.toml found in {path}"))
-            return False
-
-        self._local_path = str(p.resolve())
-        return True
-
-    # -----------------------------------------------------------------------
     # Step 2 (Stable): Preview — fetch metadata + resolve SHA
     # -----------------------------------------------------------------------
 
@@ -480,12 +345,10 @@ class InstallPluginScreen(BaseScreen):
         if raw_url is None:
             body.remove_children()
             body.mount(Panel(
-                "Unknown host — cannot preview plugin metadata.\n"
-                "Proceed with extra caution.",
-                panel_type="warning",
+                "Could not build the metadata URL for this repository.",
+                panel_type="error",
             ))
-            self._render_security_warning(body)
-            self._set_next_label("I understand, Install")
+            self._set_next_label("Next", disabled=True)
             return
 
         content, error = await asyncio.to_thread(fetch_pyproject_toml, raw_url, self._token)
@@ -536,66 +399,6 @@ class InstallPluginScreen(BaseScreen):
         self._set_next_label("I understand, Install")
 
     # -----------------------------------------------------------------------
-    # Step 2 (Dev Local): Preview — read local pyproject.toml
-    # -----------------------------------------------------------------------
-
-    def _render_preview_dev_local(self, title: Static, body: Container) -> None:
-        title.update("Plugin Preview")
-        self._set_next_label("Next", disabled=True)
-        self._set_cancel_visible(True)
-
-        body.mount(LoadingIndicator())
-        body.mount(DimText("Reading local plugin metadata…"))
-
-        self.call_after_refresh(self._start_fetch_dev_local)
-
-    def _start_fetch_dev_local(self) -> None:
-        self.run_worker(self._fetch_metadata_dev_local(), exclusive=True)
-
-    async def _fetch_metadata_dev_local(self) -> None:
-        body = self.query_one("#content-body", Container)
-
-        try:
-            pyproject_path = Path(self._local_path) / "pyproject.toml"
-            content = await asyncio.to_thread(pyproject_path.read_text, encoding="utf-8")
-            self._metadata = parse_plugin_metadata(content)
-        except Exception as e:
-            body.remove_children()
-            body.mount(Panel(
-                f"Could not read pyproject.toml: {e}",
-                panel_type="error",
-            ))
-            self._set_next_label("Next", disabled=True)
-            return
-
-        body.remove_children()
-
-        if self._metadata.get("parse_error"):
-            body.mount(Panel(
-                "Could not parse pyproject.toml — it may be malformed.",
-                panel_type="warning",
-            ))
-        else:
-            self._render_metadata(body)
-            if not self._metadata.get("titan_entry_points"):
-                body.mount(Panel(
-                    "This package does not declare a Titan plugin entry point.\n"
-                    "Installing it will have no effect inside Titan.",
-                    panel_type="warning",
-                ))
-
-        body.mount(Text(""))
-        body.mount(BoldText("Dev local install"))
-        body.mount(DimText(f"  Path: {self._local_path}"))
-        body.mount(DimText(
-            "  Titan will load the plugin directly from this repository path.\n"
-            "  No editable install is required."
-        ))
-
-        self._render_security_warning(body)
-        self._set_next_label("I understand, Install")
-
-    # -----------------------------------------------------------------------
     # Shared metadata rendering
     # -----------------------------------------------------------------------
 
@@ -641,7 +444,7 @@ class InstallPluginScreen(BaseScreen):
         ))
 
     # -----------------------------------------------------------------------
-    # Step 3: Install (shared dispatcher by channel)
+    # Step 3: Install
     # -----------------------------------------------------------------------
 
     def _render_install(self, title: Static, body: Container) -> None:
@@ -649,10 +452,7 @@ class InstallPluginScreen(BaseScreen):
         self._set_next_label("Next", disabled=True)
         self._set_cancel_visible(False)
 
-        if self._channel == PluginChannel.DEV_LOCAL:
-            body.mount(DimText(f"Saving dev local source for {self._local_path}…"))
-        else:
-            body.mount(DimText(f"Running pipx inject for {self._base_url}@{self._resolved_commit}…"))
+        body.mount(DimText(f"Running pipx inject for {self._base_url}@{self._resolved_commit}…"))
 
         body.mount(LoadingIndicator())
         self.call_after_refresh(self._start_install)
@@ -662,13 +462,9 @@ class InstallPluginScreen(BaseScreen):
 
     async def _run_install(self) -> None:
         body = self.query_one("#content-body", Container)
-
-        if self._channel == PluginChannel.DEV_LOCAL:
-            result = None
-        else:
-            result = await asyncio.to_thread(
-                install_community_plugin, self._base_url, self._resolved_commit, self._token
-            )
+        result = await asyncio.to_thread(
+            install_community_plugin, self._base_url, self._resolved_commit, self._token
+        )
 
         body.remove_children()
 
@@ -677,7 +473,7 @@ class InstallPluginScreen(BaseScreen):
             output = result.stderr or result.stdout or "Unknown error"
             logger.error(
                 "community_plugin_install_failed",
-                channel=self._channel,
+                channel=PluginChannel.STABLE,
                 output=output,
             )
             body.mount(Panel(
@@ -696,48 +492,20 @@ class InstallPluginScreen(BaseScreen):
 
             eps          = self._metadata.get("titan_entry_points", {})
             plugin_name  = next(iter(eps), "")
-            package_name = (
-                self._metadata.get("name")
-                or (Path(self._local_path).name if self._channel == PluginChannel.DEV_LOCAL
-                    else self._base_url.rstrip("/").split("/")[-1])
+            package_name = self._metadata.get("name") or self._base_url.rstrip("/").split("/")[-1]
+            self._installed_record = CommunityPluginRecord(
+                repo_url=self._base_url,
+                package_name=package_name,
+                titan_plugin_name=plugin_name,
+                installed_at=datetime.now(timezone.utc).isoformat(),
+                channel=PluginChannel.STABLE,
+                dev_local_path=None,
+                requested_ref=self._requested_ref,
+                resolved_commit=self._resolved_commit,
             )
-
-            if self._channel == PluginChannel.DEV_LOCAL:
-                self._installed_record = CommunityPluginRecord(
-                    repo_url="",
-                    package_name=package_name,
-                    titan_plugin_name=plugin_name,
-                    installed_at=datetime.now(timezone.utc).isoformat(),
-                    channel=PluginChannel.DEV_LOCAL,
-                    dev_local_path=self._local_path,
-                    requested_ref=None,
-                    resolved_commit=None,
-                )
-                await asyncio.to_thread(
-                    self._save_project_plugin_source,
-                    plugin_name,
-                    PluginChannel.DEV_LOCAL,
-                    self._local_path,
-                )
-            else:
-                self._installed_record = CommunityPluginRecord(
-                    repo_url=self._base_url,
-                    package_name=package_name,
-                    titan_plugin_name=plugin_name,
-                    installed_at=datetime.now(timezone.utc).isoformat(),
-                    channel=PluginChannel.STABLE,
-                    dev_local_path=None,
-                    requested_ref=self._requested_ref,
-                    resolved_commit=self._resolved_commit,
-                )
-                remove_community_plugin_by_name(plugin_name)
-                save_community_plugin(self._installed_record)
-                await asyncio.to_thread(
-                    self._save_project_plugin_source,
-                    plugin_name,
-                    PluginChannel.STABLE,
-                    None,
-                )
+            remove_community_plugin_by_name(plugin_name)
+            save_community_plugin(self._installed_record)
+            await asyncio.to_thread(self._save_project_plugin_source, plugin_name)
             await asyncio.to_thread(self.config.load)
 
             installed_plugin = self.config.registry._plugins.get(plugin_name)
@@ -761,13 +529,8 @@ class InstallPluginScreen(BaseScreen):
         wizard = PluginConfigWizardScreen(self.config, plugin_name)
         self.app.push_screen(wizard, lambda _: self._load_step(self.current_step + 1))
 
-    def _save_project_plugin_source(
-        self,
-        plugin_name: str,
-        channel: str,
-        path: Optional[str],
-    ) -> None:
-        """Persist the active source for a plugin in the current project config."""
+    def _save_project_plugin_source(self, plugin_name: str) -> None:
+        """Persist the stable source for a plugin in the current project config."""
         project_cfg_path = self.config.project_config_path or (self.config.project_root / ".titan" / "config.toml")
         project_cfg_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -782,11 +545,8 @@ class InstallPluginScreen(BaseScreen):
         plugin_table["enabled"] = True
 
         source_table = plugin_table.setdefault("source", {})
-        source_table["channel"] = channel
-        if channel == PluginChannel.DEV_LOCAL and path:
-            source_table["path"] = path
-        else:
-            source_table.pop("path", None)
+        source_table["channel"] = "stable"
+        source_table.pop("path", None)
 
         with open(project_cfg_path, "wb") as f:
             tomli_w.dump(project_cfg_dict, f)
@@ -809,15 +569,9 @@ class InstallPluginScreen(BaseScreen):
 
             if r.package_name:
                 body.mount(DimText(f"  Package:     {r.package_name}"))
-            if r.channel == PluginChannel.STABLE and r.requested_ref:
+            if r.requested_ref:
                 body.mount(DimText(f"  Version:     {r.requested_ref}"))
                 body.mount(DimText(f"  Commit:      {r.resolved_commit}"))
-            elif r.channel == PluginChannel.DEV_LOCAL and r.dev_local_path:
-                body.mount(DimText(f"  Path:        {r.dev_local_path}"))
-                body.mount(DimText(
-                    "  This project now loads the plugin from that local path.\n"
-                    "  Switching back to stable only requires changing the source."
-                ))
             if r.titan_plugin_name:
                 body.mount(DimText(f"  Plugin name: {r.titan_plugin_name}"))
             body.mount(Text(""))
@@ -860,12 +614,8 @@ class InstallPluginScreen(BaseScreen):
             return
 
         if step_id == "source":
-            if self._channel == PluginChannel.DEV_LOCAL:
-                if not self._validate_path_step():
-                    return
-            else:
-                if not self._validate_url_step():
-                    return
+            if not self._validate_url_step():
+                return
 
         self._load_step(self.current_step + 1)
 
