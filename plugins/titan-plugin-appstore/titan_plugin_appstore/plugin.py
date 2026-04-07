@@ -171,6 +171,7 @@ class AppStorePlugin(TitanPlugin):
             fetch_production_version_step,
             analyze_version_with_comparison_step,
             debug_sales_reports_step,
+            display_active_versions_health,
         )
 
         return {
@@ -198,6 +199,7 @@ class AppStorePlugin(TitanPlugin):
             "fetch_production_version_step": fetch_production_version_step,
             "analyze_version_with_comparison_step": analyze_version_with_comparison_step,
             "debug_sales_reports_step": debug_sales_reports_step,
+            "display_active_versions_health": display_active_versions_health,
         }
 
     @property

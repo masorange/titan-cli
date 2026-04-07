@@ -31,6 +31,7 @@ from .analyze_version_with_comparison_step import analyze_version_with_compariso
 # DISABLED: Detailed crash/hang reports not available via API
 # from .show_diagnostics_step import show_diagnostics_step
 from .debug_sales_reports_step import debug_sales_reports_step
+from .display_active_versions_health import display_active_versions_health
 
 __all__ = [
     "check_and_setup_step",
@@ -58,4 +59,5 @@ __all__ = [
     "analyze_version_with_comparison_step",
     # "show_diagnostics_step",  # DISABLED: Not available via API
     "debug_sales_reports_step",
+    "display_active_versions_health",
 ]

@@ -1,0 +1,46 @@
+name: "Active Versions Health"
+description: "📊 Health dashboard for all versions with active users (production monitoring)"
+plugin: appstore
+
+params:
+  platform: "IOS"
+
+steps:
+  # Step 1: Configuration check
+  - id: check_config
+    name: "Check Configuration"
+    plugin: appstore
+    step: check_and_setup_step
+    description: |
+      Verify App Store Connect credentials are configured.
+      Will run setup wizard if needed.
+
+  # Step 2: Select app
+  - id: select_app
+    name: "Select App"
+    plugin: appstore
+    step: select_app_step
+    description: |
+      Select which app to analyze.
+    requires:
+      - credentials_configured
+
+  # Step 3: Display active versions health dashboard
+  - id: display_health
+    name: "Active Versions Health Dashboard"
+    plugin: appstore
+    step: display_active_versions_health
+    description: |
+      Comprehensive health dashboard for all versions with active users:
+
+      Shows:
+        - Distribution of users across versions
+        - Crash rates and hang rates per version
+        - Release dates and version states
+        - Ranking by number of active users
+
+      Includes ALL versions that have active users (no limits).
+      Data is real-time from App Store Connect Performance Metrics API.
+    requires:
+      - app_id
+      - app_name
