@@ -1,11 +1,55 @@
 # core/plugin_registry.py
+import importlib
+import sys
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 from ..errors import PluginLoadError, PluginInitializationError
 from .plugin_base import TitanPlugin
+from .community import PluginChannel, parse_plugin_metadata
 from titan_cli.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _load_dev_local_plugin(repo_path: Path, plugin_name: str) -> TitanPlugin:
+    """Load a Titan plugin directly from a local repository path."""
+    pyproject_path = repo_path / "pyproject.toml"
+    if not pyproject_path.is_file():
+        raise FileNotFoundError(f"No pyproject.toml found in {repo_path}")
+
+    metadata = parse_plugin_metadata(pyproject_path.read_text(encoding="utf-8"))
+    if metadata.get("parse_error"):
+        raise ValueError(f"Could not parse {pyproject_path}")
+
+    entry_point = (metadata.get("titan_entry_points") or {}).get(plugin_name)
+    if not entry_point:
+        raise ValueError(
+            f"Local repository {repo_path} does not expose titan plugin '{plugin_name}'"
+        )
+
+    module_name, sep, class_name = entry_point.partition(":")
+    if not module_name or not sep or not class_name:
+        raise ValueError(f"Invalid entry point for '{plugin_name}': {entry_point}")
+
+    package_root = module_name.split(".", 1)[0]
+    repo_path_str = str(repo_path)
+    if repo_path_str in sys.path:
+        sys.path.remove(repo_path_str)
+    sys.path.insert(0, repo_path_str)
+
+    stale_modules = [
+        name for name in list(sys.modules)
+        if name == package_root or name.startswith(f"{package_root}.")
+    ]
+    for name in stale_modules:
+        sys.modules.pop(name, None)
+
+    module = importlib.import_module(module_name)
+    plugin_class = getattr(module, class_name)
+    if not issubclass(plugin_class, TitanPlugin):
+        raise TypeError("Plugin class must inherit from TitanPlugin")
+    return plugin_class()
 
 
 class PluginRegistry:
@@ -58,6 +102,8 @@ class PluginRegistry:
             config: TitanConfig instance
             secrets: SecretManager instance
         """
+        self._apply_source_overrides(config)
+
         # Create a copy of plugin names to iterate over, as _plugins might change
         plugins_to_initialize = list(self._plugins.keys())
         initialized = set()
@@ -130,6 +176,47 @@ class PluginRegistry:
                         if name in self._plugins: # Only delete if it wasn't deleted by a dep error
                             del self._plugins[name]
                 break # Exit the loop if no progress is made
+
+    def _apply_source_overrides(self, config: Any) -> None:
+        """Apply per-project source overrides before plugin initialization."""
+        config_model = getattr(config, "config", None)
+        plugins = getattr(config_model, "plugins", None)
+        if not config or not plugins:
+            return
+
+        for plugin_name in config.get_enabled_plugins():
+            if config.get_plugin_source_channel(plugin_name) != PluginChannel.DEV_LOCAL:
+                continue
+
+            repo_path = config.get_plugin_source_path(plugin_name)
+            if not repo_path:
+                error = PluginLoadError(
+                    plugin_name=plugin_name,
+                    original_exception=ValueError("dev_local source requires a local path"),
+                )
+                self._failed_plugins[plugin_name] = error
+                self._plugins.pop(plugin_name, None)
+                continue
+
+            try:
+                self._plugins[plugin_name] = _load_dev_local_plugin(repo_path, plugin_name)
+                self._plugin_versions[plugin_name] = "dev_local"
+                if plugin_name not in self._discovered_plugin_names:
+                    self._discovered_plugin_names.append(plugin_name)
+                logger.info(
+                    "plugin_dev_local_override_applied",
+                    name=plugin_name,
+                    path=str(repo_path),
+                )
+            except Exception as e:
+                logger.exception(
+                    "plugin_dev_local_override_failed",
+                    name=plugin_name,
+                    path=str(repo_path),
+                )
+                error = PluginLoadError(plugin_name=plugin_name, original_exception=e)
+                self._failed_plugins[plugin_name] = error
+                self._plugins.pop(plugin_name, None)
 
     def list_installed(self) -> List[str]:
         """List successfully loaded plugins."""

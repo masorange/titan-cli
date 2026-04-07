@@ -480,6 +480,26 @@ def get_community_plugins_path() -> Path:
     return COMMUNITY_PLUGINS_FILE
 
 
+def _deserialise_record(item: dict) -> CommunityPluginRecord:
+    """
+    Deserialise a TOML dict into a CommunityPluginRecord.
+
+    Required fields: repo_url, package_name, titan_plugin_name, installed_at.
+    Optional fields default to None if absent — TOML omits None values on save.
+    channel defaults to "stable" for backwards compatibility with old records.
+    """
+    return CommunityPluginRecord(
+        repo_url=item["repo_url"],
+        package_name=item["package_name"],
+        titan_plugin_name=item["titan_plugin_name"],
+        installed_at=item["installed_at"],
+        channel=item.get("channel", PluginChannel.STABLE),
+        dev_local_path=item.get("dev_local_path"),
+        requested_ref=item.get("requested_ref"),
+        resolved_commit=item.get("resolved_commit"),
+    )
+
+
 def load_community_plugins() -> list[CommunityPluginRecord]:
     """
     Load installed community plugins from ~/.titan/community_plugins.toml.
@@ -492,7 +512,7 @@ def load_community_plugins() -> list[CommunityPluginRecord]:
     try:
         with open(path, "rb") as f:
             data = tomli.load(f)
-        return [CommunityPluginRecord(**item) for item in data.get("plugins", [])]
+        return [_deserialise_record(item) for item in data.get("plugins", [])]
     except Exception:
         logger.exception("community_plugins_load_failed")
         return []
@@ -502,6 +522,7 @@ def save_community_plugin(record: CommunityPluginRecord) -> None:
     """
     Append a community plugin record to ~/.titan/community_plugins.toml.
     Creates the file and parent directory if they don't exist.
+    None values are omitted — TOML has no null type.
     """
     path = get_community_plugins_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -513,7 +534,8 @@ def save_community_plugin(record: CommunityPluginRecord) -> None:
         data = {"plugins": []}
 
     data.setdefault("plugins", [])
-    data["plugins"].append(asdict(record))
+    record_dict = {k: v for k, v in asdict(record).items() if v is not None}
+    data["plugins"].append(record_dict)
 
     with open(path, "wb") as f:
         tomli_w.dump(data, f)
@@ -667,6 +689,24 @@ def remove_community_plugin_by_channel(titan_plugin_name: str, channel: str) -> 
             p.get("titan_plugin_name") == titan_plugin_name
             and p.get("channel") == channel
         )
+    ]
+
+    with open(path, "wb") as f:
+        tomli_w.dump(data, f)
+
+
+def remove_community_plugin_by_name(titan_plugin_name: str) -> None:
+    """Remove all tracked records for a given Titan plugin logical name."""
+    path = get_community_plugins_path()
+    if not path.exists():
+        return
+
+    with open(path, "rb") as f:
+        data = tomli.load(f)
+
+    data["plugins"] = [
+        p for p in data.get("plugins", [])
+        if p.get("titan_plugin_name") != titan_plugin_name
     ]
 
     with open(path, "wb") as f:
