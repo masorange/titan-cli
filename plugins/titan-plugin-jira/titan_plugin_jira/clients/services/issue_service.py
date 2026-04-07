@@ -147,7 +147,8 @@ class IssueService:
         description: Optional[str] = None,
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
-        priority: Optional[str] = None
+        priority: Optional[str] = None,
+        fields: Optional[dict] = None
     ) -> ClientResult[UIJiraIssue]:
         """
         Create new issue.
@@ -160,6 +161,7 @@ class IssueService:
             assignee: Assignee username or email
             labels: List of labels
             priority: Priority name
+            fields: Additional Jira fields to merge into payload["fields"]
 
         Returns:
             ClientResult[UIJiraIssue]
@@ -208,6 +210,8 @@ class IssueService:
                 payload["fields"]["labels"] = labels
             if priority:
                 payload["fields"]["priority"] = {"name": priority}
+            if fields:
+                payload["fields"].update(fields)
 
             # 2. Network call
             data = self.network.make_request("POST", "issue", json=payload)
@@ -231,7 +235,8 @@ class IssueService:
         description: Optional[str] = None,
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
-        priority: Optional[str] = None
+        priority: Optional[str] = None,
+        fields: Optional[dict] = None
     ) -> ClientResult[UIJiraIssue]:
         """
         Create issue with issue type search by name (internal).
@@ -249,6 +254,7 @@ class IssueService:
             assignee: Assignee username or email
             labels: List of labels
             priority: Priority name
+            fields: Additional Jira fields to merge into payload["fields"]
 
         Returns:
             ClientResult[UIJiraIssue]
@@ -286,7 +292,8 @@ class IssueService:
                     description=description,
                     assignee=assignee,
                     labels=labels,
-                    priority=priority
+                    priority=priority,
+                    fields=fields
                 )
 
             case ClientError() as error:

@@ -216,7 +216,8 @@ class JiraClient:
         project: Optional[str] = None,
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
-        priority: Optional[str] = None
+        priority: Optional[str] = None,
+        fields: Optional[dict] = None
     ) -> ClientResult[UIJiraIssue]:
         """
         Create new issue.
@@ -229,6 +230,7 @@ class JiraClient:
             assignee: Assignee username or email
             labels: List of labels
             priority: Priority name
+            fields: Additional Jira fields to merge into payload["fields"]
 
         Returns:
             ClientResult[UIJiraIssue]
@@ -248,7 +250,8 @@ class JiraClient:
             description=description,
             assignee=assignee,
             labels=labels,
-            priority=priority
+            priority=priority,
+            fields=fields
         )
 
     def create_subtask(

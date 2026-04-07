@@ -43,6 +43,7 @@ def create_generic_issue(ctx: WorkflowContext) -> WorkflowResult:
     priority = ctx.data.get("priority")
     auto_assign = ctx.data.get("auto_assign", False)
     assignee_id = ctx.data.get("assignee_id")
+    jira_fields = ctx.data.get("jira_fields", {})
 
     # Validate required data
     if not all([title, description, issue_type, priority]):
@@ -66,6 +67,7 @@ def create_generic_issue(ctx: WorkflowContext) -> WorkflowResult:
             project=project_key,
             assignee=assignee_id if auto_assign and assignee_id else None,
             priority=priority,
+            fields=jira_fields,
         )
 
     match result:

@@ -7,6 +7,9 @@ tags:
   - issue
   - create
 
+hooks:
+  - before_create_issue
+
 steps:
   # 1. Prompt for brief description
   - name: "Description"
@@ -50,7 +53,10 @@ steps:
     step: confirm_auto_assign
     description: "Assign issue to yourself?"
 
-  # 7. Create the issue
+  # 7. Project-specific required fields
+  - hook: before_create_issue
+
+  # 8. Create the issue
   - name: "Create Issue"
     plugin: jira
     step: create_generic_issue
