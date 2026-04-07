@@ -8,12 +8,13 @@ from titan_cli.core.models import AIConfig
 from titan_cli.core.secrets import SecretManager
 from .exceptions import AIConfigurationError
 from .models import AIMessage, AIRequest, AIResponse
-from .providers import AIProvider, AnthropicProvider, GeminiProvider
+from .providers import AIProvider, AnthropicProvider, GeminiProvider, CustomProvider
 
 # A mapping from provider names to classes
 PROVIDER_CLASSES = {
     "anthropic": AnthropicProvider,
     "gemini": GeminiProvider,
+    "custom": CustomProvider,
 }
 
 class AIClient:
@@ -77,16 +78,29 @@ class AIClient:
         if not provider_class:
             raise AIConfigurationError(f"Unknown AI provider type: {provider_name}")
 
-        # Get API key
+        # Get API key (optional for custom provider)
         api_key_name = f"{self.provider_id}_api_key"
         api_key = self.secrets.get(api_key_name)
 
-        if not api_key:
+        # For custom provider, API key is optional
+        # For other providers, API key is required
+        if not api_key and provider_name != "custom":
             raise AIConfigurationError(f"API key for provider '{self.provider_id}' ({provider_name}) not found.")
 
-        kwargs = {"api_key": api_key, "model": provider_config.model}
+        # Build provider kwargs
+        kwargs = {"model": provider_config.model}
+
+        # Add API key if present
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        # Add base_url if present
         if provider_config.base_url:
             kwargs["base_url"] = provider_config.base_url
+
+        # For custom provider, base_url is required
+        if provider_name == "custom" and not provider_config.base_url:
+            raise AIConfigurationError(f"base_url is required for custom provider '{self.provider_id}'")
 
         self._provider = provider_class(**kwargs)
         return self._provider

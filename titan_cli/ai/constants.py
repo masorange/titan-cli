@@ -12,6 +12,7 @@ from typing import Dict
 PROVIDER_DEFAULTS: Dict[str, str] = {
     "anthropic": "claude-3-5-sonnet-20241022",
     "gemini": "gemini-1.5-pro",
+    "custom": "",  # No default - user must specify
 }
 
 
@@ -26,6 +27,11 @@ PROVIDER_INFO: Dict[str, Dict[str, str]] = {
         "name": "Gemini (Google)",
         "api_key_url": "https://makersuite.google.com/app/apikey",
         "api_key_prefix": "AIza",
+    },
+    "custom": {
+        "name": "Custom (OpenAI-compatible)",
+        "api_key_url": "",  # No specific URL - depends on deployment
+        "api_key_prefix": "",  # No specific prefix - varies by implementation
     },
 }
 

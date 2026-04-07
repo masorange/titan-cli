@@ -163,8 +163,8 @@ class AIConfigWizardScreen(BaseScreen):
         # Note: API Key comes before Model to support dynamic model fetching
         self.steps = [
             {"id": "type", "title": "Configuration Type"},
-            {"id": "base_url", "title": "Base URL"},
             {"id": "provider", "title": "Select Provider"},
+            {"id": "base_url", "title": "Base URL"},
             {"id": "api_key", "title": "API Key"},
             {"id": "model", "title": "Select Model"},
             {"id": "name", "title": "Provider Name"},
@@ -278,25 +278,45 @@ class AIConfigWizardScreen(BaseScreen):
         self.call_after_refresh(lambda: options.focus())
 
     def load_base_url_step(self, title_widget: Static, body_widget: Container) -> None:
-        """Load Base URL step (only for corporate)."""
+        """Load Base URL step (for corporate or custom provider)."""
         title_widget.update("Base URL Configuration")
         body_widget.remove_children()
 
-        # Add description
-        description = Text(
-            "Configure your corporate AI endpoint.\n\n"
-            "Enter the base URL for your organization's AI service."
-        )
-        body_widget.mount(description)
+        # Check if this is for custom provider
+        provider = self.wizard_data.get("provider", "")
 
-        # Add examples
-        examples = DimText(
-            "\nExamples:\n"
-            "  • https://ai.yourcompany.com\n"
-            "  • https://api.internal.corp/ai\n"
-            "  • https://llm-gateway.enterprise.local"
-        )
-        body_widget.mount(examples)
+        # Add description
+        if provider == "custom":
+            description = Text(
+                "Enter the base URL for your custom AI endpoint.\n\n"
+                "This should be the OpenAI-compatible API endpoint URL."
+            )
+            body_widget.mount(description)
+
+            # Add examples for custom/LiteLLM
+            examples = DimText(
+                "\nExamples:\n"
+                "  • http://localhost:4000 (LiteLLM proxy)\n"
+                "  • https://llm.yourcompany.com/v1\n"
+                "  • http://vllm-server:8000/v1\n"
+                "  • https://custom-llm.internal/api/v1"
+            )
+            body_widget.mount(examples)
+        else:
+            description = Text(
+                "Configure your corporate AI endpoint.\n\n"
+                "Enter the base URL for your organization's AI service."
+            )
+            body_widget.mount(description)
+
+            # Add examples for corporate
+            examples = DimText(
+                "\nExamples:\n"
+                "  • https://ai.yourcompany.com\n"
+                "  • https://api.internal.corp/ai\n"
+                "  • https://llm-gateway.enterprise.local"
+            )
+            body_widget.mount(examples)
 
         # Add input field with default value
         default_url = self.wizard_data.get("base_url", "https://")
@@ -323,10 +343,11 @@ class AIConfigWizardScreen(BaseScreen):
         )
         body_widget.mount(description)
 
-        # Add provider options (only Anthropic and Gemini are supported)
+        # Add provider options
         options = OptionList(
             Option("Anthropic (Claude)", id="anthropic"),
             Option("Google (Gemini)", id="gemini"),
+            Option("Custom (OpenAI-compatible / LiteLLM)", id="custom"),
             id="provider-options-list"
         )
         body_widget.mount(options)
@@ -341,21 +362,37 @@ class AIConfigWizardScreen(BaseScreen):
 
         # Get provider name for context
         provider = self.wizard_data.get("provider", "")
-        provider_name = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "AI"
+        provider_name = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "Custom" if provider == "custom" else "AI"
 
         # Add description
-        description = Text(
-            f"Enter your {provider_name} API key.\n\n"
-            f"This key will be securely stored in your system's keyring."
-        )
+        if provider == "custom":
+            description = Text(
+                "Enter your API key (optional).\n\n"
+                "Some custom endpoints don't require authentication.\n"
+                "Leave blank if your endpoint doesn't need an API key.\n"
+                "This key will be securely stored in your system's keyring."
+            )
+        else:
+            description = Text(
+                f"Enter your {provider_name} API key.\n\n"
+                f"This key will be securely stored in your system's keyring."
+            )
         body_widget.mount(description)
 
         # Add info about getting the key
-        info = DimText(
-            "\nWhere to get your API key:\n"
-            "  • Anthropic: https://console.anthropic.com/settings/keys\n"
-            "  • Google: https://aistudio.google.com/app/apikey"
-        )
+        if provider == "custom":
+            info = DimText(
+                "\nAPI Key Details:\n"
+                "  • Check your custom endpoint documentation for authentication requirements\n"
+                "  • LiteLLM proxy servers may or may not require API keys\n"
+                "  • Leave blank if not required"
+            )
+        else:
+            info = DimText(
+                "\nWhere to get your API key:\n"
+                "  • Anthropic: https://console.anthropic.com/settings/keys\n"
+                "  • Google: https://aistudio.google.com/app/apikey"
+            )
         body_widget.mount(info)
 
         # Add input field (password type to hide the key)
@@ -541,7 +578,7 @@ class AIConfigWizardScreen(BaseScreen):
         provider = self.wizard_data.get("provider", "")
 
         config_type_label = "Corporate" if config_type == "corporate" else "Individual"
-        provider_name = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "AI"
+        provider_name = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "Custom" if provider == "custom" else "AI"
 
         default_name = self.wizard_data.get("provider_name", f"{config_type_label} {provider_name}")
 
@@ -648,7 +685,7 @@ class AIConfigWizardScreen(BaseScreen):
         max_tokens = self.wizard_data.get("max_tokens", 4096)
 
         # Format provider name
-        provider_label = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else provider
+        provider_label = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "Custom (OpenAI-compatible)" if provider == "custom" else provider
         config_type_label = "Corporate" if config_type == "corporate" else "Individual"
 
         # Create summary text
@@ -725,9 +762,13 @@ class AIConfigWizardScreen(BaseScreen):
         if self.current_step < len(self.steps) - 1:
             next_step = self.current_step + 1
 
-            # Skip Base URL step if Individual was selected
-            if self.steps[next_step]["id"] == "base_url" and self.wizard_data.get("config_type") == "individual":
-                next_step += 1
+            # Skip Base URL step if Individual was selected AND provider is not custom
+            # (custom provider ALWAYS needs base_url)
+            if self.steps[next_step]["id"] == "base_url":
+                provider = self.wizard_data.get("provider", "")
+                config_type = self.wizard_data.get("config_type", "")
+                if config_type == "individual" and provider != "custom":
+                    next_step += 1
 
             self.load_step(next_step)
 
@@ -792,10 +833,18 @@ class AIConfigWizardScreen(BaseScreen):
                 input_widget = self.query_one("#api-key-input", Input)
                 api_key = input_widget.value.strip()
 
-                # Validate API key
+                # Get provider to check if API key is required
+                provider = self.wizard_data.get("provider", "")
+
+                # For custom provider, API key is optional
                 if not api_key:
-                    self.app.notify("Please enter an API key", severity="warning")
-                    return False
+                    if provider == "custom":
+                        # API key is optional for custom - save empty string
+                        self.wizard_data["api_key"] = ""
+                        return True
+                    else:
+                        self.app.notify("Please enter an API key", severity="warning")
+                        return False
 
                 # Basic validation: should be alphanumeric with possible hyphens/underscores
                 if len(api_key) < 10:
@@ -902,9 +951,13 @@ class AIConfigWizardScreen(BaseScreen):
         if self.current_step > 0:
             prev_step = self.current_step - 1
 
-            # Skip Base URL step if going back and config type is Individual
-            if self.steps[prev_step]["id"] == "base_url" and self.wizard_data.get("config_type") == "individual":
-                prev_step -= 1
+            # Skip Base URL step if going back and should be skipped
+            # (Individual config AND provider is not custom)
+            if self.steps[prev_step]["id"] == "base_url":
+                provider = self.wizard_data.get("provider", "")
+                config_type = self.wizard_data.get("config_type", "")
+                if config_type == "individual" and provider != "custom":
+                    prev_step -= 1
 
             self.load_step(prev_step)
 
@@ -975,11 +1028,14 @@ class AIConfigWizardScreen(BaseScreen):
                 tomli_w.dump(global_config_data, f)
             logger.info("ai_config_saved", provider=provider_name, config_path=str(global_config_path))
 
-            # Save API key to secrets
+            # Save API key to secrets (if provided)
             secrets = SecretManager()
             api_key = self.wizard_data.get("api_key")
-            secrets.set(f"{provider_id}_api_key", api_key, scope="user")
-            logger.debug("api_key_saved", provider_id=provider_id)
+            if api_key:  # Only save if API key is not empty
+                secrets.set(f"{provider_id}_api_key", api_key, scope="user")
+                logger.debug("api_key_saved", provider_id=provider_id)
+            else:
+                logger.debug("api_key_skipped", provider_id=provider_id, reason="empty_key")
 
             # Show success message
             self.app.notify(f"AI provider '{provider_name}' configured successfully!", severity="information")
