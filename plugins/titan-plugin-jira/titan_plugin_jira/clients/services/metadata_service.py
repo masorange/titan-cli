@@ -17,16 +17,23 @@ from ...models.network.rest import (
     NetworkJiraStatus,
     NetworkJiraStatusCategory,
     NetworkJiraUser,
-    NetworkJiraVersion
+    NetworkJiraVersion,
 )
 from ...models.view import (
     UIJiraIssueType,
     UIJiraStatus,
     UIJiraUser,
     UIJiraVersion,
-    UIPriority
+    UIPriority,
 )
 from ...exceptions import JiraAPIError
+from ...models.mappers import (
+    from_network_user,
+    from_network_issue_type,
+    from_network_status,
+    from_network_version,
+    from_network_priority,
+)
 
 
 class MetadataService:
@@ -51,8 +58,6 @@ class MetadataService:
         Returns:
             ClientResult[List[UIJiraIssueType]]
         """
-        from ...models.mappers import from_network_issue_type
-
         try:
             # 1. Get project (includes issue types)
             project_data = self.network.make_request("GET", f"project/{project_key}")
@@ -60,27 +65,28 @@ class MetadataService:
             # 2. Parse to network models
             network_issue_types = []
             for it_data in project_data.get("issueTypes", []):
-                network_issue_types.append(NetworkJiraIssueType(
-                    id=it_data.get("id", ""),
-                    name=it_data.get("name", ""),
-                    description=it_data.get("description"),
-                    subtask=it_data.get("subtask", False),
-                    iconUrl=it_data.get("iconUrl"),
-                ))
+                network_issue_types.append(
+                    NetworkJiraIssueType(
+                        id=it_data.get("id", ""),
+                        name=it_data.get("name", ""),
+                        description=it_data.get("description"),
+                        subtask=it_data.get("subtask", False),
+                        iconUrl=it_data.get("iconUrl"),
+                    )
+                )
 
             # 3. Map to UI models
             ui_issue_types = [from_network_issue_type(it) for it in network_issue_types]
 
             # 4. Wrap in Result
             return ClientSuccess(
-                data=ui_issue_types,
-                message=f"Found {len(ui_issue_types)} issue types"
+                data=ui_issue_types, message=f"Found {len(ui_issue_types)} issue types"
             )
 
         except JiraAPIError as e:
             return ClientError(
                 error_message=f"Failed to get issue types for {project_key}: {e.message}",
-                error_code="GET_ISSUE_TYPES_ERROR"
+                error_code="GET_ISSUE_TYPES_ERROR",
             )
 
     @log_client_operation()
@@ -94,7 +100,6 @@ class MetadataService:
         Returns:
             ClientResult[List[UIJiraStatus]]
         """
-        from ...models.mappers import from_network_status
 
         try:
             # 1. Network call
@@ -113,15 +118,17 @@ class MetadataService:
                             id=status_category_data.get("id", ""),
                             name=status_category_data.get("name", "To Do"),
                             key=status_category_data.get("key", "new"),
-                            colorName=status_category_data.get("colorName")
+                            colorName=status_category_data.get("colorName"),
                         )
 
-                        network_statuses.append(NetworkJiraStatus(
-                            id=status_data.get("id", ""),
-                            name=status_name,
-                            description=status_data.get("description"),
-                            statusCategory=status_category
-                        ))
+                        network_statuses.append(
+                            NetworkJiraStatus(
+                                id=status_data.get("id", ""),
+                                name=status_name,
+                                description=status_data.get("description"),
+                                statusCategory=status_category,
+                            )
+                        )
                         seen_names.add(status_name)
 
             # 3. Map to UI models
@@ -129,14 +136,13 @@ class MetadataService:
 
             # 4. Wrap in Result
             return ClientSuccess(
-                data=ui_statuses,
-                message=f"Found {len(ui_statuses)} statuses"
+                data=ui_statuses, message=f"Found {len(ui_statuses)} statuses"
             )
 
         except JiraAPIError as e:
             return ClientError(
                 error_message=f"Failed to list statuses for {project_key}: {e.message}",
-                error_code="LIST_STATUSES_ERROR"
+                error_code="LIST_STATUSES_ERROR",
             )
 
     @log_client_operation()
@@ -147,7 +153,6 @@ class MetadataService:
         Returns:
             ClientResult[UIJiraUser]
         """
-        from ...models.mappers import from_network_user
 
         try:
             # 1. Network call
@@ -159,26 +164,25 @@ class MetadataService:
                 accountId=data.get("accountId"),
                 emailAddress=data.get("emailAddress"),
                 avatarUrls=data.get("avatarUrls"),
-                active=data.get("active", True)
+                active=data.get("active", True),
             )
 
             # 3. Map to UI model
             ui_user = from_network_user(network_user)
 
             # 4. Wrap in Result
-            return ClientSuccess(
-                data=ui_user,
-                message="Current user retrieved"
-            )
+            return ClientSuccess(data=ui_user, message="Current user retrieved")
 
         except JiraAPIError as e:
             return ClientError(
                 error_message=f"Failed to get current user: {e.message}",
-                error_code="GET_USER_ERROR"
+                error_code="GET_USER_ERROR",
             )
 
     @log_client_operation()
-    def list_project_versions(self, project_key: str) -> ClientResult[List[UIJiraVersion]]:
+    def list_project_versions(
+        self, project_key: str
+    ) -> ClientResult[List[UIJiraVersion]]:
         """
         List all versions for a project.
 
@@ -188,7 +192,6 @@ class MetadataService:
         Returns:
             ClientResult[List[UIJiraVersion]]
         """
-        from ...models.mappers import from_network_version
 
         try:
             # 1. Get project (includes versions)
@@ -197,27 +200,28 @@ class MetadataService:
             # 2. Parse to network models
             network_versions = []
             for v_data in project_data.get("versions", []):
-                network_versions.append(NetworkJiraVersion(
-                    id=v_data.get("id", ""),
-                    name=v_data.get("name", ""),
-                    description=v_data.get("description"),
-                    released=v_data.get("released", False),
-                    releaseDate=v_data.get("releaseDate")
-                ))
+                network_versions.append(
+                    NetworkJiraVersion(
+                        id=v_data.get("id", ""),
+                        name=v_data.get("name", ""),
+                        description=v_data.get("description"),
+                        released=v_data.get("released", False),
+                        releaseDate=v_data.get("releaseDate"),
+                    )
+                )
 
             # 3. Map to UI models
             ui_versions = [from_network_version(v) for v in network_versions]
 
             # 4. Wrap in Result
             return ClientSuccess(
-                data=ui_versions,
-                message=f"Found {len(ui_versions)} versions"
+                data=ui_versions, message=f"Found {len(ui_versions)} versions"
             )
 
         except JiraAPIError as e:
             return ClientError(
                 error_message=f"Failed to list versions for {project_key}: {e.message}",
-                error_code="LIST_VERSIONS_ERROR"
+                error_code="LIST_VERSIONS_ERROR",
             )
 
     def get_priorities(self) -> ClientResult[List[UIPriority]]:
@@ -227,7 +231,6 @@ class MetadataService:
         Returns:
             ClientResult[List[UIPriority]]
         """
-        from ...models.mappers import from_network_priority
 
         try:
             priorities_data = self.network.make_request("GET", "priority")
@@ -239,7 +242,7 @@ class MetadataService:
                     NetworkJiraPriority(
                         id=p_data.get("id", ""),
                         name=p_data.get("name", ""),
-                        iconUrl=p_data.get("iconUrl")
+                        iconUrl=p_data.get("iconUrl"),
                     )
                 )
 
@@ -247,18 +250,19 @@ class MetadataService:
             ui_priorities = [from_network_priority(p) for p in network_priorities]
 
             return ClientSuccess(
-                data=ui_priorities,
-                message=f"Found {len(ui_priorities)} priorities"
+                data=ui_priorities, message=f"Found {len(ui_priorities)} priorities"
             )
 
         except JiraAPIError as e:
             return ClientError(
                 error_message=f"Failed to get priorities: {e.message}",
-                error_code="GET_PRIORITIES_ERROR"
+                error_code="GET_PRIORITIES_ERROR",
             )
 
     @log_client_operation()
-    def find_subtask_issue_type(self, project_key: str) -> ClientResult[UIJiraIssueType]:
+    def find_subtask_issue_type(
+        self, project_key: str
+    ) -> ClientResult[UIJiraIssueType]:
         """
         Find the first subtask issue type for a project.
 
@@ -279,12 +283,12 @@ class MetadataService:
                 if not subtask_type:
                     return ClientError(
                         error_message=f"No subtask issue type found for project {project_key}",
-                        error_code="SUBTASK_TYPE_NOT_FOUND"
+                        error_code="SUBTASK_TYPE_NOT_FOUND",
                     )
 
                 return ClientSuccess(
                     data=subtask_type,
-                    message=f"Found subtask issue type: {subtask_type.name}"
+                    message=f"Found subtask issue type: {subtask_type.name}",
                 )
             case ClientError() as error:
                 return error

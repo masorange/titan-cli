@@ -1,35 +1,26 @@
 id: create-generic-issue
 name: "Create Jira Issue"
 description: "Create a Jira issue with AI assistance"
-enabled: true
-tags:
-  - jira
-  - issue
-  - create
 
 hooks:
   - before_create_issue
 
 steps:
-  # 1. Prompt for brief description
   - name: "Description"
     plugin: jira
     step: prompt_issue_description
     description: "Enter brief task description"
 
-  # 2. List and select issue type
   - name: "Issue Type"
     plugin: jira
     step: select_issue_type
     description: "Select type of issue to create"
 
-  # 3. Select priority
   - name: "Priority"
     plugin: jira
     step: select_issue_priority
     description: "Select issue priority"
 
-  # 4. AI generates title and detailed description
   - name: "Generate with AI"
     plugin: jira
     step: ai_enhance_issue_description
@@ -38,7 +29,6 @@ steps:
       - brief_description
       - issue_type
 
-  # 5. Review generated description
   - name: "Review Description"
     plugin: jira
     step: review_issue_description
@@ -47,16 +37,13 @@ steps:
       - enhanced_description
       - title
 
-  # 6. Confirm auto-assignment
   - name: "Assignment"
     plugin: jira
     step: confirm_auto_assign
     description: "Assign issue to yourself?"
 
-  # 7. Project-specific required fields
   - hook: before_create_issue
 
-  # 8. Create the issue
   - name: "Create Issue"
     plugin: jira
     step: create_generic_issue
