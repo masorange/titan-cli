@@ -26,15 +26,16 @@ from .base import BaseScreen
 from .plugin_config_wizard import PluginConfigWizardScreen
 from .install_plugin_screen import InstallPluginScreen
 from titan_cli.core.plugins.community import (
-    get_community_plugin_names,
-    get_community_plugin_by_titan_name,
-    remove_community_plugin,
-    uninstall_community_plugin,
-    install_community_plugin,
-    save_community_plugin,
     CommunityPluginRecord,
+    PluginChannel,
     check_for_update,
+    get_community_plugin_by_titan_name,
+    get_community_plugin_by_name_and_channel,
     get_github_token,
+    install_community_plugin,
+    remove_community_plugin_by_name,
+    save_community_plugin,
+    uninstall_community_plugin,
 )
 from datetime import datetime, timezone
 from titan_cli.core.logging import get_logger
@@ -212,17 +213,18 @@ class PluginManagementScreen(BaseScreen):
             return
 
         # Add installed plugin options
-        community_names = get_community_plugin_names()
         for plugin_name in self.installed_plugins:
             is_enabled = self.config.is_plugin_enabled(plugin_name)
             status_icon = Icons.SUCCESS if is_enabled else Icons.ERROR
             status_text = "Enabled" if is_enabled else "Disabled"
-            community_badge = " [community]" if plugin_name in community_names else ""
+
+            active_rec = get_community_plugin_by_titan_name(plugin_name)
+            badge = " [community]" if active_rec else ""
 
             plugin_list.add_option(
                 Option(
-                    f"{status_icon} {plugin_name}{community_badge} - {status_text}",
-                    id=plugin_name
+                    f"{status_icon} {plugin_name}{badge} - {status_text}",
+                    id=plugin_name,
                 )
             )
 
@@ -304,10 +306,11 @@ class PluginManagementScreen(BaseScreen):
         if not plugin_name or plugin_name == "none":
             self._show_no_plugin_selected()
             return
-        
+
+        plugin = self.config.registry._plugins.get(plugin_name)
+
         # Get plugin info
         is_enabled = self.config.is_plugin_enabled(plugin_name)
-        plugin = self.config.registry._plugins.get(plugin_name)
 
         # Clear and rebuild details
         details = self.query_one("#details-content", Container)
@@ -367,21 +370,34 @@ class PluginManagementScreen(BaseScreen):
                     else:
                         details.mount(DimText(f"  {key}: {value}"))
 
-        # Actions
-        # Community plugin info
-        community_record = get_community_plugin_by_titan_name(plugin_name)
-        if community_record:
+        active_rec = get_community_plugin_by_titan_name(plugin_name)
+        active_channel = self.config.get_plugin_source_channel(plugin_name)
+        active_path = self.config.get_plugin_source_path(plugin_name)
+        if active_rec:
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
-            details.mount(DimText("  Community plugin"))
-            details.mount(DimText(f"  {community_record.repo_url}@{community_record.version}"))
+            details.mount(DimText(f"  Channel: {active_channel}"))
+            if active_channel == PluginChannel.DEV_LOCAL and active_path:
+                details.mount(DimText(f"  Path: {active_path}"))
+            elif active_rec.repo_url:
+                details.mount(DimText(f"  Repo: {active_rec.repo_url}"))
+                if active_rec.requested_ref:
+                    details.mount(DimText(f"  {active_rec.requested_ref} → {active_rec.resolved_commit}"))
+            details.mount(DimText(f"  Installed: {active_rec.installed_at[:10]}"))
+        elif active_channel == PluginChannel.DEV_LOCAL and active_path:
+            details.mount(Text(""))
+            details.mount(BoldText("Source:"))
+            details.mount(DimText(f"  Channel: {active_channel}"))
+            details.mount(DimText(f"  Path: {active_path}"))
 
         details.mount(Text(""))  # Spacer
         details.mount(BoldText("Actions:"))
         action_verb = "disable" if is_enabled else "enable"
         details.mount(DimText(f"  Press e to {action_verb} this plugin"))
         details.mount(DimText("  Press c to configure this plugin"))
-        if community_record:
+        if active_channel == PluginChannel.DEV_LOCAL:
+            details.mount(DimText("  Press u to remove the dev local source"))
+        elif active_rec:
             details.mount(DimText("  Press u to uninstall this plugin"))
 
         # Buttons
@@ -390,8 +406,9 @@ class PluginManagementScreen(BaseScreen):
             Button("Enable/Disable", variant="default", id="toggle-button"),
             Button("Configure", variant="primary", id="configure-button"),
         ]
-        if community_record:
+        if active_channel == PluginChannel.STABLE and active_rec:
             buttons.append(Button("Update", variant="warning", id="update-button"))
+        if active_channel == PluginChannel.DEV_LOCAL or active_rec:
             buttons.append(Button("Uninstall", variant="error", id="uninstall-button"))
         details.mount(Horizontal(*buttons, classes="button-container"))
 
@@ -488,14 +505,19 @@ class PluginManagementScreen(BaseScreen):
         self.app.push_screen(InstallPluginScreen(self.config), on_install_done)
 
     def action_update_plugin(self) -> None:
-        """Check for and apply an update to the selected community plugin."""
+        """Check for and apply an update to the selected stable community plugin."""
         if not self.selected_plugin:
             self.app.notify("Please select a plugin", severity="warning")
             return
 
-        record = get_community_plugin_by_titan_name(self.selected_plugin)
+        active_record = get_community_plugin_by_titan_name(self.selected_plugin)
+        if not active_record or active_record.channel != PluginChannel.STABLE:
+            self.app.notify("Only plugins currently using the stable source can be updated", severity="warning")
+            return
+
+        record = get_community_plugin_by_name_and_channel(self.selected_plugin, PluginChannel.STABLE)
         if not record:
-            self.app.notify("Only community plugins can be updated", severity="warning")
+            self.app.notify("Only stable community plugins can be updated", severity="warning")
             return
 
         self.run_worker(self._run_update(record), exclusive=True)
@@ -509,19 +531,33 @@ class PluginManagementScreen(BaseScreen):
 
         if not latest:
             self.app.notify(
-                f"'{record.titan_plugin_name}' is already up to date ({record.version}).",
+                f"'{record.titan_plugin_name}' is already up to date ({record.requested_ref}).",
                 severity="information",
             )
             return
 
         self.app.notify(
-            f"Updating '{record.titan_plugin_name}' {record.version} → {latest}…",
+            f"Updating '{record.titan_plugin_name}' {record.requested_ref} → {latest}…",
             severity="information",
             timeout=60,
         )
 
+        token = await asyncio.to_thread(get_github_token)
+        from titan_cli.core.plugins.community import detect_host, resolve_ref_to_commit_sha
+        host = detect_host(record.repo_url)
+        resolved_sha, sha_error = await asyncio.to_thread(
+            resolve_ref_to_commit_sha, record.repo_url, latest, host, token
+        )
+
+        if sha_error or not resolved_sha:
+            self.app.notify(
+                f"Could not resolve '{latest}' to a commit SHA: {sha_error}",
+                severity="error",
+            )
+            return
+
         result = await asyncio.to_thread(
-            install_community_plugin, record.repo_url, latest, token
+            install_community_plugin, record.repo_url, resolved_sha, token
         )
 
         if result.returncode != 0:
@@ -532,14 +568,16 @@ class PluginManagementScreen(BaseScreen):
             )
             return
 
-        # Update tracking record with new version
-        remove_community_plugin(record.package_name)
+        remove_community_plugin_by_name(record.titan_plugin_name)
         updated_record = CommunityPluginRecord(
             repo_url=record.repo_url,
-            version=latest,
             package_name=record.package_name,
             titan_plugin_name=record.titan_plugin_name,
             installed_at=datetime.now(timezone.utc).isoformat(),
+            channel=PluginChannel.STABLE,
+            dev_local_path=None,
+            requested_ref=latest,
+            resolved_commit=resolved_sha,
         )
         save_community_plugin(updated_record)
 
@@ -557,17 +595,24 @@ class PluginManagementScreen(BaseScreen):
             self.app.notify("Please select a plugin", severity="warning")
             return
 
+        if self.config.get_plugin_source_channel(self.selected_plugin) == PluginChannel.DEV_LOCAL:
+            self._clear_project_plugin_source(self.selected_plugin)
+            self.config.load()
+            self._load_plugins()
+            self.app.notify(f"Dev local source removed for '{self.selected_plugin}'", severity="information")
+            return
+
         record = get_community_plugin_by_titan_name(self.selected_plugin)
         if not record:
             self.app.notify("Only community plugins can be uninstalled", severity="warning")
             return
 
-        self.run_worker(self._run_uninstall(record.package_name), exclusive=True)
+        self.run_worker(self._run_uninstall(record.package_name, record.channel, record.titan_plugin_name), exclusive=True)
 
-    async def _run_uninstall(self, package_name: str) -> None:
-        """Run pipx/pip uninstall and update tracking file."""
-        logger.info("plugin_uninstall_started", package=package_name)
-        self.app.notify(f"Uninstalling '{package_name}'…", severity="information", timeout=30)
+    async def _run_uninstall(self, package_name: str, channel: str, titan_plugin_name: str) -> None:
+        """Run pipx/pip uninstall and remove the channel record from tracking."""
+        logger.info("plugin_uninstall_started", package=package_name, channel=channel)
+        self.app.notify(f"Uninstalling '{package_name}' ({channel})…", severity="information", timeout=30)
         result = await asyncio.to_thread(uninstall_community_plugin, package_name)
 
         if result.returncode != 0:
@@ -578,8 +623,25 @@ class PluginManagementScreen(BaseScreen):
             )
             return
 
-        logger.info("plugin_uninstalled", package=package_name)
-        remove_community_plugin(package_name)
+        logger.info("plugin_uninstalled", package=package_name, channel=channel)
+        remove_community_plugin_by_name(titan_plugin_name)
         self.config.load()
         self._load_plugins()
-        self.app.notify(f"Plugin '{package_name}' uninstalled.", severity="information")
+        self.app.notify(f"Plugin '{package_name}' ({channel}) uninstalled.", severity="information")
+
+    def _clear_project_plugin_source(self, plugin_name: str) -> None:
+        """Reset a plugin source override back to stable in the project config."""
+        project_cfg_path = self.config.project_config_path
+        if not project_cfg_path or not project_cfg_path.exists():
+            return
+
+        with open(project_cfg_path, "rb") as f:
+            project_cfg_dict = tomli.load(f)
+
+        plugin_table = project_cfg_dict.setdefault("plugins", {}).setdefault(plugin_name, {})
+        source_table = plugin_table.setdefault("source", {})
+        source_table["channel"] = PluginChannel.STABLE
+        source_table.pop("path", None)
+
+        with open(project_cfg_path, "wb") as f:
+            tomli_w.dump(project_cfg_dict, f)

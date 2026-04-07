@@ -377,3 +377,66 @@ def test_config_workflow_registry_uses_git_root(tmp_path: Path, monkeypatch, moc
         assert call_kwargs.kwargs["project_root"] == git_root.resolve()
     finally:
         os.chdir(original_cwd)
+
+
+def test_get_plugin_source_defaults_to_stable_and_no_path(mocker, monkeypatch):
+    """
+    Plugins without an explicit source override should use the stable channel.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", Path("/nonexistent/config.toml"))
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig()
+
+    assert config_instance.get_plugin_source_channel("github") == "stable"
+    assert config_instance.get_plugin_source_path("github") is None
+
+
+def test_get_plugin_source_reads_project_override(tmp_path: Path, monkeypatch, mocker):
+    """
+    Source override metadata should be available through TitanConfig helpers.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    titan_dir = project_dir / ".titan"
+    titan_dir.mkdir()
+
+    plugin_repo = tmp_path / "plugins" / "local-github"
+    plugin_repo.mkdir(parents=True)
+
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump(
+            {
+                "project": {"name": "Project"},
+                "plugins": {
+                    "github": {
+                        "enabled": True,
+                        "source": {
+                            "channel": "dev_local",
+                            "path": str(plugin_repo),
+                        },
+                    }
+                },
+            },
+            f,
+        )
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.get_plugin_source_channel("github") == "dev_local"
+        assert config_instance.get_plugin_source_path("github") == plugin_repo.resolve()
+    finally:
+        os.chdir(original_cwd)

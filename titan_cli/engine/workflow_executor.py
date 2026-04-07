@@ -122,7 +122,7 @@ class WorkflowExecutor:
 
         # Validate required context variables
         # This was part of `command` originally, but it's good practice for plugin steps too.
-        required_vars = step_config.params.get("requires", []) # Assuming 'requires' can be in params
+        required_vars = step_config.requires or step_config.params.get("requires", [])
         for var in required_vars:
             if var not in ctx.data:
                 return Error(f"Step '{step_func_name}' is missing required context variable: '{var}'")

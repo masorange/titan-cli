@@ -254,6 +254,24 @@ class TitanConfig:
         plugin_cfg = self.config.plugins.get(plugin_name)
         return plugin_cfg.enabled if plugin_cfg else False
 
+    def get_plugin_source_channel(self, plugin_name: str) -> str:
+        """Return the configured source channel for a plugin."""
+        if not self.config or not self.config.plugins:
+            return "stable"
+        plugin_cfg = self.config.plugins.get(plugin_name)
+        if not plugin_cfg or not getattr(plugin_cfg, "source", None):
+            return "stable"
+        return plugin_cfg.source.channel or "stable"
+
+    def get_plugin_source_path(self, plugin_name: str) -> Optional[Path]:
+        """Return the configured dev_local path for a plugin, if any."""
+        if not self.config or not self.config.plugins:
+            return None
+        plugin_cfg = self.config.plugins.get(plugin_name)
+        if not plugin_cfg or not getattr(plugin_cfg, "source", None) or not plugin_cfg.source.path:
+            return None
+        return Path(plugin_cfg.source.path).expanduser().resolve()
+
     def get_status_bar_info(self) -> dict:
         """
         Get information for the status bar display.
@@ -281,4 +299,3 @@ class TitanConfig:
             'ai_info': ai_info,
             'project_name': project_name
         }
-
