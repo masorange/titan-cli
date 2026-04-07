@@ -39,15 +39,16 @@ def launch_tui(debug: bool = False, devtools: bool = False):
     from titan_cli.core.utils import find_project_root
     from .screens import GlobalSetupWizardScreen, ProjectSetupWizardScreen, MainMenuScreen
 
-    # Enable Textual devtools only if explicitly requested
-    # This allows `textual console` to receive logs
+    # Enable Textual devtools only if explicitly requested.
+    # Keep console logging enabled in this mode so `textual console` can receive logs.
     if devtools:
         features = set()
         features.add("debug")
         features.add("devtools")
         os.environ["TEXTUAL"] = ",".join(sorted(features))
-    elif not debug:
-        # In production mode (no debug, no devtools), disable console logging (TUI would hide it anyway)
+    else:
+        # Without Textual devtools, the TUI would hide console logs anyway.
+        # Keep logging only in the file handler, even in debug mode.
         disable_console_logging()
 
     # Check if global config exists
