@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional, TypedDict, List
 from pydantic import ValidationError
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.core.plugins.models import JiraPluginConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
@@ -173,26 +174,27 @@ class JiraPlugin(TitanPlugin):
                 "warnings": warnings
             }
 
-        try:
-            # Test token with /rest/api/2/myself endpoint
-            myself = self._client.get_current_user()
-            return {
-                "valid": True,
-                "error": None,
-                "user": myself.get("displayName", "Unknown"),
-                "email": myself.get("emailAddress", "Unknown"),
-                "token_source": getattr(self, '_token_source', {}),
-                "warnings": warnings
-            }
-        except Exception as e:
-            return {
-                "valid": False,
-                "error": str(e),
-                "user": None,
-                "email": None,
-                "token_source": getattr(self, '_token_source', {}),
-                "warnings": warnings
-            }
+        myself_result = self._client.get_current_user()
+
+        match myself_result:
+            case ClientSuccess(data=user):
+                return {
+                    "valid": True,
+                    "error": None,
+                    "user": user.display_name,
+                    "email": user.email,
+                    "token_source": getattr(self, '_token_source', {}),
+                    "warnings": warnings
+                }
+            case ClientError(error_message=err):
+                return {
+                    "valid": False,
+                    "error": err,
+                    "user": None,
+                    "email": None,
+                    "token_source": getattr(self, '_token_source', {}),
+                    "warnings": warnings
+                }
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:
         """

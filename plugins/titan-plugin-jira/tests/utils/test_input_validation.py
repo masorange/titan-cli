@@ -4,7 +4,6 @@ Tests for Input Validation Utilities
 Tests for pure functions that validate user input.
 """
 
-import pytest
 from titan_plugin_jira.utils.input_validation import (
     validate_numeric_selection,
     validate_non_empty_text,

@@ -157,16 +157,16 @@ def test_list_statuses_success(metadata_service, mock_network, sample_statuses_r
     assert len(result.data) == 3  # To Do, In Progress, Done (unique)
 
     # Verify statuses are deduplicated
-    status_names = [s["name"] for s in result.data]
+    status_names = [s.name for s in result.data]
     assert "To Do" in status_names
     assert "In Progress" in status_names
     assert "Done" in status_names
     assert status_names.count("To Do") == 1  # Should appear only once
 
     # Verify structure
-    assert result.data[0]["id"] is not None
-    assert result.data[0]["name"] is not None
-    assert result.data[0]["category"] is not None
+    assert result.data[0].id is not None
+    assert result.data[0].name is not None
+    assert result.data[0].category is not None
 
     # Verify network call
     mock_network.make_request.assert_called_once_with("GET", "project/TEST/statuses")
@@ -201,8 +201,10 @@ def test_get_current_user_success(metadata_service, mock_network):
 
     # Assertions
     assert isinstance(result, ClientSuccess)
-    assert result.data["displayName"] == "John Doe"
-    assert result.data["emailAddress"] == "john.doe@example.com"
+    assert result.data.display_name == "John Doe"
+    assert result.data.email == "john.doe@example.com"
+    assert result.data.account_id == "557058:f58131cb-b67d-43c7-b30d-6b58d40bd077"
+    assert result.data.active is True
     assert "Current user retrieved" in result.message
 
     # Verify network call
@@ -269,15 +271,15 @@ def test_list_project_versions_success(metadata_service, mock_network, sample_pr
 
     # Verify version structure
     v1 = result.data[0]
-    assert v1["id"] == "10200"
-    assert v1["name"] == "v1.0.0"
-    assert v1["description"] == "First release"
-    assert v1["released"] is True
-    assert v1["releaseDate"] == "2025-01-01"
+    assert v1.id == "10200"
+    assert v1.name == "v1.0.0"
+    assert v1.description == "First release"
+    assert v1.released is True
+    assert v1.release_date == "2025-01-01"
 
     v2 = result.data[1]
-    assert v2["released"] is False
-    assert v2["releaseDate"] is None
+    assert v2.released is False
+    assert v2.release_date == "Not set"
 
     assert "Found 3 versions" in result.message
 

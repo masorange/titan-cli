@@ -4,9 +4,8 @@ Issue operations.
 Pure business logic for issue-related operations.
 """
 
-from typing import Optional
 
-from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
+from titan_cli.core.result import ClientSuccess, ClientError
 
 
 def find_ready_to_dev_transition(jira_client, issue_key: str):

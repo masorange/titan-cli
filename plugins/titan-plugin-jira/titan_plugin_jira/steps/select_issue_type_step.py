@@ -127,4 +127,4 @@ def select_issue_type(ctx: WorkflowContext) -> WorkflowResult:
                 Panel(ErrorMessages.FAILED_TO_GET_ISSUE_TYPES.format(error=err), panel_type="error")
             )
             ctx.textual.end_step("error")
-            return Error(f"failed_to_get_issue_types")
+            return Error("failed_to_get_issue_types")

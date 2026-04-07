@@ -5,7 +5,11 @@ Tests plugin configuration schema and default values.
 """
 
 import pytest
+from unittest.mock import Mock
+
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_jira.plugin import JiraPlugin
+from titan_plugin_jira.models.view import UIJiraUser
 from titan_cli.core.plugins.models import JiraPluginConfig
 
 
@@ -128,3 +132,50 @@ class TestPluginConfigValidation:
                 base_url="https://test.atlassian.net",
                 email="not-an-email"
             )
+
+
+class TestValidateToken:
+    """Tests for token validation."""
+
+    def test_validate_token_returns_user_data_on_success(self):
+        """Should unwrap ClientSuccess[UIJiraUser] correctly."""
+        plugin = JiraPlugin()
+        plugin._client = Mock()
+        plugin._client.project_key = "ECAPP"
+        plugin._token_source = {"name": "jira_api_token", "type": "global"}
+        plugin._client.get_current_user.return_value = ClientSuccess(
+            data=UIJiraUser(
+                account_id="abc123",
+                display_name="John Doe",
+                email="john.doe@example.com",
+                active=True,
+            ),
+            message="Current user retrieved",
+        )
+
+        result = plugin.validate_token()
+
+        assert result["valid"] is True
+        assert result["error"] is None
+        assert result["user"] == "John Doe"
+        assert result["email"] == "john.doe@example.com"
+        assert result["warnings"] == []
+
+    def test_validate_token_returns_client_error_message(self):
+        """Should unwrap ClientError without throwing AttributeError."""
+        plugin = JiraPlugin()
+        plugin._client = Mock()
+        plugin._client.project_key = None
+        plugin._token_source = {"name": "jira_api_token", "type": "global"}
+        plugin._client.get_current_user.return_value = ClientError(
+            error_message="Unauthorized",
+            error_code="GET_USER_ERROR",
+        )
+
+        result = plugin.validate_token()
+
+        assert result["valid"] is False
+        assert result["error"] == "Unauthorized"
+        assert result["user"] is None
+        assert result["email"] is None
+        assert "No default_project configured." in result["warnings"][0]

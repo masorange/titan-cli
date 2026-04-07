@@ -275,7 +275,7 @@ class IssueService:
                     available = [it.name for it in issue_types]
                     return ClientError(
                         error_message=f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}",
-                        error_code="ISSUE_TYPE_NOT_FOUND"
+                        error_code="INVALID_ISSUE_TYPE"
                     )
 
                 # Create issue with resolved type ID
