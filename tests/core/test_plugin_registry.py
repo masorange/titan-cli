@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.errors import PluginLoadError
 from titan_cli.core.plugins.plugin_base import TitanPlugin
+from titan_cli.core.plugins.community import PluginChannel
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 
@@ -207,3 +208,80 @@ def test_plugin_registry_plugin_initialization_context(mocker):
     assert plugin_instance.received_config is mock_config
     assert plugin_instance.received_secrets is mock_secrets
 
+
+def test_apply_source_overrides_loads_dev_local_plugin(tmp_path, mocker):
+    plugin_dir = tmp_path / "plugin_repo"
+    plugin_dir.mkdir()
+    package_dir = plugin_dir / "sample_plugin"
+    package_dir.mkdir()
+
+    (plugin_dir / "pyproject.toml").write_text(
+        """
+[project]
+name = "sample-plugin"
+version = "0.1.0"
+
+[project.entry-points."titan.plugins"]
+sample = "sample_plugin.plugin:SamplePlugin"
+""".strip(),
+        encoding="utf-8",
+    )
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (package_dir / "plugin.py").write_text(
+        """
+from titan_cli.core.plugins.plugin_base import TitanPlugin
+
+
+class SamplePlugin(TitanPlugin):
+    @property
+    def name(self) -> str:
+        return "sample"
+
+    @property
+    def dependencies(self) -> list[str]:
+        return []
+
+    def initialize(self, config, secrets) -> None:
+        self.initialized = True
+
+    def get_steps(self) -> dict:
+        return {}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    registry = PluginRegistry(discover_on_init=False)
+    config = MagicMock()
+    config.config = MagicMock()
+    config.config.plugins = {"sample": MagicMock(enabled=True)}
+    config.get_enabled_plugins.return_value = ["sample"]
+    config.get_plugin_source_channel.return_value = PluginChannel.DEV_LOCAL
+    config.get_plugin_source_path.return_value = plugin_dir
+
+    registry._apply_source_overrides(config)
+
+    plugin = registry.get_plugin("sample")
+    assert plugin is not None
+    assert plugin.name == "sample"
+    assert registry.get_plugin_version("sample") == "dev_local"
+    assert "sample" in registry.list_discovered()
+
+
+def test_apply_source_overrides_marks_missing_path_as_failure():
+    registry = PluginRegistry(discover_on_init=False)
+    registry._plugins["sample"] = MagicMock()
+
+    config = MagicMock()
+    config.config = MagicMock()
+    config.config.plugins = {"sample": MagicMock(enabled=True)}
+    config.get_enabled_plugins.return_value = ["sample"]
+    config.get_plugin_source_channel.return_value = PluginChannel.DEV_LOCAL
+    config.get_plugin_source_path.return_value = None
+
+    registry._apply_source_overrides(config)
+
+    failed_plugins = registry.list_failed()
+    assert "sample" in failed_plugins
+    assert isinstance(failed_plugins["sample"], PluginLoadError)
+    assert "dev_local source requires a local path" in str(failed_plugins["sample"])
+    assert registry.get_plugin("sample") is None
