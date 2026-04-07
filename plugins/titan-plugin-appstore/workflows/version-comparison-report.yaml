@@ -92,28 +92,30 @@ steps:
         2. Daily growth rate (line chart)
         3. Stability comparison (bar charts)
     requires:
-      - analytics_usage_data
-      - analytics_crash_data
-      - version_1_id
-      - version_2_id
+      - propagation_metrics_v1
+      - propagation_metrics_v2
+      - stability_metrics_v1
+      - stability_metrics_v2
+      - version_1_string
+      - version_2_string
 
   # Final step: Generate report (cleanup-like, always attempt)
   - id: generate_report
-    name: "Generate HTML Report"
+    name: "Generate Terminal Report"
     plugin: appstore
     step: generate_analytics_report
     on_error: continue
     description: |
-      Generate comprehensive HTML report with:
+      Generate comprehensive terminal-based report with:
         - Summary cards
         - Comparison tables
-        - Embedded charts
         - Key insights
 
-      Report saved to: ./analytics_reports/analytics_report_YYYYMMDD_HHMMSS.html
+      Displays directly in terminal (no HTML file)
     requires:
       - propagation_metrics_v1
       - propagation_metrics_v2
       - stability_metrics_v1
       - stability_metrics_v2
-      - chart_paths
+      - version_1_string
+      - version_2_string

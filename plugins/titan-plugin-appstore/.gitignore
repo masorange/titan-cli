@@ -1,0 +1,4 @@
+# Titan plugin gitignore
+
+# App Store Connect credentials (NEVER commit!)
+.appstoreconnect/

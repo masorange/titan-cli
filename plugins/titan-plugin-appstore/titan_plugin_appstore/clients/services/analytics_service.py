@@ -126,7 +126,6 @@ class AnalyticsService:
 
             # Filter candidates
             candidates = []
-            cutoff_date = (datetime.now() - timedelta(days=90)).isoformat()
 
             for version in versions:
                 attributes = version.get("attributes", {})
@@ -138,25 +137,23 @@ class AnalyticsService:
                 if state != "READY_FOR_SALE":
                     continue
 
-                # Prioritize versions with active users
+                # Check if version has active users (for prioritization)
                 has_active_users = version_string in versions_with_users
 
-                # Or recent releases (last 90 days)
-                is_recent = created_date >= cutoff_date
+                # Include ALL READY_FOR_SALE versions (no date/user filtering)
+                # This ensures newly deployed versions appear even without analytics data
+                candidates.append(VersionInfo(
+                    id=version.get("id"),
+                    versionString=version_string,
+                    earliestReleaseDate=attributes.get("earliestReleaseDate"),
+                    createdDate=created_date,
+                    has_active_users=has_active_users
+                ))
 
-                # Include if has users OR is recent
-                if has_active_users or is_recent:
-                    candidates.append(VersionInfo(
-                        id=version.get("id"),
-                        versionString=version_string,
-                        earliestReleaseDate=attributes.get("earliestReleaseDate"),
-                        createdDate=created_date,
-                        has_active_users=has_active_users
-                    ))
-
-            # Sort: Active users first, then by date
+            # Sort: By date FIRST (most recent), then by active users
+            # This ensures newly deployed versions appear at the top
             candidates.sort(
-                key=lambda x: (not x.has_active_users, x.createdDate or ""),
+                key=lambda x: (x.createdDate or "", x.has_active_users),
                 reverse=True
             )
 
