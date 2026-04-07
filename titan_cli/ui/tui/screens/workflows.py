@@ -171,9 +171,10 @@ class WorkflowsScreen(BaseScreen):
             workflows_to_show = workflows
 
         for wf_info in workflows_to_show:
+            display_title = wf_info.title if wf_info.title else wf_info.name.capitalize()
             styled_opt = StyledOption(
                 id=wf_info.name,
-                title=wf_info.name.capitalize(),
+                title=display_title,
                 description=wf_info.description
             )
             # Convert StyledOption to Option with markup

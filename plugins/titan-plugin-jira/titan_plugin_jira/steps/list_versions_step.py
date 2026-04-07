@@ -75,16 +75,16 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
                 )
 
             # Filter only unreleased versions for release notes workflow
-            unreleased_versions = [v for v in versions if not v.get("released", False)]
+            unreleased_versions = [v for v in versions if not v.released]
 
             # Sort unreleased by name descending (most recent first)
-            unreleased_versions.sort(key=lambda v: v.get("name", ""), reverse=True)
+            unreleased_versions.sort(key=lambda v: v.name, reverse=True)
 
             # Use only unreleased versions
             sorted_versions = unreleased_versions
 
             # Extract version names
-            version_names = [v.get("name", "") for v in sorted_versions]
+            version_names = [v.name for v in sorted_versions]
 
             # Show success panel
             ctx.textual.text("")
@@ -99,10 +99,8 @@ def list_versions_step(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.text("")
 
             for v in sorted_versions[:20]:  # Show first 20
-                name = v.get("name", "")
-                description = v.get("description", "")
-                desc_text = f" - {description[:50]}" if description else ""
-                ctx.textual.primary_text(f"  • {name}{desc_text}")
+                desc_text = f" - {v.description[:50]}" if v.description != "No description" else ""
+                ctx.textual.primary_text(f"  • {v.name}{desc_text}")
 
             if len(sorted_versions) > 20:
                 ctx.textual.dim_text(

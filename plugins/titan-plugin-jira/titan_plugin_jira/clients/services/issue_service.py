@@ -34,14 +34,16 @@ class IssueService:
     Handles: get, search, create, update issues.
     """
 
-    def __init__(self, network: JiraNetwork):
+    def __init__(self, network: JiraNetwork, metadata_service=None):
         """
         Initialize issue service.
 
         Args:
             network: JiraNetwork instance for HTTP operations
+            metadata_service: MetadataService instance (optional, for type lookup)
         """
         self.network = network
+        self.metadata_service = metadata_service
 
     @log_client_operation()
     def get_issue(
@@ -145,7 +147,8 @@ class IssueService:
         description: Optional[str] = None,
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
-        priority: Optional[str] = None
+        priority: Optional[str] = None,
+        fields: Optional[dict] = None
     ) -> ClientResult[UIJiraIssue]:
         """
         Create new issue.
@@ -158,6 +161,7 @@ class IssueService:
             assignee: Assignee username or email
             labels: List of labels
             priority: Priority name
+            fields: Additional Jira fields to merge into payload["fields"]
 
         Returns:
             ClientResult[UIJiraIssue]
@@ -172,24 +176,42 @@ class IssueService:
                 }
             }
 
-            # Add description if provided
             if description:
                 payload["fields"]["description"] = {
                     "type": "doc",
                     "version": 1,
-                    "content": [{
-                        "type": "paragraph",
-                        "content": [{"type": "text", "text": description}]
-                    }]
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": description
+                                }
+                            ]
+                        }
+                    ]
                 }
 
             # Add optional fields
             if assignee:
-                payload["fields"]["assignee"] = {"name": assignee}
+                # Support both accountId (Jira Cloud) and name (Jira Server)
+                if assignee.startswith("accountId:"):
+                    # Extract accountId from "accountId:xxx" format
+                    payload["fields"]["assignee"] = {"accountId": assignee.replace("accountId:", "")}
+                else:
+                    # Assume it's accountId if it looks like one, otherwise use name
+                    # AccountIds are typically long alphanumeric strings
+                    if len(assignee) > 20 and "-" not in assignee:
+                        payload["fields"]["assignee"] = {"accountId": assignee}
+                    else:
+                        payload["fields"]["assignee"] = {"name": assignee}
             if labels:
                 payload["fields"]["labels"] = labels
             if priority:
                 payload["fields"]["priority"] = {"name": priority}
+            if fields:
+                payload["fields"].update(fields)
 
             # 2. Network call
             data = self.network.make_request("POST", "issue", json=payload)
@@ -203,6 +225,79 @@ class IssueService:
                 error_message=f"Failed to create issue in {project_key}: {e.message}",
                 error_code="CREATE_ISSUE_ERROR"
             )
+
+    @log_client_operation()
+    def create_issue_with_type_search(
+        self,
+        project_key: str,
+        issue_type_name: str,
+        summary: str,
+        description: Optional[str] = None,
+        assignee: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        priority: Optional[str] = None,
+        fields: Optional[dict] = None
+    ) -> ClientResult[UIJiraIssue]:
+        """
+        Create issue with issue type search by name (internal).
+
+        Handles:
+        - Finding issue type by name (case-insensitive)
+        - Epic name preparation if needed
+        - Issue creation
+
+        Args:
+            project_key: Project key
+            issue_type_name: Issue type name (e.g., "Bug", "Story", "Epic")
+            summary: Issue summary/title
+            description: Issue description
+            assignee: Assignee username or email
+            labels: List of labels
+            priority: Priority name
+            fields: Additional Jira fields to merge into payload["fields"]
+
+        Returns:
+            ClientResult[UIJiraIssue]
+        """
+        if not self.metadata_service:
+            return ClientError(
+                error_message="MetadataService not available",
+                error_code="SERVICE_NOT_AVAILABLE"
+            )
+
+        # Get issue types for project
+        issue_types_result = self.metadata_service.get_issue_types(project_key)
+
+        match issue_types_result:
+            case ClientSuccess(data=issue_types):
+                # Search for issue type (case-insensitive)
+                issue_type = next(
+                    (it for it in issue_types if it.name.lower() == issue_type_name.lower()),
+                    None,
+                )
+
+                if not issue_type:
+                    # Not found - return error with available types
+                    available = [it.name for it in issue_types]
+                    return ClientError(
+                        error_message=f"Issue type '{issue_type_name}' not found. Available: {', '.join(available)}",
+                        error_code="INVALID_ISSUE_TYPE"
+                    )
+
+                # Create issue with resolved type ID
+                return self.create_issue(
+                    project_key=project_key,
+                    issue_type_id=issue_type.id,
+                    summary=summary,
+                    description=description,
+                    assignee=assignee,
+                    labels=labels,
+                    priority=priority,
+                    fields=fields
+                )
+
+            case ClientError() as error:
+                return error
 
     @log_client_operation()
     def create_subtask(
@@ -241,10 +336,17 @@ class IssueService:
                 payload["fields"]["description"] = {
                     "type": "doc",
                     "version": 1,
-                    "content": [{
-                        "type": "paragraph",
-                        "content": [{"type": "text", "text": description}]
-                    }]
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": description
+                                }
+                            ]
+                        }
+                    ]
                 }
 
             # 2. Network call
@@ -259,6 +361,44 @@ class IssueService:
                 error_message=f"Failed to create subtask under {parent_key}: {e.message}",
                 error_code="CREATE_SUBTASK_ERROR"
             )
+
+    def _convert_text_to_adf(self, text: str) -> dict:
+        """
+        Convert plain text to Atlassian Document Format (ADF).
+
+        Handles multi-line text by creating separate paragraphs for each line.
+
+        Args:
+            text: Plain text (may contain newlines)
+
+        Returns:
+            ADF document structure
+        """
+        # Split by lines and filter out empty lines at start/end
+        lines = text.strip().split('\n')
+
+        # Create ADF paragraphs
+        content = []
+        for line in lines:
+            line = line.strip()
+            if line:  # Skip empty lines
+                content.append({
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": line}]
+                })
+
+        # If no content, create empty paragraph
+        if not content:
+            content = [{
+                "type": "paragraph",
+                "content": [{"type": "text", "text": ""}]
+            }]
+
+        return {
+            "type": "doc",
+            "version": 1,
+            "content": content
+        }
 
     # ==================== INTERNAL PARSERS ====================
 

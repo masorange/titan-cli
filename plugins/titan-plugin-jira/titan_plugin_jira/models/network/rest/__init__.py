@@ -13,6 +13,7 @@ from .issue_type import NetworkJiraIssueType
 from .user import NetworkJiraUser
 from .status import NetworkJiraStatus, NetworkJiraStatusCategory
 from .priority import NetworkJiraPriority
+from .version import NetworkJiraVersion
 
 __all__ = [
     "NetworkJiraIssue",
@@ -25,4 +26,5 @@ __all__ = [
     "NetworkJiraStatus",
     "NetworkJiraStatusCategory",
     "NetworkJiraPriority",
+    "NetworkJiraVersion",
 ]
