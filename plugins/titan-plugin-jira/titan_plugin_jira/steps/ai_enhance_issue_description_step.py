@@ -93,7 +93,7 @@ def ai_enhance_issue_description(ctx: WorkflowContext) -> WorkflowResult:
     parsed = _parse_ai_response(response)
 
     # Extract title
-    title = parsed.pop("title", DEFAULT_TITLE)
+    title = parsed.pop("title", None) or DEFAULT_TITLE
 
     # Validate title length
     if len(title) > 255:
