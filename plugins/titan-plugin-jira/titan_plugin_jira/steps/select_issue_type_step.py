@@ -32,9 +32,6 @@ def select_issue_type(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.ISSUE_TYPE)
 
-    ctx.textual.bold_text("Issue Type")
-    ctx.textual.text("")
-
     # Get project key from client
     project_key = ctx.jira.project_key
     if not project_key:

@@ -22,8 +22,6 @@ def prompt_issue_description(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.DESCRIPTION)
 
-    ctx.textual.bold_text("Task Description")
-    ctx.textual.text("")
     ctx.textual.dim_text(UserPrompts.DESCRIBE_TASK)
     ctx.textual.text("")
 

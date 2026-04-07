@@ -29,17 +29,11 @@ def confirm_auto_assign(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.ASSIGNMENT)
 
-    ctx.textual.bold_text("👤 Assignment")
-    ctx.textual.text("")
-
     # Get current user
     user_result = ctx.jira.get_current_user()
 
     match user_result:
         case ClientSuccess(data=user):
-            ctx.textual.dim_text(InfoMessages.CURRENT_USER_LABEL.format(user=user.display_name))
-            ctx.textual.text("")
-
             # Ask if want to auto-assign
             auto_assign = ctx.textual.ask_confirm(UserPrompts.WANT_TO_ASSIGN, default=True)
 

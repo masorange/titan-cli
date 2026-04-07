@@ -28,9 +28,6 @@ def select_issue_priority(ctx: WorkflowContext) -> WorkflowResult:
     """
     ctx.textual.begin_step(StepTitles.PRIORITY)
 
-    ctx.textual.bold_text("Priority")
-    ctx.textual.text("")
-
     # Verify Jira client is available
     if not ctx.jira:
         ctx.textual.mount(Panel(ErrorMessages.JIRA_CLIENT_UNAVAILABLE, panel_type="error"))

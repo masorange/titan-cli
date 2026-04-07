@@ -57,13 +57,6 @@ def create_generic_issue(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("no_project_configured")
 
-    ctx.textual.bold_text(f"🚀 {InfoMessages.CREATING_ISSUE_HEADING}")
-    ctx.textual.text("")
-    ctx.textual.dim_text(InfoMessages.PROJECT_LABEL.format(project=project_key))
-    ctx.textual.dim_text(InfoMessages.TYPE_LABEL.format(type=issue_type))
-    ctx.textual.dim_text(InfoMessages.PRIORITY_LABEL.format(priority=priority))
-    ctx.textual.text("")
-
     # Create issue using client method (NOT service directly)
     with ctx.textual.loading(InfoMessages.CREATING_ISSUE):
         result = ctx.jira.create_issue(
@@ -79,20 +72,23 @@ def create_generic_issue(ctx: WorkflowContext) -> WorkflowResult:
         case ClientSuccess(data=issue):
             # Store created issue
             ctx.data["created_issue"] = issue
+            issue_url = f"{ctx.jira.base_url}/browse/{issue.key}"
 
             ctx.textual.text("")
-            ctx.textual.success_text(SuccessMessages.ISSUE_CREATED.format(key=issue.key))
+            ctx.textual.success_text(issue_url)
             ctx.textual.text("")
 
             # Show issue details
             ctx.textual.mount(
                 Panel(
-                    f"**Issue:** {issue.key}\n"
-                    f"**Title:** {issue.summary}\n"
-                    f"**Type:** {issue.issue_type}\n"
-                    f"**Status:** {issue.status_icon} {issue.status}\n"
+                    f"**Issue:** {issue.key}  \n"
+                    f"**Title:** {issue.summary}  \n"
+                    f"**Type:** {issue.issue_type}  \n"
+                    f"**Status:** {issue.status_icon} {issue.status}  \n"
                     f"**Priority:** {issue.priority_icon} {issue.priority}",
                     panel_type="success",
+                    show_icon=False,
+                    use_markdown=True,
                 )
             )
 

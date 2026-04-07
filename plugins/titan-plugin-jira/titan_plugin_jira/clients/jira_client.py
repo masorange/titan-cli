@@ -64,6 +64,7 @@ class JiraClient:
             enable_cache: Enable response caching (optional, not implemented yet)
             cache_ttl: Cache time-to-live in seconds (optional, not implemented yet)
         """
+        self.base_url = base_url.rstrip("/")
         self.project_key = project_key
         self.enable_cache = enable_cache
         self.cache_ttl = cache_ttl
