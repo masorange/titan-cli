@@ -15,7 +15,7 @@ def launch_tui(debug: bool = False, devtools: bool = False):
     This is the main entry point for running Titan in TUI mode.
 
     Args:
-        debug: Enable DEBUG level logs to console (set by titan-dev or --debug)
+        debug: Enable DEBUG level file logging (set by titan-dev or --debug)
         devtools: Enable Textual devtools for visual debugging (requires `textual console` in another terminal)
 
     Flow:
@@ -28,9 +28,10 @@ def launch_tui(debug: bool = False, devtools: bool = False):
 
     Logging:
     - Production (debug=False): Console logging disabled, logs only to file
-    - Development (debug=True, devtools=False): Console logging enabled with DEBUG logs
-    - Development + Visual (debug=True, devtools=True): Console logging + Textual devtools
+    - Development (debug=True, devtools=False): Console logging disabled, logs only to file at DEBUG level
+    - Development + Visual (debug=True, devtools=True): Console logging enabled for Textual devtools,
       (use `textual console` in another terminal to see logs)
+      while logs continue to be written to file
     """
     import os
     from titan_cli.core.config import TitanConfig
