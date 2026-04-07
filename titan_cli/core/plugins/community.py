@@ -16,6 +16,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import urlopen, Request
 
 import tomli
@@ -67,6 +68,13 @@ class PluginChannel(StrEnum):
     DEV_LOCAL = "dev_local"
 
 
+_SUPPORTED_HOSTS = {
+    "github.com": PluginHost.GITHUB,
+    "gitlab.com": PluginHost.GITLAB,
+    "bitbucket.org": PluginHost.BITBUCKET,
+}
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -88,6 +96,33 @@ class CommunityPluginRecord:
 # ---------------------------------------------------------------------------
 # URL parsing and validation
 # ---------------------------------------------------------------------------
+
+def _normalise_repo_url(base_url: str) -> tuple[PluginHost, str]:
+    """Validate and normalize a repository base URL."""
+    parsed = urlsplit(base_url.strip())
+
+    if parsed.scheme != "https":
+        raise ValueError("Repository URL must start with https://")
+    if parsed.username or parsed.password:
+        raise ValueError("Repository URL must not include embedded credentials.")
+    if parsed.query or parsed.fragment:
+        raise ValueError("Repository URL must not include query parameters or fragments.")
+    if parsed.port is not None:
+        raise ValueError("Repository URL must not include an explicit port.")
+
+    hostname = (parsed.hostname or "").lower()
+    host = _SUPPORTED_HOSTS.get(hostname)
+    if not host:
+        raise ValueError("Only GitHub, GitLab, and Bitbucket HTTPS repository URLs are supported.")
+
+    path = parsed.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    path_parts = [part for part in path.split("/") if part]
+    if len(path_parts) < 2:
+        raise ValueError("Repository URL must include both owner/group and repository name.")
+
+    return host, f"https://{hostname}/{'/'.join(path_parts)}"
 
 def parse_repo_url(raw_url: str) -> tuple[str, str]:
     """
@@ -129,11 +164,8 @@ def validate_url(raw_url: str) -> None:
     raw_url = raw_url.strip()
     if not raw_url:
         raise ValueError("URL cannot be empty.")
-    if not raw_url.startswith("https://"):
-        raise ValueError("URL must start with https://")
     base_url, _ = parse_repo_url(raw_url)
-    if not base_url.startswith("https://"):
-        raise ValueError("Repository URL must start with https://")
+    _normalise_repo_url(base_url)
 
 
 # ---------------------------------------------------------------------------
@@ -228,13 +260,11 @@ def resolve_ref_to_commit_sha(
 
 def detect_host(base_url: str) -> PluginHost:
     """Detect the git hosting provider from the base URL."""
-    if _BASE_GITHUB in base_url:
-        return PluginHost.GITHUB
-    if _BASE_GITLAB in base_url:
-        return PluginHost.GITLAB
-    if _BASE_BITBUCKET in base_url:
-        return PluginHost.BITBUCKET
-    return PluginHost.UNKNOWN
+    try:
+        host, _ = _normalise_repo_url(base_url)
+        return host
+    except ValueError:
+        return PluginHost.UNKNOWN
 
 
 def build_raw_pyproject_url(base_url: str, version: str, host: PluginHost) -> Optional[str]:
@@ -243,7 +273,10 @@ def build_raw_pyproject_url(base_url: str, version: str, host: PluginHost) -> Op
 
     Returns None for unknown hosts.
     """
-    clean = base_url.rstrip("/").removesuffix(".git")
+    try:
+        _, clean = _normalise_repo_url(base_url)
+    except ValueError:
+        return None
 
     match host:
         case PluginHost.GITHUB:

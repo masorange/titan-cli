@@ -1,17 +1,20 @@
-
+import pytest
 import tomli
 
 from titan_cli.core.plugins.community import (
     CommunityPluginRecord,
     PluginChannel,
     PluginHost,
+    build_raw_pyproject_url,
     check_for_update,
+    detect_host,
     get_community_plugin_by_name_and_channel,
     load_community_plugins,
     remove_community_plugin_by_channel,
     remove_community_plugin_by_name,
     resolve_ref_to_commit_sha,
     save_community_plugin,
+    validate_url,
 )
 
 
@@ -26,6 +29,41 @@ def test_resolve_ref_to_commit_sha_accepts_full_sha_for_any_host():
 
     assert resolved == sha
     assert error is None
+
+
+def test_validate_url_accepts_supported_https_repo():
+    validate_url("https://github.com/example/plugin@v1.0.0")
+
+
+def test_validate_url_rejects_embedded_credentials():
+    with pytest.raises(ValueError, match="embedded credentials"):
+        validate_url("https://user:pass@github.com/example/plugin@v1.0.0")
+
+
+def test_validate_url_rejects_query_and_fragment():
+    with pytest.raises(ValueError, match="query parameters or fragments"):
+        validate_url("https://github.com/example/plugin?foo=bar@v1.0.0")
+
+
+def test_validate_url_rejects_host_spoofing():
+    with pytest.raises(ValueError, match="Only GitHub, GitLab, and Bitbucket"):
+        validate_url("https://evil.com/github.com/example/plugin@v1.0.0")
+
+
+def test_detect_host_requires_exact_supported_hostname():
+    assert detect_host("https://github.com/example/plugin") == PluginHost.GITHUB
+    assert detect_host("https://gitlab.com/group/subgroup/plugin") == PluginHost.GITLAB
+    assert detect_host("https://evil.com/github.com/example/plugin") == PluginHost.UNKNOWN
+
+
+def test_build_raw_pyproject_url_normalises_git_suffix():
+    url = build_raw_pyproject_url(
+        "https://github.com/example/plugin.git",
+        "abcdef",
+        PluginHost.GITHUB,
+    )
+
+    assert url == "https://raw.githubusercontent.com/example/plugin/abcdef/pyproject.toml"
 
 
 def test_resolve_ref_to_commit_sha_rejects_non_github_partial_refs():
