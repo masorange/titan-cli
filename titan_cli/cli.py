@@ -3,6 +3,7 @@ Titan CLI - Main CLI application
 
 Combines all tool commands into a single CLI interface.
 """
+import os
 import subprocess
 import sys
 import typer
@@ -44,13 +45,26 @@ def main(
         "-d",
         help="Enable debug mode (DEBUG level logs with detailed output)",
     ),
+    devtools: bool = typer.Option(
+        False,
+        "--devtools",
+        help="Enable Textual devtools (visual debugging for TUI, requires 'textual console' in another terminal)",
+    ),
 ):
     """Titan CLI - Main entry point"""
+    # Auto-enable debug if running as titan-dev (detected via TITAN_ENV set by the script)
+    if os.getenv("TITAN_ENV") == "development":
+        debug = True
+
     # Setup logging FIRST (before any other operations)
     setup_logging(verbose=verbose, debug=debug)
     logger = get_logger("titan.cli")
 
-    logger.debug("cli_invoked", command=ctx.invoked_subcommand, verbose=verbose, debug=debug)
+    # Store devtools flag in context for other commands
+    ctx.ensure_object(dict)
+    ctx.obj["devtools"] = devtools
+
+    logger.debug("cli_invoked", command=ctx.invoked_subcommand, verbose=verbose, debug=debug, devtools=devtools)
 
     if ctx.invoked_subcommand is None:
         # Check for updates BEFORE launching TUI
@@ -124,7 +138,7 @@ def main(
             pass
 
         # Launch TUI (only if no update or update was declined/failed)
-        launch_tui(debug=debug)
+        launch_tui(debug=debug, devtools=devtools)
 
 
 @app.command()
@@ -139,6 +153,7 @@ def tui(
     ctx: typer.Context,
 ):
     """Launch Titan in TUI mode (Textual interface)."""
-    # Get debug flag from parent context (main callback)
+    # Get debug and devtools flags from parent context (main callback)
     debug = ctx.parent.params.get("debug", False) if ctx.parent else False
-    launch_tui(debug=debug)
+    devtools = ctx.parent.obj.get("devtools", False) if ctx.parent and ctx.parent.obj else False
+    launch_tui(debug=debug, devtools=devtools)

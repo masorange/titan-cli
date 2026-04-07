@@ -6,13 +6,27 @@ Analyzes PR diffs and project skills to generate structured review comments.
 """
 
 import json
-import logging
 from typing import List
 
+from titan_cli.core.logging import get_logger
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
+from ..models.review_enums import FindingSeverity
 from ..models.view import UIReviewSuggestion
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+def _normalize_suggestion_severity(raw_severity: str) -> FindingSeverity:
+    """Normalize legacy and current AI severity labels into FindingSeverity."""
+    mapping = {
+        "blocking": FindingSeverity.BLOCKING,
+        "critical": FindingSeverity.BLOCKING,
+        "important": FindingSeverity.IMPORTANT,
+        "improvement": FindingSeverity.IMPORTANT,
+        "nit": FindingSeverity.NIT,
+        "suggestion": FindingSeverity.NIT,
+    }
+    return mapping.get(raw_severity.lower(), FindingSeverity.NIT)
 
 _SYSTEM_PROMPT = """You are an expert code reviewer. Your task is to review pull request diffs
 and identify problems, bugs, and improvements.
@@ -46,13 +60,13 @@ Output your review as a JSON array of comment objects. Each comment must have:
 - "file": the file path (string). Use empty string "" when replying to a thread.
 - "snippet": the exact line of code where the problem is (copy-paste the line verbatim from the diff, without the leading + or - character). Use null for general file-level comments or replies.
 - "body": the review comment text (string, be concise and actionable)
-- "severity": one of "critical", "improvement", or "suggestion"
+- "severity": one of "blocking", "important", or "nit"
 - "reply_to_comment_id": (optional) the integer comment ID from `[comment_id:N]` if this is a follow-up reply to an existing thread. Omit or use null for new comments.
 
 Severity guide:
-- "critical": bugs, security issues, broken logic that must be fixed
-- "improvement": code quality issues that should be addressed
-- "suggestion": minor style, naming, or optional improvements
+- "blocking": bugs, security issues, broken logic that must be fixed
+- "important": code quality issues that should be addressed
+- "nit": minor style, naming, or optional improvements
 
 Respond with ONLY the JSON array, no other text.
 """
@@ -121,7 +135,6 @@ class CodeReviewAgent(BaseAIAgent):
             return []
 
         suggestions = []
-        valid_severities = {"critical", "improvement", "suggestion"}
 
         for item in data:
             if not isinstance(item, dict):
@@ -131,9 +144,7 @@ class CodeReviewAgent(BaseAIAgent):
             if not file_path:
                 continue
 
-            severity = item.get("severity", "suggestion")
-            if severity not in valid_severities:
-                severity = "suggestion"
+            severity = _normalize_suggestion_severity(str(item.get("severity", "nit")))
 
             snippet_raw = item.get("snippet")
             snippet = snippet_raw.strip() if isinstance(snippet_raw, str) and snippet_raw else None

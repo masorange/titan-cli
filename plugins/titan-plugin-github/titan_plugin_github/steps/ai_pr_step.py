@@ -5,14 +5,13 @@ AI-powered PR description generation step.
 Uses PRAgent to analyze branch context and generate PR content.
 """
 
-import logging
-
+from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 
 from ..agents import PRAgent
 from ..messages import msg
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:

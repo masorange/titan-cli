@@ -181,7 +181,10 @@ class WorkflowExecutionScreen(BaseScreen):
             # Add registered plugins to context
             for plugin_name in self.config.registry.list_installed():
                 plugin = self.config.registry.get_plugin(plugin_name)
-                if plugin and hasattr(ctx_builder, f"with_{plugin_name}"):
+                if not plugin:
+                    continue
+
+                if hasattr(ctx_builder, f"with_{plugin_name}"):
                     try:
                         client = plugin.get_client()
                         getattr(ctx_builder, f"with_{plugin_name}")(client)
@@ -189,6 +192,13 @@ class WorkflowExecutionScreen(BaseScreen):
                         # Plugin client initialization failed - workflow steps
                         # using this plugin will fail gracefully
                         pass
+
+                try:
+                    managers = plugin.get_workflow_managers(project_root=secrets.project_path)
+                    if managers is not None:
+                        ctx_builder.with_plugin_managers(plugin_name, managers)
+                except Exception:
+                    pass
 
             # Build context and create executor
             execution_context = ctx_builder.build()
@@ -566,4 +576,3 @@ class WorkflowExecutionContent(Widget):
             # Steps handle their own error display via ctx.textual
             # Just show a simple notification without duplicating the error message
             self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)
-

@@ -3,7 +3,7 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Sk
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.ui.tui.widgets import SelectionOption
 from titan_plugin_git.messages import msg
-from ..operations import parse_diff_stat_output, colorize_diff_stats, colorize_diff_summary, format_diff_stat_display
+from ..operations import parse_diff_stat_output, expand_rename_path, colorize_diff_stats, colorize_diff_summary, format_diff_stat_display
 
 
 def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
@@ -42,7 +42,7 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
                 max_len = max(len(filename) for filename, _ in file_lines)
                 options = [
                     SelectionOption(
-                        value=filename,
+                        value=expand_rename_path(filename),
                         label=f"{filename.ljust(max_len)} |{colorize_diff_stats(stats)}",
                         selected=True,
                     )

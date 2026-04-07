@@ -7,15 +7,16 @@ context, and constructing review payloads. All functions are UI-agnostic.
 """
 
 import json
-import logging
 import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..models.view import UIPullRequest, UIReviewSuggestion, UIFileChange, UICommentThread
+from titan_cli.core.logging import get_logger
+from ..managers.diff_context_manager import DiffContextManager
+from ..models.view import UIReviewSuggestion, UIFileChange
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def load_project_claude_md() -> Optional[str]:
@@ -283,134 +284,6 @@ def extract_doc_summary(content: str, max_chars: int = 2000) -> str:
     return content[:max_chars] + "\n... (truncated)"
 
 
-def build_review_context(
-    pr: UIPullRequest,
-    diff: str,
-    skills: List[Dict],
-    docs: Optional[List[Dict]] = None,
-    open_threads: Optional[List] = None,
-    current_user: Optional[str] = None,
-) -> str:
-    """
-    Build the full context string for the CodeReviewAgent.
-
-    Args:
-        pr: UIPullRequest model
-        diff: Full unified diff of the PR
-        skills: List of {"name", "content"} skill dicts (full content, already filtered)
-        docs: List of {"name", "content"} architecture doc dicts (summarized to intro only)
-        open_threads: List of UICommentThread with existing unresolved review comments
-        current_user: GitHub login of the current reviewer (used to skip own comments)
-
-    Returns:
-        Formatted context string for AI review
-    """
-    docs = docs or []
-    open_threads = open_threads or []
-    sections = []
-
-    # PR metadata
-    sections.append(f"""## Pull Request: #{pr.number} — {pr.title}
-
-**Author**: {pr.author_name}
-**Branches**: {pr.branch_info}
-**Description**: {pr.body or "(no description)"}""")
-
-    # Existing open review comments — split by ownership and response status
-    if open_threads:
-        own_pending: List[str] = []    # Your comments with NO replies (already open, don't re-suggest)
-        own_active: List[str] = []     # Your comments WITH replies (discussion in progress)
-        other_threads: List[str] = []  # Other reviewers' comments
-
-        for i, thread in enumerate(open_threads, 1):
-            c = thread.main_comment
-            location = f"`{c.path}` line {c.line}" if c.path else "general comment"
-
-            thread_text = f"### Thread {i} [comment_id:{c.id}]\n"
-            thread_text += f"**{c.author_login}** on {location}:\n"
-            thread_text += f"> {c.body}\n"
-
-            if thread.replies:
-                thread_text += "\n**Responses:**\n"
-                for reply in thread.replies:
-                    thread_text += f"- **{reply.author_login}**: {reply.body}\n"
-            else:
-                thread_text += "\n*(No responses yet)*\n"
-
-            if current_user and c.author_login == current_user:
-                if not thread.replies:
-                    own_pending.append(thread_text)
-                else:
-                    own_active.append(thread_text)
-            else:
-                other_threads.append(thread_text)
-
-        section_parts: List[str] = []
-
-        if own_pending:
-            pending_block = (
-                "## Your Pending Comments (Awaiting Response)\n\n"
-                f"**CRITICAL**: You ({current_user}) already submitted {len(own_pending)} comment(s) below "
-                "that have received NO response yet. These issues are already open and pending.\n"
-                "**DO NOT** suggest these issues again — they are already raised.\n"
-                "**DO NOT** reply to your own pending comments.\n\n"
-            )
-            section_parts.append(pending_block + "\n".join(own_pending))
-
-        if own_active:
-            active_block = (
-                f"## Your Comments Under Discussion\n\n"
-                f"You ({current_user}) have {len(own_active)} comment(s) with responses. "
-                "Do not re-suggest these issues.\n\n"
-            )
-            section_parts.append(active_block + "\n".join(own_active))
-
-        if other_threads:
-            others_block = (
-                "## Other Reviewers' Open Comments\n\n"
-                "Guidelines for replies:\n"
-                "- If the author says the issue is fixed or acknowledged it — and they're right — do NOT reply.\n"
-                "- If the author disagrees but has a valid point — do NOT reply, skip the issue.\n"
-                "- If the author disagrees and they're WRONG, or the comment is still unaddressed — reply with `reply_to_comment_id` "
-                "to continue the conversation (clarify, insist, or provide additional context).\n\n"
-            )
-            section_parts.append(others_block + "\n".join(other_threads))
-
-        if section_parts:
-            sections.append("\n\n".join(section_parts))
-
-    # Code guidelines (skills — full content, already filtered by relevance)
-    if skills:
-        skill_sections = [f"### {skill['name']}\n{skill['content']}" for skill in skills]
-        sections.append("## Code Guidelines\n\n" + "\n\n".join(skill_sections))
-
-    # Architecture docs (summary only — introductory section, not full tutorial)
-    if docs:
-        doc_sections = [f"### {doc['name']}\n{extract_doc_summary(doc['content'])}" for doc in docs]
-        sections.append("## Architecture Context\n\n" + "\n\n".join(doc_sections))
-
-    if not skills and not docs:
-        sections.append(
-            "## Project Guidelines\n\nNo project-specific guidelines found. "
-            "Apply general best practices for code review."
-        )
-
-    # Diff
-    max_diff_chars = 40_000
-    diff_preview = diff[:max_diff_chars]
-    if len(diff) > max_diff_chars:
-        diff_preview += "\n\n... (diff truncated for length)"
-
-    sections.append(f"## Pull Request Diff\n\n```diff\n{diff_preview}\n```")
-
-    sections.append(
-        "## Task\n\nReview the diff above against the project guidelines. "
-        "Output a JSON array of review comments as specified in your system prompt."
-    )
-
-    return "\n\n".join(sections)
-
-
 def extract_diff_for_file(full_diff: str, file_path: str) -> Optional[str]:
     """
     Extract the diff section for a specific file from a unified diff.
@@ -575,54 +448,30 @@ Example: ["app/src/main/Foo.kt", "lib/Bar.kt"]"""
         return all_paths[:MAX_FILES_FOR_REVIEW]
 
 
-def build_pr_summary_prompt(
-    pr: UIPullRequest,
-    changed_files: List[str],
-    suggestions: List[UIReviewSuggestion],
-) -> str:
+def extract_line_number_from_hunk(hunk: str) -> Optional[int]:
     """
-    Build the prompt for generating an AI PR summary.
+    Find the first added line (+) in a diff hunk and return its correct line number.
 
     Args:
-        pr: The pull request UI model
-        changed_files: List of changed file paths
-        suggestions: AI-generated review suggestions
+        hunk: Diff hunk string starting with @@
 
     Returns:
-        Prompt string for the summary agent
+        Correct line number of the first added line in the new file, or None
     """
-    files_list = "\n".join(f"  - {f}" for f in changed_files)
-
-    suggestion_lines = []
-    for s in suggestions:
-        line_info = f"line {s.line}" if s.line else "general"
-        suggestion_lines.append(f"  - [{s.severity.upper()}] {s.file_path} ({line_info}): {s.body[:100]}")
-    suggestions_text = "\n".join(suggestion_lines) if suggestion_lines else "  (none)"
-
-    return f"""You are reviewing a pull request. Provide a brief summary in markdown.
-
-## PR: #{pr.number} — {pr.title}
-**Author**: {pr.author_name}
-**Branches**: {pr.branch_info}
-**Stats**: {pr.stats} across {pr.files_changed} file(s)
-
-### Description
-{pr.body or "(no description)"}
-
-### Changed Files
-{files_list}
-
-### AI-Generated Comments ({len(suggestions)} total)
-{suggestions_text}
-
----
-
-Write a concise PR summary in markdown with these sections:
-1. **Overview** — what this PR does in 1-2 sentences
-2. **Areas to pay attention to** — specific files or patterns that deserve careful review
-3. **Recommendation** — one of: ✅ APPROVE / 🔴 REQUEST CHANGES / 💬 COMMENT, with a one-line justification based on the severity and number of issues found
-
-Be direct and concise. Use bullet points where helpful."""
+    if not hunk:
+        return None
+    manager = DiffContextManager.from_file_diff(hunk, "__hunk__")
+    parsed_hunks = manager.get_hunks("__hunk__")
+    if not parsed_hunks:
+        return None
+    first_hunk = parsed_hunks[0]
+    current = first_hunk.new_line_start
+    for line in first_hunk.content.split("\n")[1:]:
+        if line.startswith("+") and not line.startswith("+++"):
+            return current
+        elif line.startswith(" "):
+            current += 1
+    return first_hunk.new_line_start
 
 
 def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optional[str]:
@@ -630,7 +479,7 @@ def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optiona
     Extract the diff hunk (starting with @@) that contains the target line.
 
     Args:
-        file_diff: Full file diff (starting with "diff --git ...")
+        file_diff: File diff section (from extract_diff_for_file)
         target_line: Line number to find
 
     Returns:
@@ -638,44 +487,14 @@ def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optiona
     """
     if not file_diff or not target_line:
         return None
-
-    lines = file_diff.split("\n")
-    hunks = []
-    current_hunk: List[str] = []
-
-    for line in lines:
-        if line.startswith("@@"):
-            if current_hunk:
-                hunks.append("\n".join(current_hunk))
-            current_hunk = [line]
-        elif current_hunk:
-            current_hunk.append(line)
-
-    if current_hunk:
-        hunks.append("\n".join(current_hunk))
-
-    for hunk in hunks:
-        hunk_lines = hunk.split("\n")
-        header_match = re.search(r"\+(\d+),?(\d*)", hunk_lines[0])
-        if not header_match:
-            continue
-        new_start = int(header_match.group(1))
-        count_str = header_match.group(2)
-        count = int(count_str) if count_str else 1
-        new_end = new_start + count
-        if new_start <= target_line <= new_end:
-            return hunk
-
-    # Fallback: return first hunk if no match found
-    return hunks[0] if hunks else None
+    manager = DiffContextManager.from_file_diff(file_diff, "__file__")
+    hunk = manager.get_hunk_for_line("__file__", target_line)
+    return hunk.content if hunk else None
 
 
 def find_line_by_snippet(file_diff: str, snippet: str) -> Optional[int]:
     """
     Find the new-file line number of a code snippet within a file's diff.
-
-    Scans the diff hunks tracking the new-file line counter, and returns
-    the line number of the first added/context line that contains the snippet.
 
     Args:
         file_diff: Diff section for a single file (from extract_diff_for_file)
@@ -686,28 +505,7 @@ def find_line_by_snippet(file_diff: str, snippet: str) -> Optional[int]:
     """
     if not file_diff or not snippet:
         return None
-
-    snippet_stripped = snippet.strip()
-    current_line = 0
-
-    for line in file_diff.split("\n"):
-        if line.startswith("@@"):
-            match = re.search(r"\+(\d+)", line)
-            if match:
-                current_line = int(match.group(1)) - 1
-        elif line.startswith("+") and not line.startswith("+++"):
-            current_line += 1
-            line_content = line[1:].strip()
-            if snippet_stripped in line_content:
-                return current_line
-        elif line.startswith(" "):
-            current_line += 1
-            line_content = line[1:].strip()
-            if snippet_stripped in line_content:
-                return current_line
-        # Lines starting with "-" are deleted — skip
-
-    return None
+    return DiffContextManager.from_file_diff(file_diff, "__file__").find_line_by_snippet("__file__", snippet)
 
 
 def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
@@ -723,31 +521,10 @@ def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
     Returns:
         Dict mapping file_path -> set of valid new-file line numbers
     """
-    result: Dict[str, set] = {}
-    current_file: Optional[str] = None
-    current_line = 0
-
-    for line in diff.split("\n"):
-        if line.startswith("diff --git"):
-            match = re.search(r" b/(.+)$", line)
-            if match:
-                current_file = match.group(1)
-                result[current_file] = set()
-                current_line = 0
-        elif line.startswith("@@") and current_file is not None:
-            match = re.search(r"\+(\d+)", line)
-            if match:
-                current_line = int(match.group(1)) - 1
-        elif current_file is not None and current_line > 0:
-            if line.startswith("+"):
-                current_line += 1
-                result[current_file].add(current_line)
-            elif line.startswith(" "):
-                current_line += 1
-                result[current_file].add(current_line)
-            # Lines starting with "-" are deleted — not valid for RIGHT side comments
-
-    return result
+    return {
+        path: set(lines)
+        for path, lines in DiffContextManager.from_diff(diff).get_all_valid_lines().items()
+    }
 
 
 def build_review_payload(
@@ -828,101 +605,3 @@ def build_review_payload(
         payload["body"] = "\n\n".join(general_comments)
 
     return payload
-
-
-_KEYWORD_STOP_WORDS = {
-    "the", "a", "an", "is", "it", "this", "that", "in", "on", "at", "to",
-    "for", "of", "and", "or", "not", "should", "would", "could", "be", "are",
-    "has", "have", "been", "was", "were", "with", "from", "use", "used",
-    "also", "here", "there", "can", "may", "must", "will", "do", "does",
-}
-
-_DUPLICATE_THRESHOLD = 0.25  # 25% keyword overlap to consider as duplicate
-
-
-def _extract_keywords(text: str) -> set:
-    words = re.findall(r'\b[a-z_]{3,}\b', text.lower())
-    return {w for w in words if w not in _KEYWORD_STOP_WORDS}
-
-
-def _is_likely_duplicate(suggestion_body: str, existing_body: str) -> bool:
-    s_kws = _extract_keywords(suggestion_body)
-    e_kws = _extract_keywords(existing_body)
-    if not s_kws or not e_kws:
-        return False
-    overlap = len(s_kws & e_kws)
-    union = len(s_kws | e_kws)
-    return overlap / union >= _DUPLICATE_THRESHOLD
-
-
-def filter_own_duplicate_suggestions(
-    suggestions: List[UIReviewSuggestion],
-    own_threads: List[UICommentThread],
-) -> Tuple[List[UIReviewSuggestion], List[UIReviewSuggestion]]:
-    """
-    Filter AI suggestions that likely duplicate the current user's existing comments.
-
-    A suggestion is filtered if it targets the same file as an existing own comment
-    AND its body has significant keyword overlap with that comment.
-
-    Args:
-        suggestions: AI-generated suggestions
-        own_threads: Existing comment threads authored by the current user
-
-    Returns:
-        Tuple of (kept_suggestions, filtered_suggestions)
-    """
-    if not own_threads:
-        return suggestions, []
-
-    # Collect own comment IDs (to detect replies-to-self)
-    own_comment_ids: set = set()
-    own_by_file: Dict[str, List[str]] = {}
-    for thread in own_threads:
-        c = thread.main_comment
-        own_comment_ids.add(c.id)
-        file_path = c.path or ""
-        if file_path not in own_by_file:
-            own_by_file[file_path] = []
-        own_by_file[file_path].append(c.body)
-        for reply in thread.replies:
-            if hasattr(reply, "id"):
-                own_comment_ids.add(reply.id)
-            key = reply.path if hasattr(reply, "path") and reply.path else file_path
-            if key not in own_by_file:
-                own_by_file[key] = []
-            own_by_file[key].append(reply.body)
-
-    kept: List[UIReviewSuggestion] = []
-    filtered: List[UIReviewSuggestion] = []
-
-    for suggestion in suggestions:
-        # Never reply to your own comments
-        if suggestion.reply_to_comment_id is not None and suggestion.reply_to_comment_id in own_comment_ids:
-            logger.info(
-                f"Filtered reply-to-self on comment {suggestion.reply_to_comment_id}: "
-                f"{suggestion.body[:80]!r}"
-            )
-            filtered.append(suggestion)
-            continue
-
-        if suggestion.reply_to_comment_id is not None:
-            # Reply to someone else's comment — keep it
-            kept.append(suggestion)
-            continue
-
-        existing_bodies = own_by_file.get(suggestion.file_path, [])
-        if not existing_bodies:
-            kept.append(suggestion)
-            continue
-
-        if any(_is_likely_duplicate(suggestion.body, body) for body in existing_bodies):
-            logger.info(
-                f"Filtered duplicate suggestion on {suggestion.file_path}: "
-                f"{suggestion.body[:80]!r}"
-            )
-            filtered.append(suggestion)
-        else:
-            kept.append(suggestion)
-
-    return kept, filtered

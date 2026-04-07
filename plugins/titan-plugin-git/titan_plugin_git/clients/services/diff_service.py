@@ -141,20 +141,34 @@ class DiffService:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
     @log_client_operation()
-    def get_branch_diff(self, base_branch: str, head_branch: str) -> ClientResult[str]:
+    def get_branch_diff(self, base_branch: str, head_branch: str, context_lines: int = 3, use_remote: bool = False) -> ClientResult[str]:
         """
         Get diff between two branches.
 
         Args:
             base_branch: Base branch name
             head_branch: Head branch name
+            context_lines: Number of unchanged context lines around each change (default: 3).
+                When called from code review with context_lines=20, provides extended context
+                for AI analysis. The higher value gives better code understanding for review
+                quality, while still keeping token usage reasonable compared to reading entire files.
+            use_remote: If True, both branches are prefixed with the configured default_remote.
+                Used for PR reviews where branches are remote refs only (not checked out locally).
 
         Returns:
             ClientResult[str] with diff output
         """
         try:
+            # Build branch references using configured default_remote if use_remote=True
+            if use_remote:
+                base_ref = f"{self.default_remote}/{base_branch}"
+                head_ref = f"{self.default_remote}/{head_branch}"
+            else:
+                base_ref = f"{self.default_remote}/{base_branch}"
+                head_ref = head_branch
+
             diff = self.git.run_command(
-                ["git", "diff", f"{self.default_remote}/{base_branch}...{head_branch}"],
+                ["git", "diff", f"-U{context_lines}", f"{base_ref}...{head_ref}"],
                 check=False
             )
             return ClientSuccess(

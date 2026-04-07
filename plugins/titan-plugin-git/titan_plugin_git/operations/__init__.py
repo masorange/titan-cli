@@ -20,6 +20,7 @@ from .commit_operations import (
 
 from .diff_operations import (
     parse_diff_stat_output,
+    expand_rename_path,
     get_max_filename_length,
     colorize_diff_stats,
     colorize_diff_summary,
@@ -42,6 +43,7 @@ __all__ = [
 
     # Diff operations
     "parse_diff_stat_output",
+    "expand_rename_path",
     "get_max_filename_length",
     "colorize_diff_stats",
     "colorize_diff_summary",

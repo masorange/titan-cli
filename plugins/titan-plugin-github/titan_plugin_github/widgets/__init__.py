@@ -1,9 +1,8 @@
 """GitHub Plugin Widgets"""
 
 from .code_block import CodeBlock
-from .comment import Comment
+from .comment_view import CommentView
 from .reply_comment import ReplyComment
 from .comment_thread import CommentThread
-from .review_suggestion import ReviewSuggestion
 
-__all__ = ["CodeBlock", "Comment", "ReplyComment", "CommentThread", "ReviewSuggestion"]
+__all__ = ["CodeBlock", "CommentView", "ReplyComment", "CommentThread"]

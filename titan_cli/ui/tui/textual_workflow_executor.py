@@ -441,7 +441,7 @@ class TextualWorkflowExecutor:
         step_params = step_config.params
 
         # Validate required context variables
-        required_vars = step_config.params.get("requires", [])
+        required_vars = step_config.requires or step_config.params.get("requires", [])
         for var in required_vars:
             if var not in ctx.data:
                 return Error(f"Step '{step_func_name}' is missing required context variable: '{var}'")
