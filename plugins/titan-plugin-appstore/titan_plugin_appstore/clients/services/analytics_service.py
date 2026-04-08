@@ -232,13 +232,13 @@ class AnalyticsService:
                 req_id = req["id"]
                 req_created = req.get("attributes", {}).get("createdDate", "")
 
-                # Don't delete recent requests (< 2 hours) - they may still be processing
+                # Don't delete recent requests (< 24 hours) - they may still be processing
                 if req_created:
                     from datetime import datetime, timedelta
                     try:
                         created_dt = datetime.fromisoformat(req_created.replace("Z", "+00:00"))
                         age = datetime.now(created_dt.tzinfo) - created_dt
-                        if age < timedelta(hours=2):
+                        if age < timedelta(hours=24):
                             # Skip recent requests - still processing
                             continue
                     except:

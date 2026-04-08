@@ -73,9 +73,14 @@ def request_analytics_step(ctx: WorkflowContext) -> WorkflowResult:
             try:
                 # 🧹 Clean up stuck requests first
                 ctx.textual.text("Checking for existing requests...")
-                deleted_count = analytics.cleanup_existing_requests(app_id)
-                if deleted_count > 0:
-                    ctx.textual.text(f"  ✓ Cleaned up {deleted_count} stuck request(s)")
+                from titan_cli.core.result import ClientSuccess, ClientError
+                cleanup_result = analytics.cleanup_existing_requests(app_id)
+                match cleanup_result:
+                    case ClientSuccess(data=deleted_count):
+                        if deleted_count > 0:
+                            ctx.textual.text(f"  ✓ Cleaned up {deleted_count} stuck request(s)")
+                    case ClientError(error_message=err):
+                        ctx.textual.warning_text(f"  ⚠️ Cleanup failed: {err}")
 
                 # 🔍 Check if there are existing completed reports we can reuse
                 existing = analytics.find_existing_request_with_reports(app_id)

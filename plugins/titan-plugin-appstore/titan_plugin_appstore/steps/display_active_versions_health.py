@@ -18,10 +18,15 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
     Display comprehensive health dashboard for all active versions.
 
     Shows ALL versions with active users (no limits):
-    - User distribution (from crash data as proxy)
+    - User distribution (from Analytics activeDevices, Sales, or crash data)
     - Crash rates / Hang rates
     - Release dates
     - Version ranking
+
+    Data Sources (in priority order):
+    1. Analytics Reports API (activeDevices) - if recent cached data exists
+    2. Sales Reports API (units) - if vendor_number available
+    3. Performance Metrics API (crash data) - fallback
 
     Inputs (from ctx.data):
         - app_id: App ID
@@ -69,10 +74,54 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
         analytics_service = AnalyticsService(client._api)
 
         # ====================================================================
-        # 1. FETCH PERFORMANCE METRICS (identifies active versions)
+        # 0. TRY ANALYTICS REPORTS (activeDevices) - if cached data exists
         # ====================================================================
-        ctx.textual.text("Fetching performance data for all versions...")
+        analytics_active_devices = {}  # {version_string: active_devices_count}
+        data_source = None
 
+        ctx.textual.text("Checking for cached Analytics Reports data...")
+
+        existing_result = analytics_service.find_existing_request_with_reports(app_id)
+
+        match existing_result:
+            case ClientSuccess(data=(req_id, reports)) if reports:
+                ctx.textual.text(f"✅ Found existing analytics request with {len(reports)} report(s)")
+
+                # Try to extract activeDevices from APP_USAGE report
+                for report in reports:
+                    category = report.get("attributes", {}).get("category")
+                    if category == "APP_USAGE":
+                        report_id = report.get("id")
+                        ctx.textual.text(f"  Downloading APP_USAGE report...")
+
+                        download_result = analytics_service.download_report_tsv(report_id)
+                        match download_result:
+                            case ClientSuccess(data=tsv_data):
+                                parse_result = analytics_service.parse_tsv_to_dataframe(tsv_data)
+                                match parse_result:
+                                    case ClientSuccess(data=df):
+                                        # Extract activeDevices by version
+                                        if "appVersion" in df.columns and "activeDevices" in df.columns:
+                                            version_devices = df.groupby("appVersion")["activeDevices"].sum()
+                                            analytics_active_devices = version_devices.to_dict()
+                                            ctx.textual.text(f"  ✅ Extracted activeDevices for {len(analytics_active_devices)} version(s)")
+                                            data_source = "Analytics Reports API (activeDevices)"
+                                        else:
+                                            ctx.textual.warning_text(f"  ⚠️  APP_USAGE report missing required columns")
+                                    case ClientError(error_message=err):
+                                        ctx.textual.warning_text(f"  ⚠️  Failed to parse TSV: {err}")
+                            case ClientError(error_message=err):
+                                ctx.textual.warning_text(f"  ⚠️  Failed to download report: {err}")
+                        break
+            case _:
+                ctx.textual.text("  No cached Analytics Reports found (will use fallback data)")
+
+        # ====================================================================
+        # 1. FETCH PERFORMANCE METRICS (crash/hang data + fallback for active versions)
+        # ====================================================================
+        ctx.textual.text("Fetching performance data...")
+
+        all_crash_metrics = {}
         perf_result = metrics_service.get_performance_metrics(app_id, platform="IOS")
 
         match perf_result:
@@ -80,19 +129,24 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
                 crash_result = metrics_service.extract_crash_metrics_by_version(perf_data)
 
                 match crash_result:
-                    case ClientSuccess(data=all_crash_metrics):
-                        if not all_crash_metrics:
-                            ctx.textual.error_text("No crash data available - no active users detected")
+                    case ClientSuccess(data=crash_metrics):
+                        all_crash_metrics = crash_metrics
+                        if not all_crash_metrics and not analytics_active_devices:
+                            ctx.textual.error_text("No performance or analytics data available")
                             ctx.textual.end_step("error")
-                            return Error("No performance data")
+                            return Error("No data sources available")
                     case ClientError(error_message=err):
-                        ctx.textual.error_text(f"Failed to extract crash metrics: {err}")
-                        ctx.textual.end_step("error")
-                        return Error(f"Crash extraction failed: {err}")
+                        if not analytics_active_devices:
+                            ctx.textual.error_text(f"Failed to extract crash metrics: {err}")
+                            ctx.textual.end_step("error")
+                            return Error(f"Crash extraction failed: {err}")
+                        ctx.textual.warning_text(f"Performance metrics unavailable: {err}")
             case ClientError(error_message=err):
-                ctx.textual.error_text(f"Failed to fetch performance metrics: {err}")
-                ctx.textual.end_step("error")
-                return Error(f"Performance fetch failed: {err}")
+                if not analytics_active_devices:
+                    ctx.textual.error_text(f"Failed to fetch performance metrics: {err}")
+                    ctx.textual.end_step("error")
+                    return Error(f"Performance fetch failed: {err}")
+                ctx.textual.warning_text(f"Performance metrics unavailable: {err}")
 
         # ====================================================================
         # 2. FETCH VERSION METADATA (dates, states)
@@ -117,10 +171,10 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
                 version_metadata = {}
 
         # ====================================================================
-        # 3. FETCH SALES/PROPAGATION DATA (if available)
+        # 3. FETCH SALES/PROPAGATION DATA (if available and not using Analytics)
         # ====================================================================
         propagation_data = {}
-        if vendor_number:
+        if vendor_number and not analytics_active_devices:
             ctx.textual.text("Fetching sales/propagation data...")
 
             prop_result = metrics_service.get_propagation_from_sales(
@@ -133,6 +187,8 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
                 case ClientSuccess(data=prop_metrics):
                     if not prop_metrics.error:
                         propagation_data = prop_metrics.by_version
+                        if not data_source:
+                            data_source = "Sales Reports API"
                 case _:
                     pass  # Sales data optional
 
@@ -140,14 +196,44 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
         # 4. COMBINE DATA AND PREPARE DISPLAY
         # ====================================================================
 
+        # Determine active versions from best available source
+        if analytics_active_devices:
+            # Use Analytics activeDevices (most accurate)
+            active_versions = set(analytics_active_devices.keys())
+            if not data_source:
+                data_source = "Analytics Reports API (activeDevices)"
+        elif all_crash_metrics:
+            # Fallback to crash data
+            active_versions = set(all_crash_metrics.keys())
+            if not data_source:
+                data_source = "Performance Metrics API (crash data)"
+        else:
+            ctx.textual.error_text("No data sources available to identify active versions")
+            ctx.textual.end_step("error")
+            return Error("No data sources")
+
         # Combine all data sources
         combined_data = []
-        total_crashes = sum(m.get("terminations", 0) for m in all_crash_metrics.values())
-        total_units = sum(propagation_data.values()) if propagation_data else total_crashes
 
-        for version_string, crash_metrics in all_crash_metrics.items():
+        # Calculate totals based on priority: Analytics > Sales > Crashes
+        if analytics_active_devices:
+            total_units = sum(analytics_active_devices.values())
+        elif propagation_data:
+            total_units = sum(propagation_data.values())
+        else:
+            total_units = sum(m.get("terminations", 0) for m in all_crash_metrics.values())
+
+        for version_string in active_versions:
             metadata = version_metadata.get(version_string, {})
-            units = propagation_data.get(version_string, crash_metrics.get("terminations", 0))
+            crash_metrics = all_crash_metrics.get(version_string, {})
+
+            # User count priority: Analytics activeDevices > Sales > Crashes
+            if analytics_active_devices and version_string in analytics_active_devices:
+                units = int(analytics_active_devices[version_string])
+            elif propagation_data and version_string in propagation_data:
+                units = propagation_data[version_string]
+            else:
+                units = crash_metrics.get("terminations", 0)
 
             combined_data.append({
                 "version": version_string,
@@ -180,10 +266,17 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text("═" * 100)
         ctx.textual.text("")
 
-        metric_label = "Total Users" if propagation_data else "Total Crashes"
+        # Determine metric label based on data source
+        if analytics_active_devices:
+            metric_label = "Total Active Devices"
+        elif propagation_data:
+            metric_label = "Total Units (Sales)"
+        else:
+            metric_label = "Total Crashes"
+
         ctx.textual.text(f"  Total Active Versions:   {len(combined_data)}")
         ctx.textual.text(f"  {metric_label:23s}  {total_units:,}")
-        ctx.textual.text(f"  Data Source:             {'Sales Reports + Performance' if propagation_data else 'Performance Metrics'}")
+        ctx.textual.text(f"  Data Source:             {data_source}")
         ctx.textual.text("")
 
         # Main Table
@@ -192,10 +285,17 @@ def display_active_versions_health(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.text("═" * 100)
         ctx.textual.text("")
 
-        # Table header
+        # Table header - dynamic based on data source
+        if analytics_active_devices:
+            metric_header = "Devices     "
+        elif propagation_data:
+            metric_header = "Units       "
+        else:
+            metric_header = "Crashes     "
+
         ctx.textual.text("┌──────┬────────────┬─────────────┬──────────┬────────────┬────────────┬──────────────┬──────────────┐")
-        ctx.textual.text("│ Rank │ Version    │ Users/      │ Distrib. │ Crash Rate │ Hang Rate  │ Release Date │ Status       │")
-        ctx.textual.text("│      │            │ Crashes     │          │            │            │              │              │")
+        ctx.textual.text(f"│ Rank │ Version    │ {metric_header}│ Distrib. │ Crash Rate │ Hang Rate  │ Release Date │ Status       │")
+        ctx.textual.text("│      │            │             │          │            │            │              │              │")
         ctx.textual.text("├──────┼────────────┼─────────────┼──────────┼────────────┼────────────┼──────────────┼──────────────┤")
 
         # Table rows
