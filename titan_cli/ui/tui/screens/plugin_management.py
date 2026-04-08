@@ -63,6 +63,7 @@ class PluginManagementScreen(BaseScreen):
         Binding("e", "toggle_plugin", "Enable/Disable"),
         Binding("c", "configure_plugin", "Configure"),
         Binding("i", "install_plugin", "Install"),
+        Binding("r", "remove_plugin_from_project", "Remove from Project"),
         Binding("u", "uninstall_plugin", "Uninstall"),
         Binding("U", "update_plugin", "Update"),
     ]
@@ -168,6 +169,7 @@ class PluginManagementScreen(BaseScreen):
             show_back=True
         )
         self.selected_plugin = None
+        self.selected_missing_plugin = None
         self.installed_plugins = []
 
     def compose_content(self) -> ComposeResult:
@@ -243,8 +245,12 @@ class PluginManagementScreen(BaseScreen):
             plugin_list.highlighted = 0
             first = all_plugins[0]
             if first.startswith("missing:"):
-                self._show_plugin_missing(first.removeprefix("missing:"))
+                plugin_name = first.removeprefix("missing:")
+                self.selected_plugin = None
+                self.selected_missing_plugin = plugin_name
+                self._show_plugin_missing(plugin_name)
             else:
+                self.selected_missing_plugin = None
                 self.selected_plugin = first
                 self._show_plugin_details(first)
 
@@ -254,9 +260,12 @@ class PluginManagementScreen(BaseScreen):
             return
 
         if event.option.id.startswith("missing:"):
-            self._show_plugin_missing(event.option.id.removeprefix("missing:"))
+            self.selected_plugin = None
+            self.selected_missing_plugin = event.option.id.removeprefix("missing:")
+            self._show_plugin_missing(self.selected_missing_plugin)
             return
 
+        self.selected_missing_plugin = None
         self.selected_plugin = event.option.id
         self._show_plugin_details(self.selected_plugin)
 
@@ -266,9 +275,12 @@ class PluginManagementScreen(BaseScreen):
             return
 
         if event.option.id.startswith("missing:"):
-            self._show_plugin_missing(event.option.id.removeprefix("missing:"))
+            self.selected_plugin = None
+            self.selected_missing_plugin = event.option.id.removeprefix("missing:")
+            self._show_plugin_missing(self.selected_missing_plugin)
             return
 
+        self.selected_missing_plugin = None
         self.selected_plugin = event.option.id
         self._show_plugin_details(self.selected_plugin)
 
@@ -295,9 +307,11 @@ class PluginManagementScreen(BaseScreen):
         ))
         details.mount(Text(""))
         details.mount(DimText("Press i to install it from a community plugin URL."))
+        details.mount(DimText("Press r to remove it from this project's config."))
         details.mount(Text(""))
         details.mount(Horizontal(
             Button("Install Plugin", variant="primary", id="install-plugin-button-details"),
+            Button("Remove from Project", variant="error", id="remove-plugin-button-details"),
             classes="button-container"
         ))
 
@@ -420,6 +434,8 @@ class PluginManagementScreen(BaseScreen):
             self.action_configure_plugin()
         elif event.button.id in ("install-plugin-button", "install-plugin-button-details"):
             self.action_install_plugin()
+        elif event.button.id == "remove-plugin-button-details":
+            self.action_remove_plugin_from_project()
         elif event.button.id == "update-button":
             self.action_update_plugin()
         elif event.button.id == "uninstall-button":
@@ -503,6 +519,23 @@ class PluginManagementScreen(BaseScreen):
                 self.app.notify("Plugin installed and loaded!", severity="information")
 
         self.app.push_screen(InstallPluginScreen(self.config), on_install_done)
+
+    def action_remove_plugin_from_project(self) -> None:
+        """Remove the selected missing plugin from the current project's config."""
+        plugin_name = self.selected_missing_plugin
+        if not plugin_name:
+            self.app.notify("Please select a missing plugin", severity="warning")
+            return
+
+        try:
+            self._remove_plugin_from_project_config(plugin_name)
+            self.selected_missing_plugin = None
+            self.config.load()
+            self._load_plugins()
+            self.app.notify(f"Plugin '{plugin_name}' removed from this project.", severity="information")
+        except Exception as e:
+            logger.exception("plugin_remove_from_project_failed", plugin=plugin_name)
+            self.app.notify(f"Failed to remove plugin from project: {e}", severity="error")
 
     def action_update_plugin(self) -> None:
         """Check for and apply an update to the selected stable community plugin."""
@@ -642,6 +675,24 @@ class PluginManagementScreen(BaseScreen):
         source_table = plugin_table.setdefault("source", {})
         source_table["channel"] = PluginChannel.STABLE
         source_table.pop("path", None)
+
+        with open(project_cfg_path, "wb") as f:
+            tomli_w.dump(project_cfg_dict, f)
+
+    def _remove_plugin_from_project_config(self, plugin_name: str) -> None:
+        """Remove a plugin block from the current project's config."""
+        project_cfg_path = self.config.project_config_path
+        if not project_cfg_path or not project_cfg_path.exists():
+            raise FileNotFoundError("No project configuration found")
+
+        with open(project_cfg_path, "rb") as f:
+            project_cfg_dict = tomli.load(f)
+
+        plugins_table = project_cfg_dict.get("plugins")
+        if not plugins_table or plugin_name not in plugins_table:
+            raise KeyError(f"Plugin '{plugin_name}' is not configured in this project")
+
+        plugins_table.pop(plugin_name, None)
 
         with open(project_cfg_path, "wb") as f:
             tomli_w.dump(project_cfg_dict, f)
