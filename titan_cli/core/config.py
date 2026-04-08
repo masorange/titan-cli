@@ -183,6 +183,18 @@ class TitanConfig:
             else:
                 merged[key] = value
 
+        # A global plugin source override must not implicitly enable a plugin
+        # for projects that do not configure it.
+        plugins_cfg = merged.get("plugins", {})
+        if isinstance(plugins_cfg, dict):
+            for plugin_data in plugins_cfg.values():
+                if (
+                    isinstance(plugin_data, dict)
+                    and "source" in plugin_data
+                    and "enabled" not in plugin_data
+                ):
+                    plugin_data["enabled"] = False
+
         return merged
 
     @property
@@ -293,6 +305,8 @@ class TitanConfig:
         plugins_table = config_data.setdefault("plugins", {})
         plugin_table = plugins_table.setdefault(plugin_name, {})
         source_table = plugin_table.setdefault("source", {})
+
+        plugin_table.setdefault("enabled", False)
 
         source_table["channel"] = channel
         if path:

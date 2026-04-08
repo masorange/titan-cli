@@ -402,7 +402,7 @@ class PluginManagementScreen(BaseScreen):
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
             details.mount(DimText(f"  Active: {source_label}"))
-            if is_community_plugin and switch_value:
+            if is_enabled and is_community_plugin and switch_value:
                 details.mount(self._build_source_switch(switch_value))
                 self._source_switch_plugin = plugin_name
             if active_channel == PluginChannel.DEV_LOCAL and active_path:
@@ -416,7 +416,7 @@ class PluginManagementScreen(BaseScreen):
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
             details.mount(DimText("  Active: Development Source"))
-            if is_community_plugin and switch_value:
+            if is_enabled and is_community_plugin and switch_value:
                 details.mount(self._build_source_switch(switch_value))
                 self._source_switch_plugin = plugin_name
             details.mount(DimText(f"  Path: {active_path}"))

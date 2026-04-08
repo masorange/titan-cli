@@ -601,3 +601,44 @@ def test_save_global_config_preserves_existing_plugin_source(tmp_path: Path, mon
 
     assert data["plugins"]["github"]["source"]["channel"] == "dev_local"
     assert data["plugins"]["github"]["source"]["path"] == "/tmp/local-github"
+
+
+def test_global_source_override_does_not_enable_plugin_in_other_projects(tmp_path: Path, monkeypatch, mocker):
+    """A global source-only override must not implicitly enable the plugin."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    titan_dir = project_dir / ".titan"
+    titan_dir.mkdir()
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump({"project": {"name": "Project"}}, f)
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "plugins": {
+                    "ragnarok": {
+                        "source": {
+                            "channel": "stable",
+                            "path": "/tmp/ragnarok-plugin",
+                        }
+                    }
+                }
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.is_plugin_enabled("ragnarok") is False
+        assert "ragnarok" not in config_instance.get_enabled_plugins()
+    finally:
+        os.chdir(original_cwd)
