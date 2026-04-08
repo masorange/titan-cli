@@ -7,6 +7,28 @@ from pathlib import Path
 import tomli
 
 
+def _get_titan_plugin_entry_points(pyproject_data: dict) -> dict:
+    """Return Titan plugin entry points from supported pyproject layouts."""
+    project_entry_points = (
+        pyproject_data.get("project", {})
+        .get("entry-points", {})
+        .get("titan.plugins", {})
+    )
+    if project_entry_points:
+        return project_entry_points
+
+    poetry_entry_points = (
+        pyproject_data.get("tool", {})
+        .get("poetry", {})
+        .get("plugins", {})
+        .get("titan.plugins", {})
+    )
+    if poetry_entry_points:
+        return poetry_entry_points
+
+    return {}
+
+
 def get_local_plugin_validation_error(repo_path: Path, plugin_name: str) -> str | None:
     """Validate that a local repository exposes the selected Titan plugin."""
     if not repo_path.exists() or not repo_path.is_dir():
@@ -22,11 +44,7 @@ def get_local_plugin_validation_error(repo_path: Path, plugin_name: str) -> str 
     except Exception as e:
         return f"Could not read pyproject.toml: {e}"
 
-    entry_points = (
-        pyproject_data.get("project", {})
-        .get("entry-points", {})
-        .get("titan.plugins", {})
-    )
+    entry_points = _get_titan_plugin_entry_points(pyproject_data)
     if not entry_points:
         return "This repository does not declare any 'titan.plugins' entry points."
 

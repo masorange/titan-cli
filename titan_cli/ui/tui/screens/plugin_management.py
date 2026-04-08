@@ -393,6 +393,7 @@ class PluginManagementScreen(BaseScreen):
                         details.mount(DimText(f"  {key}: {value}"))
 
         active_rec = get_community_plugin_by_titan_name(plugin_name)
+        is_community_plugin = self._is_community_plugin(plugin_name)
         active_channel = self.config.get_plugin_source_channel(plugin_name)
         active_path = self.config.get_plugin_source_path(plugin_name)
         switch_value = self._get_source_switch_value(active_channel, active_path, active_rec)
@@ -401,7 +402,7 @@ class PluginManagementScreen(BaseScreen):
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
             details.mount(DimText(f"  Active: {source_label}"))
-            if switch_value:
+            if is_community_plugin and switch_value:
                 details.mount(self._build_source_switch(switch_value))
                 self._source_switch_plugin = plugin_name
             if active_channel == PluginChannel.DEV_LOCAL and active_path:
@@ -415,7 +416,7 @@ class PluginManagementScreen(BaseScreen):
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
             details.mount(DimText("  Active: Development Source"))
-            if switch_value:
+            if is_community_plugin and switch_value:
                 details.mount(self._build_source_switch(switch_value))
                 self._source_switch_plugin = plugin_name
             details.mount(DimText(f"  Path: {active_path}"))
@@ -431,15 +432,17 @@ class PluginManagementScreen(BaseScreen):
             details.mount(DimText("  Press u to remove the development source"))
         elif active_rec:
             details.mount(DimText("  Press u to uninstall this plugin"))
-        details.mount(DimText("  Press d to configure a local development path"))
+        if is_community_plugin:
+            details.mount(DimText("  Press d to configure a local development path"))
 
         # Buttons
         details.mount(Text(""))  # Spacer
         buttons = [
             Button("Enable/Disable", variant="default", id="toggle-button"),
             Button("Configure", variant="primary", id="configure-button"),
-            Button("Set Dev Path", variant="default", id="set-dev-path-button"),
         ]
+        if is_community_plugin:
+            buttons.append(Button("Set Dev Path", variant="default", id="set-dev-path-button"))
         if active_channel == PluginChannel.STABLE and active_rec:
             buttons.append(Button("Update", variant="warning", id="update-button"))
         if active_channel == PluginChannel.DEV_LOCAL or active_rec:
@@ -465,23 +468,30 @@ class PluginManagementScreen(BaseScreen):
 
     def on_segmented_switch_changed(self, event: SegmentedSwitch.Changed) -> None:
         """Handle source switch changes."""
-        if event.sender.id != "plugin-source-switch":
-            return
-
         if not self._source_switch_plugin or self._source_switch_plugin != self.selected_plugin:
             return
 
         try:
+            active_path = self.config.get_plugin_source_path(self.selected_plugin)
+
             if event.value == PluginChannel.STABLE:
-                self.config.clear_global_plugin_source(self.selected_plugin)
-            elif event.value == PluginChannel.DEV_LOCAL:
-                active_path = self.config.get_plugin_source_path(self.selected_plugin)
                 if not active_path:
                     self.app.notify(
                         "No local development path is configured for this plugin.",
                         severity="warning",
                     )
-                    event.sender.set_value(PluginChannel.STABLE)
+                    return
+                self.config.set_global_plugin_source(
+                    self.selected_plugin,
+                    PluginChannel.STABLE,
+                    str(active_path),
+                )
+            elif event.value == PluginChannel.DEV_LOCAL:
+                if not active_path:
+                    self.app.notify(
+                        "No local development path is configured for this plugin.",
+                        severity="warning",
+                    )
                     return
 
                 self.config.set_global_plugin_source(
@@ -509,7 +519,6 @@ class PluginManagementScreen(BaseScreen):
                 SegmentedSwitchOption(value=PluginChannel.DEV_LOCAL, label="Develop"),
             ],
             value=value,
-            id="plugin-source-switch",
         )
 
     def _get_source_switch_value(
@@ -525,6 +534,10 @@ class PluginManagementScreen(BaseScreen):
             if active_record:
                 return PluginChannel.STABLE
         return None
+
+    def _is_community_plugin(self, plugin_name: str) -> bool:
+        """Return whether the plugin is managed as a community plugin."""
+        return get_community_plugin_by_titan_name(plugin_name) is not None
 
     def action_toggle_plugin(self) -> None:
         """Toggle enable/disable state of selected plugin."""
@@ -611,6 +624,13 @@ class PluginManagementScreen(BaseScreen):
             self.app.notify("Please select a plugin", severity="warning")
             return
 
+        if not self._is_community_plugin(self.selected_plugin):
+            self.app.notify(
+                "Development source is only available for community plugins.",
+                severity="warning",
+            )
+            return
+
         current_path = self.config.get_plugin_source_path(self.selected_plugin)
 
         self.app.push_screen(
@@ -629,6 +649,12 @@ class PluginManagementScreen(BaseScreen):
         repo_path = Path(path_value).expanduser().resolve()
         error = get_local_plugin_validation_error(repo_path, self.selected_plugin)
         if error:
+            logger.warning(
+                "plugin_dev_source_validation_failed",
+                plugin=self.selected_plugin,
+                path=str(repo_path),
+                error=error,
+            )
             self.app.notify(error, severity="error")
             return
 
@@ -639,6 +665,11 @@ class PluginManagementScreen(BaseScreen):
         )
         self.config.load()
         self._load_plugins()
+        logger.info(
+            "plugin_dev_source_configured",
+            plugin=self.selected_plugin,
+            path=str(repo_path),
+        )
         self.app.notify(
             f"Development path configured for '{self.selected_plugin}'.",
             severity="information",

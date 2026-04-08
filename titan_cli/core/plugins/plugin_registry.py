@@ -60,6 +60,7 @@ class PluginRegistry:
         self._failed_plugins: Dict[str, Exception] = {}
         self._discovered_plugin_names: List[str] = []
         self._plugin_versions: Dict[str, str] = {}
+        self._dev_local_sys_paths: set[str] = set()
         if discover_on_init:
             self.discover()
 
@@ -200,6 +201,7 @@ class PluginRegistry:
 
             try:
                 self._plugins[plugin_name] = _load_dev_local_plugin(repo_path, plugin_name)
+                self._dev_local_sys_paths.add(str(repo_path))
                 self._plugin_versions[plugin_name] = "dev_local"
                 if plugin_name not in self._discovered_plugin_names:
                     self._discovered_plugin_names.append(plugin_name)
@@ -265,6 +267,12 @@ class PluginRegistry:
 
     def reset(self):
         """Resets the registry, clearing all loaded plugins and re-discovering."""
+        for repo_path in list(self._dev_local_sys_paths):
+            while repo_path in sys.path:
+                sys.path.remove(repo_path)
+        self._dev_local_sys_paths.clear()
+        importlib.invalidate_caches()
+
         self._plugins.clear()
         self._failed_plugins.clear()
         self._plugin_versions.clear()

@@ -90,3 +90,30 @@ def test_validate_local_plugin_repo_accepts_matching_plugin(tmp_path: Path):
     error = get_local_plugin_validation_error(repo_path, "github")
 
     assert error is None
+
+
+def test_validate_local_plugin_repo_accepts_poetry_plugin_entry_points(tmp_path: Path):
+    repo_path = tmp_path / "plugin-repo"
+    repo_path.mkdir()
+
+    with open(repo_path / "pyproject.toml", "wb") as f:
+        tomli_w.dump(
+            {
+                "tool": {
+                    "poetry": {
+                        "name": "example-plugin",
+                        "version": "0.1.0",
+                        "plugins": {
+                            "titan.plugins": {
+                                "github": "example.plugin:GitHubPlugin",
+                            }
+                        },
+                    }
+                }
+            },
+            f,
+        )
+
+    error = get_local_plugin_validation_error(repo_path, "github")
+
+    assert error is None

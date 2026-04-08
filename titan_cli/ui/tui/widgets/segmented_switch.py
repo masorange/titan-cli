@@ -35,21 +35,24 @@ class SegmentedSwitch(Widget):
 
     DEFAULT_CSS = """
     SegmentedSwitch {
-        width: auto;
+        width: 30;
         height: auto;
+        margin-top: 1;
     }
 
     SegmentedSwitch > Horizontal {
-        width: auto;
+        width: 100%;
+        min-width: 30;
         height: 3;
         background: $surface-lighten-1;
         border: round $primary;
         padding: 0;
+        layout: horizontal;
     }
 
     SegmentedSwitch .segment {
-        min-width: 14;
-        width: auto;
+        width: 1fr;
+        min-width: 10;
         height: 100%;
         padding: 0 2;
         content-align: center middle;
@@ -102,6 +105,7 @@ class SegmentedSwitch(Widget):
 
         self.options = options
         self.on_change = on_change
+        self._segment_values: dict[str, str] = {}
 
         option_values = {option.value for option in options}
         initial_value = value if value in option_values else options[0].value
@@ -111,9 +115,13 @@ class SegmentedSwitch(Widget):
         """Compose the segmented switch UI."""
         with Horizontal():
             for index, option in enumerate(self.options):
-                segment = Static(option.label, classes="segment", id=f"segment-{index}")
-                segment.segment_value = option.value
-                yield segment
+                segment_id = f"segment-{index}"
+                self._segment_values[segment_id] = option.value
+                yield Static(
+                    option.label,
+                    classes="segment",
+                    id=segment_id,
+                )
 
     def on_mount(self) -> None:
         """Sync styles and focus the widget when mounted."""
@@ -127,7 +135,7 @@ class SegmentedSwitch(Widget):
 
     def on_click(self, event) -> None:
         """Handle mouse selection of a segment."""
-        segment_value = getattr(event.widget, "segment_value", None)
+        segment_value = self._segment_values.get(getattr(event.widget, "id", ""))
         if segment_value is not None:
             self._set_value(segment_value, emit=True)
             event.stop()
@@ -181,5 +189,6 @@ class SegmentedSwitch(Widget):
 
     def _refresh_segments(self) -> None:
         """Sync active CSS classes with the current value."""
-        for segment in self.query(".segment", Static):
-            segment.set_class(getattr(segment, "segment_value", None) == self.value, "-active")
+        for segment in self.query(".segment"):
+            segment_value = self._segment_values.get(segment.id or "")
+            segment.set_class(segment_value == self.value, "-active")
