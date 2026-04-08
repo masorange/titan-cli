@@ -396,10 +396,11 @@ class PluginManagementScreen(BaseScreen):
         active_channel = self.config.get_plugin_source_channel(plugin_name)
         active_path = self.config.get_plugin_source_path(plugin_name)
         switch_value = self._get_source_switch_value(active_channel, active_path, active_rec)
+        source_label = "Development Source" if active_channel == PluginChannel.DEV_LOCAL else "Stable"
         if active_rec:
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
-            details.mount(DimText(f"  Channel: {active_channel}"))
+            details.mount(DimText(f"  Active: {source_label}"))
             if switch_value:
                 details.mount(self._build_source_switch(switch_value))
                 self._source_switch_plugin = plugin_name
@@ -413,7 +414,7 @@ class PluginManagementScreen(BaseScreen):
         elif active_channel == PluginChannel.DEV_LOCAL and active_path:
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
-            details.mount(DimText(f"  Channel: {active_channel}"))
+            details.mount(DimText("  Active: Development Source"))
             if switch_value:
                 details.mount(self._build_source_switch(switch_value))
                 self._source_switch_plugin = plugin_name
@@ -427,7 +428,7 @@ class PluginManagementScreen(BaseScreen):
         details.mount(DimText(f"  Press e to {action_verb} this plugin"))
         details.mount(DimText("  Press c to configure this plugin"))
         if active_channel == PluginChannel.DEV_LOCAL:
-            details.mount(DimText("  Press u to remove the dev local source"))
+            details.mount(DimText("  Press u to remove the development source"))
         elif active_rec:
             details.mount(DimText("  Press u to uninstall this plugin"))
         details.mount(DimText("  Press d to configure a local development path"))
@@ -492,7 +493,8 @@ class PluginManagementScreen(BaseScreen):
             self.config.load()
             self._load_plugins()
             self.app.notify(
-                f"Plugin source for '{self.selected_plugin}' changed to '{event.value}'.",
+                f"Plugin source for '{self.selected_plugin}' changed to "
+                f"{'Development Source' if event.value == PluginChannel.DEV_LOCAL else 'Stable'}.",
                 severity="information",
             )
         except Exception as e:
@@ -754,7 +756,10 @@ class PluginManagementScreen(BaseScreen):
             self.config.clear_global_plugin_source(self.selected_plugin)
             self.config.load()
             self._load_plugins()
-            self.app.notify(f"Dev local source removed for '{self.selected_plugin}'", severity="information")
+            self.app.notify(
+                f"Development source removed for '{self.selected_plugin}'",
+                severity="information",
+            )
             return
 
         record = get_community_plugin_by_titan_name(self.selected_plugin)
