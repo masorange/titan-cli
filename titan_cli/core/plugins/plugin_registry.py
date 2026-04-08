@@ -49,7 +49,9 @@ def _load_dev_local_plugin(repo_path: Path, plugin_name: str) -> TitanPlugin:
     plugin_class = getattr(module, class_name)
     if not issubclass(plugin_class, TitanPlugin):
         raise TypeError("Plugin class must inherit from TitanPlugin")
-    return plugin_class()
+    plugin = plugin_class()
+    plugin._dev_local_package_root = package_root
+    return plugin
 
 
 class PluginRegistry:
@@ -61,6 +63,7 @@ class PluginRegistry:
         self._discovered_plugin_names: List[str] = []
         self._plugin_versions: Dict[str, str] = {}
         self._dev_local_sys_paths: set[str] = set()
+        self._dev_local_package_roots: set[str] = set()
         if discover_on_init:
             self.discover()
 
@@ -200,8 +203,12 @@ class PluginRegistry:
                 continue
 
             try:
-                self._plugins[plugin_name] = _load_dev_local_plugin(repo_path, plugin_name)
+                plugin = _load_dev_local_plugin(repo_path, plugin_name)
+                self._plugins[plugin_name] = plugin
                 self._dev_local_sys_paths.add(str(repo_path))
+                package_root = getattr(plugin, "_dev_local_package_root", None)
+                if package_root:
+                    self._dev_local_package_roots.add(package_root)
                 self._plugin_versions[plugin_name] = "dev_local"
                 if plugin_name not in self._discovered_plugin_names:
                     self._discovered_plugin_names.append(plugin_name)
@@ -271,6 +278,16 @@ class PluginRegistry:
             while repo_path in sys.path:
                 sys.path.remove(repo_path)
         self._dev_local_sys_paths.clear()
+
+        for package_root in list(self._dev_local_package_roots):
+            stale_modules = [
+                name for name in list(sys.modules)
+                if name == package_root or name.startswith(f"{package_root}.")
+            ]
+            for name in stale_modules:
+                sys.modules.pop(name, None)
+        self._dev_local_package_roots.clear()
+
         importlib.invalidate_caches()
 
         self._plugins.clear()
