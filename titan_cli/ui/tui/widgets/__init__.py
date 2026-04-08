@@ -19,6 +19,8 @@ from .decision_badge import DecisionBadge
 from .prompt_option_list import PromptOptionList, OptionItem
 from .styled_option_list import StyledOptionList, StyledOption
 from .wizard import StepStatus, WizardStep, StepIndicator
+from .segmented_switch import SegmentedSwitch, SegmentedSwitchOption
+from .dev_source_path_modal import DevSourcePathModal
 from .text import (
     Text,
     DimText,
@@ -52,6 +54,9 @@ __all__ = [
     "OptionItem",
     "StyledOptionList",
     "StyledOption",
+    "SegmentedSwitch",
+    "SegmentedSwitchOption",
+    "DevSourcePathModal",
     "Text",
     "DimText",
     "BoldText",

@@ -440,3 +440,164 @@ def test_get_plugin_source_reads_project_override(tmp_path: Path, monkeypatch, m
         assert config_instance.get_plugin_source_path("github") == plugin_repo.resolve()
     finally:
         os.chdir(original_cwd)
+
+
+def test_get_plugin_source_prefers_global_override_over_project(tmp_path: Path, monkeypatch, mocker):
+    """
+    Plugin source selection is user-local and global source overrides must win
+    over project-level source metadata.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    titan_dir = project_dir / ".titan"
+    titan_dir.mkdir()
+
+    global_plugin_repo = tmp_path / "plugins" / "global-github"
+    global_plugin_repo.mkdir(parents=True)
+    project_plugin_repo = tmp_path / "plugins" / "project-github"
+    project_plugin_repo.mkdir(parents=True)
+
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump(
+            {
+                "project": {"name": "Project"},
+                "plugins": {
+                    "github": {
+                        "enabled": True,
+                        "source": {
+                            "channel": "stable",
+                            "path": str(project_plugin_repo),
+                        },
+                    }
+                },
+            },
+            f,
+        )
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "plugins": {
+                    "github": {
+                        "source": {
+                            "channel": "dev_local",
+                            "path": str(global_plugin_repo),
+                        }
+                    }
+                }
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.get_plugin_source_channel("github") == "dev_local"
+        assert config_instance.get_plugin_source_path("github") == global_plugin_repo.resolve()
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_set_global_plugin_source_writes_user_config(tmp_path: Path, monkeypatch, mocker):
+    """Global plugin source overrides should be written to user config."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig()
+    config_instance.set_global_plugin_source("github", "dev_local", "/tmp/local-github")
+
+    with open(global_config_path, "rb") as f:
+        import tomli
+        data = tomli.load(f)
+
+    assert data["plugins"]["github"]["source"]["channel"] == "dev_local"
+    assert data["plugins"]["github"]["source"]["path"] == "/tmp/local-github"
+
+
+def test_clear_global_plugin_source_removes_only_source_block(tmp_path: Path, monkeypatch, mocker):
+    """Clearing a global plugin source should preserve other global plugin settings."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "plugins": {
+                    "github": {
+                        "enabled": True,
+                        "config": {"org": "acme"},
+                        "source": {
+                            "channel": "dev_local",
+                            "path": "/tmp/local-github",
+                        },
+                    }
+                }
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig()
+    config_instance.clear_global_plugin_source("github")
+
+    with open(global_config_path, "rb") as f:
+        import tomli
+        data = tomli.load(f)
+
+    assert "source" not in data["plugins"]["github"]
+    assert data["plugins"]["github"]["enabled"] is True
+    assert data["plugins"]["github"]["config"]["org"] == "acme"
+
+
+def test_save_global_config_preserves_existing_plugin_source(tmp_path: Path, monkeypatch, mocker):
+    """Saving AI config should not erase existing global plugin source overrides."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "plugins": {
+                    "github": {
+                        "source": {
+                            "channel": "dev_local",
+                            "path": "/tmp/local-github",
+                        }
+                    }
+                }
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig(skip_plugin_init=True)
+    config_instance.config.ai = None
+    config_instance._save_global_config()
+
+    with open(global_config_path, "rb") as f:
+        import tomli
+        data = tomli.load(f)
+
+    assert data["plugins"]["github"]["source"]["channel"] == "dev_local"
+    assert data["plugins"]["github"]["source"]["path"] == "/tmp/local-github"
