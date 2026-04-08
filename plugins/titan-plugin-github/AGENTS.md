@@ -41,6 +41,7 @@ This is the main entry point for all GitHub API operations. It uses an HTTP clie
 
 **Key Methods:**
 - `create_pull_request(...) -> PullRequest`: Creates a new pull request.
+- `create_release(...) -> UIRelease`: Creates a GitHub release.
 - `get_pull_request(...) -> PullRequest`: Retrieves details for a PR.
 - `add_reviewers(...)`: Adds reviewers to a PR.
 
