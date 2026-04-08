@@ -6,6 +6,7 @@ Tests that steps correctly use ClientResult pattern and handle UI models.
 
 from titan_cli.engine import Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
+from titan_plugin_jira.models.view import UIJiraVersion
 from titan_plugin_jira.steps.get_issue_step import get_issue_step
 from titan_plugin_jira.steps.search_jql_step import search_jql_step
 from titan_plugin_jira.steps.list_versions_step import list_versions_step
@@ -168,8 +169,20 @@ def test_list_versions_step_success(mock_workflow_context, mock_jira_client_new)
 
     # Mock client to return versions
     versions = [
-        {"id": "10200", "name": "v1.0.0", "released": False, "releaseDate": None},
-        {"id": "10201", "name": "v2.0.0", "released": False, "releaseDate": "2025-06-01"}
+        UIJiraVersion(
+            id="10200",
+            name="v1.0.0",
+            description="No description",
+            released=False,
+            release_date="Not set",
+        ),
+        UIJiraVersion(
+            id="10201",
+            name="v2.0.0",
+            description="No description",
+            released=False,
+            release_date="2025-06-01",
+        ),
     ]
     mock_jira_client_new.list_project_versions.return_value = ClientSuccess(
         data=versions,

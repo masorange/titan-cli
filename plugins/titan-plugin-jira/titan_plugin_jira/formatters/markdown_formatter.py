@@ -18,14 +18,9 @@ class IssueAnalysisMarkdownFormatter:
     - Add other formatters (HTML, JSON, etc.) in the future
     - Optionally use Jinja2 templates for custom formatting
 
-    Example:
-        >>> # Use built-in formatter (default)
-        >>> formatter = IssueAnalysisMarkdownFormatter()
-        >>> markdown = formatter.format(analysis)
-
-        >>> # Use custom Jinja2 template
-        >>> formatter = IssueAnalysisMarkdownFormatter(template_path="custom.md.j2")
-        >>> markdown = formatter.format(analysis)
+    Usage:
+        By default, uses built-in Python formatter.
+        Optionally provide a template_path to use a custom Jinja2 template.
     """
 
     def __init__(self, template_path: Optional[str] = None):

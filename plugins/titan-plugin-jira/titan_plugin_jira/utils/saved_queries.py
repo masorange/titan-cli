@@ -126,14 +126,13 @@ class SavedQueries:
 
         Args:
             query_name: Name of the query (lowercase with underscores)
-            **params: Parameters to format into query
+            **params: Parameters to format into query (e.g., project='ECAPP')
 
         Returns:
-            Formatted JQL query
+            Formatted JQL query string with parameters substituted
 
-        Example:
-            >>> SavedQueries.format('current_sprint', project='ECAPP')
-            'sprint in openSprints() AND project = ECAPP'
+        Raises:
+            ValueError: If query_name is not found
         """
         queries = cls.get_all()
         if query_name not in queries:

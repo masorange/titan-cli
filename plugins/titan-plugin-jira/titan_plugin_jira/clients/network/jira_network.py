@@ -87,12 +87,6 @@ class JiraNetwork:
 
         Raises:
             JiraAPIError: If request fails
-
-        Examples:
-            >>> network = JiraNetwork(...)
-            >>> data = network.make_request("GET", "issue/PROJ-123")
-            >>> print(data["key"])
-            'PROJ-123'
         """
         # Build full URL (Jira Cloud uses API v3)
         url = f"{self.base_url}/rest/api/3/{endpoint.lstrip('/')}"

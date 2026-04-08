@@ -327,6 +327,11 @@ titan-dev
 - Installs dependencies with Poetry (`.venv/`)
 - Creates `~/.local/bin/titan-dev` script pointing to local codebase
 - Allows immediate testing of code changes
+- Enables development logging
+
+Logs for `titan-dev` are written to `~/.local/state/titan/logs/titan.log` during TUI execution.
+For live visual debugging, use `titan-dev --devtools` and run `textual console`
+in another terminal.
 
 **Important:** The `titan-dev` command is for contributors only. End users who install from PyPI only get `titan`.
 
@@ -419,6 +424,9 @@ poetry run pytest       # Direct pytest
 ```
 
 **Key difference:** `titan` is the production version from PyPI, `titan-dev` runs your local codebase changes.
+For debugging, `titan-dev` writes logs to `~/.local/state/titan/logs/titan.log`.
+If you need live Textual inspection, use `titan-dev --devtools`
+and run `textual console` in another terminal.
 
 ## Current Project Status
 
