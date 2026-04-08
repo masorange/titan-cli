@@ -16,6 +16,7 @@ from .issue_mapper import from_rest_issue
 from .comment_mapper import from_graphql_review_comment, from_graphql_issue_comment
 from .thread_mapper import from_graphql_review_thread
 from .review_mapper import from_network_review
+from .release_mapper import from_network_release
 
 __all__ = [
     "from_rest_pr",
@@ -27,4 +28,5 @@ __all__ = [
     "from_graphql_issue_comment",
     "from_graphql_review_thread",
     "from_network_review",
+    "from_network_release",
 ]
