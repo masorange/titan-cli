@@ -285,3 +285,13 @@ def test_apply_source_overrides_marks_missing_path_as_failure():
     assert isinstance(failed_plugins["sample"], PluginLoadError)
     assert "dev_local source requires a local path" in str(failed_plugins["sample"])
     assert registry.get_plugin("sample") is None
+
+
+def test_list_enabled_delegates_to_config_effective_enabled_plugins():
+    registry = PluginRegistry(discover_on_init=False)
+
+    config = MagicMock()
+    config.get_enabled_plugins.return_value = ["git", "github"]
+
+    assert registry.list_enabled(config) == ["git", "github"]
+    config.get_enabled_plugins.assert_called_once_with()
