@@ -245,15 +245,11 @@ class PluginRegistry:
         Returns:
             List of enabled plugin names
         """
-        if not config or not config.config or not config.config.plugins:
+        if not config:
             return []
-
-        enabled = []
-        for plugin_name, plugin_config in config.config.plugins.items():
-            if hasattr(plugin_config, 'enabled') and plugin_config.enabled:
-                enabled.append(plugin_name)
-
-        return enabled
+        if hasattr(config, "get_enabled_plugins"):
+            return config.get_enabled_plugins()
+        return []
 
     def list_failed(self) -> Dict[str, Exception]:
         """

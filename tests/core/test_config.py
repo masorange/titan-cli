@@ -527,6 +527,7 @@ def test_set_global_plugin_source_writes_user_config(tmp_path: Path, monkeypatch
 
     assert data["plugins"]["github"]["source"]["channel"] == "dev_local"
     assert data["plugins"]["github"]["source"]["path"] == "/tmp/local-github"
+    assert "enabled" not in data["plugins"]["github"]
 
 
 def test_clear_global_plugin_source_removes_only_source_block(tmp_path: Path, monkeypatch, mocker):
@@ -625,6 +626,48 @@ def test_global_source_override_does_not_enable_plugin_in_other_projects(tmp_pat
                             "channel": "stable",
                             "path": "/tmp/ragnarok-plugin",
                         }
+                    }
+                }
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.is_plugin_enabled("ragnarok") is False
+        assert "ragnarok" not in config_instance.get_enabled_plugins()
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_project_must_explicitly_enable_plugin(tmp_path: Path, monkeypatch, mocker):
+    """A plugin remains disabled unless the current project explicitly enables it."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    titan_dir = project_dir / ".titan"
+    titan_dir.mkdir()
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump({"project": {"name": "Project"}}, f)
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "plugins": {
+                    "ragnarok": {
+                        "config": {"platform": "android"},
+                        "source": {
+                            "channel": "stable",
+                            "path": "/tmp/ragnarok-plugin",
+                        },
                     }
                 }
             },

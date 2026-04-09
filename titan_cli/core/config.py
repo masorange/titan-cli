@@ -183,18 +183,6 @@ class TitanConfig:
             else:
                 merged[key] = value
 
-        # A global plugin source override must not implicitly enable a plugin
-        # for projects that do not configure it.
-        plugins_cfg = merged.get("plugins", {})
-        if isinstance(plugins_cfg, dict):
-            for plugin_data in plugins_cfg.values():
-                if (
-                    isinstance(plugin_data, dict)
-                    and "source" in plugin_data
-                    and "enabled" not in plugin_data
-                ):
-                    plugin_data["enabled"] = False
-
         return merged
 
     @property
@@ -219,7 +207,7 @@ class TitanConfig:
             return []
         return [
             name for name, plugin_cfg in self.config.plugins.items()
-            if plugin_cfg.enabled
+            if self.is_plugin_enabled(name)
         ]
 
     def get_plugin_warnings(self) -> List[str]:
@@ -270,8 +258,17 @@ class TitanConfig:
             raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
 
     def is_plugin_enabled(self, plugin_name: str) -> bool:
-        """Check if plugin is enabled"""
+        """Check if a plugin is effectively enabled for the current project.
+
+        This is the source of truth for plugin activation. Do not infer enabled
+        state from the merged plugin model alone, because global plugin metadata
+        may exist without the plugin being explicitly enabled in the current
+        project's config.
+        """
         if not self.config or not self.config.plugins:
+            return False
+        project_plugins = self.project_config.get("plugins", {}) if self.project_config else {}
+        if plugin_name not in project_plugins:
             return False
         plugin_cfg = self.config.plugins.get(plugin_name)
         return plugin_cfg.enabled if plugin_cfg else False
@@ -305,8 +302,6 @@ class TitanConfig:
         plugins_table = config_data.setdefault("plugins", {})
         plugin_table = plugins_table.setdefault(plugin_name, {})
         source_table = plugin_table.setdefault("source", {})
-
-        plugin_table.setdefault("enabled", False)
 
         source_table["channel"] = channel
         if path:
