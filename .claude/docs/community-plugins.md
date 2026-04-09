@@ -47,6 +47,11 @@ enabled = true
 channel = "stable"
 ```
 
+For update detection, Titan checks the repository's latest GitHub Release and
+uses its `tag_name` as the next requested stable version. In other words:
+- install/update discovery is version/tag based
+- the actual installed artifact is still pinned to the resolved commit SHA
+
 ### `dev_local`
 
 This is the development channel. It is not a remote dev feed or prerelease registry. It means "load this plugin from a local repository path".

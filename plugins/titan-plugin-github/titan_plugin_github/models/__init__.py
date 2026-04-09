@@ -33,6 +33,7 @@ from .view import (
     UICommentThread,
     UIPullRequest,
     UIIssue,
+    UIRelease,
     UIReviewSuggestion,
 )
 
@@ -67,6 +68,7 @@ __all__ = [
     "UICommentThread",
     "UIPullRequest",
     "UIIssue",
+    "UIRelease",
     "UIReviewSuggestion",
     # Mappers
     "from_rest_pr",

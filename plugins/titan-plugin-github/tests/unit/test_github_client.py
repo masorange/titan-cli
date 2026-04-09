@@ -65,6 +65,7 @@ def test_client_initialization():
                     assert client._review_service is not None
                     assert client._issue_service is not None
                     assert client._team_service is not None
+                    assert client._release_service is not None
 
 
 def test_get_pull_request_delegates_to_service(github_client, sample_ui_pr):
@@ -142,6 +143,44 @@ def test_list_labels_delegates_to_service(github_client):
     github_client._issue_service.list_labels.assert_called_once()
 
 
+def test_create_release_delegates_to_service(github_client):
+    """Test that create_release delegates to ReleaseService"""
+    from titan_plugin_github.models.view import UIRelease
+
+    github_client._release_service.create_release = Mock(
+        return_value=ClientSuccess(
+            data=UIRelease(
+                tag_name="0.4.1",
+                title="0.4.1",
+                url="https://github.com/test-owner/test-repo/releases/tag/0.4.1",
+                is_prerelease=False,
+            ),
+            message="Release created"
+        )
+    )
+
+    result = github_client.create_release(
+        tag_name="0.4.1",
+        title="0.4.1",
+        notes="Release notes",
+        generate_notes=False,
+        verify_tag=True,
+        prerelease=False,
+    )
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.tag_name == "0.4.1"
+    assert result.data.url == "https://github.com/test-owner/test-repo/releases/tag/0.4.1"
+    github_client._release_service.create_release.assert_called_once_with(
+        tag_name="0.4.1",
+        title="0.4.1",
+        notes="Release notes",
+        generate_notes=False,
+        verify_tag=True,
+        prerelease=False,
+    )
+
+
 def test_get_pr_reviews_delegates_to_service(github_client, sample_ui_review):
     """Test that get_pr_reviews delegates to ReviewService"""
     github_client._review_service.get_pr_reviews = Mock(
@@ -179,5 +218,3 @@ def test_resolve_review_thread_delegates_to_service(github_client):
 
     assert isinstance(result, ClientSuccess)
     github_client._review_service.resolve_review_thread.assert_called_once_with("thread_123")
-
-
