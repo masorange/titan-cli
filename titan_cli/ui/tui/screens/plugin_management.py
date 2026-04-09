@@ -165,6 +165,12 @@ class PluginManagementScreen(BaseScreen):
         width: auto;
         height: 3;
         margin-right: 1;
+        margin-top: 1;
+        content-align: left middle;
+    }
+
+    .source-switch-row SegmentedSwitch {
+        height: 3;
         content-align: left middle;
     }
 
@@ -552,6 +558,7 @@ class PluginManagementScreen(BaseScreen):
                 SegmentedSwitchOption(value=PluginChannel.DEV_LOCAL, label="Develop"),
             ],
             value=value,
+            boxed=False,
         )
 
     def _get_source_switch_value(

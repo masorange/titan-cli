@@ -36,7 +36,7 @@ class SegmentedSwitch(Widget):
     DEFAULT_CSS = """
     SegmentedSwitch {
         width: 22;
-        height: auto;
+        height: 3;
         margin-top: 0;
     }
 
@@ -48,6 +48,16 @@ class SegmentedSwitch(Widget):
         border: round $primary;
         padding: 0;
         layout: horizontal;
+        align: center middle;
+    }
+
+    SegmentedSwitch.-plain > Horizontal {
+        background: transparent;
+        border: none;
+    }
+
+    SegmentedSwitch.-plain {
+        width: 22;
     }
 
     SegmentedSwitch .segment {
@@ -58,7 +68,7 @@ class SegmentedSwitch(Widget):
         content-align: center middle;
         text-align: center;
         color: $text-muted;
-        background: transparent;
+        background: $surface-lighten-1;
     }
 
     SegmentedSwitch .segment.-active {
@@ -67,12 +77,27 @@ class SegmentedSwitch(Widget):
         text-style: bold;
     }
 
+    SegmentedSwitch.-plain .segment {
+        width: 1fr;
+        min-width: 7;
+        background: $panel-lighten-1;
+        color: $text;
+    }
+
+    SegmentedSwitch.-plain .segment.-active {
+        background: $primary;
+    }
+
     SegmentedSwitch:focus > Horizontal {
         border: round $accent;
     }
 
     SegmentedSwitch:focus .segment.-active {
         background: $accent;
+    }
+
+    SegmentedSwitch.-plain:focus > Horizontal {
+        border: none;
     }
     """
 
@@ -89,6 +114,7 @@ class SegmentedSwitch(Widget):
         options: list[SegmentedSwitchOption],
         value: Optional[str] = None,
         on_change: Optional[Callable[[str], None]] = None,
+        boxed: bool = True,
         **kwargs,
     ) -> None:
         """
@@ -106,10 +132,14 @@ class SegmentedSwitch(Widget):
         self.options = options
         self.on_change = on_change
         self._segment_values: dict[str, str] = {}
+        self.boxed = boxed
 
         option_values = {option.value for option in options}
         initial_value = value if value in option_values else options[0].value
         self.value = initial_value
+
+        if not boxed:
+            self.add_class("-plain")
 
     def compose(self) -> ComposeResult:
         """Compose the segmented switch UI."""
