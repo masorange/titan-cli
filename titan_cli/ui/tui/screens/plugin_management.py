@@ -421,7 +421,7 @@ class PluginManagementScreen(BaseScreen):
         active_channel = self.config.get_plugin_source_channel(plugin_name)
         active_path = self.config.get_plugin_source_path(plugin_name)
         switch_value = self._get_source_switch_value(active_channel, active_path, active_rec)
-        source_label = "Development Source" if active_channel == PluginChannel.DEV_LOCAL else "Stable"
+        source_label = "Development Source" if active_channel == PluginChannel.DEV_LOCAL else PluginChannel.STABLE
         if active_rec:
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
@@ -543,7 +543,7 @@ class PluginManagementScreen(BaseScreen):
             self._show_plugin_details(self.selected_plugin)
             self.app.notify(
                 f"Plugin source for '{self.selected_plugin}' changed to "
-                f"{'Development Source' if event.value == PluginChannel.DEV_LOCAL else 'Stable'}.",
+                f"{'Development Source' if event.value == PluginChannel.DEV_LOCAL else PluginChannel.STABLE}.",
                 severity="information",
             )
         except Exception as e:
