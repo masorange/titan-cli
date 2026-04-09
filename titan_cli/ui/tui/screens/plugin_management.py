@@ -154,6 +154,20 @@ class PluginManagementScreen(BaseScreen):
         height: auto;
     }
 
+    .source-switch-row {
+        height: 3;
+        width: auto;
+        align: left middle;
+        margin-top: 1;
+    }
+
+    .source-switch-row DimText {
+        width: auto;
+        height: 3;
+        margin-right: 1;
+        content-align: left middle;
+    }
+
     .button-container {
         height: auto;
         min-height: 5;
@@ -188,7 +202,7 @@ class PluginManagementScreen(BaseScreen):
                 left_panel = Container(id="left-panel")
                 left_panel.border_title = "Installed Plugins"
                 with left_panel:
-                    yield OptionList(id="plugin-list")
+                    yield OptionList()
                     yield Button(f"{Icons.PLUGIN} Install Plugin", variant="primary", id="install-plugin-button")
 
                 # Right panel: Plugin details and actions
@@ -207,8 +221,11 @@ class PluginManagementScreen(BaseScreen):
         """Load and display installed plugins."""
         self.installed_plugins = self.config.registry.list_installed()
 
-        plugin_list = self.query_one("#plugin-list", OptionList)
+        left_panel = self.query_one("#left-panel", Container)
+        plugin_list = left_panel.query_one(OptionList)
         plugin_list.clear_options()
+        plugin_list.clear_cached_dimensions()
+        plugin_list._clear_arrangement_cache()
 
         # Find plugins enabled in config but not installed
         missing_plugins = []
@@ -251,6 +268,7 @@ class PluginManagementScreen(BaseScreen):
         all_plugins = self.installed_plugins + [f"missing:{p}" for p in missing_plugins]
         if all_plugins:
             plugin_list.highlighted = 0
+            plugin_list.refresh(repaint=True, layout=True)
             first = all_plugins[0]
             if first.startswith("missing:"):
                 plugin_name = first.removeprefix("missing:")
@@ -401,10 +419,17 @@ class PluginManagementScreen(BaseScreen):
         if active_rec:
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
-            details.mount(DimText(f"  Active: {source_label}"))
             if is_enabled and is_community_plugin and switch_value:
-                details.mount(self._build_source_switch(switch_value))
+                details.mount(
+                    Horizontal(
+                        DimText("  Active:"),
+                        self._build_source_switch(switch_value),
+                        classes="source-switch-row",
+                    )
+                )
                 self._source_switch_plugin = plugin_name
+            else:
+                details.mount(DimText(f"  Active: {source_label}"))
             if active_channel == PluginChannel.DEV_LOCAL and active_path:
                 details.mount(DimText(f"  Path: {active_path}"))
             elif active_rec.repo_url:
@@ -415,10 +440,17 @@ class PluginManagementScreen(BaseScreen):
         elif active_channel == PluginChannel.DEV_LOCAL and active_path:
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
-            details.mount(DimText("  Active: Development Source"))
             if is_enabled and is_community_plugin and switch_value:
-                details.mount(self._build_source_switch(switch_value))
+                details.mount(
+                    Horizontal(
+                        DimText("  Active:"),
+                        self._build_source_switch(switch_value),
+                        classes="source-switch-row",
+                    )
+                )
                 self._source_switch_plugin = plugin_name
+            else:
+                details.mount(DimText("  Active: Development Source"))
             details.mount(DimText(f"  Path: {active_path}"))
         else:
             self._source_switch_plugin = None
@@ -501,7 +533,8 @@ class PluginManagementScreen(BaseScreen):
                 )
 
             self.config.load()
-            self._load_plugins()
+            self.installed_plugins = self.config.registry.list_installed()
+            self._show_plugin_details(self.selected_plugin)
             self.app.notify(
                 f"Plugin source for '{self.selected_plugin}' changed to "
                 f"{'Development Source' if event.value == PluginChannel.DEV_LOCAL else 'Stable'}.",
@@ -664,7 +697,8 @@ class PluginManagementScreen(BaseScreen):
             str(repo_path),
         )
         self.config.load()
-        self._load_plugins()
+        self.installed_plugins = self.config.registry.list_installed()
+        self._show_plugin_details(self.selected_plugin)
         logger.info(
             "plugin_dev_source_configured",
             plugin=self.selected_plugin,
@@ -786,7 +820,8 @@ class PluginManagementScreen(BaseScreen):
         if self.config.get_plugin_source_channel(self.selected_plugin) == PluginChannel.DEV_LOCAL:
             self.config.clear_global_plugin_source(self.selected_plugin)
             self.config.load()
-            self._load_plugins()
+            self.installed_plugins = self.config.registry.list_installed()
+            self._show_plugin_details(self.selected_plugin)
             self.app.notify(
                 f"Development source removed for '{self.selected_plugin}'",
                 severity="information",

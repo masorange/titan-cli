@@ -35,14 +35,14 @@ class SegmentedSwitch(Widget):
 
     DEFAULT_CSS = """
     SegmentedSwitch {
-        width: 30;
+        width: 22;
         height: auto;
-        margin-top: 1;
+        margin-top: 0;
     }
 
     SegmentedSwitch > Horizontal {
         width: 100%;
-        min-width: 30;
+        min-width: 22;
         height: 3;
         background: $surface-lighten-1;
         border: round $primary;
@@ -52,9 +52,9 @@ class SegmentedSwitch(Widget):
 
     SegmentedSwitch .segment {
         width: 1fr;
-        min-width: 10;
+        min-width: 7;
         height: 100%;
-        padding: 0 2;
+        padding: 0 1;
         content-align: center middle;
         text-align: center;
         color: $text-muted;
