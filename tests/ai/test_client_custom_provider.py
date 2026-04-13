@@ -197,3 +197,62 @@ class TestAIClientCustomProvider:
             # Verify provider's generate was called
             assert mock_provider.generate.called
             assert response.content == "Generated text"
+
+    def test_custom_provider_generate_omits_default_sampling_params(self):
+        """Test AIClient does not inject default max_tokens/temperature for custom providers."""
+        ai_config = AIConfig(
+            default="custom",
+            providers={
+                "custom": AIProviderConfig(
+                    name="Custom",
+                    type="individual",
+                    provider="custom",
+                    model="test-model",
+                    base_url="http://localhost:4000",
+                )
+            },
+        )
+
+        mock_secrets = Mock(spec=SecretManager)
+        mock_secrets.get.return_value = "test-key"
+
+        client = AIClient(ai_config, mock_secrets)
+
+        with patch("titan_cli.ai.client.CustomProvider") as mock_custom_class:
+            mock_provider = Mock()
+            mock_response = Mock()
+            mock_response.content = "Generated text"
+            mock_provider.generate.return_value = mock_response
+            mock_custom_class.return_value = mock_provider
+
+            from titan_cli.ai.models import AIMessage
+
+            client.generate([AIMessage(role="user", content="Hello")])
+
+            request_arg = mock_provider.generate.call_args.args[0]
+            assert request_arg.max_tokens is None
+            assert request_arg.temperature is None
+
+    def test_custom_provider_missing_dependency_shows_install_command(self):
+        """Test missing custom provider dependency surfaces an install command."""
+        ai_config = AIConfig(
+            default="custom",
+            providers={
+                "custom": AIProviderConfig(
+                    name="Custom",
+                    type="individual",
+                    provider="custom",
+                    model="test-model",
+                    base_url="http://localhost:4000",
+                )
+            },
+        )
+
+        mock_secrets = Mock(spec=SecretManager)
+        mock_secrets.get.return_value = "test-key"
+
+        client = AIClient(ai_config, mock_secrets)
+
+        with patch("titan_cli.ai.client.CustomProvider", side_effect=ImportError("No module named 'openai'")):
+            with pytest.raises(AIConfigurationError, match="Install with:"):
+                _ = client.provider

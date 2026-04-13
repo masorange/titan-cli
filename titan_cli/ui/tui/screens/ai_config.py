@@ -121,7 +121,6 @@ class TestConnectionModal(ModalScreen):
             response = await asyncio.to_thread(
                 ai_client.generate,
                 messages=[AIMessage(role="user", content="Say 'Hello!' if you can hear me")],
-                max_tokens=200
             )
 
             # Show success - remove loading and show result

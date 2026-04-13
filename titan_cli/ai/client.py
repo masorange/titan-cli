@@ -2,6 +2,7 @@
 AI Client - Main facade for AI functionality
 """
 
+import sys
 from typing import Optional, List
 
 from titan_cli.core.models import AIConfig
@@ -10,12 +11,41 @@ from .exceptions import AIConfigurationError
 from .models import AIMessage, AIRequest, AIResponse
 from .providers import AIProvider, AnthropicProvider, GeminiProvider, CustomProvider
 
-# A mapping from provider names to classes
-PROVIDER_CLASSES = {
-    "anthropic": AnthropicProvider,
-    "gemini": GeminiProvider,
-    "custom": CustomProvider,
+
+def get_provider_classes() -> dict[str, type[AIProvider]]:
+    """Return the current provider class registry."""
+    return {
+        "anthropic": AnthropicProvider,
+        "gemini": GeminiProvider,
+        "custom": CustomProvider,
+    }
+
+
+# Backward-compatible snapshot for external imports/tests.
+PROVIDER_CLASSES = get_provider_classes()
+
+PROVIDER_PACKAGES = {
+    "anthropic": "anthropic",
+    "gemini": "google-genai google-auth",
+    "custom": "openai",
 }
+
+
+def get_provider_install_command(provider_name: str) -> Optional[str]:
+    """Return the recommended install command for a missing provider dependency."""
+    package_spec = PROVIDER_PACKAGES.get(provider_name)
+    if not package_spec:
+        return None
+
+    try:
+        from titan_cli.core.plugins.community import is_running_in_pipx
+
+        if is_running_in_pipx():
+            return f"pipx inject titan-cli {package_spec}"
+    except Exception:
+        pass
+
+    return f"{sys.executable} -m pip install {package_spec}"
 
 class AIClient:
     """
@@ -73,7 +103,7 @@ class AIClient:
             raise AIConfigurationError(f"AI provider '{self.provider_id}' not found in configuration.")
 
         provider_name = provider_config.provider
-        provider_class = PROVIDER_CLASSES.get(provider_name)
+        provider_class = get_provider_classes().get(provider_name)
 
         if not provider_class:
             raise AIConfigurationError(f"Unknown AI provider type: {provider_name}")
@@ -102,7 +132,14 @@ class AIClient:
         if provider_name == "custom" and not provider_config.base_url:
             raise AIConfigurationError(f"base_url is required for custom provider '{self.provider_id}'")
 
-        self._provider = provider_class(**kwargs)
+        try:
+            self._provider = provider_class(**kwargs)
+        except ImportError as exc:
+            install_command = get_provider_install_command(provider_name)
+            error_message = str(exc).strip()
+            if install_command and install_command not in error_message:
+                error_message = f"{error_message}\nInstall with: {install_command}"
+            raise AIConfigurationError(error_message) from exc
         return self._provider
 
     def generate(
@@ -128,8 +165,20 @@ class AIClient:
 
         request = AIRequest(
             messages=messages,
-            max_tokens=max_tokens if max_tokens is not None else provider_cfg.max_tokens,
-            temperature=temperature if temperature is not None else provider_cfg.temperature,
+            max_tokens=(
+                max_tokens
+                if max_tokens is not None
+                else (
+                    None if provider_cfg.provider == "custom" else provider_cfg.max_tokens
+                )
+            ),
+            temperature=(
+                temperature
+                if temperature is not None
+                else (
+                    None if provider_cfg.provider == "custom" else provider_cfg.temperature
+                )
+            ),
         )
         return self.provider.generate(request)
 

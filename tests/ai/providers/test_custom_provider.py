@@ -2,6 +2,9 @@
 
 import pytest
 from unittest.mock import Mock, patch
+
+pytest.importorskip("openai")
+
 from openai import AuthenticationError, RateLimitError, APIError
 
 from titan_cli.ai.providers.custom import CustomProvider
@@ -24,9 +27,26 @@ class TestCustomProvider:
             api_key="test-key",
         )
 
-        assert provider._base_url == "http://localhost:4000"
+        assert provider._base_url == "http://localhost:4000/v1"
         assert provider._model == "gpt-3.5-turbo"
-        assert provider._client.base_url == "http://localhost:4000"
+        assert str(provider._client.base_url) == "http://localhost:4000/v1/"
+
+    @patch("titan_cli.ai.providers.custom.OpenAI")
+    def test_init_configures_http2_client(self, mock_openai_class):
+        """Test initialization injects an HTTP/2-capable client."""
+        provider = CustomProvider(
+            base_url="http://localhost:4000",
+            model="gpt-3.5-turbo",
+            api_key="test-key",
+        )
+
+        assert provider._http_client is not None
+        assert provider._http_client._transport._pool._http2 is True
+        mock_openai_class.assert_called_once_with(
+            base_url="http://localhost:4000/v1",
+            api_key="test-key",
+            http_client=provider._http_client,
+        )
 
     def test_init_without_api_key(self):
         """Test initialization without API key (some endpoints don't need auth)."""
@@ -35,10 +55,19 @@ class TestCustomProvider:
             model="llama-2-7b",
         )
 
-        assert provider._base_url == "http://localhost:4000"
+        assert provider._base_url == "http://localhost:4000/v1"
         assert provider._model == "llama-2-7b"
         # Should use placeholder key
         assert provider._client.api_key == "sk-placeholder"
+
+    def test_init_preserves_existing_path(self):
+        """Test initialization preserves explicit API paths."""
+        provider = CustomProvider(
+            base_url="https://llm.company.com/api/openai",
+            model="gpt-3.5-turbo",
+        )
+
+        assert provider._base_url == "https://llm.company.com/api/openai"
 
     def test_init_missing_base_url(self):
         """Test initialization fails without base_url."""
@@ -72,22 +101,36 @@ class TestCustomProvider:
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
 
-        # Mock response
-        mock_choice = Mock()
-        mock_choice.message.content = "Generated response"
-        mock_choice.finish_reason = "stop"
+        first_choice = Mock()
+        first_choice.delta.content = "Generated "
+        first_choice.finish_reason = None
+        first_chunk = Mock()
+        first_chunk.choices = [first_choice]
+        first_chunk.model = "gpt-3.5-turbo"
+        first_chunk.usage = None
 
-        mock_usage = Mock()
-        mock_usage.prompt_tokens = 10
-        mock_usage.completion_tokens = 20
-        mock_usage.total_tokens = 30
+        second_choice = Mock()
+        second_choice.delta.content = "response"
+        second_choice.finish_reason = "stop"
+        second_chunk = Mock()
+        second_chunk.choices = [second_choice]
+        second_chunk.model = "gpt-3.5-turbo"
+        second_chunk.usage = None
 
-        mock_response = Mock()
-        mock_response.choices = [mock_choice]
-        mock_response.model = "gpt-3.5-turbo"
-        mock_response.usage = mock_usage
+        usage_chunk = Mock()
+        usage_chunk.choices = []
+        usage_chunk.model = "gpt-3.5-turbo"
+        usage_chunk.usage = Mock(
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+        )
 
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.chat.completions.create.return_value = [
+            first_chunk,
+            second_chunk,
+            usage_chunk,
+        ]
 
         # Create provider
         provider = CustomProvider(
@@ -110,6 +153,49 @@ class TestCustomProvider:
         assert response.usage["input_tokens"] == 10
         assert response.usage["output_tokens"] == 20
         assert response.finish_reason == "stop"
+        mock_client.chat.completions.create.assert_called_once_with(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+            temperature=0.7,
+            stream=True,
+        )
+
+    @patch("titan_cli.ai.providers.custom.OpenAI")
+    def test_generate_includes_optional_params_when_provided(self, mock_openai_class):
+        """Test custom provider only sends optional params when explicitly provided."""
+        mock_client = Mock()
+        mock_openai_class.return_value = mock_client
+
+        chunk_choice = Mock()
+        chunk_choice.delta.content = "ok"
+        chunk_choice.finish_reason = "stop"
+        chunk = Mock()
+        chunk.choices = [chunk_choice]
+        chunk.model = "gpt-3.5-turbo"
+        chunk.usage = None
+        mock_client.chat.completions.create.return_value = [chunk]
+
+        provider = CustomProvider(
+            base_url="http://localhost:4000",
+            model="gpt-3.5-turbo",
+        )
+
+        request = AIRequest(
+            messages=[AIMessage(role="user", content="Hello")],
+            max_tokens=100,
+            temperature=0.7,
+        )
+
+        provider.generate(request)
+
+        mock_client.chat.completions.create.assert_called_once_with(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+            temperature=0.7,
+            stream=True,
+        )
 
     @patch("titan_cli.ai.providers.custom.OpenAI")
     def test_generate_authentication_error(self, mock_openai_class):
@@ -187,14 +273,18 @@ class TestCustomProvider:
     def test_validate_api_key_success(self, mock_openai_class):
         """Test successful API key validation."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        test_client = Mock()
+        mock_openai_class.side_effect = [mock_client, test_client]
 
         # Mock successful minimal request
         mock_choice = Mock()
-        mock_choice.message.content = "test"
+        mock_choice.delta.content = "test"
+        mock_choice.finish_reason = "stop"
         mock_response = Mock()
         mock_response.choices = [mock_choice]
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.model = "gpt-3.5-turbo"
+        mock_response.usage = None
+        test_client.chat.completions.create.return_value = [mock_response]
 
         provider = CustomProvider(
             base_url="http://localhost:4000",
@@ -203,14 +293,16 @@ class TestCustomProvider:
         )
 
         assert provider.validate_api_key() is True
+        assert mock_openai_class.call_args_list[-1].kwargs["http_client"] is not None
 
     @patch("titan_cli.ai.providers.custom.OpenAI")
     def test_validate_api_key_failure(self, mock_openai_class):
         """Test failed API key validation."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        test_client = Mock()
+        mock_openai_class.side_effect = [mock_client, test_client]
 
-        mock_client.chat.completions.create.side_effect = AuthenticationError(
+        test_client.chat.completions.create.side_effect = AuthenticationError(
             "Invalid API key",
             response=Mock(),
             body=None,
@@ -228,10 +320,11 @@ class TestCustomProvider:
     def test_validate_api_key_other_error_returns_true(self, mock_openai_class):
         """Test that non-auth errors in validation still return True (endpoint reachable)."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        test_client = Mock()
+        mock_openai_class.side_effect = [mock_client, test_client]
 
         # Simulate rate limit - means auth passed but hit rate limit
-        mock_client.chat.completions.create.side_effect = RateLimitError(
+        test_client.chat.completions.create.side_effect = RateLimitError(
             "Rate limit",
             response=Mock(),
             body=None,
