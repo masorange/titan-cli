@@ -121,7 +121,7 @@ class AIConfigWizardScreen(BaseScreen):
         align: right middle;
     }
 
-    #type-options-list, #provider-options-list {
+    #type-options-list, #source-options-list {
         height: auto;
         margin-top: 1;
         margin-bottom: 2;
@@ -129,12 +129,12 @@ class AIConfigWizardScreen(BaseScreen):
     }
 
     #type-options-list > .option-list--option,
-    #provider-options-list > .option-list--option {
+    #source-options-list > .option-list--option {
         padding: 1;
     }
 
     #type-options-list > .option-list--option-highlighted,
-    #provider-options-list > .option-list--option-highlighted {
+    #source-options-list > .option-list--option-highlighted {
         padding: 1;
     }
 
@@ -162,8 +162,8 @@ class AIConfigWizardScreen(BaseScreen):
         # Define all wizard steps
         # Note: API Key comes before Model to support dynamic model fetching
         self.steps = [
-            {"id": "type", "title": "Configuration Type"},
-            {"id": "provider", "title": "Select Provider"},
+            {"id": "type", "title": "Connection Type"},
+            {"id": "source", "title": "Select Source"},
             {"id": "base_url", "title": "Base URL"},
             {"id": "api_key", "title": "API Key"},
             {"id": "model", "title": "Select Model"},
@@ -238,8 +238,8 @@ class AIConfigWizardScreen(BaseScreen):
             self.load_type_step(content_title, content_body)
         elif step["id"] == "base_url":
             self.load_base_url_step(content_title, content_body)
-        elif step["id"] == "provider":
-            self.load_provider_step(content_title, content_body)
+        elif step["id"] == "source":
+            self.load_source_step(content_title, content_body)
         elif step["id"] == "api_key":
             self.load_api_key_step(content_title, content_body)
         elif step["id"] == "model":
@@ -252,24 +252,24 @@ class AIConfigWizardScreen(BaseScreen):
             self.load_review_step(content_title, content_body)
 
     def load_type_step(self, title_widget: Static, body_widget: Container) -> None:
-        """Load Configuration Type step."""
-        title_widget.update("Select Configuration Type")
+        """Load connection type step."""
+        title_widget.update("Select Connection Type")
 
         # Clear previous content
         body_widget.remove_children()
 
         # Add description
         description = Static(
-            "Choose the type of AI configuration:\n\n"
-            "• Corporate: Use your company's AI endpoint\n"
-            "• Individual: Use your personal API key"
+            "Choose how Titan should connect to AI:\n\n"
+            "• AI Gateway: One endpoint exposing multiple models\n"
+            "• Direct Provider: Connect directly to one vendor API"
         )
         body_widget.mount(description)
 
         # Add options
         options = OptionList(
-            Option("Corporate Configuration", id="corporate"),
-            Option("Individual Configuration", id="individual"),
+            Option("AI Gateway", id="gateway"),
+            Option("Direct Provider", id="direct_provider"),
             id="type-options-list"
         )
         body_widget.mount(options)
@@ -278,45 +278,24 @@ class AIConfigWizardScreen(BaseScreen):
         self.call_after_refresh(lambda: options.focus())
 
     def load_base_url_step(self, title_widget: Static, body_widget: Container) -> None:
-        """Load Base URL step (for corporate or custom provider)."""
+        """Load base URL step for gateway connections."""
         title_widget.update("Base URL Configuration")
         body_widget.remove_children()
 
-        # Check if this is for custom provider
-        provider = self.wizard_data.get("provider", "")
+        description = Text(
+            "Enter the base URL for your AI gateway.\n\n"
+            "This should be an OpenAI-compatible gateway endpoint such as LiteLLM."
+        )
+        body_widget.mount(description)
 
-        # Add description
-        if provider == "custom":
-            description = Text(
-                "Enter the base URL for your custom AI endpoint.\n\n"
-                "This should be the OpenAI-compatible API endpoint URL."
-            )
-            body_widget.mount(description)
-
-            # Add examples for custom/LiteLLM
-            examples = DimText(
-                "\nExamples:\n"
-                "  • http://localhost:4000 (LiteLLM proxy)\n"
-                "  • https://llm.yourcompany.com/v1\n"
-                "  • http://vllm-server:8000/v1\n"
-                "  • https://custom-llm.internal/api/v1"
-            )
-            body_widget.mount(examples)
-        else:
-            description = Text(
-                "Configure your corporate AI endpoint.\n\n"
-                "Enter the base URL for your organization's AI service."
-            )
-            body_widget.mount(description)
-
-            # Add examples for corporate
-            examples = DimText(
-                "\nExamples:\n"
-                "  • https://ai.yourcompany.com\n"
-                "  • https://api.internal.corp/ai\n"
-                "  • https://llm-gateway.enterprise.local"
-            )
-            body_widget.mount(examples)
+        examples = DimText(
+            "\nExamples:\n"
+            "  • http://localhost:4000\n"
+            "  • https://llm.yourcompany.com/v1\n"
+            "  • http://vllm-server:8000/v1\n"
+            "  • https://gateway.internal/api/v1"
+        )
+        body_widget.mount(examples)
 
         # Add input field with default value
         default_url = self.wizard_data.get("base_url", "https://")
@@ -331,24 +310,38 @@ class AIConfigWizardScreen(BaseScreen):
         # Focus the input
         self.call_after_refresh(lambda: input_widget.focus())
 
-    def load_provider_step(self, title_widget: Static, body_widget: Container) -> None:
-        """Load Provider Selection step."""
-        title_widget.update("Select AI Provider")
+    def load_source_step(self, title_widget: Static, body_widget: Container) -> None:
+        """Load source selection step."""
+        title_widget.update("Select Source")
         body_widget.remove_children()
 
-        # Add description
+        connection_type = self.wizard_data.get("connection_type", "")
+
+        if connection_type == "gateway":
+            description = Text(
+                "Choose the gateway type.\n\n"
+                "Titan currently supports LiteLLM and other OpenAI-compatible gateways."
+            )
+            body_widget.mount(description)
+            options = OptionList(
+                Option("LiteLLM / OpenAI-compatible Gateway", id="openai_compatible"),
+                id="source-options-list",
+            )
+            body_widget.mount(options)
+            self.call_after_refresh(lambda: options.focus())
+            return
+
         description = Text(
-            "Choose your AI provider.\n\n"
-            "Select the AI service you want to use for this configuration."
+            "Choose the direct provider.\n\n"
+            "Select the vendor API you want to connect to directly."
         )
         body_widget.mount(description)
 
-        # Add provider options
         options = OptionList(
             Option("Anthropic (Claude)", id="anthropic"),
+            Option("OpenAI", id="openai"),
             Option("Google (Gemini)", id="gemini"),
-            Option("Custom (OpenAI-compatible / LiteLLM)", id="custom"),
-            id="provider-options-list"
+            id="source-options-list",
         )
         body_widget.mount(options)
 
@@ -360,37 +353,46 @@ class AIConfigWizardScreen(BaseScreen):
         title_widget.update("Enter API Key")
         body_widget.remove_children()
 
-        # Get provider name for context
-        provider = self.wizard_data.get("provider", "")
-        provider_name = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "Custom" if provider == "custom" else "AI"
+        source = self.wizard_data.get("source", "")
+        connection_type = self.wizard_data.get("connection_type", "")
+        source_name = (
+            "LiteLLM / Gateway"
+            if connection_type == "gateway"
+            else "Anthropic"
+            if source == "anthropic"
+            else "OpenAI"
+            if source == "openai"
+            else "Google"
+            if source == "gemini"
+            else "AI"
+        )
 
-        # Add description
-        if provider == "custom":
+        if connection_type == "gateway":
             description = Text(
                 "Enter your API key (optional).\n\n"
-                "Some custom endpoints don't require authentication.\n"
-                "Leave blank if your endpoint doesn't need an API key.\n"
+                "Some gateways don't require authentication.\n"
+                "Leave blank if your gateway does not require an API key.\n"
                 "This key will be securely stored in your system's keyring."
             )
         else:
             description = Text(
-                f"Enter your {provider_name} API key.\n\n"
+                f"Enter your {source_name} API key.\n\n"
                 f"This key will be securely stored in your system's keyring."
             )
         body_widget.mount(description)
 
-        # Add info about getting the key
-        if provider == "custom":
+        if connection_type == "gateway":
             info = DimText(
                 "\nAPI Key Details:\n"
-                "  • Check your custom endpoint documentation for authentication requirements\n"
-                "  • LiteLLM proxy servers may or may not require API keys\n"
+                "  • Check your gateway documentation for authentication requirements\n"
+                "  • LiteLLM gateways may or may not require API keys\n"
                 "  • Leave blank if not required"
             )
         else:
             info = DimText(
                 "\nWhere to get your API key:\n"
                 "  • Anthropic: https://console.anthropic.com/settings/keys\n"
+                "  • OpenAI: https://platform.openai.com/api-keys\n"
                 "  • Google: https://aistudio.google.com/app/apikey"
             )
         body_widget.mount(info)
@@ -414,20 +416,20 @@ class AIConfigWizardScreen(BaseScreen):
         title_widget.update("Select Model")
         body_widget.remove_children()
 
-        config_type = self.wizard_data.get("config_type", "")
+        connection_type = self.wizard_data.get("connection_type", "")
         base_url = self.wizard_data.get("base_url", "")
-        provider = self.wizard_data.get("provider", "")
+        source = self.wizard_data.get("source", "")
 
-        # Check if this is LLM Tools corporate config
+        # Check if this is an LLM Tools-compatible gateway
         from titan_cli.ai.llm_tools import is_llm_tools_url
 
-        if config_type == "corporate" and is_llm_tools_url(base_url):
-            self._load_llm_tools_model_selection(body_widget, provider, base_url)
+        if connection_type == "gateway" and is_llm_tools_url(base_url):
+            self._load_llm_tools_model_selection(body_widget, source, base_url)
         else:
-            self._load_manual_model_input(body_widget, provider)
+            self._load_manual_model_input(body_widget, source)
 
     def _load_llm_tools_model_selection(
-        self, body_widget: Container, provider: str, base_url: str
+        self, body_widget: Container, source: str, base_url: str
     ) -> None:
         """Load model selection for LLM Tools with dynamic API fetch."""
         from titan_cli.ai.llm_tools import fetch_available_models
@@ -455,29 +457,37 @@ class AIConfigWizardScreen(BaseScreen):
         body_widget.mount(loading_widget)
 
         try:
-            # Fetch models from API with provider filter
+            # Fetch models from API with source filter
             models = fetch_available_models(
-                base_url=base_url, api_key=api_key, provider_filter=provider
+                base_url=base_url, api_key=api_key, provider_filter=source
             )
 
             # Clear loading message
             body_widget.remove_children()
 
             if not models:
-                # No models found for this provider
+                # No models found for this source
                 body_widget.mount(
                     Panel(
-                        f"No models found for provider '{provider}' in LLM Tools.\n\n"
+                        f"No models found for source '{source}' in LLM Tools.\n\n"
                         "You can enter a model name manually.",
                         panel_type="info",
                     )
                 )
-                self._load_manual_model_input(body_widget, provider)
+                self._load_manual_model_input(body_widget, source)
                 return
 
             # Add header with better spacing
-            provider_name = "Claude" if provider == "anthropic" else "Gemini"
-            body_widget.mount(BoldText(f"Available {provider_name} models from LLM Tools"))
+            source_name = (
+                "Gateway"
+                if source == "openai_compatible"
+                else "Claude"
+                if source == "anthropic"
+                else "OpenAI"
+                if source == "openai"
+                else "Gemini"
+            )
+            body_widget.mount(BoldText(f"Available {source_name} models from LLM Tools"))
             body_widget.mount(DimText("Select a model from the list below."))
             body_widget.mount(Text(""))  # Empty line for spacing
 
@@ -512,19 +522,19 @@ class AIConfigWizardScreen(BaseScreen):
                 )
             )
             body_widget.mount(Text(""))  # Spacing
-            self._load_manual_model_input(body_widget, provider)
+            self._load_manual_model_input(body_widget, source)
 
-    def _load_manual_model_input(self, body_widget: Container, provider: str) -> None:
-        """Load manual model input (current behavior)."""
+    def _load_manual_model_input(self, body_widget: Container, source: str) -> None:
+        """Load manual model input."""
         # Add description
         description = Text(
             "Enter the model to use.\n\n"
-            "You can choose from popular models or enter a custom model name."
+            "You can choose from popular models or enter a model name manually."
         )
         body_widget.mount(description)
 
-        # Show popular models based on provider
-        if provider == "anthropic":
+        # Show popular models based on source
+        if source == "anthropic":
             models_info = DimText(
                 "\nPopular Claude models:\n"
                 "  • claude-3-5-sonnet-20241022\n"
@@ -533,7 +543,14 @@ class AIConfigWizardScreen(BaseScreen):
                 "  • claude-3-haiku-20240307\n"
                 "  • claude-3-5-haiku-20241022"
             )
-        elif provider == "gemini":
+        elif source == "openai":
+            models_info = DimText(
+                "\nPopular OpenAI models:\n"
+                "  • gpt-5\n"
+                "  • gpt-5-mini\n"
+                "  • gpt-4.1"
+            )
+        elif source == "gemini":
             models_info = DimText(
                 "\nPopular Gemini models:\n"
                 "  • gemini-1.5-pro\n"
@@ -541,7 +558,7 @@ class AIConfigWizardScreen(BaseScreen):
                 "  • gemini-pro"
             )
         else:
-            models_info = DimText("\nEnter the model name for your provider.")
+            models_info = DimText("\nEnter the model name exposed by your gateway.")
 
         body_widget.mount(models_info)
 
@@ -549,7 +566,7 @@ class AIConfigWizardScreen(BaseScreen):
         from titan_cli.ai.constants import get_default_model
 
         default_model = self.wizard_data.get(
-            "model", get_default_model(provider) if provider else ""
+            "model", get_default_model(source) if source else ""
         )
 
         input_widget = Input(
@@ -573,24 +590,36 @@ class AIConfigWizardScreen(BaseScreen):
         )
         body_widget.mount(description)
 
-        # Generate default name based on type and provider
-        config_type = self.wizard_data.get("config_type", "")
-        provider = self.wizard_data.get("provider", "")
+        # Generate default name based on connection type and source
+        connection_type = self.wizard_data.get("connection_type", "")
+        source = self.wizard_data.get("source", "")
 
-        config_type_label = "Corporate" if config_type == "corporate" else "Individual"
-        provider_name = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "Custom" if provider == "custom" else "AI"
+        connection_type_label = (
+            "AI Gateway" if connection_type == "gateway" else "Direct Provider"
+        )
+        source_name = (
+            "LiteLLM Gateway"
+            if connection_type == "gateway"
+            else "Anthropic"
+            if source == "anthropic"
+            else "OpenAI"
+            if source == "openai"
+            else "Google"
+            if source == "gemini"
+            else "AI"
+        )
 
         default_name = self.wizard_data.get(
-            "connection_name", f"{config_type_label} {provider_name}"
+            "connection_name", f"{connection_type_label} {source_name}"
         )
 
         # Add example
         example = DimText(
             f"\nExamples:\n"
-            f"  • {config_type_label} {provider_name}\n"
-            f"  • My {provider_name} Account\n"
-            f"  • Work Claude\n"
-            f"  • Personal Gemini"
+            f"  • {connection_type_label} {source_name}\n"
+            f"  • My {source_name} Account\n"
+            f"  • Work Gateway\n"
+            f"  • OpenAI Personal"
         )
         body_widget.mount(example)
 
@@ -618,9 +647,9 @@ class AIConfigWizardScreen(BaseScreen):
         )
         body_widget.mount(description)
 
-        # Get provider to show correct temperature range
-        provider = self.wizard_data.get("provider", "")
-        max_temp = "1.0" if provider == "anthropic" else "2.0"
+        # Get source to show correct temperature range
+        source = self.wizard_data.get("source", "")
+        max_temp = "1.0" if source == "anthropic" else "2.0"
 
         # Temperature input
         temp_label = Text(f"\nTemperature (0.0 - {max_temp}):")
@@ -678,17 +707,28 @@ class AIConfigWizardScreen(BaseScreen):
         body_widget.mount(description)
 
         # Build configuration summary
-        config_type = self.wizard_data.get("config_type", "")
+        connection_type = self.wizard_data.get("connection_type", "")
         base_url = self.wizard_data.get("base_url", "")
-        provider = self.wizard_data.get("provider", "")
+        source = self.wizard_data.get("source", "")
         model = self.wizard_data.get("model", "")
         connection_name = self.wizard_data.get("connection_name", "")
         temperature = self.wizard_data.get("temperature", 0.7)
         max_tokens = self.wizard_data.get("max_tokens", 4096)
 
-        # Format provider name
-        provider_label = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "Custom (OpenAI-compatible)" if provider == "custom" else provider
-        config_type_label = "Corporate" if config_type == "corporate" else "Individual"
+        source_label = (
+            "LiteLLM / OpenAI-compatible Gateway"
+            if connection_type == "gateway"
+            else "Anthropic"
+            if source == "anthropic"
+            else "OpenAI"
+            if source == "openai"
+            else "Google"
+            if source == "gemini"
+            else source
+        )
+        connection_type_label = (
+            "AI Gateway" if connection_type == "gateway" else "Direct Provider"
+        )
 
         # Create summary text
         summary = Text("\n")
@@ -698,8 +738,8 @@ class AIConfigWizardScreen(BaseScreen):
         # Configuration details
         from titan_cli.ui.tui.widgets import BoldText
 
-        body_widget.mount(BoldText("Configuration Type:"))
-        body_widget.mount(DimText(f"  {config_type_label}"))
+        body_widget.mount(BoldText("Connection Type:"))
+        body_widget.mount(DimText(f"  {connection_type_label}"))
         body_widget.mount(Text(""))
 
         if base_url:
@@ -707,8 +747,8 @@ class AIConfigWizardScreen(BaseScreen):
             body_widget.mount(DimText(f"  {base_url}"))
             body_widget.mount(Text(""))
 
-        body_widget.mount(BoldText("Provider:"))
-        body_widget.mount(DimText(f"  {provider_label}"))
+        body_widget.mount(BoldText("Source:"))
+        body_widget.mount(DimText(f"  {source_label}"))
         body_widget.mount(Text(""))
 
         body_widget.mount(BoldText("Model:"))
@@ -764,12 +804,10 @@ class AIConfigWizardScreen(BaseScreen):
         if self.current_step < len(self.steps) - 1:
             next_step = self.current_step + 1
 
-            # Skip Base URL step if Individual was selected AND provider is not custom
-            # (custom provider ALWAYS needs base_url)
+            # Skip Base URL unless this is a gateway connection
             if self.steps[next_step]["id"] == "base_url":
-                provider = self.wizard_data.get("provider", "")
-                config_type = self.wizard_data.get("config_type", "")
-                if config_type == "individual" and provider != "custom":
+                connection_type = self.wizard_data.get("connection_type", "")
+                if connection_type != "gateway":
                     next_step += 1
 
             self.load_step(next_step)
@@ -779,15 +817,17 @@ class AIConfigWizardScreen(BaseScreen):
         step = self.steps[self.current_step]
 
         if step["id"] == "type":
-            # Get selected configuration type
+            # Get selected connection type
             try:
                 options_list = self.query_one("#type-options-list", OptionList)
                 if options_list.highlighted is None:
-                    self.app.notify("Please select a configuration type", severity="warning")
+                    self.app.notify(
+                        "Please select a connection type", severity="warning"
+                    )
                     return False
 
                 selected_option = options_list.get_option_at_index(options_list.highlighted)
-                self.wizard_data["config_type"] = selected_option.id
+                self.wizard_data["connection_type"] = selected_option.id
                 return True
             except Exception as e:
                 self.app.notify(f"Error selecting type: {e}", severity="error")
@@ -814,19 +854,19 @@ class AIConfigWizardScreen(BaseScreen):
                 self.app.notify("Please enter a valid base URL", severity="error")
                 return False
 
-        elif step["id"] == "provider":
-            # Get selected provider
+        elif step["id"] == "source":
+            # Get selected source
             try:
-                options_list = self.query_one("#provider-options-list", OptionList)
+                options_list = self.query_one("#source-options-list", OptionList)
                 if options_list.highlighted is None:
-                    self.app.notify("Please select a provider", severity="warning")
+                    self.app.notify("Please select a source", severity="warning")
                     return False
 
                 selected_option = options_list.get_option_at_index(options_list.highlighted)
-                self.wizard_data["provider"] = selected_option.id
+                self.wizard_data["source"] = selected_option.id
                 return True
             except Exception:
-                self.app.notify("Please select a provider", severity="error")
+                self.app.notify("Please select a source", severity="error")
                 return False
 
         elif step["id"] == "api_key":
@@ -835,13 +875,9 @@ class AIConfigWizardScreen(BaseScreen):
                 input_widget = self.query_one("#api-key-input", Input)
                 api_key = input_widget.value.strip()
 
-                # Get provider to check if API key is required
-                provider = self.wizard_data.get("provider", "")
-
-                # For custom provider, API key is optional
+                connection_type = self.wizard_data.get("connection_type", "")
                 if not api_key:
-                    if provider == "custom":
-                        # API key is optional for custom - save empty string
+                    if connection_type == "gateway":
                         self.wizard_data["api_key"] = ""
                         return True
                     else:
@@ -917,9 +953,8 @@ class AIConfigWizardScreen(BaseScreen):
                 temp_input = self.query_one("#temperature-input", Input)
                 tokens_input = self.query_one("#max-tokens-input", Input)
 
-                # Get provider to determine max temperature
-                provider = self.wizard_data.get("provider", "")
-                max_temp = 1.0 if provider == "anthropic" else 2.0
+                source = self.wizard_data.get("source", "")
+                max_temp = 1.0 if source == "anthropic" else 2.0
 
                 # Validate temperature
                 try:
@@ -956,12 +991,10 @@ class AIConfigWizardScreen(BaseScreen):
         if self.current_step > 0:
             prev_step = self.current_step - 1
 
-            # Skip Base URL step if going back and should be skipped
-            # (Individual config AND provider is not custom)
+            # Skip Base URL on backward nav unless this is a gateway
             if self.steps[prev_step]["id"] == "base_url":
-                provider = self.wizard_data.get("provider", "")
-                config_type = self.wizard_data.get("config_type", "")
-                if config_type == "individual" and provider != "custom":
+                connection_type = self.wizard_data.get("connection_type", "")
+                if connection_type != "gateway":
                     prev_step -= 1
 
             self.load_step(prev_step)
@@ -993,8 +1026,8 @@ class AIConfigWizardScreen(BaseScreen):
                 )
                 return
 
-            selected_provider = self.wizard_data.get("provider")
-            config_type = self.wizard_data.get("config_type")
+            selected_source = self.wizard_data.get("source")
+            connection_type = self.wizard_data.get("connection_type")
 
             connection_cfg = {
                 "name": connection_name,
@@ -1006,14 +1039,14 @@ class AIConfigWizardScreen(BaseScreen):
             if self.wizard_data.get("base_url"):
                 connection_cfg["base_url"] = self.wizard_data.get("base_url")
 
-            if config_type == "corporate" or selected_provider == "custom":
+            if connection_type == "gateway":
                 connection_cfg["kind"] = AIConnectionKind.GATEWAY.value
                 connection_cfg["gateway_type"] = (
                     AIGatewayType.OPENAI_COMPATIBLE.value
                 )
             else:
                 connection_cfg["kind"] = AIConnectionKind.DIRECT_PROVIDER.value
-                connection_cfg["provider"] = AIDirectProvider(selected_provider).value
+                connection_cfg["provider"] = AIDirectProvider(selected_source).value
 
             self.config.upsert_ai_connection(connection_id, connection_cfg)
             logger.info("ai_config_saved", connection=connection_name)
