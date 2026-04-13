@@ -5,6 +5,7 @@ from titan_cli.core.models import (
     AIConfig,
     AIConnectionConfig,
     AIConnectionKind,
+    AIDirectProvider,
     AIGatewayType,
 )
 
@@ -79,8 +80,21 @@ def test_aiconnectionconfig_gateway_rejects_provider():
             name="Bad Gateway",
             kind=AIConnectionKind.GATEWAY,
             gateway_type=AIGatewayType.OPENAI_COMPATIBLE,
-            provider="custom",
+            provider=AIDirectProvider.ANTHROPIC,
             base_url="https://gateway.example.com",
+        )
+
+
+def test_aiconnectionconfig_gateway_requires_base_url():
+    """Test gateway connections require a base URL."""
+    with pytest.raises(
+        ValidationError, match="gateway connections require 'base_url'"
+    ):
+        AIConnectionConfig(
+            name="Bad Gateway",
+            kind=AIConnectionKind.GATEWAY,
+            gateway_type=AIGatewayType.OPENAI_COMPATIBLE,
+            default_model="llama-2-7b",
         )
 
 

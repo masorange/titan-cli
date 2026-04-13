@@ -25,7 +25,7 @@ def mock_ai_config_single_provider():
 
 
 @pytest.fixture
-def mock_ai_config_multiple_providers():
+def mock_ai_config_multiple_connections():
     """Returns an AIConfig with multiple connections and a default."""
     return AIConfig(
         default_connection="default_gemini",
@@ -55,28 +55,28 @@ def mock_secret_manager():
 
 
 def test_aiclient_init_specific_provider(
-    mock_ai_config_multiple_providers, mock_secret_manager
+    mock_ai_config_multiple_connections, mock_secret_manager
 ):
-    """Test AIClient initializes with a specific provider_id."""
+    """Test AIClient initializes with a specific connection_id."""
     client = AIClient(
-        ai_config=mock_ai_config_multiple_providers,
+        ai_config=mock_ai_config_multiple_connections,
         secrets=mock_secret_manager,
-        provider_id="secondary_anthropic",
+        connection_id="secondary_anthropic",
     )
-    current_provider_cfg = client.ai_config.providers.get(client.provider_id)
+    current_provider_cfg = client.ai_config.connections.get(client.connection_id)
     assert current_provider_cfg.name == "Secondary Anthropic"
     assert current_provider_cfg.provider == "anthropic"
 
 
 def test_aiclient_init_default_provider(
-    mock_ai_config_multiple_providers, mock_secret_manager
+    mock_ai_config_multiple_connections, mock_secret_manager
 ):
-    """Test AIClient initializes with the default provider when no provider_id is given."""
+    """Test AIClient initializes with the default connection when no connection_id is given."""
     client = AIClient(
-        ai_config=mock_ai_config_multiple_providers,
+        ai_config=mock_ai_config_multiple_connections,
         secrets=mock_secret_manager,
     )
-    current_provider_cfg = client.ai_config.providers.get(client.provider_id)
+    current_provider_cfg = client.ai_config.connections.get(client.connection_id)
     assert current_provider_cfg.name == "Default Gemini"
     assert current_provider_cfg.provider == "gemini"
 
@@ -101,23 +101,23 @@ def test_aiclient_init_fallback_default_not_exist_fails():
 
 
 def test_aiclient_init_invalid_provider_id_falls_back(
-    mock_ai_config_multiple_providers, mock_secret_manager
+    mock_ai_config_multiple_connections, mock_secret_manager
 ):
-    """Test AIClient falls back to the first available provider when initializing with a non-existent provider_id."""
+    """Test AIClient falls back to the first available connection when initializing with a non-existent connection_id."""
     client = AIClient(
-        ai_config=mock_ai_config_multiple_providers,
+        ai_config=mock_ai_config_multiple_connections,
         secrets=mock_secret_manager,
-        provider_id="non_existent_provider",
+        connection_id="non_existent_connection",
     )
-    first_provider_id = list(mock_ai_config_multiple_providers.providers.keys())[0]
-    assert client.provider_id == first_provider_id
-    assert client.provider_id in mock_ai_config_multiple_providers.providers
+    first_connection_id = list(mock_ai_config_multiple_connections.connections.keys())[0]
+    assert client.connection_id == first_connection_id
+    assert client.connection_id in mock_ai_config_multiple_connections.connections
 
 
-def test_aiclient_no_providers_configured():
-    """Test AIClient raises AIConfigurationError if no providers are configured."""
+def test_aiclient_no_connections_configured():
+    """Test AIClient raises AIConfigurationError if no connections are configured."""
     ai_config_no_providers = AIConfig(connections={})
-    with pytest.raises(AIConfigurationError, match="No AI providers configured."):
+    with pytest.raises(AIConfigurationError, match="No AI connections configured."):
         AIClient(
             ai_config=ai_config_no_providers,
             secrets=MagicMock(spec=SecretManager),

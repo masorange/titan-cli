@@ -5,19 +5,37 @@ AI Client - Main facade for AI functionality
 import sys
 from typing import Optional, List
 
-from titan_cli.core.models import AIConfig
+from titan_cli.core.models import (
+    AIConfig,
+    AIConnectionKind,
+    AIDirectProvider,
+    AIGatewayType,
+)
 from titan_cli.core.secrets import SecretManager
 from .exceptions import AIConfigurationError
 from .models import AIMessage, AIRequest, AIResponse
-from .providers import AIProvider, AnthropicProvider, GeminiProvider, CustomProvider
+from .providers import (
+    AIProvider,
+    AnthropicProvider,
+    GeminiProvider,
+    LiteLLMProvider,
+    OpenAIProvider,
+)
 
 
 def get_provider_classes() -> dict[str, type[AIProvider]]:
-    """Return the current provider class registry."""
+    """Return the direct-provider class registry."""
     return {
-        "anthropic": AnthropicProvider,
-        "gemini": GeminiProvider,
-        "custom": CustomProvider,
+        AIDirectProvider.ANTHROPIC.value: AnthropicProvider,
+        AIDirectProvider.GEMINI.value: GeminiProvider,
+        AIDirectProvider.OPENAI.value: OpenAIProvider,
+    }
+
+
+def get_gateway_classes() -> dict[str, type[AIProvider]]:
+    """Return the gateway-provider class registry."""
+    return {
+        AIGatewayType.OPENAI_COMPATIBLE.value: LiteLLMProvider,
     }
 
 
@@ -25,9 +43,10 @@ def get_provider_classes() -> dict[str, type[AIProvider]]:
 PROVIDER_CLASSES = get_provider_classes()
 
 PROVIDER_PACKAGES = {
-    "anthropic": "anthropic",
-    "gemini": "google-genai google-auth",
-    "custom": "openai",
+    AIDirectProvider.ANTHROPIC.value: "anthropic",
+    AIDirectProvider.GEMINI.value: "google-genai google-auth",
+    AIDirectProvider.OPENAI.value: "openai",
+    AIGatewayType.OPENAI_COMPATIBLE.value: "openai",
 }
 
 
@@ -58,29 +77,31 @@ class AIClient:
     - Providing a simple `generate()` and `chat()` interface.
     """
 
-    def __init__(self, ai_config: AIConfig, secrets: SecretManager, provider_id: Optional[str] = None):
+    def __init__(
+        self,
+        ai_config: AIConfig,
+        secrets: SecretManager,
+        connection_id: Optional[str] = None,
+    ):
         """
         Initialize AI client.
 
         Args:
             ai_config: The AI configuration.
             secrets: The SecretManager for handling API keys.
-            provider_id: The specific provider ID to use. If None, uses the default.
+            connection_id: The specific AI connection ID to use. If None, uses the default.
         """
         self.ai_config = ai_config
         self.secrets = secrets
 
-        # Determine provider_id with fallback
-        requested_id = provider_id or ai_config.default
+        requested_id = connection_id or ai_config.default_connection
 
-        # Validate that the provider exists, fallback to first available if default is invalid
-        if requested_id and requested_id in ai_config.providers:
-            self.provider_id = requested_id
-        elif ai_config.providers:
-            # Fallback to first available provider
-            self.provider_id = list(ai_config.providers.keys())[0]
+        if requested_id and requested_id in ai_config.connections:
+            self.connection_id = requested_id
+        elif ai_config.connections:
+            self.connection_id = list(ai_config.connections.keys())[0]
         else:
-            raise AIConfigurationError("No AI providers configured.")
+            raise AIConfigurationError("No AI connections configured.")
 
         self._provider: Optional[AIProvider] = None
 
@@ -98,44 +119,50 @@ class AIClient:
         if self._provider:
             return self._provider
 
-        provider_config = self.ai_config.providers.get(self.provider_id)
-        if not provider_config:
-            raise AIConfigurationError(f"AI provider '{self.provider_id}' not found in configuration.")
+        connection_config = self.ai_config.connections.get(self.connection_id)
+        if not connection_config:
+            raise AIConfigurationError(
+                f"AI connection '{self.connection_id}' not found in configuration."
+            )
 
-        provider_name = provider_config.provider
-        provider_class = get_provider_classes().get(provider_name)
+        if connection_config.kind == AIConnectionKind.GATEWAY:
+            source_name = connection_config.gateway_type.value
+            provider_class = get_gateway_classes().get(source_name)
+        else:
+            source_name = connection_config.provider.value
+            provider_class = get_provider_classes().get(source_name)
 
         if not provider_class:
-            raise AIConfigurationError(f"Unknown AI provider type: {provider_name}")
+            raise AIConfigurationError(f"Unknown AI source type: {source_name}")
 
-        # Get API key (optional for custom provider)
-        api_key_name = f"{self.provider_id}_api_key"
+        api_key_name = f"{self.connection_id}_api_key"
         api_key = self.secrets.get(api_key_name)
 
-        # For custom provider, API key is optional
-        # For other providers, API key is required
-        if not api_key and provider_name != "custom":
-            raise AIConfigurationError(f"API key for provider '{self.provider_id}' ({provider_name}) not found.")
+        if not api_key and connection_config.kind != AIConnectionKind.GATEWAY:
+            raise AIConfigurationError(
+                f"API key for connection '{self.connection_id}' ({source_name}) not found."
+            )
 
-        # Build provider kwargs
-        kwargs = {"model": provider_config.model}
+        kwargs = {"model": connection_config.default_model}
 
-        # Add API key if present
         if api_key:
             kwargs["api_key"] = api_key
 
-        # Add base_url if present
-        if provider_config.base_url:
-            kwargs["base_url"] = provider_config.base_url
+        if connection_config.base_url:
+            kwargs["base_url"] = connection_config.base_url
 
-        # For custom provider, base_url is required
-        if provider_name == "custom" and not provider_config.base_url:
-            raise AIConfigurationError(f"base_url is required for custom provider '{self.provider_id}'")
+        if (
+            connection_config.kind == AIConnectionKind.GATEWAY
+            and not connection_config.base_url
+        ):
+            raise AIConfigurationError(
+                f"base_url is required for gateway connection '{self.connection_id}'"
+            )
 
         try:
             self._provider = provider_class(**kwargs)
         except ImportError as exc:
-            install_command = get_provider_install_command(provider_name)
+            install_command = get_provider_install_command(source_name)
             error_message = str(exc).strip()
             if install_command and install_command not in error_message:
                 error_message = f"{error_message}\nInstall with: {install_command}"
@@ -159,9 +186,11 @@ class AIClient:
         Returns:
             AI response with generated content.
         """
-        provider_cfg = self.ai_config.providers.get(self.provider_id)
-        if not provider_cfg:
-            raise AIConfigurationError(f"AI provider '{self.provider_id}' not found for generation.")
+        connection_cfg = self.ai_config.connections.get(self.connection_id)
+        if not connection_cfg:
+            raise AIConfigurationError(
+                f"AI connection '{self.connection_id}' not found for generation."
+            )
 
         request = AIRequest(
             messages=messages,
@@ -169,14 +198,18 @@ class AIClient:
                 max_tokens
                 if max_tokens is not None
                 else (
-                    None if provider_cfg.provider == "custom" else provider_cfg.max_tokens
+                    None
+                    if connection_cfg.kind == AIConnectionKind.GATEWAY
+                    else connection_cfg.max_tokens
                 )
             ),
             temperature=(
                 temperature
                 if temperature is not None
                 else (
-                    None if provider_cfg.provider == "custom" else provider_cfg.temperature
+                    None
+                    if connection_cfg.kind == AIConnectionKind.GATEWAY
+                    else connection_cfg.temperature
                 )
             ),
         )
@@ -218,16 +251,14 @@ class AIClient:
         Returns:
             True if AI can be used.
         """
-        if not self.ai_config or not self.ai_config.providers:
+        if not self.ai_config or not self.ai_config.connections:
             return False
-        
-        provider_cfg = self.ai_config.providers.get(self.provider_id)
-        if not provider_cfg:
+
+        connection_cfg = self.ai_config.connections.get(self.connection_id)
+        if not connection_cfg:
             return False
 
         try:
-            # This will attempt to instantiate the provider, which includes key checks.
-            # Make sure to call self.provider to trigger the instantiation and checks
             return self.provider is not None
         except AIConfigurationError:
             return False

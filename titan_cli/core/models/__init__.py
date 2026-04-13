@@ -39,7 +39,6 @@ class AIDirectProvider(str, Enum):
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
     OPENAI = "openai"
-    CUSTOM = "custom"
 
 
 class AIConnectionConfig(BaseModel):

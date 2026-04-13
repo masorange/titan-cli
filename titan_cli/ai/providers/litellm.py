@@ -1,5 +1,5 @@
 """
-Custom AI Provider - OpenAI-compatible endpoints (LiteLLM, vLLM, etc.)
+LiteLLM Provider - OpenAI-compatible endpoints (LiteLLM, vLLM, etc.)
 
 Supports any OpenAI-compatible API endpoint, including:
 - LiteLLM proxy servers
@@ -40,9 +40,9 @@ from ..exceptions import (
 )
 
 
-class CustomProvider(AIProvider):
+class LiteLLMProvider(AIProvider):
     """
-    Custom AI provider for OpenAI-compatible endpoints.
+    LiteLLM/OpenAI-compatible provider.
 
     Uses the OpenAI Python SDK to communicate with any OpenAI-compatible API.
     This includes LiteLLM proxy servers, vLLM, and custom deployments.
@@ -63,15 +63,15 @@ class CustomProvider(AIProvider):
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ):
-        """Initialize custom provider with OpenAI-compatible client."""
+        """Initialize LiteLLM provider with OpenAI-compatible client."""
         if not base_url:
-            raise ValueError("base_url is required for custom provider")
+            raise ValueError("base_url is required for LiteLLM provider")
 
         if not model:
-            raise ValueError("model is required for custom provider")
+            raise ValueError("model is required for LiteLLM provider")
 
         if not OPENAI_AVAILABLE:
-            error_msg = "Custom provider requires 'openai' library.\n"
+            error_msg = "LiteLLM provider requires 'openai' library.\n"
             if OPENAI_IMPORT_ERROR:
                 error_msg += f"Import error: {OPENAI_IMPORT_ERROR}\n"
             error_msg += "Install with: poetry add openai"
@@ -94,7 +94,7 @@ class CustomProvider(AIProvider):
     @property
     def name(self) -> str:
         """Provider name."""
-        return f"custom ({self._base_url})"
+        return f"litellm ({self._base_url})"
 
     @staticmethod
     def _normalize_base_url(base_url: str) -> str:
@@ -189,19 +189,19 @@ class CustomProvider(AIProvider):
 
         except AuthenticationError as e:
             raise AIProviderAuthenticationError(
-                f"Authentication failed for custom endpoint: {str(e)}"
+                f"Authentication failed for LiteLLM endpoint: {str(e)}"
             )
         except RateLimitError as e:
             raise AIProviderRateLimitError(
-                f"Rate limit exceeded for custom endpoint: {str(e)}"
+                f"Rate limit exceeded for LiteLLM endpoint: {str(e)}"
             )
         except APIError as e:
             raise AIProviderAPIError(
-                f"API error from custom endpoint: {str(e)}"
+                f"API error from LiteLLM endpoint: {str(e)}"
             )
         except OpenAIError as e:
             raise AIProviderAPIError(
-                f"Custom provider error: {str(e)}"
+                f"LiteLLM provider error: {str(e)}"
             )
 
     def validate_api_key(self, api_key: Optional[str] = None) -> bool:

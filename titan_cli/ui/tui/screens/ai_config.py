@@ -111,18 +111,68 @@ class TestConnectionModal(ModalScreen):
     async def _run_test(self) -> None:
         """Run the test asynchronously."""
         import asyncio
+        import importlib
         from titan_cli.core.secrets import SecretManager
         from titan_cli.ai.client import AIClient
         from titan_cli.ai.models import AIMessage
+        from titan_cli.ai.dependencies import (
+            dependencies_available,
+            find_missing_modules,
+            get_install_command,
+            install_missing_dependencies,
+        )
 
         content = self.query_one("#test-modal-content", Container)
         secrets = SecretManager()
 
         try:
+            source_name = str(
+                self.connection_cfg.provider or self.connection_cfg.gateway_type or ""
+            )
+            if source_name and not dependencies_available(source_name):
+                missing_modules = find_missing_modules(source_name)
+                install_command = get_install_command(source_name) or []
+
+                should_install = await self.app.push_screen_wait(
+                    ConfirmInstallDependenciesModal(
+                        source_name=source_name,
+                        missing_modules=missing_modules,
+                        install_command=install_command,
+                    )
+                )
+
+                if not should_install:
+                    raise RuntimeError(
+                        "Required dependencies are not installed for this connection."
+                    )
+
+                result = await asyncio.to_thread(
+                    install_missing_dependencies,
+                    source_name,
+                )
+                importlib.invalidate_caches()
+
+                if result is None:
+                    raise RuntimeError(
+                        f"No installer is configured for source '{source_name}'."
+                    )
+
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        result.stderr
+                        or result.stdout
+                        or "Dependency installation failed."
+                    )
+
+                if not dependencies_available(source_name):
+                    raise RuntimeError(
+                        "Dependencies were installed but are still not importable."
+                    )
+
             ai_client = AIClient(
                 self.config.config.ai,
                 secrets,
-                provider_id=self.connection_id,
+                connection_id=self.connection_id,
             )
 
             # Run the blocking generate call in a thread to keep UI responsive
@@ -169,6 +219,63 @@ class TestConnectionModal(ModalScreen):
     def action_close_modal(self) -> None:
         """Close the modal."""
         self.dismiss()
+
+
+class ConfirmInstallDependenciesModal(ModalScreen[bool]):
+    """Modal asking whether missing AI dependencies should be installed."""
+
+    DEFAULT_CSS = """
+    ConfirmInstallDependenciesModal {
+        align: center middle;
+    }
+
+    #confirm-install-container {
+        width: 80;
+        height: auto;
+        background: $surface-lighten-1;
+        border: solid $primary;
+        padding: 2;
+    }
+
+    #confirm-install-buttons {
+        height: auto;
+        align: right middle;
+        margin-top: 2;
+    }
+    """
+
+    def __init__(
+        self,
+        source_name: str,
+        missing_modules: list[str],
+        install_command: list[str],
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.source_name = source_name
+        self.missing_modules = missing_modules
+        self.install_command = install_command
+
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-install-container"):
+            yield Static(
+                f"{Icons.WARNING} Missing dependencies for {self.source_name}"
+            )
+            yield DimText("The following Python modules are required:")
+            for module_name in self.missing_modules:
+                yield DimText(f"  • {module_name}")
+            yield DimText("")
+            yield DimText("Install command:")
+            yield DimText(f"  {' '.join(self.install_command)}")
+            with Horizontal(id="confirm-install-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-install")
+                yield Button("Install", variant="primary", id="confirm-install")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-install":
+            self.dismiss(True)
+        elif event.button.id == "cancel-install":
+            self.dismiss(False)
 
 
 class ConnectionCard(Container):
@@ -477,7 +584,7 @@ class AIConfigScreen(BaseScreen):
             )
 
         except Exception as e:
-            self.app.notify(f"Failed to delete provider: {e}", severity="error")
+            self.app.notify(f"Failed to delete connection: {e}", severity="error")
 
     def action_back(self) -> None:
         """Go back to main menu (ESC key)."""
