@@ -1,7 +1,7 @@
 """
 AI Configuration Wizard Screen
 
-Step-by-step wizard for configuring AI providers with visual progress tracking.
+Step-by-step wizard for configuring AI connections with visual progress tracking.
 """
 
 from textual.app import ComposeResult
@@ -41,7 +41,7 @@ class StepIndicator(Static):
 
 class AIConfigWizardScreen(BaseScreen):
     """
-    Wizard screen for AI provider configuration.
+    Wizard screen for AI connection configuration.
     """
 
     BINDINGS = [
@@ -152,7 +152,7 @@ class AIConfigWizardScreen(BaseScreen):
     def __init__(self, config):
         super().__init__(
             config,
-            title=f"{Icons.AI_CONFIG} Configure AI Provider",
+            title=f"{Icons.AI_CONFIG} Configure AI Connection",
             show_back=True,
             show_status_bar=False
         )
@@ -167,7 +167,7 @@ class AIConfigWizardScreen(BaseScreen):
             {"id": "base_url", "title": "Base URL"},
             {"id": "api_key", "title": "API Key"},
             {"id": "model", "title": "Select Model"},
-            {"id": "name", "title": "Provider Name"},
+            {"id": "name", "title": "Connection Name"},
             {"id": "advanced", "title": "Advanced Options"},
             {"id": "review", "title": "Review & Save"},
         ]
@@ -562,14 +562,14 @@ class AIConfigWizardScreen(BaseScreen):
         self.call_after_refresh(lambda: input_widget.focus())
 
     def load_name_step(self, title_widget: Static, body_widget: Container) -> None:
-        """Load Provider Name step."""
-        title_widget.update("Provider Name")
+        """Load connection name step."""
+        title_widget.update("Connection Name")
         body_widget.remove_children()
 
         # Add description
         description = Text(
-            "Name this provider configuration.\n\n"
-            "This helps you identify this configuration when you have multiple providers."
+            "Name this AI connection.\n\n"
+            "This helps you identify this configuration when you have multiple connections."
         )
         body_widget.mount(description)
 
@@ -580,7 +580,9 @@ class AIConfigWizardScreen(BaseScreen):
         config_type_label = "Corporate" if config_type == "corporate" else "Individual"
         provider_name = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else "Custom" if provider == "custom" else "AI"
 
-        default_name = self.wizard_data.get("provider_name", f"{config_type_label} {provider_name}")
+        default_name = self.wizard_data.get(
+            "connection_name", f"{config_type_label} {provider_name}"
+        )
 
         # Add example
         example = DimText(
@@ -595,7 +597,7 @@ class AIConfigWizardScreen(BaseScreen):
         # Add input field
         input_widget = Input(
             value=default_name,
-            placeholder="Enter provider name...",
+            placeholder="Enter connection name...",
             id="name-input"
         )
         input_widget.styles.margin = (2, 0, 0, 0)
@@ -680,7 +682,7 @@ class AIConfigWizardScreen(BaseScreen):
         base_url = self.wizard_data.get("base_url", "")
         provider = self.wizard_data.get("provider", "")
         model = self.wizard_data.get("model", "")
-        provider_name = self.wizard_data.get("provider_name", "")
+        connection_name = self.wizard_data.get("connection_name", "")
         temperature = self.wizard_data.get("temperature", 0.7)
         max_tokens = self.wizard_data.get("max_tokens", 4096)
 
@@ -713,8 +715,8 @@ class AIConfigWizardScreen(BaseScreen):
         body_widget.mount(DimText(f"  {model}"))
         body_widget.mount(Text(""))
 
-        body_widget.mount(BoldText("Provider Name:"))
-        body_widget.mount(DimText(f"  {provider_name}"))
+        body_widget.mount(BoldText("Connection Name:"))
+        body_widget.mount(DimText(f"  {connection_name}"))
         body_widget.mount(Text(""))
 
         body_widget.mount(BoldText("Temperature:"))
@@ -890,20 +892,23 @@ class AIConfigWizardScreen(BaseScreen):
                     return False
 
         elif step["id"] == "name":
-            # Get provider name from input
+            # Get connection name from input
             try:
                 input_widget = self.query_one("#name-input", Input)
-                provider_name = input_widget.value.strip()
+                connection_name = input_widget.value.strip()
 
-                # Validate name
-                if not provider_name:
-                    self.app.notify("Please enter a provider name", severity="warning")
+                if not connection_name:
+                    self.app.notify(
+                        "Please enter a connection name", severity="warning"
+                    )
                     return False
 
-                self.wizard_data["provider_name"] = provider_name
+                self.wizard_data["connection_name"] = connection_name
                 return True
             except Exception:
-                self.app.notify("Please enter a valid provider name", severity="error")
+                self.app.notify(
+                    "Please enter a valid connection name", severity="error"
+                )
                 return False
 
         elif step["id"] == "advanced":
@@ -962,90 +967,83 @@ class AIConfigWizardScreen(BaseScreen):
             self.load_step(prev_step)
 
     def save_configuration(self) -> None:
-        """Save the AI provider configuration."""
-        import tomli
-        import tomli_w
+        """Save the AI connection configuration."""
         import re
-        from titan_cli.core.config import TitanConfig
         from titan_cli.core.secrets import SecretManager
         from titan_cli.core.logging import get_logger
+        from titan_cli.core.models import (
+            AIConnectionKind,
+            AIGatewayType,
+            AIDirectProvider,
+        )
 
         logger = get_logger(__name__)
         logger.debug("ai_wizard_save_started")
 
         try:
-            # Generate provider ID from name (clean to only allow valid characters)
-            provider_name = self.wizard_data.get("provider_name", "")
-            # Replace spaces with hyphens, remove invalid characters
-            provider_id = provider_name.lower().replace(" ", "-")
-            provider_id = re.sub(r'[^a-z0-9_-]', '', provider_id)
+            connection_name = self.wizard_data.get("connection_name", "")
+            connection_id = connection_name.lower().replace(" ", "-")
+            connection_id = re.sub(r"[^a-z0-9_-]", "", connection_id)
 
-            # Load global config
-            global_config_path = TitanConfig.GLOBAL_CONFIG
-            global_config_data = {}
-            if global_config_path.exists():
-                with open(global_config_path, "rb") as f:
-                    global_config_data = tomli.load(f)
-
-            # Initialize AI config structure if needed
-            if "ai" not in global_config_data:
-                global_config_data["ai"] = {}
-            if "providers" not in global_config_data["ai"]:
-                global_config_data["ai"]["providers"] = {}
-
-            # Check if provider ID already exists
-            if provider_id in global_config_data["ai"]["providers"]:
-                self.app.notify(f"Provider ID '{provider_id}' already exists", severity="error")
+            ai_cfg = self.config.get_ai_connections_config()
+            if connection_id in ai_cfg["connections"]:
+                self.app.notify(
+                    f"Connection ID '{connection_id}' already exists",
+                    severity="error",
+                )
                 return
 
-            # Build provider configuration
-            provider_cfg = {
-                "name": self.wizard_data.get("provider_name"),
-                "type": self.wizard_data.get("config_type"),
-                "provider": self.wizard_data.get("provider"),
-                "model": self.wizard_data.get("model"),
+            selected_provider = self.wizard_data.get("provider")
+            config_type = self.wizard_data.get("config_type")
+
+            connection_cfg = {
+                "name": connection_name,
+                "default_model": self.wizard_data.get("model"),
                 "temperature": self.wizard_data.get("temperature", 0.7),
                 "max_tokens": self.wizard_data.get("max_tokens", 4096),
             }
 
-            # Add base_url if it's a corporate configuration
             if self.wizard_data.get("base_url"):
-                provider_cfg["base_url"] = self.wizard_data.get("base_url")
+                connection_cfg["base_url"] = self.wizard_data.get("base_url")
 
-            # Save provider configuration
-            global_config_data["ai"]["providers"][provider_id] = provider_cfg
+            if config_type == "corporate" or selected_provider == "custom":
+                connection_cfg["kind"] = AIConnectionKind.GATEWAY.value
+                connection_cfg["gateway_type"] = (
+                    AIGatewayType.OPENAI_COMPATIBLE.value
+                )
+            else:
+                connection_cfg["kind"] = AIConnectionKind.DIRECT_PROVIDER.value
+                connection_cfg["provider"] = AIDirectProvider(selected_provider).value
 
-            # Set as default if it's the first provider
-            if len(global_config_data["ai"]["providers"]) == 1:
-                global_config_data["ai"]["default"] = provider_id
-            elif "default" not in global_config_data["ai"]:
-                global_config_data["ai"]["default"] = provider_id
-
-            # Save to disk
-            logger.debug("ai_wizard_saving", config_path=str(global_config_path))
-            global_config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(global_config_path, "wb") as f:
-                tomli_w.dump(global_config_data, f)
-            logger.info("ai_config_saved", provider=provider_name, config_path=str(global_config_path))
+            self.config.upsert_ai_connection(connection_id, connection_cfg)
+            logger.info("ai_config_saved", connection=connection_name)
 
             # Save API key to secrets (if provided)
             secrets = SecretManager()
             api_key = self.wizard_data.get("api_key")
             if api_key:  # Only save if API key is not empty
-                secrets.set(f"{provider_id}_api_key", api_key, scope="user")
-                logger.debug("api_key_saved", provider_id=provider_id)
+                secrets.set(f"{connection_id}_api_key", api_key, scope="user")
+                logger.debug("api_key_saved", connection_id=connection_id)
             else:
-                logger.debug("api_key_skipped", provider_id=provider_id, reason="empty_key")
+                logger.debug(
+                    "api_key_skipped", connection_id=connection_id, reason="empty_key"
+                )
 
             # Show success message
-            self.app.notify(f"AI provider '{provider_name}' configured successfully!", severity="information")
+            self.app.notify(
+                f"AI connection '{connection_name}' configured successfully!",
+                severity="information",
+            )
 
             # Close wizard and trigger callback
-            logger.debug("ai_wizard_completed", provider=provider_name)
+            logger.debug("ai_wizard_completed", connection=connection_name)
             self.dismiss(result=True)
 
         except Exception as e:
-            logger.exception("ai_wizard_save_failed", provider=self.wizard_data.get("provider_name"))
+            logger.exception(
+                "ai_wizard_save_failed",
+                connection=self.wizard_data.get("connection_name"),
+            )
             self.app.notify(f"Failed to save configuration: {e}", severity="error")
 
     def action_back(self) -> None:
