@@ -40,6 +40,7 @@ class LegacyToV1Migration:
 
     def migrate(self, data: dict) -> dict:
         migrated = deepcopy(data)
+        migrated.pop("version", None)
         migrated["config_version"] = CURRENT_CONFIG_VERSION
 
         ai_cfg = migrated.get("ai")
@@ -53,28 +54,81 @@ class LegacyToV1Migration:
         legacy_providers = ai_cfg.pop("providers", None)
         if isinstance(legacy_providers, dict):
             connections = ai_cfg.setdefault("connections", {})
-            for connection_id, provider_cfg in legacy_providers.items():
+            migrated_connections = self._migrate_connections(
+                legacy_providers,
+                default_connection=ai_cfg.get("default_connection"),
+            )
+            for connection_id, provider_cfg in migrated_connections.items():
                 if connection_id in connections:
                     continue
-                connections[connection_id] = self._migrate_connection(provider_cfg)
+                connections[connection_id] = provider_cfg
 
         return migrated
 
-    def _migrate_connection(self, provider_cfg: dict) -> dict:
-        migrated = deepcopy(provider_cfg)
+    def _migrate_connections(
+        self,
+        legacy_providers: dict,
+        default_connection: str | None,
+    ) -> dict:
+        gateway_groups: dict[str, list[tuple[str, dict]]] = {}
+        direct_connections: dict[str, dict] = {}
 
-        legacy_provider = migrated.get("provider")
+        for connection_id, provider_cfg in legacy_providers.items():
+            if self._is_gateway_provider(provider_cfg):
+                base_url = provider_cfg.get("base_url")
+                if base_url:
+                    gateway_groups.setdefault(base_url, []).append(
+                        (connection_id, provider_cfg)
+                    )
+                    continue
+
+            direct_connections[connection_id] = self._migrate_direct_connection(
+                provider_cfg
+            )
+
+        migrated = {**direct_connections}
+        for entries in gateway_groups.values():
+            connection_id, connection_cfg = self._merge_gateway_group(
+                entries,
+                default_connection=default_connection,
+            )
+            migrated[connection_id] = connection_cfg
+
+        return migrated
+
+    def _is_gateway_provider(self, provider_cfg: dict) -> bool:
+        legacy_type = provider_cfg.get("type")
+        legacy_provider = provider_cfg.get("provider")
+        return legacy_provider == "custom" or (
+            legacy_type == "corporate" and bool(provider_cfg.get("base_url"))
+        )
+
+    def _migrate_direct_connection(self, provider_cfg: dict) -> dict:
+        migrated = deepcopy(provider_cfg)
         migrated["default_model"] = migrated.pop("model", None)
         migrated.pop("type", None)
-
-        if legacy_provider == "custom":
-            migrated["kind"] = "gateway"
-            migrated["gateway_type"] = "openai_compatible"
-            migrated.pop("provider", None)
-        else:
-            migrated["kind"] = "direct_provider"
-
+        migrated["kind"] = "direct_provider"
         return migrated
+
+    def _merge_gateway_group(
+        self,
+        entries: list[tuple[str, dict]],
+        default_connection: str | None,
+    ) -> tuple[str, dict]:
+        selected_id, selected_cfg = entries[0]
+        if default_connection:
+            for candidate_id, candidate_cfg in entries:
+                if candidate_id == default_connection:
+                    selected_id, selected_cfg = candidate_id, candidate_cfg
+                    break
+
+        merged = deepcopy(selected_cfg)
+        merged["default_model"] = merged.pop("model", None)
+        merged.pop("type", None)
+        merged.pop("provider", None)
+        merged["kind"] = "gateway"
+        merged["gateway_type"] = "openai_compatible"
+        return selected_id, merged
 
 
 class MigrationManager:

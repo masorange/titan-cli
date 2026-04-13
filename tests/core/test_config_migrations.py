@@ -1,4 +1,4 @@
-from titan_cli.core.config_migrations import (
+from titan_cli.core.migrations import (
     CURRENT_CONFIG_VERSION,
     LEGACY_VERSION,
     LegacyToV1Migration,
@@ -68,6 +68,67 @@ def test_legacy_to_v1_migrates_custom_provider_to_gateway():
     assert connection["default_model"] == "gpt-4o-mini"
     assert "provider" not in connection
     assert "type" not in connection
+
+
+def test_legacy_to_v1_merges_corporate_connections_by_base_url():
+    raw_config = {
+        "version": "1.0",
+        "ai": {
+            "default": "corp-gemini",
+            "providers": {
+                "corp-claude": {
+                    "name": "Corp Claude",
+                    "type": "corporate",
+                    "provider": "anthropic",
+                    "model": "claude-sonnet-4-5",
+                    "base_url": "https://llm.company.com/",
+                },
+                "corp-gemini": {
+                    "name": "Corp Gemini",
+                    "type": "corporate",
+                    "provider": "gemini",
+                    "model": "gemini-2.5-pro",
+                    "base_url": "https://llm.company.com/",
+                },
+            },
+        },
+    }
+
+    migrated = LegacyToV1Migration().migrate(raw_config)
+
+    assert "version" not in migrated
+    assert migrated["config_version"] == CURRENT_CONFIG_VERSION
+    assert migrated["ai"]["default_connection"] == "corp-gemini"
+    assert list(migrated["ai"]["connections"].keys()) == ["corp-gemini"]
+
+    connection = migrated["ai"]["connections"]["corp-gemini"]
+    assert connection["kind"] == "gateway"
+    assert connection["gateway_type"] == "openai_compatible"
+    assert connection["base_url"] == "https://llm.company.com/"
+    assert connection["default_model"] == "gemini-2.5-pro"
+    assert connection["name"] == "Corp Gemini"
+
+
+def test_legacy_to_v1_keeps_individual_connections_separate():
+    raw_config = {
+        "ai": {
+            "default": "personal-gemini",
+            "providers": {
+                "personal-gemini": {
+                    "name": "Personal Gemini",
+                    "type": "individual",
+                    "provider": "gemini",
+                    "model": "gemini-2.5-flash",
+                }
+            },
+        }
+    }
+
+    migrated = LegacyToV1Migration().migrate(raw_config)
+    connection = migrated["ai"]["connections"]["personal-gemini"]
+    assert connection["kind"] == "direct_provider"
+    assert connection["provider"] == "gemini"
+    assert connection["default_model"] == "gemini-2.5-flash"
 
 
 def test_legacy_to_v1_preserves_existing_connection_entries():

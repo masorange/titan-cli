@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional, List
 import tomli
 from .models import TitanConfigModel
-from .config_migrations import MigrationManager
+from .migrations import MigrationManager
 from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
 from .secrets import SecretManager
@@ -134,6 +134,8 @@ class TitanConfig:
                 to_version=migration_result.final_version,
                 steps=migration_result.applied_steps,
             )
+            if path is not None:
+                self._write_toml(path, migration_result.data)
 
         return migration_result.data
 
@@ -328,22 +330,26 @@ class TitanConfig:
 
         self.save_ai_connections_config(ai_cfg)
 
-    def _write_global_config(self, data: dict) -> None:
-        """Write raw global config data to disk."""
-        if not self._global_config_path.parent.exists():
+    def _write_toml(self, path: Path, data: dict) -> None:
+        """Write raw TOML data to disk."""
+        if not path.parent.exists():
             try:
-                self._global_config_path.parent.mkdir(parents=True)
+                path.parent.mkdir(parents=True)
             except OSError as e:
-                raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+                raise ConfigWriteError(file_path=str(path), original_exception=e)
 
         try:
-            with open(self._global_config_path, "wb") as f:
+            with open(path, "wb") as f:
                 import tomli_w
                 tomli_w.dump(data, f)
         except ImportError as e:
-            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+            raise ConfigWriteError(file_path=str(path), original_exception=e)
         except Exception as e:
-            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+            raise ConfigWriteError(file_path=str(path), original_exception=e)
+
+    def _write_global_config(self, data: dict) -> None:
+        """Write raw global config data to disk."""
+        self._write_toml(self._global_config_path, data)
 
     def is_plugin_enabled(self, plugin_name: str) -> bool:
         """Check if a plugin is effectively enabled for the current project.

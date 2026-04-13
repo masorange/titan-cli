@@ -1,3 +1,5 @@
+config_version = "1.0"
+
 [project]
 name = "titan-cli"
 type = "generic"

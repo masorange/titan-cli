@@ -1,6 +1,7 @@
 # tests/core/test_config.py
 import os
 import subprocess
+import tomli
 import tomli_w
 from pathlib import Path
 import pytest
@@ -326,6 +327,54 @@ def test_update_ai_connection_raises_when_connection_not_found(
 
     with pytest.raises(ValueError, match="AI connection 'missing' not found."):
         config_instance.update_ai_connection("missing", {"default_model": "gpt-5"})
+
+
+def test_load_rewrites_legacy_global_config_after_migration(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "version": "1.0",
+                "ai": {
+                    "default": "corp-gemini",
+                    "providers": {
+                        "corp-claude": {
+                            "name": "Corp Claude",
+                            "type": "corporate",
+                            "provider": "anthropic",
+                            "model": "claude-sonnet-4-5",
+                            "base_url": "https://llm.company.com/",
+                        },
+                        "corp-gemini": {
+                            "name": "Corp Gemini",
+                            "type": "corporate",
+                            "provider": "gemini",
+                            "model": "gemini-2.5-pro",
+                            "base_url": "https://llm.company.com/",
+                        },
+                    },
+                },
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    TitanConfig()
+
+    with open(global_config_path, "rb") as f:
+        migrated = tomli.load(f)
+
+    assert "version" not in migrated
+    assert migrated["config_version"] == "1.0"
+    assert migrated["ai"]["default_connection"] == "corp-gemini"
+    assert list(migrated["ai"]["connections"].keys()) == ["corp-gemini"]
 
 
 def test_config_finds_titan_at_git_root_not_subdir(tmp_path: Path, monkeypatch, mocker):
