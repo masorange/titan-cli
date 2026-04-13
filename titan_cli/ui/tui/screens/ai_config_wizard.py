@@ -261,14 +261,14 @@ class AIConfigWizardScreen(BaseScreen):
         # Add description
         description = Static(
             "Choose how Titan should connect to AI:\n\n"
-            "• AI Gateway: One endpoint exposing multiple models\n"
+            "• LLM Gateway: One endpoint exposing multiple models\n"
             "• Direct Provider: Connect directly to one vendor API"
         )
         body_widget.mount(description)
 
         # Add options
         options = OptionList(
-            Option("AI Gateway", id="gateway"),
+            Option("LLM Gateway", id="gateway"),
             Option("Direct Provider", id="direct_provider"),
             id="type-options-list"
         )
@@ -314,22 +314,6 @@ class AIConfigWizardScreen(BaseScreen):
         """Load source selection step."""
         title_widget.update("Select Source")
         body_widget.remove_children()
-
-        connection_type = self.wizard_data.get("connection_type", "")
-
-        if connection_type == "gateway":
-            description = Text(
-                "Choose the gateway type.\n\n"
-                "Titan currently supports LiteLLM and other OpenAI-compatible gateways."
-            )
-            body_widget.mount(description)
-            options = OptionList(
-                Option("LiteLLM / OpenAI-compatible Gateway", id="openai_compatible"),
-                id="source-options-list",
-            )
-            body_widget.mount(options)
-            self.call_after_refresh(lambda: options.focus())
-            return
 
         description = Text(
             "Choose the direct provider.\n\n"
@@ -576,7 +560,7 @@ class AIConfigWizardScreen(BaseScreen):
         source = self.wizard_data.get("source", "")
 
         connection_type_label = (
-            "AI Gateway" if connection_type == "gateway" else "Direct Provider"
+            "LLM Gateway" if connection_type == "gateway" else "Direct Provider"
         )
         source_name = (
             "LiteLLM Gateway"
@@ -708,7 +692,7 @@ class AIConfigWizardScreen(BaseScreen):
             else source
         )
         connection_type_label = (
-            "AI Gateway" if connection_type == "gateway" else "Direct Provider"
+            "LLM Gateway" if connection_type == "gateway" else "Direct Provider"
         )
 
         # Create summary text
@@ -784,6 +768,13 @@ class AIConfigWizardScreen(BaseScreen):
         # Move to next step
         if self.current_step < len(self.steps) - 1:
             next_step = self.current_step + 1
+
+            # Skip Source for gateway because there is only one gateway backend today.
+            if self.steps[next_step]["id"] == "source":
+                connection_type = self.wizard_data.get("connection_type", "")
+                if connection_type == "gateway":
+                    self.wizard_data["source"] = "openai_compatible"
+                    next_step += 1
 
             # Skip Base URL unless this is a gateway connection
             if self.steps[next_step]["id"] == "base_url":
@@ -882,7 +873,7 @@ class AIConfigWizardScreen(BaseScreen):
                 # Try to get from option list first (LLM Tools)
                 from titan_cli.ui.tui.widgets import StyledOptionList
 
-                option_list = self.query_one("#llm-tools-model-list", StyledOptionList)
+                option_list = self.query_one("#gateway-model-list", StyledOptionList)
                 model_id = option_list.get_selected_id()
 
                 if not model_id:
@@ -971,6 +962,12 @@ class AIConfigWizardScreen(BaseScreen):
         """Move to previous step."""
         if self.current_step > 0:
             prev_step = self.current_step - 1
+
+            # Skip Source on backward nav for gateway because there is only one backend.
+            if self.steps[prev_step]["id"] == "source":
+                connection_type = self.wizard_data.get("connection_type", "")
+                if connection_type == "gateway":
+                    prev_step -= 1
 
             # Skip Base URL on backward nav unless this is a gateway
             if self.steps[prev_step]["id"] == "base_url":

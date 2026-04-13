@@ -66,3 +66,32 @@ def get_provider_name(provider: str) -> str:
         Provider display name
     """
     return PROVIDER_INFO.get(provider, {}).get("name", provider.title())
+
+
+def get_source_display_name(source: object) -> str:
+    """Return a short human-readable label for a provider or gateway source."""
+    if source is None:
+        return "unknown"
+
+    source_value = getattr(source, "value", source)
+    source_value = str(source_value)
+
+    source_labels = {
+        "openai_compatible": "LiteLLM",
+        "anthropic": "Anthropic",
+        "gemini": "Gemini",
+        "openai": "OpenAI",
+    }
+    return source_labels.get(source_value, source_value)
+
+
+def get_connection_kind_display_name(kind: object) -> str:
+    """Return a short human-readable label for a connection kind."""
+    kind_value = getattr(kind, "value", kind)
+    kind_value = str(kind_value)
+
+    kind_labels = {
+        "gateway": "LLMGateway",
+        "direct_provider": "DirectProvider",
+    }
+    return kind_labels.get(kind_value, kind_value)

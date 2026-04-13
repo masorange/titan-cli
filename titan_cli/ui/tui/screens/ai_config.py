@@ -10,6 +10,10 @@ from textual.containers import Container, Horizontal, VerticalScroll, Grid
 from textual.binding import Binding
 from textual.screen import ModalScreen
 
+from titan_cli.ai.constants import (
+    get_connection_kind_display_name,
+    get_source_display_name,
+)
 from titan_cli.core.models import AIConnectionKind
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
@@ -201,7 +205,7 @@ class TestConnectionModal(ModalScreen):
             endpoint_info = (
                 " (gateway endpoint)" if self.connection_cfg.base_url else ""
             )
-            source_name = (
+            source_name = get_source_display_name(
                 self.connection_cfg.provider or self.connection_cfg.gateway_type
             )
 
@@ -435,8 +439,15 @@ class ConnectionCard(Container):
     }
 
     ConnectionCard .button-row {
+        width: 100%;
         height: auto;
         margin-top: 1;
+        grid-size: 2;
+        grid-gutter: 1 1;
+    }
+
+    ConnectionCard .button-row Button {
+        width: 100%;
     }
     """
 
@@ -465,12 +476,13 @@ class ConnectionCard(Container):
         kind = self.connection_cfg.get("kind", "")
         provider = self.connection_cfg.get("provider")
         gateway_type = self.connection_cfg.get("gateway_type")
-        source_label = provider or gateway_type or "unknown"
+        source_label = get_source_display_name(provider or gateway_type)
+        kind_label = get_connection_kind_display_name(kind)
         model = self.connection_cfg.get(
             "default_model", self.connection_cfg.get("model", "")
         )
 
-        yield DimText(f"Type: {kind}", classes="connection-info")
+        yield DimText(f"Type: {kind_label}", classes="connection-info")
         yield DimText(f"Source: {source_label}", classes="connection-info")
         yield DimText(f"Model: {model}", classes="connection-info")
 
@@ -481,7 +493,7 @@ class ConnectionCard(Container):
             yield DimText(" ", classes="connection-info")
 
         # Action buttons (use cleaned ID for button IDs)
-        with Horizontal(classes="button-row"):
+        with Grid(classes="button-row"):
             if not self.is_default:
                 yield Button("Set Default", variant="primary", id=f"set-default-{clean_id}")
             if kind == AIConnectionKind.GATEWAY.value:
