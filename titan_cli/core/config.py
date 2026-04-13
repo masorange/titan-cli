@@ -139,6 +139,12 @@ class TitanConfig:
                         if pk != "config":
                             final_plugin_data[pk] = pv
 
+                    # Plugin source is a user-local concern. If global config already
+                    # defines a source override, preserve it instead of letting the
+                    # project config overwrite it.
+                    if "source" in plugin_data_global:
+                        final_plugin_data["source"] = plugin_data_global["source"]
+
                     # Handle the nested 'config' dictionary separately (deep merge)
                     config_section_global = plugin_data_global.get("config", {})
                     config_section_project = plugin_data_project.get("config", {})
@@ -201,7 +207,7 @@ class TitanConfig:
             return []
         return [
             name for name, plugin_cfg in self.config.plugins.items()
-            if plugin_cfg.enabled
+            if self.is_plugin_enabled(name)
         ]
 
     def get_plugin_warnings(self) -> List[str]:
@@ -216,12 +222,6 @@ class TitanConfig:
 
     def _save_global_config(self):
         """Saves the current state of the global config to disk."""
-        if not self._global_config_path.parent.exists():
-            try:
-                self._global_config_path.parent.mkdir(parents=True)
-            except OSError as e:
-                raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
-
         existing_global_config = {}
         if self._global_config_path.exists():
             try:
@@ -238,21 +238,94 @@ class TitanConfig:
         if 'ai' in config_to_save:
             existing_global_config['ai'] = config_to_save['ai']
 
+        self._write_global_config(existing_global_config)
+
+    def _write_global_config(self, data: dict) -> None:
+        """Write raw global config data to disk."""
+        if not self._global_config_path.parent.exists():
+            try:
+                self._global_config_path.parent.mkdir(parents=True)
+            except OSError as e:
+                raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+
         try:
             with open(self._global_config_path, "wb") as f:
                 import tomli_w
-                tomli_w.dump(existing_global_config, f)
+                tomli_w.dump(data, f)
         except ImportError as e:
             raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
         except Exception as e:
             raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
 
     def is_plugin_enabled(self, plugin_name: str) -> bool:
-        """Check if plugin is enabled"""
+        """Check if a plugin is effectively enabled for the current project.
+
+        This is the source of truth for plugin activation. Do not infer enabled
+        state from the merged plugin model alone, because global plugin metadata
+        may exist without the plugin being explicitly enabled in the current
+        project's config.
+        """
         if not self.config or not self.config.plugins:
+            return False
+        project_plugins = self.project_config.get("plugins", {}) if self.project_config else {}
+        if plugin_name not in project_plugins:
             return False
         plugin_cfg = self.config.plugins.get(plugin_name)
         return plugin_cfg.enabled if plugin_cfg else False
+
+    def get_plugin_source_channel(self, plugin_name: str) -> str:
+        """Return the configured source channel for a plugin."""
+        if not self.config or not self.config.plugins:
+            return "stable"
+        plugin_cfg = self.config.plugins.get(plugin_name)
+        if not plugin_cfg or not getattr(plugin_cfg, "source", None):
+            return "stable"
+        return plugin_cfg.source.channel or "stable"
+
+    def get_plugin_source_path(self, plugin_name: str) -> Optional[Path]:
+        """Return the configured dev_local path for a plugin, if any."""
+        if not self.config or not self.config.plugins:
+            return None
+        plugin_cfg = self.config.plugins.get(plugin_name)
+        if not plugin_cfg or not getattr(plugin_cfg, "source", None) or not plugin_cfg.source.path:
+            return None
+        return Path(plugin_cfg.source.path).expanduser().resolve()
+
+    def set_global_plugin_source(
+        self,
+        plugin_name: str,
+        channel: str,
+        path: Optional[str] = None,
+    ) -> None:
+        """Persist a plugin source override in the global user config."""
+        config_data = self._load_toml(self._global_config_path)
+        plugins_table = config_data.setdefault("plugins", {})
+        plugin_table = plugins_table.setdefault(plugin_name, {})
+        source_table = plugin_table.setdefault("source", {})
+
+        source_table["channel"] = channel
+        if path:
+            source_table["path"] = path
+        else:
+            source_table.pop("path", None)
+
+        self._write_global_config(config_data)
+
+    def clear_global_plugin_source(self, plugin_name: str) -> None:
+        """Remove a plugin source override from the global user config."""
+        config_data = self._load_toml(self._global_config_path)
+        plugins_table = config_data.get("plugins", {})
+        plugin_table = plugins_table.get(plugin_name)
+        if not plugin_table:
+            return
+
+        plugin_table.pop("source", None)
+        if not plugin_table:
+            plugins_table.pop(plugin_name, None)
+        if not plugins_table and "plugins" in config_data:
+            config_data.pop("plugins", None)
+
+        self._write_global_config(config_data)
 
     def get_status_bar_info(self) -> dict:
         """
@@ -281,4 +354,3 @@ class TitanConfig:
             'ai_info': ai_info,
             'project_name': project_name
         }
-

@@ -245,6 +245,11 @@ class JiraClient:
 3. Map to UIModel
 4. Wrap in ClientResult
 
+This also applies to create operations. For example, a GitHub `ReleaseService`
+can call `gh release create`, then `gh release view --json ...`, parse the
+response into `NetworkRelease`, map it to `UIRelease`, and return
+`ClientSuccess(data=ui_release, ...)`.
+
 **Example**:
 ```python
 # clients/services/issue_service.py

@@ -41,6 +41,13 @@ titan-dev
 
 `titan-dev` always runs from your local codebase. No reinstall needed after editing Python files.
 
+### Logging in `titan-dev`
+
+- `titan-dev` enables development logging.
+- During TUI execution, logs are written to `~/.local/state/titan/logs/titan.log`.
+- If you want live visual debugging with Textual, run `titan-dev --devtools`
+  and start `textual console` in another terminal.
+
 !!! note
     `titan-dev` is only for contributors. End users who install from PyPI get only the `titan` command.
 

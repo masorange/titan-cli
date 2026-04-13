@@ -305,10 +305,11 @@ def disable_console_logging() -> None:
     In production, console logs would be hidden by the TUI anyway,
     so we disable them to save resources.
 
-    In debug mode, console logging stays enabled because Textual
-    devtools will capture and display them in a separate console.
+    In TUI mode without Textual devtools, this can also be used in debug mode
+    to keep logs only in the file handler.
 
-    After calling this, logs will only go to the file handler.
+    When Textual devtools are enabled, console logging should remain enabled so
+    `textual console` can capture and display the logs.
     """
     root_logger = logging.getLogger()
 

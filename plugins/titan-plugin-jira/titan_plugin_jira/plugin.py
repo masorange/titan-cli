@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional, TypedDict, List
 from pydantic import ValidationError
+from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.core.plugins.models import JiraPluginConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
@@ -173,26 +174,27 @@ class JiraPlugin(TitanPlugin):
                 "warnings": warnings
             }
 
-        try:
-            # Test token with /rest/api/2/myself endpoint
-            myself = self._client.get_current_user()
-            return {
-                "valid": True,
-                "error": None,
-                "user": myself.get("displayName", "Unknown"),
-                "email": myself.get("emailAddress", "Unknown"),
-                "token_source": getattr(self, '_token_source', {}),
-                "warnings": warnings
-            }
-        except Exception as e:
-            return {
-                "valid": False,
-                "error": str(e),
-                "user": None,
-                "email": None,
-                "token_source": getattr(self, '_token_source', {}),
-                "warnings": warnings
-            }
+        myself_result = self._client.get_current_user()
+
+        match myself_result:
+            case ClientSuccess(data=user):
+                return {
+                    "valid": True,
+                    "error": None,
+                    "user": user.display_name,
+                    "email": user.email,
+                    "token_source": getattr(self, '_token_source', {}),
+                    "warnings": warnings
+                }
+            case ClientError(error_message=err):
+                return {
+                    "valid": False,
+                    "error": err,
+                    "user": None,
+                    "email": None,
+                    "token_source": getattr(self, '_token_source', {}),
+                    "warnings": warnings
+                }
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:
         """
@@ -254,19 +256,40 @@ class JiraPlugin(TitanPlugin):
         """
         Returns a dictionary of available workflow steps.
         """
+        # Original steps
         from .steps.search_saved_query_step import search_saved_query_step
         from .steps.search_jql_step import search_jql_step
         from .steps.prompt_select_issue_step import prompt_select_issue_step
         from .steps.get_issue_step import get_issue_step
         from .steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
         from .steps.list_versions_step import list_versions_step
+
+        # Generic Issue Creation Workflow steps
+        from .steps.prompt_issue_description_step import prompt_issue_description
+        from .steps.select_issue_type_step import select_issue_type
+        from .steps.select_issue_priority_step import select_issue_priority
+        from .steps.ai_enhance_issue_description_step import ai_enhance_issue_description
+        from .steps.review_issue_description_step import review_issue_description
+        from .steps.confirm_auto_assign_step import confirm_auto_assign
+        from .steps.create_generic_issue_step import create_generic_issue
+
         return {
+            # Original steps
             "search_saved_query": search_saved_query_step,
             "search_jql": search_jql_step,
             "prompt_select_issue": prompt_select_issue_step,
             "get_issue": get_issue_step,
             "ai_analyze_issue_requirements": ai_analyze_issue_requirements_step,
             "list_versions": list_versions_step,
+
+            # Generic Issue Creation Workflow steps
+            "prompt_issue_description": prompt_issue_description,
+            "select_issue_type": select_issue_type,
+            "select_issue_priority": select_issue_priority,
+            "ai_enhance_issue_description": ai_enhance_issue_description,
+            "review_issue_description": review_issue_description,
+            "confirm_auto_assign": confirm_auto_assign,
+            "create_generic_issue": create_generic_issue,
         }
 
     @property

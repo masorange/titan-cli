@@ -136,7 +136,7 @@ def update_core() -> Dict[str, any]:
         )
 
         if proc.returncode == 0:
-            installed_version = _get_installed_version_pipx()
+            installed_version = _get_installed_version_runtime() or _get_installed_version_pipx()
             if installed_version:
                 result["success"] = True
                 result["method"] = "pipx"
@@ -161,7 +161,7 @@ def update_core() -> Dict[str, any]:
         )
 
         if proc.returncode == 0:
-            installed_version = _get_installed_version_pip()
+            installed_version = _get_installed_version_runtime() or _get_installed_version_pip()
             if installed_version:
                 result["success"] = True
                 result["method"] = "pip"
@@ -225,6 +225,26 @@ def update_plugins() -> Dict[str, any]:
     except subprocess.TimeoutExpired:
         result["error"] = "Plugin update timed out"
         return result
+
+
+def _get_installed_version_runtime() -> Optional[str]:
+    """Get installed version from the current Python runtime."""
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from importlib.metadata import version; print(version('titan-cli'))",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode == 0:
+            return proc.stdout.strip() or None
+    except Exception:
+        pass
+    return None
 
 
 def _get_installed_version_pipx() -> Optional[str]:

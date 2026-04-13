@@ -1,10 +1,15 @@
-# Community Plugin Installer
+# Community Plugins
 
 ## Overview
 
-Titan supports installing plugins from user-provided git repositories, not just the official ones bundled with the CLI. Installation always uses `pipx inject` to keep the plugin isolated in Titan's own venv.
+Titan supports community plugins in addition to the official plugins bundled with the CLI.
 
-Community plugins are tracked separately in `~/.titan/community_plugins.toml` (global, not per-project).
+There are currently two source channels:
+
+- `stable`: install from a git repository at an explicit tag or commit
+- `dev_local`: use a local plugin checkout during development
+
+Community plugin installs are tracked globally in `~/.titan/community_plugins.toml`, while the active source selection for a given project is stored in that project's `.titan/config.toml`.
 
 ---
 
@@ -12,14 +17,71 @@ Community plugins are tracked separately in `~/.titan/community_plugins.toml` (g
 
 | File | Role |
 |------|------|
-| `titan_cli/core/plugins/community.py` | All business logic: URL parsing, host detection, pyproject.toml fetch, pipx install/uninstall, tracking file I/O |
-| `titan_cli/ui/tui/screens/install_plugin_screen.py` | 4-step install wizard |
-| `titan_cli/ui/tui/screens/plugin_management.py` | Modified: install button (`i`), uninstall (`u`), `[community]` badge |
+| `titan_cli/core/plugins/community.py` | Business logic for URL parsing, metadata preview, stable/dev-local install helpers, updates, uninstall, tracking file I/O |
+| `titan_cli/core/plugins/models.py` | Plugin source config model (`source.channel`, `source.path`) |
+| `titan_cli/core/plugins/plugin_registry.py` | Applies `dev_local` source overrides before plugin initialization |
+| `titan_cli/ui/tui/screens/install_plugin_screen.py` | Stable community plugin install wizard |
+| `titan_cli/ui/tui/screens/plugin_management.py` | Source display, update/uninstall actions, stable reset for `dev_local` |
 | `titan_cli/ui/tui/widgets/wizard.py` | Shared wizard widgets: `StepStatus`, `WizardStep`, `StepIndicator` |
 
 ---
 
-## URL Format
+## Channels
+
+### `stable`
+
+This is the normal community-plugin flow. The user installs from a git repository URL and must include an explicit version selector:
+
+```text
+https://github.com/user/titan-plugin-custom@v1.2.0
+https://github.com/user/titan-plugin-custom@abc123def456
+```
+
+Titan resolves that ref to a concrete commit SHA and installs from that pinned revision. After install, the current project stores:
+
+```toml
+[plugins.custom]
+enabled = true
+
+[plugins.custom.source]
+channel = "stable"
+```
+
+For update detection, Titan checks the repository's latest GitHub Release and
+uses its `tag_name` as the next requested stable version. In other words:
+- install/update discovery is version/tag based
+- the actual installed artifact is still pinned to the resolved commit SHA
+
+### `dev_local`
+
+This is the development channel. It is not a remote dev feed or prerelease registry. It means "load this plugin from a local repository path".
+
+The current project stores:
+
+```toml
+[plugins.custom]
+enabled = true
+
+[plugins.custom.source]
+channel = "dev_local"
+path = "/absolute/path/to/local/plugin/repo"
+```
+
+When `dev_local` is active, the plugin registry loads the plugin directly from that repo:
+
+1. Reads `pyproject.toml`
+2. Parses the `titan.plugins` entry points
+3. Finds the requested Titan plugin name
+4. Prepends the repo to `sys.path`
+5. Imports and instantiates the plugin class
+
+This override is applied before plugin initialization, so the local checkout wins over any installed stable version for that project.
+
+If `channel = "dev_local"` is set without a `path`, the plugin is marked as failed to load.
+
+---
+
+## Stable URL Format
 
 Users must always include an explicit version — bare URLs without `@version` are rejected:
 
@@ -36,7 +98,7 @@ Internally this becomes: `git+https://github.com/user/titan-plugin-custom.git@v1
 
 ---
 
-## Install Flow (4 steps)
+## Stable Install Flow (4 steps)
 
 ### 1. URL
 User enters `https://repo@version`. Validated with `validate_url()` before advancing.
@@ -66,13 +128,17 @@ Error cases (all allow proceeding):
 A **security warning** is always shown regardless of outcome.
 
 ### 3. Install
-Runs `pipx inject titan-cli git+<url>.git@<version>` as a subprocess (async, non-blocking).
+Runs a package install in Titan's active Python environment:
 
-Requires Titan to be running inside a pipx environment (`is_running_in_pipx()`). If not, shows an error and blocks install.
+- pipx environment: `pipx inject titan-cli git+<url>.git@<resolved_commit>`
+- non-pipx environment: `python -m pip install git+<url>.git@<resolved_commit>`
+
+The requested tag or short ref is resolved to a full commit SHA first. This is the security anchor for stable installs: updates only happen when the user explicitly installs or updates again.
 
 On success:
 1. Saves record to `~/.titan/community_plugins.toml`
-2. Calls `self.config.load()` → auto-reloads registry + re-initializes all plugins (no restart needed)
+2. Writes the project source override as `channel = "stable"`
+3. Calls `self.config.load()` → auto-reloads registry + re-initializes all plugins (no restart needed)
 
 On failure: shows pipx stderr + actionable suggestions.
 
@@ -83,35 +149,65 @@ Success or failure summary. "Finish" dismisses the wizard.
 
 ## Tracking File
 
-`~/.titan/community_plugins.toml` — global, one record per installed community plugin:
+`~/.titan/community_plugins.toml` is global and stores installed/tracked community plugin records. It is not the same as project source selection.
+
+Current stable records look like this:
 
 ```toml
 [[plugins]]
 repo_url = "https://github.com/user/titan-plugin-custom"
-version = "v1.2.0"
 package_name = "titan-plugin-custom"
 titan_plugin_name = "custom"
 installed_at = "2026-03-06T10:30:00+00:00"
+channel = "stable"
+requested_ref = "v1.2.0"
+resolved_commit = "0123456789abcdef0123456789abcdef01234567"
+```
+
+`dev_local` records use the same structure but store the local path instead of git revision metadata:
+
+```toml
+[[plugins]]
+repo_url = ""
+package_name = "titan-plugin-custom"
+titan_plugin_name = "custom"
+installed_at = "2026-03-06T10:30:00+00:00"
+channel = "dev_local"
+dev_local_path = "/absolute/path/to/local/plugin/repo"
 ```
 
 Key functions in `community.py`:
 - `load_community_plugins()` → `list[CommunityPluginRecord]`
 - `save_community_plugin(record)` → appends to file
-- `remove_community_plugin(package_name)` → removes by package name
+- `remove_community_plugin_by_name(titan_plugin_name)` → removes all tracked channels for a Titan plugin name
+- `remove_community_plugin_by_channel(titan_plugin_name, channel)` → removes one tracked channel only
 - `get_community_plugin_names()` → `set[str]` of titan_plugin_names (used for `[community]` badge)
 - `get_community_plugin_by_titan_name(name)` → `Optional[CommunityPluginRecord]`
+- `get_community_plugin_by_name_and_channel(name, channel)` → specific channel lookup
 
 ---
 
 ## Uninstall Flow
 
 In Plugin Management, pressing `u` (or clicking "Uninstall") on a community plugin:
-1. Runs `pipx runpip titan-cli uninstall -y <package_name>`
-2. Calls `remove_community_plugin(package_name)`
-3. Calls `self.config.load()` to reload registry
-4. Refreshes the plugin list
+1. If the active source is `dev_local`, Titan does not uninstall a package. It only resets the project source override back to `stable` and removes `path`.
+2. If the active source is a tracked stable community plugin, Titan uninstalls the package from the active environment.
+3. Removes the tracked record(s) as needed.
+4. Calls `self.config.load()` to reload the registry.
+5. Refreshes the plugin list.
 
-Only community plugins show the Uninstall button/keybinding.
+Only stable community plugins can be updated. `dev_local` intentionally has no update flow.
+
+---
+
+## Dev-Local Install Helper
+
+The codebase includes `install_community_plugin_dev_local(local_path)`, which performs an editable install:
+
+- pipx environment: `pipx runpip titan-cli install -e <path>`
+- non-pipx environment: `python -m pip install -e <path>`
+
+This is useful for plugin development, but the current TUI install wizard is specifically built around the `stable` git URL flow. The active `dev_local` behavior is primarily driven by project config source overrides.
 
 ---
 
@@ -141,3 +237,5 @@ Exported from `titan_cli/ui/tui/widgets/__init__.py`.
 ## Known Technical Debt
 
 `plugin_config_wizard.py` still uses plain dicts (`{"id": ..., "title": ...}`) for its steps instead of `WizardStep`. It wraps them with `WizardStep(id=step["id"], title=step["title"])` when calling `StepIndicator`. Full refactor is pending a future PR.
+
+The public docs are still sparse on community plugins, and some older references still describe only the stable install flow. When updating docs, treat `dev_local` as a first-class source channel and avoid describing it as a remote development release channel.

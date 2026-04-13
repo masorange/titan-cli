@@ -7,7 +7,7 @@ Delegates to internal services.
 
 from typing import List, Optional
 
-from titan_cli.core.result import ClientResult, ClientError
+from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 
 from .network import JiraNetwork
 from .services import (
@@ -18,7 +18,17 @@ from .services import (
     MetadataService,
     LinkService,
 )
-from ..models import UIJiraIssue, UIJiraProject, UIJiraComment, UIJiraTransition, NetworkJiraIssueType
+from ..models import (
+    UIJiraIssue,
+    UIJiraProject,
+    UIJiraComment,
+    UIJiraTransition,
+    UIJiraIssueType,
+    UIJiraStatus,
+    UIJiraUser,
+    UIJiraVersion,
+    UIPriority
+)
 
 
 class JiraClient:
@@ -28,12 +38,8 @@ class JiraClient:
     Public API for the Jira plugin.
     Delegates all work to internal services.
 
-    Examples:
-        >>> client = JiraClient("https://jira.example.com", "user@example.com", "token")
-        >>> result = client.get_issue("PROJ-123")
-        >>> match result:
-        ...     case ClientSuccess(data=issue):
-        ...         print(issue.summary)
+    All methods return ClientResult[T] for type-safe error handling.
+    Use pattern matching to handle success and error cases.
     """
 
     def __init__(
@@ -58,17 +64,18 @@ class JiraClient:
             enable_cache: Enable response caching (optional, not implemented yet)
             cache_ttl: Cache time-to-live in seconds (optional, not implemented yet)
         """
+        self.base_url = base_url.rstrip("/")
         self.project_key = project_key
         self.enable_cache = enable_cache
         self.cache_ttl = cache_ttl
 
         # Internal dependencies (private)
         self._network = JiraNetwork(base_url, email, api_token, timeout)
-        self._issue_service = IssueService(self._network)
+        self._metadata_service = MetadataService(self._network)
+        self._issue_service = IssueService(self._network, self._metadata_service)
         self._project_service = ProjectService(self._network)
         self._comment_service = CommentService(self._network)
         self._transition_service = TransitionService(self._network)
-        self._metadata_service = MetadataService(self._network)
         self._link_service = LinkService(self._network)
 
     # ==================== ISSUE OPERATIONS ====================
@@ -86,15 +93,7 @@ class JiraClient:
             expand: Optional fields to expand
 
         Returns:
-            ClientResult[UIJiraIssue]
-
-        Examples:
-            >>> result = client.get_issue("PROJ-123")
-            >>> match result:
-            ...     case ClientSuccess(data=issue):
-            ...         print(f"{issue.status_icon} {issue.summary}")
-            ...     case ClientError(error_message=err):
-            ...         print(f"Error: {err}")
+            ClientResult[UIJiraIssue] - Success contains the issue data, Error contains error details
         """
         return self._issue_service.get_issue(key, expand)
 
@@ -113,14 +112,7 @@ class JiraClient:
             fields: List of fields to return
 
         Returns:
-            ClientResult[List[UIJiraIssue]]
-
-        Examples:
-            >>> result = client.search_issues('project=PROJ AND status="To Do"')
-            >>> match result:
-            ...     case ClientSuccess(data=issues):
-            ...         for issue in issues:
-            ...             print(issue.key, issue.summary)
+            ClientResult[List[UIJiraIssue]] - Success contains list of issues matching the query
         """
         return self._issue_service.search_issues(jql, max_results, fields)
 
@@ -224,7 +216,8 @@ class JiraClient:
         project: Optional[str] = None,
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
-        priority: Optional[str] = None
+        priority: Optional[str] = None,
+        fields: Optional[dict] = None
     ) -> ClientResult[UIJiraIssue]:
         """
         Create new issue.
@@ -237,6 +230,7 @@ class JiraClient:
             assignee: Assignee username or email
             labels: List of labels
             priority: Priority name
+            fields: Additional Jira fields to merge into payload["fields"]
 
         Returns:
             ClientResult[UIJiraIssue]
@@ -248,32 +242,16 @@ class JiraClient:
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Get issue type ID
-        issue_types_result = self._metadata_service.get_issue_types(project_key)
-        if isinstance(issue_types_result, ClientError):
-            return issue_types_result
-
-        issue_type_obj = None
-        for it in issue_types_result.data:
-            if it.name.lower() == issue_type.lower():
-                issue_type_obj = it
-                break
-
-        if not issue_type_obj:
-            available = [it.name for it in issue_types_result.data]
-            return ClientError(
-                error_message=f"Issue type '{issue_type}' not found. Available: {', '.join(available)}",
-                error_code="INVALID_ISSUE_TYPE"
-            )
-
-        return self._issue_service.create_issue(
+        # Delegate to service (handles type search and Epic name logic)
+        return self._issue_service.create_issue_with_type_search(
             project_key=project_key,
-            issue_type_id=issue_type_obj.id,
+            issue_type_name=issue_type,
             summary=summary,
             description=description,
             assignee=assignee,
             labels=labels,
-            priority=priority
+            priority=priority,
+            fields=fields
         )
 
     def create_subtask(
@@ -299,34 +277,24 @@ class JiraClient:
                 error_code="MISSING_PROJECT_KEY"
             )
 
-        # Get subtask issue type
-        issue_types_result = self._metadata_service.get_issue_types(self.project_key)
-        if isinstance(issue_types_result, ClientError):
-            return issue_types_result
+        # Find subtask issue type (delegated to service)
+        subtask_type_result = self._metadata_service.find_subtask_issue_type(self.project_key)
 
-        subtask_type = None
-        for it in issue_types_result.data:
-            if it.subtask:
-                subtask_type = it
-                break
-
-        if not subtask_type:
-            return ClientError(
-                error_message="No subtask issue type found for project",
-                error_code="NO_SUBTASK_TYPE"
-            )
-
-        return self._issue_service.create_subtask(
-            parent_key=parent_key,
-            project_key=self.project_key,
-            subtask_type_id=subtask_type.id,
-            summary=summary,
-            description=description
-        )
+        match subtask_type_result:
+            case ClientSuccess(data=subtask_type):
+                return self._issue_service.create_subtask(
+                    parent_key=parent_key,
+                    project_key=self.project_key,
+                    subtask_type_id=subtask_type.id,
+                    summary=summary,
+                    description=description
+                )
+            case ClientError() as error:
+                return error
 
     # ==================== METADATA OPERATIONS ====================
 
-    def get_issue_types(self, project_key: Optional[str] = None) -> ClientResult[List[NetworkJiraIssueType]]:
+    def get_issue_types(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraIssueType]]:
         """
         Get issue types for a project.
 
@@ -334,7 +302,7 @@ class JiraClient:
             project_key: Project key (uses default if not provided)
 
         Returns:
-            ClientResult[List[NetworkJiraIssueType]]
+            ClientResult[List[UIJiraIssueType]]
         """
         key = project_key or self.project_key
         if not key:
@@ -345,7 +313,7 @@ class JiraClient:
 
         return self._metadata_service.get_issue_types(key)
 
-    def list_statuses(self, project_key: Optional[str] = None) -> ClientResult[List[dict]]:
+    def list_statuses(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraStatus]]:
         """
         List all available statuses for a project.
 
@@ -353,7 +321,7 @@ class JiraClient:
             project_key: Project key (uses default if not provided)
 
         Returns:
-            ClientResult[List[dict]]
+            ClientResult[List[UIJiraStatus]]
         """
         key = project_key or self.project_key
         if not key:
@@ -364,16 +332,16 @@ class JiraClient:
 
         return self._metadata_service.list_statuses(key)
 
-    def get_current_user(self) -> ClientResult[dict]:
+    def get_current_user(self) -> ClientResult[UIJiraUser]:
         """
         Get current authenticated user info.
 
         Returns:
-            ClientResult[dict]
+            ClientResult[UIJiraUser]
         """
         return self._metadata_service.get_current_user()
 
-    def list_project_versions(self, project_key: Optional[str] = None) -> ClientResult[List[dict]]:
+    def list_project_versions(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraVersion]]:
         """
         List all versions for a project.
 
@@ -381,7 +349,7 @@ class JiraClient:
             project_key: Project key (uses default if not provided)
 
         Returns:
-            ClientResult[List[dict]]
+            ClientResult[List[UIJiraVersion]]
         """
         key = project_key or self.project_key
         if not key:
@@ -391,6 +359,15 @@ class JiraClient:
             )
 
         return self._metadata_service.list_project_versions(key)
+
+    def get_priorities(self) -> ClientResult[List[UIPriority]]:
+        """
+        Get all available priorities in Jira.
+
+        Returns:
+            ClientResult[List[UIPriority]]
+        """
+        return self._metadata_service.get_priorities()
 
     # ==================== LINK OPERATIONS ====================
 

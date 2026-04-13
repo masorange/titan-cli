@@ -231,6 +231,20 @@ class UIPRCreated:
 
 
 @dataclass
+class UIRelease:
+    """
+    UI model for a newly created GitHub release.
+
+    Returned after create_release — contains the identifiers needed
+    to display the result or navigate to the release page.
+    """
+    tag_name: str
+    title: str
+    url: str
+    is_prerelease: bool
+
+
+@dataclass
 class UIReviewSuggestion:
     """AI-generated review comment for a PR."""
     file_path: str
@@ -251,5 +265,6 @@ __all__ = [
     "UIPRMergeResult",
     "UIFileChange",
     "UIPRCreated",
+    "UIRelease",
     "UIReviewSuggestion",
 ]

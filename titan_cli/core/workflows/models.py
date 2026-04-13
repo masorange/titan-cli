@@ -12,6 +12,10 @@ class WorkflowStepModel(BaseModel):
     command: Optional[str] = Field(None, description="A shell command to execute.")
     workflow: Optional[str] = Field(None, description="The name of another workflow to execute.")
     params: Dict[str, Any] = Field(default_factory=dict, description="Parameters to pass to the step or command.")
+    requires: List[str] = Field(
+        default_factory=list,
+        description="Context variables that must exist before this step runs.",
+    )
     on_error: Literal["fail", "continue"] = Field("fail", description="Action to take if the step fails.")
     use_shell: bool = Field(False, description="If true, execute the command in a shell. WARNING: This can be a security risk if the command uses untrusted input.")
 

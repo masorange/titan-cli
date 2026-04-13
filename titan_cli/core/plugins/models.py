@@ -2,12 +2,20 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional
 
+
+class PluginSourceConfig(BaseModel):
+    """Source selection for a plugin within a project."""
+
+    channel: str = Field("stable", description="Plugin source channel ('stable' or 'dev_local').")
+    path: Optional[str] = Field(None, description="Local repository path when channel is 'dev_local'.")
+
 class PluginConfig(BaseModel):
     """
     Represents the configuration for an individual plugin.
     """
     enabled: bool = Field(True, description="Whether the plugin is enabled.")
     config: Dict[str, Any] = Field(default_factory=dict, description="Plugin-specific configuration options.")
+    source: PluginSourceConfig = Field(default_factory=PluginSourceConfig, description="Plugin source selection.")
 
 class GitPluginConfig(BaseModel):
     """Configuration for Git plugin."""
