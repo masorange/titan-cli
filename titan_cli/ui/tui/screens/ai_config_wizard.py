@@ -420,36 +420,23 @@ class AIConfigWizardScreen(BaseScreen):
         base_url = self.wizard_data.get("base_url", "")
         source = self.wizard_data.get("source", "")
 
-        # Check if this is an LLM Tools-compatible gateway
-        from titan_cli.ai.llm_tools import is_llm_tools_url
-
-        if connection_type == "gateway" and is_llm_tools_url(base_url):
-            self._load_llm_tools_model_selection(body_widget, source, base_url)
+        if connection_type == "gateway":
+            self._load_gateway_model_selection(body_widget, source, base_url)
         else:
             self._load_manual_model_input(body_widget, source)
 
-    def _load_llm_tools_model_selection(
+    def _load_gateway_model_selection(
         self, body_widget: Container, source: str, base_url: str
     ) -> None:
-        """Load model selection for LLM Tools with dynamic API fetch."""
+        """Load model selection for a gateway with dynamic API fetch."""
         from titan_cli.ai.llm_tools import fetch_available_models
         from titan_cli.ui.tui.widgets import StyledOptionList, StyledOption
 
         # Get API key (already entered in previous step)
         api_key = self.wizard_data.get("api_key", "")
 
-        if not api_key:
-            # This shouldn't happen since API Key step comes before Model step
-            body_widget.mount(
-                Panel(
-                    "API key not found. Please go back and enter your API key.",
-                    panel_type="error",
-                )
-            )
-            return
-
         # Add description
-        body_widget.mount(Text("Fetching available models from LLM Tools..."))
+        body_widget.mount(Text("Fetching available models from gateway..."))
         body_widget.mount(DimText(""))
 
         # Show loading indicator
@@ -466,10 +453,9 @@ class AIConfigWizardScreen(BaseScreen):
             body_widget.remove_children()
 
             if not models:
-                # No models found for this source
                 body_widget.mount(
                     Panel(
-                        f"No models found for source '{source}' in LLM Tools.\n\n"
+                        f"No models found for source '{source}' in this gateway.\n\n"
                         "You can enter a model name manually.",
                         panel_type="info",
                     )
@@ -487,35 +473,30 @@ class AIConfigWizardScreen(BaseScreen):
                 if source == "openai"
                 else "Gemini"
             )
-            body_widget.mount(BoldText(f"Available {source_name} models from LLM Tools"))
+            body_widget.mount(BoldText(f"Available {source_name} models from gateway"))
             body_widget.mount(DimText("Select a model from the list below."))
             body_widget.mount(Text(""))  # Empty line for spacing
 
-            # Create options from fetched models
-            # Use empty description since API doesn't provide any
             styled_options = [
                 StyledOption(
                     id=model.id,
                     title=model.id,
-                    description="",  # API doesn't provide descriptions
+                    description="",
                 )
                 for model in models
             ]
 
-            # Add option list
-            option_list = StyledOptionList(*styled_options, id="llm-tools-model-list")
+            option_list = StyledOptionList(*styled_options, id="gateway-model-list")
             body_widget.mount(option_list)
 
-            # Focus the list
             self.call_after_refresh(lambda: option_list.focus())
 
         except Exception as e:
-            # Fallback to manual input if API fails
             body_widget.remove_children()
 
             body_widget.mount(
                 Panel(
-                    f"Could not fetch models from LLM Tools API.\n\n"
+                    f"Could not fetch models from gateway API.\n\n"
                     f"Error: {str(e)}\n\n"
                     "You can enter a model name manually below.",
                     panel_type="warning",

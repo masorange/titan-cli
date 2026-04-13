@@ -8,9 +8,7 @@ Supports any OpenAI-compatible API endpoint, including:
 - Other OpenAI-compatible services
 """
 
-import httpx
 from typing import Optional
-from urllib.parse import urlparse
 
 try:
     from openai import (
@@ -32,6 +30,7 @@ except ImportError as e:
     OPENAI_IMPORT_ERROR = str(e)
 
 from .base import AIProvider
+from ..litellm_client import LiteLLMClient
 from ..models import AIRequest, AIResponse
 from ..exceptions import (
     AIProviderAuthenticationError,
@@ -80,42 +79,15 @@ class LiteLLMProvider(AIProvider):
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
-        self._base_url = self._normalize_base_url(base_url)
-        self._http_client = self._build_http_client()
-
-        # Initialize OpenAI client with custom base URL
-        # Use "sk-placeholder" if no API key provided (some endpoints don't need auth)
-        self._client = OpenAI(
-            base_url=self._base_url,
-            api_key=api_key or "sk-placeholder",
-            http_client=self._http_client,
-        )
+        gateway_client = LiteLLMClient(base_url=base_url, api_key=api_key)
+        self._base_url = gateway_client.base_url
+        self._http_client = gateway_client._http_client
+        self._client = gateway_client._client
 
     @property
     def name(self) -> str:
         """Provider name."""
         return f"litellm ({self._base_url})"
-
-    @staticmethod
-    def _normalize_base_url(base_url: str) -> str:
-        """Normalize base_url for OpenAI-compatible endpoints.
-
-        If the URL only contains the scheme and host, assume the API root is `/v1`.
-        If a path is already configured, keep it as-is.
-        """
-        normalized = base_url.rstrip("/")
-        parsed = urlparse(normalized)
-
-        if not parsed.path:
-            return f"{normalized}/v1"
-
-        return normalized
-
-    @staticmethod
-    def _build_http_client() -> httpx.Client:
-        """Build an HTTP client tuned for tunneled OpenAI-compatible endpoints."""
-        timeout = httpx.Timeout(connect=5.0, read=600.0, write=600.0, pool=600.0)
-        return httpx.Client(http2=True, timeout=timeout, follow_redirects=True)
 
     def generate(self, request: AIRequest) -> AIResponse:
         """
@@ -218,19 +190,11 @@ class LiteLLMProvider(AIProvider):
             Some custom endpoints don't require API keys.
             In that case, this method attempts a test request to validate connectivity.
         """
-        test_client = OpenAI(
-            base_url=self._base_url,
-            api_key=api_key or self._client.api_key,
-            http_client=self._build_http_client(),
-        )
-
         try:
-            # Attempt minimal request to validate connectivity/auth
-            test_client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=1,
-            )
+            LiteLLMClient(
+                base_url=self._base_url,
+                api_key=api_key or self._client.api_key,
+            ).test_connection(model=self._model)
             return True
         except AuthenticationError:
             return False

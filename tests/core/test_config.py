@@ -3,6 +3,7 @@ import os
 import subprocess
 import tomli_w
 from pathlib import Path
+import pytest
 from titan_cli.core.config import TitanConfig
 
 
@@ -262,6 +263,69 @@ def test_config_uses_cwd_as_project_root_when_no_git(tmp_path: Path, monkeypatch
         assert config_instance.config.project.name == "No Git Project"
     finally:
         os.chdir(original_cwd)
+
+
+def test_update_ai_connection_updates_only_requested_fields(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    global_config_data = {
+        "config_version": "1.0",
+        "ai": {
+            "default_connection": "work-gateway",
+            "connections": {
+                "work-gateway": {
+                    "name": "Work Gateway",
+                    "kind": "gateway",
+                    "gateway_type": "openai_compatible",
+                    "base_url": "http://localhost:4000",
+                    "default_model": "gpt-5",
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                }
+            },
+        },
+    }
+
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(global_config_data, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig()
+    config_instance.update_ai_connection(
+        "work-gateway",
+        {"default_model": "claude-sonnet-4"},
+    )
+
+    config_instance.load()
+    connection = config_instance.config.ai.connections["work-gateway"]
+    assert connection.default_model == "claude-sonnet-4"
+    assert connection.base_url == "http://localhost:4000"
+    assert connection.temperature == 0.7
+
+
+def test_update_ai_connection_raises_when_connection_not_found(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({"config_version": "1.0", "ai": {"connections": {}}}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig()
+
+    with pytest.raises(ValueError, match="AI connection 'missing' not found."):
+        config_instance.update_ai_connection("missing", {"default_model": "gpt-5"})
 
 
 def test_config_finds_titan_at_git_root_not_subdir(tmp_path: Path, monkeypatch, mocker):

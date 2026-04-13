@@ -102,7 +102,7 @@ class AnthropicProvider(AIProvider):
             if "authentication" in error_msg or "api key" in error_msg:
                 raise AIProviderAuthenticationError(
                     f"Anthropic authentication failed: {e}\n"
-                    f"Check your API key via `titan ai configure`"
+                    "Check your AI connection settings in the AI Configuration screen."
                 )
             elif "rate limit" in error_msg:
                 raise AIProviderRateLimitError(

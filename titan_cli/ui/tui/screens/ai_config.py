@@ -5,13 +5,21 @@ Screen for managing AI connections (list, add, set default, test, delete).
 """
 
 from textual.app import ComposeResult
-from textual.widgets import Static, LoadingIndicator
+from textual.widgets import Static, LoadingIndicator, OptionList
 from textual.containers import Container, Horizontal, VerticalScroll, Grid
 from textual.binding import Binding
 from textual.screen import ModalScreen
 
+from titan_cli.core.models import AIConnectionKind
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import DimText, Button, SuccessText, ErrorText
+from titan_cli.ui.tui.widgets import (
+    DimText,
+    Button,
+    SuccessText,
+    ErrorText,
+    StyledOptionList,
+    StyledOption,
+)
 from .base import BaseScreen
 
 
@@ -278,6 +286,129 @@ class ConfirmInstallDependenciesModal(ModalScreen[bool]):
             self.dismiss(False)
 
 
+class SelectGatewayModelModal(ModalScreen[str | None]):
+    """Modal for selecting a gateway model from discovered models."""
+
+    DEFAULT_CSS = """
+    SelectGatewayModelModal {
+        align: center middle;
+    }
+
+    #select-model-container {
+        width: 80;
+        height: auto;
+        background: $surface-lighten-1;
+        border: solid $primary;
+        padding: 2;
+    }
+
+    #select-model-content {
+        height: auto;
+        max-height: 20;
+        margin-top: 1;
+    }
+
+    #select-model-buttons {
+        height: auto;
+        align: center middle;
+        margin-top: 2;
+    }
+    """
+
+    def __init__(
+        self,
+        connection_name: str,
+        base_url: str,
+        api_key: str | None,
+        current_model: str,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.connection_name = connection_name
+        self.base_url = base_url
+        self.api_key = api_key
+        self.current_model = current_model
+
+    def compose(self) -> ComposeResult:
+        with Container(id="select-model-container"):
+            yield Static(f"{Icons.AI_CONFIG} Select gateway model")
+            yield DimText(f"Connection: {self.connection_name}")
+            yield Container(id="select-model-content")
+            with Horizontal(id="select-model-buttons"):
+                yield Button("Close", variant="default", id="close-select-model")
+
+    def on_mount(self) -> None:
+        content = self.query_one("#select-model-content", Container)
+        content.mount(LoadingIndicator())
+        content.mount(DimText("Loading models from gateway..."))
+        self.call_after_refresh(self._start_loading)
+
+    def _start_loading(self) -> None:
+        self.run_worker(self._load_models(), exclusive=True)
+
+    async def _load_models(self) -> None:
+        import asyncio
+
+        from titan_cli.ai.litellm_client import LiteLLMClient
+
+        content = self.query_one("#select-model-content", Container)
+
+        try:
+            client = LiteLLMClient(
+                base_url=self.base_url,
+                api_key=self.api_key,
+            )
+            models = await asyncio.to_thread(client.list_models)
+
+            content.remove_children()
+
+            if not models:
+                content.mount(ErrorText("No models available from this gateway."))
+                return
+
+            styled_options = [
+                StyledOption(
+                    id=model.id,
+                    title=model.id,
+                    description=model.owned_by or "",
+                )
+                for model in models
+            ]
+
+            option_list = StyledOptionList(*styled_options, id="gateway-model-list")
+            content.mount(
+                DimText("Select the default model for this connection:")
+            )
+            content.mount(option_list)
+
+            current_index = next(
+                (
+                    idx
+                    for idx, model in enumerate(models)
+                    if model.id == self.current_model
+                ),
+                0,
+            )
+            option_list.highlighted = current_index
+            self.call_after_refresh(lambda: option_list.focus())
+
+        except Exception as e:
+            content.remove_children()
+            content.mount(ErrorText("Could not load models from gateway."))
+            content.mount(DimText(str(e)))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close-select-model":
+            self.dismiss(None)
+
+    def on_option_list_option_selected(
+        self, event: OptionList.OptionSelected
+    ) -> None:
+        if event.option_list.id != "gateway-model-list":
+            return
+        self.dismiss(event.option.id)
+
+
 class ConnectionCard(Container):
     """Widget showing a single AI connection with action buttons."""
 
@@ -353,6 +484,10 @@ class ConnectionCard(Container):
         with Horizontal(classes="button-row"):
             if not self.is_default:
                 yield Button("Set Default", variant="primary", id=f"set-default-{clean_id}")
+            if kind == AIConnectionKind.GATEWAY.value:
+                yield Button(
+                    "Change Model", variant="default", id=f"change-model-{clean_id}"
+                )
             yield Button("Test Connection", variant="default", id=f"test-{clean_id}")
             yield Button("Delete", variant="error", id=f"delete-{clean_id}")
 
@@ -379,28 +514,28 @@ class AIConfigScreen(BaseScreen):
         margin: 1 0 1 0;
     }
 
-    #providers-scroll {
+    #connections-scroll {
         height: 1fr;
         padding: 1 0;
         align: center top;
         overflow-y: auto;
     }
 
-    #providers-grid {
+    #connections-grid {
         grid-size: 2;
         grid-gutter: 2;
         width: 70%;
         height: auto;
     }
 
-    #no-providers {
+    #no-connections {
         text-align: center;
         color: $text-muted;
         margin: 8 0;
         column-span: 2;
     }
 
-    #add-provider-container {
+    #add-connection-container {
         height: auto;
         padding: 0 0;
         align: center middle;
@@ -418,15 +553,15 @@ class AIConfigScreen(BaseScreen):
         """Compose the AI configuration screen."""
         with Container(id="config-container"):
             # Scrollable area with grid for connections
-            with VerticalScroll(id="providers-scroll"):
-                yield Grid(id="providers-grid")
+            with VerticalScroll(id="connections-scroll"):
+                yield Grid(id="connections-grid")
 
             # Add connection button at the bottom
-            with Container(id="add-provider-container"):
+            with Container(id="add-connection-container"):
                 yield Button(
                     f"{Icons.SETTINGS} New Connection",
                     variant="primary",
-                    id="add-provider-button",
+                    id="add-connection-button",
                 )
 
     def on_mount(self) -> None:
@@ -454,17 +589,17 @@ class AIConfigScreen(BaseScreen):
 
         # Get the grid
         try:
-            grid = self.query_one("#providers-grid", Grid)
+            grid = self.query_one("#connections-grid", Grid)
         except Exception:
             # Grid was removed, recreate it
-            scroll = self.query_one("#providers-scroll", VerticalScroll)
+            scroll = self.query_one("#connections-scroll", VerticalScroll)
             # Remove no-providers message if it exists
             try:
-                no_prov = self.query_one("#no-providers", Static)
+                no_prov = self.query_one("#no-connections", Static)
                 no_prov.remove()
             except Exception:
                 pass
-            grid = Grid(id="providers-grid")
+            grid = Grid(id="connections-grid")
             scroll.mount(grid)
 
         grid.remove_children()
@@ -472,7 +607,7 @@ class AIConfigScreen(BaseScreen):
         if not self.config.config.ai or not self.config.config.ai.connections:
             # Remove any existing no-providers message first
             try:
-                existing = self.query_one("#no-providers", Static)
+                existing = self.query_one("#no-connections", Static)
                 existing.remove()
             except Exception:
                 pass
@@ -481,7 +616,7 @@ class AIConfigScreen(BaseScreen):
             grid.mount(Static(
                 "No AI connections configured yet.\n\n"
                 "Click 'New Connection' to configure your first connection.",
-                id="no-providers"
+                id="no-connections"
             ))
             return
 
@@ -502,15 +637,22 @@ class AIConfigScreen(BaseScreen):
         """Handle button presses."""
         button_id = event.button.id
 
-        if button_id == "add-provider-button":
+        if button_id == "add-connection-button":
             self.handle_add_connection()
-        elif button_id.startswith("set-default-") or button_id.startswith("test-") or button_id.startswith("delete-"):
+        elif (
+            button_id.startswith("set-default-")
+            or button_id.startswith("change-model-")
+            or button_id.startswith("test-")
+            or button_id.startswith("delete-")
+        ):
             card = event.button.parent.parent
             if isinstance(card, ConnectionCard):
                 connection_id = card.connection_id
 
                 if button_id.startswith("set-default-"):
                     self.handle_set_default(connection_id)
+                elif button_id.startswith("change-model-"):
+                    self.handle_change_model(connection_id)
                 elif button_id.startswith("test-"):
                     self.handle_test_connection(connection_id)
                 elif button_id.startswith("delete-"):
@@ -552,6 +694,61 @@ class AIConfigScreen(BaseScreen):
         connection_cfg = self.config.config.ai.connections[connection_id]
         self.app.push_screen(
             TestConnectionModal(connection_id, connection_cfg, self.config)
+        )
+
+    def handle_change_model(self, connection_id: str) -> None:
+        """Change the default model for an AI connection."""
+        from titan_cli.core.secrets import SecretManager
+
+        self.config.load()
+
+        if connection_id not in self.config.config.ai.connections:
+            self.app.notify("Connection not found", severity="error")
+            return
+
+        connection_cfg = self.config.config.ai.connections[connection_id]
+        if connection_cfg.kind != AIConnectionKind.GATEWAY:
+            self.app.notify(
+                "Model selection from gateway is only available for AI gateways.",
+                severity="warning",
+            )
+            return
+
+        if not connection_cfg.base_url:
+            self.app.notify("Gateway base URL is missing", severity="error")
+            return
+
+        current_model = connection_cfg.default_model or ""
+        secrets = SecretManager()
+        api_key = secrets.get(f"{connection_id}_api_key")
+
+        def on_change_model(result: str | None) -> None:
+            if not result:
+                return
+
+            try:
+                self.config.update_ai_connection(
+                    connection_id,
+                    {"default_model": result},
+                )
+                self.config.load()
+                self.load_connections()
+                self._refresh_status_bar()
+                self.app.notify(
+                    f"Default model for '{connection_cfg.name}' updated",
+                    severity="information",
+                )
+            except Exception as e:
+                self.app.notify(f"Failed to update model: {e}", severity="error")
+
+        self.app.push_screen(
+            SelectGatewayModelModal(
+                connection_cfg.name,
+                connection_cfg.base_url,
+                api_key,
+                current_model,
+            ),
+            on_change_model,
         )
 
     def handle_delete(self, connection_id: str) -> None:

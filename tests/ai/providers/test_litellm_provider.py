@@ -1,11 +1,12 @@
 """Tests for LiteLLM/OpenAI-compatible provider."""
 
+import httpx
 import pytest
 from unittest.mock import Mock, patch
 
 pytest.importorskip("openai")
 
-from openai import AuthenticationError, RateLimitError, APIError
+from openai import APIError, AuthenticationError, RateLimitError
 
 from titan_cli.ai.providers.litellm import LiteLLMProvider
 from titan_cli.ai.models import AIMessage, AIRequest
@@ -19,6 +20,21 @@ from titan_cli.ai.exceptions import (
 class TestLiteLLMProvider:
     """Test suite for LiteLLMProvider."""
 
+    @staticmethod
+    def _make_gateway_client(
+        *,
+        base_url: str = "http://localhost:4000/v1",
+        api_key: str = "sk-placeholder",
+        client: Mock | None = None,
+    ) -> Mock:
+        gateway_client = Mock()
+        gateway_client.base_url = base_url
+        gateway_client.api_key = api_key
+        gateway_client._http_client = httpx.Client(http2=True)
+        gateway_client._client = client or Mock()
+        gateway_client._client.api_key = api_key
+        return gateway_client
+
     def test_init_with_valid_params(self):
         """Test initialization with valid parameters."""
         provider = LiteLLMProvider(
@@ -31,9 +47,12 @@ class TestLiteLLMProvider:
         assert provider._model == "gpt-3.5-turbo"
         assert str(provider._client.base_url) == "http://localhost:4000/v1/"
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_init_configures_http2_client(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_init_configures_http2_client(self, mock_litellm_client):
         """Test initialization injects an HTTP/2-capable client."""
+        gateway_client = self._make_gateway_client(api_key="test-key")
+        mock_litellm_client.return_value = gateway_client
+
         provider = LiteLLMProvider(
             base_url="http://localhost:4000",
             model="gpt-3.5-turbo",
@@ -42,10 +61,9 @@ class TestLiteLLMProvider:
 
         assert provider._http_client is not None
         assert provider._http_client._transport._pool._http2 is True
-        mock_openai_class.assert_called_once_with(
-            base_url="http://localhost:4000/v1",
+        mock_litellm_client.assert_called_once_with(
+            base_url="http://localhost:4000",
             api_key="test-key",
-            http_client=provider._http_client,
         )
 
     def test_init_without_api_key(self):
@@ -93,11 +111,11 @@ class TestLiteLLMProvider:
 
         assert "http://llm.company.com" in provider.name
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_generate_success(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_generate_success(self, mock_litellm_client):
         """Test successful generation."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
 
         first_choice = Mock()
         first_choice.delta.content = "Generated "
@@ -156,11 +174,11 @@ class TestLiteLLMProvider:
             stream=True,
         )
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_generate_includes_optional_params_when_provided(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_generate_includes_optional_params_when_provided(self, mock_litellm_client):
         """Test provider only sends optional params when explicitly provided."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
 
         chunk_choice = Mock()
         chunk_choice.delta.content = "ok"
@@ -192,11 +210,11 @@ class TestLiteLLMProvider:
             stream=True,
         )
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_generate_authentication_error(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_generate_authentication_error(self, mock_litellm_client):
         """Test handling of authentication errors."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
 
         mock_client.chat.completions.create.side_effect = AuthenticationError(
             "Invalid API key",
@@ -214,11 +232,11 @@ class TestLiteLLMProvider:
         with pytest.raises(AIProviderAuthenticationError, match="Authentication failed"):
             provider.generate(request)
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_generate_rate_limit_error(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_generate_rate_limit_error(self, mock_litellm_client):
         """Test handling of rate limit errors."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
 
         mock_client.chat.completions.create.side_effect = RateLimitError(
             "Rate limit exceeded",
@@ -236,11 +254,11 @@ class TestLiteLLMProvider:
         with pytest.raises(AIProviderRateLimitError, match="Rate limit exceeded"):
             provider.generate(request)
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_generate_api_error(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_generate_api_error(self, mock_litellm_client):
         """Test handling of general API errors."""
         mock_client = Mock()
-        mock_openai_class.return_value = mock_client
+        mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
 
         mock_client.chat.completions.create.side_effect = APIError(
             "Server error",
@@ -258,21 +276,13 @@ class TestLiteLLMProvider:
         with pytest.raises(AIProviderAPIError, match="API error"):
             provider.generate(request)
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_validate_api_key_success(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_validate_api_key_success(self, mock_litellm_client):
         """Test successful API key validation."""
-        mock_client = Mock()
-        test_client = Mock()
-        mock_openai_class.side_effect = [mock_client, test_client]
-
-        mock_choice = Mock()
-        mock_choice.delta.content = "test"
-        mock_choice.finish_reason = "stop"
-        mock_response = Mock()
-        mock_response.choices = [mock_choice]
-        mock_response.model = "gpt-3.5-turbo"
-        mock_response.usage = None
-        test_client.chat.completions.create.return_value = [mock_response]
+        gateway_client = self._make_gateway_client(api_key="test-key")
+        validation_client = self._make_gateway_client(api_key="test-key")
+        validation_client.test_connection.return_value = True
+        mock_litellm_client.side_effect = [gateway_client, validation_client]
 
         provider = LiteLLMProvider(
             base_url="http://localhost:4000",
@@ -281,20 +291,23 @@ class TestLiteLLMProvider:
         )
 
         assert provider.validate_api_key() is True
-        assert mock_openai_class.call_args_list[-1].kwargs["http_client"] is not None
+        assert validation_client.test_connection.called
+        assert mock_litellm_client.call_args_list[-1].kwargs == {
+            "base_url": "http://localhost:4000/v1",
+            "api_key": "test-key",
+        }
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_validate_api_key_failure(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_validate_api_key_failure(self, mock_litellm_client):
         """Test failed API key validation."""
-        mock_client = Mock()
-        test_client = Mock()
-        mock_openai_class.side_effect = [mock_client, test_client]
-
-        test_client.chat.completions.create.side_effect = AuthenticationError(
+        gateway_client = self._make_gateway_client(api_key="bad-key")
+        validation_client = self._make_gateway_client(api_key="bad-key")
+        validation_client.test_connection.side_effect = AuthenticationError(
             "Invalid API key",
             response=Mock(),
             body=None,
         )
+        mock_litellm_client.side_effect = [gateway_client, validation_client]
 
         provider = LiteLLMProvider(
             base_url="http://localhost:4000",
@@ -304,18 +317,17 @@ class TestLiteLLMProvider:
 
         assert provider.validate_api_key() is False
 
-    @patch("titan_cli.ai.providers.litellm.OpenAI")
-    def test_validate_api_key_other_error_returns_true(self, mock_openai_class):
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_validate_api_key_other_error_returns_true(self, mock_litellm_client):
         """Test that non-auth errors in validation still return True."""
-        mock_client = Mock()
-        test_client = Mock()
-        mock_openai_class.side_effect = [mock_client, test_client]
-
-        test_client.chat.completions.create.side_effect = RateLimitError(
+        gateway_client = self._make_gateway_client(api_key="test-key")
+        validation_client = self._make_gateway_client(api_key="test-key")
+        validation_client.test_connection.side_effect = RateLimitError(
             "Rate limit",
             response=Mock(),
             body=None,
         )
+        mock_litellm_client.side_effect = [gateway_client, validation_client]
 
         provider = LiteLLMProvider(
             base_url="http://localhost:4000",

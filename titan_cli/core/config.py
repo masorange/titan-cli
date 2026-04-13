@@ -292,6 +292,20 @@ class TitanConfig:
 
         self.save_ai_connections_config(ai_cfg)
 
+    def update_ai_connection(self, connection_id: str, updates: dict) -> None:
+        """Update fields of an existing AI connection."""
+        ai_cfg = self.get_ai_connections_config()
+        connections = ai_cfg.get("connections", {})
+
+        if connection_id not in connections:
+            raise ValueError(f"AI connection '{connection_id}' not found.")
+
+        connections[connection_id] = {
+            **connections[connection_id],
+            **updates,
+        }
+        self.save_ai_connections_config(ai_cfg)
+
     def set_default_ai_connection(self, connection_id: str) -> None:
         """Set the global default AI connection."""
         ai_cfg = self.get_ai_connections_config()
