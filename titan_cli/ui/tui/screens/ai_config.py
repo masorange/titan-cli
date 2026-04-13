@@ -1,7 +1,7 @@
 """
 AI Configuration Screen
 
-Screen for managing AI providers (list, add, set default, test, delete).
+Screen for managing AI connections (list, add, set default, test, delete).
 """
 
 from textual.app import ComposeResult
@@ -13,13 +13,10 @@ from textual.screen import ModalScreen
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import DimText, Button, SuccessText, ErrorText
 from .base import BaseScreen
-import tomli
-import tomli_w
-from titan_cli.core.config import TitanConfig
 
 
 class TestConnectionModal(ModalScreen):
-    """Modal screen for testing AI provider connection."""
+    """Modal screen for testing an AI connection."""
 
     DEFAULT_CSS = """
     TestConnectionModal {
@@ -73,16 +70,19 @@ class TestConnectionModal(ModalScreen):
         Binding("escape", "close_modal", "Close"),
     ]
 
-    def __init__(self, provider_id: str, provider_cfg, config, **kwargs):
+    def __init__(self, connection_id: str, connection_cfg, config, **kwargs):
         super().__init__(**kwargs)
-        self.provider_id = provider_id
-        self.provider_cfg = provider_cfg
+        self.connection_id = connection_id
+        self.connection_cfg = connection_cfg
         self.config = config
 
     def compose(self) -> ComposeResult:
         """Compose the test modal."""
         with Container(id="test-modal-container"):
-            yield Static(f"{Icons.SETTINGS} Testing connection: {self.provider_cfg.name}", id="test-modal-header")
+            yield Static(
+                f"{Icons.SETTINGS} Testing connection: {self.connection_cfg.name}",
+                id="test-modal-header",
+            )
             yield Container(id="test-modal-content")
             with Container(id="test-modal-buttons"):
                 yield Button("Close", variant="default", id="close-modal-button")
@@ -94,7 +94,12 @@ class TestConnectionModal(ModalScreen):
 
         # Mount loading indicator and text directly
         content.mount(LoadingIndicator())
-        content.mount(DimText(f"\nTesting connection to {self.provider_cfg.name}...", classes="center-text"))
+        content.mount(
+            DimText(
+                f"\nTesting connection to {self.connection_cfg.name}...",
+                classes="center-text",
+            )
+        )
 
         # Run test in background AFTER the UI has refreshed
         self.call_after_refresh(self._start_test)
@@ -114,8 +119,11 @@ class TestConnectionModal(ModalScreen):
         secrets = SecretManager()
 
         try:
-            # Initialize AIClient with the specific provider_id
-            ai_client = AIClient(self.config.config.ai, secrets, provider_id=self.provider_id)
+            ai_client = AIClient(
+                self.config.config.ai,
+                secrets,
+                provider_id=self.connection_id,
+            )
 
             # Run the blocking generate call in a thread to keep UI responsive
             response = await asyncio.to_thread(
@@ -127,10 +135,23 @@ class TestConnectionModal(ModalScreen):
             content.remove_children()
             content.mount(SuccessText(f"{Icons.CHECK} Connection successful!\n\n"))
 
-            model_info = f" with model '{self.provider_cfg.model}'" if self.provider_cfg.model else ""
-            endpoint_info = " (custom endpoint)" if self.provider_cfg.base_url else ""
+            model_info = (
+                f" with model '{self.connection_cfg.model}'"
+                if self.connection_cfg.model
+                else ""
+            )
+            endpoint_info = (
+                " (gateway endpoint)" if self.connection_cfg.base_url else ""
+            )
+            source_name = (
+                self.connection_cfg.provider or self.connection_cfg.gateway_type
+            )
 
-            content.mount(DimText(f"Provider: {self.provider_cfg.provider}{model_info}{endpoint_info}\n"))
+            content.mount(
+                DimText(
+                    f"Connection: {source_name}{model_info}{endpoint_info}\n"
+                )
+            )
             content.mount(DimText(f"Model: {response.model}\n"))
             content.mount(DimText(f"\nResponse: {response.content}"))
 
@@ -150,11 +171,11 @@ class TestConnectionModal(ModalScreen):
         self.dismiss()
 
 
-class ProviderCard(Container):
-    """Widget showing a single AI provider with action buttons."""
+class ConnectionCard(Container):
+    """Widget showing a single AI connection with action buttons."""
 
     DEFAULT_CSS = """
-    ProviderCard {
+    ConnectionCard {
         width: 100%;
         max-width: 60;
         height: auto;
@@ -163,62 +184,63 @@ class ProviderCard(Container):
         padding: 1 2;
     }
 
-    ProviderCard.default {
+    ConnectionCard.default {
         border: solid $primary;
     }
 
-    ProviderCard .provider-name {
+    ConnectionCard .connection-name {
         text-style: bold;
     }
 
-    ProviderCard .provider-info {
+    ConnectionCard .connection-info {
         color: $text-muted;
     }
 
-    ProviderCard .button-row {
+    ConnectionCard .button-row {
         height: auto;
         margin-top: 1;
     }
     """
 
-    def __init__(self, provider_id: str, provider_cfg: dict, is_default: bool = False, **kwargs):
+    def __init__(
+        self,
+        connection_id: str,
+        connection_cfg: dict,
+        is_default: bool = False,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        self.provider_id = provider_id
-        self.provider_cfg = provider_cfg
+        self.connection_id = connection_id
+        self.connection_cfg = connection_cfg
         self.is_default = is_default
 
     def compose(self) -> ComposeResult:
-        """Compose the provider card."""
+        """Compose the connection card."""
         import re
 
-        # Clean provider_id for use in button IDs (only allow valid characters)
-        clean_id = re.sub(r'[^a-z0-9_-]', '', self.provider_id.lower())
+        clean_id = re.sub(r"[^a-z0-9_-]", "", self.connection_id.lower())
 
-        # Provider name with default indicator
-        name = self.provider_cfg.get("name", self.provider_id)
+        name = self.connection_cfg.get("name", self.connection_id)
         default_marker = f"{Icons.STAR} " if self.is_default else ""
-        yield Static(f"{default_marker}{name}", classes="provider-name")
+        yield Static(f"{default_marker}{name}", classes="connection-name")
 
-        # Provider details
-        provider = self.provider_cfg.get("provider", "")
-        provider_label = "Anthropic" if provider == "anthropic" else "Google" if provider == "gemini" else provider
-        model = self.provider_cfg.get("model", "")
+        kind = self.connection_cfg.get("kind", "")
+        provider = self.connection_cfg.get("provider")
+        gateway_type = self.connection_cfg.get("gateway_type")
+        source_label = provider or gateway_type or "unknown"
+        model = self.connection_cfg.get(
+            "default_model", self.connection_cfg.get("model", "")
+        )
 
-        yield DimText(f"Provider: {provider_label} (Claude)" if provider == "anthropic" else f"Provider: {provider_label} (Gemini)", classes="provider-info")
-        yield DimText(f"Model: {model}", classes="provider-info")
+        yield DimText(f"Type: {kind}", classes="connection-info")
+        yield DimText(f"Source: {source_label}", classes="connection-info")
+        yield DimText(f"Model: {model}", classes="connection-info")
 
-        # Show base URL (always show this line for consistent height)
-        base_url = self.provider_cfg.get("base_url")
+        base_url = self.connection_cfg.get("base_url")
         if base_url:
-            yield DimText(f"Base URL: {base_url}", classes="provider-info")
+            yield DimText(f"Base URL: {base_url}", classes="connection-info")
         else:
-            # Add empty line to maintain consistent height
-            yield DimText(" ", classes="provider-info")
-
-        # Show type
-        config_type = self.provider_cfg.get("type", "")
-        type_label = "Corporate" if config_type == "corporate" else "Individual"
-        yield DimText(f"Type: {type_label}", classes="provider-info")
+            yield DimText(" ", classes="connection-info")
 
         # Action buttons (use cleaned ID for button IDs)
         with Horizontal(classes="button-row"):
@@ -230,7 +252,7 @@ class ProviderCard(Container):
 
 class AIConfigScreen(BaseScreen):
     """
-    Screen for AI provider configuration and management.
+    Screen for AI connection configuration and management.
     """
 
     BINDINGS = [
@@ -288,22 +310,25 @@ class AIConfigScreen(BaseScreen):
     def compose_content(self) -> ComposeResult:
         """Compose the AI configuration screen."""
         with Container(id="config-container"):
-            # Scrollable area with grid for providers
+            # Scrollable area with grid for connections
             with VerticalScroll(id="providers-scroll"):
                 yield Grid(id="providers-grid")
 
-            # Add provider button at the bottom
+            # Add connection button at the bottom
             with Container(id="add-provider-container"):
-                yield Button(f"{Icons.SETTINGS} New Provider", variant="primary", id="add-provider-button")
+                yield Button(
+                    f"{Icons.SETTINGS} New Connection",
+                    variant="primary",
+                    id="add-provider-button",
+                )
 
     def on_mount(self) -> None:
-        """Load providers when mounted."""
-        self.load_providers()
+        """Load connections when mounted."""
+        self.load_connections()
 
     def on_screen_resume(self) -> None:
-        """Reload providers when returning from wizard."""
-        self.load_providers()
-        # Update status bar in case a new provider was added
+        """Reload connections when returning from wizard."""
+        self.load_connections()
         self._refresh_status_bar()
 
     def _refresh_status_bar(self) -> None:
@@ -315,8 +340,8 @@ class AIConfigScreen(BaseScreen):
         except Exception:
             pass  # Status bar might not be available
 
-    def load_providers(self) -> None:
-        """Load and display all configured providers."""
+    def load_connections(self) -> None:
+        """Load and display all configured AI connections."""
         # Reload config to get latest
         self.config.load()
 
@@ -337,7 +362,7 @@ class AIConfigScreen(BaseScreen):
 
         grid.remove_children()
 
-        if not self.config.config.ai or not self.config.config.ai.providers:
+        if not self.config.config.ai or not self.config.config.ai.connections:
             # Remove any existing no-providers message first
             try:
                 existing = self.query_one("#no-providers", Static)
@@ -347,21 +372,19 @@ class AIConfigScreen(BaseScreen):
 
             # Show no providers message
             grid.mount(Static(
-                "No AI providers configured yet.\n\n"
-                "Click 'Add New Provider' to configure your first provider.",
+                "No AI connections configured yet.\n\n"
+                "Click 'New Connection' to configure your first connection.",
                 id="no-providers"
             ))
             return
 
-        # Get default provider
-        default_id = self.config.config.ai.default
+        default_id = self.config.config.ai.default_connection
 
-        # Display each provider
-        for provider_id, provider_cfg in self.config.config.ai.providers.items():
-            is_default = (provider_id == default_id)
-            card = ProviderCard(
-                provider_id=provider_id,
-                provider_cfg=provider_cfg.dict(),
+        for connection_id, connection_cfg in self.config.config.ai.connections.items():
+            is_default = connection_id == default_id
+            card = ConnectionCard(
+                connection_id=connection_id,
+                connection_cfg=connection_cfg.model_dump(),
                 is_default=is_default
             )
             if is_default:
@@ -373,121 +396,85 @@ class AIConfigScreen(BaseScreen):
         button_id = event.button.id
 
         if button_id == "add-provider-button":
-            self.handle_add_provider()
+            self.handle_add_connection()
         elif button_id.startswith("set-default-") or button_id.startswith("test-") or button_id.startswith("delete-"):
-            # Find the ProviderCard that contains this button
-            card = event.button.parent.parent  # Button -> Horizontal -> ProviderCard
-            if isinstance(card, ProviderCard):
-                provider_id = card.provider_id
+            card = event.button.parent.parent
+            if isinstance(card, ConnectionCard):
+                connection_id = card.connection_id
 
                 if button_id.startswith("set-default-"):
-                    self.handle_set_default(provider_id)
+                    self.handle_set_default(connection_id)
                 elif button_id.startswith("test-"):
-                    self.handle_test_connection(provider_id)
+                    self.handle_test_connection(connection_id)
                 elif button_id.startswith("delete-"):
-                    self.handle_delete(provider_id)
+                    self.handle_delete(connection_id)
 
-    def handle_add_provider(self) -> None:
-        """Open the configuration wizard to add a new provider."""
+    def handle_add_connection(self) -> None:
+        """Open the configuration wizard to add a new connection."""
         from .ai_config_wizard import AIConfigWizardScreen
 
         self.app.push_screen(AIConfigWizardScreen(self.config))
 
-    def handle_set_default(self, provider_id: str) -> None:
-        """Set a provider as default."""
+    def handle_set_default(self, connection_id: str) -> None:
+        """Set a connection as default."""
 
         try:
-            # Load global config
-            global_config_path = TitanConfig.GLOBAL_CONFIG
-            with open(global_config_path, "rb") as f:
-                global_config_data = tomli.load(f)
+            self.config.set_default_ai_connection(connection_id)
 
-            # Update default
-            global_config_data["ai"]["default"] = provider_id
-
-            # Save to disk
-            with open(global_config_path, "wb") as f:
-                tomli_w.dump(global_config_data, f)
-
-            # Reload and refresh display
             self.config.load()
-            self.load_providers()
-
-            # Update status bar
+            self.load_connections()
             self._refresh_status_bar()
 
-            provider_name = self.config.config.ai.providers[provider_id].name
-            self.app.notify(f"'{provider_name}' is now the default provider", severity="information")
+            connection_name = self.config.config.ai.connections[connection_id].name
+            self.app.notify(
+                f"'{connection_name}' is now the default connection",
+                severity="information",
+            )
 
         except Exception as e:
             self.app.notify(f"Failed to set default: {e}", severity="error")
 
-    def handle_test_connection(self, provider_id: str) -> None:
-        """Test connection to a provider."""
-        # Reload config to get latest
+    def handle_test_connection(self, connection_id: str) -> None:
+        """Test connection to an AI connection."""
         self.config.load()
 
-        if provider_id not in self.config.config.ai.providers:
-            self.app.notify("Provider not found", severity="error")
+        if connection_id not in self.config.config.ai.connections:
+            self.app.notify("Connection not found", severity="error")
             return
 
-        provider_cfg = self.config.config.ai.providers[provider_id]
+        connection_cfg = self.config.config.ai.connections[connection_id]
+        self.app.push_screen(
+            TestConnectionModal(connection_id, connection_cfg, self.config)
+        )
 
-        # Open modal
-        self.app.push_screen(TestConnectionModal(provider_id, provider_cfg, self.config))
-
-    def handle_delete(self, provider_id: str) -> None:
-        """Delete a provider."""
-        import tomli
-        import tomli_w
-        from titan_cli.core.config import TitanConfig
+    def handle_delete(self, connection_id: str) -> None:
+        """Delete an AI connection."""
         from titan_cli.core.secrets import SecretManager
 
         try:
-            # Reload config
             self.config.load()
 
-            if provider_id not in self.config.config.ai.providers:
-                self.app.notify("Provider not found", severity="error")
+            if connection_id not in self.config.config.ai.connections:
+                self.app.notify("Connection not found", severity="error")
                 return
 
-            provider_name = self.config.config.ai.providers[provider_id].name
+            connection_name = self.config.config.ai.connections[connection_id].name
+            self.config.delete_ai_connection(connection_id)
 
-            # Load global config
-            global_config_path = TitanConfig.GLOBAL_CONFIG
-            with open(global_config_path, "rb") as f:
-                global_config_data = tomli.load(f)
-
-            # Remove provider
-            del global_config_data["ai"]["providers"][provider_id]
-
-            # If this was the default, set a new default (first available)
-            if global_config_data["ai"].get("default") == provider_id:
-                remaining_providers = list(global_config_data["ai"]["providers"].keys())
-                if remaining_providers:
-                    global_config_data["ai"]["default"] = remaining_providers[0]
-                else:
-                    global_config_data["ai"]["default"] = None
-
-            # Save to disk
-            with open(global_config_path, "wb") as f:
-                tomli_w.dump(global_config_data, f)
-
-            # Delete API key from secrets
             secrets = SecretManager()
             try:
-                secrets.delete(f"{provider_id}_api_key", scope="user")
+                secrets.delete(f"{connection_id}_api_key", scope="user")
             except Exception:
-                pass  # Key might not exist
+                pass
 
-            # Reload and refresh display
             self.config.load()
-            self.load_providers()
-
-            # Update status bar
+            self.load_connections()
             self._refresh_status_bar()
 
-            self.app.notify(f"Provider '{provider_name}' deleted", severity="information")
+            self.app.notify(
+                f"Connection '{connection_name}' deleted",
+                severity="information",
+            )
 
         except Exception as e:
             self.app.notify(f"Failed to delete provider: {e}", severity="error")

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional, List
 import tomli
 from .models import TitanConfigModel
+from .config_migrations import MigrationManager
 from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
 from .secrets import SecretManager
@@ -16,6 +17,7 @@ class TitanConfig:
     """Manages Titan configuration with global + project merge"""
 
     GLOBAL_CONFIG = Path.home() / ".titan" / "config.toml"
+    migration_manager = MigrationManager()
 
     def __init__(
         self,
@@ -48,7 +50,7 @@ class TitanConfig:
             skip_plugin_init: If True, skip plugin initialization. Useful during setup wizards.
         """
         # Load global config
-        self.global_config = self._load_toml(self._global_config_path)
+        self.global_config = self._load_and_migrate_toml(self._global_config_path)
 
         # Set project root: git root if inside a repo, otherwise cwd
         project_root = find_project_root()
@@ -60,7 +62,7 @@ class TitanConfig:
         self.project_config_path = self._find_project_config(project_root)
 
         # Load project config if it exists
-        self.project_config = self._load_toml(self.project_config_path)
+        self.project_config = self._load_and_migrate_toml(self.project_config_path)
 
         # Merge and validate final config
         merged = self._merge_configs(self.global_config, self.project_config)
@@ -117,6 +119,24 @@ class TitanConfig:
                 _ = ConfigParseError(file_path=str(path), original_exception=e)
                 return {}
 
+    def _load_and_migrate_toml(self, path: Optional[Path]) -> dict:
+        """Load TOML and normalize it to the current config schema."""
+        raw_config = self._load_toml(path)
+        if not raw_config:
+            return {}
+
+        migration_result = self.migration_manager.migrate(raw_config)
+        if migration_result.changed:
+            logger.info(
+                "config_migrated",
+                path=str(path),
+                from_version=migration_result.original_version,
+                to_version=migration_result.final_version,
+                steps=migration_result.applied_steps,
+            )
+
+        return migration_result.data
+
     def _merge_configs(self, global_cfg: dict, project_cfg: dict) -> dict:
         """Merge global and project configs (project overrides global)"""
         merged = {**global_cfg}
@@ -160,25 +180,28 @@ class TitanConfig:
                 # Global AI config is always available, project can override specific settings
                 merged_ai = merged.setdefault("ai", {})
 
-                # Merge providers (project providers supplement global providers)
-                if "providers" in value:
-                    merged_providers = merged_ai.setdefault("providers", {})
+                # Merge connections (project connections supplement global connections)
+                if "connections" in value:
+                    merged_connections = merged_ai.setdefault("connections", {})
                     # Deep merge: preserve global fields, override with project fields
-                    for provider_id, provider_data in value["providers"].items():
-                        if provider_id in merged_providers:
-                            # Provider exists in global: deep merge (extend, not replace)
-                            merged_providers[provider_id] = {**merged_providers[provider_id], **provider_data}
+                    for connection_id, connection_data in value["connections"].items():
+                        if connection_id in merged_connections:
+                            # Connection exists in global: deep merge (extend, not replace)
+                            merged_connections[connection_id] = {
+                                **merged_connections[connection_id],
+                                **connection_data,
+                            }
                         else:
-                            # New provider: just add it
-                            merged_providers[provider_id] = provider_data
+                            # New connection: just add it
+                            merged_connections[connection_id] = connection_data
 
-                # Project can override default provider, otherwise keep global
-                if "default" in value:
-                    merged_ai["default"] = value["default"]
+                # Project can override default connection, otherwise keep global
+                if "default_connection" in value:
+                    merged_ai["default_connection"] = value["default_connection"]
 
                 # Merge any other AI settings
                 for ai_key, ai_value in value.items():
-                    if ai_key not in ("providers", "default"):
+                    if ai_key not in ("connections", "default_connection"):
                         merged_ai[ai_key] = ai_value
             else:
                 merged[key] = value
@@ -234,11 +257,62 @@ class TitanConfig:
         # Save only AI configuration to global config
         # Project-specific settings are stored in project's .titan/config.toml
         config_to_save = self.config.model_dump(exclude_none=True)
+        existing_global_config["config_version"] = self.config.config_version
 
         if 'ai' in config_to_save:
             existing_global_config['ai'] = config_to_save['ai']
 
         self._write_global_config(existing_global_config)
+
+    def get_ai_connections_config(self) -> dict:
+        """Return global AI config normalized to the current schema."""
+        config_data = self._load_and_migrate_toml(self._global_config_path)
+        ai_cfg = config_data.setdefault("ai", {})
+        ai_cfg.setdefault("connections", {})
+        ai_cfg.setdefault("default_connection", None)
+        return ai_cfg
+
+    def save_ai_connections_config(self, ai_config: dict) -> None:
+        """Persist global AI config in the current schema version."""
+        config_data = self._load_and_migrate_toml(self._global_config_path)
+        config_data["config_version"] = (
+            self.config.config_version if getattr(self, "config", None) else "1.0"
+        )
+        config_data["ai"] = ai_config
+        self._write_global_config(config_data)
+
+    def upsert_ai_connection(self, connection_id: str, connection_data: dict) -> None:
+        """Create or update a single AI connection."""
+        ai_cfg = self.get_ai_connections_config()
+        ai_cfg.setdefault("connections", {})
+        ai_cfg["connections"][connection_id] = connection_data
+
+        if not ai_cfg.get("default_connection"):
+            ai_cfg["default_connection"] = connection_id
+
+        self.save_ai_connections_config(ai_cfg)
+
+    def set_default_ai_connection(self, connection_id: str) -> None:
+        """Set the global default AI connection."""
+        ai_cfg = self.get_ai_connections_config()
+        if connection_id not in ai_cfg.get("connections", {}):
+            raise ValueError(f"AI connection '{connection_id}' not found.")
+        ai_cfg["default_connection"] = connection_id
+        self.save_ai_connections_config(ai_cfg)
+
+    def delete_ai_connection(self, connection_id: str) -> None:
+        """Delete an AI connection and repair the default pointer if needed."""
+        ai_cfg = self.get_ai_connections_config()
+        connections = ai_cfg.get("connections", {})
+        if connection_id not in connections:
+            return
+
+        del connections[connection_id]
+
+        if ai_cfg.get("default_connection") == connection_id:
+            ai_cfg["default_connection"] = next(iter(connections), None)
+
+        self.save_ai_connections_config(ai_cfg)
 
     def _write_global_config(self, data: dict) -> None:
         """Write raw global config data to disk."""
@@ -339,12 +413,17 @@ class TitanConfig:
         ai_info = None
         if self.config and self.config.ai:
             ai_config = self.config.ai
-            default_provider_id = ai_config.default
+            default_connection_id = ai_config.default_connection
 
-            if default_provider_id and default_provider_id in ai_config.providers:
-                provider_config = ai_config.providers[default_provider_id]
-                provider_name = provider_config.provider
-                model = provider_config.model or "default"
+            if (
+                default_connection_id
+                and default_connection_id in ai_config.connections
+            ):
+                connection_config = ai_config.connections[default_connection_id]
+                provider_name = (
+                    connection_config.provider or connection_config.gateway_type
+                )
+                model = connection_config.default_model or "default"
                 ai_info = f"{provider_name}/{model}"
 
         # Extract project name from project config

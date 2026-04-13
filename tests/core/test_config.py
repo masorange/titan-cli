@@ -23,13 +23,13 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     global_config_path = global_config_dir / "config.toml"
     global_config_data = {
         "ai": {
-            "default": "anthropic",
-            "providers": {
+            "default_connection": "anthropic",
+            "connections": {
                 "anthropic": {
+                    "kind": "direct_provider",
                     "provider": "anthropic",
-                    "model": "claude-3-5-sonnet",
+                    "default_model": "claude-3-5-sonnet",
                     "name": "Global Claude",
-                    "type": "individual",
                     "temperature": 0.7,
                     "max_tokens": 4096
                 }
@@ -47,13 +47,13 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     project_config_data = {
         "project": {"name": "My Specific Project"},
         "ai": {
-            "default": "gemini",
-            "providers": {
+            "default_connection": "gemini",
+            "connections": {
                 "gemini": {
+                    "kind": "direct_provider",
                     "provider": "gemini",
-                    "model": "gemini-1.5-pro",
+                    "default_model": "gemini-1.5-pro",
                     "name": "Project Gemini",
-                    "type": "individual",
                     "temperature": 0.7,
                     "max_tokens": 4096
                 }
@@ -81,9 +81,12 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
         # Project name is from project config
         assert config_instance.config.project.name == "My Specific Project"
         # AI provider is overridden by project config
-        assert config_instance.config.ai.default == "gemini"
-        assert config_instance.config.ai.providers["gemini"].model == "gemini-1.5-pro"
-        assert config_instance.config.ai.providers["gemini"].name == "Project Gemini"
+        assert config_instance.config.ai.default_connection == "gemini"
+        assert (
+            config_instance.config.ai.connections["gemini"].default_model
+            == "gemini-1.5-pro"
+        )
+        assert config_instance.config.ai.connections["gemini"].name == "Project Gemini"
         # Plugin configs are from project
         assert config_instance.config.plugins["github"].enabled is True
         assert config_instance.config.plugins["github"].config["org"] == "project-org"
