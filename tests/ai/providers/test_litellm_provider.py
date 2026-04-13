@@ -117,36 +117,20 @@ class TestLiteLLMProvider:
         mock_client = Mock()
         mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
 
-        first_choice = Mock()
-        first_choice.delta.content = "Generated "
-        first_choice.finish_reason = None
-        first_chunk = Mock()
-        first_chunk.choices = [first_choice]
-        first_chunk.model = "gpt-3.5-turbo"
-        first_chunk.usage = None
+        choice = Mock()
+        choice.message.content = "Generated response"
+        choice.finish_reason = "stop"
 
-        second_choice = Mock()
-        second_choice.delta.content = "response"
-        second_choice.finish_reason = "stop"
-        second_chunk = Mock()
-        second_chunk.choices = [second_choice]
-        second_chunk.model = "gpt-3.5-turbo"
-        second_chunk.usage = None
-
-        usage_chunk = Mock()
-        usage_chunk.choices = []
-        usage_chunk.model = "gpt-3.5-turbo"
-        usage_chunk.usage = Mock(
+        response = Mock()
+        response.choices = [choice]
+        response.model = "gpt-3.5-turbo"
+        response.usage = Mock(
             prompt_tokens=10,
             completion_tokens=20,
             total_tokens=30,
         )
 
-        mock_client.chat.completions.create.return_value = [
-            first_chunk,
-            second_chunk,
-            usage_chunk,
-        ]
+        mock_client.chat.completions.create.return_value = response
 
         provider = LiteLLMProvider(
             base_url="http://localhost:4000",
@@ -171,7 +155,7 @@ class TestLiteLLMProvider:
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
             temperature=0.7,
-            stream=True,
+            stream=False,
         )
 
     @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
@@ -180,14 +164,15 @@ class TestLiteLLMProvider:
         mock_client = Mock()
         mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
 
-        chunk_choice = Mock()
-        chunk_choice.delta.content = "ok"
-        chunk_choice.finish_reason = "stop"
-        chunk = Mock()
-        chunk.choices = [chunk_choice]
-        chunk.model = "gpt-3.5-turbo"
-        chunk.usage = None
-        mock_client.chat.completions.create.return_value = [chunk]
+        choice = Mock()
+        choice.message.content = "ok"
+        choice.finish_reason = "stop"
+
+        response = Mock()
+        response.choices = [choice]
+        response.model = "gpt-3.5-turbo"
+        response.usage = None
+        mock_client.chat.completions.create.return_value = response
 
         provider = LiteLLMProvider(
             base_url="http://localhost:4000",
@@ -207,7 +192,7 @@ class TestLiteLLMProvider:
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=100,
             temperature=0.7,
-            stream=True,
+            stream=False,
         )
 
     @patch("titan_cli.ai.providers.litellm.LiteLLMClient")

@@ -35,6 +35,7 @@ class PRAnalysis:
     pr_title: Optional[str] = None
     pr_body: Optional[str] = None
     pr_size: Optional[str] = None
+    pr_generation_error: Optional[str] = None
 
     # Metadata
     total_tokens_used: int = 0
@@ -133,6 +134,7 @@ class PRAgent(BaseAIAgent):
         pr_title = None
         pr_body = None
         pr_size = None
+        pr_generation_error = None
         files_changed = 0
         lines_changed = 0
         commits = []
@@ -230,15 +232,15 @@ class PRAgent(BaseAIAgent):
 
                         except Exception as e:
                             logger.error(f"Failed to generate PR description: {e}")
-                            # Return analysis without PR data
+                            pr_generation_error = str(e)
 
                 case _:
                     logger.error("Failed to get branch commits or diff")
-                    # Return analysis without PR data
+                    pr_generation_error = "Failed to get branch commits or diff."
 
         except Exception as e:
             logger.error(f"Failed to analyze branch for PR: {e}")
-            # Return analysis without PR data
+            pr_generation_error = str(e)
 
         return PRAnalysis(
             needs_commit=needs_commit,
@@ -247,6 +249,7 @@ class PRAgent(BaseAIAgent):
             pr_title=pr_title,
             pr_body=pr_body,
             pr_size=pr_size,
+            pr_generation_error=pr_generation_error,
             total_tokens_used=total_tokens,
             branch_commits=commits,
             files_changed=files_changed,

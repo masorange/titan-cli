@@ -103,11 +103,34 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             has_literal_newlines,
         )
 
-        # Check if PR content was generated (need commits in branch)
-        if not analysis.pr_title or not analysis.pr_body:
-            ctx.textual.dim_text("No commits found in branch to generate PR description.")
+        if analysis.pr_generation_error:
+            ctx.textual.warning_text(
+                msg.GitHub.AI.AI_GENERATION_FAILED.format(
+                    e=analysis.pr_generation_error
+                )
+            )
+            ctx.textual.dim_text(msg.GitHub.AI.FALLBACK_TO_MANUAL)
             ctx.textual.end_step("skip")
-            return Skip("No commits found for PR generation")
+            return Skip(
+                msg.GitHub.AI.AI_GENERATION_FAILED.format(
+                    e=analysis.pr_generation_error
+                )
+            )
+
+        # Check if PR content was generated because there are commits in branch
+        if not analysis.pr_title or not analysis.pr_body:
+            if not analysis.branch_commits:
+                ctx.textual.dim_text(
+                    "No commits found in branch to generate PR description."
+                )
+                ctx.textual.end_step("skip")
+                return Skip("No commits found for PR generation")
+
+            ctx.textual.warning_text(
+                "AI did not generate PR content for this branch."
+            )
+            ctx.textual.end_step("skip")
+            return Skip("AI did not generate PR content")
 
         # Show PR size info
         if analysis.pr_size:

@@ -111,11 +111,10 @@ class LiteLLMProvider(AIProvider):
                 for msg in request.messages
             ]
 
-            # Some OpenAI-compatible endpoints only respond correctly in streaming mode.
             request_kwargs = {
                 "model": self._model,
                 "messages": messages,
-                "stream": True,
+                "stream": False,
             }
 
             if request.max_tokens is not None:
@@ -124,38 +123,25 @@ class LiteLLMProvider(AIProvider):
             if request.temperature is not None:
                 request_kwargs["temperature"] = request.temperature
 
-            stream = self._client.chat.completions.create(**request_kwargs)
-
-            content_parts: list[str] = []
-            finish_reason = "stop"
-            response_model = self._model
-            usage = {}
-
-            for chunk in stream:
-                if getattr(chunk, "model", None):
-                    response_model = chunk.model
-
-                if getattr(chunk, "usage", None):
-                    usage = {
-                        "input_tokens": chunk.usage.prompt_tokens,
-                        "output_tokens": chunk.usage.completion_tokens,
-                        "total_tokens": chunk.usage.total_tokens,
-                    }
-
-                for choice in getattr(chunk, "choices", []) or []:
-                    delta = getattr(choice, "delta", None)
-                    if delta and getattr(delta, "content", None):
-                        content_parts.append(delta.content)
-
-                    if getattr(choice, "finish_reason", None):
-                        finish_reason = choice.finish_reason
-
-            content = "".join(content_parts)
+            response = self._client.chat.completions.create(**request_kwargs)
+            choice = response.choices[0]
+            usage = response.usage
+            content = choice.message.content or ""
+            response_model = response.model or self._model
+            finish_reason = choice.finish_reason or "stop"
 
             return AIResponse(
                 content=content,
                 model=response_model,
-                usage=usage,
+                usage=(
+                    {
+                        "input_tokens": usage.prompt_tokens,
+                        "output_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                    }
+                    if usage
+                    else {}
+                ),
                 finish_reason=finish_reason,
             )
 

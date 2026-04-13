@@ -52,7 +52,7 @@ class LiteLLMClient:
     @staticmethod
     def _build_http_client() -> httpx.Client:
         timeout = httpx.Timeout(connect=5.0, read=60.0, write=60.0, pool=60.0)
-        return httpx.Client(http2=True, timeout=timeout, follow_redirects=True)
+        return httpx.Client(http2=False, timeout=timeout, follow_redirects=True)
 
     def list_models(self) -> list[GatewayModel]:
         response = self._client.models.list()
