@@ -9,13 +9,13 @@ from titan_cli.core.secrets import SecretManager
 
 
 @pytest.fixture
-def mock_ai_config_single_provider():
+def mock_ai_config_single_connection():
     """Returns an AIConfig with one connection and it as default."""
     return AIConfig(
-        default_connection="test_provider",
+        default_connection="test_connection",
         connections={
-            "test_provider": AIProviderConfig(
-                name="Test Provider",
+            "test_connection": AIProviderConfig(
+                name="Test Connection",
                 kind=AIConnectionKind.DIRECT_PROVIDER,
                 provider="anthropic",
                 default_model="claude-sonnet",
@@ -54,7 +54,7 @@ def mock_secret_manager():
     return sm
 
 
-def test_aiclient_init_specific_provider(
+def test_aiclient_init_specific_connection(
     mock_ai_config_multiple_connections, mock_secret_manager
 ):
     """Test AIClient initializes with a specific connection_id."""
@@ -63,12 +63,12 @@ def test_aiclient_init_specific_provider(
         secrets=mock_secret_manager,
         connection_id="secondary_anthropic",
     )
-    current_provider_cfg = client.ai_config.connections.get(client.connection_id)
-    assert current_provider_cfg.name == "Secondary Anthropic"
-    assert current_provider_cfg.provider == "anthropic"
+    current_connection_cfg = client.ai_config.connections.get(client.connection_id)
+    assert current_connection_cfg.name == "Secondary Anthropic"
+    assert current_connection_cfg.provider == "anthropic"
 
 
-def test_aiclient_init_default_provider(
+def test_aiclient_init_default_connection(
     mock_ai_config_multiple_connections, mock_secret_manager
 ):
     """Test AIClient initializes with the default connection when no connection_id is given."""
@@ -76,9 +76,9 @@ def test_aiclient_init_default_provider(
         ai_config=mock_ai_config_multiple_connections,
         secrets=mock_secret_manager,
     )
-    current_provider_cfg = client.ai_config.connections.get(client.connection_id)
-    assert current_provider_cfg.name == "Default Gemini"
-    assert current_provider_cfg.provider == "gemini"
+    current_connection_cfg = client.ai_config.connections.get(client.connection_id)
+    assert current_connection_cfg.name == "Default Gemini"
+    assert current_connection_cfg.provider == "gemini"
 
 
 def test_aiclient_init_fallback_default_not_exist_fails():
@@ -90,8 +90,8 @@ def test_aiclient_init_fallback_default_not_exist_fails():
         AIConfig(
             default_connection="non_existent",
             connections={
-                "some_provider": AIProviderConfig(
-                    name="Some Provider",
+                "some_connection": AIProviderConfig(
+                    name="Some Connection",
                     kind=AIConnectionKind.DIRECT_PROVIDER,
                     provider="openai",
                     default_model="gpt-3.5",
@@ -100,7 +100,7 @@ def test_aiclient_init_fallback_default_not_exist_fails():
         )
 
 
-def test_aiclient_init_invalid_provider_id_falls_back(
+def test_aiclient_init_invalid_connection_id_falls_back(
     mock_ai_config_multiple_connections, mock_secret_manager
 ):
     """Test AIClient falls back to the first available connection when initializing with a non-existent connection_id."""
@@ -116,9 +116,9 @@ def test_aiclient_init_invalid_provider_id_falls_back(
 
 def test_aiclient_no_connections_configured():
     """Test AIClient raises AIConfigurationError if no connections are configured."""
-    ai_config_no_providers = AIConfig(connections={})
+    ai_config_no_connections = AIConfig(connections={})
     with pytest.raises(AIConfigurationError, match="No AI connections configured."):
         AIClient(
-            ai_config=ai_config_no_providers,
+            ai_config=ai_config_no_connections,
             secrets=MagicMock(spec=SecretManager),
         )

@@ -2,7 +2,6 @@
 AI Client - Main facade for AI functionality
 """
 
-import sys
 from typing import Optional, List
 
 from titan_cli.core.models import (
@@ -12,6 +11,7 @@ from titan_cli.core.models import (
     AIGatewayType,
 )
 from titan_cli.core.secrets import SecretManager
+from .dependencies import get_install_command
 from .exceptions import AIConfigurationError
 from .models import AIMessage, AIRequest, AIResponse
 from .providers import (
@@ -38,34 +38,6 @@ def get_gateway_classes() -> dict[str, type[AIProvider]]:
         AIGatewayType.OPENAI_COMPATIBLE.value: LiteLLMProvider,
     }
 
-
-# Backward-compatible snapshot for external imports/tests.
-PROVIDER_CLASSES = get_provider_classes()
-
-PROVIDER_PACKAGES = {
-    AIDirectProvider.ANTHROPIC.value: "anthropic",
-    AIDirectProvider.GEMINI.value: "google-genai google-auth",
-    AIDirectProvider.OPENAI.value: "openai",
-    AIGatewayType.OPENAI_COMPATIBLE.value: "openai",
-}
-
-
-def get_provider_install_command(provider_name: str) -> Optional[str]:
-    """Return the recommended install command for a missing provider dependency."""
-    package_spec = PROVIDER_PACKAGES.get(provider_name)
-    if not package_spec:
-        return None
-
-    try:
-        from titan_cli.core.plugins.community import is_running_in_pipx
-
-        if is_running_in_pipx():
-            return f"pipx inject titan-cli {package_spec}"
-    except Exception:
-        pass
-
-    return f"{sys.executable} -m pip install {package_spec}"
-
 class AIClient:
     """
     Main client for AI functionality.
@@ -73,7 +45,7 @@ class AIClient:
     This facade simplifies AI usage by:
     - Reading configuration from AIConfig.
     - Retrieving secrets from SecretManager.
-    - Instantiating the correct AI provider.
+    - Instantiating the correct AI source adapter.
     - Providing a simple `generate()` and `chat()` interface.
     """
 
@@ -108,10 +80,10 @@ class AIClient:
     @property
     def provider(self) -> AIProvider:
         """
-        Get configured provider (lazy loading).
+        Get the configured AI adapter (lazy loading).
 
         Returns:
-            Provider instance.
+            AI adapter instance.
 
         Raises:
             AIConfigurationError: If AI is not enabled or configured incorrectly.
@@ -162,10 +134,11 @@ class AIClient:
         try:
             self._provider = provider_class(**kwargs)
         except ImportError as exc:
-            install_command = get_provider_install_command(source_name)
+            install_command = get_install_command(source_name)
             error_message = str(exc).strip()
-            if install_command and install_command not in error_message:
-                error_message = f"{error_message}\nInstall with: {install_command}"
+            install_command_str = " ".join(install_command) if install_command else None
+            if install_command_str and install_command_str not in error_message:
+                error_message = f"{error_message}\nInstall with: {install_command_str}"
             raise AIConfigurationError(error_message) from exc
         return self._provider
 
@@ -176,7 +149,7 @@ class AIClient:
         temperature: Optional[float] = None,
     ) -> AIResponse:
         """
-        Generate response using configured AI provider.
+        Generate a response using the configured AI connection.
 
         Args:
             messages: List of conversation messages.

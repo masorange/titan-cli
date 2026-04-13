@@ -15,7 +15,7 @@ class StatusBarWidget(Widget):
 
     Shows:
     - Left: Git branch
-    - Center: AI provider and model
+    - Center: AI connection source and model
     - Right: Active project name
 
     This widget is designed to be docked at the bottom of the screen.
@@ -104,7 +104,7 @@ class StatusBarWidget(Widget):
 
         Args:
             git_branch: Git branch name
-            ai_info: AI provider/model info
+            ai_info: AI source/model info
             project_name: Active project name
         """
         if git_branch is not None:
