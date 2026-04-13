@@ -17,7 +17,7 @@ Instead of running five commands manually every time you open a PR, you run `tit
 - **Workflow engine** — Compose atomic steps into automated flows defined in YAML
 - **Modern TUI** — Interactive terminal interface powered by [Textual](https://textual.textualize.io/)
 - **Plugin system** — Built-in Git, GitHub, and Jira plugins; extensible with your own
-- **AI integration** — Optional Claude and Gemini support for commit messages, PR descriptions, and issue analysis
+- **AI integration** — Optional AI connections for commit messages, PR descriptions, and issue analysis
 - **Project-scoped** — Per-project configuration in `.titan/config.toml`; no global state
 
 ---

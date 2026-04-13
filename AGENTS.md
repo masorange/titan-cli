@@ -434,8 +434,8 @@ from titan_cli.core.config import TitanConfig
 
 config = TitanConfig()  # Loads and merges global + project
 print(config.config.project.name)
-print(config.config.ai.default)  # Default provider ID
-print(config.config.ai.providers)  # Dict of all configured providers
+print(config.config.ai.default_connection)  # Default AI connection ID
+print(config.config.ai.connections)  # Dict of all configured AI connections
 
 # Check enabled plugins
 if config.is_plugin_enabled("github"):
@@ -566,7 +566,9 @@ class MyCoolPlugin(TitanPlugin):
 
 ## 🤖 AI Integration
 
-Titan CLI includes a modular AI integration layer that allows for interaction with multiple AI providers (Anthropic, Gemini).
+Titan CLI includes a modular AI integration layer that supports multiple AI connections.
+Connections can be either direct providers (Anthropic, OpenAI, Gemini) or LLM gateways
+that expose OpenAI-compatible endpoints such as LiteLLM.
 
 ### File Structure (`ai/`)
 
@@ -580,66 +582,69 @@ titan_cli/ai/
 ├── exceptions.py           # Custom AI-related exceptions
 ├── models.py               # Data models (AIRequest, AIResponse)
 ├── oauth_helper.py         # Helper for Google Cloud OAuth
+├── litellm_client.py       # Shared OpenAI-compatible gateway client
 └── providers/
     ├── __init__.py
     ├── base.py             # AIProvider abstract base class
     ├── anthropic.py
     ├── gemini.py
+    ├── openai.py
+    └── litellm.py
 ```
 
 ### Core Components
 
--   **`AIClient` (`ai/client.py`):** This is the main entry point for using AI functionality. It acts as a facade that reads the user's configuration, retrieves the necessary secrets via `SecretManager`, and instantiates the correct provider. Supports multiple providers with a `provider_id` parameter to select which one to use.
--   **`AIProvider` (`ai/providers/base.py`):** This is an abstract base class that defines the interface for all AI providers. Each provider implements the `generate()` method to interact with its specific API.
+-   **`AIClient` (`ai/client.py`):** Main facade for AI usage. It reads the configured AI connection, retrieves secrets via `SecretManager`, and instantiates the correct direct provider or gateway adapter. Use `connection_id` to select a specific connection.
+-   **`AIProvider` (`ai/providers/base.py`):** Abstract base class implemented by direct providers and the LiteLLM/OpenAI-compatible gateway provider.
+-   **`LiteLLMClient` (`ai/litellm_client.py`):** Shared client for OpenAI-compatible gateways used for connection testing and model discovery.
 
 ### Configuration
 
-AI configuration supports **multiple providers** simultaneously. Users can configure both corporate and personal providers, each with different models and endpoints.
+AI configuration supports **multiple connections** simultaneously.
+Each connection can be:
+- **LLM Gateway**: one endpoint exposing multiple models through an OpenAI-compatible API
+- **Direct Provider**: a direct vendor integration such as Anthropic, OpenAI, or Gemini
 
-AI providers are configured via:
-- Interactive command: `titan ai configure`
-- Main menu option: "AI Configuration" → "Configure AI Provider"
+AI connections are configured from the TUI:
+- Main menu option: `AI Configuration`
+- Then create a new connection and optionally set it as default
 
 The configuration workflow:
-1.  Select configuration type (Corporate or Individual)
-2.  Enter base URL (for corporate endpoints only)
-3.  Select provider (Anthropic, OpenAI, or Gemini)
+1.  Select connection type (`LLM Gateway` or `Direct Provider`)
+2.  For gateways, enter the base URL
+3.  Select the direct provider source when applicable
 4.  Provide API key (stored securely via `SecretManager`)
-5.  Select model with suggestions for popular models
-6.  Assign a friendly name to the provider
+5.  Select or enter the default model
+6.  Assign a friendly name to the connection
 7.  Optionally configure advanced settings (temperature, max_tokens)
-8.  Optionally mark as default provider
+8.  Optionally mark as default connection
 9.  Test the connection
 
-Configuration is stored in the global `~/.titan/config.toml` file with support for multiple providers:
+Configuration is stored in the global `~/.titan/config.toml` file:
 
 ```toml
 [ai]
-default = "corporate-gemini"  # Default provider ID
+default_connection = "work-gateway"
 
-[ai.providers.corporate-gemini]
-name = "Corporate Gemini"
-type = "corporate"
-provider = "gemini"
-model = "gemini-2.0-flash-exp"
+[ai.connections.work-gateway]
+name = "Work Gateway"
+kind = "gateway"
+gateway_type = "openai_compatible"
 base_url = "https://llm.company.com"
+default_model = "gemini-2.5-pro"
 temperature = 0.7
 max_tokens = 4096
 
-[ai.providers.personal-claude]
+[ai.connections.personal-claude]
 name = "Personal Claude"
-type = "individual"
+kind = "direct_provider"
 provider = "anthropic"
-model = "claude-3-5-sonnet-20241022"
+default_model = "claude-sonnet-4-5"
 temperature = 0.7
 max_tokens = 4096
 ```
 
-**Available commands:**
-- `titan ai configure` - Configure a new AI provider
-- `titan ai list` - List all configured providers
-- `titan ai set-default [provider-id]` - Change default provider
-- `titan ai test` - Test connection to default provider
+Titan still loads legacy AI config and migrates it to this structure automatically.
 
 ### Usage
 
@@ -657,15 +662,15 @@ config = TitanConfig()
 secrets = SecretManager()
 
 # 2. Check if AI is configured
-if not config.config.ai or not config.config.ai.providers:
-    print("No AI providers configured. Run: titan ai configure")
+if not config.config.ai or not config.config.ai.connections:
+    print("No AI connections configured.")
     return
 
-# 3. Create the AI client (uses default provider)
+# 3. Create the AI client (uses default connection)
 try:
     ai_client = AIClient(config.config.ai, secrets)
-    # Or specify a specific provider:
-    # ai_client = AIClient(config.config.ai, secrets, provider_id="corporate-gemini")
+    # Or specify a specific connection:
+    # ai_client = AIClient(config.config.ai, secrets, connection_id="work-gateway")
 except AIConfigurationError as e:
     print(f"AI not available: {e}")
     return
@@ -686,12 +691,12 @@ if ai_client.is_available():
     )
     print(creative_response.content)
 
-# 5. Using a specific provider
-corporate_client = AIClient(config.config.ai, secrets, provider_id="corporate-gemini")
-personal_client = AIClient(config.config.ai, secrets, provider_id="personal-claude")
+# 5. Using specific connections
+gateway_client = AIClient(config.config.ai, secrets, connection_id="work-gateway")
+personal_client = AIClient(config.config.ai, secrets, connection_id="personal-claude")
 
-# Each client uses its own provider configuration
-corp_response = corporate_client.generate(messages)
+# Each client uses its own connection configuration
+corp_response = gateway_client.generate(messages)
 personal_response = personal_client.generate(messages)
 ```
 
