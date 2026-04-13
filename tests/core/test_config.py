@@ -377,6 +377,42 @@ def test_load_rewrites_legacy_global_config_after_migration(
     assert list(migrated["ai"]["connections"].keys()) == ["corp-gemini"]
 
 
+def test_load_does_not_rewrite_legacy_project_config(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({"config_version": "1.0"}, f)
+
+    project_root = tmp_path / "project"
+    project_config_path = project_root / ".titan" / "config.toml"
+    project_config_path.parent.mkdir(parents=True)
+    legacy_project_data = {
+        "version": "1.0",
+        "project": {"name": "demo-project"},
+    }
+    with open(project_config_path, "wb") as f:
+        tomli_w.dump(legacy_project_data, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(
+        TitanConfig,
+        "_find_project_config",
+        lambda self, path: project_config_path,
+    )
+    monkeypatch.setattr("titan_cli.core.config.find_project_root", lambda: project_root)
+
+    TitanConfig()
+
+    with open(project_config_path, "rb") as f:
+        loaded_project = tomli.load(f)
+
+    assert loaded_project == legacy_project_data
+
+
 def test_config_finds_titan_at_git_root_not_subdir(tmp_path: Path, monkeypatch, mocker):
     """
     When running from /monorepo/app with .titan only at /monorepo,

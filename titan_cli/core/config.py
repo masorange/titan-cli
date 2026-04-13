@@ -17,7 +17,11 @@ class TitanConfig:
     """Manages Titan configuration with global + project merge"""
 
     GLOBAL_CONFIG = Path.home() / ".titan" / "config.toml"
-    migration_manager = MigrationManager()
+    global_migration_manager = MigrationManager()
+    project_migration_manager = MigrationManager(
+        migrations=[],
+        target_version="legacy",
+    )
 
     def __init__(
         self,
@@ -50,7 +54,10 @@ class TitanConfig:
             skip_plugin_init: If True, skip plugin initialization. Useful during setup wizards.
         """
         # Load global config
-        self.global_config = self._load_and_migrate_toml(self._global_config_path)
+        self.global_config = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
 
         # Set project root: git root if inside a repo, otherwise cwd
         project_root = find_project_root()
@@ -62,7 +69,10 @@ class TitanConfig:
         self.project_config_path = self._find_project_config(project_root)
 
         # Load project config if it exists
-        self.project_config = self._load_and_migrate_toml(self.project_config_path)
+        self.project_config = self._load_and_migrate_toml(
+            self.project_config_path,
+            migration_manager=self.project_migration_manager,
+        )
 
         # Merge and validate final config
         merged = self._merge_configs(self.global_config, self.project_config)
@@ -119,13 +129,17 @@ class TitanConfig:
                 _ = ConfigParseError(file_path=str(path), original_exception=e)
                 return {}
 
-    def _load_and_migrate_toml(self, path: Optional[Path]) -> dict:
+    def _load_and_migrate_toml(
+        self,
+        path: Optional[Path],
+        migration_manager: MigrationManager,
+    ) -> dict:
         """Load TOML and normalize it to the current config schema."""
         raw_config = self._load_toml(path)
         if not raw_config:
             return {}
 
-        migration_result = self.migration_manager.migrate(raw_config)
+        migration_result = migration_manager.migrate(raw_config)
         if migration_result.changed:
             logger.info(
                 "config_migrated",
@@ -268,7 +282,10 @@ class TitanConfig:
 
     def get_ai_connections_config(self) -> dict:
         """Return global AI config normalized to the current schema."""
-        config_data = self._load_and_migrate_toml(self._global_config_path)
+        config_data = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
         ai_cfg = config_data.setdefault("ai", {})
         ai_cfg.setdefault("connections", {})
         ai_cfg.setdefault("default_connection", None)
@@ -276,7 +293,10 @@ class TitanConfig:
 
     def save_ai_connections_config(self, ai_config: dict) -> None:
         """Persist global AI config in the current schema version."""
-        config_data = self._load_and_migrate_toml(self._global_config_path)
+        config_data = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
         config_data["config_version"] = (
             self.config.config_version if getattr(self, "config", None) else "1.0"
         )

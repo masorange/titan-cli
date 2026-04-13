@@ -139,7 +139,9 @@ class MigrationManager:
         migrations: list[ConfigMigration] | None = None,
         target_version: str = CURRENT_CONFIG_VERSION,
     ) -> None:
-        self._migrations = migrations or [LegacyToV1Migration()]
+        if migrations is None:
+            migrations = [LegacyToV1Migration()]
+        self._migrations = migrations
         self._target_version = target_version
         self._migration_map = {
             migration.from_version: migration for migration in self._migrations
