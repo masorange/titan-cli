@@ -18,10 +18,7 @@ class TitanConfig:
 
     GLOBAL_CONFIG = Path.home() / ".titan" / "config.toml"
     global_migration_manager = MigrationManager()
-    project_migration_manager = MigrationManager(
-        migrations=[],
-        target_version="legacy",
-    )
+    project_migration_manager = MigrationManager()
 
     def __init__(
         self,
@@ -69,10 +66,7 @@ class TitanConfig:
         self.project_config_path = self._find_project_config(project_root)
 
         # Load project config if it exists
-        self.project_config = self._load_and_migrate_toml(
-            self.project_config_path,
-            migration_manager=self.project_migration_manager,
-        )
+        self.project_config = self._load_toml(self.project_config_path)
 
         # Merge and validate final config
         merged = self._merge_configs(self.global_config, self.project_config)
@@ -133,6 +127,7 @@ class TitanConfig:
         self,
         path: Optional[Path],
         migration_manager: MigrationManager,
+        write_on_migration: bool = True,
     ) -> dict:
         """Load TOML and normalize it to the current config schema."""
         raw_config = self._load_toml(path)
@@ -148,7 +143,7 @@ class TitanConfig:
                 to_version=migration_result.final_version,
                 steps=migration_result.applied_steps,
             )
-            if path is not None:
+            if write_on_migration and path is not None:
                 self._write_toml(path, migration_result.data)
 
         return migration_result.data
