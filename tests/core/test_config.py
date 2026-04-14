@@ -1,8 +1,10 @@
 # tests/core/test_config.py
 import os
 import subprocess
+import tomli
 import tomli_w
 from pathlib import Path
+import pytest
 from titan_cli.core.config import TitanConfig
 
 
@@ -23,13 +25,13 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     global_config_path = global_config_dir / "config.toml"
     global_config_data = {
         "ai": {
-            "default": "anthropic",
-            "providers": {
+            "default_connection": "anthropic",
+            "connections": {
                 "anthropic": {
+                    "connection_type": "direct_provider",
                     "provider": "anthropic",
-                    "model": "claude-3-5-sonnet",
+                    "default_model": "claude-3-5-sonnet",
                     "name": "Global Claude",
-                    "type": "individual",
                     "temperature": 0.7,
                     "max_tokens": 4096
                 }
@@ -47,13 +49,13 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     project_config_data = {
         "project": {"name": "My Specific Project"},
         "ai": {
-            "default": "gemini",
-            "providers": {
+            "default_connection": "gemini",
+            "connections": {
                 "gemini": {
+                    "connection_type": "direct_provider",
                     "provider": "gemini",
-                    "model": "gemini-1.5-pro",
+                    "default_model": "gemini-1.5-pro",
                     "name": "Project Gemini",
-                    "type": "individual",
                     "temperature": 0.7,
                     "max_tokens": 4096
                 }
@@ -81,9 +83,12 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
         # Project name is from project config
         assert config_instance.config.project.name == "My Specific Project"
         # AI provider is overridden by project config
-        assert config_instance.config.ai.default == "gemini"
-        assert config_instance.config.ai.providers["gemini"].model == "gemini-1.5-pro"
-        assert config_instance.config.ai.providers["gemini"].name == "Project Gemini"
+        assert config_instance.config.ai.default_connection == "gemini"
+        assert (
+            config_instance.config.ai.connections["gemini"].default_model
+            == "gemini-1.5-pro"
+        )
+        assert config_instance.config.ai.connections["gemini"].name == "Project Gemini"
         # Plugin configs are from project
         assert config_instance.config.plugins["github"].enabled is True
         assert config_instance.config.plugins["github"].config["org"] == "project-org"
@@ -259,6 +264,153 @@ def test_config_uses_cwd_as_project_root_when_no_git(tmp_path: Path, monkeypatch
         assert config_instance.config.project.name == "No Git Project"
     finally:
         os.chdir(original_cwd)
+
+
+def test_update_ai_connection_updates_only_requested_fields(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    global_config_data = {
+        "config_version": "1.0",
+        "ai": {
+            "default_connection": "work-gateway",
+            "connections": {
+                "work-gateway": {
+                    "name": "Work Gateway",
+                    "connection_type": "gateway",
+                    "gateway_backend": "openai_compatible",
+                    "base_url": "http://localhost:4000",
+                    "default_model": "gpt-5",
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                }
+            },
+        },
+    }
+
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(global_config_data, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig()
+    config_instance.update_ai_connection(
+        "work-gateway",
+        {"default_model": "claude-sonnet-4"},
+    )
+
+    config_instance.load()
+    connection = config_instance.config.ai.connections["work-gateway"]
+    assert connection.default_model == "claude-sonnet-4"
+    assert connection.base_url == "http://localhost:4000"
+    assert connection.temperature == 0.7
+
+
+def test_update_ai_connection_raises_when_connection_not_found(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({"config_version": "1.0", "ai": {"connections": {}}}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    config_instance = TitanConfig()
+
+    with pytest.raises(ValueError, match="AI connection 'missing' not found."):
+        config_instance.update_ai_connection("missing", {"default_model": "gpt-5"})
+
+
+def test_load_rewrites_legacy_global_config_after_migration(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "version": "1.0",
+                "ai": {
+                    "default": "corp-gemini",
+                    "providers": {
+                        "corp-claude": {
+                            "name": "Corp Claude",
+                            "type": "corporate",
+                            "provider": "anthropic",
+                            "model": "claude-sonnet-4-5",
+                            "base_url": "https://llm.company.com/",
+                        },
+                        "corp-gemini": {
+                            "name": "Corp Gemini",
+                            "type": "corporate",
+                            "provider": "gemini",
+                            "model": "gemini-2.5-pro",
+                            "base_url": "https://llm.company.com/",
+                        },
+                    },
+                },
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+
+    TitanConfig()
+
+    with open(global_config_path, "rb") as f:
+        migrated = tomli.load(f)
+
+    assert "version" not in migrated
+    assert migrated["config_version"] == "1.0"
+    assert migrated["ai"]["default_connection"] == "corp-gemini"
+    assert list(migrated["ai"]["connections"].keys()) == ["corp-gemini"]
+
+
+def test_load_does_not_rewrite_legacy_project_config(
+    tmp_path: Path, monkeypatch, mocker
+):
+    mocker.patch("titan_cli.core.config.PluginRegistry")
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({"config_version": "1.0"}, f)
+
+    project_root = tmp_path / "project"
+    project_config_path = project_root / ".titan" / "config.toml"
+    project_config_path.parent.mkdir(parents=True)
+    legacy_project_data = {
+        "version": "1.0",
+        "project": {"name": "demo-project"},
+    }
+    with open(project_config_path, "wb") as f:
+        tomli_w.dump(legacy_project_data, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(
+        TitanConfig,
+        "_find_project_config",
+        lambda self, path: project_config_path,
+    )
+    monkeypatch.setattr("titan_cli.core.config.find_project_root", lambda: project_root)
+
+    TitanConfig()
+
+    with open(project_config_path, "rb") as f:
+        loaded_project = tomli.load(f)
+
+    assert loaded_project == legacy_project_data
 
 
 def test_config_finds_titan_at_git_root_not_subdir(tmp_path: Path, monkeypatch, mocker):

@@ -21,6 +21,3 @@ auto_assign_prs = true
 
 [plugins.jira]
 enabled = false
-
-[plugins.jira.config]
-default_project = "ECAPP"

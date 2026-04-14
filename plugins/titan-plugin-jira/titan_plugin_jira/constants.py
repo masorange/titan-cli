@@ -115,7 +115,7 @@ class ErrorMessages:
     # AI errors
     AI_NOT_AVAILABLE = (
         "⚠️ AI not available\n\n"
-        "No AI provider configured. "
+        "No AI connection configured. "
         "Will use brief description as-is."
     )
     AI_GENERATION_FAILED = (

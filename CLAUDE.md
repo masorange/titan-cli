@@ -299,8 +299,9 @@ When creating new steps or refactoring existing ones:
 
 - **Python 3.11+**
 - **Textual**: TUI framework
-- **Anthropic SDK**: Claude integration
-- **Google GenAI SDK**: Gemini integration
+- **Anthropic SDK**: Anthropic direct provider
+- **Google GenAI SDK**: Gemini direct provider
+- **OpenAI SDK**: OpenAI direct provider and LiteLLM/OpenAI-compatible gateways
 - **PyGithub**: GitHub API client
 - **Requests**: HTTP client for APIs
 
@@ -340,7 +341,7 @@ in another terminal.
 Titan uses a two-level configuration system:
 
 1. **Global Configuration** (`~/.titan/config.toml`):
-   - AI provider settings (shared across all projects)
+   - AI connection settings (shared across all projects)
    - Global preferences
 
 2. **Project Configuration** (`.titan/config.toml` at the git root):
@@ -356,14 +357,14 @@ Titan uses a two-level configuration system:
 
 Example global config:
 ```toml
-[ai.providers.default]
-name = "My Claude"
-type = "individual"
-provider = "anthropic"
-model = "claude-sonnet-4-5"
-
 [ai]
-default = "default"
+default_connection = "default"
+
+[ai.connections.default]
+name = "My Claude"
+kind = "direct_provider"
+provider = "anthropic"
+default_model = "claude-sonnet-4-5"
 ```
 
 Example project config:
@@ -437,17 +438,19 @@ and run `textual console` in another terminal.
 - ✅ Git plugin (commits, branches, etc.)
 - ✅ GitHub plugin (PRs, issues with AI)
 - ✅ Jira plugin (search, AI-powered analysis)
-- ✅ Claude integration (Anthropic)
-- ✅ Gemini integration (Google)
+- ✅ Anthropic direct provider
+- ✅ OpenAI direct provider
+- ✅ Gemini direct provider
+- ✅ LiteLLM/OpenAI-compatible gateway
 - ✅ All workflow steps migrated to Textual
 
 ### Features
 
 - **Declarative Workflows**: Define flows in YAML
-- **Integrated AI**: Use Claude or Gemini to generate commit messages, PR descriptions, issue analysis
+- **Integrated AI**: Use configured AI connections to generate commit messages, PR descriptions, and issue analysis
 - **Interactive TUI**: Modern interface with Textual
 - **Extensible**: Plugin system
-- **Multi-Provider**: Supports multiple AI providers
+- **Multi-Connection**: Supports direct providers and LLM gateways
 
 ## Recent Important Commits
 
@@ -469,7 +472,7 @@ Titan has been redesigned to work on a per-project basis:
 
 - **Removed**: Global `project_root` and `active_project` settings from `[core]` configuration
 - **New Flow**: Titan must be run from within a project directory
-- **Global Config**: Now only stores AI provider settings (shared across projects)
+- **Global Config**: Now only stores AI connection settings (shared across projects)
 - **Project Config**: Each project has its own `.titan/config.toml` with:
   - Project name
   - Enabled plugins
@@ -499,6 +502,7 @@ Two new wizards guide users through initial setup:
 
 - **Textual Documentation**: https://textual.textualize.io/
 - **Anthropic API**: https://docs.anthropic.com/
+- **OpenAI API**: https://platform.openai.com/docs/
 - **Google GenAI**: https://ai.google.dev/
 
 ---

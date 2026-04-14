@@ -9,6 +9,7 @@ This agent analyzes the complete context of a branch and automatically:
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +21,16 @@ from ..utils import calculate_pr_size, is_i18n_change
 
 # Set up logger
 logger = get_logger(__name__)
+
+
+class PRStatus(StrEnum):
+    """Outcome of the PR analysis portion of PRAgent."""
+
+    OK = "ok"
+    NO_COMMITS = "no_commits"
+    SOURCE_DATA_FAILED = "source_data_failed"
+    GENERATION_FAILED = "generation_failed"
+    INCOMPLETE = "incomplete"
 
 
 @dataclass
@@ -35,6 +46,8 @@ class PRAnalysis:
     pr_title: Optional[str] = None
     pr_body: Optional[str] = None
     pr_size: Optional[str] = None
+    pr_status: PRStatus = PRStatus.OK
+    pr_error: Optional[str] = None
 
     # Metadata
     total_tokens_used: int = 0
@@ -133,6 +146,8 @@ class PRAgent(BaseAIAgent):
         pr_title = None
         pr_body = None
         pr_size = None
+        pr_status = PRStatus.OK
+        pr_error = None
         files_changed = 0
         lines_changed = 0
         commits = []
@@ -204,9 +219,11 @@ class PRAgent(BaseAIAgent):
 
             match (commits_result, diff_result):
                 case (ClientSuccess(data=commits_data), ClientSuccess(data=branch_diff)):
-                    if branch_diff and commits_data:
-                        commits = commits_data  # Extract commits list
+                    commits = commits_data or []
 
+                    if not commits or not branch_diff:
+                        pr_status = PRStatus.NO_COMMITS
+                    else:
                         # Read PR template (uses embedded default if file not found)
                         template = self._read_pr_template()
 
@@ -228,17 +245,25 @@ class PRAgent(BaseAIAgent):
                             lines_changed = pr_result["lines_changed"]
                             total_tokens += pr_result["tokens_used"]
 
+                            if not pr_title or not pr_body:
+                                pr_status = PRStatus.INCOMPLETE
+                            else:
+                                pr_status = PRStatus.OK
+
                         except Exception as e:
                             logger.error(f"Failed to generate PR description: {e}")
-                            # Return analysis without PR data
+                            pr_status = PRStatus.GENERATION_FAILED
+                            pr_error = str(e)
 
                 case _:
                     logger.error("Failed to get branch commits or diff")
-                    # Return analysis without PR data
+                    pr_status = PRStatus.SOURCE_DATA_FAILED
+                    pr_error = "Failed to get branch commits or diff."
 
         except Exception as e:
             logger.error(f"Failed to analyze branch for PR: {e}")
-            # Return analysis without PR data
+            pr_status = PRStatus.SOURCE_DATA_FAILED
+            pr_error = str(e)
 
         return PRAnalysis(
             needs_commit=needs_commit,
@@ -247,6 +272,8 @@ class PRAgent(BaseAIAgent):
             pr_title=pr_title,
             pr_body=pr_body,
             pr_size=pr_size,
+            pr_status=pr_status,
+            pr_error=pr_error,
             total_tokens_used=total_tokens,
             branch_commits=commits,
             files_changed=files_changed,

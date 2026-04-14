@@ -1,12 +1,13 @@
 """
-LLM Tools API client for fetching available models.
+Utilities for gateway model discovery.
 
-This module provides utilities to detect and interact with LLM Tools
-(LiteLLM) endpoints for dynamically fetching available AI models.
+This module keeps backward-compatible helpers used by the wizard while
+delegating the actual gateway access to LiteLLMClient.
 """
-import requests
 from typing import List, Optional
 from dataclasses import dataclass
+
+from .litellm_client import LiteLLMClient
 
 
 @dataclass
@@ -40,54 +41,31 @@ def is_llm_tools_url(base_url: str) -> bool:
 
 def fetch_available_models(
     base_url: str,
-    api_key: str,
+    api_key: Optional[str],
     provider_filter: Optional[str] = None,
 ) -> List[LLMModel]:
     """
-    Fetch available models from LLM Tools API (LiteLLM format).
+    Fetch available models from an OpenAI-compatible gateway.
 
-    The API uses OpenAI-compatible format and returns a list of available
-    models with their metadata.
+    The gateway uses OpenAI-compatible format and returns a list of
+    available models with their metadata.
 
     Args:
-        base_url: LLM Tools endpoint URL
-        api_key: API key for authentication (required)
-        provider_filter: Filter by provider ("anthropic" or "gemini")
+        base_url: Gateway endpoint URL
+        api_key: API key for authentication if required
+        provider_filter: Filter by source/model family
 
     Returns:
-        List of available models filtered by provider
+        List of available models filtered by source
 
     Raises:
         requests.RequestException: If API call fails
-        ValueError: If api_key is not provided
-
-    Examples:
-        >>> models = fetch_available_models(
-        ...     "https://llm.tools.example.com",
-        ...     "sk-1234",
-        ...     provider_filter="anthropic"
-        ... )
-        >>> len(models) > 0
-        True
     """
-    if not api_key:
-        raise ValueError("API key is required to fetch models from LLM Tools")
-
-    # LiteLLM uses OpenAI-compatible endpoint
-    endpoint = f"{base_url.rstrip('/')}/v1/models"
-
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    response = requests.get(endpoint, headers=headers, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
-
-    # Parse OpenAI-compatible response
+    data = LiteLLMClient(base_url=base_url, api_key=api_key).list_models()
     models = []
-    for model_data in data.get("data", []):
-        model_id = model_data.get("id", "")
-        owned_by = model_data.get("owned_by", "").lower()
+    for model_data in data:
+        model_id = model_data.id
+        owned_by = (model_data.owned_by or "").lower()
 
         # Filter by provider if specified
         # Note: LLM Tools API doesn't use owned_by correctly, so we filter by model name
