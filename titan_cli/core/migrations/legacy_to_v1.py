@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 
 from .base import CURRENT_CONFIG_VERSION, LEGACY_VERSION
@@ -22,7 +23,12 @@ class LegacyToV1Migration:
         if not isinstance(ai_cfg, dict):
             return migrated
 
-        default_connection = ai_cfg.pop("default", None)
+        legacy_default_connection = ai_cfg.pop("default", None)
+        default_connection = (
+            self._normalize_connection_id(legacy_default_connection)
+            if legacy_default_connection
+            else None
+        )
         if default_connection and "default_connection" not in ai_cfg:
             ai_cfg["default_connection"] = default_connection
 
@@ -48,7 +54,9 @@ class LegacyToV1Migration:
         gateway_groups: dict[str, list[tuple[str, dict]]] = {}
         direct_connections: dict[str, dict] = {}
 
-        for connection_id, provider_cfg in legacy_providers.items():
+        for legacy_connection_id, provider_cfg in legacy_providers.items():
+            connection_id = self._normalize_connection_id(legacy_connection_id)
+
             if self._is_gateway_provider(provider_cfg):
                 base_url = provider_cfg.get("base_url")
                 if base_url:
@@ -70,6 +78,13 @@ class LegacyToV1Migration:
             migrated[connection_id] = connection_cfg
 
         return migrated
+
+    def _normalize_connection_id(self, connection_id: str) -> str:
+        """Normalize legacy connection ids to TOML-safe keys."""
+        normalized = re.sub(r"[^a-z0-9]+", "-", connection_id.lower()).strip("-")
+        if not normalized:
+            raise ValueError("Legacy connection ID must contain letters or numbers.")
+        return normalized
 
     def _is_gateway_provider(self, provider_cfg: dict) -> bool:
         legacy_type = provider_cfg.get("type")

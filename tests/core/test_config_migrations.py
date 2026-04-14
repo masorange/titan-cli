@@ -131,6 +131,32 @@ def test_legacy_to_v1_keeps_individual_connections_separate():
     assert connection["default_model"] == "gemini-2.5-flash"
 
 
+def test_legacy_to_v1_normalizes_connection_ids():
+    raw_config = {
+        "ai": {
+            "default": "Individual Gemini (Google)",
+            "providers": {
+                "Individual Gemini (Google)": {
+                    "name": "Individual Gemini (Google)",
+                    "type": "individual",
+                    "provider": "gemini",
+                    "model": "gemini-3-flash-preview",
+                }
+            },
+        }
+    }
+
+    migrated = LegacyToV1Migration().migrate(raw_config)
+
+    assert migrated["ai"]["default_connection"] == "individual-gemini-google"
+    assert "individual-gemini-google" in migrated["ai"]["connections"]
+    assert "Individual Gemini (Google)" not in migrated["ai"]["connections"]
+    assert (
+        migrated["ai"]["connections"]["individual-gemini-google"]["name"]
+        == "Individual Gemini (Google)"
+    )
+
+
 def test_legacy_to_v1_preserves_existing_connection_entries():
     """Migration should not overwrite already-migrated connection entries."""
     raw_config = {
