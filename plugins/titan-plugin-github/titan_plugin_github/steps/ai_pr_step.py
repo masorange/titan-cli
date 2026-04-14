@@ -107,18 +107,12 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             PRStatus.GENERATION_FAILED,
             PRStatus.SOURCE_DATA_FAILED,
         }:
-            ctx.textual.warning_text(
-                msg.GitHub.AI.AI_GENERATION_FAILED.format(
-                    e=analysis.pr_error or "Unknown error"
-                )
+            error_message = msg.GitHub.AI.AI_GENERATION_FAILED.format(
+                e=analysis.pr_error or "Unknown error"
             )
-            ctx.textual.dim_text(msg.GitHub.AI.FALLBACK_TO_MANUAL)
-            ctx.textual.end_step("skip")
-            return Skip(
-                msg.GitHub.AI.AI_GENERATION_FAILED.format(
-                    e=analysis.pr_error or "Unknown error"
-                )
-            )
+            ctx.textual.error_text(error_message)
+            ctx.textual.end_step("error")
+            return Error(error_message)
 
         if analysis.pr_status == PRStatus.NO_COMMITS:
             ctx.textual.dim_text(
@@ -179,12 +173,10 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
     except Exception as e:
-        # Don't fail the workflow, just skip AI and use manual prompts
-        ctx.textual.warning_text(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
-        ctx.textual.dim_text(msg.GitHub.AI.FALLBACK_TO_MANUAL)
-
-        ctx.textual.end_step("skip")
-        return Skip(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
+        error_message = msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e)
+        ctx.textual.error_text(error_message)
+        ctx.textual.end_step("error")
+        return Error(error_message, exception=e)
 
 
 # Export for plugin registration
