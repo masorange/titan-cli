@@ -25,7 +25,7 @@ class WorkflowContextBuilder:
             connections={
                 "default": {
                     "name": "Default OpenAI",
-                    "kind": "direct_provider",
+                    "connection_type": "direct_provider",
                     "provider": "openai",
                     "default_model": "gpt-5",
                 }

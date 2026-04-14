@@ -149,6 +149,16 @@ class AIConfigWizardScreen(BaseScreen):
     }
     """
 
+    @staticmethod
+    def _build_connection_id(connection_name: str) -> str:
+        """Build a stable TOML-safe connection id."""
+        import re
+
+        connection_id = re.sub(r"[^a-z0-9]+", "-", connection_name.lower()).strip("-")
+        if not connection_id:
+            raise ValueError("Connection name must contain letters or numbers.")
+        return connection_id
+
     def __init__(self, config):
         super().__init__(
             config,
@@ -979,12 +989,11 @@ class AIConfigWizardScreen(BaseScreen):
 
     def save_configuration(self) -> None:
         """Save the AI connection configuration."""
-        import re
         from titan_cli.core.secrets import SecretManager
         from titan_cli.core.logging import get_logger
         from titan_cli.core.models import (
-            AIConnectionKind,
-            AIGatewayType,
+            AIConnectionType,
+            AIGatewayBackend,
             AIDirectProvider,
         )
 
@@ -993,8 +1002,7 @@ class AIConfigWizardScreen(BaseScreen):
 
         try:
             connection_name = self.wizard_data.get("connection_name", "")
-            connection_id = connection_name.lower().replace(" ", "-")
-            connection_id = re.sub(r"[^a-z0-9_-]", "", connection_id)
+            connection_id = self._build_connection_id(connection_name)
 
             ai_cfg = self.config.get_ai_connections_config()
             if connection_id in ai_cfg["connections"]:
@@ -1018,12 +1026,12 @@ class AIConfigWizardScreen(BaseScreen):
                 connection_cfg["base_url"] = self.wizard_data.get("base_url")
 
             if connection_type == "gateway":
-                connection_cfg["kind"] = AIConnectionKind.GATEWAY.value
-                connection_cfg["gateway_type"] = (
-                    AIGatewayType.OPENAI_COMPATIBLE.value
+                connection_cfg["connection_type"] = AIConnectionType.GATEWAY.value
+                connection_cfg["gateway_backend"] = (
+                    AIGatewayBackend.OPENAI_COMPATIBLE.value
                 )
             else:
-                connection_cfg["kind"] = AIConnectionKind.DIRECT_PROVIDER.value
+                connection_cfg["connection_type"] = AIConnectionType.DIRECT_PROVIDER.value
                 connection_cfg["provider"] = AIDirectProvider(selected_source).value
 
             self.config.upsert_ai_connection(connection_id, connection_cfg)

@@ -4,9 +4,9 @@ from pydantic import ValidationError
 from titan_cli.core.models import (
     AIConfig,
     AIConnectionConfig,
-    AIConnectionKind,
+    AIConnectionType,
     AIDirectProvider,
-    AIGatewayType,
+    AIGatewayBackend,
 )
 
 
@@ -14,7 +14,7 @@ def test_aiconnectionconfig_direct_provider_full_fields():
     """Test a direct provider connection with all supported fields."""
     config = AIConnectionConfig(
         name="Test Provider",
-        kind=AIConnectionKind.DIRECT_PROVIDER,
+        connection_type=AIConnectionType.DIRECT_PROVIDER,
         provider="anthropic",
         default_model="claude-sonnet",
         base_url="https://api.example.com",
@@ -22,7 +22,7 @@ def test_aiconnectionconfig_direct_provider_full_fields():
         max_tokens=1024,
     )
     assert config.name == "Test Provider"
-    assert config.kind == AIConnectionKind.DIRECT_PROVIDER
+    assert config.connection_type == AIConnectionType.DIRECT_PROVIDER
     assert config.provider == "anthropic"
     assert config.default_model == "claude-sonnet"
     assert config.model == "claude-sonnet"
@@ -35,13 +35,13 @@ def test_aiconnectionconfig_gateway_required_fields():
     """Test a gateway connection with only its required fields."""
     config = AIConnectionConfig(
         name="OpenAI Compatible Gateway",
-        kind=AIConnectionKind.GATEWAY,
-        gateway_type=AIGatewayType.OPENAI_COMPATIBLE,
+        connection_type=AIConnectionType.GATEWAY,
+        gateway_backend=AIGatewayBackend.OPENAI_COMPATIBLE,
         base_url="https://gateway.example.com",
     )
     assert config.name == "OpenAI Compatible Gateway"
-    assert config.kind == AIConnectionKind.GATEWAY
-    assert config.gateway_type == AIGatewayType.OPENAI_COMPATIBLE
+    assert config.connection_type == AIConnectionType.GATEWAY
+    assert config.gateway_backend == AIGatewayBackend.OPENAI_COMPATIBLE
     assert config.base_url == "https://gateway.example.com"
     assert config.provider is None
     assert config.default_model is None
@@ -53,11 +53,11 @@ def test_aiconnectionconfig_missing_required_fields():
     """Test AIConnectionConfig raises ValidationError for missing required fields."""
     with pytest.raises(ValidationError, match="name"):
         AIConnectionConfig(
-            kind=AIConnectionKind.DIRECT_PROVIDER,
+            connection_type=AIConnectionType.DIRECT_PROVIDER,
             provider="anthropic",
             default_model="claude-sonnet",
         )
-    with pytest.raises(ValidationError, match="kind"):
+    with pytest.raises(ValidationError, match="connection_type"):
         AIConnectionConfig(
             name="Bad Provider",
             provider="anthropic",
@@ -66,7 +66,7 @@ def test_aiconnectionconfig_missing_required_fields():
     with pytest.raises(ValidationError, match="provider"):
         AIConnectionConfig(
             name="Bad Provider",
-            kind=AIConnectionKind.DIRECT_PROVIDER,
+            connection_type=AIConnectionType.DIRECT_PROVIDER,
             default_model="claude-sonnet",
         )
 
@@ -78,8 +78,8 @@ def test_aiconnectionconfig_gateway_rejects_provider():
     ):
         AIConnectionConfig(
             name="Bad Gateway",
-            kind=AIConnectionKind.GATEWAY,
-            gateway_type=AIGatewayType.OPENAI_COMPATIBLE,
+            connection_type=AIConnectionType.GATEWAY,
+            gateway_backend=AIGatewayBackend.OPENAI_COMPATIBLE,
             provider=AIDirectProvider.ANTHROPIC,
             base_url="https://gateway.example.com",
         )
@@ -92,8 +92,8 @@ def test_aiconnectionconfig_gateway_requires_base_url():
     ):
         AIConnectionConfig(
             name="Bad Gateway",
-            kind=AIConnectionKind.GATEWAY,
-            gateway_type=AIGatewayType.OPENAI_COMPATIBLE,
+            connection_type=AIConnectionType.GATEWAY,
+            gateway_backend=AIGatewayBackend.OPENAI_COMPATIBLE,
             default_model="llama-2-7b",
         )
 
@@ -105,14 +105,14 @@ def test_aiconfig_multiple_connections_and_default():
         connections={
             "corp-gemini": AIConnectionConfig(
                 name="Corporate Gemini",
-                kind=AIConnectionKind.DIRECT_PROVIDER,
+                connection_type=AIConnectionType.DIRECT_PROVIDER,
                 provider="gemini",
                 default_model="gemini-2.0",
                 temperature=0.8,
             ),
             "personal-claude": AIConnectionConfig(
                 name="Personal Claude",
-                kind=AIConnectionKind.DIRECT_PROVIDER,
+                connection_type=AIConnectionType.DIRECT_PROVIDER,
                 provider="anthropic",
                 default_model="claude-3",
                 max_tokens=4096,
@@ -155,7 +155,7 @@ def test_aiconfig_default_not_in_connections():
             connections={
                 "corp-gemini": AIConnectionConfig(
                     name="Corporate Gemini",
-                    kind=AIConnectionKind.DIRECT_PROVIDER,
+                    connection_type=AIConnectionType.DIRECT_PROVIDER,
                     provider="gemini",
                     default_model="gemini-2.0",
                 )

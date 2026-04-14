@@ -82,7 +82,7 @@ class LegacyToV1Migration:
         migrated = deepcopy(provider_cfg)
         migrated["default_model"] = migrated.pop("model", None)
         migrated.pop("type", None)
-        migrated["kind"] = "direct_provider"
+        migrated["connection_type"] = "direct_provider"
         return migrated
 
     def _merge_gateway_group(
@@ -101,6 +101,6 @@ class LegacyToV1Migration:
         merged["default_model"] = merged.pop("model", None)
         merged.pop("type", None)
         merged.pop("provider", None)
-        merged["kind"] = "gateway"
-        merged["gateway_type"] = "openai_compatible"
+        merged["connection_type"] = "gateway"
+        merged["gateway_backend"] = "openai_compatible"
         return selected_id, merged

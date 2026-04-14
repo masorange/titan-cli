@@ -1,5 +1,5 @@
 # core/models/__init__.py
-from enum import Enum
+from enum import StrEnum
 from typing import Dict, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -20,20 +20,20 @@ class ProjectConfig(BaseModel):
     )
 
 
-class AIConnectionKind(str, Enum):
+class AIConnectionType(StrEnum):
     """Kinds of AI connections supported by Titan."""
 
     GATEWAY = "gateway"
     DIRECT_PROVIDER = "direct_provider"
 
 
-class AIGatewayType(str, Enum):
+class AIGatewayBackend(StrEnum):
     """Gateway backends supported by Titan."""
 
     OPENAI_COMPATIBLE = "openai_compatible"
 
 
-class AIDirectProvider(str, Enum):
+class AIDirectProvider(StrEnum):
     """Direct providers supported by Titan."""
 
     ANTHROPIC = "anthropic"
@@ -45,9 +45,9 @@ class AIConnectionConfig(BaseModel):
     """Configuration for an AI connection."""
 
     name: str = Field(..., description="Human-readable connection name")
-    kind: AIConnectionKind = Field(..., description="Connection type")
-    gateway_type: Optional[AIGatewayType] = Field(
-        None, description="Gateway backend type"
+    connection_type: AIConnectionType = Field(..., description="Connection type")
+    gateway_backend: Optional[AIGatewayBackend] = Field(
+        None, description="Gateway backend"
     )
     provider: Optional[AIDirectProvider] = Field(
         None, description="Direct provider type"
@@ -62,20 +62,20 @@ class AIConnectionConfig(BaseModel):
     @model_validator(mode="after")
     def validate_shape(self) -> "AIConnectionConfig":
         """Validate mutually exclusive connection settings."""
-        if self.kind == AIConnectionKind.GATEWAY:
-            if not self.gateway_type:
-                raise ValueError("gateway connections require 'gateway_type'")
+        if self.connection_type == AIConnectionType.GATEWAY:
+            if not self.gateway_backend:
+                raise ValueError("gateway connections require 'gateway_backend'")
             if not self.base_url:
                 raise ValueError("gateway connections require 'base_url'")
             if self.provider is not None:
                 raise ValueError("gateway connections must not define 'provider'")
 
-        if self.kind == AIConnectionKind.DIRECT_PROVIDER:
+        if self.connection_type == AIConnectionType.DIRECT_PROVIDER:
             if not self.provider:
                 raise ValueError("direct_provider connections require 'provider'")
-            if self.gateway_type is not None:
+            if self.gateway_backend is not None:
                 raise ValueError(
-                    "direct_provider connections must not define 'gateway_type'"
+                    "direct_provider connections must not define 'gateway_backend'"
                 )
 
         return self

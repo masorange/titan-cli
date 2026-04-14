@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from titan_cli.ai.client import AIClient
 from titan_cli.ai.exceptions import AIConfigurationError
-from titan_cli.core.models import AIConfig, AIConnectionKind, AIProviderConfig
+from titan_cli.core.models import AIConfig, AIConnectionType, AIProviderConfig
 from titan_cli.core.secrets import SecretManager
 
 
@@ -16,7 +16,7 @@ def mock_ai_config_single_connection():
         connections={
             "test_connection": AIProviderConfig(
                 name="Test Connection",
-                kind=AIConnectionKind.DIRECT_PROVIDER,
+                connection_type=AIConnectionType.DIRECT_PROVIDER,
                 provider="anthropic",
                 default_model="claude-sonnet",
             )
@@ -32,13 +32,13 @@ def mock_ai_config_multiple_connections():
         connections={
             "default_gemini": AIProviderConfig(
                 name="Default Gemini",
-                kind=AIConnectionKind.DIRECT_PROVIDER,
+                connection_type=AIConnectionType.DIRECT_PROVIDER,
                 provider="gemini",
                 default_model="gemini-pro",
             ),
             "secondary_anthropic": AIProviderConfig(
                 name="Secondary Anthropic",
-                kind=AIConnectionKind.DIRECT_PROVIDER,
+                connection_type=AIConnectionType.DIRECT_PROVIDER,
                 provider="anthropic",
                 default_model="claude-3",
             ),
@@ -92,7 +92,7 @@ def test_aiclient_init_fallback_default_not_exist_fails():
             connections={
                 "some_connection": AIProviderConfig(
                     name="Some Connection",
-                    kind=AIConnectionKind.DIRECT_PROVIDER,
+                    connection_type=AIConnectionType.DIRECT_PROVIDER,
                     provider="openai",
                     default_model="gpt-3.5",
                 )

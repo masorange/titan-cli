@@ -461,7 +461,7 @@ class TitanConfig:
             ):
                 connection_config = ai_config.connections[default_connection_id]
                 provider_name = (
-                    connection_config.provider or connection_config.gateway_type
+                    connection_config.provider or connection_config.gateway_backend
                 )
                 model = connection_config.default_model or "default"
                 ai_info = f"{provider_name}/{model}"

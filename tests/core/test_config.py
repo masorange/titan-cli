@@ -28,7 +28,7 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
             "default_connection": "anthropic",
             "connections": {
                 "anthropic": {
-                    "kind": "direct_provider",
+                    "connection_type": "direct_provider",
                     "provider": "anthropic",
                     "default_model": "claude-3-5-sonnet",
                     "name": "Global Claude",
@@ -52,7 +52,7 @@ def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
             "default_connection": "gemini",
             "connections": {
                 "gemini": {
-                    "kind": "direct_provider",
+                    "connection_type": "direct_provider",
                     "provider": "gemini",
                     "default_model": "gemini-1.5-pro",
                     "name": "Project Gemini",
@@ -280,8 +280,8 @@ def test_update_ai_connection_updates_only_requested_fields(
             "connections": {
                 "work-gateway": {
                     "name": "Work Gateway",
-                    "kind": "gateway",
-                    "gateway_type": "openai_compatible",
+                    "connection_type": "gateway",
+                    "gateway_backend": "openai_compatible",
                     "base_url": "http://localhost:4000",
                     "default_model": "gpt-5",
                     "temperature": 0.7,

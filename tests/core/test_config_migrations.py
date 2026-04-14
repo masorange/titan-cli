@@ -33,7 +33,7 @@ def test_legacy_to_v1_migrates_ai_provider_config():
 
     connection = migrated["ai"]["connections"]["personal-claude"]
     assert connection["name"] == "Personal Claude"
-    assert connection["kind"] == "direct_provider"
+    assert connection["connection_type"] == "direct_provider"
     assert connection["provider"] == "anthropic"
     assert connection["default_model"] == "claude-3-5-sonnet"
     assert "model" not in connection
@@ -62,8 +62,8 @@ def test_legacy_to_v1_migrates_custom_provider_to_gateway():
     migrated = LegacyToV1Migration().migrate(raw_config)
     connection = migrated["ai"]["connections"]["litellm"]
 
-    assert connection["kind"] == "gateway"
-    assert connection["gateway_type"] == "openai_compatible"
+    assert connection["connection_type"] == "gateway"
+    assert connection["gateway_backend"] == "openai_compatible"
     assert connection["base_url"] == "http://litellm-proxy:4000"
     assert connection["default_model"] == "gpt-4o-mini"
     assert "provider" not in connection
@@ -102,8 +102,8 @@ def test_legacy_to_v1_merges_corporate_connections_by_base_url():
     assert list(migrated["ai"]["connections"].keys()) == ["corp-gemini"]
 
     connection = migrated["ai"]["connections"]["corp-gemini"]
-    assert connection["kind"] == "gateway"
-    assert connection["gateway_type"] == "openai_compatible"
+    assert connection["connection_type"] == "gateway"
+    assert connection["gateway_backend"] == "openai_compatible"
     assert connection["base_url"] == "https://llm.company.com/"
     assert connection["default_model"] == "gemini-2.5-pro"
     assert connection["name"] == "Corp Gemini"
@@ -126,7 +126,7 @@ def test_legacy_to_v1_keeps_individual_connections_separate():
 
     migrated = LegacyToV1Migration().migrate(raw_config)
     connection = migrated["ai"]["connections"]["personal-gemini"]
-    assert connection["kind"] == "direct_provider"
+    assert connection["connection_type"] == "direct_provider"
     assert connection["provider"] == "gemini"
     assert connection["default_model"] == "gemini-2.5-flash"
 
@@ -148,7 +148,7 @@ def test_legacy_to_v1_preserves_existing_connection_entries():
             "connections": {
                 "legacy-provider": {
                     "name": "Already Migrated",
-                    "kind": "direct_provider",
+                    "connection_type": "direct_provider",
                     "provider": "gemini",
                     "default_model": "gemini-2.5-flash",
                 }

@@ -6,9 +6,9 @@ from typing import Optional, List
 
 from titan_cli.core.models import (
     AIConfig,
-    AIConnectionKind,
+    AIConnectionType,
     AIDirectProvider,
-    AIGatewayType,
+    AIGatewayBackend,
 )
 from titan_cli.core.secrets import SecretManager
 from .dependencies import get_install_command
@@ -35,7 +35,7 @@ def get_provider_classes() -> dict[str, type[AIProvider]]:
 def get_gateway_classes() -> dict[str, type[AIProvider]]:
     """Return the gateway-provider class registry."""
     return {
-        AIGatewayType.OPENAI_COMPATIBLE.value: LiteLLMProvider,
+        AIGatewayBackend.OPENAI_COMPATIBLE.value: LiteLLMProvider,
     }
 
 class AIClient:
@@ -97,8 +97,8 @@ class AIClient:
                 f"AI connection '{self.connection_id}' not found in configuration."
             )
 
-        if connection_config.kind == AIConnectionKind.GATEWAY:
-            source_name = connection_config.gateway_type.value
+        if connection_config.connection_type == AIConnectionType.GATEWAY:
+            source_name = connection_config.gateway_backend.value
             provider_class = get_gateway_classes().get(source_name)
         else:
             source_name = connection_config.provider.value
@@ -110,7 +110,10 @@ class AIClient:
         api_key_name = f"{self.connection_id}_api_key"
         api_key = self.secrets.get(api_key_name)
 
-        if not api_key and connection_config.kind != AIConnectionKind.GATEWAY:
+        if (
+            not api_key
+            and connection_config.connection_type != AIConnectionType.GATEWAY
+        ):
             raise AIConfigurationError(
                 f"API key for connection '{self.connection_id}' ({source_name}) not found."
             )
@@ -124,7 +127,7 @@ class AIClient:
             kwargs["base_url"] = connection_config.base_url
 
         if (
-            connection_config.kind == AIConnectionKind.GATEWAY
+            connection_config.connection_type == AIConnectionType.GATEWAY
             and not connection_config.base_url
         ):
             raise AIConfigurationError(
@@ -172,7 +175,7 @@ class AIClient:
                 if max_tokens is not None
                 else (
                     None
-                    if connection_cfg.kind == AIConnectionKind.GATEWAY
+                    if connection_cfg.connection_type == AIConnectionType.GATEWAY
                     else connection_cfg.max_tokens
                 )
             ),
@@ -181,7 +184,7 @@ class AIClient:
                 if temperature is not None
                 else (
                     None
-                    if connection_cfg.kind == AIConnectionKind.GATEWAY
+                    if connection_cfg.connection_type == AIConnectionType.GATEWAY
                     else connection_cfg.temperature
                 )
             ),

@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from titan_cli.ai.client import AIClient, get_gateway_classes
 from titan_cli.ai.exceptions import AIConfigurationError
-from titan_cli.core.models import AIConfig, AIConnectionKind, AIProviderConfig
+from titan_cli.core.models import AIConfig, AIConnectionType, AIProviderConfig
 from titan_cli.core.secrets import SecretManager
 
 
@@ -21,8 +21,8 @@ class TestAIClientLiteLLMProvider:
             connections={
                 "custom-llm": AIProviderConfig(
                     name="Custom LLM",
-                    kind=AIConnectionKind.GATEWAY,
-                    gateway_type="openai_compatible",
+                    connection_type=AIConnectionType.GATEWAY,
+                    gateway_backend="openai_compatible",
                     default_model="llama-2-7b",
                     base_url="http://localhost:4000",
                 )
@@ -54,8 +54,8 @@ class TestAIClientLiteLLMProvider:
             connections={
                 "local-llm": AIProviderConfig(
                     name="Local LLM",
-                    kind=AIConnectionKind.GATEWAY,
-                    gateway_type="openai_compatible",
+                    connection_type=AIConnectionType.GATEWAY,
+                    gateway_backend="openai_compatible",
                     default_model="mistral-7b",
                     base_url="http://localhost:8000",
                 )
@@ -89,8 +89,8 @@ class TestAIClientLiteLLMProvider:
                 connections={
                     "bad-gateway": AIProviderConfig(
                         name="Bad Gateway",
-                        kind=AIConnectionKind.GATEWAY,
-                        gateway_type="openai_compatible",
+                        connection_type=AIConnectionType.GATEWAY,
+                        gateway_backend="openai_compatible",
                         default_model="llama-2-7b",
                     )
                 },
@@ -103,8 +103,8 @@ class TestAIClientLiteLLMProvider:
             connections={
                 "litellm": AIProviderConfig(
                     name="LiteLLM Proxy",
-                    kind=AIConnectionKind.GATEWAY,
-                    gateway_type="openai_compatible",
+                    connection_type=AIConnectionType.GATEWAY,
+                    gateway_backend="openai_compatible",
                     default_model="gpt-3.5-turbo",
                     base_url="http://litellm-proxy:4000",
                 )
@@ -143,8 +143,8 @@ class TestAIClientLiteLLMProvider:
             connections={
                 "gateway": AIProviderConfig(
                     name="Gateway",
-                    kind=AIConnectionKind.GATEWAY,
-                    gateway_type="openai_compatible",
+                    connection_type=AIConnectionType.GATEWAY,
+                    gateway_backend="openai_compatible",
                     default_model="test-model",
                     base_url="http://localhost:4000",
                 )
@@ -177,8 +177,8 @@ class TestAIClientLiteLLMProvider:
             connections={
                 "gateway": AIProviderConfig(
                     name="Gateway",
-                    kind=AIConnectionKind.GATEWAY,
-                    gateway_type="openai_compatible",
+                    connection_type=AIConnectionType.GATEWAY,
+                    gateway_backend="openai_compatible",
                     default_model="test-model",
                     base_url="http://localhost:4000",
                 )
@@ -212,8 +212,8 @@ class TestAIClientLiteLLMProvider:
             connections={
                 "gateway": AIProviderConfig(
                     name="Gateway",
-                    kind=AIConnectionKind.GATEWAY,
-                    gateway_type="openai_compatible",
+                    connection_type=AIConnectionType.GATEWAY,
+                    gateway_backend="openai_compatible",
                     default_model="test-model",
                     base_url="http://localhost:4000",
                 )

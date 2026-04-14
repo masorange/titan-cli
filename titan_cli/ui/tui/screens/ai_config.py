@@ -11,10 +11,10 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 
 from titan_cli.ai.constants import (
-    get_connection_kind_display_name,
+    get_connection_type_display_name,
     get_source_display_name,
 )
-from titan_cli.core.models import AIConnectionKind
+from titan_cli.core.models import AIConnectionType
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
     DimText,
@@ -139,7 +139,9 @@ class TestConnectionModal(ModalScreen):
 
         try:
             source_name = str(
-                self.connection_cfg.provider or self.connection_cfg.gateway_type or ""
+                self.connection_cfg.provider
+                or self.connection_cfg.gateway_backend
+                or ""
             )
             if source_name and not dependencies_available(source_name):
                 missing_modules = find_missing_modules(source_name)
@@ -206,7 +208,7 @@ class TestConnectionModal(ModalScreen):
                 " (gateway endpoint)" if self.connection_cfg.base_url else ""
             )
             source_name = get_source_display_name(
-                self.connection_cfg.provider or self.connection_cfg.gateway_type
+                self.connection_cfg.provider or self.connection_cfg.gateway_backend
             )
 
             content.mount(
@@ -473,16 +475,16 @@ class ConnectionCard(Container):
         default_marker = f"{Icons.STAR} " if self.is_default else ""
         yield Static(f"{default_marker}{name}", classes="connection-name")
 
-        kind = self.connection_cfg.get("kind", "")
+        connection_type = self.connection_cfg.get("connection_type", "")
         provider = self.connection_cfg.get("provider")
-        gateway_type = self.connection_cfg.get("gateway_type")
-        source_label = get_source_display_name(provider or gateway_type)
-        kind_label = get_connection_kind_display_name(kind)
+        gateway_backend = self.connection_cfg.get("gateway_backend")
+        source_label = get_source_display_name(provider or gateway_backend)
+        type_label = get_connection_type_display_name(connection_type)
         model = self.connection_cfg.get(
             "default_model", self.connection_cfg.get("model", "")
         )
 
-        yield DimText(f"Type: {kind_label}", classes="connection-info")
+        yield DimText(f"Type: {type_label}", classes="connection-info")
         yield DimText(f"Source: {source_label}", classes="connection-info")
         yield DimText(f"Model: {model}", classes="connection-info")
 
@@ -496,7 +498,7 @@ class ConnectionCard(Container):
         with Grid(classes="button-row"):
             if not self.is_default:
                 yield Button("Set Default", variant="primary", id=f"set-default-{clean_id}")
-            if kind == AIConnectionKind.GATEWAY.value:
+            if connection_type == AIConnectionType.GATEWAY.value:
                 yield Button(
                     "Change Model", variant="default", id=f"change-model-{clean_id}"
                 )
@@ -719,7 +721,7 @@ class AIConfigScreen(BaseScreen):
             return
 
         connection_cfg = self.config.config.ai.connections[connection_id]
-        if connection_cfg.kind != AIConnectionKind.GATEWAY:
+        if connection_cfg.connection_type != AIConnectionType.GATEWAY:
             self.app.notify(
                 "Model selection from gateway is only available for AI gateways.",
                 severity="warning",

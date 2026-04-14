@@ -101,7 +101,7 @@ class BaseScreen(Screen):
                     default_connection_id
                 ]
                 source_name = get_source_display_name(
-                    connection_cfg.provider or connection_cfg.gateway_type
+                    connection_cfg.provider or connection_cfg.gateway_backend
                 )
                 model = connection_cfg.default_model or "default"
                 ai_info = f"{source_name} / {model}"
