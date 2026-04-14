@@ -2,6 +2,8 @@
 Anthropic AI provider (Claude)
 """
 
+from titan_cli.core.models import AIDirectProvider
+
 from .base import AIProvider
 from ..models import AIRequest, AIResponse
 from ..exceptions import (
@@ -23,7 +25,7 @@ class AnthropicProvider(AIProvider):
     - API key from https://console.anthropic.com/
     """
 
-    def __init__(self, api_key: str, model: str = get_default_model("anthropic"), base_url: str = None):
+    def __init__(self, api_key: str, model: str = get_default_model(AIDirectProvider.ANTHROPIC), base_url: str = None):
         super().__init__(api_key, model)
         try:
             from anthropic import Anthropic

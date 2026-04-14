@@ -2,6 +2,8 @@
 
 from typing import Optional
 
+from titan_cli.core.models import AIDirectProvider
+
 from .base import AIProvider
 from ..constants import get_default_model
 from ..exceptions import (
@@ -37,7 +39,7 @@ class OpenAIProvider(AIProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = get_default_model("openai"),
+        model: str = get_default_model(AIDirectProvider.OPENAI),
         base_url: Optional[str] = None,
     ):
         super().__init__(api_key, model)
