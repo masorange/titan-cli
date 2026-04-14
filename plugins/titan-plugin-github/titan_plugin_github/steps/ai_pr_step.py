@@ -8,7 +8,7 @@ Uses PRAgent to analyze branch context and generate PR content.
 from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 
-from ..agents import PRAgent
+from ..agents import PRAgent, PRStatus
 from ..messages import msg
 
 logger = get_logger(__name__)
@@ -103,32 +103,37 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             has_literal_newlines,
         )
 
-        if analysis.pr_generation_error:
+        if analysis.pr_status in {
+            PRStatus.GENERATION_FAILED,
+            PRStatus.SOURCE_DATA_FAILED,
+        }:
             ctx.textual.warning_text(
                 msg.GitHub.AI.AI_GENERATION_FAILED.format(
-                    e=analysis.pr_generation_error
+                    e=analysis.pr_error or "Unknown error"
                 )
             )
             ctx.textual.dim_text(msg.GitHub.AI.FALLBACK_TO_MANUAL)
             ctx.textual.end_step("skip")
             return Skip(
                 msg.GitHub.AI.AI_GENERATION_FAILED.format(
-                    e=analysis.pr_generation_error
+                    e=analysis.pr_error or "Unknown error"
                 )
             )
 
-        # Check if PR content was generated because there are commits in branch
+        if analysis.pr_status == PRStatus.NO_COMMITS:
+            ctx.textual.dim_text(
+                "No commits found in branch to generate PR description."
+            )
+            ctx.textual.end_step("skip")
+            return Skip("No commits found for PR generation")
+
+        if analysis.pr_status == PRStatus.INCOMPLETE:
+            ctx.textual.warning_text("AI did not generate complete PR content.")
+            ctx.textual.end_step("skip")
+            return Skip("AI did not generate complete PR content")
+
         if not analysis.pr_title or not analysis.pr_body:
-            if not analysis.branch_commits:
-                ctx.textual.dim_text(
-                    "No commits found in branch to generate PR description."
-                )
-                ctx.textual.end_step("skip")
-                return Skip("No commits found for PR generation")
-
-            ctx.textual.warning_text(
-                "AI did not generate PR content for this branch."
-            )
+            ctx.textual.warning_text("AI did not generate PR content for this branch.")
             ctx.textual.end_step("skip")
             return Skip("AI did not generate PR content")
 
