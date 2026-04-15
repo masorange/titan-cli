@@ -888,7 +888,7 @@ class PluginManagementScreen(BaseScreen):
         plugin_table = project_cfg_dict.setdefault("plugins", {}).setdefault(plugin_name, {})
         plugin_table["enabled"] = True
         source_table = plugin_table.setdefault("source", {})
-        source_table["channel"] = "stable"
+        source_table["channel"] = PluginChannel.STABLE
         source_table["repo_url"] = repo_url
         source_table["requested_ref"] = requested_ref
         source_table["resolved_commit"] = resolved_commit

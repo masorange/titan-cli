@@ -3,11 +3,16 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .community_sources import PluginChannel
+
 
 class PluginSourceConfig(BaseModel):
     """Source selection for a plugin within a project."""
 
-    channel: str = Field("stable", description="Plugin source channel ('stable' or 'dev_local').")
+    channel: PluginChannel = Field(
+        PluginChannel.STABLE,
+        description="Plugin source channel ('stable' or 'dev_local').",
+    )
     path: Optional[str] = Field(None, description="Local repository path when channel is 'dev_local'.")
     repo_url: Optional[str] = Field(None, description="Git repository URL when channel is 'stable'.")
     requested_ref: Optional[str] = Field(None, description="User-facing tag/ref requested for a stable plugin source.")
@@ -16,10 +21,10 @@ class PluginSourceConfig(BaseModel):
     @model_validator(mode="after")
     def validate_channel_specific_fields(self) -> "PluginSourceConfig":
         """Validate source metadata according to the active channel."""
-        if self.channel == "dev_local":
+        if self.channel == PluginChannel.DEV_LOCAL:
             if not self.path:
                 raise ValueError("dev_local plugin sources require 'path'")
-        elif self.channel == "stable":
+        elif self.channel == PluginChannel.STABLE:
             if self.resolved_commit and not self.repo_url:
                 raise ValueError("stable plugin sources with 'resolved_commit' require 'repo_url'")
         return self

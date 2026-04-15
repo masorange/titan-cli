@@ -13,6 +13,7 @@ from textual.widgets import Input, LoadingIndicator, Static
 
 from titan_cli.core.logging import get_logger
 from titan_cli.core.plugins.community_sources import (
+    PluginChannel,
     build_raw_pyproject_url,
     detect_host,
     fetch_pyproject_toml,
@@ -547,7 +548,7 @@ class InstallPluginScreen(BaseScreen):
         plugin_table["enabled"] = True
 
         source_table = plugin_table.setdefault("source", {})
-        source_table["channel"] = "stable"
+        source_table["channel"] = PluginChannel.STABLE
         source_table["repo_url"] = self._base_url
         source_table["requested_ref"] = self._requested_ref
         source_table["resolved_commit"] = self._resolved_commit

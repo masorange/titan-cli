@@ -222,7 +222,7 @@ class PluginRegistry:
                     package_root = getattr(plugin, "_dev_local_package_root", None)
                     if package_root:
                         self._dev_local_package_roots.add(package_root)
-                    self._plugin_versions[plugin_name] = "dev_local"
+                    self._plugin_versions[plugin_name] = PluginChannel.DEV_LOCAL
                     if plugin_name not in self._discovered_plugin_names:
                         self._discovered_plugin_names.append(plugin_name)
                     logger.info(

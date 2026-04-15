@@ -13,6 +13,7 @@ from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
 from .utils import find_project_root
 from .logging import get_logger
+from .plugins.community_sources import PluginChannel
 
 logger = get_logger(__name__)
 
@@ -388,7 +389,7 @@ class TitanConfig:
     def get_plugin_source_channel(self, plugin_name: str) -> str:
         """Return the effective source channel for a plugin."""
         source = self.get_effective_plugin_source(plugin_name)
-        return source.get("channel", "stable")
+        return source.get("channel", PluginChannel.STABLE)
 
     def get_plugin_source_path(self, plugin_name: str) -> Optional[Path]:
         """Return the effective dev_local path for a plugin, if any."""
@@ -426,9 +427,9 @@ class TitanConfig:
         global_source = self.get_global_plugin_source(plugin_name)
         project_source = self.get_project_plugin_source(plugin_name)
 
-        if global_source.get("channel") == "dev_local" and global_source.get("path"):
+        if global_source.get("channel") == PluginChannel.DEV_LOCAL and global_source.get("path"):
             return {
-                "channel": "dev_local",
+                "channel": PluginChannel.DEV_LOCAL,
                 "path": global_source.get("path"),
                 "repo_url": project_source.get("repo_url"),
                 "requested_ref": project_source.get("requested_ref"),
@@ -436,7 +437,7 @@ class TitanConfig:
             }
 
         effective = dict(project_source)
-        effective.setdefault("channel", "stable")
+        effective.setdefault("channel", PluginChannel.STABLE)
 
         # Preserve the remembered dev path for quick switching, but only as UX state.
         if global_source.get("path") and "path" not in effective:
