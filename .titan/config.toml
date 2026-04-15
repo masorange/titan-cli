@@ -28,8 +28,8 @@ enabled = true
 [plugins.ragnarok.source]
 channel = "stable"
 repo_url = "https://github.com/masmovil/ragnarok-titan-cli-workflows"
-requested_ref = "0.4.0"
-resolved_commit = "67d405560f89b55b56be377f537da76fb3307c15"
+requested_ref = "0.5.0"
+resolved_commit = "8d1cd285f71231630d131387262c4a25ec554959"
 
 [plugins.ragnarok.config]
 platform = "android"
