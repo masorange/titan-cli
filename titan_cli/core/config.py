@@ -518,7 +518,7 @@ class TitanConfig:
         project_path = str((self._project_root or Path.cwd()).resolve())
         project_name = (self._project_root or Path.cwd()).resolve().name or "project"
         safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", project_name).strip("_").lower() or "project"
-        digest = hashlib.sha1(project_path.encode("utf-8")).hexdigest()[:8]
+        digest = hashlib.sha256(project_path.encode("utf-8")).hexdigest()[:8]
         return f"p_{safe_name}_{digest}"
 
     def _get_project_source_scope_data(self) -> dict:

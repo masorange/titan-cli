@@ -18,7 +18,7 @@ def _git_init(path: Path) -> None:
 def _project_scope_key(path: Path) -> str:
     """Match TitanConfig's project-scoped override key generation."""
     safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", path.name).strip("_").lower() or "project"
-    return f"p_{safe_name}_{hashlib.sha1(str(path.resolve()).encode('utf-8')).hexdigest()[:8]}"
+    return f"p_{safe_name}_{hashlib.sha256(str(path.resolve()).encode('utf-8')).hexdigest()[:8]}"
 
 def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     """
