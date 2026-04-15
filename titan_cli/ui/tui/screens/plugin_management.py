@@ -222,9 +222,12 @@ class PluginManagementScreen(BaseScreen):
 
         left_panel = self.query_one("#left-panel", Container)
         plugin_list = left_panel.query_one(OptionList)
-        plugin_list.clear_options()
-        plugin_list.clear_cached_dimensions()
-        plugin_list._clear_arrangement_cache()
+        install_button = left_panel.query_one("#install-plugin-button", Button)
+        selected_id = self.selected_plugin
+        if self.selected_missing_plugin:
+            selected_id = f"missing:{self.selected_missing_plugin}"
+
+        options = []
 
         # Find plugins enabled in config but not installed
         missing_plugins = []
@@ -234,7 +237,9 @@ class PluginManagementScreen(BaseScreen):
                     missing_plugins.append(plugin_name)
 
         if not self.installed_plugins and not missing_plugins:
-            plugin_list.add_option(Option("No plugins installed", id="none", disabled=True))
+            new_plugin_list = OptionList(Option("No plugins installed", id="none", disabled=True))
+            plugin_list.remove()
+            left_panel.mount(new_plugin_list, before=install_button)
             self._show_no_plugin_selected()
             return
 
@@ -247,7 +252,7 @@ class PluginManagementScreen(BaseScreen):
             active_rec = self._build_stable_record(plugin_name)
             badge = " [community]" if active_rec else ""
 
-            plugin_list.add_option(
+            options.append(
                 Option(
                     f"{status_icon} {plugin_name}{badge} - {status_text}",
                     id=plugin_name,
@@ -256,28 +261,32 @@ class PluginManagementScreen(BaseScreen):
 
         # Add missing plugin options
         for plugin_name in missing_plugins:
-            plugin_list.add_option(
+            options.append(
                 Option(
                     f"{Icons.WARNING} {plugin_name} - Not installed",
                     id=f"missing:{plugin_name}"
                 )
             )
 
+        new_plugin_list = OptionList(*options)
+        plugin_list.remove()
+        left_panel.mount(new_plugin_list, before=install_button)
+
         # Select first plugin by default
         all_plugins = self.installed_plugins + [f"missing:{p}" for p in missing_plugins]
         if all_plugins:
-            plugin_list.highlighted = 0
-            plugin_list.refresh(repaint=True, layout=True)
-            first = all_plugins[0]
-            if first.startswith("missing:"):
-                plugin_name = first.removeprefix("missing:")
+            target = selected_id if selected_id in all_plugins else all_plugins[0]
+            new_plugin_list.highlighted = all_plugins.index(target)
+            new_plugin_list.refresh(repaint=True, layout=True)
+            if target.startswith("missing:"):
+                plugin_name = target.removeprefix("missing:")
                 self.selected_plugin = None
                 self.selected_missing_plugin = plugin_name
                 self._show_plugin_missing(plugin_name)
             else:
                 self.selected_missing_plugin = None
-                self.selected_plugin = first
-                self._show_plugin_details(first)
+                self.selected_plugin = target
+                self._show_plugin_details(target)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle plugin selection (Enter key)."""
@@ -732,7 +741,7 @@ class PluginManagementScreen(BaseScreen):
             return
 
         try:
-            self._remove_plugin_from_project_config(plugin_name)
+            self._remove_plugin_from_project(plugin_name)
             self.selected_missing_plugin = None
             self.config.load()
             self._load_plugins()
@@ -847,7 +856,7 @@ class PluginManagementScreen(BaseScreen):
         self.app.notify(f"Removing '{titan_plugin_name}' from this project…", severity="information", timeout=30)
 
         try:
-            await asyncio.to_thread(self._remove_plugin_from_project_config, titan_plugin_name)
+            await asyncio.to_thread(self._remove_plugin_from_project, titan_plugin_name)
         except Exception as e:
             logger.error("plugin_uninstall_failed", plugin=titan_plugin_name, error=str(e))
             self.app.notify(
@@ -904,3 +913,8 @@ class PluginManagementScreen(BaseScreen):
 
         with open(project_cfg_path, "wb") as f:
             tomli_w.dump(project_cfg_dict, f)
+
+    def _remove_plugin_from_project(self, plugin_name: str) -> None:
+        """Remove a plugin from the project and clear any local source override."""
+        self._remove_plugin_from_project_config(plugin_name)
+        self.config.clear_global_plugin_source(plugin_name)

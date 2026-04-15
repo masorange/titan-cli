@@ -1,5 +1,7 @@
 # tests/core/test_config.py
+import hashlib
 import os
+import re
 import subprocess
 import tomli
 import tomli_w
@@ -11,6 +13,12 @@ from titan_cli.core.config import TitanConfig
 def _git_init(path: Path) -> None:
     """Initialize a git repository at the given path."""
     subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+
+
+def _project_scope_key(path: Path) -> str:
+    """Match TitanConfig's project-scoped override key generation."""
+    safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", path.name).strip("_").lower() or "project"
+    return f"p_{safe_name}_{hashlib.sha1(str(path.resolve()).encode('utf-8')).hexdigest()[:8]}"
 
 def test_config_project_overrides_global(tmp_path: Path, monkeypatch, mocker):
     """
@@ -842,9 +850,10 @@ def test_set_global_plugin_source_writes_user_config(tmp_path: Path, monkeypatch
         import tomli
         data = tomli.load(f)
 
-    project_key = str(project_dir.resolve())
+    project_key = config_instance._get_project_source_scope_key()
     assert data["project_sources"][project_key]["plugins"]["github"]["source"]["channel"] == "dev_local"
     assert data["project_sources"][project_key]["plugins"]["github"]["source"]["path"] == "/tmp/local-github"
+    assert data["project_sources"][project_key]["project_path"] == str(project_dir.resolve())
     assert "plugins" not in data
 
 
@@ -856,12 +865,13 @@ def test_clear_global_plugin_source_removes_only_source_block(tmp_path: Path, mo
     project_dir.mkdir()
     global_config_path = tmp_path / "home" / ".titan" / "config.toml"
     global_config_path.parent.mkdir(parents=True)
-    project_key = str(project_dir.resolve())
+    project_key = _project_scope_key(project_dir)
     with open(global_config_path, "wb") as f:
         tomli_w.dump(
             {
                 "project_sources": {
                     project_key: {
+                        "project_path": str(project_dir.resolve()),
                         "plugins": {
                             "github": {
                                 "enabled": True,
@@ -906,12 +916,13 @@ def test_save_global_config_preserves_existing_plugin_source(tmp_path: Path, mon
     project_dir.mkdir()
     global_config_path = tmp_path / "home" / ".titan" / "config.toml"
     global_config_path.parent.mkdir(parents=True)
-    project_key = str(project_dir.resolve())
+    project_key = _project_scope_key(project_dir)
     with open(global_config_path, "wb") as f:
         tomli_w.dump(
             {
                 "project_sources": {
                     project_key: {
+                        "project_path": str(project_dir.resolve()),
                         "plugins": {
                             "github": {
                                 "source": {

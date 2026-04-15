@@ -1,6 +1,8 @@
 # core/config.py
 from copy import deepcopy
+import hashlib
 from pathlib import Path
+import re
 from typing import List, Optional
 import tomli
 from .models import TitanConfigModel
@@ -392,14 +394,7 @@ class TitanConfig:
 
     def get_global_plugin_source(self, plugin_name: str) -> dict:
         """Return the raw user-local source override for a plugin in the active project."""
-        project_key = self._get_project_source_scope_key()
-        scoped_source = (
-            self.global_config.get("project_sources", {})
-            .get(project_key, {})
-            .get("plugins", {})
-            .get(plugin_name, {})
-            .get("source", {})
-        )
+        scoped_source = self._get_project_source_scope_data().get("plugins", {}).get(plugin_name, {}).get("source", {})
         if scoped_source:
             return scoped_source.copy()
 
@@ -465,6 +460,7 @@ class TitanConfig:
         config_data = self._load_toml(self._global_config_path)
         project_sources = config_data.setdefault("project_sources", {})
         project_table = project_sources.setdefault(self._get_project_source_scope_key(), {})
+        project_table["project_path"] = str((self._project_root or Path.cwd()).resolve())
         plugins_table = project_table.setdefault("plugins", {})
         plugin_table = plugins_table.setdefault(plugin_name, {})
         source_table = plugin_table.setdefault("source", {})
@@ -481,7 +477,8 @@ class TitanConfig:
         """Remove a plugin source override from the global user config."""
         config_data = self._load_toml(self._global_config_path)
         project_sources = config_data.get("project_sources", {})
-        project_table = project_sources.get(self._get_project_source_scope_key(), {})
+        project_key = self._find_project_source_scope_key(project_sources)
+        project_table = project_sources.get(project_key, {}) if project_key else {}
         plugins_table = project_table.get("plugins", {})
         plugin_table = plugins_table.get(plugin_name)
         if not plugin_table:
@@ -503,8 +500,8 @@ class TitanConfig:
             plugins_table.pop(plugin_name, None)
         if not plugins_table and "plugins" in project_table:
             project_table.pop("plugins", None)
-        if not project_table and self._get_project_source_scope_key() in project_sources:
-            project_sources.pop(self._get_project_source_scope_key(), None)
+        if self._project_source_table_empty(project_table) and project_key in project_sources:
+            project_sources.pop(project_key, None)
         if not project_sources and "project_sources" in config_data:
             config_data.pop("project_sources", None)
 
@@ -512,7 +509,40 @@ class TitanConfig:
 
     def _get_project_source_scope_key(self) -> str:
         """Return the global-config key used to scope local plugin overrides per project."""
-        return str((self._project_root or Path.cwd()).resolve())
+        project_path = str((self._project_root or Path.cwd()).resolve())
+        project_name = (self._project_root or Path.cwd()).resolve().name or "project"
+        safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", project_name).strip("_").lower() or "project"
+        digest = hashlib.sha1(project_path.encode("utf-8")).hexdigest()[:8]
+        return f"p_{safe_name}_{digest}"
+
+    def _get_project_source_scope_data(self) -> dict:
+        """Return the scoped project source block for the active project."""
+        project_sources = self.global_config.get("project_sources", {})
+        project_key = self._find_project_source_scope_key(project_sources)
+        if project_key:
+            return project_sources.get(project_key, {})
+        return {}
+
+    def _find_project_source_scope_key(self, project_sources: dict) -> Optional[str]:
+        """Find the project_sources key matching the active project."""
+        current_path = str((self._project_root or Path.cwd()).resolve())
+        preferred_key = self._get_project_source_scope_key()
+        preferred_table = project_sources.get(preferred_key)
+        if isinstance(preferred_table, dict):
+            stored_path = preferred_table.get("project_path")
+            if not stored_path or stored_path == current_path:
+                return preferred_key
+
+        for key, value in project_sources.items():
+            if key == current_path:
+                return key
+            if isinstance(value, dict) and value.get("project_path") == current_path:
+                return key
+        return None
+
+    def _project_source_table_empty(self, project_table: dict) -> bool:
+        """Return whether a scoped project source block contains meaningful data."""
+        return not any(key != "project_path" for key in project_table)
 
     def get_status_bar_info(self) -> dict:
         """
