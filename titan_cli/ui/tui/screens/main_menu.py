@@ -134,6 +134,8 @@ class MainMenuScreen(BaseScreen):
             yield OptionList(*options)
 
     def on_mount(self) -> None:
+        for message in self.config.get_plugin_sync_events():
+            self.app.notify(message, severity="information", timeout=6)
         self.run_worker(self._check_plugin_updates(), exclusive=False)
 
     async def _check_plugin_updates(self) -> None:

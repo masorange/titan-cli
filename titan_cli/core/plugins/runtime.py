@@ -25,6 +25,14 @@ class PluginRuntimePaths:
     site_packages: Path
 
 
+@dataclass(frozen=True)
+class PluginRuntimeResult:
+    """Prepared plugin runtime and whether it had to be created."""
+
+    paths: PluginRuntimePaths
+    created: bool
+
+
 class PluginRuntimeError(RuntimeError):
     """Raised when a plugin runtime cannot be prepared."""
 
@@ -60,11 +68,11 @@ class PluginRuntimeManager:
         repo_url: str,
         resolved_commit: str,
         token: str | None = None,
-    ) -> PluginRuntimePaths:
+    ) -> PluginRuntimeResult:
         """Ensure a stable plugin runtime exists and return its paths."""
         paths = self.get_runtime_paths(plugin_name, resolved_commit)
         if self._is_runtime_ready(paths):
-            return paths
+            return PluginRuntimeResult(paths=paths, created=False)
 
         paths.cache_dir.parent.mkdir(parents=True, exist_ok=True)
         temp_dir = Path(mkdtemp(prefix=f"{plugin_name}-", dir=str(paths.cache_dir.parent)))
@@ -80,7 +88,10 @@ class PluginRuntimeManager:
             if paths.cache_dir.exists():
                 shutil.rmtree(paths.cache_dir)
             temp_dir.replace(paths.cache_dir)
-            return self.get_runtime_paths(plugin_name, resolved_commit)
+            return PluginRuntimeResult(
+                paths=self.get_runtime_paths(plugin_name, resolved_commit),
+                created=True,
+            )
         except Exception as e:
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise PluginRuntimeError(str(e)) from e

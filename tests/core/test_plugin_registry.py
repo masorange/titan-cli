@@ -5,7 +5,7 @@ from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.errors import PluginLoadError
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.plugins.community_sources import PluginChannel
-from titan_cli.core.plugins.runtime import PluginRuntimePaths
+from titan_cli.core.plugins.runtime import PluginRuntimePaths, PluginRuntimeResult
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
 
@@ -316,11 +316,14 @@ class SamplePlugin(TitanPlugin):
     mocker.patch.object(
         registry._runtime_manager,
         "ensure_stable_runtime",
-        return_value=PluginRuntimePaths(
-            cache_dir=tmp_path / "cache",
-            source_dir=plugin_dir,
-            venv_dir=tmp_path / "venv",
-            site_packages=site_packages,
+        return_value=PluginRuntimeResult(
+            paths=PluginRuntimePaths(
+                cache_dir=tmp_path / "cache",
+                source_dir=plugin_dir,
+                venv_dir=tmp_path / "venv",
+                site_packages=site_packages,
+            ),
+            created=True,
         ),
     )
 
@@ -331,6 +334,7 @@ class SamplePlugin(TitanPlugin):
     config.get_plugin_source_channel.return_value = PluginChannel.STABLE
     config.get_plugin_source_path.return_value = None
     config.get_project_plugin_repo_url.return_value = "https://github.com/example/sample-plugin"
+    config.get_project_plugin_requested_ref.return_value = "v1.2.3"
     config.get_project_plugin_resolved_commit.return_value = "a" * 40
 
     registry._apply_source_overrides(config)
@@ -340,6 +344,7 @@ class SamplePlugin(TitanPlugin):
     assert plugin.name == "sample"
     assert registry.get_plugin_version("sample") == f"stable@{'a' * 12}"
     assert "sample" in registry.list_discovered()
+    assert registry.list_sync_events() == ["Syncing plugin 'sample' to project version v1.2.3."]
 
 
 def test_apply_source_overrides_marks_missing_path_as_failure():

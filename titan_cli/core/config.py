@@ -38,6 +38,7 @@ class TitanConfig:
         self._active_project_path = None  # Set by load()
         self._workflow_registry = None  # Set by load()
         self._plugin_warnings = []
+        self._plugin_sync_events = []
 
         # Use custom global config path if provided (for testing), otherwise use default
         self._global_config_path = global_config_path or self.GLOBAL_CONFIG
@@ -84,6 +85,7 @@ class TitanConfig:
             self.registry.reset()
             self.registry.initialize_plugins(config=self, secrets=self.secrets)
             self._plugin_warnings = self.registry.list_failed()
+            self._plugin_sync_events = self.registry.list_sync_events()
 
         # Re-initialize WorkflowRegistry using project root
         project_step_source = ProjectStepSource(project_root=project_root)
@@ -244,6 +246,10 @@ class TitanConfig:
     def get_plugin_warnings(self) -> List[str]:
         """Get list of failed or misconfigured plugins."""
         return self._plugin_warnings
+
+    def get_plugin_sync_events(self) -> List[str]:
+        """Get list of plugin auto-sync events from the latest load cycle."""
+        return self._plugin_sync_events
 
     def get_project_name(self) -> Optional[str]:
         """Get the current project name from project config."""

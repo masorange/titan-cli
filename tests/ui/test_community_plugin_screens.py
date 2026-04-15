@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock
 
 from titan_cli.core.plugins.community_sources import PluginChannel
 from titan_cli.ui.tui.screens.main_menu import MainMenuScreen
@@ -30,6 +30,27 @@ def test_main_menu_builds_project_stable_records_from_shared_pin():
     assert records[0].channel == PluginChannel.STABLE
     assert records[0].requested_ref == "v1.2.3"
     assert records[0].resolved_commit == "a" * 40
+
+
+def test_main_menu_notifies_plugin_sync_events():
+    config = MagicMock()
+    config.get_plugin_sync_events.return_value = ["Syncing plugin 'sample' to project version v1.2.3."]
+
+    screen = MainMenuScreen(config, show_status_bar=False)
+    app = MagicMock()
+    type(screen).app = PropertyMock(return_value=app)
+    screen.run_worker = MagicMock()
+
+    screen.on_mount()
+
+    app.notify.assert_called_once_with(
+        "Syncing plugin 'sample' to project version v1.2.3.",
+        severity="information",
+        timeout=6,
+    )
+    screen.run_worker.assert_called_once()
+    worker_coro = screen.run_worker.call_args.args[0]
+    worker_coro.close()
 
 
 def test_plugin_management_builds_stable_record_from_project_pin():

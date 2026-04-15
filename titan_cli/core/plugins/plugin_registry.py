@@ -73,6 +73,7 @@ class PluginRegistry:
         self._failed_plugins: Dict[str, Exception] = {}
         self._discovered_plugin_names: List[str] = []
         self._plugin_versions: Dict[str, str] = {}
+        self._plugin_sync_events: list[str] = []
         self._dev_local_sys_paths: set[str] = set()
         self._dev_local_package_roots: set[str] = set()
         self._runtime_manager = PluginRuntimeManager()
@@ -253,17 +254,22 @@ class PluginRegistry:
                     token=get_github_token(),
                 )
                 plugin = _load_local_plugin(
-                    runtime.source_dir,
+                    runtime.paths.source_dir,
                     plugin_name,
-                    extra_sys_paths=[runtime.site_packages],
+                    extra_sys_paths=[runtime.paths.site_packages],
                 )
                 self._plugins[plugin_name] = plugin
-                self._dev_local_sys_paths.add(str(runtime.site_packages))
-                self._dev_local_sys_paths.add(str(runtime.source_dir))
+                self._dev_local_sys_paths.add(str(runtime.paths.site_packages))
+                self._dev_local_sys_paths.add(str(runtime.paths.source_dir))
                 package_root = getattr(plugin, "_dev_local_package_root", None)
                 if package_root:
                     self._dev_local_package_roots.add(package_root)
                 self._plugin_versions[plugin_name] = f"stable@{resolved_commit[:12]}"
+                if runtime.created:
+                    requested_ref = config.get_project_plugin_requested_ref(plugin_name) or resolved_commit[:12]
+                    self._plugin_sync_events.append(
+                        f"Syncing plugin '{plugin_name}' to project version {requested_ref}."
+                    )
                 if plugin_name not in self._discovered_plugin_names:
                     self._discovered_plugin_names.append(plugin_name)
                 logger.info(
@@ -316,6 +322,10 @@ class PluginRegistry:
         """
         return self._failed_plugins.copy()
 
+    def list_sync_events(self) -> list[str]:
+        """List plugin runtime sync events from the latest load cycle."""
+        return list(self._plugin_sync_events)
+
     def get_plugin(self, name: str) -> Optional[TitanPlugin]:
         """Get plugin instance by name."""
         return self._plugins.get(name)
@@ -345,4 +355,5 @@ class PluginRegistry:
         self._plugins.clear()
         self._failed_plugins.clear()
         self._plugin_versions.clear()
+        self._plugin_sync_events.clear()
         self.discover()

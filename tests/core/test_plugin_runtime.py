@@ -27,7 +27,8 @@ def test_ensure_stable_runtime_reuses_existing_runtime(tmp_path: Path, mocker):
         resolved_commit="a" * 40,
     )
 
-    assert resolved == paths
+    assert resolved.paths == paths
+    assert resolved.created is False
     prepare.assert_not_called()
 
 
@@ -56,10 +57,11 @@ def test_ensure_stable_runtime_prepares_and_moves_runtime(tmp_path: Path, mocker
         token="secret",
     )
 
-    assert resolved == final_paths
-    assert resolved.cache_dir.exists()
-    assert resolved.source_dir.exists()
-    assert resolved.site_packages.exists()
+    assert resolved.paths == final_paths
+    assert resolved.created is True
+    assert resolved.paths.cache_dir.exists()
+    assert resolved.paths.source_dir.exists()
+    assert resolved.paths.site_packages.exists()
     assert not temp_dir.exists()
 
 
