@@ -359,6 +359,10 @@ class GitClient:
         """Push to remote."""
         return self.remote_service.push(remote, branch, set_upstream, tags)
 
+    def push_tag(self, tag_name: str, remote: str = "origin") -> ClientResult[None]:
+        """Push a specific tag to remote."""
+        return self.remote_service.push_tag(tag_name, remote)
+
     def pull(
         self, remote: str = "origin", branch: Optional[str] = None
     ) -> ClientResult[None]:
@@ -411,6 +415,10 @@ class GitClient:
     def tag_exists(self, tag_name: str) -> ClientResult[bool]:
         """Check if a tag exists locally."""
         return self.tag_service.tag_exists(tag_name)
+
+    def remote_tag_exists(self, tag_name: str, remote: str = "origin") -> ClientResult[bool]:
+        """Check if a tag exists on a remote."""
+        return self.tag_service.remote_tag_exists(tag_name, remote)
 
     def list_tags(self) -> ClientResult[List[UIGitTag]]:
         """List all tags in the repository."""

@@ -340,3 +340,33 @@ class TestGitClientCommitQueryDelegation:
         assert isinstance(result, ClientSuccess)
         assert result.data == ["feat: A", "fix: B"]
         mock_services['commit'].get_commits_between_refs.assert_called_once_with("0.4.0", "HEAD")
+
+
+@pytest.mark.unit
+class TestGitClientTagAndRemoteDelegation:
+    """Test that GitClient delegates tag and remote helpers correctly"""
+
+    def test_remote_tag_exists_delegates(self, mock_services):
+        mock_services['tag'].remote_tag_exists.return_value = ClientSuccess(
+            data=True,
+            message="Tag exists on origin"
+        )
+
+        client = GitClient()
+        result = client.remote_tag_exists("0.4.0", "origin")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data is True
+        mock_services['tag'].remote_tag_exists.assert_called_once_with("0.4.0", "origin")
+
+    def test_push_tag_delegates(self, mock_services):
+        mock_services['remote'].push_tag.return_value = ClientSuccess(
+            data=None,
+            message="Pushed tag"
+        )
+
+        client = GitClient()
+        result = client.push_tag("0.4.0", "origin")
+
+        assert isinstance(result, ClientSuccess)
+        mock_services['remote'].push_tag.assert_called_once_with("0.4.0", "origin")

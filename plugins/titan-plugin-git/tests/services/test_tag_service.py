@@ -145,3 +145,39 @@ class TestTagServiceListTags:
 
         assert isinstance(result, ClientError)
         assert result.error_code == "TAG_LIST_ERROR"
+
+
+@pytest.mark.unit
+class TestTagServiceRemoteTagExists:
+    """Test TagService.remote_tag_exists()"""
+
+    def test_remote_tag_exists_returns_true(self, service, mock_git_network):
+        """Test returns True when ls-remote returns a tag"""
+        mock_git_network.run_command.return_value = "abc123\trefs/tags/v1.0.0\n"
+
+        result = service.remote_tag_exists("v1.0.0", remote="origin")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data is True
+        mock_git_network.run_command.assert_called_once_with(
+            ["git", "ls-remote", "--tags", "origin", "refs/tags/v1.0.0"],
+            check=False,
+        )
+
+    def test_remote_tag_exists_returns_false(self, service, mock_git_network):
+        """Test returns False when ls-remote output is empty"""
+        mock_git_network.run_command.return_value = ""
+
+        result = service.remote_tag_exists("v9.9.9", remote="origin")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data is False
+
+    def test_remote_tag_exists_error_returns_client_error(self, service, mock_git_network):
+        """Test git error returns ClientError"""
+        mock_git_network.run_command.side_effect = GitCommandError("remote failure")
+
+        result = service.remote_tag_exists("v1.0.0", remote="origin")
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "TAG_CHECK_ERROR"

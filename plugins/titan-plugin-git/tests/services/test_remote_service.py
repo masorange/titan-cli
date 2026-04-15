@@ -69,6 +69,29 @@ class TestRemoteServicePush:
 
         assert isinstance(result, ClientError)
         assert result.error_code == "PUSH_ERROR"
+
+
+@pytest.mark.unit
+class TestRemoteServicePushTag:
+    """Test RemoteService.push_tag()"""
+
+    def test_push_tag_basic(self, service, mock_git_network):
+        """Test push a specific tag to remote"""
+        mock_git_network.run_command.return_value = ""
+
+        result = service.push_tag("v1.0.0", remote="origin")
+
+        assert isinstance(result, ClientSuccess)
+        mock_git_network.run_command.assert_called_once_with(["git", "push", "origin", "v1.0.0"])
+
+    def test_push_tag_error_returns_client_error(self, service, mock_git_network):
+        """Test git error returns ClientError"""
+        mock_git_network.run_command.side_effect = GitCommandError("rejected")
+
+        result = service.push_tag("v1.0.0", remote="origin")
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "PUSH_ERROR"
         assert "rejected" in result.error_message
 
 
