@@ -63,9 +63,7 @@ _STEPS = [
 
 
 class InstallPluginScreen(BaseScreen):
-    """
-    Wizard for installing a community plugin from a stable git source.
-    """
+    """Wizard for pinning a stable community plugin into the current project."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -153,7 +151,7 @@ class InstallPluginScreen(BaseScreen):
     def __init__(self, config):
         super().__init__(
             config,
-            title=f"{Icons.PLUGIN} Install Community Plugin",
+            title=f"{Icons.PLUGIN} Add Plugin",
             show_back=False,
             show_status_bar=False,
         )
@@ -506,7 +504,7 @@ class InstallPluginScreen(BaseScreen):
                 except Exception:
                     self._plugin_has_config = False
 
-            body.mount(SuccessText(f"{Icons.SUCCESS} Plugin installed successfully!"))
+            body.mount(SuccessText(f"{Icons.SUCCESS} Plugin added to this project."))
 
         if self._plugin_has_config and self._installed_record:
             plugin_name = self._installed_record.titan_plugin_name
@@ -585,7 +583,7 @@ class InstallPluginScreen(BaseScreen):
             if r.titan_plugin_name:
                 body.mount(Panel(
                     f"The plugin '{r.titan_plugin_name}' is now available.\n"
-                    "Enable it in Plugin Management to use it in your workflows.",
+                    "Titan pinned this version in the current project's config and prepared its local runtime.",
                     panel_type="info",
                 ))
             else:

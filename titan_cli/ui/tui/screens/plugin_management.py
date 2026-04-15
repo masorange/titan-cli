@@ -331,7 +331,7 @@ class PluginManagementScreen(BaseScreen):
             "but is not installed in this Titan environment."
         ))
         details.mount(Text(""))
-        details.mount(DimText("Press i to install it from a community plugin URL."))
+        details.mount(DimText("Press i to add it from a community plugin URL."))
         details.mount(DimText("Press r to remove it from this project's config."))
         details.mount(Text(""))
         details.mount(Horizontal(
@@ -463,7 +463,7 @@ class PluginManagementScreen(BaseScreen):
         if active_channel == PluginChannel.DEV_LOCAL:
             details.mount(DimText("  Press u to remove the development source"))
         elif active_rec:
-            details.mount(DimText("  Press u to uninstall this plugin"))
+            details.mount(DimText("  Press u to remove this plugin from the current project"))
         if is_community_plugin:
             details.mount(DimText("  Press d to configure a local development path"))
 
@@ -478,7 +478,7 @@ class PluginManagementScreen(BaseScreen):
         if active_channel == PluginChannel.STABLE and active_rec:
             buttons.append(Button("Update", variant="warning", id="update-button"))
         if active_channel == PluginChannel.DEV_LOCAL or active_rec:
-            buttons.append(Button("Uninstall", variant="error", id="uninstall-button"))
+            buttons.append(Button("Remove", variant="error", id="uninstall-button"))
         details.mount(Horizontal(*buttons, classes="button-container"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -818,7 +818,7 @@ class PluginManagementScreen(BaseScreen):
         )
 
     def action_uninstall_plugin(self) -> None:
-        """Uninstall the selected community plugin."""
+        """Remove the selected project-pinned community plugin or dev override."""
         if not self.selected_plugin:
             self.app.notify("Please select a plugin", severity="warning")
             return
@@ -836,7 +836,7 @@ class PluginManagementScreen(BaseScreen):
 
         record = self._build_stable_record(self.selected_plugin)
         if not record:
-            self.app.notify("Only community plugins can be uninstalled", severity="warning")
+            self.app.notify("Only community plugins can be removed", severity="warning")
             return
 
         self.run_worker(self._run_uninstall(record.titan_plugin_name), exclusive=True)

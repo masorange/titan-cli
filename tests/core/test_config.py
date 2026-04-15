@@ -695,6 +695,127 @@ def test_get_plugin_source_prefers_global_override_over_project(tmp_path: Path, 
         os.chdir(original_cwd)
 
 
+def test_project_stable_source_helpers_return_shared_pin_metadata(tmp_path: Path, monkeypatch, mocker):
+    """Project helpers should expose the shared stable pin metadata."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    titan_dir = project_dir / ".titan"
+    titan_dir.mkdir()
+
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump(
+            {
+                "project": {"name": "Project"},
+                "plugins": {
+                    "sample": {
+                        "enabled": True,
+                        "source": {
+                            "channel": "stable",
+                            "repo_url": "https://github.com/example/sample-plugin",
+                            "requested_ref": "v1.2.3",
+                            "resolved_commit": "a" * 40,
+                        },
+                    }
+                },
+            },
+            f,
+        )
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump({}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.get_plugin_source_channel("sample") == "stable"
+        assert config_instance.get_project_plugin_repo_url("sample") == "https://github.com/example/sample-plugin"
+        assert config_instance.get_project_plugin_requested_ref("sample") == "v1.2.3"
+        assert config_instance.get_project_plugin_resolved_commit("sample") == "a" * 40
+        assert config_instance.get_effective_plugin_source("sample") == {
+            "channel": "stable",
+            "repo_url": "https://github.com/example/sample-plugin",
+            "requested_ref": "v1.2.3",
+            "resolved_commit": "a" * 40,
+        }
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_effective_plugin_source_keeps_global_dev_path_as_stable_memory(tmp_path: Path, monkeypatch, mocker):
+    """Stable mode should preserve the remembered local dev path without activating it."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    titan_dir = project_dir / ".titan"
+    titan_dir.mkdir()
+    remembered_path = tmp_path / "plugins" / "sample"
+    remembered_path.mkdir(parents=True)
+
+    with open(titan_dir / "config.toml", "wb") as f:
+        tomli_w.dump(
+            {
+                "project": {"name": "Project"},
+                "plugins": {
+                    "sample": {
+                        "enabled": True,
+                        "source": {
+                            "channel": "stable",
+                            "repo_url": "https://github.com/example/sample-plugin",
+                            "requested_ref": "v1.2.3",
+                            "resolved_commit": "b" * 40,
+                        },
+                    }
+                },
+            },
+            f,
+        )
+
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(
+            {
+                "plugins": {
+                    "sample": {
+                        "source": {
+                            "channel": "stable",
+                            "path": str(remembered_path),
+                        }
+                    }
+                }
+            },
+            f,
+        )
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        config_instance = TitanConfig()
+
+        assert config_instance.get_plugin_source_channel("sample") == "stable"
+        assert config_instance.get_plugin_source_path("sample") == remembered_path.resolve()
+        assert config_instance.get_effective_plugin_source("sample") == {
+            "channel": "stable",
+            "repo_url": "https://github.com/example/sample-plugin",
+            "requested_ref": "v1.2.3",
+            "resolved_commit": "b" * 40,
+            "path": str(remembered_path),
+        }
+    finally:
+        os.chdir(original_cwd)
+
+
 def test_set_global_plugin_source_writes_user_config(tmp_path: Path, monkeypatch, mocker):
     """Global plugin source overrides should be written to user config."""
     mocker.patch('titan_cli.core.config.PluginRegistry')
