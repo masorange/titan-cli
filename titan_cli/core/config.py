@@ -391,7 +391,19 @@ class TitanConfig:
         return Path(path).expanduser().resolve()
 
     def get_global_plugin_source(self, plugin_name: str) -> dict:
-        """Return the raw global source override for a plugin."""
+        """Return the raw user-local source override for a plugin in the active project."""
+        project_key = self._get_project_source_scope_key()
+        scoped_source = (
+            self.global_config.get("project_sources", {})
+            .get(project_key, {})
+            .get("plugins", {})
+            .get(plugin_name, {})
+            .get("source", {})
+        )
+        if scoped_source:
+            return scoped_source.copy()
+
+        # Backward-compatible fallback for older global config layouts.
         return (
             self.global_config.get("plugins", {})
             .get(plugin_name, {})
@@ -451,7 +463,9 @@ class TitanConfig:
     ) -> None:
         """Persist a plugin source override in the global user config."""
         config_data = self._load_toml(self._global_config_path)
-        plugins_table = config_data.setdefault("plugins", {})
+        project_sources = config_data.setdefault("project_sources", {})
+        project_table = project_sources.setdefault(self._get_project_source_scope_key(), {})
+        plugins_table = project_table.setdefault("plugins", {})
         plugin_table = plugins_table.setdefault(plugin_name, {})
         source_table = plugin_table.setdefault("source", {})
 
@@ -466,18 +480,39 @@ class TitanConfig:
     def clear_global_plugin_source(self, plugin_name: str) -> None:
         """Remove a plugin source override from the global user config."""
         config_data = self._load_toml(self._global_config_path)
-        plugins_table = config_data.get("plugins", {})
+        project_sources = config_data.get("project_sources", {})
+        project_table = project_sources.get(self._get_project_source_scope_key(), {})
+        plugins_table = project_table.get("plugins", {})
         plugin_table = plugins_table.get(plugin_name)
         if not plugin_table:
+            # Fall back to cleaning any legacy global override for the plugin.
+            legacy_plugins = config_data.get("plugins", {})
+            legacy_plugin = legacy_plugins.get(plugin_name)
+            if not legacy_plugin:
+                return
+            legacy_plugin.pop("source", None)
+            if not legacy_plugin:
+                legacy_plugins.pop(plugin_name, None)
+            if not legacy_plugins and "plugins" in config_data:
+                config_data.pop("plugins", None)
+            self._write_global_config(config_data)
             return
 
         plugin_table.pop("source", None)
         if not plugin_table:
             plugins_table.pop(plugin_name, None)
-        if not plugins_table and "plugins" in config_data:
-            config_data.pop("plugins", None)
+        if not plugins_table and "plugins" in project_table:
+            project_table.pop("plugins", None)
+        if not project_table and self._get_project_source_scope_key() in project_sources:
+            project_sources.pop(self._get_project_source_scope_key(), None)
+        if not project_sources and "project_sources" in config_data:
+            config_data.pop("project_sources", None)
 
         self._write_global_config(config_data)
+
+    def _get_project_source_scope_key(self) -> str:
+        """Return the global-config key used to scope local plugin overrides per project."""
+        return str((self._project_root or Path.cwd()).resolve())
 
     def get_status_bar_info(self) -> dict:
         """
