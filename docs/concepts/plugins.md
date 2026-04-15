@@ -28,10 +28,10 @@ Titan also supports community plugins from external repositories.
 
 There are currently two source channels:
 
-- `stable`: install a plugin from a git repository pinned to a tag or commit
+- `stable`: pin a plugin version in the project config using a git tag or commit
 - `dev_local`: use a local checkout of a plugin repository during development
 
-Project source selection is stored in `.titan/config.toml`:
+The shared stable pin lives in `.titan/config.toml`:
 
 ```toml
 [plugins.custom]
@@ -39,19 +39,21 @@ enabled = true
 
 [plugins.custom.source]
 channel = "stable"
+repo_url = "https://github.com/user/titan-plugin-custom"
+requested_ref = "v1.2.0"
+resolved_commit = "0123456789abcdef0123456789abcdef01234567"
 ```
 
-For local plugin development:
+`requested_ref` stores the exact tag or ref used by that repository. Some repos use
+tags like `v1.2.0`; others use `1.2.0`.
+
+For local plugin development, the active override lives in `~/.titan/config.toml`:
 
 ```toml
-[plugins.custom]
-enabled = true
-
 [plugins.custom.source]
 channel = "dev_local"
 path = "/absolute/path/to/local/plugin/repo"
 ```
 
-In `dev_local`, Titan loads the plugin directly from the local repository by reading its `pyproject.toml` and `titan.plugins` entry point.
-
-Community plugin installation metadata is tracked globally in `~/.titan/community_plugins.toml`.
+In `dev_local`, Titan loads the plugin directly from the local repository. In `stable`,
+Titan prepares an isolated local runtime for the pinned commit.

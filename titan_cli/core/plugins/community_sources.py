@@ -1,27 +1,16 @@
-"""
-Community Plugin Manager
-
-Business logic for installing, tracking, and uninstalling community plugins
-from user-provided git repositories.
-
-Community plugins are tracked in ~/.titan/community_plugins.toml.
-Installation always uses `pipx inject` to maintain isolation.
-"""
+"""Helpers for community plugin source resolution and update checks."""
 
 import os
 import sys
 import subprocess
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import urlopen, Request
 
 import tomli
-import tomli_w
-
 from titan_cli.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -29,8 +18,6 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-COMMUNITY_PLUGINS_FILE = Path.home() / ".titan" / "community_plugins.toml"
 
 # Raw pyproject.toml URL templates per host (use .format(path=..., version=...))
 _RAW_URL_GITHUB    = "https://raw.githubusercontent.com/{path}/{version}/pyproject.toml"
@@ -41,10 +28,6 @@ _RAW_URL_BITBUCKET = "https://bitbucket.org/{path}/raw/{version}/pyproject.toml"
 _BASE_GITHUB    = "https://github.com/"
 _BASE_GITLAB    = "https://gitlab.com/"
 _BASE_BITBUCKET = "https://bitbucket.org/"
-
-# pipx command
-_PIPX_CMD = "pipx"
-_TITAN_PACKAGE = "titan-cli"
 
 # HTTP fetch timeout (seconds)
 _FETCH_TIMEOUT = 10
@@ -405,23 +388,11 @@ def parse_plugin_metadata(toml_content: str) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# pipx environment detection
-# ---------------------------------------------------------------------------
-
 def is_running_in_pipx() -> bool:
     """Detect whether Titan is currently running inside a pipx-managed venv."""
     executable = sys.executable
     if "pipx" in executable:
         return True
-    if os.environ.get("PIPX_HOME"):
-        return True
-    pipx_default = Path.home() / ".local" / "pipx" / "venvs"
-    try:
-        Path(executable).relative_to(pipx_default)
-        return True
-    except ValueError:
-        pass
     return False
 
 
@@ -433,163 +404,6 @@ def is_running_in_poetry() -> bool:
     if ".venv" in executable:
         return True
     return False
-
-
-# ---------------------------------------------------------------------------
-# pipx install / uninstall
-# ---------------------------------------------------------------------------
-
-def build_pipx_spec(base_url: str, version: str, token: Optional[str] = None) -> str:
-    """
-    Build the pip/pipx package spec for a git repo URL.
-
-    e.g. git+https://github.com/user/plugin.git@v1.0.0
-    For private repos: git+https://<token>@github.com/user/plugin.git@v1.0.0
-    """
-    clean = base_url.rstrip("/")
-    if not clean.endswith(".git"):
-        clean = clean + ".git"
-    if token:
-        clean = clean.replace("https://", f"https://{token}@", 1)
-    return f"git+{clean}@{version}"
-
-
-def install_community_plugin(base_url: str, version: str, token: Optional[str] = None) -> subprocess.CompletedProcess:
-    """
-    Install a community plugin into the active Python environment.
-
-    - pipx environment  → `pipx inject titan-cli <spec>`
-    - Poetry environment → `poetry run pip install <spec>`
-
-    Returns the CompletedProcess — caller must check returncode.
-    """
-    spec = build_pipx_spec(base_url, version, token)
-    logger.info("community_plugin_install", base_url=base_url, version=version)
-
-    if is_running_in_pipx():
-        return subprocess.run(
-            [_PIPX_CMD, "inject", _TITAN_PACKAGE, spec],
-            capture_output=True,
-            text=True,
-        )
-    else:
-        return subprocess.run(
-            [sys.executable, "-m", "pip", "install", spec],
-            capture_output=True,
-            text=True,
-        )
-
-
-def uninstall_community_plugin(package_name: str) -> subprocess.CompletedProcess:
-    """
-    Uninstall a community plugin from the active Python environment.
-
-    - pipx environment   → `pipx runpip titan-cli uninstall -y <package>`
-    - Poetry environment → `poetry run pip uninstall -y <package>`
-
-    Returns the CompletedProcess — caller must check returncode.
-    """
-    logger.info("community_plugin_uninstall", package=package_name)
-
-    if is_running_in_pipx():
-        return subprocess.run(
-            [_PIPX_CMD, "runpip", _TITAN_PACKAGE, "uninstall", "-y", package_name],
-            capture_output=True,
-            text=True,
-        )
-    else:
-        return subprocess.run(
-            [sys.executable, "-m", "pip", "uninstall", "-y", package_name],
-            capture_output=True,
-            text=True,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Community plugin tracking (~/.titan/community_plugins.toml)
-# ---------------------------------------------------------------------------
-
-def get_community_plugins_path() -> Path:
-    return COMMUNITY_PLUGINS_FILE
-
-
-def _deserialise_record(item: dict) -> CommunityPluginRecord:
-    """
-    Deserialise a TOML dict into a CommunityPluginRecord.
-
-    Required fields: repo_url, package_name, titan_plugin_name, installed_at.
-    Optional fields default to None if absent — TOML omits None values on save.
-    channel defaults to "stable" for backwards compatibility with old records.
-    """
-    return CommunityPluginRecord(
-        repo_url=item["repo_url"],
-        package_name=item["package_name"],
-        titan_plugin_name=item["titan_plugin_name"],
-        installed_at=item["installed_at"],
-        channel=item.get("channel", PluginChannel.STABLE),
-        dev_local_path=item.get("dev_local_path"),
-        requested_ref=item.get("requested_ref"),
-        resolved_commit=item.get("resolved_commit"),
-    )
-
-
-def load_community_plugins() -> list[CommunityPluginRecord]:
-    """
-    Load installed community plugins from ~/.titan/community_plugins.toml.
-
-    Returns an empty list if the file does not exist.
-    """
-    path = get_community_plugins_path()
-    if not path.exists():
-        return []
-    try:
-        with open(path, "rb") as f:
-            data = tomli.load(f)
-        return [_deserialise_record(item) for item in data.get("plugins", [])]
-    except Exception:
-        logger.exception("community_plugins_load_failed")
-        return []
-
-
-def save_community_plugin(record: CommunityPluginRecord) -> None:
-    """
-    Append a community plugin record to ~/.titan/community_plugins.toml.
-    Creates the file and parent directory if they don't exist.
-    None values are omitted — TOML has no null type.
-    """
-    path = get_community_plugins_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    if path.exists():
-        with open(path, "rb") as f:
-            data = tomli.load(f)
-    else:
-        data = {"plugins": []}
-
-    data.setdefault("plugins", [])
-    record_dict = {k: v for k, v in asdict(record).items() if v is not None}
-    data["plugins"].append(record_dict)
-
-    with open(path, "wb") as f:
-        tomli_w.dump(data, f)
-
-
-def remove_community_plugin(package_name: str) -> None:
-    """Remove a community plugin record by package name."""
-    path = get_community_plugins_path()
-    if not path.exists():
-        return
-
-    with open(path, "rb") as f:
-        data = tomli.load(f)
-
-    data["plugins"] = [
-        p for p in data.get("plugins", [])
-        if p.get("package_name") != package_name
-    ]
-
-    with open(path, "wb") as f:
-        tomli_w.dump(data, f)
 
 
 def check_for_update(record: CommunityPluginRecord, token: Optional[str] = None) -> Optional[str]:
@@ -682,90 +496,3 @@ def check_for_updates(
         if latest:
             updates.append((record, latest))
     return updates
-
-
-def get_community_plugin_names() -> set[str]:
-    """Return the set of titan_plugin_names for all installed community plugins."""
-    return {r.titan_plugin_name for r in load_community_plugins()}
-
-
-def get_community_plugin_by_titan_name(titan_name: str) -> Optional[CommunityPluginRecord]:
-    """Return the community plugin record for a given titan plugin name, or None."""
-    for record in load_community_plugins():
-        if record.titan_plugin_name == titan_name:
-            return record
-    return None
-
-
-def get_community_plugin_by_name_and_channel(
-    titan_name: str, channel: str
-) -> Optional[CommunityPluginRecord]:
-    """Return the record matching both titan_plugin_name and channel, or None."""
-    for record in load_community_plugins():
-        if record.titan_plugin_name == titan_name and record.channel == channel:
-            return record
-    return None
-
-
-def remove_community_plugin_by_channel(titan_plugin_name: str, channel: str) -> None:
-    """Remove the single record matching name + channel, leaving the other channel intact."""
-    path = get_community_plugins_path()
-    if not path.exists():
-        return
-
-    with open(path, "rb") as f:
-        data = tomli.load(f)
-
-    data["plugins"] = [
-        p for p in data.get("plugins", [])
-        if not (
-            p.get("titan_plugin_name") == titan_plugin_name
-            and p.get("channel") == channel
-        )
-    ]
-
-    with open(path, "wb") as f:
-        tomli_w.dump(data, f)
-
-
-def remove_community_plugin_by_name(titan_plugin_name: str) -> None:
-    """Remove all tracked records for a given Titan plugin logical name."""
-    path = get_community_plugins_path()
-    if not path.exists():
-        return
-
-    with open(path, "rb") as f:
-        data = tomli.load(f)
-
-    data["plugins"] = [
-        p for p in data.get("plugins", [])
-        if p.get("titan_plugin_name") != titan_plugin_name
-    ]
-
-    with open(path, "wb") as f:
-        tomli_w.dump(data, f)
-
-
-def install_community_plugin_dev_local(local_path: str) -> subprocess.CompletedProcess:
-    """
-    Install a community plugin from a local path as an editable install.
-
-    - pipx environment  → `pipx runpip titan-cli install -e <path>`
-    - Poetry environment → `pip install -e <path>`
-
-    Returns the CompletedProcess — caller must check returncode.
-    """
-    logger.info("community_plugin_install_dev_local", local_path=local_path)
-
-    if is_running_in_pipx():
-        return subprocess.run(
-            [_PIPX_CMD, "runpip", _TITAN_PACKAGE, "install", "-e", local_path],
-            capture_output=True,
-            text=True,
-        )
-    else:
-        return subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", local_path],
-            capture_output=True,
-            text=True,
-        )

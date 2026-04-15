@@ -1,6 +1,9 @@
 # core/config.py
+from copy import deepcopy
+import hashlib
 from pathlib import Path
-from typing import Optional, List
+import re
+from typing import List, Optional
 import tomli
 from .models import TitanConfigModel
 from .migrations import MigrationManager
@@ -10,6 +13,7 @@ from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
 from .utils import find_project_root
 from .logging import get_logger
+from .plugins.community_sources import PluginChannel
 
 logger = get_logger(__name__)
 
@@ -35,6 +39,7 @@ class TitanConfig:
         self._active_project_path = None  # Set by load()
         self._workflow_registry = None  # Set by load()
         self._plugin_warnings = []
+        self._plugin_sync_events = []
 
         # Use custom global config path if provided (for testing), otherwise use default
         self._global_config_path = global_config_path or self.GLOBAL_CONFIG
@@ -81,6 +86,7 @@ class TitanConfig:
             self.registry.reset()
             self.registry.initialize_plugins(config=self, secrets=self.secrets)
             self._plugin_warnings = self.registry.list_failed()
+            self._plugin_sync_events = self.registry.list_sync_events()
 
         # Re-initialize WorkflowRegistry using project root
         project_step_source = ProjectStepSource(project_root=project_root)
@@ -150,7 +156,7 @@ class TitanConfig:
 
     def _merge_configs(self, global_cfg: dict, project_cfg: dict) -> dict:
         """Merge global and project configs (project overrides global)"""
-        merged = {**global_cfg}
+        merged = deepcopy(global_cfg)
 
         # Project config overrides global
         for key, value in project_cfg.items():
@@ -169,12 +175,6 @@ class TitanConfig:
                     for pk, pv in plugin_data_project.items():
                         if pk != "config":
                             final_plugin_data[pk] = pv
-
-                    # Plugin source is a user-local concern. If global config already
-                    # defines a source override, preserve it instead of letting the
-                    # project config overwrite it.
-                    if "source" in plugin_data_global:
-                        final_plugin_data["source"] = plugin_data_global["source"]
 
                     # Handle the nested 'config' dictionary separately (deep merge)
                     config_section_global = plugin_data_global.get("config", {})
@@ -247,6 +247,10 @@ class TitanConfig:
     def get_plugin_warnings(self) -> List[str]:
         """Get list of failed or misconfigured plugins."""
         return self._plugin_warnings
+
+    def get_plugin_sync_events(self) -> List[str]:
+        """Get list of plugin auto-sync events from the latest load cycle."""
+        return self._plugin_sync_events
 
     def get_project_name(self) -> Optional[str]:
         """Get the current project name from project config."""
@@ -383,22 +387,75 @@ class TitanConfig:
         return plugin_cfg.enabled if plugin_cfg else False
 
     def get_plugin_source_channel(self, plugin_name: str) -> str:
-        """Return the configured source channel for a plugin."""
-        if not self.config or not self.config.plugins:
-            return "stable"
-        plugin_cfg = self.config.plugins.get(plugin_name)
-        if not plugin_cfg or not getattr(plugin_cfg, "source", None):
-            return "stable"
-        return plugin_cfg.source.channel or "stable"
+        """Return the effective source channel for a plugin."""
+        source = self.get_effective_plugin_source(plugin_name)
+        return source.get("channel", PluginChannel.STABLE)
 
     def get_plugin_source_path(self, plugin_name: str) -> Optional[Path]:
-        """Return the configured dev_local path for a plugin, if any."""
-        if not self.config or not self.config.plugins:
+        """Return the effective dev_local path for a plugin, if any."""
+        source = self.get_effective_plugin_source(plugin_name)
+        path = source.get("path")
+        if not path:
             return None
-        plugin_cfg = self.config.plugins.get(plugin_name)
-        if not plugin_cfg or not getattr(plugin_cfg, "source", None) or not plugin_cfg.source.path:
-            return None
-        return Path(plugin_cfg.source.path).expanduser().resolve()
+        return Path(path).expanduser().resolve()
+
+    def get_global_plugin_source(self, plugin_name: str) -> dict:
+        """Return the raw user-local source override for a plugin in the active project."""
+        scoped_source = self._get_project_source_scope_data().get("plugins", {}).get(plugin_name, {}).get("source", {})
+        if scoped_source:
+            return scoped_source.copy()
+
+        # Backward-compatible fallback for older global config layouts.
+        return (
+            self.global_config.get("plugins", {})
+            .get(plugin_name, {})
+            .get("source", {})
+            .copy()
+        )
+
+    def get_project_plugin_source(self, plugin_name: str) -> dict:
+        """Return the raw project source definition for a plugin."""
+        return (
+            self.project_config.get("plugins", {})
+            .get(plugin_name, {})
+            .get("source", {})
+            .copy()
+        )
+
+    def get_effective_plugin_source(self, plugin_name: str) -> dict:
+        """Return the effective plugin source after applying local overrides."""
+        global_source = self.get_global_plugin_source(plugin_name)
+        project_source = self.get_project_plugin_source(plugin_name)
+
+        if global_source.get("channel") == PluginChannel.DEV_LOCAL and global_source.get("path"):
+            return {
+                "channel": PluginChannel.DEV_LOCAL,
+                "path": global_source.get("path"),
+                "repo_url": project_source.get("repo_url"),
+                "requested_ref": project_source.get("requested_ref"),
+                "resolved_commit": project_source.get("resolved_commit"),
+            }
+
+        effective = dict(project_source)
+        effective.setdefault("channel", PluginChannel.STABLE)
+
+        # Preserve the remembered dev path for quick switching, but only as UX state.
+        if global_source.get("path") and "path" not in effective:
+            effective["path"] = global_source.get("path")
+
+        return effective
+
+    def get_project_plugin_repo_url(self, plugin_name: str) -> Optional[str]:
+        """Return the shared stable repository URL for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("repo_url")
+
+    def get_project_plugin_requested_ref(self, plugin_name: str) -> Optional[str]:
+        """Return the shared requested stable ref for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("requested_ref")
+
+    def get_project_plugin_resolved_commit(self, plugin_name: str) -> Optional[str]:
+        """Return the shared resolved stable commit for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("resolved_commit")
 
     def set_global_plugin_source(
         self,
@@ -408,7 +465,10 @@ class TitanConfig:
     ) -> None:
         """Persist a plugin source override in the global user config."""
         config_data = self._load_toml(self._global_config_path)
-        plugins_table = config_data.setdefault("plugins", {})
+        project_sources = config_data.setdefault("project_sources", {})
+        project_table = project_sources.setdefault(self._get_project_source_scope_key(), {})
+        project_table["project_path"] = str((self._project_root or Path.cwd()).resolve())
+        plugins_table = project_table.setdefault("plugins", {})
         plugin_table = plugins_table.setdefault(plugin_name, {})
         source_table = plugin_table.setdefault("source", {})
 
@@ -423,18 +483,73 @@ class TitanConfig:
     def clear_global_plugin_source(self, plugin_name: str) -> None:
         """Remove a plugin source override from the global user config."""
         config_data = self._load_toml(self._global_config_path)
-        plugins_table = config_data.get("plugins", {})
+        project_sources = config_data.get("project_sources", {})
+        project_key = self._find_project_source_scope_key(project_sources)
+        project_table = project_sources.get(project_key, {}) if project_key else {}
+        plugins_table = project_table.get("plugins", {})
         plugin_table = plugins_table.get(plugin_name)
         if not plugin_table:
+            # Fall back to cleaning any legacy global override for the plugin.
+            legacy_plugins = config_data.get("plugins", {})
+            legacy_plugin = legacy_plugins.get(plugin_name)
+            if not legacy_plugin:
+                return
+            legacy_plugin.pop("source", None)
+            if not legacy_plugin:
+                legacy_plugins.pop(plugin_name, None)
+            if not legacy_plugins and "plugins" in config_data:
+                config_data.pop("plugins", None)
+            self._write_global_config(config_data)
             return
 
         plugin_table.pop("source", None)
         if not plugin_table:
             plugins_table.pop(plugin_name, None)
-        if not plugins_table and "plugins" in config_data:
-            config_data.pop("plugins", None)
+        if not plugins_table and "plugins" in project_table:
+            project_table.pop("plugins", None)
+        if self._project_source_table_empty(project_table) and project_key in project_sources:
+            project_sources.pop(project_key, None)
+        if not project_sources and "project_sources" in config_data:
+            config_data.pop("project_sources", None)
 
         self._write_global_config(config_data)
+
+    def _get_project_source_scope_key(self) -> str:
+        """Return the global-config key used to scope local plugin overrides per project."""
+        project_path = str((self._project_root or Path.cwd()).resolve())
+        project_name = (self._project_root or Path.cwd()).resolve().name or "project"
+        safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", project_name).strip("_").lower() or "project"
+        digest = hashlib.sha256(project_path.encode("utf-8")).hexdigest()[:8]
+        return f"p_{safe_name}_{digest}"
+
+    def _get_project_source_scope_data(self) -> dict:
+        """Return the scoped project source block for the active project."""
+        project_sources = self.global_config.get("project_sources", {})
+        project_key = self._find_project_source_scope_key(project_sources)
+        if project_key:
+            return project_sources.get(project_key, {})
+        return {}
+
+    def _find_project_source_scope_key(self, project_sources: dict) -> Optional[str]:
+        """Find the project_sources key matching the active project."""
+        current_path = str((self._project_root or Path.cwd()).resolve())
+        preferred_key = self._get_project_source_scope_key()
+        preferred_table = project_sources.get(preferred_key)
+        if isinstance(preferred_table, dict):
+            stored_path = preferred_table.get("project_path")
+            if not stored_path or stored_path == current_path:
+                return preferred_key
+
+        for key, value in project_sources.items():
+            if key == current_path:
+                return key
+            if isinstance(value, dict) and value.get("project_path") == current_path:
+                return key
+        return None
+
+    def _project_source_table_empty(self, project_table: dict) -> bool:
+        """Return whether a scoped project source block contains meaningful data."""
+        return not any(key != "project_path" for key in project_table)
 
     def get_status_bar_info(self) -> dict:
         """

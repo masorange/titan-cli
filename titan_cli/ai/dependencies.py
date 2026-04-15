@@ -7,7 +7,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from titan_cli.core.plugins.community import is_running_in_pipx
+from titan_cli.core.plugins.community_sources import is_running_in_pipx
 
 
 @dataclass(frozen=True)
