@@ -267,6 +267,12 @@ class GitClient:
         """Get list of commits in head_branch that are not in base_branch."""
         return self.commit_service.get_branch_commits(base_branch, head_branch)
 
+    def get_commits_between_refs(
+        self, base_ref: str, head_ref: str = "HEAD"
+    ) -> ClientResult[List[str]]:
+        """Get list of commits reachable from head_ref but not base_ref."""
+        return self.commit_service.get_commits_between_refs(base_ref, head_ref)
+
     def count_commits_ahead(self, base_branch: str = "develop") -> ClientResult[int]:
         """Count how many commits current branch is ahead of base branch."""
         return self.commit_service.count_commits_ahead(base_branch)
