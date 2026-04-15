@@ -1,6 +1,7 @@
 # core/config.py
+from copy import deepcopy
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 import tomli
 from .models import TitanConfigModel
 from .migrations import MigrationManager
@@ -150,7 +151,7 @@ class TitanConfig:
 
     def _merge_configs(self, global_cfg: dict, project_cfg: dict) -> dict:
         """Merge global and project configs (project overrides global)"""
-        merged = {**global_cfg}
+        merged = deepcopy(global_cfg)
 
         # Project config overrides global
         for key, value in project_cfg.items():
@@ -169,12 +170,6 @@ class TitanConfig:
                     for pk, pv in plugin_data_project.items():
                         if pk != "config":
                             final_plugin_data[pk] = pv
-
-                    # Plugin source is a user-local concern. If global config already
-                    # defines a source override, preserve it instead of letting the
-                    # project config overwrite it.
-                    if "source" in plugin_data_global:
-                        final_plugin_data["source"] = plugin_data_global["source"]
 
                     # Handle the nested 'config' dictionary separately (deep merge)
                     config_section_global = plugin_data_global.get("config", {})
@@ -383,22 +378,70 @@ class TitanConfig:
         return plugin_cfg.enabled if plugin_cfg else False
 
     def get_plugin_source_channel(self, plugin_name: str) -> str:
-        """Return the configured source channel for a plugin."""
-        if not self.config or not self.config.plugins:
-            return "stable"
-        plugin_cfg = self.config.plugins.get(plugin_name)
-        if not plugin_cfg or not getattr(plugin_cfg, "source", None):
-            return "stable"
-        return plugin_cfg.source.channel or "stable"
+        """Return the effective source channel for a plugin."""
+        source = self.get_effective_plugin_source(plugin_name)
+        return source.get("channel", "stable")
 
     def get_plugin_source_path(self, plugin_name: str) -> Optional[Path]:
-        """Return the configured dev_local path for a plugin, if any."""
-        if not self.config or not self.config.plugins:
+        """Return the effective dev_local path for a plugin, if any."""
+        source = self.get_effective_plugin_source(plugin_name)
+        path = source.get("path")
+        if not path:
             return None
-        plugin_cfg = self.config.plugins.get(plugin_name)
-        if not plugin_cfg or not getattr(plugin_cfg, "source", None) or not plugin_cfg.source.path:
-            return None
-        return Path(plugin_cfg.source.path).expanduser().resolve()
+        return Path(path).expanduser().resolve()
+
+    def get_global_plugin_source(self, plugin_name: str) -> dict:
+        """Return the raw global source override for a plugin."""
+        return (
+            self.global_config.get("plugins", {})
+            .get(plugin_name, {})
+            .get("source", {})
+            .copy()
+        )
+
+    def get_project_plugin_source(self, plugin_name: str) -> dict:
+        """Return the raw project source definition for a plugin."""
+        return (
+            self.project_config.get("plugins", {})
+            .get(plugin_name, {})
+            .get("source", {})
+            .copy()
+        )
+
+    def get_effective_plugin_source(self, plugin_name: str) -> dict:
+        """Return the effective plugin source after applying local overrides."""
+        global_source = self.get_global_plugin_source(plugin_name)
+        project_source = self.get_project_plugin_source(plugin_name)
+
+        if global_source.get("channel") == "dev_local" and global_source.get("path"):
+            return {
+                "channel": "dev_local",
+                "path": global_source.get("path"),
+                "repo_url": project_source.get("repo_url"),
+                "requested_ref": project_source.get("requested_ref"),
+                "resolved_commit": project_source.get("resolved_commit"),
+            }
+
+        effective = dict(project_source)
+        effective.setdefault("channel", "stable")
+
+        # Preserve the remembered dev path for quick switching, but only as UX state.
+        if global_source.get("path") and "path" not in effective:
+            effective["path"] = global_source.get("path")
+
+        return effective
+
+    def get_project_plugin_repo_url(self, plugin_name: str) -> Optional[str]:
+        """Return the shared stable repository URL for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("repo_url")
+
+    def get_project_plugin_requested_ref(self, plugin_name: str) -> Optional[str]:
+        """Return the shared requested stable ref for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("requested_ref")
+
+    def get_project_plugin_resolved_commit(self, plugin_name: str) -> Optional[str]:
+        """Return the shared resolved stable commit for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("resolved_commit")
 
     def set_global_plugin_source(
         self,

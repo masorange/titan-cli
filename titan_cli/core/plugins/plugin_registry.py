@@ -6,13 +6,18 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from ..errors import PluginLoadError, PluginInitializationError
 from .plugin_base import TitanPlugin
-from .community import PluginChannel, parse_plugin_metadata
+from .community import PluginChannel, get_github_token, parse_plugin_metadata
+from .runtime import PluginRuntimeManager
 from titan_cli.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-def _load_dev_local_plugin(repo_path: Path, plugin_name: str) -> TitanPlugin:
+def _load_local_plugin(
+    repo_path: Path,
+    plugin_name: str,
+    extra_sys_paths: Optional[list[Path]] = None,
+) -> TitanPlugin:
     """Load a Titan plugin directly from a local repository path."""
     pyproject_path = repo_path / "pyproject.toml"
     if not pyproject_path.is_file():
@@ -33,10 +38,11 @@ def _load_dev_local_plugin(repo_path: Path, plugin_name: str) -> TitanPlugin:
         raise ValueError(f"Invalid entry point for '{plugin_name}': {entry_point}")
 
     package_root = module_name.split(".", 1)[0]
-    repo_path_str = str(repo_path)
-    if repo_path_str in sys.path:
-        sys.path.remove(repo_path_str)
-    sys.path.insert(0, repo_path_str)
+    sys_paths = [str(path) for path in (extra_sys_paths or [])] + [str(repo_path)]
+    for sys_path_entry in reversed(sys_paths):
+        if sys_path_entry in sys.path:
+            sys.path.remove(sys_path_entry)
+        sys.path.insert(0, sys_path_entry)
 
     stale_modules = [
         name for name in list(sys.modules)
@@ -54,6 +60,11 @@ def _load_dev_local_plugin(repo_path: Path, plugin_name: str) -> TitanPlugin:
     return plugin
 
 
+def _load_dev_local_plugin(repo_path: Path, plugin_name: str) -> TitanPlugin:
+    """Load a Titan plugin from a local development repository."""
+    return _load_local_plugin(repo_path, plugin_name)
+
+
 class PluginRegistry:
     """Discovers and manages installed plugins."""
 
@@ -64,6 +75,7 @@ class PluginRegistry:
         self._plugin_versions: Dict[str, str] = {}
         self._dev_local_sys_paths: set[str] = set()
         self._dev_local_package_roots: set[str] = set()
+        self._runtime_manager = PluginRuntimeManager()
         if discover_on_init:
             self.discover()
 
@@ -182,46 +194,90 @@ class PluginRegistry:
                 break # Exit the loop if no progress is made
 
     def _apply_source_overrides(self, config: Any) -> None:
-        """Apply per-project source overrides before plugin initialization."""
+        """Apply effective per-project plugin sources before initialization."""
         config_model = getattr(config, "config", None)
         plugins = getattr(config_model, "plugins", None)
         if not config or not plugins:
             return
 
         for plugin_name in config.get_enabled_plugins():
-            if config.get_plugin_source_channel(plugin_name) != PluginChannel.DEV_LOCAL:
+            channel = config.get_plugin_source_channel(plugin_name)
+
+            if channel == PluginChannel.DEV_LOCAL:
+                repo_path = config.get_plugin_source_path(plugin_name)
+                if not repo_path:
+                    error = PluginLoadError(
+                        plugin_name=plugin_name,
+                        original_exception=ValueError("dev_local source requires a local path"),
+                    )
+                    self._failed_plugins[plugin_name] = error
+                    self._plugins.pop(plugin_name, None)
+                    continue
+
+                try:
+                    plugin = _load_dev_local_plugin(repo_path, plugin_name)
+                    self._plugins[plugin_name] = plugin
+                    self._dev_local_sys_paths.add(str(repo_path))
+                    package_root = getattr(plugin, "_dev_local_package_root", None)
+                    if package_root:
+                        self._dev_local_package_roots.add(package_root)
+                    self._plugin_versions[plugin_name] = "dev_local"
+                    if plugin_name not in self._discovered_plugin_names:
+                        self._discovered_plugin_names.append(plugin_name)
+                    logger.info(
+                        "plugin_dev_local_override_applied",
+                        name=plugin_name,
+                        path=str(repo_path),
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "plugin_dev_local_override_failed",
+                        name=plugin_name,
+                        path=str(repo_path),
+                    )
+                    error = PluginLoadError(plugin_name=plugin_name, original_exception=e)
+                    self._failed_plugins[plugin_name] = error
+                    self._plugins.pop(plugin_name, None)
                 continue
 
-            repo_path = config.get_plugin_source_path(plugin_name)
-            if not repo_path:
-                error = PluginLoadError(
-                    plugin_name=plugin_name,
-                    original_exception=ValueError("dev_local source requires a local path"),
-                )
-                self._failed_plugins[plugin_name] = error
-                self._plugins.pop(plugin_name, None)
+            repo_url = config.get_project_plugin_repo_url(plugin_name)
+            resolved_commit = config.get_project_plugin_resolved_commit(plugin_name)
+            if not repo_url or not resolved_commit:
                 continue
 
             try:
-                plugin = _load_dev_local_plugin(repo_path, plugin_name)
+                runtime = self._runtime_manager.ensure_stable_runtime(
+                    plugin_name=plugin_name,
+                    repo_url=repo_url,
+                    resolved_commit=resolved_commit,
+                    token=get_github_token(),
+                )
+                plugin = _load_local_plugin(
+                    runtime.source_dir,
+                    plugin_name,
+                    extra_sys_paths=[runtime.site_packages],
+                )
                 self._plugins[plugin_name] = plugin
-                self._dev_local_sys_paths.add(str(repo_path))
+                self._dev_local_sys_paths.add(str(runtime.site_packages))
+                self._dev_local_sys_paths.add(str(runtime.source_dir))
                 package_root = getattr(plugin, "_dev_local_package_root", None)
                 if package_root:
                     self._dev_local_package_roots.add(package_root)
-                self._plugin_versions[plugin_name] = "dev_local"
+                self._plugin_versions[plugin_name] = f"stable@{resolved_commit[:12]}"
                 if plugin_name not in self._discovered_plugin_names:
                     self._discovered_plugin_names.append(plugin_name)
                 logger.info(
-                    "plugin_dev_local_override_applied",
+                    "plugin_stable_runtime_applied",
                     name=plugin_name,
-                    path=str(repo_path),
+                    repo_url=repo_url,
+                    resolved_commit=resolved_commit,
                 )
             except Exception as e:
                 logger.exception(
-                    "plugin_dev_local_override_failed",
+                    "plugin_stable_runtime_failed",
                     name=plugin_name,
-                    path=str(repo_path),
+                    repo_url=repo_url,
+                    resolved_commit=resolved_commit,
                 )
                 error = PluginLoadError(plugin_name=plugin_name, original_exception=e)
                 self._failed_plugins[plugin_name] = error

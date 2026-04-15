@@ -1,17 +1,7 @@
-"""
-Install Plugin Screen
-
-Multi-step wizard for installing community plugins.
-
-Steps:
-  1. URL     — user enters repo URL with @version
-  2. Preview — fetch pyproject.toml + resolve tag → commit SHA
-  3. Install — pipx inject git+url@<resolved_sha>
-  4. Done    — success or error summary
-"""
+"""Install a project-pinned community plugin."""
 
 import asyncio
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Optional
 import tomli
 import tomli_w
@@ -23,20 +13,16 @@ from textual.widgets import Input, LoadingIndicator, Static
 
 from titan_cli.core.logging import get_logger
 from titan_cli.core.plugins.community import (
-    CommunityPluginRecord,
-    PluginChannel,
     build_raw_pyproject_url,
     detect_host,
     fetch_pyproject_toml,
     get_github_token,
-    install_community_plugin,
     parse_plugin_metadata,
     parse_repo_url,
-    remove_community_plugin_by_name,
     resolve_ref_to_commit_sha,
-    save_community_plugin,
     validate_url,
 )
+from titan_cli.core.plugins.runtime import PluginRuntimeManager
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
     BoldText,
@@ -55,6 +41,17 @@ from titan_cli.ui.tui.widgets import (
 from .base import BaseScreen
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class InstalledPluginSummary:
+    """Summary shown after a successful project plugin install."""
+
+    repo_url: str
+    package_name: str
+    titan_plugin_name: str
+    requested_ref: str
+    resolved_commit: str
 
 
 _STEPS = [
@@ -170,8 +167,9 @@ class InstallPluginScreen(BaseScreen):
         # Shared state
         self._metadata: dict = {}
         self._install_success = False
-        self._installed_record: Optional[CommunityPluginRecord] = None
+        self._installed_record: Optional[InstalledPluginSummary] = None
         self._plugin_has_config = False
+        self._runtime_manager = PluginRuntimeManager()
 
     # -----------------------------------------------------------------------
     # Composition
@@ -452,7 +450,7 @@ class InstallPluginScreen(BaseScreen):
         self._set_next_label("Next", disabled=True)
         self._set_cancel_visible(False)
 
-        body.mount(DimText(f"Running pipx inject for {self._base_url}@{self._resolved_commit}…"))
+        body.mount(DimText(f"Preparing isolated runtime for {self._base_url}@{self._resolved_commit}…"))
 
         body.mount(LoadingIndicator())
         self.call_after_refresh(self._start_install)
@@ -462,50 +460,42 @@ class InstallPluginScreen(BaseScreen):
 
     async def _run_install(self) -> None:
         body = self.query_one("#content-body", Container)
-        result = await asyncio.to_thread(
-            install_community_plugin, self._base_url, self._resolved_commit, self._token
-        )
+        eps = self._metadata.get("titan_entry_points", {})
+        plugin_name = next(iter(eps), "")
+        package_name = self._metadata.get("name") or self._base_url.rstrip("/").split("/")[-1]
+        error = await asyncio.to_thread(self._prepare_project_plugin_install, plugin_name)
 
         body.remove_children()
 
-        if result is not None and result.returncode != 0:
+        if error:
             self._install_success = False
-            output = result.stderr or result.stdout or "Unknown error"
             logger.error(
                 "community_plugin_install_failed",
-                channel=PluginChannel.STABLE,
-                output=output,
+                repo_url=self._base_url,
+                resolved_commit=self._resolved_commit,
+                output=error,
             )
             body.mount(Panel(
                 "Installation failed.\n\n"
                 "Possible reasons:\n"
                 "  • The repository or path does not exist\n"
                 "  • The commit SHA is unreachable\n"
-                "  • pipx or pip is not configured correctly",
+                "  • git or virtualenv setup failed",
                 panel_type="error",
             ))
             body.mount(Text(""))
             body.mount(BoldText("Output:"))
-            body.mount(DimText(output[:800]))
+            body.mount(DimText(error[:800]))
         else:
             self._install_success = True
 
-            eps          = self._metadata.get("titan_entry_points", {})
-            plugin_name  = next(iter(eps), "")
-            package_name = self._metadata.get("name") or self._base_url.rstrip("/").split("/")[-1]
-            self._installed_record = CommunityPluginRecord(
+            self._installed_record = InstalledPluginSummary(
                 repo_url=self._base_url,
                 package_name=package_name,
                 titan_plugin_name=plugin_name,
-                installed_at=datetime.now(timezone.utc).isoformat(),
-                channel=PluginChannel.STABLE,
-                dev_local_path=None,
                 requested_ref=self._requested_ref,
                 resolved_commit=self._resolved_commit,
             )
-            remove_community_plugin_by_name(plugin_name)
-            save_community_plugin(self._installed_record)
-            await asyncio.to_thread(self._save_project_plugin_source, plugin_name)
             await asyncio.to_thread(self.config.load)
 
             installed_plugin = self.config.registry._plugins.get(plugin_name)
@@ -529,6 +519,20 @@ class InstallPluginScreen(BaseScreen):
         wizard = PluginConfigWizardScreen(self.config, plugin_name)
         self.app.push_screen(wizard, lambda _: self._load_step(self.current_step + 1))
 
+    def _prepare_project_plugin_install(self, plugin_name: str) -> Optional[str]:
+        """Persist the project pin and provision its isolated runtime."""
+        try:
+            self._save_project_plugin_source(plugin_name)
+            self._runtime_manager.ensure_stable_runtime(
+                plugin_name=plugin_name,
+                repo_url=self._base_url,
+                resolved_commit=self._resolved_commit,
+                token=self._token,
+            )
+        except Exception as e:
+            return str(e)
+        return None
+
     def _save_project_plugin_source(self, plugin_name: str) -> None:
         """Persist the stable source for a plugin in the current project config."""
         project_cfg_path = self.config.project_config_path or (self.config.project_root / ".titan" / "config.toml")
@@ -546,7 +550,9 @@ class InstallPluginScreen(BaseScreen):
 
         source_table = plugin_table.setdefault("source", {})
         source_table["channel"] = "stable"
-        source_table.pop("path", None)
+        source_table["repo_url"] = self._base_url
+        source_table["requested_ref"] = self._requested_ref
+        source_table["resolved_commit"] = self._resolved_commit
 
         with open(project_cfg_path, "wb") as f:
             tomli_w.dump(project_cfg_dict, f)
