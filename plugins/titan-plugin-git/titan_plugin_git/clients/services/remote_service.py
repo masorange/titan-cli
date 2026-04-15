@@ -72,6 +72,24 @@ class RemoteService:
             return ClientError(error_message=str(e), error_code="PUSH_ERROR")
 
     @log_client_operation()
+    def push_tag(self, tag_name: str, remote: str = "origin") -> ClientResult[None]:
+        """
+        Push a specific tag to remote.
+
+        Args:
+            tag_name: Tag name to push
+            remote: Remote name
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            self.git.run_command(["git", "push", remote, tag_name])
+            return ClientSuccess(data=None, message=f"Pushed tag {tag_name} to {remote}")
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="PUSH_ERROR")
+
+    @log_client_operation()
     def pull(
         self, remote: str = "origin", branch: Optional[str] = None
     ) -> ClientResult[None]:
