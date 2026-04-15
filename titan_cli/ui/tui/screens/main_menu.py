@@ -14,7 +14,7 @@ from textual.containers import Container
 from titan_cli import __version__
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import StatusBarWidget
-from titan_cli.core.plugins.community import (
+from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
     PluginChannel,
     get_github_token,

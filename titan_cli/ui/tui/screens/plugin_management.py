@@ -31,7 +31,7 @@ from .base import BaseScreen
 from .plugin_config_wizard import PluginConfigWizardScreen
 from .install_plugin_screen import InstallPluginScreen
 from titan_cli.core.plugins.local_sources import get_local_plugin_validation_error
-from titan_cli.core.plugins.community import (
+from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
     PluginChannel,
     check_for_update,
@@ -780,7 +780,7 @@ class PluginManagementScreen(BaseScreen):
         )
 
         token = await asyncio.to_thread(get_github_token)
-        from titan_cli.core.plugins.community import detect_host, resolve_ref_to_commit_sha
+        from titan_cli.core.plugins.community_sources import detect_host, resolve_ref_to_commit_sha
         host = detect_host(record.repo_url)
         resolved_sha, sha_error = await asyncio.to_thread(
             resolve_ref_to_commit_sha, record.repo_url, latest, host, token

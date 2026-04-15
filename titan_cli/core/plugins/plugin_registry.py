@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from ..errors import PluginLoadError, PluginInitializationError
 from .plugin_base import TitanPlugin
-from .community import PluginChannel, get_github_token, parse_plugin_metadata
+from .community_sources import PluginChannel, get_github_token, parse_plugin_metadata
 from .runtime import PluginRuntimeManager
 from titan_cli.core.logging import get_logger
 

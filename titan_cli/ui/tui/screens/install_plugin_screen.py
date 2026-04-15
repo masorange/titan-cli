@@ -12,7 +12,7 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Input, LoadingIndicator, Static
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.plugins.community import (
+from titan_cli.core.plugins.community_sources import (
     build_raw_pyproject_url,
     detect_host,
     fetch_pyproject_toml,

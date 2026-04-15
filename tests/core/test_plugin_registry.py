@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.errors import PluginLoadError
 from titan_cli.core.plugins.plugin_base import TitanPlugin
-from titan_cli.core.plugins.community import PluginChannel
+from titan_cli.core.plugins.community_sources import PluginChannel
 from titan_cli.core.plugins.runtime import PluginRuntimePaths
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.secrets import SecretManager
