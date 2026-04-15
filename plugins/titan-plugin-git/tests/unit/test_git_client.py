@@ -321,3 +321,22 @@ class TestGitClientWorktreeDelegation:
 
         assert isinstance(result, ClientError)
         assert result.error_code == "WORKTREE_COMMIT_ERROR"
+
+
+@pytest.mark.unit
+class TestGitClientCommitQueryDelegation:
+    """Test that GitClient delegates commit query methods to CommitService"""
+
+    def test_get_commits_between_refs_delegates(self, mock_services):
+        """Test get_commits_between_refs delegates to CommitService"""
+        mock_services['commit'].get_commits_between_refs.return_value = ClientSuccess(
+            data=["feat: A", "fix: B"],
+            message="Found 2 commits"
+        )
+
+        client = GitClient()
+        result = client.get_commits_between_refs("0.4.0", "HEAD")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == ["feat: A", "fix: B"]
+        mock_services['commit'].get_commits_between_refs.assert_called_once_with("0.4.0", "HEAD")
