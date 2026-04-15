@@ -61,3 +61,15 @@ def test_plugin_management_detects_community_plugin_from_dev_path_only():
 
     assert screen._build_stable_record("sample") is None
     assert screen._is_community_plugin("sample") is True
+
+
+def test_plugin_management_remove_plugin_clears_project_and_global_source(mocker):
+    config = MagicMock()
+    screen = PluginManagementScreen(config)
+
+    remove_project = mocker.patch.object(screen, "_remove_plugin_from_project_config")
+
+    screen._remove_plugin_from_project("sample")
+
+    remove_project.assert_called_once_with("sample")
+    config.clear_global_plugin_source.assert_called_once_with("sample")
