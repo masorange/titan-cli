@@ -23,6 +23,9 @@ from ..models.review_models import (
 def classify_pr(manifest: ChangeManifest, comment_entries: int = 0, comment_threads: int = 0) -> PRClassification:
     total_lines = manifest.total_additions + manifest.total_deletions
     files_changed = len(manifest.files)
+    repeated_callsite_files = sum(1 for f in manifest.files if _candidate_group(f.path) == "repeated_callsite")
+    high_signal_files = sum(1 for f in manifest.files if _candidate_group(f.path) in {"central_behavior", "entrypoint"})
+    repetition_ratio = (repeated_callsite_files / files_changed) if files_changed else 0.0
 
     if files_changed <= 3 and total_lines <= 80:
         size_class = PRSizeClass.TINY
@@ -35,6 +38,18 @@ def classify_pr(manifest: ChangeManifest, comment_entries: int = 0, comment_thre
     else:
         size_class = PRSizeClass.HUGE
 
+    is_repetitive_migration = files_changed >= 12 and total_lines <= 700 and repetition_ratio >= 0.35
+    if size_class == PRSizeClass.HUGE and is_repetitive_migration:
+        size_class = PRSizeClass.LARGE
+
+    rationale_parts = [f"{files_changed} files", f"{total_lines} changed lines"]
+    if high_signal_files:
+        rationale_parts.append(f"{high_signal_files} high-signal files")
+    if repeated_callsite_files:
+        rationale_parts.append(f"{repeated_callsite_files} repeated call sites")
+    if is_repetitive_migration:
+        rationale_parts.append("repetitive migration pattern detected")
+
     return PRClassification(
         size_class=size_class,
         files_changed=files_changed,
@@ -45,6 +60,10 @@ def classify_pr(manifest: ChangeManifest, comment_entries: int = 0, comment_thre
         generated_files=sum(1 for f in manifest.files if f.is_generated),
         comment_threads=comment_threads,
         comment_entries=comment_entries,
+        high_signal_files=high_signal_files,
+        repeated_callsite_files=repeated_callsite_files,
+        is_repetitive_migration=is_repetitive_migration,
+        rationale=", ".join(rationale_parts),
     )
 
 
@@ -195,6 +214,7 @@ def select_review_strategy(classification: PRClassification) -> ReviewStrategy:
             max_comment_entries=8,
             batching_enabled=False,
             suspicious_empty_findings=False,
+            reason="small enough for direct findings without planning overhead",
         )
     if classification.size_class == PRSizeClass.SMALL:
         return ReviewStrategy(
@@ -205,6 +225,7 @@ def select_review_strategy(classification: PRClassification) -> ReviewStrategy:
             max_comment_entries=10,
             batching_enabled=False,
             suspicious_empty_findings=True,
+            reason="limited scope; direct findings remain affordable",
         )
     if classification.size_class == PRSizeClass.MEDIUM:
         return ReviewStrategy(
@@ -215,16 +236,22 @@ def select_review_strategy(classification: PRClassification) -> ReviewStrategy:
             max_comment_entries=10,
             batching_enabled=False,
             suspicious_empty_findings=True,
+            reason="moderate PR size benefits from a lightweight focus plan",
         )
     if classification.size_class == PRSizeClass.LARGE:
         return ReviewStrategy(
             strategy=ReviewStrategyType.BATCHED_FINDINGS,
             size_class=classification.size_class,
-            max_focus_files=10,
-            max_prompt_chars=24000,
+            max_focus_files=8 if classification.is_repetitive_migration else 10,
+            max_prompt_chars=18000 if classification.is_repetitive_migration else 24000,
             max_comment_entries=8,
             batching_enabled=True,
             suspicious_empty_findings=True,
+            reason=(
+                "repetitive migration pattern; prioritize shared helpers and representative call sites"
+                if classification.is_repetitive_migration
+                else "large PR requires batching to keep findings prompts bounded"
+            ),
         )
     return ReviewStrategy(
         strategy=ReviewStrategyType.BATCHED_FINDINGS,
@@ -234,6 +261,7 @@ def select_review_strategy(classification: PRClassification) -> ReviewStrategy:
         max_comment_entries=6,
         batching_enabled=True,
         suspicious_empty_findings=True,
+        reason="very large PR requires strict batching and narrow prompt budgets",
     )
 
 

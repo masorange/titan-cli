@@ -145,6 +145,26 @@ def _looks_like_contradicted_api_claim(finding, visible_content: str) -> bool:
     return contradicted
 
 
+def _show_review_plan_summary(ctx: WorkflowContext, plan) -> None:
+    """Render a concise review plan summary in the UI."""
+    if getattr(plan, "focus_files", None):
+        ctx.textual.dim_text("focus files:")
+        for file_plan in plan.focus_files:
+            ctx.textual.dim_text(
+                f"{file_plan.path} · {file_plan.priority.value} · {file_plan.read_mode.value}"
+            )
+
+    if getattr(plan, "review_axes", None):
+        ctx.textual.dim_text("review axes:")
+        for axis in plan.review_axes:
+            ctx.textual.dim_text(str(axis))
+
+    if getattr(plan, "extra_context_requests", None):
+        ctx.textual.dim_text("extra context:")
+        for request in plan.extra_context_requests:
+            ctx.textual.dim_text(f"{request.type} -> {request.for_path}")
+
+
 def _collapse_derived_findings(findings: list) -> tuple[list, int]:
     """Drop call-site findings that are derived from a stronger central finding."""
     central_findings = [finding for finding in findings if _is_central_path(finding.path)]
@@ -592,9 +612,10 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             case ClientError():
                 pass
 
-    total_comments = len(review_threads) + len(general_comments)
-    if total_comments:
-        ctx.textual.dim_text(f"{total_comments} existing comment(s)")
+    ctx.textual.dim_text(
+        f"{len(changed_file_paths)} files · {formatted_summary} · "
+        f"{len(review_threads)} review thread(s) · {len(general_comments)} general comment(s)"
+    )
 
     ctx.textual.end_step("success")
 
@@ -677,10 +698,27 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
     ctx.data["change_manifest"] = manifest
 
     test_count = sum(1 for f in manifest.files if f.is_test)
+    docs_count = sum(1 for f in manifest.files if f.is_docs)
+    config_count = sum(1 for f in manifest.files if f.is_config)
+    generated_count = sum(1 for f in manifest.files if f.is_generated)
+    lockfile_count = sum(1 for f in manifest.files if f.is_lockfile)
+    rename_only_count = sum(1 for f in manifest.files if f.is_rename_only)
     ctx.textual.success_text(
         f"✓ {len(manifest.files)} files analysed"
         + (f" ({test_count} test files)" if test_count else "")
         + f" · +{manifest.total_additions} -{manifest.total_deletions}"
+    )
+    ctx.textual.dim_text(
+        " · ".join(
+            [
+                f"tests: {test_count}",
+                f"docs: {docs_count}",
+                f"config: {config_count}",
+                f"generated: {generated_count}",
+                f"lockfiles: {lockfile_count}",
+                f"rename-only: {rename_only_count}",
+            ]
+        )
     )
     ctx.textual.end_step("success")
     return Success("Change manifest built", metadata={"change_manifest": manifest})
@@ -781,6 +819,13 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         f"✓ {classification.size_class.value} PR · {classification.files_changed} files · "
         f"{classification.total_lines_changed} changed lines"
     )
+    ctx.textual.dim_text(
+        f"high-signal files: {classification.high_signal_files} · "
+        f"repeated call sites: {classification.repeated_callsite_files}"
+        + (" · repetitive migration detected" if classification.is_repetitive_migration else "")
+    )
+    if classification.rationale:
+        ctx.textual.dim_text(classification.rationale)
     ctx.textual.end_step("success")
     return Success("PR classified", metadata={"pr_classification": classification})
 
@@ -810,6 +855,10 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         top_candidates=[candidate.path for candidate in candidates[:5]],
     )
     ctx.textual.success_text(f"✓ {len(candidates)} candidate file(s), {len(excluded)} excluded")
+    for candidate in candidates[:5]:
+        ctx.textual.dim_text(
+            f"{candidate.path} · {candidate.priority.value} · score {candidate.score}"
+        )
     ctx.textual.end_step("success")
     return Success(
         "Review candidates scored",
@@ -845,6 +894,8 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
     ctx.data["review_checklist"] = checklist
 
     ctx.textual.success_text(f"✓ {len(checklist)} checklist categories ready")
+    for item in checklist:
+        ctx.textual.dim_text(f"{item.id}")
     ctx.textual.end_step("success")
     return Success("Review checklist built", metadata={"review_checklist": checklist})
 
@@ -878,6 +929,13 @@ def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
         f"✓ {strategy.strategy.value} · focus {strategy.max_focus_files} · "
         f"prompt budget {strategy.max_prompt_chars} chars"
     )
+    ctx.textual.dim_text(
+        f"up to {strategy.max_focus_files} focus files per plan · "
+        f"{strategy.max_prompt_chars} chars per batch"
+        + (" · batching enabled" if strategy.batching_enabled else "")
+    )
+    if strategy.reason:
+        ctx.textual.dim_text(strategy.reason)
     ctx.textual.end_step("success")
     return Success("Review strategy selected", metadata={"review_strategy": strategy})
 
@@ -943,6 +1001,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
             f"✓ Deterministic plan: {len(fallback.focus_files)} focus file(s) · "
             f"{len(fallback.excluded_files)} excluded"
         )
+        _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
         return Success("Deterministic review plan built", metadata={"review_plan": fallback})
 
@@ -953,6 +1012,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["review_plan"] = fallback
         ctx.textual.dim_text(f"Default plan: {len(fallback.focus_files)} focus files")
+        _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
         return Success("Default review plan used (no CLI available)", metadata={"review_plan": fallback})
 
@@ -997,6 +1057,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.dim_text(response.stderr[:200])
         fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["review_plan"] = fallback
+        _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
         return Success("Default review plan used (CLI error)", metadata={"review_plan": fallback})
 
@@ -1016,6 +1077,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
         fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["review_plan"] = fallback
+        _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
         return Success("Default review plan used (parse error)", metadata={"review_plan": fallback})
 
@@ -1025,6 +1087,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         f"{len(plan.review_axes)} axes · "
         f"{len(plan.extra_context_requests)} extra context request(s)"
     )
+    _show_review_plan_summary(ctx, plan)
     ctx.textual.end_step("success")
     return Success("Review plan built", metadata={"review_plan": plan})
 
@@ -1078,11 +1141,13 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         corrected = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["validated_review_plan"] = corrected
         ctx.textual.warning_text("Plan corrected: using conservative fallback")
+        _show_review_plan_summary(ctx, corrected)
         ctx.textual.end_step("success")
         return Success("Review plan corrected (validation issues)", metadata={"validated_review_plan": corrected})
 
     ctx.data["validated_review_plan"] = plan
     ctx.textual.success_text("✓ Plan validated")
+    _show_review_plan_summary(ctx, plan)
     ctx.textual.end_step("success")
     return Success("Review plan validated", metadata={"validated_review_plan": plan})
 
@@ -1163,6 +1228,11 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.success_text(
         f"✓ Context: {files_count} focus file(s) in {batch_count} batch(es)"
         + (f" · {related_count} related file(s)" if related_count else "")
+    )
+    trimmed_count = sum(len(batch.excluded_files) for batch in package.batches)
+    ctx.textual.dim_text(
+        f"comments in context: {sum(len(batch.comment_context) for batch in package.batches)} · "
+        f"trimmed by budget: {trimmed_count}"
     )
     ctx.textual.end_step("success")
     return Success(

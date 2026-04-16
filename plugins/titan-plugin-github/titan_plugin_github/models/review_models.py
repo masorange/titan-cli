@@ -167,6 +167,10 @@ class PRClassification(BaseModel):
     generated_files: int = 0
     comment_threads: int = 0
     comment_entries: int = 0
+    high_signal_files: int = 0
+    repeated_callsite_files: int = 0
+    is_repetitive_migration: bool = False
+    rationale: str = ""
 
 
 class ScoredReviewCandidate(BaseModel):
@@ -189,6 +193,7 @@ class ReviewStrategy(BaseModel):
     max_comment_entries: int
     batching_enabled: bool = False
     suspicious_empty_findings: bool = False
+    reason: str = ""
 
 
 class Finding(BaseModel):

@@ -40,6 +40,33 @@ def test_classify_pr_large_thresholds():
     assert classification.comment_threads == 4
 
 
+def test_classify_pr_repetitive_migration_downgrades_from_huge():
+    files = [
+        ChangedFileEntry(
+            path=f"app/src/main/kotlin/com/foo/ui/screens/Screen{idx}.kt",
+            status="modified",
+            additions=4,
+            deletions=3,
+        )
+        for idx in range(42)
+    ]
+    files.append(
+        ChangedFileEntry(
+            path="app/src/main/kotlin/com/foo/utils/CustomTabsUtils.kt",
+            status="modified",
+            additions=30,
+            deletions=10,
+        )
+    )
+    manifest = make_manifest(files)
+
+    classification = classify_pr(manifest)
+
+    assert classification.size_class == PRSizeClass.LARGE
+    assert classification.is_repetitive_migration is True
+    assert classification.repeated_callsite_files >= 40
+
+
 def test_score_review_candidates_excludes_low_value_files():
     manifest = make_manifest(
         [
