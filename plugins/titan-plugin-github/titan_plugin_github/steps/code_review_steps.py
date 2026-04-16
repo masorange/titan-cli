@@ -13,7 +13,7 @@ from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
-from ..models.review_enums import ReviewActionType, ThreadDecisionType
+from ..models.review_enums import ReviewActionType, ReviewStrategyType, ThreadDecisionType
 from ..models.review_models import ReviewActionProposal
 from ..models.view import UICommentThread
 from ..operations.code_review_operations import (
@@ -611,15 +611,23 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     threads = ctx.get("review_threads", [])
     general = ctx.get("review_general_comments", [])
 
+    from ..operations.comment_context_operations import build_comment_context
     from ..operations.manifest_operations import build_existing_comments_index as _build
 
     try:
         index = _build(threads, general)
+        comment_context = build_comment_context(
+            threads,
+            general,
+            max_entries=12,
+            max_chars=2400,
+        )
     except Exception as e:
         ctx.textual.end_step("error")
         return Error(f"Failed to build comments index: {e}")
 
     ctx.data["existing_comments_index"] = index
+    ctx.data["comment_review_context"] = comment_context
 
     resolved_count = sum(1 for e in index if e.is_resolved)
     msg = f"✓ {len(index)} existing comment(s) indexed"
@@ -627,7 +635,88 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
         msg += f" ({resolved_count} resolved)"
     ctx.textual.success_text(msg)
     ctx.textual.end_step("success")
-    return Success("Comments index built", metadata={"existing_comments_index": index})
+    return Success(
+        "Comments index built",
+        metadata={
+            "existing_comments_index": index,
+            "comment_review_context": comment_context,
+            "comment_review_context_count": len(comment_context),
+        },
+    )
+
+
+def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
+    """Classify PR size and composition before planning."""
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Classify PR")
+
+    manifest = ctx.get("change_manifest")
+    comments_index = ctx.get("existing_comments_index", [])
+    review_threads = ctx.get("review_threads", [])
+
+    if not manifest:
+        ctx.textual.end_step("error")
+        return Error("No change manifest in context")
+
+    from ..operations.review_strategy_operations import classify_pr as _classify
+
+    classification = _classify(
+        manifest,
+        comment_entries=len(comments_index),
+        comment_threads=len(review_threads),
+    )
+    ctx.data["pr_classification"] = classification
+
+    logger.info(
+        "pr_classified",
+        size_class=classification.size_class,
+        files_changed=classification.files_changed,
+        total_lines_changed=classification.total_lines_changed,
+        comment_entries=classification.comment_entries,
+    )
+    ctx.textual.success_text(
+        f"✓ {classification.size_class.value} PR · {classification.files_changed} files · "
+        f"{classification.total_lines_changed} changed lines"
+    )
+    ctx.textual.end_step("success")
+    return Success("PR classified", metadata={"pr_classification": classification})
+
+
+def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
+    """Rank changed files and precompute excluded files."""
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Score Review Candidates")
+
+    manifest = ctx.get("change_manifest")
+    if not manifest:
+        ctx.textual.end_step("error")
+        return Error("No change manifest in context")
+
+    from ..operations.review_strategy_operations import score_review_candidates as _score
+
+    candidates, excluded = _score(manifest)
+    ctx.data["review_candidates"] = candidates
+    ctx.data["excluded_review_files"] = excluded
+
+    logger.info(
+        "review_candidates_scored",
+        candidates=len(candidates),
+        excluded=len(excluded),
+        top_candidates=[candidate.path for candidate in candidates[:5]],
+    )
+    ctx.textual.success_text(f"✓ {len(candidates)} candidate file(s), {len(excluded)} excluded")
+    ctx.textual.end_step("success")
+    return Success(
+        "Review candidates scored",
+        metadata={
+            "review_candidates": candidates,
+            "excluded_review_files": excluded,
+        },
+    )
 
 
 def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
@@ -657,6 +746,39 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.success_text(f"✓ {len(checklist)} checklist categories ready")
     ctx.textual.end_step("success")
     return Success("Review checklist built", metadata={"review_checklist": checklist})
+
+
+def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
+    """Choose review strategy based on deterministic PR classification."""
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Select Review Strategy")
+
+    classification = ctx.get("pr_classification")
+    if not classification:
+        ctx.textual.end_step("error")
+        return Error("No pr_classification in context")
+
+    from ..operations.review_strategy_operations import select_review_strategy as _select_strategy
+
+    strategy = _select_strategy(classification)
+    ctx.data["review_strategy"] = strategy
+
+    logger.info(
+        "review_strategy_selected",
+        strategy=strategy.strategy,
+        size_class=strategy.size_class,
+        max_focus_files=strategy.max_focus_files,
+        max_prompt_chars=strategy.max_prompt_chars,
+        max_comment_entries=strategy.max_comment_entries,
+    )
+    ctx.textual.success_text(
+        f"✓ {strategy.strategy.value} · focus {strategy.max_focus_files} · "
+        f"prompt budget {strategy.max_prompt_chars} chars"
+    )
+    ctx.textual.end_step("success")
+    return Success("Review strategy selected", metadata={"review_strategy": strategy})
 
 
 # ============================================================================
@@ -693,14 +815,17 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("AI Review Plan")
 
     manifest = ctx.get("change_manifest")
-    comments_index = ctx.get("existing_comments_index", [])
+    comments_context = ctx.get("comment_review_context", [])
     checklist = ctx.get("review_checklist", [])
+    candidates = ctx.get("review_candidates", [])
+    excluded_files = ctx.get("excluded_review_files", [])
+    strategy = ctx.get("review_strategy")
     cli_preference = ctx.data.get("cli_preference", "auto")
     project_root = ctx.data.get("project_root")
 
-    if not manifest:
+    if not manifest or not strategy:
         ctx.textual.end_step("error")
-        return Error("No change manifest in context (run build_change_manifest first)")
+        return Error("Missing change_manifest or review_strategy in context")
 
     from ..operations.plan_prompt_operations import (
         build_review_plan_prompt,
@@ -710,45 +835,66 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     from pydantic import ValidationError
     import json
 
+    if strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS:
+        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
+        ctx.data["review_plan"] = fallback
+        ctx.textual.success_text(
+            f"✓ Deterministic plan: {len(fallback.focus_files)} focus file(s) · "
+            f"{len(fallback.excluded_files)} excluded"
+        )
+        ctx.textual.end_step("success")
+        return Success("Deterministic review plan built", metadata={"review_plan": fallback})
+
     adapter = _resolve_headless_adapter(cli_preference)
 
     if not adapter:
         ctx.textual.warning_text("No headless CLI available — using default review plan")
-        fallback = build_default_review_plan(manifest, checklist)
+        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["review_plan"] = fallback
-        ctx.textual.dim_text(f"Default plan: {len(fallback.file_plan)} files, {len(fallback.applicable_checklist)} checklist items")
+        ctx.textual.dim_text(f"Default plan: {len(fallback.focus_files)} focus files")
         ctx.textual.end_step("success")
         return Success("Default review plan used (no CLI available)", metadata={"review_plan": fallback})
 
-    prompt = build_review_plan_prompt(manifest, comments_index, checklist)
+    prompt = build_review_plan_prompt(
+        manifest,
+        comments_context,
+        checklist,
+        candidates,
+        strategy,
+        excluded_files,
+    )
 
     cli_display = adapter.cli_name.value.capitalize()
-    # _log_ai_prompt(
-    #     step_name="ai_review_plan",
-    #     cli_name=adapter.cli_name.value,
-    #     prompt=prompt,
-    #     manifest_files=len(manifest.files),
-    #     existing_comments=len(comments_index),
-    #     checklist_items=len(checklist),
-    # )
+    _log_ai_prompt(
+        step_name="ai_review_plan",
+        cli_name=adapter.cli_name.value,
+        prompt=prompt,
+        manifest_files=len(manifest.files),
+        comment_entries=len(comments_context),
+        checklist_items=len(checklist),
+        candidate_files=len(candidates),
+        strategy=str(strategy.strategy),
+    )
     with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
         response = adapter.execute(prompt, cwd=project_root, timeout=240)
-    # _log_ai_response(
-    #     step_name="ai_review_plan",
-    #     cli_name=adapter.cli_name.value,
-    #     stdout=response.stdout,
-    #     stderr=response.stderr,
-    #     exit_code=response.exit_code,
-    #     manifest_files=len(manifest.files),
-    #     existing_comments=len(comments_index),
-    #     checklist_items=len(checklist),
-    # )
+    _log_ai_response(
+        step_name="ai_review_plan",
+        cli_name=adapter.cli_name.value,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+        manifest_files=len(manifest.files),
+        comment_entries=len(comments_context),
+        checklist_items=len(checklist),
+        candidate_files=len(candidates),
+        strategy=str(strategy.strategy),
+    )
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — using default plan")
         if response.stderr:
             ctx.textual.dim_text(response.stderr[:200])
-        fallback = build_default_review_plan(manifest, checklist)
+        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["review_plan"] = fallback
         ctx.textual.end_step("success")
         return Success("Default review plan used (CLI error)", metadata={"review_plan": fallback})
@@ -767,15 +913,15 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         plan = ReviewPlan.model_validate_json(text[start:end])
     except (json.JSONDecodeError, ValidationError, ValueError) as e:
         ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
-        fallback = build_default_review_plan(manifest, checklist)
+        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["review_plan"] = fallback
         ctx.textual.end_step("success")
         return Success("Default review plan used (parse error)", metadata={"review_plan": fallback})
 
     ctx.data["review_plan"] = plan
     ctx.textual.success_text(
-        f"✓ Plan: {len(plan.file_plan)} files · "
-        f"{len(plan.applicable_checklist)} categories · "
+        f"✓ Plan: {len(plan.focus_files)} focus file(s) · "
+        f"{len(plan.review_axes)} axes · "
         f"{len(plan.extra_context_requests)} extra context request(s)"
     )
     ctx.textual.end_step("success")
@@ -814,6 +960,7 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Missing review_plan or change_manifest in context")
 
     from ..models.validators import ReviewPlanValidator
+    from ..operations.plan_prompt_operations import build_default_review_plan
 
     offered_ids = frozenset(item.id for item in checklist)
     validator = ReviewPlanValidator(manifest, offered_ids)
@@ -824,8 +971,10 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         for err in errors:
             ctx.textual.warning_text(f"  ⚠ {err}")
 
-        from ..operations.plan_prompt_operations import build_default_review_plan
-        corrected = build_default_review_plan(manifest, checklist)
+        candidates = ctx.get("review_candidates", [])
+        excluded_files = ctx.get("excluded_review_files", [])
+        strategy = ctx.get("review_strategy")
+        corrected = build_default_review_plan(candidates, excluded_files, checklist, strategy)
         ctx.data["validated_review_plan"] = corrected
         ctx.textual.warning_text("Plan corrected: using conservative fallback")
         ctx.textual.end_step("success")
@@ -869,14 +1018,15 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     plan = ctx.get("validated_review_plan")
     manifest = ctx.get("change_manifest")
     diff = ctx.get("review_diff", "")
-    comments_index = ctx.get("existing_comments_index", [])
+    comment_context = ctx.get("comment_review_context", [])
     checklist = ctx.get("review_checklist", [])
+    strategy = ctx.get("review_strategy")
     worktree_path = ctx.data.get("worktree_path")
     project_root = worktree_path or ctx.data.get("project_root")
 
-    if not plan or not manifest:
+    if not plan or not manifest or not strategy:
         ctx.textual.end_step("error")
-        return Error("Missing validated_review_plan or change_manifest in context")
+        return Error("Missing validated_review_plan, change_manifest or review_strategy in context")
 
     if not diff:
         ctx.textual.end_step("error")
@@ -894,7 +1044,8 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
                 diff=diff,
                 manifest=manifest,
                 checklist=checklist,
-                comments_index=comments_index,
+                comment_context=comment_context,
+                strategy=strategy,
                 cwd=project_root,
             )
     except Exception as e:
@@ -902,18 +1053,25 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         return Error(f"Failed to resolve review context: {e}")
 
     ctx.data["review_context_package"] = package
+    ctx.data["review_context_batches"] = package.batches
 
-    full_count = sum(1 for e in package.files_context.values() if e.full_content)
-    hunk_count = len(package.files_context) - full_count
-    related_count = len(package.related_files)
+    batch_count = len(package.batches)
+    files_count = sum(len(batch.files_context) for batch in package.batches)
+    related_count = sum(len(batch.related_files) for batch in package.batches)
 
     ctx.textual.success_text(
-        f"✓ Context: {full_count} full file(s), {hunk_count} hunk-based · "
-        f"{len(package.checklist_applicable)} checklist items"
+        f"✓ Context: {files_count} focus file(s) in {batch_count} batch(es)"
         + (f" · {related_count} related file(s)" if related_count else "")
     )
     ctx.textual.end_step("success")
-    return Success("Review context resolved", metadata={"review_context_package": package})
+    return Success(
+        "Review context resolved",
+        metadata={
+            "review_context_package": package,
+            "review_context_batches": package.batches,
+            "review_context_batch_count": batch_count,
+        },
+    )
 
 
 # ============================================================================
@@ -946,13 +1104,14 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("AI Review Findings")
 
-    package = ctx.get("review_context_package")
+    batches = ctx.get("review_context_batches")
+    strategy = ctx.get("review_strategy")
     cli_preference = ctx.data.get("cli_preference", "auto")
-    project_root = ctx.data.get("project_root")
+    project_root = ctx.data.get("worktree_path") or ctx.data.get("project_root")
 
-    if not package:
+    if not batches:
         ctx.textual.end_step("error")
-        return Error("No review_context_package in context (run resolve_review_context first)")
+        return Error("No review_context_batches in context (run resolve_review_context first)")
 
     from ..operations.findings_operations import build_review_findings_prompt, build_default_findings
     import json
@@ -965,63 +1124,68 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("success")
         return Success("No findings (no CLI available)", metadata={"raw_findings": []})
 
-    prompt = build_review_findings_prompt(package)
-
     cli_display = adapter.cli_name.value.capitalize()
-    file_count = len(package.files_context)
-    # _log_ai_prompt(
-    #     step_name="ai_review_findings",
-    #     cli_name=adapter.cli_name.value,
-    #     prompt=prompt,
-    #     files_context=file_count,
-    #     related_files=len(package.related_files),
-    #     checklist_items=len(package.checklist_applicable),
-    #     existing_comments=len(package.existing_comments_compact),
-    # )
-    with ctx.textual.loading(f"Asking {cli_display} to review {file_count} file(s)…"):
-        response = adapter.execute(prompt, cwd=project_root, timeout=300)
-    # _log_ai_response(
-    #     step_name="ai_review_findings",
-    #     cli_name=adapter.cli_name.value,
-    #     stdout=response.stdout,
-    #     stderr=response.stderr,
-    #     exit_code=response.exit_code,
-    #     files_context=file_count,
-    #     related_files=len(package.related_files),
-    #     checklist_items=len(package.checklist_applicable),
-    #     existing_comments=len(package.existing_comments_compact),
-    # )
+    aggregated_raw = []
 
-    if not response.succeeded:
-        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no findings")
-        if response.stderr:
-            ctx.textual.dim_text(response.stderr[:200])
-        ctx.data["raw_findings"] = build_default_findings()
-        ctx.textual.end_step("success")
-        return Success("No findings (CLI error)", metadata={"raw_findings": []})
+    for batch in batches:
+        prompt = build_review_findings_prompt(batch)
+        _log_ai_prompt(
+            step_name="ai_review_findings",
+            cli_name=adapter.cli_name.value,
+            prompt=prompt,
+            batch_id=batch.batch_id,
+            files_context=len(batch.files_context),
+            related_files=len(batch.related_files),
+            checklist_items=len(batch.checklist_applicable),
+            comment_entries=len(batch.comment_context),
+            strategy=str(strategy.strategy) if strategy else None,
+        )
+        with ctx.textual.loading(f"Asking {cli_display} to review {len(batch.files_context)} file(s) in {batch.batch_id}…"):
+            response = adapter.execute(prompt, cwd=project_root, timeout=300)
+        _log_ai_response(
+            step_name="ai_review_findings",
+            cli_name=adapter.cli_name.value,
+            stdout=response.stdout,
+            stderr=response.stderr,
+            exit_code=response.exit_code,
+            batch_id=batch.batch_id,
+            files_context=len(batch.files_context),
+            related_files=len(batch.related_files),
+            checklist_items=len(batch.checklist_applicable),
+            comment_entries=len(batch.comment_context),
+            strategy=str(strategy.strategy) if strategy else None,
+        )
 
-    # Parse JSON array response
-    try:
-        text = response.stdout.strip()
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-        start = text.find("[")
-        end = text.rfind("]") + 1
-        if start == -1 or end == 0:
-            raise ValueError("No JSON array found in response")
-        raw = json.loads(text[start:end])
-    except (json.JSONDecodeError, ValueError) as e:
-        ctx.textual.warning_text(f"Findings parsing failed ({e}) — no findings")
-        ctx.data["raw_findings"] = build_default_findings()
-        ctx.textual.end_step("success")
-        return Success("No findings (parse error)", metadata={"raw_findings": []})
+        if not response.succeeded:
+            logger.info("findings_batch_failed", batch_id=batch.batch_id, exit_code=response.exit_code)
+            continue
 
-    ctx.data["raw_findings"] = raw
-    ctx.textual.success_text(f"✓ AI returned {len(raw)} raw finding(s)")
+        try:
+            text = response.stdout.strip()
+            if text.startswith("```"):
+                lines = text.split("\n")
+                text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+            start = text.find("[")
+            end = text.rfind("]") + 1
+            if start == -1 or end == 0:
+                raise ValueError("No JSON array found in response")
+            raw = json.loads(text[start:end])
+            if isinstance(raw, list):
+                aggregated_raw.extend(raw)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.info("findings_batch_parse_failed", batch_id=batch.batch_id, error=str(e))
+
+    if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
+        candidates = ctx.get("review_candidates", [])
+        already_reviewed = {fp.path for batch in batches for fp in batch.files_context.values()}
+        borderline = [candidate for candidate in candidates if candidate.path not in already_reviewed][:2]
+        if borderline:
+            ctx.textual.dim_text("No findings from main batches; borderline files remain unreviewed.")
+
+    ctx.data["raw_findings"] = aggregated_raw or build_default_findings()
+    ctx.textual.success_text(f"✓ AI returned {len(ctx.data['raw_findings'])} raw finding(s)")
     ctx.textual.end_step("success")
-    return Success("AI findings retrieved", metadata={"raw_findings_count": len(raw)})
+    return Success("AI findings retrieved", metadata={"raw_findings_count": len(ctx.data["raw_findings"])})
 
 
 def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
@@ -1125,14 +1289,17 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     deduped: list = []
     removed = 0
+    seen_keys: set[tuple[str, int | None, str]] = set()
 
     for finding in findings:
         is_dup = any(is_duplicate(finding, ex) for ex in existing_index)
-        if is_dup:
+        key = (finding.path, finding.line, finding.title.lower())
+        if is_dup or key in seen_keys:
             removed += 1
             logger.debug("Deduplicated finding: %s @ %s:%s", finding.title, finding.path, finding.line)
         else:
             deduped.append(finding)
+            seen_keys.add(key)
 
     ctx.data["deduped_findings"] = deduped
 

@@ -293,3 +293,41 @@ class TestMultiFileDiff:
         bar_hunks = mgr.get_hunks("src/bar.py")
         assert len(foo_hunks) == 1
         assert len(bar_hunks) == 2
+
+
+class TestFocusedReviewHelpers:
+    def test_get_hunk_texts_returns_raw_hunks(self):
+        mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
+
+        hunks = mgr.get_hunk_texts("src/foo.py")
+
+        assert len(hunks) == 1
+        assert hunks[0].startswith("@@")
+
+    def test_build_expanded_hunks_includes_surrounding_context(self):
+        mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
+        file_content = "\n".join(
+            [
+                "line 1",
+                "line 2",
+                "line 3",
+                "line 4",
+                "line 5",
+                "line 6",
+                "line 7",
+                "line 8",
+                "line 9",
+                "def hello():",
+                '    print("hello")',
+                '    print("world")',
+                "    return True",
+                "",
+                "def bye():",
+            ]
+        )
+
+        expanded = mgr.build_expanded_hunks("src/foo.py", file_content, extra_lines=2)
+
+        assert len(expanded) == 1
+        assert "surrounding context" in expanded[0]
+        assert 'print("world")' in expanded[0]

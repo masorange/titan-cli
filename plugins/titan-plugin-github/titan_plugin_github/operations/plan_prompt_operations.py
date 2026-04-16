@@ -1,234 +1,195 @@
-"""
-Operations for building AI prompts for review planning.
-
-Pure functions — no UI, no side effects. All prompt templates
-and fallback heuristics are defined here for independent testing.
-"""
+"""Operations for building AI prompts for focused review planning."""
 
 import json
-from typing import Optional
 
-from ..models.review_enums import (
-    ChecklistCategory,
-    FileChangeStatus,
-    FileReadMode,
-    FileReviewPriority,
-)
 from ..models.review_models import (
     ChangeManifest,
-    ExistingCommentIndexEntry,
-    FileReviewPlan,
+    CommentContextEntry,
+    ExcludedFileEntry,
     ReviewChecklistItem,
     ReviewPlan,
+    ReviewStrategy,
+    ScoredReviewCandidate,
 )
+from .review_strategy_operations import build_deterministic_review_plan
 
 
 def build_review_plan_prompt(
     manifest: ChangeManifest,
-    comments_index: list[ExistingCommentIndexEntry],
+    comments: list[CommentContextEntry],
     checklist: list[ReviewChecklistItem],
+    candidates: list[ScoredReviewCandidate],
+    strategy: ReviewStrategy,
+    excluded_files: list[ExcludedFileEntry],
 ) -> str:
-    """
-    Build the prompt for the first AI call: decide what to read.
-
-    The prompt is CLI-agnostic. The instruction to use available project
-    skills is included as a generic hint — each CLI knows where its own
-    skills/guidelines live (Claude Code reads .claude/, Gemini uses
-    GEMINI.md, Codex uses AGENTS.md).
-
-    Args:
-        manifest: Cheap PR context (files, stats, metadata)
-        comments_index: Existing comments for deduplication awareness
-        checklist: Full review checklist offered to AI
-
-    Returns:
-        Formatted prompt string ready to send to a headless CLI adapter
-    """
     manifest_json = _manifest_to_json(manifest)
+    comments_json = _comments_to_json(comments)
     checklist_json = _checklist_to_json(checklist)
-    comments_json = _comments_to_json(comments_index)
-
+    candidates_json = _candidates_to_json(candidates[: strategy.max_focus_files + 4])
+    excluded_json = _excluded_to_json(excluded_files[:10])
     schema = _review_plan_schema()
 
-    return f"""You are performing the first pass of a two-phase code review for a pull request.
+    return f"""You are planning a focused pull request review.
 
-Your task: analyze the PR metadata and decide WHICH files deserve careful reading and WHICH review categories apply. You are NOT reviewing the code yet — only planning the review.
+Your job is NOT to review the code yet. Your job is to decide which changed files deserve deep review, which review axes matter, and what small amount of extra context is justified.
+
+Use the candidate ranking as your starting point. Do not expand the focus unnecessarily.
 
 ## PR Manifest
 {manifest_json}
 
-## Review Checklist (select which apply)
-{checklist_json}
-
-## Existing Comments (avoid duplicates in your suggestions later)
+## Existing Comment Context
 {comments_json}
 
-## Project Skills
-Use any project-specific skills, guidelines, or tools available in your context if they're relevant to this analysis.
+## Ranked Candidate Files
+{candidates_json}
 
-## Instructions
+## Already Deprioritized Files
+{excluded_json}
 
-Respond ONLY with valid JSON matching this exact schema:
+## Review Checklist
+{checklist_json}
+
+## Execution Constraints
+- Focus at most {strategy.max_focus_files} files
+- Prefer expanded_hunks over full_file
+- Request extra context only when truly needed
+- If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
+
+Respond ONLY with valid JSON matching this schema:
 {schema}
 
-Rules for applicable_checklist:
-- Select ONLY categories relevant to what this PR actually changes
-- Do not select categories that don't apply (e.g. no "security" for a pure docs PR)
+Rules:
+- Select only files that are likely to contain correctness, validation, API, or error-handling issues
+- Keep low-value files excluded unless there is a clear reason to bring one back
+- review_axes should be a small subset of checklist categories that really apply
+- excluded_files should explain what you are intentionally not reviewing deeply
+- Return only JSON, no markdown fences"""
 
-Rules for file_plan:
-- Cover every changed file listed in the manifest
-- Use "hunks_only" for simple/mechanical changes
-- Use "expanded_hunks" for complex logic changes (needs surrounding context)
-- Use "full_file" ONLY for new files under 300 lines or critical parsers/adapters
-- Assign priority based on how likely this file has bugs worth catching
 
-Rules for extra_context_requests:
-- Maximum 3 requests
-- Only request if you genuinely need it to evaluate correctness
-- Use "related_tests" for the test file of a module
-- Use "related_context" for a dependency/parent module
-
-Return ONLY the JSON object. No explanation, no markdown fences."""
+def build_default_review_plan(
+    candidates: list[ScoredReviewCandidate],
+    excluded_files: list[ExcludedFileEntry],
+    checklist: list[ReviewChecklistItem],
+    strategy: ReviewStrategy,
+) -> ReviewPlan:
+    return build_deterministic_review_plan(candidates, excluded_files, checklist, strategy)
 
 
 def _manifest_to_json(manifest: ChangeManifest) -> str:
-    data = {
-        "pr": {
-            "number": manifest.pr.number,
-            "title": manifest.pr.title,
-            "author": manifest.pr.author,
-            "base": manifest.pr.base,
-            "head": manifest.pr.head,
-            "description": manifest.pr.description[:500] if manifest.pr.description else "",
-        },
-        "total_additions": manifest.total_additions,
-        "total_deletions": manifest.total_deletions,
-        "files": [
-            {
-                "path": f.path,
-                "status": f.status,
-                "additions": f.additions,
-                "deletions": f.deletions,
-                "is_test": f.is_test,
-            }
-            for f in manifest.files
-        ],
-    }
-    return json.dumps(data, indent=2)
-
-
-def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
-    data = [
-        {
-            "id": item.id,
-            "name": item.name,
-            "description": item.description,
-        }
-        for item in checklist
-    ]
-    return json.dumps(data, indent=2)
-
-
-def _comments_to_json(comments: list[ExistingCommentIndexEntry]) -> str:
-    if not comments:
-        return "[]"
-    data = [
-        {
-            "path": c.path,
-            "line": c.line,
-            "category": c.category,
-            "title": c.title,
-            "is_resolved": c.is_resolved,
-        }
-        for c in comments
-    ]
-    return json.dumps(data, indent=2)
-
-
-def _review_plan_schema() -> str:
     return json.dumps(
         {
-            "applicable_checklist": ["<checklist_id>", "..."],
-            "file_plan": [
+            "pr": {
+                "number": manifest.pr.number,
+                "title": manifest.pr.title,
+                "base": manifest.pr.base,
+                "head": manifest.pr.head,
+                "author": manifest.pr.author,
+                "description": manifest.pr.description[:300],
+            },
+            "files_changed": len(manifest.files),
+            "total_additions": manifest.total_additions,
+            "total_deletions": manifest.total_deletions,
+            "files": [
                 {
-                    "path": "<file_path>",
-                    "priority": "<high|medium|low>",
-                    "read_mode": "<hunks_only|expanded_hunks|full_file>",
-                    "reasons": ["<why this priority and mode>"],
+                    "path": f.path,
+                    "status": f.status,
+                    "additions": f.additions,
+                    "deletions": f.deletions,
+                    "is_test": f.is_test,
+                    "is_docs": f.is_docs,
+                    "is_generated": f.is_generated,
+                    "is_config": f.is_config,
+                    "is_lockfile": f.is_lockfile,
+                    "is_rename_only": f.is_rename_only,
                 }
-            ],
-            "extra_context_requests": [
-                {
-                    "type": "<related_tests|related_context>",
-                    "for_path": "<which file this supports>",
-                    "reason": "<why needed>",
-                }
+                for f in manifest.files
             ],
         },
         indent=2,
     )
 
 
-def build_default_review_plan(
-    manifest: ChangeManifest,
-    checklist: Optional[list[ReviewChecklistItem]] = None,
-) -> ReviewPlan:
-    """
-    Build a conservative ReviewPlan without AI.
+def _comments_to_json(comments: list[CommentContextEntry]) -> str:
+    return json.dumps(
+        [
+            {
+                "kind": entry.kind,
+                "path": entry.path,
+                "line": entry.line,
+                "category": entry.category,
+                "title": entry.title,
+                "summary": entry.summary,
+                "is_resolved": entry.is_resolved,
+            }
+            for entry in comments
+        ],
+        indent=2,
+    )
 
-    Used as fallback when the AI call fails or produces unparseable output.
-    Heuristics:
-    - New files < 300 lines → full_file
-    - Large changes (>50 lines) → expanded_hunks, high priority
-    - Small changes → hunks_only, medium or low priority
-    - Test files → low priority
-    - All checklist items apply by default (conservative)
 
-    Args:
-        manifest: PR change manifest
-        checklist: Review checklist (if None, all categories apply)
+def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
+    return json.dumps(
+        [
+            {"id": item.id, "name": item.name, "description": item.description}
+            for item in checklist
+        ],
+        indent=2,
+    )
 
-    Returns:
-        Conservative ReviewPlan that covers everything
-    """
-    file_plans: list[FileReviewPlan] = []
 
-    for f in manifest.files:
-        total_changes = f.additions + f.deletions
+def _candidates_to_json(candidates: list[ScoredReviewCandidate]) -> str:
+    return json.dumps(
+        [
+            {
+                "path": item.path,
+                "score": item.score,
+                "priority": item.priority,
+                "suggested_read_mode": item.suggested_read_mode,
+                "reasons": item.reasons,
+            }
+            for item in candidates
+        ],
+        indent=2,
+    )
 
-        if f.is_test:
-            priority = FileReviewPriority.LOW
-            read_mode = FileReadMode.HUNKS_ONLY
-        elif f.status == FileChangeStatus.ADDED and f.size_lines < 300:
-            priority = FileReviewPriority.HIGH
-            read_mode = FileReadMode.FULL_FILE
-        elif total_changes > 50:
-            priority = FileReviewPriority.HIGH
-            read_mode = FileReadMode.EXPANDED_HUNKS
-        elif total_changes > 10:
-            priority = FileReviewPriority.MEDIUM
-            read_mode = FileReadMode.HUNKS_ONLY
-        else:
-            priority = FileReviewPriority.LOW
-            read_mode = FileReadMode.HUNKS_ONLY
 
-        file_plans.append(
-            FileReviewPlan(
-                path=f.path,
-                priority=priority,
-                read_mode=read_mode,
-                reasons=["Fallback heuristic: AI plan parsing failed"],
-            )
-        )
+def _excluded_to_json(excluded_files: list[ExcludedFileEntry]) -> str:
+    return json.dumps(
+        [
+            {"path": item.path, "reason": item.reason, "detail": item.detail}
+            for item in excluded_files
+        ],
+        indent=2,
+    )
 
-    # Default: all checklist categories apply
-    if checklist:
-        applicable = [item.id for item in checklist]
-    else:
-        applicable = list(ChecklistCategory)
 
-    return ReviewPlan(
-        applicable_checklist=applicable,
-        file_plan=file_plans,
-        extra_context_requests=[],
+def _review_plan_schema() -> str:
+    return json.dumps(
+        {
+            "focus_files": [
+                {
+                    "path": "<file_path>",
+                    "priority": "<high|medium|low>",
+                    "read_mode": "<hunks_only|expanded_hunks|full_file>",
+                    "reasons": ["<why this file matters>"],
+                }
+            ],
+            "review_axes": ["<functional_correctness|error_handling|...>"],
+            "extra_context_requests": [
+                {
+                    "type": "<related_tests|related_context>",
+                    "for_path": "<file_path>",
+                    "reason": "<why needed>",
+                }
+            ],
+            "excluded_files": [
+                {
+                    "path": "<file_path>",
+                    "reason": "<docs|generated|lockfile|rename_only|deleted|low_signal_test|low_signal_config|budget_trimmed>",
+                    "detail": "<optional detail>",
+                }
+            ],
+        },
+        indent=2,
     )

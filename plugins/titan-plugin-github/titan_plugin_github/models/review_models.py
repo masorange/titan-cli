@@ -1,41 +1,56 @@
 """
-Pydantic models for code review system.
+Pydantic models for the code review system.
 
-Models for building cheap context, AI analysis, and review actions.
-Follows two-phase architecture: cheap context → AI-directed analysis → targeted review.
+The new-findings flow is intentionally split into two concerns:
+- cheap deterministic selection (manifest, scoring, comments context)
+- focused AI review over one or more bounded context batches
 """
 
 from typing import Optional
+
 from pydantic import BaseModel, Field
 
 from .review_enums import (
     ChecklistCategory,
+    CommentContextKind,
     ContextRequestType,
+    ExclusionReason,
     FileChangeStatus,
     FileReadMode,
     FileReviewPriority,
     FindingSeverity,
+    PRSizeClass,
     ReviewActionSource,
     ReviewActionType,
+    ReviewStrategyType,
     ThreadDecisionType,
     ThreadSeverity,
 )
 
 
 class ChangedFileEntry(BaseModel):
-    """Single file changed in the PR."""
+    """Single file changed in the PR with cheap deterministic signals."""
+
     path: str = Field(..., description="File path in repo")
-    status: FileChangeStatus = Field(
-        ..., description="Change type"
-    )
+    status: FileChangeStatus = Field(..., description="Normalized change type")
     additions: int = Field(default=0, description="Lines added")
     deletions: int = Field(default=0, description="Lines deleted")
-    is_test: bool = Field(default=False, description="Is this a test file")
-    size_lines: int = Field(default=0, description="Current file size in lines")
+    is_test: bool = Field(default=False, description="Whether file is a test")
+    size_lines: int = Field(default=0, description="Current file size in lines if known")
+    is_docs: bool = Field(default=False, description="Documentation-like file")
+    is_generated: bool = Field(default=False, description="Generated or vendored file")
+    is_config: bool = Field(default=False, description="Configuration file")
+    is_lockfile: bool = Field(default=False, description="Dependency lockfile")
+    is_rename_only: bool = Field(default=False, description="Renamed without meaningful edits")
+
+    @property
+    def total_changes(self) -> int:
+        return self.additions + self.deletions
 
 
 class PullRequestManifest(BaseModel):
     """Basic PR metadata."""
+
     number: int = Field(..., description="PR number")
     title: str = Field(..., description="PR title")
     base: str = Field(..., description="Base branch")
@@ -45,246 +60,232 @@ class PullRequestManifest(BaseModel):
 
 
 class ChangeManifest(BaseModel):
-    """
-    Cheap PR context built from metadata and git (no IA).
+    """Cheap deterministic context extracted from the PR."""
 
-    This is the input to both workflows and is deterministically built
-    from git data without any AI involvement.
-    """
     pr: PullRequestManifest = Field(..., description="PR metadata")
-    files: list[ChangedFileEntry] = Field(..., description="Changed files with stats")
+    files: list[ChangedFileEntry] = Field(..., description="Changed files with cheap signals")
     total_additions: int = Field(..., description="Total lines added across all files")
     total_deletions: int = Field(..., description="Total lines deleted across all files")
 
     def summary(self) -> str:
-        """Human-readable summary for IA."""
         return (
             f"PR #{self.pr.number}: {len(self.files)} files changed "
-            f"(+{self.total_additions}-{self.total_deletions})"
+            f"(+{self.total_additions}/-{self.total_deletions})"
         )
 
 
 class ReviewChecklistItem(BaseModel):
-    """Single item in review checklist."""
+    """Single review category offered to AI."""
+
     id: ChecklistCategory = Field(..., description="Unique checklist category ID")
     name: str = Field(..., description="Display name")
     description: str = Field(..., description="What this checklist item covers")
-    relevant_file_patterns: list[str] = Field(
-        default_factory=list,
-        description="Optional glob patterns to scope this item (e.g. '*.py', '*test*')"
-    )
+    relevant_file_patterns: list[str] = Field(default_factory=list)
 
 
 class ExistingCommentIndexEntry(BaseModel):
-    """Compacted form of existing comment for deduplication and AI context."""
+    """Compact dedupe-oriented view of an existing PR comment."""
+
     comment_id: int = Field(..., description="GitHub comment ID")
-    thread_id: str = Field(..., description="Thread ID or 'general_N' for PR-level comments")
-    is_resolved: bool = Field(..., description="Is the thread resolved")
-    path: Optional[str] = Field(default=None, description="File path (None for PR-level comments)")
-    line: Optional[int] = Field(default=None, description="Line number (None for file-level comments)")
-    category: Optional[str] = Field(default=None, description="Inferred comment category/topic")
-    title: str = Field(..., description="First ~50 chars of comment body")
+    thread_id: str = Field(..., description="Thread ID or general_N")
+    is_resolved: bool = Field(..., description="Whether thread is resolved")
+    path: Optional[str] = Field(default=None, description="File path")
+    line: Optional[int] = Field(default=None, description="Target line")
+    category: Optional[str] = Field(default=None, description="Inferred category")
+    title: str = Field(..., description="Short comment title/body preview")
     author: str = Field(..., description="Comment author login")
 
+
+class CommentThreadSummary(BaseModel):
+    """Compressed representation of a review thread for prompt context."""
+
+    thread_id: str
+    path: Optional[str] = None
+    line: Optional[int] = None
+    is_resolved: bool = False
+    main_issue: str = Field(default="", description="Initial issue raised in the thread")
+    latest_state: str = Field(default="", description="Latest visible response or status")
+    reply_count: int = 0
+
+
+class CommentContextEntry(BaseModel):
+    """Prompt-ready comment context, either raw compact comment or summarized thread."""
+
+    kind: CommentContextKind = Field(..., description="Representation type")
+    thread_id: str
+    path: Optional[str] = None
+    line: Optional[int] = None
+    category: Optional[str] = None
+    title: str = Field(default="")
+    summary: str = Field(default="")
+    is_resolved: bool = False
+
+
 class ContextRequest(BaseModel):
-    """Request for additional context beyond the diff."""
-    type: ContextRequestType = Field(
-        ..., description="Type of extra context needed"
-    )
-    for_path: str = Field(..., description="The file this extra context supports")
-    reason: str = Field(default="", description="Why this context is needed")
+    """Request for additional supporting context beyond the diff."""
+
+    type: ContextRequestType
+    for_path: str
+    reason: str = ""
 
 
 class FileReviewPlan(BaseModel):
-    """AI decision on how to read one file."""
-    path: str = Field(..., description="File path (must exist in the PR)")
-    priority: FileReviewPriority = Field(
-        ..., description="How important this file is for the review"
-    )
-    read_mode: FileReadMode = Field(
-        ..., description="How much of the file to read"
-    )
-    reasons: list[str] = Field(
-        default_factory=list,
-        description="Why this priority and read mode were chosen"
-    )
+    """Focused plan for one file selected for deeper review."""
+
+    path: str
+    priority: FileReviewPriority
+    read_mode: FileReadMode
+    reasons: list[str] = Field(default_factory=list)
+
+
+class ExcludedFileEntry(BaseModel):
+    """File excluded or trimmed from review focus."""
+
+    path: str
+    reason: ExclusionReason
+    detail: str = ""
 
 
 class ReviewPlan(BaseModel):
-    """
-    Structured output from first IA call: "what should we read?"
+    """Structured output from planning: what to review, not every changed file."""
 
-    AI analyzes the cheap context and decides which parts of the PR
-    deserve deep reading and what extra context is needed.
-    """
-    applicable_checklist: list[ChecklistCategory] = Field(
-        default_factory=list,
-        description="Checklist category IDs that apply to this PR"
-    )
-    file_plan: list[FileReviewPlan] = Field(
-        default_factory=list,
-        description="How to read each file (paths must exist in the PR)"
-    )
-    extra_context_requests: list[ContextRequest] = Field(
-        default_factory=list,
-        description="Additional context needed beyond the diff (max 3)"
-    )
+    focus_files: list[FileReviewPlan] = Field(default_factory=list)
+    review_axes: list[ChecklistCategory] = Field(default_factory=list)
+    extra_context_requests: list[ContextRequest] = Field(default_factory=list)
+    excluded_files: list[ExcludedFileEntry] = Field(default_factory=list)
+
+
+class PRClassification(BaseModel):
+    """Deterministic classification of PR size and composition."""
+
+    size_class: PRSizeClass
+    files_changed: int
+    total_lines_changed: int
+    doc_files: int = 0
+    test_files: int = 0
+    config_files: int = 0
+    generated_files: int = 0
+    comment_threads: int = 0
+    comment_entries: int = 0
+
+
+class ScoredReviewCandidate(BaseModel):
+    """File candidate ranked before AI planning."""
+
+    path: str
+    score: int
+    priority: FileReviewPriority
+    suggested_read_mode: FileReadMode
+    reasons: list[str] = Field(default_factory=list)
+
+
+class ReviewStrategy(BaseModel):
+    """Execution strategy for the new-findings workflow."""
+
+    strategy: ReviewStrategyType
+    size_class: PRSizeClass
+    max_focus_files: int
+    max_prompt_chars: int
+    max_comment_entries: int
+    batching_enabled: bool = False
+    suspicious_empty_findings: bool = False
 
 
 class Finding(BaseModel):
-    """
-    Single problem found by AI in targeted code review.
+    """Single problem found by AI in targeted code review."""
 
-    Output from second IA call, one per problematic piece of code.
-    """
-    severity: FindingSeverity = Field(
-        ..., description="How serious this problem is"
-    )
-    category: str = Field(
-        ..., description="Problem category (e.g. 'error_handling', 'test_coverage')"
-    )
-    path: str = Field(..., description="File path where the problem is")
-    line: Optional[int] = Field(
-        default=None, description="Line number (None for file-level findings)"
-    )
-    title: str = Field(..., description="Short, actionable problem description")
-    why: str = Field(..., description="Explanation of why this is a problem")
-    evidence: str = Field(..., description="Code snippet or specific reference")
-    suggested_comment: str = Field(
-        ..., description="Ready-to-post review comment with full context"
-    )
+    severity: FindingSeverity
+    category: str
+    path: str
+    line: Optional[int] = None
+    title: str
+    why: str
+    evidence: str
+    suggested_comment: str
 
 
 class ThreadDecision(BaseModel):
-    """
-    AI decision on what to do with an existing review thread.
+    """AI decision on what to do with an existing review thread."""
 
-    Output from thread resolution IA call.
-    """
-    thread_id: str = Field(..., description="GitHub thread ID")
-    decision: ThreadDecisionType = Field(
-        ..., description="Action to take on the thread"
-    )
-    reasoning: str = Field(..., description="Why this decision was made")
-    suggested_reply: Optional[str] = Field(
-        default=None, description="Reply text (only when decision='reply')"
-    )
-    category: Optional[str] = Field(default=None, description="Issue category")
-    severity: ThreadSeverity = Field(
-        default=ThreadSeverity.NONE, description="Thread severity assessment"
-    )
+    thread_id: str
+    decision: ThreadDecisionType
+    reasoning: str
+    suggested_reply: Optional[str] = None
+    category: Optional[str] = None
+    severity: ThreadSeverity = ThreadSeverity.NONE
 
 
 class ThreadReviewCandidate(BaseModel):
-    """Thread selected for AI analysis (open inline threads only)."""
-    thread_id: str = Field(..., description="GitHub thread ID (GraphQL node ID)")
-    path: Optional[str] = Field(default=None, description="File path (None for general comments)")
-    line: Optional[int] = Field(default=None, description="Line number of the original comment")
-    main_comment_body: str = Field(..., description="Body of the main comment")
-    main_comment_author: str = Field(..., description="Author login of the main comment")
-    replies_count: int = Field(default=0, description="Number of replies in the thread")
-    last_reply_author: Optional[str] = Field(default=None, description="Author of the last reply")
-    last_reply_body: Optional[str] = Field(default=None, description="Body of the last reply")
-    is_outdated: bool = Field(default=False, description="Whether the underlying code has changed")
+    """Thread selected for AI analysis in thread-resolution workflow."""
+
+    thread_id: str
+    path: Optional[str] = None
+    line: Optional[int] = None
+    main_comment_body: str
+    main_comment_author: str
+    replies_count: int = 0
+    last_reply_author: Optional[str] = None
+    last_reply_body: Optional[str] = None
+    is_outdated: bool = False
 
 
 class ThreadReviewContext(BaseModel):
     """Enriched context for AI to decide what to do with a thread."""
-    thread_id: str = Field(..., description="GitHub thread ID (GraphQL node ID)")
-    comment_id: int = Field(..., description="Comment ID of main comment (for REST API)")
-    path: Optional[str] = Field(default=None)
-    line: Optional[int] = Field(default=None)
-    main_comment_body: str = Field(..., description="Original comment body")
-    main_comment_author: str = Field(..., description="Original comment author")
-    all_replies: list[dict] = Field(
-        default_factory=list,
-        description="All replies as list of {author, body} dicts"
-    )
-    current_code_hunk: Optional[str] = Field(
-        default=None, description="Diff hunk near the thread's line"
-    )
-    is_outdated: bool = Field(default=False)
+
+    thread_id: str
+    comment_id: int
+    path: Optional[str] = None
+    line: Optional[int] = None
+    main_comment_body: str
+    main_comment_author: str
+    all_replies: list[dict] = Field(default_factory=list)
+    current_code_hunk: Optional[str] = None
+    is_outdated: bool = False
+
 
 class ReviewActionProposal(BaseModel):
-    """
-    Unified action ready for user review and GitHub submission.
+    """Unified action ready for user review and GitHub submission."""
 
-    Used in both new_findings and thread_resolution workflows.
-    Can represent a new inline comment, a thread reply, or a resolve action.
-    """
-    action_type: ReviewActionType = Field(
-        ..., description="Type of GitHub action to perform"
-    )
-    source: ReviewActionSource = Field(
-        ..., description="Which workflow produced this action"
-    )
-    path: Optional[str] = Field(
-        default=None, description="File path (None for PR-level comments)"
-    )
-    line: Optional[int] = Field(default=None, description="Line number for inline comments")
-    thread_id: Optional[str] = Field(
-        default=None, description="Thread ID (required for resolve_thread actions)"
-    )
-    comment_id: Optional[int] = Field(
-        default=None, description="Comment ID (required for reply_to_thread actions)"
-    )
-    title: str = Field(..., description="Short action description shown to the user")
-    body: str = Field(..., description="Full comment text to post")
-    reasoning: str = Field(..., description="Why this action is being proposed")
-    category: Optional[str] = Field(default=None, description="Issue category")
-    severity: Optional[FindingSeverity | ThreadSeverity] = Field(
-        default=None,
-        description="Issue severity"
-    )
-    related_existing_comment_ids: list[int] = Field(
-        default_factory=list,
-        description="Existing comment IDs this action is related to"
-    )
+    action_type: ReviewActionType
+    source: ReviewActionSource
+    path: Optional[str] = None
+    line: Optional[int] = None
+    thread_id: Optional[str] = None
+    comment_id: Optional[int] = None
+    title: str
+    body: str
+    reasoning: str
+    category: Optional[str] = None
+    severity: Optional[FindingSeverity | ThreadSeverity] = None
+    related_existing_comment_ids: list[int] = Field(default_factory=list)
+
 
 class FileContextEntry(BaseModel):
-    """Single file's content for the review context package."""
-    path: str = Field(..., description="File path")
-    full_content: Optional[str] = Field(
-        default=None, description="Full file content (for full_file mode)"
-    )
-    hunks: list[str] = Field(
-        default_factory=list, description="Raw diff hunks"
-    )
-    expanded_hunks: list[str] = Field(
-        default_factory=list, description="Diff hunks with extra surrounding context"
-    )
+    """Extracted context for one focused file."""
+
+    path: str
+    full_content: Optional[str] = None
+    hunks: list[str] = Field(default_factory=list)
+    expanded_hunks: list[str] = Field(default_factory=list)
+
+
+class FocusContextBatch(BaseModel):
+    """Single bounded batch of review context for one findings prompt."""
+
+    batch_id: str
+    files_context: dict[str, FileContextEntry] = Field(default_factory=dict)
+    comment_context: list[CommentContextEntry] = Field(default_factory=list)
+    checklist_applicable: list[ReviewChecklistItem] = Field(default_factory=list)
+    related_files: dict[str, str] = Field(default_factory=dict)
+    excluded_files: list[ExcludedFileEntry] = Field(default_factory=list)
+    pr_manifest: Optional[PullRequestManifest] = None
+    approximate_chars: int = 0
 
 
 class ReviewContextPackage(BaseModel):
-    """
-    Complete context for second IA call.
+    """Collection of one or more bounded context batches for findings analysis."""
 
-    Contains exact file content, applicable checklist, and compact existing comments.
-    Everything the AI needs for a targeted, focused review.
-    """
-    files_context: dict[str, FileContextEntry] = Field(
-        default_factory=dict,
-        description="File content keyed by path"
-    )
-    checklist_applicable: list[ReviewChecklistItem] = Field(
-        default_factory=list,
-        description="Checklist items that apply to this PR"
-    )
-    existing_comments_compact: list[ExistingCommentIndexEntry] = Field(
-        default_factory=list,
-        description="Existing comments for deduplication context"
-    )
-    pr_manifest: Optional[PullRequestManifest] = Field(
-        default=None, description="PR metadata for broader context"
-    )
-    dependency_hints: dict[str, list[str]] = Field(
-        default_factory=dict,
-        description="File dependency map (file → list of files it imports)"
-    )
-    related_files: dict[str, str] = Field(
-        default_factory=dict,
-        description="Related context by type (e.g. 'related_tests' → content)"
-    )
+    batches: list[FocusContextBatch] = Field(default_factory=list)
 
 
 __all__ = [
@@ -293,14 +294,21 @@ __all__ = [
     "ChangeManifest",
     "ReviewChecklistItem",
     "ExistingCommentIndexEntry",
+    "CommentThreadSummary",
+    "CommentContextEntry",
     "ContextRequest",
     "FileReviewPlan",
+    "ExcludedFileEntry",
     "ReviewPlan",
+    "PRClassification",
+    "ScoredReviewCandidate",
+    "ReviewStrategy",
     "Finding",
     "ThreadDecision",
     "ThreadReviewCandidate",
     "ThreadReviewContext",
     "ReviewActionProposal",
     "FileContextEntry",
+    "FocusContextBatch",
     "ReviewContextPackage",
 ]

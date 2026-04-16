@@ -1,5 +1,5 @@
 name: "Review PR (New Findings)"
-description: "Two-phase AI review: directed analysis then targeted review for new actionable findings"
+description: "Focused AI review for new actionable findings with bounded prompt context"
 
 steps:
   - id: select_pr
@@ -27,10 +27,25 @@ steps:
     plugin: github
     step: build_existing_comments_index
 
+  - id: classify_pr
+    name: "Classify PR"
+    plugin: github
+    step: classify_pr
+
+  - id: score_candidates
+    name: "Score Review Candidates"
+    plugin: github
+    step: score_review_candidates
+
   - id: build_checklist
     name: "Build Review Checklist"
     plugin: github
     step: build_review_checklist
+
+  - id: select_strategy
+    name: "Select Review Strategy"
+    plugin: github
+    step: select_review_strategy
 
   - id: ai_plan
     name: "AI Review Plan"
@@ -46,6 +61,7 @@ steps:
     name: "Create PR Worktree"
     plugin: github
     step: create_worktree
+    on_error: continue
 
   - id: resolve_context
     name: "Resolve Review Context"
@@ -56,11 +72,13 @@ steps:
     name: "AI Review Findings"
     plugin: github
     step: ai_review_findings
+    on_error: continue
 
   - id: cleanup_worktree
     name: "Cleanup PR Worktree"
     plugin: github
     step: cleanup_worktree
+    on_error: continue
 
   - id: normalize
     name: "Normalize Findings"

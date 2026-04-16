@@ -156,7 +156,10 @@ class GitHubPlugin(TitanPlugin):
             fetch_pr_review_bundle,
             build_change_manifest,
             build_existing_comments_index,
+            classify_pr,
+            score_review_candidates,
             build_review_checklist,
+            select_review_strategy,
             ai_review_plan,
             validate_review_plan,
             resolve_review_context,
@@ -203,7 +206,10 @@ class GitHubPlugin(TitanPlugin):
             # Phase 2: cheap context steps (pre-AI)
             "build_change_manifest": build_change_manifest,
             "build_existing_comments_index": build_existing_comments_index,
+            "classify_pr": classify_pr,
+            "score_review_candidates": score_review_candidates,
             "build_review_checklist": build_review_checklist,
+            "select_review_strategy": select_review_strategy,
             # Phase 3: directed AI analysis (first AI call)
             "ai_review_plan": ai_review_plan,
             "validate_review_plan": validate_review_plan,

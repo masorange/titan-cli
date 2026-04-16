@@ -69,6 +69,44 @@ class FileReadMode(StrEnum):
     FULL_FILE = "full_file"
 
 
+class PRSizeClass(StrEnum):
+    """Relative size bucket for the current PR."""
+
+    TINY = "tiny"
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+    HUGE = "huge"
+
+
+class ReviewStrategyType(StrEnum):
+    """How the new-findings workflow should analyze the PR."""
+
+    DIRECT_FINDINGS = "direct_findings"
+    LIGHT_PLAN = "light_plan"
+    BATCHED_FINDINGS = "batched_findings"
+
+
+class ExclusionReason(StrEnum):
+    """Reason why a file was deprioritized or excluded from review focus."""
+
+    DOCS = "docs"
+    GENERATED = "generated"
+    LOCKFILE = "lockfile"
+    RENAME_ONLY = "rename_only"
+    DELETED = "deleted"
+    LOW_SIGNAL_TEST = "low_signal_test"
+    LOW_SIGNAL_CONFIG = "low_signal_config"
+    BUDGET_TRIMMED = "budget_trimmed"
+
+
+class CommentContextKind(StrEnum):
+    """How existing comments are represented in review prompts."""
+
+    COMMENT = "comment"
+    THREAD_SUMMARY = "thread_summary"
+
+
 class FindingSeverity(StrEnum):
     """Severity assigned to a new finding found during review."""
 

@@ -101,6 +101,48 @@ class DiffContextManager:
         logger.debug(f"get_hunks: path={path}, count={len(hunks)}")
         return hunks
 
+    def get_hunk_texts(self, path: str) -> list[str]:
+        """Return raw hunk text blocks for ``path``."""
+        return [hunk.content for hunk in self.get_hunks(path)]
+
+    def build_expanded_hunks(
+        self,
+        path: str,
+        file_content: str,
+        extra_lines: int = 10,
+    ) -> list[str]:
+        """
+        Return diff hunks enriched with surrounding file context.
+
+        Uses already-parsed hunk coordinates instead of reparsing @@ headers.
+        """
+        hunks = self.get_hunks(path)
+        if not hunks:
+            return []
+
+        file_lines = file_content.split("\n")
+        expanded: list[str] = []
+
+        for hunk in hunks:
+            expand_start = max(0, hunk.new_line_start - extra_lines - 1)
+            expand_end = min(len(file_lines), hunk.new_line_end + extra_lines)
+            surrounding = "\n".join(file_lines[expand_start:expand_end])
+            expanded.append(
+                f"{hunk.header}\n"
+                f"# --- surrounding context (lines {expand_start + 1}-{expand_end}) ---\n"
+                f"{surrounding}\n"
+                f"# --- diff hunk ---\n"
+                + "\n".join(hunk.content.split("\n")[1:])
+            )
+
+        logger.debug(
+            "build_expanded_hunks: path=%s, count=%s, extra_lines=%s",
+            path,
+            len(expanded),
+            extra_lines,
+        )
+        return expanded
+
     def get_hunk_for_line(self, path: str, line: int) -> Optional[ParsedHunk]:
         """
         Return the hunk containing new-file ``line`` for ``path``.
