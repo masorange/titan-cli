@@ -83,15 +83,23 @@ def is_duplicate(
     if not _lines_are_close(new_finding.line, existing.line, line_proximity_window):
         return False
 
-    if new_finding.category.lower() == (existing.category or "").lower():
-        return True
-
-    sim = SequenceMatcher(
+    similarity = SequenceMatcher(
         None,
         new_finding.title.lower(),
         existing.title.lower(),
     ).ratio()
-    return sim > title_similarity_threshold
+
+    same_category = new_finding.category.lower() == (existing.category or "").lower()
+    if same_category and not existing.is_resolved:
+        return True
+
+    if same_category and existing.is_adjudicated:
+        return True
+
+    if existing.is_adjudicated and similarity > 0.58:
+        return True
+
+    return similarity > title_similarity_threshold
 
 
 def _lines_are_close(line_a: int | None, line_b: int | None, window: int) -> bool:

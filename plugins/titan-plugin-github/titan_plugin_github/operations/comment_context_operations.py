@@ -10,6 +10,8 @@ def build_comment_context(
     general_comments: list[UICommentThread],
     max_entries: int,
     max_chars: int,
+    include_resolved: bool = False,
+    bug_risk_only: bool = True,
 ) -> list[CommentContextEntry]:
     """Build prompt-ready comment context using deterministic compression only."""
 
@@ -18,4 +20,6 @@ def build_comment_context(
         general_comments=general_comments,
         max_entries=max_entries,
         max_chars=max_chars,
+        include_resolved=include_resolved,
+        bug_risk_only=bug_risk_only,
     )

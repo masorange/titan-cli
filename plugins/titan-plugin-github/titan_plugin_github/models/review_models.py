@@ -94,6 +94,10 @@ class ExistingCommentIndexEntry(BaseModel):
     category: Optional[str] = Field(default=None, description="Inferred category")
     title: str = Field(..., description="Short comment title/body preview")
     author: str = Field(..., description="Comment author login")
+    has_author_reply: bool = False
+    last_reply_author: Optional[str] = None
+    reply_count: int = 0
+    is_adjudicated: bool = False
 
 
 class CommentThreadSummary(BaseModel):
@@ -103,6 +107,9 @@ class CommentThreadSummary(BaseModel):
     path: Optional[str] = None
     line: Optional[int] = None
     is_resolved: bool = False
+    has_author_reply: bool = False
+    last_reply_author: Optional[str] = None
+    is_adjudicated: bool = False
     main_issue: str = Field(default="", description="Initial issue raised in the thread")
     latest_state: str = Field(default="", description="Latest visible response or status")
     reply_count: int = 0
@@ -119,6 +126,10 @@ class CommentContextEntry(BaseModel):
     title: str = Field(default="")
     summary: str = Field(default="")
     is_resolved: bool = False
+    has_author_reply: bool = False
+    last_reply_author: Optional[str] = None
+    reply_count: int = 0
+    is_adjudicated: bool = False
 
 
 class ContextRequest(BaseModel):

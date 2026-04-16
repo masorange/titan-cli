@@ -161,6 +161,96 @@ def _looks_like_automated_comment(author_login: str, body: str) -> bool:
     return False
 
 
+def _has_author_reply(thread: UICommentThread) -> bool:
+    main_author = (thread.main_comment.author_login or "").lower()
+    return any((reply.author_login or "").lower() != main_author for reply in thread.replies)
+
+
+def _last_reply_author(thread: UICommentThread) -> Optional[str]:
+    if not thread.replies:
+        return None
+    return thread.replies[-1].author_login
+
+
+def _is_adjudicated_thread(thread: UICommentThread) -> bool:
+    return thread.is_resolved and _has_author_reply(thread)
+
+
+def _looks_like_bug_or_risk_comment(body: str) -> bool:
+    lower = body.lower()
+    strong_positive_signals = (
+        "bug",
+        "break",
+        "breaks",
+        "incorrect",
+        "wrong",
+        "fail",
+        "fails",
+        "crash",
+        "risk",
+        "null",
+        "error",
+        "missing",
+        "drop",
+        "lose",
+        "block",
+        "regression",
+        "does not",
+        "won't",
+        "runtime",
+        "throws",
+        "throw",
+        "silently",
+        "mislabeled",
+        "null/missing",
+    )
+    negative_signals = (
+        "rename",
+        "naming",
+        "hardcoded string",
+        "nit",
+        "style",
+        "freyja",
+        "question here",
+        "up to discussion",
+        "do we need to indent",
+        "move this logic",
+        "should we use",
+        "one suggestion",
+        "may be able to",
+        "pain if we keep",
+        "painful if we keep",
+        "do we want to expose",
+        "specific to the analytics tracker",
+        "private fun",
+        "maintainability",
+        "cleaner",
+        "maybe always",
+        "maybe we should",
+    )
+    if any(token in lower for token in negative_signals):
+        return False
+    if any(token in lower for token in strong_positive_signals):
+        return True
+
+    category = _infer_category(body)
+    if category in {"functional_correctness", "error_handling", "data_validation", "security"}:
+        return any(
+            token in lower
+            for token in (
+                " if ",
+                " when ",
+                "value",
+                "mapped",
+                "recorded",
+                "serialize",
+                "convert",
+                "return",
+            )
+        )
+    return False
+
+
 def build_existing_comments_index(
     review_threads: list[UICommentThread],
     general_comments: list[UICommentThread],
@@ -181,6 +271,10 @@ def build_existing_comments_index(
                 category=_infer_category(mc.body),
                 title=mc.body[:80].strip(),
                 author=mc.author_login,
+                has_author_reply=_has_author_reply(thread),
+                last_reply_author=_last_reply_author(thread),
+                reply_count=len(thread.replies),
+                is_adjudicated=_is_adjudicated_thread(thread),
             )
         )
         for reply in thread.replies:
@@ -196,6 +290,10 @@ def build_existing_comments_index(
                     category=_infer_category(reply.body),
                     title=reply.body[:80].strip(),
                     author=reply.author_login,
+                    has_author_reply=_has_author_reply(thread),
+                    last_reply_author=_last_reply_author(thread),
+                    reply_count=len(thread.replies),
+                    is_adjudicated=_is_adjudicated_thread(thread),
                 )
             )
 
@@ -213,6 +311,10 @@ def build_existing_comments_index(
                 category=_infer_category(mc.body),
                 title=mc.body[:80].strip(),
                 author=mc.author_login,
+                has_author_reply=_has_author_reply(gc),
+                last_reply_author=_last_reply_author(gc),
+                reply_count=len(gc.replies),
+                is_adjudicated=_is_adjudicated_thread(gc),
             )
         )
 
@@ -224,6 +326,8 @@ def build_comment_review_context(
     general_comments: list[UICommentThread],
     max_entries: int = 12,
     max_chars: int = 2400,
+    include_resolved: bool = False,
+    bug_risk_only: bool = True,
 ) -> list[CommentContextEntry]:
     """Build prompt-friendly comment context with thread summaries when needed."""
 
@@ -249,16 +353,29 @@ def build_comment_review_context(
             title=main.body[:80].strip(),
             summary=summary,
             is_resolved=thread.is_resolved,
+            has_author_reply=_has_author_reply(thread),
+            last_reply_author=_last_reply_author(thread),
+            reply_count=len(thread.replies),
+            is_adjudicated=_is_adjudicated_thread(thread),
         )
 
+    def include_thread(thread: UICommentThread) -> bool:
+        main = thread.main_comment
+        if _looks_like_automated_comment(main.author_login, main.body):
+            return False
+        if not include_resolved and thread.is_resolved:
+            return False
+        if bug_risk_only and not _looks_like_bug_or_risk_comment(main.body):
+            return False
+        if _is_adjudicated_thread(thread):
+            return False
+        return True
+
     prioritized_threads = sorted(
-        [
-            thread
-            for thread in review_threads
-            if not _looks_like_automated_comment(thread.main_comment.author_login, thread.main_comment.body)
-        ],
+        [thread for thread in review_threads if include_thread(thread)],
         key=lambda t: (
             t.is_resolved,
+            not _looks_like_bug_or_risk_comment(t.main_comment.body),
             t.is_general_comment,
             0 if t.main_comment.path else 1,
             -len(t.replies),
@@ -270,6 +387,12 @@ def build_comment_review_context(
         main = general.main_comment
         if _looks_like_automated_comment(main.author_login, main.body):
             continue
+        if not include_resolved and general.is_resolved:
+            continue
+        if bug_risk_only and not _looks_like_bug_or_risk_comment(main.body):
+            continue
+        if _is_adjudicated_thread(general):
+            continue
         entries.append(
             CommentContextEntry(
                 kind=CommentContextKind.COMMENT,
@@ -280,6 +403,10 @@ def build_comment_review_context(
                 title=main.body[:80].strip(),
                 summary=main.body.strip().replace("\n", " ")[:220],
                 is_resolved=general.is_resolved,
+                has_author_reply=_has_author_reply(general),
+                last_reply_author=_last_reply_author(general),
+                reply_count=len(general.replies),
+                is_adjudicated=_is_adjudicated_thread(general),
             )
         )
 

@@ -600,7 +600,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     review_threads = []
     general_comments = []
     with ctx.textual.loading("Fetching existing review comments..."):
-        threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=False)
+        threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=True)
         match threads_result:
             case ClientSuccess(data=threads):
                 review_threads = threads
@@ -752,17 +752,21 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
 
     threads = ctx.get("review_threads", [])
     general = ctx.get("review_general_comments", [])
+    changed_files = ctx.get("review_changed_files_with_stats", [])
 
     from ..operations.comment_context_operations import build_comment_context
     from ..operations.manifest_operations import build_existing_comments_index as _build
 
     try:
         index = _build(threads, general)
+        is_smallish_pr = len(changed_files) <= 8
         comment_context = build_comment_context(
             threads,
             general,
-            max_entries=12,
-            max_chars=2400,
+            max_entries=4 if is_smallish_pr else 8,
+            max_chars=900 if is_smallish_pr else 1800,
+            include_resolved=False,
+            bug_risk_only=True,
         )
     except Exception as e:
         ctx.textual.end_step("error")
@@ -770,17 +774,33 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.data["existing_comments_index"] = index
     ctx.data["comment_review_context"] = comment_context
+    ctx.data["comments_for_dedupe"] = index
 
     resolved_count = sum(1 for e in index if e.is_resolved)
+    adjudicated_count = sum(1 for e in index if e.is_adjudicated)
     msg = f"✓ {len(index)} existing comment(s) indexed"
     if resolved_count:
         msg += f" ({resolved_count} resolved)"
     ctx.textual.success_text(msg)
+    ctx.textual.dim_text(
+        f"prompt comments: {len(comment_context)} · adjudicated threads: {adjudicated_count}"
+    )
+    logger.info(
+        "existing_comments_index_built",
+        existing_comments_total=len(index),
+        comments_for_prompt_count=len(comment_context),
+        comments_for_dedupe_count=len(index),
+        resolved_comments_count=resolved_count,
+        unresolved_comments_count=len(index) - resolved_count,
+        adjudicated_threads_count=adjudicated_count,
+        filtered_out_comment_entries=max(0, len(index) - len(comment_context)),
+    )
     ctx.textual.end_step("success")
     return Success(
         "Comments index built",
         metadata={
             "existing_comments_index": index,
+            "comments_for_dedupe": index,
             "comment_review_context": comment_context,
             "comment_review_context_count": len(comment_context),
         },
@@ -1473,7 +1493,7 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Deduplicate Findings")
 
     findings = ctx.get("normalized_findings")
-    existing_index = ctx.get("existing_comments_index", [])
+    existing_index = ctx.get("comments_for_dedupe", ctx.get("existing_comments_index", []))
 
     if findings is None:
         ctx.textual.end_step("error")
@@ -1483,6 +1503,7 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     deduped: list = []
     removed = 0
+    removed_existing = 0
     seen_keys: set[tuple[str, int | None, str]] = set()
 
     for finding in findings:
@@ -1490,6 +1511,8 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
         key = (finding.path, finding.line, finding.title.lower())
         if is_dup or key in seen_keys:
             removed += 1
+            if is_dup:
+                removed_existing += 1
             logger.debug("Deduplicated finding: %s @ %s:%s", finding.title, finding.path, finding.line)
         else:
             deduped.append(finding)
@@ -1504,6 +1527,14 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     if removed:
         summary += f" ({removed} duplicate(s) removed)"
     ctx.textual.success_text(summary)
+    logger.info(
+        "findings_deduplicated",
+        deduped_findings_count=len(deduped),
+        findings_removed_due_to_existing_threads=removed_existing,
+        findings_removed_due_to_adjudicated_threads=sum(
+            1 for finding in findings for ex in existing_index if ex.is_adjudicated and is_duplicate(finding, ex)
+        ),
+    )
     ctx.textual.end_step("success")
     return Success("Findings deduplicated", metadata={"deduped_findings_count": len(deduped)})
 
