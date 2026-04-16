@@ -12,7 +12,7 @@ from titan_cli.core.logging.config import get_logger
 
 from ..models.review_enums import ReviewActionSource, ReviewActionType
 from ..models.review_models import Finding, ReviewActionProposal
-from ..managers.diff_context_manager import DiffContextManager
+from ..managers.diff_context_manager import DiffContextManager, get_or_create_diff_manager
 
 logger = get_logger(__name__)
 
@@ -52,6 +52,7 @@ def build_review_action_payload(
     actions: List[ReviewActionProposal],
     commit_sha: str,
     diff: str = "",
+    diff_manager: Optional[DiffContextManager] = None,
 ) -> Dict:
     """
     Build the GitHub API payload from approved ReviewActionProposal objects.
@@ -71,8 +72,8 @@ def build_review_action_payload(
     Returns:
         Dict with keys: commit_id, comments (list), body (str, optional)
     """
-    diff_manager = DiffContextManager.from_diff(diff) if diff else None
-    valid_lines = {p: set(ls) for p, ls in diff_manager.get_all_valid_lines().items()} if diff_manager else {}
+    manager = diff_manager or (get_or_create_diff_manager(diff) if diff else None)
+    valid_lines = {p: set(ls) for p, ls in manager.get_all_valid_lines().items()} if manager else {}
     logger.info("build_review_payload_start", action_count=len(actions), files_in_diff=len(valid_lines))
     if valid_lines:
         for path, lines in valid_lines.items():  # Log TODOS los archivos
@@ -93,8 +94,8 @@ def build_review_action_payload(
 
         # new_comment — try inline first, fall back to general body
         resolved_line = action.resolved_line
-        if diff_manager and action.path:
-            resolved_line = resolved_line or diff_manager.resolve_line_anchor(
+        if manager and action.path:
+            resolved_line = resolved_line or manager.resolve_line_anchor(
                 action.path,
                 line=action.line,
                 snippet=action.anchor_snippet,
@@ -147,7 +148,11 @@ def build_review_action_payload(
     return payload
 
 
-def extract_diff_hunk_for_action(action: ReviewActionProposal, diff: str) -> Optional[str]:
+def extract_diff_hunk_for_action(
+    action: ReviewActionProposal,
+    diff: str,
+    diff_manager: Optional[DiffContextManager] = None,
+) -> Optional[str]:
     """
     Extract the diff hunk around an action's file/line for display in the UI.
 
@@ -161,8 +166,8 @@ def extract_diff_hunk_for_action(action: ReviewActionProposal, diff: str) -> Opt
     if not diff or not action.path or not action.line:
         return None
 
-    diff_manager = DiffContextManager.from_diff(diff)
-    resolved_line = action.resolved_line or diff_manager.resolve_line_anchor(
+    manager = diff_manager or get_or_create_diff_manager(diff)
+    resolved_line = action.resolved_line or manager.resolve_line_anchor(
         action.path,
         line=action.line,
         snippet=action.anchor_snippet,
@@ -171,26 +176,27 @@ def extract_diff_hunk_for_action(action: ReviewActionProposal, diff: str) -> Opt
     if resolved_line is None:
         return None
 
-    hunk = diff_manager.get_hunk_for_line(action.path, resolved_line, allow_fallback=False)
+    hunk = manager.get_hunk_for_line(action.path, resolved_line, allow_fallback=False)
     return hunk.content if hunk else None
 
 
 def resolve_action_anchors(
     actions: List[ReviewActionProposal],
     diff: str,
+    diff_manager: Optional[DiffContextManager] = None,
 ) -> List[ReviewActionProposal]:
     """Return actions enriched with resolved inline anchors for UI and submission."""
     if not diff:
         return actions
 
-    diff_manager = DiffContextManager.from_diff(diff)
+    manager = diff_manager or get_or_create_diff_manager(diff)
     resolved_actions: List[ReviewActionProposal] = []
     for action in actions:
         if not action.path:
             resolved_actions.append(action)
             continue
 
-        resolved_line = diff_manager.resolve_line_anchor(
+        resolved_line = manager.resolve_line_anchor(
             action.path,
             line=action.line,
             snippet=action.anchor_snippet,
@@ -198,9 +204,9 @@ def resolve_action_anchors(
         )
         resolution_source = None
         if resolved_line is not None:
-            if action.anchor_snippet and diff_manager.find_line_by_snippet(action.path, action.anchor_snippet) == resolved_line:
+            if action.anchor_snippet and manager.find_line_by_snippet(action.path, action.anchor_snippet) == resolved_line:
                 resolution_source = "snippet"
-            elif action.evidence and diff_manager.find_line_by_snippet(action.path, action.evidence) == resolved_line:
+            elif action.evidence and manager.find_line_by_snippet(action.path, action.evidence) == resolved_line:
                 resolution_source = "evidence"
             elif action.line == resolved_line:
                 resolution_source = "validated_line"

@@ -658,3 +658,21 @@ def _extract_best_anchor_from_text(text: Optional[str]) -> Optional[str]:
 
 
 __all__ = ["DiffContextManager", "extract_lines_from_hunk", "build_focused_diff_from_hunk"]
+
+
+def get_or_create_diff_manager(
+    diff: str,
+    cache: Optional[dict] = None,
+    cache_key: str = "review_diff_manager",
+) -> DiffContextManager:
+    """Return a cached diff manager when available, otherwise parse once and store it."""
+    if cache is not None:
+        existing = cache.get(cache_key)
+        if existing is not None:
+            logger.debug("get_or_create_diff_manager: reusing cached manager")
+            return existing
+
+    manager = DiffContextManager.from_diff(diff)
+    if cache is not None:
+        cache[cache_key] = manager
+    return manager

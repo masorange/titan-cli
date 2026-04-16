@@ -5,7 +5,7 @@ from typing import Optional
 
 from titan_cli.core.logging import get_logger
 
-from ..managers.diff_context_manager import DiffContextManager
+from ..managers.diff_context_manager import DiffContextManager, get_or_create_diff_manager
 from ..models.review_enums import ContextRequestType, FileReadMode
 from ..models.review_models import (
     ChangeManifest,
@@ -24,16 +24,27 @@ from ..models.review_models import (
 logger = get_logger(__name__)
 
 
-def extract_hunks_only(diff: str, path: str) -> list[str]:
-    return DiffContextManager.from_diff(diff).get_hunk_texts(path)
+def extract_hunks_only(
+    diff: str,
+    path: str,
+    diff_manager: Optional[DiffContextManager] = None,
+) -> list[str]:
+    manager = diff_manager or DiffContextManager.from_diff(diff)
+    return manager.get_hunk_texts(path)
 
 
-def extract_expanded_hunks(diff: str, path: str, cwd: Optional[str] = None) -> list[str]:
+def extract_expanded_hunks(
+    diff: str,
+    path: str,
+    cwd: Optional[str] = None,
+    diff_manager: Optional[DiffContextManager] = None,
+) -> list[str]:
     file_content = read_file_content(path, cwd)
     if not file_content:
-        return extract_hunks_only(diff, path)
+        return extract_hunks_only(diff, path, diff_manager=diff_manager)
 
-    return DiffContextManager.from_diff(diff).build_expanded_hunks(path, file_content, extra_lines=10)
+    manager = diff_manager or DiffContextManager.from_diff(diff)
+    return manager.build_expanded_hunks(path, file_content, extra_lines=10)
 
 
 def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
@@ -105,7 +116,9 @@ def build_review_context_package(
     comment_context: list[CommentContextEntry],
     strategy: ReviewStrategy,
     cwd: Optional[str] = None,
+    diff_manager: Optional[DiffContextManager] = None,
 ) -> ReviewContextPackage:
+    manager = diff_manager or get_or_create_diff_manager(diff)
     applicable_ids = set(plan.review_axes)
     checklist_applicable = [item for item in checklist if item.id in applicable_ids] or checklist[:2]
     related_files = resolve_context_requests(plan.extra_context_requests, cwd)
@@ -118,7 +131,7 @@ def build_review_context_package(
     carry_excluded: list[ExcludedFileEntry] = []
 
     for file_plan in plan.focus_files:
-        entry = _resolve_file_context(file_plan, diff, cwd)
+        entry = _resolve_file_context(file_plan, diff, cwd, manager)
         entry_chars = _estimate_entry_chars(entry)
 
         if current_files and strategy.batching_enabled and current_chars + entry_chars > strategy.max_prompt_chars:
@@ -169,12 +182,23 @@ def build_review_context_package(
     return ReviewContextPackage(batches=batches)
 
 
-def _resolve_file_context(file_plan: FileReviewPlan, diff: str, cwd: Optional[str] = None) -> FileContextEntry:
+def _resolve_file_context(
+    file_plan: FileReviewPlan,
+    diff: str,
+    cwd: Optional[str] = None,
+    diff_manager: Optional[DiffContextManager] = None,
+) -> FileContextEntry:
     if file_plan.read_mode == FileReadMode.FULL_FILE:
         return FileContextEntry(path=file_plan.path, full_content=read_file_content(file_plan.path, cwd))
     if file_plan.read_mode == FileReadMode.EXPANDED_HUNKS:
-        return FileContextEntry(path=file_plan.path, expanded_hunks=extract_expanded_hunks(diff, file_plan.path, cwd))
-    return FileContextEntry(path=file_plan.path, hunks=extract_hunks_only(diff, file_plan.path))
+        return FileContextEntry(
+            path=file_plan.path,
+            expanded_hunks=extract_expanded_hunks(diff, file_plan.path, cwd, diff_manager=diff_manager),
+        )
+    return FileContextEntry(
+        path=file_plan.path,
+        hunks=extract_hunks_only(diff, file_plan.path, diff_manager=diff_manager),
+    )
 
 
 def _estimate_entry_chars(entry: FileContextEntry) -> int:

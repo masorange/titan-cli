@@ -15,6 +15,7 @@ from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
+from ..managers.diff_context_manager import get_or_create_diff_manager
 from ..models.review_enums import ReviewActionType, ReviewStrategyType, ThreadDecisionType
 from ..models.review_models import ReviewActionProposal
 from ..models.view import UICommentThread
@@ -592,6 +593,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
 
     # Display file changes summary
     formatted_files, formatted_summary = compute_diff_stat(diff)
+    diff_manager = get_or_create_diff_manager(diff, ctx.data)
     ctx.textual.show_diff_stat(formatted_files, formatted_summary, title="Files affected:")
 
     # Fetch inline review threads and general comments separately
@@ -626,6 +628,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
         metadata={
             "review_pr": pr,
             "review_diff": diff,
+            "review_diff_manager": diff_manager,
             "review_changed_files": changed_file_paths,
             "review_changed_files_with_stats": all_files_with_stats,
             "review_commit_sha": commit_sha,
@@ -1199,6 +1202,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         return Error("No diff in context (run fetch_pr_review_bundle first)")
 
     from ..operations.context_resolution_operations import build_review_context_package
+    diff_manager = ctx.get("review_diff_manager")
 
     if worktree_path:
         ctx.textual.dim_text(f"Using worktree: {worktree_path}")
@@ -1213,6 +1217,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
                 comment_context=comment_context,
                 strategy=strategy,
                 cwd=project_root,
+                diff_manager=diff_manager,
             )
     except Exception as e:
         ctx.textual.end_step("error")
@@ -1284,7 +1289,11 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No review_context_batches in context (run resolve_review_context first)")
 
-    from ..operations.findings_operations import build_review_findings_prompt, build_default_findings
+    from ..operations.findings_operations import (
+        build_default_findings,
+        build_findings_prompt_parts,
+        summarize_findings_prompt_parts,
+    )
     import json
 
     adapter = _resolve_headless_adapter(cli_preference)
@@ -1299,7 +1308,9 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     aggregated_raw = []
 
     for batch in batches:
-        prompt = build_review_findings_prompt(batch)
+        prompt_parts = build_findings_prompt_parts(batch)
+        prompt = prompt_parts["prompt"]
+        prompt_breakdown = summarize_findings_prompt_parts(prompt_parts)
         _log_ai_prompt(
             step_name="ai_review_findings",
             cli_name=adapter.cli_name.value,
@@ -1310,6 +1321,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             checklist_items=len(batch.checklist_applicable),
             comment_entries=len(batch.comment_context),
             strategy=str(strategy.strategy) if strategy else None,
+            **prompt_breakdown,
         )
         with ctx.textual.loading(f"Asking {cli_display} to review {len(batch.files_context)} file(s) in {batch.batch_id}…"):
             response = adapter.execute(prompt, cwd=project_root, timeout=300)
@@ -1564,10 +1576,11 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     diff = ctx.get("review_diff", "")
     review_threads: List[UICommentThread] = ctx.get("review_threads", [])
+    diff_manager = ctx.get("review_diff_manager")
 
     # Sort by severity: blocking → important → nit
     severity_order = {"blocking": 0, "important": 1, "nit": 2}
-    resolved_actions = resolve_action_anchors(actions, diff)
+    resolved_actions = resolve_action_anchors(actions, diff, diff_manager=diff_manager)
 
     sorted_actions = sorted(
         resolved_actions,
@@ -1583,7 +1596,7 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             break
 
         current = action
-        diff_hunk = extract_diff_hunk_for_action(current, diff)
+        diff_hunk = extract_diff_hunk_for_action(current, diff, diff_manager=diff_manager)
 
         while True:
             choice = _show_review_action_and_get_decision(
@@ -1659,6 +1672,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     pr_number = ctx.get("review_pr_number")
     commit_sha = ctx.get("review_commit_sha", "")
     diff = ctx.get("review_diff", "")
+    diff_manager = ctx.get("review_diff_manager")
 
     if not pr_number:
         ctx.textual.end_step("error")
@@ -1751,7 +1765,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         review_body = ctx.textual.ask_multiline("General review comment:", default="")
 
     # Build payload from comment actions
-    payload = build_review_action_payload(comment_actions, commit_sha, diff)
+    payload = build_review_action_payload(comment_actions, commit_sha, diff, diff_manager=diff_manager)
 
     if review_body and review_body.strip():
         existing_body = payload.get("body", "")

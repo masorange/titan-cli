@@ -1,11 +1,13 @@
 """Operations for building AI prompts for focused findings review."""
 
 import json
+from typing import Any
 
 from ..models.review_models import CommentContextEntry, Finding, FocusContextBatch, ReviewChecklistItem
 
 
-def build_review_findings_prompt(batch: FocusContextBatch) -> str:
+def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
+    """Build prompt parts separately so callers can log size breakdowns."""
     checklist_json = _checklist_to_json(batch.checklist_applicable)
     comments_json = _comments_to_json(batch.comment_context)
     files_text = _files_context_to_text(batch.files_context)
@@ -13,7 +15,17 @@ def build_review_findings_prompt(batch: FocusContextBatch) -> str:
     pr_context = _pr_context_to_text(batch)
     schema = _finding_schema()
 
-    return f"""You are performing a focused pull request code review.
+    instructions = """- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, or missing regression coverage when clearly required
+- Do not repeat issues already covered by Existing Comments
+- Do not report deleted lines as findings
+- Do not speculate beyond the shown code
+- Do not claim that a function, overload, or parameter does not exist unless the relevant declaration is clearly visible in the provided context
+- Prefer describing an observable behavior risk over making an unverified compilation claim
+- Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
+- If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
+- If there are no findings, return []"""
+
+    prompt = f"""You are performing a focused pull request code review.
 
 This is one bounded review batch. Review only the provided code and report actionable problems that are actually present.
 
@@ -30,19 +42,22 @@ This is one bounded review batch. Review only the provided code and report actio
 {files_text}{related_text}
 
 ## Instructions
-- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, or missing regression coverage when clearly required
-- Do not repeat issues already covered by Existing Comments
-- Do not report deleted lines as findings
-- Do not speculate beyond the shown code
-- Do not claim that a function, overload, or parameter does not exist unless the relevant declaration is clearly visible in the provided context
-- Prefer describing an observable behavior risk over making an unverified compilation claim
-- Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
-- If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
-- If there are no findings, return []
+{instructions}
 
 Respond ONLY with a valid JSON array matching this schema:
 {schema}
 """
+
+    return {
+        "pr_context": pr_context,
+        "comments": comments_json,
+        "review_axes": checklist_json,
+        "files_context": files_text,
+        "related_context": related_text,
+        "instructions": instructions,
+        "schema": schema,
+        "prompt": prompt,
+    }
 
 
 def _pr_context_to_text(batch: FocusContextBatch) -> str:
@@ -50,20 +65,14 @@ def _pr_context_to_text(batch: FocusContextBatch) -> str:
         return f"Batch {batch.batch_id}"
     pr = batch.pr_manifest
     return (
-        f"PR #{pr.number}: {pr.title}\n"
-        f"Base {pr.base} -> Head {pr.head}\n"
-        f"Batch: {batch.batch_id} | Approx chars: {batch.approximate_chars}"
+        f"PR #{pr.number}: {_short_title(pr.title)}\n"
+        f"{pr.base} -> {pr.head}\n"
+        f"Batch: {batch.batch_id}"
     )
 
 
 def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
-    return json.dumps(
-        [
-            {"id": item.id, "name": item.name, "description": item.description}
-            for item in checklist
-        ],
-        indent=2,
-    )
+    return json.dumps([str(item.id) for item in checklist[:4]], indent=2)
 
 
 def _comments_to_json(comments: list[CommentContextEntry]) -> str:
@@ -187,3 +196,20 @@ def _finding_schema() -> str:
 
 def build_default_findings() -> list[Finding]:
     return []
+
+
+def summarize_findings_prompt_parts(parts: dict[str, str]) -> dict[str, Any]:
+    """Return character counts for each prompt block."""
+    return {
+        "pr_context_chars": len(parts["pr_context"]),
+        "comment_context_chars": len(parts["comments"]),
+        "review_axes_chars": len(parts["review_axes"]),
+        "files_context_chars": len(parts["files_context"]),
+        "related_context_chars": len(parts["related_context"]),
+        "instructions_chars": len(parts["instructions"]),
+        "schema_chars": len(parts["schema"]),
+    }
+
+
+def _short_title(title: str, limit: int = 90) -> str:
+    return title if len(title) <= limit else title[: limit - 3] + "..."
