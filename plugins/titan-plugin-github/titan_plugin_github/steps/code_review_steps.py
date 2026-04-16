@@ -4,6 +4,7 @@ Steps for AI-powered PR code review.
 This module contains steps for reviewing pull requests authored by others using
 AI analysis combined with project-specific skill guidelines.
 """
+import re
 import threading
 from typing import List, Optional
 
@@ -36,6 +37,10 @@ logger = get_logger(__name__)
 
 _PROMPT_PREVIEW_CHARS = 2000
 _RESPONSE_PREVIEW_CHARS = 1500
+_STRONG_API_CLAIM_RE = re.compile(
+    r"(does not accept|does not provide|does not compile|overload|signature|parameter(?:s)? .* not)",
+    re.IGNORECASE,
+)
 
 
 def _preview_edges(text: str, limit: int) -> tuple[str, str]:
@@ -92,6 +97,49 @@ def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, ex
         stderr=stderr,
         **extra,
     )
+
+
+def _build_visible_file_context_map(batches: list) -> dict[str, str]:
+    """Flatten current review batches into a path -> visible text map."""
+    file_map: dict[str, str] = {}
+    for batch in batches or []:
+        for path, entry in batch.files_context.items():
+            parts = []
+            if entry.full_content:
+                parts.append(entry.full_content)
+            parts.extend(entry.expanded_hunks)
+            parts.extend(entry.hunks)
+            if parts:
+                file_map[path] = "\n".join(parts)
+    return file_map
+
+
+def _looks_like_contradicted_api_claim(finding, visible_content: str) -> bool:
+    """Detect strong API/signature claims contradicted by the visible code context."""
+    claim_text = " ".join(
+        part for part in (finding.title, finding.why, finding.suggested_comment) if part
+    )
+    if not _STRONG_API_CLAIM_RE.search(claim_text):
+        return False
+
+    identifiers = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", claim_text))
+    identifiers.update(re.findall(r"\b(on[A-Z][A-Za-z0-9_]+|manageResult)\b", claim_text))
+    if not identifiers:
+        return False
+
+    lower_visible = visible_content.lower()
+    if "fun " not in lower_visible:
+        return False
+
+    contradicted = any(identifier.lower() in lower_visible for identifier in identifiers)
+    if contradicted:
+        logger.info(
+            "finding_contradicted_by_visible_context",
+            path=finding.path,
+            title=finding.title,
+            identifiers=sorted(identifiers),
+        )
+    return contradicted
 
 
 # ============================================================================
@@ -1211,6 +1259,7 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Normalize Findings")
 
     raw = ctx.get("raw_findings")
+    review_batches = ctx.get("review_context_batches", [])
 
     if raw is None:
         ctx.textual.end_step("error")
@@ -1234,10 +1283,20 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     findings: list[Finding] = []
     skipped = 0
+    visible_file_context = _build_visible_file_context_map(review_batches)
 
     for i, item in enumerate(raw):
         try:
             finding = Finding.model_validate(item)
+            if finding.path in visible_file_context and _looks_like_contradicted_api_claim(
+                finding,
+                visible_file_context[finding.path],
+            ):
+                skipped += 1
+                ctx.textual.dim_text(
+                    f"⚠ Finding {i + 1} contradicted by visible code context, skipping"
+                )
+                continue
             findings.append(finding)
         except ValidationError as e:
             skipped += 1

@@ -201,6 +201,7 @@ class Finding(BaseModel):
     title: str
     why: str
     evidence: str
+    snippet: Optional[str] = None
     suggested_comment: str
 
 
@@ -257,6 +258,8 @@ class ReviewActionProposal(BaseModel):
     reasoning: str
     category: Optional[str] = None
     severity: Optional[FindingSeverity | ThreadSeverity] = None
+    anchor_snippet: Optional[str] = None
+    evidence: Optional[str] = None
     related_existing_comment_ids: list[int] = Field(default_factory=list)
 
 

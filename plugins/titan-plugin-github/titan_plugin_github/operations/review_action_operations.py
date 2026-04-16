@@ -40,6 +40,8 @@ def build_new_comment_actions(findings: List[Finding]) -> List[ReviewActionPropo
                 reasoning=finding.why,
                 category=finding.category,
                 severity=finding.severity,
+                anchor_snippet=finding.snippet,
+                evidence=finding.evidence,
             )
         )
     return actions
@@ -68,7 +70,8 @@ def build_review_action_payload(
     Returns:
         Dict with keys: commit_id, comments (list), body (str, optional)
     """
-    valid_lines = {p: set(ls) for p, ls in DiffContextManager.from_diff(diff).get_all_valid_lines().items()} if diff else {}
+    diff_manager = DiffContextManager.from_diff(diff) if diff else None
+    valid_lines = {p: set(ls) for p, ls in diff_manager.get_all_valid_lines().items()} if diff_manager else {}
     logger.info("build_review_payload_start", action_count=len(actions), files_in_diff=len(valid_lines))
     if valid_lines:
         for path, lines in valid_lines.items():  # Log TODOS los archivos
@@ -88,28 +91,43 @@ def build_review_action_payload(
             continue
 
         # new_comment — try inline first, fall back to general body
-        if action.path and action.line:
+        resolved_line = None
+        if diff_manager and action.path:
+            resolved_line = diff_manager.resolve_line_anchor(
+                action.path,
+                line=action.line,
+                snippet=action.anchor_snippet,
+                evidence=action.evidence,
+            )
+
+        if action.path and resolved_line:
             file_valid_lines = valid_lines.get(action.path, set())
             logger.info("validate_comment_action",
-                action_idx=idx, path=action.path, line=action.line,
+                action_idx=idx, path=action.path, line=action.line, resolved_line=resolved_line,
                 file_has_valid_lines=len(file_valid_lines),
-                is_valid=action.line in file_valid_lines)
-            if action.line in file_valid_lines:
+                is_valid=resolved_line in file_valid_lines)
+            if resolved_line in file_valid_lines:
                 inline_comments.append({
                     "path": action.path,
-                    "line": action.line,
+                    "line": resolved_line,
                     "side": "RIGHT",
                     "body": action.body,
                 })
-                logger.info("inline_comment_added", action_idx=idx, path=action.path, line=action.line)
+                logger.info("inline_comment_added", action_idx=idx, path=action.path, line=resolved_line)
                 continue
 
         # Fallback: include in the general review body
         location = f"**{action.path}**" if action.path else "General"
-        if action.line:
-            location += f" (line {action.line})"
+        if resolved_line or action.line:
+            location += f" (line {resolved_line or action.line})"
         general_parts.append(f"{location}:\n{action.body}")
-        logger.info("fallback_to_general_body", action_idx=idx, path=action.path, line=action.line)
+        logger.info(
+            "fallback_to_general_body",
+            action_idx=idx,
+            path=action.path,
+            line=action.line,
+            resolved_line=resolved_line,
+        )
 
     payload: Dict = {"commit_id": commit_sha, "comments": inline_comments}
     if general_parts:
@@ -141,5 +159,15 @@ def extract_diff_hunk_for_action(action: ReviewActionProposal, diff: str) -> Opt
     if not diff or not action.path or not action.line:
         return None
 
-    hunk = DiffContextManager.from_diff(diff).get_hunk_for_line(action.path, action.line)
+    diff_manager = DiffContextManager.from_diff(diff)
+    resolved_line = diff_manager.resolve_line_anchor(
+        action.path,
+        line=action.line,
+        snippet=action.anchor_snippet,
+        evidence=action.evidence,
+    )
+    if resolved_line is None:
+        return None
+
+    hunk = diff_manager.get_hunk_for_line(action.path, resolved_line, allow_fallback=False)
     return hunk.content if hunk else None

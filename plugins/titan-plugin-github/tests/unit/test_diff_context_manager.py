@@ -136,6 +136,12 @@ class TestMultiHunkParsing:
         assert hunk is not None
         assert hunk.new_line_start == 1
 
+    def test_get_hunk_for_line_strict_returns_none(self):
+        """Strict mode should not fall back to another hunk."""
+        mgr = DiffContextManager.from_diff(MULTI_HUNK_DIFF)
+        hunk = mgr.get_hunk_for_line("src/bar.py", 999, allow_fallback=False)
+        assert hunk is None
+
 
 # ---------------------------------------------------------------------------
 # Valid review lines — añadidas vs borradas
@@ -210,6 +216,12 @@ class TestFindLineBySnippet:
         """Should return None when the file is not in the diff."""
         mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
         assert mgr.find_line_by_snippet("unknown.py", "hello") is None
+
+    def test_resolve_line_anchor_prefers_snippet(self):
+        """resolve_line_anchor should use snippet before trusting the AI line."""
+        mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
+        line = mgr.resolve_line_anchor("src/foo.py", line=999, snippet='print("world")')
+        assert line == 12
 
 
 # ---------------------------------------------------------------------------

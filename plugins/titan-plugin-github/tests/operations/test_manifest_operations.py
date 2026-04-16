@@ -67,3 +67,26 @@ def test_build_comment_review_context_summarizes_long_threads():
     assert len(context) == 1
     assert context[0].kind == CommentContextKind.THREAD_SUMMARY
     assert "Latest reply" in context[0].summary
+
+
+def test_build_comment_review_context_filters_automated_comments():
+    bot_comment = UIComment(
+        id=3,
+        body="<!-- 0 Errors 5 Warnings --><table><tr><td>Danger report</td></tr></table>",
+        author_login="danger[bot]",
+        author_name="Danger",
+        formatted_date="2026-01-03",
+        path=None,
+        line=None,
+    )
+    thread = UICommentThread(
+        thread_id="general_3",
+        main_comment=bot_comment,
+        replies=[],
+        is_resolved=False,
+        is_outdated=False,
+    )
+
+    context = build_comment_review_context([], [thread], max_entries=5, max_chars=1000)
+
+    assert context == []

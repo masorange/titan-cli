@@ -34,6 +34,9 @@ This is one bounded review batch. Review only the provided code and report actio
 - Do not repeat issues already covered by Existing Comments
 - Do not report deleted lines as findings
 - Do not speculate beyond the shown code
+- Do not claim that a function, overload, or parameter does not exist unless the relevant declaration is clearly visible in the provided context
+- Prefer describing an observable behavior risk over making an unverified compilation claim
+- Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
 - If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
 - If there are no findings, return []
 
@@ -174,6 +177,7 @@ def _finding_schema() -> str:
                 "title": "<short actionable title>",
                 "why": "<why this is a problem>",
                 "evidence": "<exact supporting snippet>",
+                "snippet": "<short anchor snippet from the target line or null>",
                 "suggested_comment": "<ready-to-post GitHub review comment>",
             }
         ],
