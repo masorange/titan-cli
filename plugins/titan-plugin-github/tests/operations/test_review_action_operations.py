@@ -4,7 +4,9 @@ from titan_plugin_github.operations.review_action_operations import (
     build_new_comment_actions,
     build_review_action_payload,
     extract_diff_hunk_for_action,
+    resolve_action_anchors,
 )
+from titan_plugin_github.widgets.comment_view import CommentView
 
 
 DIFF = """\
@@ -72,3 +74,44 @@ def test_extract_diff_hunk_for_action_returns_none_without_resolved_anchor():
     )
 
     assert extract_diff_hunk_for_action(action, DIFF) is None
+
+
+def test_resolve_action_anchors_persists_resolved_line():
+    action = ReviewActionProposal(
+        action_type=ReviewActionType.NEW_COMMENT,
+        source=ReviewActionSource.NEW_FINDING,
+        path="src/foo.py",
+        line=999,
+        original_line=999,
+        title="Test",
+        body="Comment body",
+        reasoning="Why",
+        anchor_snippet='print("world")',
+        evidence='print("world")',
+    )
+
+    resolved = resolve_action_anchors([action], DIFF)[0]
+
+    assert resolved.resolved_line == 12
+    assert resolved.original_line == 999
+    assert resolved.resolution_source == "snippet"
+
+
+def test_comment_view_from_action_prefers_resolved_line_label():
+    action = ReviewActionProposal(
+        action_type=ReviewActionType.NEW_COMMENT,
+        source=ReviewActionSource.NEW_FINDING,
+        path="src/foo.py",
+        line=999,
+        original_line=999,
+        resolved_line=12,
+        resolution_source="snippet",
+        title="Test",
+        body="Comment body",
+        reasoning="Why",
+    )
+
+    view = CommentView.from_action(action, diff_hunk="@@ -10,1 +10,2 @@")
+
+    assert view.line == 12
+    assert view.line_label == "Line 12 (AI 999 via snippet)"

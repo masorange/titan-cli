@@ -251,6 +251,9 @@ class ReviewActionProposal(BaseModel):
     source: ReviewActionSource
     path: Optional[str] = None
     line: Optional[int] = None
+    original_line: Optional[int] = None
+    resolved_line: Optional[int] = None
+    resolution_source: Optional[str] = None
     thread_id: Optional[str] = None
     comment_id: Optional[int] = None
     title: str

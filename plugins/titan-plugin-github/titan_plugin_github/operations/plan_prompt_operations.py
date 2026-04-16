@@ -11,7 +11,7 @@ from ..models.review_models import (
     ReviewStrategy,
     ScoredReviewCandidate,
 )
-from .review_strategy_operations import build_deterministic_review_plan
+from .review_strategy_operations import build_deterministic_review_plan, summarize_candidate_clusters
 
 
 def build_review_plan_prompt(
@@ -26,6 +26,7 @@ def build_review_plan_prompt(
     comments_json = _comments_to_json(comments)
     checklist_json = _checklist_to_json(checklist)
     candidates_json = _candidates_to_json(candidates[: strategy.max_focus_files + 4])
+    candidate_clusters_json = _candidate_clusters_to_json(candidates)
     excluded_json = _excluded_to_json(excluded_files[:10])
     schema = _review_plan_schema()
 
@@ -43,6 +44,9 @@ Use the candidate ranking as your starting point. Do not expand the focus unnece
 
 ## Ranked Candidate Files
 {candidates_json}
+
+## Repeated Candidate Groups
+{candidate_clusters_json}
 
 ## Already Deprioritized Files
 {excluded_json}
@@ -90,7 +94,7 @@ def _manifest_to_json(manifest: ChangeManifest) -> str:
             "files_changed": len(manifest.files),
             "total_additions": manifest.total_additions,
             "total_deletions": manifest.total_deletions,
-            "files": [
+            "top_changed_files": [
                 {
                     "path": f.path,
                     "status": f.status,
@@ -103,8 +107,9 @@ def _manifest_to_json(manifest: ChangeManifest) -> str:
                     "is_lockfile": f.is_lockfile,
                     "is_rename_only": f.is_rename_only,
                 }
-                for f in manifest.files
+                for f in sorted(manifest.files, key=lambda item: item.total_changes, reverse=True)[:12]
             ],
+            "remaining_file_count": max(0, len(manifest.files) - 12),
         },
         indent=2,
     )
@@ -162,6 +167,10 @@ def _excluded_to_json(excluded_files: list[ExcludedFileEntry]) -> str:
         ],
         indent=2,
     )
+
+
+def _candidate_clusters_to_json(candidates: list[ScoredReviewCandidate]) -> str:
+    return json.dumps(summarize_candidate_clusters(candidates), indent=2)
 
 
 def _review_plan_schema() -> str:

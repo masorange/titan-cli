@@ -5,6 +5,7 @@ from titan_plugin_github.operations.review_strategy_operations import (
     classify_pr,
     score_review_candidates,
     select_review_strategy,
+    summarize_candidate_clusters,
 )
 
 
@@ -69,3 +70,29 @@ def test_deterministic_plan_respects_focus_limit(sample_ui_pr):
     assert strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS
     assert len(plan.focus_files) == strategy.max_focus_files
     assert len(plan.excluded_files) == len(excluded) + max(0, len(candidates) - strategy.max_focus_files)
+
+
+def test_summarize_candidate_clusters_detects_repeated_callsites():
+    files = [
+        ChangedFileEntry(
+            path="app/src/main/kotlin/com/foo/utils/CustomTabsUtils.kt",
+            status="modified",
+            additions=50,
+            deletions=4,
+        )
+    ]
+    files.extend(
+        ChangedFileEntry(
+            path=f"app/src/main/kotlin/com/foo/ui/screens/Screen{idx}.kt",
+            status="modified",
+            additions=4,
+            deletions=2,
+        )
+        for idx in range(5)
+    )
+    manifest = make_manifest(files)
+
+    candidates, _ = score_review_candidates(manifest)
+    clusters = summarize_candidate_clusters(candidates)
+
+    assert any(cluster["group"] == "repeated_callsite" for cluster in clusters)

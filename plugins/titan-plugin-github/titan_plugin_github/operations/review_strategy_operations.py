@@ -53,6 +53,7 @@ def score_review_candidates(
 ) -> tuple[list[ScoredReviewCandidate], list[ExcludedFileEntry]]:
     candidates: list[ScoredReviewCandidate] = []
     excluded: list[ExcludedFileEntry] = []
+    repeated_callsite_paths = _detect_repeated_callsite_paths(manifest)
 
     for entry in manifest.files:
         reasons: list[str] = []
@@ -115,6 +116,14 @@ def score_review_candidates(
             score += 5
             reasons.append("security or access-sensitive area")
 
+        if any(token in path_lower for token in ("util", "interceptor", "configuration", "intent")):
+            score += 5
+            reasons.append("shared helper or policy surface")
+
+        if entry.path in repeated_callsite_paths:
+            score -= 2
+            reasons.append("repeated call-site migration")
+
         if entry.is_config and entry.total_changes <= 10:
             excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.LOW_SIGNAL_CONFIG))
             continue
@@ -152,6 +161,28 @@ def score_review_candidates(
 
     candidates.sort(key=lambda item: (item.score, item.priority == FileReviewPriority.HIGH), reverse=True)
     return candidates, excluded
+
+
+def summarize_candidate_clusters(candidates: list[ScoredReviewCandidate]) -> list[dict]:
+    """Build a compact summary of repeated candidate groups for planning prompts."""
+    clusters: dict[str, list[ScoredReviewCandidate]] = {}
+    for candidate in candidates:
+        group = _candidate_group(candidate.path)
+        clusters.setdefault(group, []).append(candidate)
+
+    summary: list[dict] = []
+    for group, grouped_candidates in clusters.items():
+        if len(grouped_candidates) < 3:
+            continue
+        summary.append(
+            {
+                "group": group,
+                "count": len(grouped_candidates),
+                "representatives": [candidate.path for candidate in grouped_candidates[:3]],
+            }
+        )
+    summary.sort(key=lambda item: item["count"], reverse=True)
+    return summary[:5]
 
 
 def select_review_strategy(classification: PRClassification) -> ReviewStrategy:
@@ -275,3 +306,26 @@ def _select_review_axes(
     if not selected:
         selected = [ChecklistCategory.FUNCTIONAL_CORRECTNESS, ChecklistCategory.ERROR_HANDLING]
     return selected[:5]
+
+
+def _detect_repeated_callsite_paths(manifest: ChangeManifest) -> set[str]:
+    repeated: set[str] = set()
+    callsite_like = [
+        entry for entry in manifest.files
+        if _candidate_group(entry.path) == "repeated_callsite" and entry.total_changes <= 20
+    ]
+    if len(callsite_like) < 4:
+        return repeated
+    repeated.update(entry.path for entry in callsite_like)
+    return repeated
+
+
+def _candidate_group(path: str) -> str:
+    path_lower = path.lower()
+    if any(token in path_lower for token in ("/utils/", "/configuration/", "/interceptors/", "intentutils", "customtabsutils")):
+        return "central_behavior"
+    if any(token in path_lower for token in ("mainactivity", "dispatcher", "listener")):
+        return "entrypoint"
+    if any(token in path_lower for token in ("screen", "successscreen", "components", "content", "dialog")):
+        return "repeated_callsite"
+    return "other"

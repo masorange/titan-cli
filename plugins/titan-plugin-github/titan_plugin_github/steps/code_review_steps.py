@@ -6,6 +6,7 @@ AI analysis combined with project-specific skill guidelines.
 """
 import re
 import threading
+from difflib import SequenceMatcher
 from typing import List, Optional
 
 from titan_cli.core.logging import get_logger
@@ -25,6 +26,7 @@ from ..operations.review_action_operations import (
     build_new_comment_actions as _build_new_comment_actions,
     build_review_action_payload,
     extract_diff_hunk_for_action,
+    resolve_action_anchors,
 )
 from ..operations.thread_resolution_operations import (
     build_thread_review_candidates as _build_thread_review_candidates,
@@ -41,6 +43,7 @@ _STRONG_API_CLAIM_RE = re.compile(
     r"(does not accept|does not provide|does not compile|overload|signature|parameter(?:s)? .* not)",
     re.IGNORECASE,
 )
+_CENTRAL_PATH_HINTS = ("/utils/", "/configuration/", "/interceptors/", "/base/", "Utils.kt", "Configuration.kt")
 
 
 def _preview_edges(text: str, limit: int) -> tuple[str, str]:
@@ -140,6 +143,56 @@ def _looks_like_contradicted_api_claim(finding, visible_content: str) -> bool:
             identifiers=sorted(identifiers),
         )
     return contradicted
+
+
+def _collapse_derived_findings(findings: list) -> tuple[list, int]:
+    """Drop call-site findings that are derived from a stronger central finding."""
+    central_findings = [finding for finding in findings if _is_central_path(finding.path)]
+    if not central_findings:
+        return findings, 0
+
+    kept: list = []
+    removed = 0
+    for finding in findings:
+        if _is_central_path(finding.path):
+            kept.append(finding)
+            continue
+
+        if any(_is_derived_from_central(finding, central) for central in central_findings):
+            removed += 1
+            logger.info(
+                "finding_collapsed_to_root_cause",
+                path=finding.path,
+                title=finding.title,
+            )
+            continue
+
+        kept.append(finding)
+    return kept, removed
+
+
+def _is_central_path(path: str) -> bool:
+    return any(hint in path for hint in _CENTRAL_PATH_HINTS)
+
+
+def _is_derived_from_central(finding, central) -> bool:
+    if finding.path == central.path:
+        return False
+    if finding.category != central.category:
+        return False
+
+    finding_text = " ".join(filter(None, [finding.title, finding.why, finding.evidence, finding.suggested_comment])).lower()
+    central_text = " ".join(filter(None, [central.title, central.why, central.evidence, central.suggested_comment])).lower()
+
+    central_stem = central.path.split("/")[-1].replace(".kt", "").replace(".py", "").lower()
+    shared_api = any(
+        token in finding_text and token in central_text
+        for token in ("launchcustomtab", "openurlordialog", "checkinternalorexternaluri", "ishostallowed", "onopenfailed", "onopensuccess")
+    )
+    mentions_central = central_stem in finding_text or central_stem in central_text
+    title_similarity = SequenceMatcher(None, finding.title.lower(), central.title.lower()).ratio()
+
+    return (shared_api or mentions_central) and title_similarity >= 0.32
 
 
 # ============================================================================
@@ -1360,6 +1413,9 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
             deduped.append(finding)
             seen_keys.add(key)
 
+    deduped, collapsed = _collapse_derived_findings(deduped)
+    removed += collapsed
+
     ctx.data["deduped_findings"] = deduped
 
     summary = f"✓ {len(deduped)} finding(s) ready"
@@ -1441,8 +1497,10 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     # Sort by severity: blocking → important → nit
     severity_order = {"blocking": 0, "important": 1, "nit": 2}
+    resolved_actions = resolve_action_anchors(actions, diff)
+
     sorted_actions = sorted(
-        actions,
+        resolved_actions,
         key=lambda a: severity_order.get(a.severity.value if a.severity else "", 99),
     )
 

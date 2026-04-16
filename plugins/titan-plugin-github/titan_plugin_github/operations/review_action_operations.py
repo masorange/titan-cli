@@ -35,6 +35,7 @@ def build_new_comment_actions(findings: List[Finding]) -> List[ReviewActionPropo
                 source=ReviewActionSource.NEW_FINDING,
                 path=finding.path,
                 line=finding.line,
+                original_line=finding.line,
                 title=finding.title,
                 body=finding.suggested_comment,
                 reasoning=finding.why,
@@ -91,9 +92,9 @@ def build_review_action_payload(
             continue
 
         # new_comment — try inline first, fall back to general body
-        resolved_line = None
+        resolved_line = action.resolved_line
         if diff_manager and action.path:
-            resolved_line = diff_manager.resolve_line_anchor(
+            resolved_line = resolved_line or diff_manager.resolve_line_anchor(
                 action.path,
                 line=action.line,
                 snippet=action.anchor_snippet,
@@ -118,8 +119,9 @@ def build_review_action_payload(
 
         # Fallback: include in the general review body
         location = f"**{action.path}**" if action.path else "General"
-        if resolved_line or action.line:
-            location += f" (line {resolved_line or action.line})"
+        display_line = resolved_line or action.line
+        if display_line:
+            location += f" (line {display_line})"
         general_parts.append(f"{location}:\n{action.body}")
         logger.info(
             "fallback_to_general_body",
@@ -160,7 +162,7 @@ def extract_diff_hunk_for_action(action: ReviewActionProposal, diff: str) -> Opt
         return None
 
     diff_manager = DiffContextManager.from_diff(diff)
-    resolved_line = diff_manager.resolve_line_anchor(
+    resolved_line = action.resolved_line or diff_manager.resolve_line_anchor(
         action.path,
         line=action.line,
         snippet=action.anchor_snippet,
@@ -171,3 +173,47 @@ def extract_diff_hunk_for_action(action: ReviewActionProposal, diff: str) -> Opt
 
     hunk = diff_manager.get_hunk_for_line(action.path, resolved_line, allow_fallback=False)
     return hunk.content if hunk else None
+
+
+def resolve_action_anchors(
+    actions: List[ReviewActionProposal],
+    diff: str,
+) -> List[ReviewActionProposal]:
+    """Return actions enriched with resolved inline anchors for UI and submission."""
+    if not diff:
+        return actions
+
+    diff_manager = DiffContextManager.from_diff(diff)
+    resolved_actions: List[ReviewActionProposal] = []
+    for action in actions:
+        if not action.path:
+            resolved_actions.append(action)
+            continue
+
+        resolved_line = diff_manager.resolve_line_anchor(
+            action.path,
+            line=action.line,
+            snippet=action.anchor_snippet,
+            evidence=action.evidence,
+        )
+        resolution_source = None
+        if resolved_line is not None:
+            if action.anchor_snippet and diff_manager.find_line_by_snippet(action.path, action.anchor_snippet) == resolved_line:
+                resolution_source = "snippet"
+            elif action.evidence and diff_manager.find_line_by_snippet(action.path, action.evidence) == resolved_line:
+                resolution_source = "evidence"
+            elif action.line == resolved_line:
+                resolution_source = "validated_line"
+            else:
+                resolution_source = "resolved"
+
+        resolved_actions.append(
+            action.model_copy(
+                update={
+                    "original_line": action.original_line or action.line,
+                    "resolved_line": resolved_line,
+                    "resolution_source": resolution_source,
+                }
+            )
+        )
+    return resolved_actions
