@@ -69,6 +69,7 @@ class FileReadMode(StrEnum):
     HUNKS_ONLY = "hunks_only"
     EXPANDED_HUNKS = "expanded_hunks"
     FULL_FILE = "full_file"
+    WORKTREE_REFERENCE = "worktree_reference"
 
 
 class PRSizeClass(StrEnum):

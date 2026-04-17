@@ -286,9 +286,14 @@ class FileContextEntry(BaseModel):
     """Extracted context for one focused file."""
 
     path: str
+    read_mode: Optional[FileReadMode] = None
     full_content: Optional[str] = None
     hunks: list[str] = Field(default_factory=list)
     expanded_hunks: list[str] = Field(default_factory=list)
+    worktree_reference: bool = False
+    review_hint: str = ""
+    changed_hunk_headers: list[str] = Field(default_factory=list)
+    approximate_chars: int = 0
 
 
 class FocusContextBatch(BaseModel):
@@ -302,6 +307,10 @@ class FocusContextBatch(BaseModel):
     excluded_files: list[ExcludedFileEntry] = Field(default_factory=list)
     pr_manifest: Optional[PullRequestManifest] = None
     approximate_chars: int = 0
+    prompt_budget_target_chars: int = 0
+    prompt_actual_chars: int = 0
+    prompt_still_too_large: bool = False
+    degraded_context: bool = False
 
 
 class ReviewContextPackage(BaseModel):

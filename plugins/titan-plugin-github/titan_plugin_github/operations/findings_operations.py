@@ -104,7 +104,14 @@ def _files_context_to_text(files_context: dict) -> str:
     parts: list[str] = []
     for path, entry in files_context.items():
         parts.append(f"### {path}")
-        if entry.full_content:
+        if entry.worktree_reference:
+            parts.append("Read from worktree instead of inline context.")
+            if entry.review_hint:
+                parts.append(entry.review_hint)
+            if entry.changed_hunk_headers:
+                parts.append("Changed regions to inspect first:")
+                parts.extend(f"- {header}" for header in entry.changed_hunk_headers)
+        elif entry.full_content:
             parts.append("```")
             parts.append(_add_line_numbers(entry.full_content))
             parts.append("```")

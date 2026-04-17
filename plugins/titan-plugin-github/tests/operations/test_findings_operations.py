@@ -82,3 +82,30 @@ def test_summarize_findings_prompt_parts_returns_char_breakdown():
         "instructions_chars": 5,
         "schema_chars": 2,
     }
+
+
+def test_build_findings_prompt_parts_renders_worktree_reference():
+    batch = FocusContextBatch(
+        batch_id="batch_2",
+        files_context={
+            "src/big.py": FileContextEntry(
+                path="src/big.py",
+                worktree_reference=True,
+                review_hint="Read this file from the worktree and inspect the changed regions first.",
+                changed_hunk_headers=["@@ -10,20 +10,30 @@", "@@ -80,5 +90,12 @@"],
+            )
+        },
+        checklist_applicable=[
+            ReviewChecklistItem(
+                id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+                name="Functional",
+                description="desc",
+            )
+        ],
+    )
+
+    parts = build_findings_prompt_parts(batch)
+
+    assert "Read from worktree instead of inline context." in parts["files_context"]
+    assert "Changed regions to inspect first:" in parts["files_context"]
+    assert "@@ -10,20 +10,30 @@" in parts["files_context"]
