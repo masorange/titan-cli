@@ -99,6 +99,29 @@ def test_build_comment_review_context_filters_automated_comments():
     assert context == []
 
 
+def test_build_comment_review_context_filters_wiz_html_comments():
+    bot_like_comment = UIComment(
+        id=4,
+        body='<a><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.wiz.io/wiz-code/long_severity_tags/low_dark.svg"></picture></a>',
+        author_login="security-scanner",
+        author_name="Scanner",
+        formatted_date="2026-01-03",
+        path=None,
+        line=None,
+    )
+    thread = UICommentThread(
+        thread_id="general_4",
+        main_comment=bot_like_comment,
+        replies=[],
+        is_resolved=False,
+        is_outdated=False,
+    )
+
+    context = build_comment_review_context([], [thread], max_entries=5, max_chars=1000)
+
+    assert context == []
+
+
 def test_build_comment_review_context_skips_adjudicated_resolved_threads():
     main = UIComment(
         id=10,

@@ -232,6 +232,52 @@ def _fit_batch_to_budget(batch, prompt_parts: dict[str, str], budget_chars: int)
     return [oversized], False
 
 
+def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payload: dict) -> tuple[dict, list[dict]]:
+    """Probe inline comments individually, keep only those GitHub accepts."""
+    if not ctx.github or not payload.get("comments"):
+        return payload, []
+
+    valid_comments: list[dict] = []
+    rejected_comments: list[dict] = []
+
+    for comment in payload.get("comments", []):
+        probe_payload = {
+            "commit_id": payload["commit_id"],
+            "comments": [comment],
+        }
+        probe_result = ctx.github.create_draft_review(pr_number, probe_payload)
+        match probe_result:
+            case ClientSuccess(data=probe_review_id):
+                valid_comments.append(comment)
+                delete_result = ctx.github.delete_review(pr_number, probe_review_id)
+                match delete_result:
+                    case ClientError(error_message=err):
+                        logger.warning(
+                            "probe_review_delete_failed",
+                            pr_number=pr_number,
+                            review_id=probe_review_id,
+                            error=err,
+                        )
+            case ClientError(error_message=err):
+                rejected = {**comment, "error": err}
+                rejected_comments.append(rejected)
+                logger.warning(
+                    "inline_comment_rejected_by_github",
+                    pr_number=pr_number,
+                    path=comment.get("path"),
+                    line=comment.get("line"),
+                    error=err,
+                )
+
+    filtered_payload = {
+        "commit_id": payload["commit_id"],
+        "comments": valid_comments,
+    }
+    if payload.get("body"):
+        filtered_payload["body"] = payload["body"]
+    return filtered_payload, rejected_comments
+
+
 def _collapse_derived_findings(findings: list) -> tuple[list, int]:
     """Drop call-site findings that are derived from a stronger central finding."""
     central_findings = [finding for finding in findings if _is_central_path(finding.path)]
@@ -1939,9 +1985,52 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         case ClientSuccess(data=review_id):
             ctx.textual.success_text(f"✓ Review #{review_id} created")
         case ClientError(error_message=err):
-            ctx.textual.error_text(f"Failed to create review: {err}")
-            ctx.textual.end_step("error")
-            return Error(f"Failed to create draft review: {err}")
+            logger.error(
+                "draft_review_creation_failed",
+                pr_number=pr_number,
+                error=err,
+                inline_comment_count=len(payload.get("comments", [])),
+            )
+            if payload.get("comments"):
+                ctx.textual.warning_text("Draft review failed. Probing inline comments individually...")
+                filtered_payload, rejected_comments = _filter_invalid_inline_comments(ctx, pr_number, payload)
+                if rejected_comments:
+                    ctx.textual.warning_text(
+                        f"Filtered out {len(rejected_comments)} inline comment(s) rejected by GitHub"
+                    )
+                    for comment in rejected_comments:
+                        ctx.textual.dim_text(f"Rejected: {comment.get('path')}:{comment.get('line')}")
+                    logger.info(
+                        "inline_comments_filtered_after_422",
+                        pr_number=pr_number,
+                        rejected_count=len(rejected_comments),
+                        valid_count=len(filtered_payload.get("comments", [])),
+                    )
+                    if filtered_payload.get("comments") or filtered_payload.get("body"):
+                        payload = filtered_payload
+                        with ctx.textual.loading("Retrying review creation with valid comments only..."):
+                            retry_result = ctx.github.create_draft_review(pr_number, payload)
+                        match retry_result:
+                            case ClientSuccess(data=review_id):
+                                ctx.textual.success_text(
+                                    f"✓ Review #{review_id} created after filtering invalid comments"
+                                )
+                            case ClientError(error_message=retry_err):
+                                ctx.textual.error_text(f"Failed to create review: {retry_err}")
+                                ctx.textual.end_step("error")
+                                return Error(f"Failed to create draft review: {retry_err}")
+                    else:
+                        ctx.textual.error_text(f"Failed to create review: {err}")
+                        ctx.textual.end_step("error")
+                        return Error(f"Failed to create draft review: {err}")
+                else:
+                    ctx.textual.error_text(f"Failed to create review: {err}")
+                    ctx.textual.end_step("error")
+                    return Error(f"Failed to create draft review: {err}")
+            else:
+                ctx.textual.error_text(f"Failed to create review: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to create draft review: {err}")
 
     with ctx.textual.loading("Submitting review..."):
         submit_result = ctx.github.submit_review(pr_number, review_id, event, review_body)

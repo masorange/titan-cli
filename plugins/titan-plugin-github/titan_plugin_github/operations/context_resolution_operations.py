@@ -301,7 +301,11 @@ def _looks_like_central_file(path: str) -> bool:
 
 def _build_worktree_hint(file_plan: FileReviewPlan) -> str:
     reasons = "; ".join(file_plan.reasons[:2]) if file_plan.reasons else "central changed file"
-    return f"Read this file from the worktree. Prioritize the changed regions first and validate: {reasons}."
+    return (
+        "Read this file from the worktree. Prioritize the changed regions first and validate: "
+        f"{reasons}. Check especially for semantic mismatches, missing guarantees, state inconsistencies, "
+        "and behavior changes that remain executable but no longer mean the same thing."
+    )
 
 
 def _estimate_related_chars(related_files: dict[str, str]) -> int:
