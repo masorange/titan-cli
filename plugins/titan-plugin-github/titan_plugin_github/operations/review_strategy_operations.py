@@ -125,11 +125,25 @@ def score_review_candidates(
             "manager",
             "api",
             "router",
+            "mapper",
+            "serializer",
+            "formatter",
+            "adapter",
+            "converter",
+            "event",
+            "classification",
+            "normalizer",
+            "parser",
+            "model",
         ]
         matched_tokens = [token for token in domain_tokens if token in path_lower]
         if matched_tokens:
             score += 4
             reasons.append(f"domain-critical path ({', '.join(matched_tokens[:3])})")
+
+        if any(token in path_lower for token in ("mapper", "serializer", "formatter", "adapter", "converter", "event", "classification", "normalizer", "parser", "model")):
+            score += 3
+            reasons.append("semantic mapping surface")
 
         if any(token in path_lower for token in ("auth", "permission", "security", "payment", "billing")):
             score += 5
@@ -318,6 +332,20 @@ def _select_review_axes(
         if item.id in (ChecklistCategory.FUNCTIONAL_CORRECTNESS, ChecklistCategory.ERROR_HANDLING):
             selected.append(item.id)
             continue
+        if item.id == ChecklistCategory.SEMANTIC_CORRECTNESS and any(
+            token in path
+            for path in candidate_paths
+            for token in ("mapper", "serializer", "formatter", "adapter", "converter", "event", "classification", "normalizer", "parser", "model")
+        ):
+            selected.append(item.id)
+            continue
+        if item.id == ChecklistCategory.STATE_CONSISTENCY and any(
+            token in path
+            for path in candidate_paths
+            for token in ("state", "result", "status", "callback", "listener", "event", "store")
+        ):
+            selected.append(item.id)
+            continue
         if item.id == ChecklistCategory.TEST_COVERAGE and any("test" in path or "spec" in path for path in candidate_paths):
             selected.append(item.id)
             continue
@@ -333,7 +361,7 @@ def _select_review_axes(
 
     if not selected:
         selected = [ChecklistCategory.FUNCTIONAL_CORRECTNESS, ChecklistCategory.ERROR_HANDLING]
-    return selected[:5]
+    return selected[:4]
 
 
 def _detect_repeated_callsite_paths(manifest: ChangeManifest) -> set[str]:

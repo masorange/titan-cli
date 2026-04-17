@@ -1,4 +1,5 @@
-from titan_plugin_github.models.review_enums import ExclusionReason, PRSizeClass, ReviewStrategyType
+from titan_plugin_github.models.review_enums import ChecklistCategory, ExclusionReason, PRSizeClass, ReviewStrategyType
+from titan_plugin_github.models.review_models import ReviewChecklistItem
 from titan_plugin_github.models.review_models import ChangeManifest, ChangedFileEntry, PullRequestManifest
 from titan_plugin_github.operations.review_strategy_operations import (
     build_deterministic_review_plan,
@@ -123,3 +124,46 @@ def test_summarize_candidate_clusters_detects_repeated_callsites():
     clusters = summarize_candidate_clusters(candidates)
 
     assert any(cluster["group"] == "repeated_callsite" for cluster in clusters)
+
+
+def test_score_review_candidates_prioritizes_semantic_mapping_surfaces():
+    manifest = make_manifest(
+        [
+            ChangedFileEntry(path="src/RecordedEventMapper.kt", status="modified", additions=12, deletions=4),
+            ChangedFileEntry(path="src/FooScreen.kt", status="modified", additions=12, deletions=4),
+        ]
+    )
+
+    candidates, _ = score_review_candidates(manifest)
+
+    assert candidates[0].path == "src/RecordedEventMapper.kt"
+    assert "semantic mapping surface" in candidates[0].reasons
+
+
+def test_deterministic_plan_can_select_semantic_axes():
+    manifest = make_manifest(
+        [ChangedFileEntry(path="src/RecordedAnalyticsEvent.kt", status="modified", additions=18, deletions=3)]
+    )
+    candidates, excluded = score_review_candidates(manifest)
+    strategy = select_review_strategy(classify_pr(manifest))
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional Correctness",
+            description="desc",
+        ),
+        ReviewChecklistItem(
+            id=ChecklistCategory.ERROR_HANDLING,
+            name="Error Handling",
+            description="desc",
+        ),
+        ReviewChecklistItem(
+            id=ChecklistCategory.SEMANTIC_CORRECTNESS,
+            name="Semantic Correctness",
+            description="desc",
+        ),
+    ]
+
+    plan = build_deterministic_review_plan(candidates, excluded, checklist, strategy)
+
+    assert ChecklistCategory.SEMANTIC_CORRECTNESS in plan.review_axes

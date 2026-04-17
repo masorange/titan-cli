@@ -11,6 +11,8 @@ class ChecklistCategory(StrEnum):
     """Review checklist categories offered to AI during review planning."""
     FUNCTIONAL_CORRECTNESS = "functional_correctness"
     ERROR_HANDLING = "error_handling"
+    SEMANTIC_CORRECTNESS = "semantic_correctness"
+    STATE_CONSISTENCY = "state_consistency"
     TEST_COVERAGE = "test_coverage"
     SECURITY = "security"
     PERFORMANCE = "performance"

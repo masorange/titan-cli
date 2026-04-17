@@ -55,6 +55,8 @@ def test_build_findings_prompt_parts_compacts_axes_and_pr_context():
     assert "Long description" not in parts["review_axes"]
     assert "Base" not in parts["pr_context"]
     assert "Batch: batch_1" in parts["pr_context"]
+    assert "observable meaning of data, events, labels, classifications, or results" in parts["instructions"]
+    assert "Do not report code style preferences" in parts["instructions"]
 
 
 def test_summarize_findings_prompt_parts_returns_char_breakdown():

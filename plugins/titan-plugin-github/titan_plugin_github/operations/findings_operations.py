@@ -15,12 +15,16 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     pr_context = _pr_context_to_text(batch)
     schema = _finding_schema()
 
-    instructions = """- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, or missing regression coverage when clearly required
+    instructions = """- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
+- Also report changes that preserve execution but alter the observable meaning of data, events, labels, classifications, or results
+- Also report changes that degrade fidelity of recorded, serialized, converted, or displayed data even if the code still runs
+- Also report changes that remove an important previous guarantee such as success/failure signaling, fallback behavior, or state consistency
 - Do not repeat issues already covered by Existing Comments
 - Do not report deleted lines as findings
 - Do not speculate beyond the shown code
 - Do not claim that a function, overload, or parameter does not exist unless the relevant declaration is clearly visible in the provided context
 - Prefer describing an observable behavior risk over making an unverified compilation claim
+- Do not report code style preferences, refactor suggestions, architecture preferences, or naming opinions without observable impact
 - Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
 - If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
 - If there are no findings, return []"""
