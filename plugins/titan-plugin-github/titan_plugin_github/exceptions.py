@@ -9,7 +9,19 @@ class GitHubAuthenticationError(GitHubError):
 
 class GitHubAPIError(GitHubError):
     """Raised when a GitHub API call or gh CLI command fails."""
-    pass
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stderr: str | None = None,
+        stdout: str | None = None,
+        exit_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.stderr = stderr
+        self.stdout = stdout
+        self.exit_code = exit_code
 
 class PRNotFoundError(GitHubAPIError):
     """Raised when a specified Pull Request is not found."""

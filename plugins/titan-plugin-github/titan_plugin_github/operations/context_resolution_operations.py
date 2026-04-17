@@ -196,17 +196,19 @@ def _resolve_file_context(
     desired_mode = file_plan.read_mode
     hunk_headers = [hunk.header for hunk in manager.get_hunks(file_plan.path)[:5]]
     file_limits = _file_limits(strategy, file_plan.path)
+    resolved_entry: FileContextEntry | None = None
 
     if desired_mode == FileReadMode.FULL_FILE:
         content = read_file_content(file_plan.path, cwd)
         if content and len(content) <= file_limits["max_file_chars"] and len(content.splitlines()) <= file_limits["max_file_lines"]:
-            return FileContextEntry(
+            resolved_entry = FileContextEntry(
                 path=file_plan.path,
                 read_mode=FileReadMode.FULL_FILE,
                 full_content=content,
                 changed_hunk_headers=hunk_headers,
                 approximate_chars=len(content),
             )
+            return _log_file_context(resolved_entry, file_plan.path)
         desired_mode = FileReadMode.EXPANDED_HUNKS
 
     if desired_mode == FileReadMode.EXPANDED_HUNKS:
@@ -222,28 +224,30 @@ def _resolve_file_context(
         )
         expanded_chars = sum(len(hunk) for hunk in expanded)
         if expanded and expanded_chars <= file_limits["max_file_chars"]:
-            return FileContextEntry(
+            resolved_entry = FileContextEntry(
                 path=file_plan.path,
                 read_mode=FileReadMode.EXPANDED_HUNKS,
                 expanded_hunks=expanded,
                 changed_hunk_headers=hunk_headers,
                 approximate_chars=expanded_chars,
             )
+            return _log_file_context(resolved_entry, file_plan.path)
         desired_mode = FileReadMode.HUNKS_ONLY
 
     if desired_mode == FileReadMode.HUNKS_ONLY:
         hunks = manager.get_hunk_texts(file_plan.path)
         hunks_chars = sum(len(hunk) for hunk in hunks)
         if hunks and hunks_chars <= file_limits["max_file_chars"]:
-            return FileContextEntry(
+            resolved_entry = FileContextEntry(
                 path=file_plan.path,
                 read_mode=FileReadMode.HUNKS_ONLY,
                 hunks=hunks,
                 changed_hunk_headers=hunk_headers,
                 approximate_chars=hunks_chars,
             )
+            return _log_file_context(resolved_entry, file_plan.path)
 
-    return FileContextEntry(
+    resolved_entry = FileContextEntry(
         path=file_plan.path,
         read_mode=FileReadMode.WORKTREE_REFERENCE,
         worktree_reference=True,
@@ -251,6 +255,7 @@ def _resolve_file_context(
         changed_hunk_headers=hunk_headers,
         approximate_chars=min(800, 80 + sum(len(header) for header in hunk_headers)),
     )
+    return _log_file_context(resolved_entry, file_plan.path)
 
 
 def _estimate_entry_chars(entry: FileContextEntry) -> int:
@@ -273,10 +278,11 @@ def _content_budget(strategy: ReviewStrategy) -> int:
 def _file_limits(strategy: ReviewStrategy, path: str) -> dict[str, int]:
     is_large = strategy.size_class.value in {"large", "huge"}
     is_central = _looks_like_central_file(path)
+    is_test = _is_test_file(path)
     return {
-        "max_file_chars": 12000 if is_central and is_large else 8000 if is_large else 14000,
-        "max_file_lines": 220 if is_central and is_large else 140 if is_large else 260,
-        "extra_lines": 8 if is_central else 5 if is_large else 8,
+        "max_file_chars": 9000 if is_test and is_large else 12000 if is_central and is_large else 7000 if is_large else 14000,
+        "max_file_lines": 140 if is_test and is_large else 220 if is_central and is_large else 120 if is_large else 260,
+        "extra_lines": 4 if is_test and is_large else 8 if is_central else 4 if is_large else 8,
     }
 
 
@@ -299,12 +305,17 @@ def _looks_like_central_file(path: str) -> bool:
     )
 
 
+def _is_test_file(path: str) -> bool:
+    path_lower = path.lower()
+    return any(token in path_lower for token in ("/test/", "/tests/", "test.kt", "test.py", "spec."))
+
+
 def _build_worktree_hint(file_plan: FileReviewPlan) -> str:
     reasons = "; ".join(file_plan.reasons[:2]) if file_plan.reasons else "central changed file"
     return (
         "Read this file from the worktree. Prioritize the changed regions first and validate: "
         f"{reasons}. Check especially for semantic mismatches, missing guarantees, state inconsistencies, "
-        "and behavior changes that remain executable but no longer mean the same thing."
+        "and behavior changes that remain executable but no longer mean the same thing. Cross-check nearby helpers, types, and tests if the changed region depends on them."
     )
 
 
@@ -314,3 +325,16 @@ def _estimate_related_chars(related_files: dict[str, str]) -> int:
 
 def _estimate_comment_chars(comment_context: list[CommentContextEntry]) -> int:
     return sum(len(entry.title) + len(entry.summary) for entry in comment_context)
+
+
+def _log_file_context(entry: FileContextEntry, path: str) -> FileContextEntry:
+    logger.info(
+        "file_context_resolved",
+        path=path,
+        read_mode=entry.read_mode,
+        chars=entry.approximate_chars,
+        changed_hunks=len(entry.changed_hunk_headers),
+        worktree_reference=entry.worktree_reference,
+        trimmed=entry.read_mode == FileReadMode.WORKTREE_REFERENCE,
+    )
+    return entry

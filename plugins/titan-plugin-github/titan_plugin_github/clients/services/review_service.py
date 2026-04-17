@@ -270,7 +270,13 @@ class ReviewService:
                 error_code="PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            details = []
+            if getattr(e, "stderr", None):
+                details.append(f"stderr={e.stderr}")
+            if getattr(e, "stdout", None):
+                details.append(f"stdout={e.stdout}")
+            suffix = f" ({'; '.join(details)})" if details else ""
+            return ClientError(error_message=f"{e}{suffix}", error_code="API_ERROR")
 
     @log_client_operation()
     def submit_review(
