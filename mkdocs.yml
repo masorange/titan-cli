@@ -60,6 +60,7 @@ nav:
     - Overview: concepts/plugins.md
     - Git Plugin: concepts/git-plugin.md
     - GitHub Plugin: concepts/github-plugin.md
+    - Jira Plugin: concepts/jira-plugin.md
   - Contributing:
     - Development Setup: contributing/development-setup.md
     - Architecture: contributing/architecture.md

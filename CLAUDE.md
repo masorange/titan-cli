@@ -203,6 +203,31 @@ Each plugin is an independent Python package that can register:
 - **Clients**: Wrappers for external APIs (GitHub, Jira, etc.)
 - **AI Agents**: Specialized logic for LLM analysis
 
+### Plugin Documentation Maintenance
+
+When you change an official plugin, you must also review its public plugin documentation and update it if needed.
+
+This applies when you:
+
+- Add a new public client function
+- Remove a public client function
+- Change parameters of an existing public client function
+- Change the expected usage or behavior of an existing public client function
+- Add a workflow that exposes a new user-facing plugin capability
+
+Keep the matching page in `docs/` up to date:
+
+- `docs/concepts/git-plugin.md`
+- `docs/concepts/github-plugin.md`
+- `docs/concepts/jira-plugin.md`
+
+The documentation must show:
+
+- What the operation does
+- How it is called
+- Which parameters are required
+- Which parameters are optional
+
 #### Modern Plugin Architecture (2026-02)
 
 **📖 [Complete Plugin Architecture Guide](.claude/docs/plugin-architecture.md)**
