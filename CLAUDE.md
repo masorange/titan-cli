@@ -217,9 +217,9 @@ This applies when you:
 
 Keep the matching page in `docs/` up to date:
 
-- `docs/concepts/git-plugin.md`
-- `docs/concepts/github-plugin.md`
-- `docs/concepts/jira-plugin.md`
+- `docs/plugins/git-plugin.md`
+- `docs/plugins/github-plugin.md`
+- `docs/plugins/jira-plugin.md`
 
 The documentation must show:
 

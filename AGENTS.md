@@ -462,9 +462,9 @@ This applies when you:
 
 Update the matching page in the `Plugins` documentation section:
 
-- `docs/concepts/git-plugin.md`
-- `docs/concepts/github-plugin.md`
-- `docs/concepts/jira-plugin.md`
+- `docs/plugins/git-plugin.md`
+- `docs/plugins/github-plugin.md`
+- `docs/plugins/jira-plugin.md`
 
 At minimum, the documentation must show:
 
