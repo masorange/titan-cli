@@ -55,8 +55,12 @@ nav:
     - Your First Workflow: getting-started/your-first-workflow.md
   - Concepts:
     - Workflows: concepts/workflows.md
-    - Plugins: concepts/plugins.md
     - AI Integration: concepts/ai-integration.md
+  - Plugins:
+    - Overview: plugins/overview.md
+    - Git Plugin: plugins/git-plugin.md
+    - GitHub Plugin: plugins/github-plugin.md
+    - Jira Plugin: plugins/jira-plugin.md
   - Contributing:
     - Development Setup: contributing/development-setup.md
     - Architecture: contributing/architecture.md

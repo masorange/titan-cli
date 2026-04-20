@@ -448,6 +448,32 @@ if config.is_plugin_enabled("github"):
 
 Titan CLI features a modular plugin system that allows its functionality to be extended with new clients, workflow steps, and commands.
 
+### Plugin Documentation Maintenance
+
+When working on an official plugin, you must keep its public plugin documentation in sync with the code.
+
+This applies when you:
+
+- Add a new public client function
+- Remove a public client function
+- Change parameters of an existing public client function
+- Change the expected usage or behavior of an existing public client function
+- Add a workflow that exposes a new user-facing plugin capability
+
+Update the matching page in the `Plugins` documentation section:
+
+- `docs/plugins/git-plugin.md`
+- `docs/plugins/github-plugin.md`
+- `docs/plugins/jira-plugin.md`
+
+At minimum, the documentation must show:
+
+- What the operation does
+- How it is called
+- Which parameters are required
+- Which parameters are optional
+- Any important usage constraints
+
 ### Core Concepts
 
 - **Discovery**: Plugins are packaged as separate Python packages and discovered at runtime using `importlib.metadata` to look for the `titan.plugins` entry point group.
