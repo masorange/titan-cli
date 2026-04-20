@@ -58,6 +58,7 @@ nav:
     - AI Integration: concepts/ai-integration.md
   - Plugins:
     - Overview: concepts/plugins.md
+    - Git Plugin: concepts/git-plugin.md
     - GitHub Plugin: concepts/github-plugin.md
   - Contributing:
     - Development Setup: contributing/development-setup.md
