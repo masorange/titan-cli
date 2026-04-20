@@ -55,6 +55,12 @@ On first run, Titan guides you through setting up global preferences and enablin
 
     [→ Workflow Concepts](concepts/workflows.md)
 
+- **Explore built-in plugins**
+
+    Browse the capabilities of the official Git, GitHub, and Jira plugins.
+
+    [→ Plugins](plugins/overview.md)
+
 - **Build your own workflow**
 
     Hands-on tutorial: extend a built-in workflow with a custom step.
