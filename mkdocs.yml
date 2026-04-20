@@ -57,10 +57,10 @@ nav:
     - Workflows: concepts/workflows.md
     - AI Integration: concepts/ai-integration.md
   - Plugins:
-    - Overview: concepts/plugins.md
-    - Git Plugin: concepts/git-plugin.md
-    - GitHub Plugin: concepts/github-plugin.md
-    - Jira Plugin: concepts/jira-plugin.md
+    - Overview: plugins/overview.md
+    - Git Plugin: plugins/git-plugin.md
+    - GitHub Plugin: plugins/github-plugin.md
+    - Jira Plugin: plugins/jira-plugin.md
   - Contributing:
     - Development Setup: contributing/development-setup.md
     - Architecture: contributing/architecture.md
