@@ -283,6 +283,13 @@ class ReviewActionProposal(BaseModel):
     severity: Optional[FindingSeverity | ThreadSeverity] = None
     anchor_snippet: Optional[str] = None
     evidence: Optional[str] = None
+    anchor_confidence: Optional[str] = None
+    inline_reason: Optional[str] = None
+    why_inline_allowed: Optional[str] = None
+    is_inline_safe_for_github: bool = False
+    file_status: Optional[str] = None
+    is_test_file: bool = False
+    read_mode: Optional[str] = None
     related_existing_comment_ids: list[int] = Field(default_factory=list)
 
 
