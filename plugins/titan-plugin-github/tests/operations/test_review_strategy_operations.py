@@ -39,6 +39,8 @@ def test_classify_pr_large_thresholds():
     assert classification.size_class == PRSizeClass.LARGE
     assert classification.comment_entries == 12
     assert classification.comment_threads == 4
+    assert classification.role_count >= 1
+    assert classification.complexity_score >= 1
 
 
 def test_classify_pr_repetitive_migration_downgrades_from_huge():
@@ -66,6 +68,58 @@ def test_classify_pr_repetitive_migration_downgrades_from_huge():
     assert classification.size_class == PRSizeClass.LARGE
     assert classification.is_repetitive_migration is True
     assert classification.repeated_callsite_files >= 40
+
+
+def test_classify_pr_concentrated_feature_is_large_not_huge():
+    manifest = make_manifest(
+        [
+            ChangedFileEntry(path="titan_plugin_ragnarok/android/operations/strings_operations.py", status="added", additions=463, deletions=0),
+            ChangedFileEntry(path="titan_plugin_ragnarok/android/steps/strings/execute_strings_import_step.py", status="added", additions=339, deletions=0),
+            ChangedFileEntry(path="titan_plugin_ragnarok/android/steps/strings/confirm_strings_commit_step.py", status="added", additions=202, deletions=0),
+            ChangedFileEntry(path="titan_plugin_ragnarok/android/steps/strings/prompt_strings_keys_step.py", status="added", additions=164, deletions=0),
+            ChangedFileEntry(path="titan_plugin_ragnarok/workflows/android/import-strings.yaml", status="added", additions=81, deletions=0, is_config=True),
+            ChangedFileEntry(path="tests/operations/test_strings_operations.py", status="added", additions=693, deletions=0, is_test=True),
+            ChangedFileEntry(path="tests/android/steps/strings/test_execute_strings_import_step.py", status="added", additions=210, deletions=0, is_test=True),
+            ChangedFileEntry(path="tests/android/steps/strings/test_confirm_strings_commit_step.py", status="added", additions=141, deletions=0, is_test=True),
+            ChangedFileEntry(path="tests/android/steps/strings/test_prompt_strings_keys_step.py", status="added", additions=116, deletions=0, is_test=True),
+            ChangedFileEntry(path="tests/android/steps/strings/test_helpers.py", status="added", additions=42, deletions=0, is_test=True),
+            ChangedFileEntry(path="tests/android/steps/strings/__init__.py", status="added", additions=2, deletions=0, is_test=True),
+            ChangedFileEntry(path="titan_plugin_ragnarok/android/steps/strings/__init__.py", status="added", additions=4, deletions=0),
+            ChangedFileEntry(path="titan_plugin_ragnarok/step_registry/android.py", status="modified", additions=12, deletions=0),
+        ]
+    )
+
+    classification = classify_pr(manifest, comment_entries=23, comment_threads=22)
+
+    assert classification.size_class == PRSizeClass.LARGE
+    assert "workflow_orchestration" in classification.roles
+    assert "tests" in classification.roles
+    assert classification.active_review is True
+
+
+def test_classify_pr_huge_multirole_stays_huge():
+    files = [
+        ChangedFileEntry(path=f"src/config/settings_{idx}.yaml", status="modified", additions=70, deletions=30, is_config=True)
+        for idx in range(10)
+    ]
+    files += [
+        ChangedFileEntry(path=f"src/services/service_{idx}.py", status="modified", additions=120, deletions=70)
+        for idx in range(12)
+    ]
+    files += [
+        ChangedFileEntry(path=f"src/ui/screens/screen_{idx}.tsx", status="modified", additions=90, deletions=50)
+        for idx in range(10)
+    ]
+    files += [
+        ChangedFileEntry(path=f"tests/test_feature_{idx}.py", status="modified", additions=60, deletions=20, is_test=True)
+        for idx in range(8)
+    ]
+    manifest = make_manifest(files)
+
+    classification = classify_pr(manifest, comment_entries=8, comment_threads=6)
+
+    assert classification.size_class == PRSizeClass.HUGE
+    assert classification.role_count >= 4
 
 
 def test_score_review_candidates_excludes_low_value_files():

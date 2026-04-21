@@ -959,6 +959,11 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         f"repeated call sites: {classification.repeated_callsite_files}"
         + (" · repetitive migration detected" if classification.is_repetitive_migration else "")
     )
+    if classification.roles:
+        ctx.textual.dim_text(
+            f"roles: {', '.join(classification.roles)} · complexity score: {classification.complexity_score}"
+            + (" · active review" if classification.active_review else "")
+        )
     if classification.rationale:
         ctx.textual.dim_text(classification.rationale)
     ctx.textual.end_step("success")

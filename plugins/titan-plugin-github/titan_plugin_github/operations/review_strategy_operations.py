@@ -26,29 +26,53 @@ def classify_pr(manifest: ChangeManifest, comment_entries: int = 0, comment_thre
     repeated_callsite_files = sum(1 for f in manifest.files if _candidate_group(f.path) == "repeated_callsite")
     high_signal_files = sum(1 for f in manifest.files if _candidate_group(f.path) in {"central_behavior", "entrypoint"})
     repetition_ratio = (repeated_callsite_files / files_changed) if files_changed else 0.0
-
-    if files_changed <= 3 and total_lines <= 80:
-        size_class = PRSizeClass.TINY
-    elif files_changed <= 8 and total_lines <= 250:
-        size_class = PRSizeClass.SMALL
-    elif files_changed <= 20 and total_lines <= 700:
-        size_class = PRSizeClass.MEDIUM
-    elif files_changed <= 40 and total_lines <= 1800:
-        size_class = PRSizeClass.LARGE
-    else:
-        size_class = PRSizeClass.HUGE
+    roles = sorted({_classify_file_role(f.path, f.is_test, f.is_docs, f.is_generated, f.is_config) for f in manifest.files})
+    role_count = len(roles)
+    active_review = comment_threads >= 5 or comment_entries >= 10
+    complexity_score = _compute_complexity_score(
+        files_changed=files_changed,
+        total_lines=total_lines,
+        high_signal_files=high_signal_files,
+        role_count=role_count,
+        comment_threads=comment_threads,
+        is_repetitive_migration=False,
+        repetition_ratio=repetition_ratio,
+    )
 
     is_repetitive_migration = files_changed >= 12 and total_lines <= 700 and repetition_ratio >= 0.35
+    complexity_score = _compute_complexity_score(
+        files_changed=files_changed,
+        total_lines=total_lines,
+        high_signal_files=high_signal_files,
+        role_count=role_count,
+        comment_threads=comment_threads,
+        is_repetitive_migration=is_repetitive_migration,
+        repetition_ratio=repetition_ratio,
+    )
+    size_class = _score_to_size_class(complexity_score)
+
+    if files_changed >= 35 and total_lines >= 4000 and role_count >= 3:
+        size_class = PRSizeClass.HUGE
+
     if size_class == PRSizeClass.HUGE and is_repetitive_migration:
         size_class = PRSizeClass.LARGE
+    elif size_class == PRSizeClass.HUGE and files_changed <= 15 and role_count <= 4 and high_signal_files <= 6:
+        size_class = PRSizeClass.LARGE
+    elif size_class == PRSizeClass.LARGE and files_changed <= 8 and total_lines <= 300:
+        size_class = PRSizeClass.SMALL
 
     rationale_parts = [f"{files_changed} files", f"{total_lines} changed lines"]
     if high_signal_files:
         rationale_parts.append(f"{high_signal_files} high-signal files")
     if repeated_callsite_files:
         rationale_parts.append(f"{repeated_callsite_files} repeated call sites")
+    if role_count:
+        rationale_parts.append(f"roles: {', '.join(roles)}")
+    if active_review:
+        rationale_parts.append("active review in progress")
     if is_repetitive_migration:
         rationale_parts.append("repetitive migration pattern detected")
+    rationale_parts.append(f"complexity score {complexity_score}")
 
     return PRClassification(
         size_class=size_class,
@@ -62,9 +86,88 @@ def classify_pr(manifest: ChangeManifest, comment_entries: int = 0, comment_thre
         comment_entries=comment_entries,
         high_signal_files=high_signal_files,
         repeated_callsite_files=repeated_callsite_files,
+        role_count=role_count,
+        roles=roles,
+        complexity_score=complexity_score,
+        active_review=active_review,
         is_repetitive_migration=is_repetitive_migration,
         rationale=", ".join(rationale_parts),
     )
+
+
+def _compute_complexity_score(
+    *,
+    files_changed: int,
+    total_lines: int,
+    high_signal_files: int,
+    role_count: int,
+    comment_threads: int,
+    is_repetitive_migration: bool,
+    repetition_ratio: float,
+) -> int:
+    score = 0
+
+    if files_changed <= 3:
+        score += 0
+    elif files_changed <= 8:
+        score += 2
+    elif files_changed <= 15:
+        score += 3
+    elif files_changed <= 40:
+        score += 4
+    else:
+        score += 6
+
+    if total_lines <= 80:
+        score += 0
+    elif total_lines <= 300:
+        score += 1
+    elif total_lines <= 900:
+        score += 2
+    elif total_lines <= 2500:
+        score += 3
+    elif total_lines <= 10000:
+        score += 4
+    else:
+        score += 6
+
+    if high_signal_files >= 8:
+        score += 3
+    elif high_signal_files >= 4:
+        score += 2
+    elif high_signal_files >= 1:
+        score += 1
+
+    if role_count >= 6:
+        score += 3
+    elif role_count >= 4:
+        score += 2
+    elif role_count >= 2:
+        score += 1
+
+    if comment_threads >= 20:
+        score += 2
+    elif comment_threads >= 8:
+        score += 1
+
+    if is_repetitive_migration:
+        score -= 2
+    elif repetition_ratio >= 0.35:
+        score -= 1
+
+    return max(0, score)
+
+
+def _score_to_size_class(score: int) -> PRSizeClass:
+    if score <= 2:
+        return PRSizeClass.TINY
+    if score <= 4:
+        return PRSizeClass.SMALL
+    if score <= 6:
+        return PRSizeClass.MEDIUM
+    if score <= 10:
+        return PRSizeClass.LARGE
+    return PRSizeClass.HUGE
 
 
 def score_review_candidates(
@@ -384,4 +487,29 @@ def _candidate_group(path: str) -> str:
         return "entrypoint"
     if any(token in path_lower for token in ("screen", "successscreen", "components", "content", "dialog")):
         return "repeated_callsite"
+    return "other"
+
+
+def _classify_file_role(
+    path: str,
+    is_test: bool = False,
+    is_docs: bool = False,
+    is_generated: bool = False,
+    is_config: bool = False,
+) -> str:
+    path_lower = path.lower()
+    if is_docs or is_generated:
+        return "docs_or_generated"
+    if is_test or any(token in path_lower for token in ("/test/", "/tests/", "test_", "_test", ".spec.")):
+        return "tests"
+    if is_config or any(token in path_lower for token in ("config", "schema", "contract", "constants", "settings", ".yaml", ".yml", ".toml")):
+        return "config_or_contracts"
+    if any(token in path_lower for token in ("workflow", "step", "executor", "pipeline", "command")):
+        return "workflow_orchestration"
+    if any(token in path_lower for token in ("adapter", "client", "network", "api", "gateway", "serializer", "parser", "mapper", "converter")):
+        return "integration_or_adapter"
+    if any(token in path_lower for token in ("screen", "view", "activity", "controller", "cli", "main", "router")):
+        return "entrypoints_or_ui"
+    if any(token in path_lower for token in ("service", "usecase", "operations", "manager", "logic", "core", "model")):
+        return "business_logic"
     return "other"

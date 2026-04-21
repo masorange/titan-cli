@@ -180,6 +180,10 @@ class PRClassification(BaseModel):
     comment_entries: int = 0
     high_signal_files: int = 0
     repeated_callsite_files: int = 0
+    role_count: int = 0
+    roles: list[str] = Field(default_factory=list)
+    complexity_score: int = 0
+    active_review: bool = False
     is_repetitive_migration: bool = False
     rationale: str = ""
 
