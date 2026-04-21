@@ -16,6 +16,7 @@ from ...models.network.graphql import GraphQLPullRequestReviewThread, GraphQLIss
 from ...models.view import UICommentThread, UIReview
 from ...models.mappers import from_graphql_review_thread, from_network_review
 from ...exceptions import GitHubAPIError
+from ...messages import msg
 
 
 class ReviewService:
@@ -331,6 +332,12 @@ class ReviewService:
             return ClientSuccess(data=None, message=f"Review #{review_id} submitted")
 
         except GitHubAPIError as e:
+            if "User can only have one pending review per pull request" in str(e):
+                return ClientError(
+                    error_message=msg.GitHub.REVIEW_PENDING_EXISTS,
+                    error_code="PENDING_REVIEW_EXISTS",
+                    log_level="warning",
+                )
             return ClientError(
                 error_message=f"Failed to submit review: {e}",
                 error_code="API_ERROR"

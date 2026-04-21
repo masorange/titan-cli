@@ -299,3 +299,18 @@ def test_create_draft_review_api_error(review_service, mock_gh_network):
 
     assert isinstance(result, ClientError)
     assert result.error_code == "API_ERROR"
+
+
+def test_submit_review_pending_review_exists(review_service, mock_gh_network):
+    """Test specific pending-review conflict is mapped to structured error."""
+    mock_gh_network.get_repo_string.return_value = "owner/repo"
+    mock_gh_network.run_command.side_effect = GitHubAPIError(
+        "gh: Unprocessable Entity (HTTP 422) | {\"errors\":[\"User can only have one pending review per pull request\"]}"
+    )
+
+    result = review_service.submit_review(1, None, "COMMENT")
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "PENDING_REVIEW_EXISTS"
+    assert "review in progress" in result.error_message.lower()
+    assert result.log_level == "warning"

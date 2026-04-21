@@ -1973,6 +1973,10 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.success_text(f"✓ Review submitted as '{event}' on PR #{pr_number}")
                 ctx.textual.end_step("success")
                 return Success(f"Review submitted on PR #{pr_number}")
+            case ClientError(error_message=err, error_code="PENDING_REVIEW_EXISTS"):
+                ctx.textual.warning_text(err)
+                ctx.textual.end_step("error")
+                return Error(err)
             case ClientError(error_message=err):
                 ctx.textual.error_text(f"Failed to submit review: {err}")
                 ctx.textual.end_step("error")
@@ -2043,6 +2047,10 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             )
             ctx.textual.end_step("success")
             return Success(f"Review submitted on PR #{pr_number}")
+        case ClientError(error_message=err, error_code="PENDING_REVIEW_EXISTS"):
+            ctx.textual.warning_text(err)
+            ctx.textual.end_step("error")
+            return Error(err)
         case ClientError(error_message=err):
             ctx.textual.error_text(f"Failed to submit review: {err}")
             ctx.textual.end_step("error")

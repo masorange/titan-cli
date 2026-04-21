@@ -38,6 +38,7 @@ class Messages:
         REVIEW_CREATING: str = "Creating review..."
         REVIEW_CREATED: str = "Review submitted"
         REVIEW_FAILED: str = "Failed to submit review: {error}"
+        REVIEW_PENDING_EXISTS: str = "You already have a review in progress on this pull request. Submit or discard that pending review before creating a new one."
 
         # Comments
         COMMENT_CREATING: str = "Adding comment..."
