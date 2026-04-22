@@ -41,6 +41,7 @@ class GitPluginConfig(BaseModel):
     """Configuration for Git plugin."""
     main_branch: str = Field("main", description="Main/default branch name")
     default_remote: str = Field("origin", description="Default remote name")
+    rc_branch: str | None = Field(None, description="Prefix for versioned RC branches (for example, 'rc')")
 
 class GitHubPluginConfig(BaseModel):
     """Configuration for GitHub plugin."""
@@ -121,3 +122,33 @@ class JiraPluginConfig(BaseModel):
         if '@' not in v:
             raise ValueError("email must be a valid email address")
         return v.lower()  # Normalize email to lowercase
+
+
+class TekelPluginConfig(BaseModel):
+    """Configuration for Tekel plugin."""
+    base_url: Optional[str] = Field(
+        None,
+        description="Tekel API base URL (e.g. 'https://tekel-api.example.com')",
+        json_schema_extra={"config_scope": "global"},
+    )
+    api_token: Optional[str] = Field(
+        None,
+        description="Tekel API token",
+        json_schema_extra={"format": "password", "required_in_schema": True},
+    )
+    timeout: int = Field(
+        30,
+        description="Request timeout in seconds",
+        json_schema_extra={"config_scope": "global"},
+    )
+
+    @field_validator('base_url')
+    @classmethod
+    def validate_base_url(cls, v):
+        if not v:
+            raise ValueError(
+                "Tekel base_url not configured. Add [plugins.tekel.config] with base_url in ~/.titan/config.toml"
+            )
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError("base_url must start with http:// or https://")
+        return v.rstrip('/')
