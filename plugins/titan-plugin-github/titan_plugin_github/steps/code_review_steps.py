@@ -26,6 +26,7 @@ from ..operations.code_review_operations import (
 from ..operations.review_action_operations import (
     build_new_comment_actions as _build_new_comment_actions,
     build_review_action_payload,
+    classify_github_review_rejection,
     extract_diff_hunk_for_action,
     resolve_action_anchors,
 )
@@ -259,6 +260,7 @@ def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payloa
                             error=err,
                         )
             case ClientError(error_message=err):
+                rejection_kind = classify_github_review_rejection(err)
                 rejected = {**comment, "error": err}
                 rejected_comments.append(rejected)
                 logger.warning(
@@ -266,6 +268,7 @@ def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payloa
                     pr_number=pr_number,
                     path=comment.get("path"),
                     line=comment.get("line"),
+                    github_rejection_kind=rejection_kind,
                     error=err,
                 )
 
@@ -1726,6 +1729,8 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Build Comment Actions")
 
     findings = ctx.get("deduped_findings", [])
+    manifest = ctx.get("change_manifest")
+    batches = ctx.get("review_context_batches", [])
 
     if not findings:
         ctx.textual.dim_text("No findings to convert into actions.")
@@ -1733,6 +1738,25 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No findings to submit")
 
     actions = _build_new_comment_actions(findings)
+    manifest_files = {file.path: file for file in getattr(manifest, "files", [])}
+    read_modes = {
+        path: entry.read_mode.value if entry.read_mode else None
+        for batch in batches or []
+        for path, entry in batch.files_context.items()
+    }
+    enriched_actions = []
+    for action in actions:
+        file_entry = manifest_files.get(action.path)
+        enriched_actions.append(
+            action.model_copy(
+                update={
+                    "file_status": str(file_entry.status) if file_entry else None,
+                    "is_test_file": bool(file_entry.is_test) if file_entry else False,
+                    "read_mode": read_modes.get(action.path),
+                }
+            )
+        )
+    actions = enriched_actions
     ctx.data["review_action_proposals"] = actions
 
     ctx.textual.success_text(f"✓ {len(actions)} action(s) ready for review")
@@ -2004,16 +2028,35 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.warning_text("Draft review failed. Probing inline comments individually...")
                 filtered_payload, rejected_comments = _filter_invalid_inline_comments(ctx, pr_number, payload)
                 if rejected_comments:
+                    rejection_breakdown: dict[str, int] = {}
+                    for comment in rejected_comments:
+                        kind = classify_github_review_rejection(comment.get("error", ""))
+                        rejection_breakdown[kind] = rejection_breakdown.get(kind, 0) + 1
                     ctx.textual.warning_text(
                         f"Filtered out {len(rejected_comments)} inline comment(s) rejected by GitHub"
                     )
                     for comment in rejected_comments:
-                        ctx.textual.dim_text(f"Rejected: {comment.get('path')}:{comment.get('line')}")
+                        rejection_kind = classify_github_review_rejection(comment.get("error", ""))
+                        ctx.textual.dim_text(
+                            f"Rejected inline: {comment.get('path')}:{comment.get('line')} -> {rejection_kind}"
+                        )
                     logger.info(
                         "inline_comments_filtered_after_422",
                         pr_number=pr_number,
+                        inline_candidates_total=len(payload.get("comments", [])),
+                        inline_candidates_validated=len(filtered_payload.get("comments", [])),
+                        inline_candidates_rejected=len(rejected_comments),
+                        inline_submit_success_rate=(
+                            len(filtered_payload.get("comments", [])) / len(payload.get("comments", []))
+                            if payload.get("comments")
+                            else 0.0
+                        ),
                         rejected_count=len(rejected_comments),
                         valid_count=len(filtered_payload.get("comments", [])),
+                        rejection_breakdown=rejection_breakdown,
+                    )
+                    ctx.textual.dim_text(
+                        f"Inline submit success rate: {len(filtered_payload.get('comments', []))}/{len(payload.get('comments', []))}"
                     )
                     if filtered_payload.get("comments") or filtered_payload.get("body"):
                         payload = filtered_payload

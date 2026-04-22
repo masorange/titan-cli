@@ -17,6 +17,18 @@ from ..managers.diff_context_manager import DiffContextManager, get_or_create_di
 logger = get_logger(__name__)
 
 
+def classify_github_review_rejection(error_message: str) -> str:
+    """Classify GitHub inline review rejection into a stable bucket."""
+    lower = error_message.lower()
+    if "line could not be resolved" in lower:
+        return "line_not_resolved"
+    if "path could not be resolved" in lower:
+        return "path_not_resolved"
+    if "one pending review" in lower:
+        return "pending_review_exists"
+    return "unknown"
+
+
 def build_new_comment_actions(findings: List[Finding]) -> List[ReviewActionProposal]:
     """
     Convert deduplicated findings into ReviewActionProposal objects.
@@ -104,11 +116,20 @@ def build_review_action_payload(
 
         if action.path and resolved_line:
             file_valid_lines = valid_lines.get(action.path, set())
+            inline_safe = resolved_line in file_valid_lines
             logger.info("validate_comment_action",
                 action_idx=idx, path=action.path, line=action.line, resolved_line=resolved_line,
+                original_line=action.original_line,
+                resolution_source=action.resolution_source,
+                anchor_confidence=action.anchor_confidence,
+                inline_reason=action.inline_reason,
+                why_inline_allowed=action.why_inline_allowed,
+                file_status=action.file_status,
+                is_test_file=action.is_test_file,
+                read_mode=action.read_mode,
                 file_has_valid_lines=len(file_valid_lines),
-                is_valid=resolved_line in file_valid_lines)
-            if resolved_line in file_valid_lines:
+                is_valid=inline_safe)
+            if inline_safe:
                 inline_comments.append({
                     "path": action.path,
                     "line": resolved_line,
@@ -143,7 +164,25 @@ def build_review_action_payload(
         inline_comments_details=[
             {"path": c.get("path"), "line": c.get("line"), "has_body": len(c.get("body", "")) > 0}
             for c in inline_comments
-        ])
+        ],
+        inline_candidates_details=[
+            {
+                "path": action.path,
+                "original_line": action.original_line,
+                "resolved_line": action.resolved_line,
+                "resolution_source": action.resolution_source,
+                "anchor_confidence": action.anchor_confidence,
+                "inline_reason": action.inline_reason,
+                "why_inline_allowed": action.why_inline_allowed,
+                "is_inline_safe_for_github": action.is_inline_safe_for_github,
+                "file_status": action.file_status,
+                "is_test_file": action.is_test_file,
+                "read_mode": action.read_mode,
+            }
+            for action in actions
+            if action.action_type == ReviewActionType.NEW_COMMENT
+        ],
+    )
 
     return payload
 
@@ -203,15 +242,37 @@ def resolve_action_anchors(
             evidence=action.evidence,
         )
         resolution_source = None
+        anchor_confidence = "none"
+        inline_reason = None
+        why_inline_allowed = None
         if resolved_line is not None:
             if action.anchor_snippet and manager.find_line_by_snippet(action.path, action.anchor_snippet) == resolved_line:
                 resolution_source = "snippet"
+                anchor_confidence = "high"
+                inline_reason = "snippet_match"
             elif action.evidence and manager.find_line_by_snippet(action.path, action.evidence) == resolved_line:
                 resolution_source = "evidence"
+                anchor_confidence = "medium"
+                inline_reason = "evidence_match"
             elif action.line == resolved_line:
                 resolution_source = "validated_line"
+                anchor_confidence = "medium"
+                inline_reason = "validated_line"
             else:
                 resolution_source = "resolved"
+                anchor_confidence = "low"
+                inline_reason = "context_match"
+
+            is_inline_safe_for_github = resolved_line in manager.get_valid_review_lines(action.path)
+            if is_inline_safe_for_github:
+                why_inline_allowed = (
+                    f"resolved via {resolution_source} to changed line {resolved_line} present in diff reviewable lines"
+                )
+            else:
+                why_inline_allowed = f"resolved via {resolution_source} but line {resolved_line} not in diff reviewable lines"
+        else:
+            is_inline_safe_for_github = False
+            why_inline_allowed = "no resolved line could be inferred from snippet/evidence/AI line"
 
         resolved_actions.append(
             action.model_copy(
@@ -219,6 +280,10 @@ def resolve_action_anchors(
                     "original_line": action.original_line or action.line,
                     "resolved_line": resolved_line,
                     "resolution_source": resolution_source,
+                    "anchor_confidence": anchor_confidence,
+                    "inline_reason": inline_reason,
+                    "why_inline_allowed": why_inline_allowed,
+                    "is_inline_safe_for_github": is_inline_safe_for_github,
                 }
             )
         )

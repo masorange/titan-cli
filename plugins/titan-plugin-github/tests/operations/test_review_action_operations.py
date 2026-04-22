@@ -95,6 +95,10 @@ def test_resolve_action_anchors_persists_resolved_line():
     assert resolved.resolved_line == 12
     assert resolved.original_line == 999
     assert resolved.resolution_source == "snippet"
+    assert resolved.anchor_confidence == "high"
+    assert resolved.inline_reason == "snippet_match"
+    assert resolved.is_inline_safe_for_github is True
+    assert "resolved via snippet" in resolved.why_inline_allowed
 
 
 def test_comment_view_from_action_prefers_resolved_line_label():

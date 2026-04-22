@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 from titan_cli.core.result import ClientError, ClientSuccess
 
+from titan_plugin_github.operations.review_action_operations import classify_github_review_rejection
 from titan_plugin_github.steps.code_review_steps import _filter_invalid_inline_comments
 
 
@@ -31,3 +32,10 @@ def test_filter_invalid_inline_comments_keeps_only_github_valid_ones():
     assert len(rejected) == 1
     assert rejected[0]["path"] == "src/b.py"
     github.delete_review.assert_called_once_with(42, 101)
+
+
+def test_classify_github_review_rejection():
+    assert classify_github_review_rejection("Line could not be resolved") == "line_not_resolved"
+    assert classify_github_review_rejection("Path could not be resolved") == "path_not_resolved"
+    assert classify_github_review_rejection("User can only have one pending review per pull request") == "pending_review_exists"
+    assert classify_github_review_rejection("something else") == "unknown"
