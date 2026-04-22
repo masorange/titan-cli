@@ -197,6 +197,52 @@ class TestCommitServiceCountCommitsAhead:
 
 
 @pytest.mark.unit
+class TestCommitServiceGetCommitsBetweenRefs:
+    """Test CommitService.get_commits_between_refs()"""
+
+    def test_returns_commit_list(self, service, mock_git_network):
+        """Test parses multi-line log output into list"""
+        mock_git_network.run_command.return_value = "feat: A\nfix: B\nchore: C"
+
+        result = service.get_commits_between_refs("0.4.0", "HEAD")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == ["feat: A", "fix: B", "chore: C"]
+        mock_git_network.run_command.assert_called_once_with(
+            ["git", "log", "0.4.0..HEAD", "--pretty=format:%s"]
+        )
+
+    def test_uses_head_by_default(self, service, mock_git_network):
+        """Test default head_ref is HEAD"""
+        mock_git_network.run_command.return_value = ""
+
+        result = service.get_commits_between_refs("0.4.0")
+
+        assert isinstance(result, ClientSuccess)
+        mock_git_network.run_command.assert_called_once_with(
+            ["git", "log", "0.4.0..HEAD", "--pretty=format:%s"]
+        )
+
+    def test_empty_output_returns_empty_list(self, service, mock_git_network):
+        """Test empty output returns empty list"""
+        mock_git_network.run_command.return_value = ""
+
+        result = service.get_commits_between_refs("0.4.0", "master")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == []
+
+    def test_error_returns_client_error(self, service, mock_git_network):
+        """Test git error returns ClientError"""
+        mock_git_network.run_command.side_effect = GitCommandError("unknown revision")
+
+        result = service.get_commits_between_refs("bad-ref", "HEAD")
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "COMMIT_ERROR"
+
+
+@pytest.mark.unit
 class TestCommitServiceCountUnpushedCommits:
     """Test CommitService.count_unpushed_commits()"""
 

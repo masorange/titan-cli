@@ -1,0 +1,91 @@
+name: "Review PR (New Findings)"
+description: "Two-phase AI review: directed analysis then targeted review for new actionable findings"
+
+steps:
+  - id: select_pr
+    name: "Select PR to Review"
+    plugin: github
+    step: select_pr_for_code_review
+
+  - id: select_cli
+    name: "Select AI CLI"
+    plugin: github
+    step: select_cli
+
+  - id: fetch_bundle
+    name: "Fetch PR Review Bundle"
+    plugin: github
+    step: fetch_pr_review_bundle
+
+  - id: build_manifest
+    name: "Build Change Manifest"
+    plugin: github
+    step: build_change_manifest
+
+  - id: build_comments_index
+    name: "Build Existing Comments Index"
+    plugin: github
+    step: build_existing_comments_index
+
+  - id: build_checklist
+    name: "Build Review Checklist"
+    plugin: github
+    step: build_review_checklist
+
+  - id: ai_plan
+    name: "AI Review Plan"
+    plugin: github
+    step: ai_review_plan
+
+  - id: validate_plan
+    name: "Validate Review Plan"
+    plugin: github
+    step: validate_review_plan
+
+  - id: create_worktree
+    name: "Create PR Worktree"
+    plugin: github
+    step: create_worktree
+
+  - id: resolve_context
+    name: "Resolve Review Context"
+    plugin: github
+    step: resolve_review_context
+
+  - id: ai_findings
+    name: "AI Review Findings"
+    plugin: github
+    step: ai_review_findings
+
+  - id: cleanup_worktree
+    name: "Cleanup PR Worktree"
+    plugin: github
+    step: cleanup_worktree
+
+  - id: normalize
+    name: "Normalize Findings"
+    plugin: github
+    step: normalize_findings
+
+  - id: dedupe
+    name: "Deduplicate Findings"
+    plugin: github
+    step: dedupe_findings
+
+  - id: build_actions
+    name: "Build Comment Actions"
+    plugin: github
+    step: build_new_comment_actions
+    on_error: continue
+
+  - id: validate_actions
+    name: "Validate & Approve Actions"
+    plugin: github
+    step: validate_review_actions
+    on_error: continue
+
+  - id: submit_actions
+    name: "Submit Review"
+    plugin: github
+    step: submit_review_actions
+    on_error: continue

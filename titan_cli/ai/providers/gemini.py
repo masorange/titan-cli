@@ -7,6 +7,8 @@ from .base import AIProvider
 from ..models import AIRequest, AIResponse, AIMessage
 from ..exceptions import AIProviderAPIError
 
+from titan_cli.core.models import AIDirectProvider
+
 from ..constants import get_default_model
 
 try:
@@ -44,7 +46,7 @@ class GeminiProvider(AIProvider):
         provider = GeminiProvider("GCLOUD_OAUTH", model="gemini-pro")
     """
 
-    def __init__(self, api_key: str, model: str = get_default_model("gemini"), base_url: str = None):
+    def __init__(self, api_key: str, model: str = get_default_model(AIDirectProvider.GEMINI), base_url: str = None):
         super().__init__(api_key, model)
 
         # Normalize base_url by removing trailing slash

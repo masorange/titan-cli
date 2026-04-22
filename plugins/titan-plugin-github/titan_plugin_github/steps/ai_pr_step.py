@@ -5,14 +5,13 @@ AI-powered PR description generation step.
 Uses PRAgent to analyze branch context and generate PR content.
 """
 
-import logging
-
+from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 
-from ..agents import PRAgent
+from ..agents import PRAgent, PRStatus
 from ..messages import msg
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -104,11 +103,33 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             has_literal_newlines,
         )
 
-        # Check if PR content was generated (need commits in branch)
-        if not analysis.pr_title or not analysis.pr_body:
-            ctx.textual.dim_text("No commits found in branch to generate PR description.")
+        if analysis.pr_status in {
+            PRStatus.GENERATION_FAILED,
+            PRStatus.SOURCE_DATA_FAILED,
+        }:
+            error_message = msg.GitHub.AI.AI_GENERATION_FAILED.format(
+                e=analysis.pr_error or "Unknown error"
+            )
+            ctx.textual.error_text(error_message)
+            ctx.textual.end_step("error")
+            return Error(error_message)
+
+        if analysis.pr_status == PRStatus.NO_COMMITS:
+            ctx.textual.dim_text(
+                "No commits found in branch to generate PR description."
+            )
             ctx.textual.end_step("skip")
             return Skip("No commits found for PR generation")
+
+        if analysis.pr_status == PRStatus.INCOMPLETE:
+            ctx.textual.warning_text("AI did not generate complete PR content.")
+            ctx.textual.end_step("skip")
+            return Skip("AI did not generate complete PR content")
+
+        if not analysis.pr_title or not analysis.pr_body:
+            ctx.textual.warning_text("AI did not generate PR content for this branch.")
+            ctx.textual.end_step("skip")
+            return Skip("AI did not generate PR content")
 
         # Show PR size info
         if analysis.pr_size:
@@ -152,12 +173,10 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         )
 
     except Exception as e:
-        # Don't fail the workflow, just skip AI and use manual prompts
-        ctx.textual.warning_text(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
-        ctx.textual.dim_text(msg.GitHub.AI.FALLBACK_TO_MANUAL)
-
-        ctx.textual.end_step("skip")
-        return Skip(msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e))
+        error_message = msg.GitHub.AI.AI_GENERATION_FAILED.format(e=e)
+        ctx.textual.error_text(error_message)
+        ctx.textual.end_step("error")
+        return Error(error_message, exception=e)
 
 
 # Export for plugin registration

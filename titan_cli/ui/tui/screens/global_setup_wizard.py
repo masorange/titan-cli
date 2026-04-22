@@ -235,7 +235,7 @@ class GlobalSetupWizardScreen(BaseScreen):
 
         # Add next steps
         next_steps = Text(
-            "\n\nNext, you'll configure your AI provider (Claude or Gemini).\n"
+            "\n\nNext, you'll configure your first AI connection.\n"
             "This is required to use Titan's AI-powered features."
         )
         body_widget.mount(next_steps)
@@ -287,8 +287,8 @@ class GlobalSetupWizardScreen(BaseScreen):
 
             def on_ai_wizard_complete(result=None):
                 """Callback when AI wizard is dismissed."""
-                import logging
-                logger = logging.getLogger('titan_cli.ui.tui.screens.project_setup_wizard')
+                from titan_cli.core.logging import get_logger
+                logger = get_logger('titan_cli.ui.tui.screens.project_setup_wizard')
                 logger.debug(f"AI wizard complete with result={result}")
 
                 # Only proceed if AI was configured successfully
@@ -298,7 +298,7 @@ class GlobalSetupWizardScreen(BaseScreen):
                 else:
                     logger.debug("AI wizard cancelled, staying on current step")
                     self.app.notify(
-                        "AI configuration is required to use Titan. Please configure an AI provider.",
+                        "AI configuration is required to use Titan. Please configure an AI connection.",
                         severity="warning"
                     )
 

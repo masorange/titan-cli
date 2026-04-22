@@ -267,6 +267,12 @@ class GitClient:
         """Get list of commits in head_branch that are not in base_branch."""
         return self.commit_service.get_branch_commits(base_branch, head_branch)
 
+    def get_commits_between_refs(
+        self, base_ref: str, head_ref: str = "HEAD"
+    ) -> ClientResult[List[str]]:
+        """Get list of commits reachable from head_ref but not base_ref."""
+        return self.commit_service.get_commits_between_refs(base_ref, head_ref)
+
     def count_commits_ahead(self, base_branch: str = "develop") -> ClientResult[int]:
         """Count how many commits current branch is ahead of base branch."""
         return self.commit_service.count_commits_ahead(base_branch)
@@ -309,9 +315,20 @@ class GitClient:
         """Get diff for a specific file."""
         return self.diff_service.get_file_diff(file_path)
 
-    def get_branch_diff(self, base_branch: str, head_branch: str) -> ClientResult[str]:
-        """Get diff between two branches."""
-        return self.diff_service.get_branch_diff(base_branch, head_branch)
+    def get_branch_diff(self, base_branch: str, head_branch: str, context_lines: int = 3, use_remote: bool = False) -> ClientResult[str]:
+        """
+        Get diff between two branches.
+
+        Args:
+            base_branch: Base branch name
+            head_branch: Head branch name
+            context_lines: Number of context lines (default: 3)
+            use_remote: If True, both branches are treated as remote refs (default: False)
+
+        Returns:
+            ClientResult[str] with diff output
+        """
+        return self.diff_service.get_branch_diff(base_branch, head_branch, context_lines, use_remote)
 
     def get_diff_stat(self, base_ref: str, head_ref: str = "HEAD") -> ClientResult[str]:
         """Get diff stat summary."""
@@ -341,6 +358,10 @@ class GitClient:
     ) -> ClientResult[None]:
         """Push to remote."""
         return self.remote_service.push(remote, branch, set_upstream, tags)
+
+    def push_tag(self, tag_name: str, remote: str = "origin") -> ClientResult[None]:
+        """Push a specific tag to remote."""
+        return self.remote_service.push_tag(tag_name, remote)
 
     def pull(
         self, remote: str = "origin", branch: Optional[str] = None
@@ -394,6 +415,10 @@ class GitClient:
     def tag_exists(self, tag_name: str) -> ClientResult[bool]:
         """Check if a tag exists locally."""
         return self.tag_service.tag_exists(tag_name)
+
+    def remote_tag_exists(self, tag_name: str, remote: str = "origin") -> ClientResult[bool]:
+        """Check if a tag exists on a remote."""
+        return self.tag_service.remote_tag_exists(tag_name, remote)
 
     def list_tags(self) -> ClientResult[List[UIGitTag]]:
         """List all tags in the repository."""

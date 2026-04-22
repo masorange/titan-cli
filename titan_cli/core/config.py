@@ -1,14 +1,19 @@
 # core/config.py
+from copy import deepcopy
+import hashlib
 from pathlib import Path
-from typing import Optional, List
+import re
+from typing import List, Optional
 import tomli
 from .models import TitanConfigModel
+from .migrations import MigrationManager
 from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
 from .secrets import SecretManager
 from .errors import ConfigParseError, ConfigWriteError
 from .utils import find_project_root
 from .logging import get_logger
+from .plugins.community_sources import PluginChannel
 
 logger = get_logger(__name__)
 
@@ -16,6 +21,8 @@ class TitanConfig:
     """Manages Titan configuration with global + project merge"""
 
     GLOBAL_CONFIG = Path.home() / ".titan" / "config.toml"
+    global_migration_manager = MigrationManager()
+    project_migration_manager = MigrationManager()
 
     def __init__(
         self,
@@ -32,6 +39,7 @@ class TitanConfig:
         self._active_project_path = None  # Set by load()
         self._workflow_registry = None  # Set by load()
         self._plugin_warnings = []
+        self._plugin_sync_events = []
 
         # Use custom global config path if provided (for testing), otherwise use default
         self._global_config_path = global_config_path or self.GLOBAL_CONFIG
@@ -48,7 +56,10 @@ class TitanConfig:
             skip_plugin_init: If True, skip plugin initialization. Useful during setup wizards.
         """
         # Load global config
-        self.global_config = self._load_toml(self._global_config_path)
+        self.global_config = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
 
         # Set project root: git root if inside a repo, otherwise cwd
         project_root = find_project_root()
@@ -75,6 +86,7 @@ class TitanConfig:
             self.registry.reset()
             self.registry.initialize_plugins(config=self, secrets=self.secrets)
             self._plugin_warnings = self.registry.list_failed()
+            self._plugin_sync_events = self.registry.list_sync_events()
 
         # Re-initialize WorkflowRegistry using project root
         project_step_source = ProjectStepSource(project_root=project_root)
@@ -117,9 +129,34 @@ class TitanConfig:
                 _ = ConfigParseError(file_path=str(path), original_exception=e)
                 return {}
 
+    def _load_and_migrate_toml(
+        self,
+        path: Optional[Path],
+        migration_manager: MigrationManager,
+        write_on_migration: bool = True,
+    ) -> dict:
+        """Load TOML and normalize it to the current config schema."""
+        raw_config = self._load_toml(path)
+        if not raw_config:
+            return {}
+
+        migration_result = migration_manager.migrate(raw_config)
+        if migration_result.changed:
+            logger.info(
+                "config_migrated",
+                path=str(path),
+                from_version=migration_result.original_version,
+                to_version=migration_result.final_version,
+                steps=migration_result.applied_steps,
+            )
+            if write_on_migration and path is not None:
+                self._write_toml(path, migration_result.data)
+
+        return migration_result.data
+
     def _merge_configs(self, global_cfg: dict, project_cfg: dict) -> dict:
         """Merge global and project configs (project overrides global)"""
-        merged = {**global_cfg}
+        merged = deepcopy(global_cfg)
 
         # Project config overrides global
         for key, value in project_cfg.items():
@@ -154,25 +191,28 @@ class TitanConfig:
                 # Global AI config is always available, project can override specific settings
                 merged_ai = merged.setdefault("ai", {})
 
-                # Merge providers (project providers supplement global providers)
-                if "providers" in value:
-                    merged_providers = merged_ai.setdefault("providers", {})
+                # Merge connections (project connections supplement global connections)
+                if "connections" in value:
+                    merged_connections = merged_ai.setdefault("connections", {})
                     # Deep merge: preserve global fields, override with project fields
-                    for provider_id, provider_data in value["providers"].items():
-                        if provider_id in merged_providers:
-                            # Provider exists in global: deep merge (extend, not replace)
-                            merged_providers[provider_id] = {**merged_providers[provider_id], **provider_data}
+                    for connection_id, connection_data in value["connections"].items():
+                        if connection_id in merged_connections:
+                            # Connection exists in global: deep merge (extend, not replace)
+                            merged_connections[connection_id] = {
+                                **merged_connections[connection_id],
+                                **connection_data,
+                            }
                         else:
-                            # New provider: just add it
-                            merged_providers[provider_id] = provider_data
+                            # New connection: just add it
+                            merged_connections[connection_id] = connection_data
 
-                # Project can override default provider, otherwise keep global
-                if "default" in value:
-                    merged_ai["default"] = value["default"]
+                # Project can override default connection, otherwise keep global
+                if "default_connection" in value:
+                    merged_ai["default_connection"] = value["default_connection"]
 
                 # Merge any other AI settings
                 for ai_key, ai_value in value.items():
-                    if ai_key not in ("providers", "default"):
+                    if ai_key not in ("connections", "default_connection"):
                         merged_ai[ai_key] = ai_value
             else:
                 merged[key] = value
@@ -201,12 +241,16 @@ class TitanConfig:
             return []
         return [
             name for name, plugin_cfg in self.config.plugins.items()
-            if plugin_cfg.enabled
+            if self.is_plugin_enabled(name)
         ]
 
     def get_plugin_warnings(self) -> List[str]:
         """Get list of failed or misconfigured plugins."""
         return self._plugin_warnings
+
+    def get_plugin_sync_events(self) -> List[str]:
+        """Get list of plugin auto-sync events from the latest load cycle."""
+        return self._plugin_sync_events
 
     def get_project_name(self) -> Optional[str]:
         """Get the current project name from project config."""
@@ -216,12 +260,6 @@ class TitanConfig:
 
     def _save_global_config(self):
         """Saves the current state of the global config to disk."""
-        if not self._global_config_path.parent.exists():
-            try:
-                self._global_config_path.parent.mkdir(parents=True)
-            except OSError as e:
-                raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
-
         existing_global_config = {}
         if self._global_config_path.exists():
             try:
@@ -234,25 +272,284 @@ class TitanConfig:
         # Save only AI configuration to global config
         # Project-specific settings are stored in project's .titan/config.toml
         config_to_save = self.config.model_dump(exclude_none=True)
+        existing_global_config["config_version"] = self.config.config_version
 
         if 'ai' in config_to_save:
             existing_global_config['ai'] = config_to_save['ai']
 
+        self._write_global_config(existing_global_config)
+
+    def get_ai_connections_config(self) -> dict:
+        """Return global AI config normalized to the current schema."""
+        config_data = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
+        ai_cfg = config_data.setdefault("ai", {})
+        ai_cfg.setdefault("connections", {})
+        ai_cfg.setdefault("default_connection", None)
+        return ai_cfg
+
+    def save_ai_connections_config(self, ai_config: dict) -> None:
+        """Persist global AI config in the current schema version."""
+        config_data = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
+        config_data["config_version"] = (
+            self.config.config_version if getattr(self, "config", None) else "1.0"
+        )
+        config_data["ai"] = ai_config
+        self._write_global_config(config_data)
+
+    def upsert_ai_connection(self, connection_id: str, connection_data: dict) -> None:
+        """Create or update a single AI connection."""
+        ai_cfg = self.get_ai_connections_config()
+        ai_cfg.setdefault("connections", {})
+        ai_cfg["connections"][connection_id] = connection_data
+
+        if not ai_cfg.get("default_connection"):
+            ai_cfg["default_connection"] = connection_id
+
+        self.save_ai_connections_config(ai_cfg)
+
+    def update_ai_connection(self, connection_id: str, updates: dict) -> None:
+        """Update fields of an existing AI connection."""
+        ai_cfg = self.get_ai_connections_config()
+        connections = ai_cfg.get("connections", {})
+
+        if connection_id not in connections:
+            raise ValueError(f"AI connection '{connection_id}' not found.")
+
+        connections[connection_id] = {
+            **connections[connection_id],
+            **updates,
+        }
+        self.save_ai_connections_config(ai_cfg)
+
+    def set_default_ai_connection(self, connection_id: str) -> None:
+        """Set the global default AI connection."""
+        ai_cfg = self.get_ai_connections_config()
+        if connection_id not in ai_cfg.get("connections", {}):
+            raise ValueError(f"AI connection '{connection_id}' not found.")
+        ai_cfg["default_connection"] = connection_id
+        self.save_ai_connections_config(ai_cfg)
+
+    def delete_ai_connection(self, connection_id: str) -> None:
+        """Delete an AI connection and repair the default pointer if needed."""
+        ai_cfg = self.get_ai_connections_config()
+        connections = ai_cfg.get("connections", {})
+        if connection_id not in connections:
+            return
+
+        del connections[connection_id]
+
+        if ai_cfg.get("default_connection") == connection_id:
+            ai_cfg["default_connection"] = next(iter(connections), None)
+
+        self.save_ai_connections_config(ai_cfg)
+
+    def _write_toml(self, path: Path, data: dict) -> None:
+        """Write raw TOML data to disk."""
+        if not path.parent.exists():
+            try:
+                path.parent.mkdir(parents=True)
+            except OSError as e:
+                raise ConfigWriteError(file_path=str(path), original_exception=e)
+
         try:
-            with open(self._global_config_path, "wb") as f:
+            with open(path, "wb") as f:
                 import tomli_w
-                tomli_w.dump(existing_global_config, f)
+                tomli_w.dump(data, f)
         except ImportError as e:
-            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+            raise ConfigWriteError(file_path=str(path), original_exception=e)
         except Exception as e:
-            raise ConfigWriteError(file_path=str(self._global_config_path), original_exception=e)
+            raise ConfigWriteError(file_path=str(path), original_exception=e)
+
+    def _write_global_config(self, data: dict) -> None:
+        """Write raw global config data to disk."""
+        self._write_toml(self._global_config_path, data)
 
     def is_plugin_enabled(self, plugin_name: str) -> bool:
-        """Check if plugin is enabled"""
+        """Check if a plugin is effectively enabled for the current project.
+
+        This is the source of truth for plugin activation. Do not infer enabled
+        state from the merged plugin model alone, because global plugin metadata
+        may exist without the plugin being explicitly enabled in the current
+        project's config.
+        """
         if not self.config or not self.config.plugins:
+            return False
+        project_plugins = self.project_config.get("plugins", {}) if self.project_config else {}
+        if plugin_name not in project_plugins:
             return False
         plugin_cfg = self.config.plugins.get(plugin_name)
         return plugin_cfg.enabled if plugin_cfg else False
+
+    def get_plugin_source_channel(self, plugin_name: str) -> str:
+        """Return the effective source channel for a plugin."""
+        source = self.get_effective_plugin_source(plugin_name)
+        return source.get("channel", PluginChannel.STABLE)
+
+    def get_plugin_source_path(self, plugin_name: str) -> Optional[Path]:
+        """Return the effective dev_local path for a plugin, if any."""
+        source = self.get_effective_plugin_source(plugin_name)
+        path = source.get("path")
+        if not path:
+            return None
+        return Path(path).expanduser().resolve()
+
+    def get_global_plugin_source(self, plugin_name: str) -> dict:
+        """Return the raw user-local source override for a plugin in the active project."""
+        scoped_source = self._get_project_source_scope_data().get("plugins", {}).get(plugin_name, {}).get("source", {})
+        if scoped_source:
+            return scoped_source.copy()
+
+        # Backward-compatible fallback for older global config layouts.
+        return (
+            self.global_config.get("plugins", {})
+            .get(plugin_name, {})
+            .get("source", {})
+            .copy()
+        )
+
+    def get_project_plugin_source(self, plugin_name: str) -> dict:
+        """Return the raw project source definition for a plugin."""
+        return (
+            self.project_config.get("plugins", {})
+            .get(plugin_name, {})
+            .get("source", {})
+            .copy()
+        )
+
+    def get_effective_plugin_source(self, plugin_name: str) -> dict:
+        """Return the effective plugin source after applying local overrides."""
+        global_source = self.get_global_plugin_source(plugin_name)
+        project_source = self.get_project_plugin_source(plugin_name)
+
+        if global_source.get("channel") == PluginChannel.DEV_LOCAL and global_source.get("path"):
+            return {
+                "channel": PluginChannel.DEV_LOCAL,
+                "path": global_source.get("path"),
+                "repo_url": project_source.get("repo_url"),
+                "requested_ref": project_source.get("requested_ref"),
+                "resolved_commit": project_source.get("resolved_commit"),
+            }
+
+        effective = dict(project_source)
+        effective.setdefault("channel", PluginChannel.STABLE)
+
+        # Preserve the remembered dev path for quick switching, but only as UX state.
+        if global_source.get("path") and "path" not in effective:
+            effective["path"] = global_source.get("path")
+
+        return effective
+
+    def get_project_plugin_repo_url(self, plugin_name: str) -> Optional[str]:
+        """Return the shared stable repository URL for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("repo_url")
+
+    def get_project_plugin_requested_ref(self, plugin_name: str) -> Optional[str]:
+        """Return the shared requested stable ref for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("requested_ref")
+
+    def get_project_plugin_resolved_commit(self, plugin_name: str) -> Optional[str]:
+        """Return the shared resolved stable commit for a plugin."""
+        return self.get_project_plugin_source(plugin_name).get("resolved_commit")
+
+    def set_global_plugin_source(
+        self,
+        plugin_name: str,
+        channel: str,
+        path: Optional[str] = None,
+    ) -> None:
+        """Persist a plugin source override in the global user config."""
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.setdefault("project_sources", {})
+        project_table = project_sources.setdefault(self._get_project_source_scope_key(), {})
+        project_table["project_path"] = str((self._project_root or Path.cwd()).resolve())
+        plugins_table = project_table.setdefault("plugins", {})
+        plugin_table = plugins_table.setdefault(plugin_name, {})
+        source_table = plugin_table.setdefault("source", {})
+
+        source_table["channel"] = channel
+        if path:
+            source_table["path"] = path
+        else:
+            source_table.pop("path", None)
+
+        self._write_global_config(config_data)
+
+    def clear_global_plugin_source(self, plugin_name: str) -> None:
+        """Remove a plugin source override from the global user config."""
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.get("project_sources", {})
+        project_key = self._find_project_source_scope_key(project_sources)
+        project_table = project_sources.get(project_key, {}) if project_key else {}
+        plugins_table = project_table.get("plugins", {})
+        plugin_table = plugins_table.get(plugin_name)
+        if not plugin_table:
+            # Fall back to cleaning any legacy global override for the plugin.
+            legacy_plugins = config_data.get("plugins", {})
+            legacy_plugin = legacy_plugins.get(plugin_name)
+            if not legacy_plugin:
+                return
+            legacy_plugin.pop("source", None)
+            if not legacy_plugin:
+                legacy_plugins.pop(plugin_name, None)
+            if not legacy_plugins and "plugins" in config_data:
+                config_data.pop("plugins", None)
+            self._write_global_config(config_data)
+            return
+
+        plugin_table.pop("source", None)
+        if not plugin_table:
+            plugins_table.pop(plugin_name, None)
+        if not plugins_table and "plugins" in project_table:
+            project_table.pop("plugins", None)
+        if self._project_source_table_empty(project_table) and project_key in project_sources:
+            project_sources.pop(project_key, None)
+        if not project_sources and "project_sources" in config_data:
+            config_data.pop("project_sources", None)
+
+        self._write_global_config(config_data)
+
+    def _get_project_source_scope_key(self) -> str:
+        """Return the global-config key used to scope local plugin overrides per project."""
+        project_path = str((self._project_root or Path.cwd()).resolve())
+        project_name = (self._project_root or Path.cwd()).resolve().name or "project"
+        safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", project_name).strip("_").lower() or "project"
+        digest = hashlib.sha256(project_path.encode("utf-8")).hexdigest()[:8]
+        return f"p_{safe_name}_{digest}"
+
+    def _get_project_source_scope_data(self) -> dict:
+        """Return the scoped project source block for the active project."""
+        project_sources = self.global_config.get("project_sources", {})
+        project_key = self._find_project_source_scope_key(project_sources)
+        if project_key:
+            return project_sources.get(project_key, {})
+        return {}
+
+    def _find_project_source_scope_key(self, project_sources: dict) -> Optional[str]:
+        """Find the project_sources key matching the active project."""
+        current_path = str((self._project_root or Path.cwd()).resolve())
+        preferred_key = self._get_project_source_scope_key()
+        preferred_table = project_sources.get(preferred_key)
+        if isinstance(preferred_table, dict):
+            stored_path = preferred_table.get("project_path")
+            if not stored_path or stored_path == current_path:
+                return preferred_key
+
+        for key, value in project_sources.items():
+            if key == current_path:
+                return key
+            if isinstance(value, dict) and value.get("project_path") == current_path:
+                return key
+        return None
+
+    def _project_source_table_empty(self, project_table: dict) -> bool:
+        """Return whether a scoped project source block contains meaningful data."""
+        return not any(key != "project_path" for key in project_table)
 
     def get_status_bar_info(self) -> dict:
         """
@@ -266,12 +563,17 @@ class TitanConfig:
         ai_info = None
         if self.config and self.config.ai:
             ai_config = self.config.ai
-            default_provider_id = ai_config.default
+            default_connection_id = ai_config.default_connection
 
-            if default_provider_id and default_provider_id in ai_config.providers:
-                provider_config = ai_config.providers[default_provider_id]
-                provider_name = provider_config.provider
-                model = provider_config.model or "default"
+            if (
+                default_connection_id
+                and default_connection_id in ai_config.connections
+            ):
+                connection_config = ai_config.connections[default_connection_id]
+                provider_name = (
+                    connection_config.provider or connection_config.gateway_backend
+                )
+                model = connection_config.default_model or "default"
                 ai_info = f"{provider_name}/{model}"
 
         # Extract project name from project config
@@ -281,4 +583,3 @@ class TitanConfig:
             'ai_info': ai_info,
             'project_name': project_name
         }
-

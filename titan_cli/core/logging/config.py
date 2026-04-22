@@ -47,7 +47,7 @@ def setup_logging(
     is_dev = _is_development_mode(debug)
 
     # Setup file logging (writes session separator before attaching handler)
-    _setup_file_handler(log_file, debug)
+    _setup_file_handler(log_file, is_dev)
 
     # Setup console logging
     _setup_console_handler(log_level, is_dev)
@@ -76,16 +76,25 @@ def _is_development_mode(debug: bool) -> bool:
 
     Checks:
     1. TITAN_ENV environment variable
-    2. Debug flag
+    2. `titan-dev` executable name
+    3. Debug flag
 
     Returns:
         True if development mode, False otherwise
     """
     if os.getenv("TITAN_ENV") == "development":
         return True
+    if _is_titan_dev_invocation():
+        return True
     if debug:
         return True
     return False
+
+
+def _is_titan_dev_invocation() -> bool:
+    """Return True when Titan was launched via the titan-dev executable."""
+    argv0 = Path(sys.argv[0]).name
+    return argv0 == "titan-dev"
 
 
 def _get_log_file_path(custom_path: Optional[Path] = None) -> Path:
@@ -129,7 +138,7 @@ def _write_session_separator(log_file: Path) -> None:
         f.write(line)
 
 
-def _setup_file_handler(log_file: Optional[Path], debug: bool) -> None:
+def _setup_file_handler(log_file: Optional[Path], is_dev: bool) -> None:
     """
     Setup file handler with rotation.
 
@@ -152,7 +161,7 @@ def _setup_file_handler(log_file: Optional[Path], debug: bool) -> None:
     )
 
     # File always logs at DEBUG in dev, INFO in prod
-    file_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+    file_handler.setLevel(logging.DEBUG if is_dev else logging.INFO)
 
     # Add to root logger
     root_logger = logging.getLogger()
@@ -296,10 +305,11 @@ def disable_console_logging() -> None:
     In production, console logs would be hidden by the TUI anyway,
     so we disable them to save resources.
 
-    In debug mode, console logging stays enabled because Textual
-    devtools will capture and display them in a separate console.
+    In TUI mode without Textual devtools, this can also be used in debug mode
+    to keep logs only in the file handler.
 
-    After calling this, logs will only go to the file handler.
+    When Textual devtools are enabled, console logging should remain enabled so
+    `textual console` can capture and display the logs.
     """
     root_logger = logging.getLogger()
 

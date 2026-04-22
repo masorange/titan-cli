@@ -1,18 +1,10 @@
-"""
-Install Plugin Screen
-
-Multi-step wizard for installing community plugins from git repositories.
-
-Steps:
-  1. URL     — user enters repo URL with @version
-  2. Preview — fetch pyproject.toml metadata + security warning
-  3. Install — async pipx inject with progress indicator
-  4. Done    — success or error summary
-"""
+"""Install a project-pinned community plugin."""
 
 import asyncio
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Optional
+import tomli
+import tomli_w
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -20,18 +12,18 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Input, LoadingIndicator, Static
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.plugins.community import (
-    CommunityPluginRecord,
+from titan_cli.core.plugins.community_sources import (
+    PluginChannel,
     build_raw_pyproject_url,
     detect_host,
     fetch_pyproject_toml,
     get_github_token,
-    install_community_plugin,
     parse_plugin_metadata,
     parse_repo_url,
-    save_community_plugin,
+    resolve_ref_to_commit_sha,
     validate_url,
 )
+from titan_cli.core.plugins.runtime import PluginRuntimeManager
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
     BoldText,
@@ -52,8 +44,19 @@ from .base import BaseScreen
 logger = get_logger(__name__)
 
 
+@dataclass
+class InstalledPluginSummary:
+    """Summary shown after a successful project plugin install."""
+
+    repo_url: str
+    package_name: str
+    titan_plugin_name: str
+    requested_ref: str
+    resolved_commit: str
+
+
 _STEPS = [
-    WizardStep(id="url",     title="Repository URL"),
+    WizardStep(id="source",  title="Source"),
     WizardStep(id="preview", title="Preview"),
     WizardStep(id="install", title="Install"),
     WizardStep(id="done",    title="Done"),
@@ -61,12 +64,7 @@ _STEPS = [
 
 
 class InstallPluginScreen(BaseScreen):
-    """
-    Wizard for installing a community plugin from a git repository.
-
-    Walks the user through URL entry, plugin preview with security warning,
-    async pipx injection, and a final success/error summary.
-    """
+    """Wizard for pinning a stable community plugin into the current project."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -154,19 +152,23 @@ class InstallPluginScreen(BaseScreen):
     def __init__(self, config):
         super().__init__(
             config,
-            title=f"{Icons.PLUGIN} Install Community Plugin",
+            title=f"{Icons.PLUGIN} Add Plugin",
             show_back=False,
             show_status_bar=False,
         )
         self.current_step = 0
-        self._raw_url = ""
-        self._base_url = ""
-        self._version = ""
+        self._raw_url: str = ""
+        self._base_url: str = ""
+        self._requested_ref: str = ""
+        self._resolved_commit: Optional[str] = None
         self._token: Optional[str] = None
+
+        # Shared state
         self._metadata: dict = {}
         self._install_success = False
-        self._installed_record: Optional[CommunityPluginRecord] = None
+        self._installed_record: Optional[InstalledPluginSummary] = None
         self._plugin_has_config = False
+        self._runtime_manager = PluginRuntimeManager()
 
     # -----------------------------------------------------------------------
     # Composition
@@ -224,6 +226,9 @@ class InstallPluginScreen(BaseScreen):
     def _set_cancel_visible(self, visible: bool) -> None:
         self.query_one("#cancel-button", Button).display = visible
 
+    def _set_next_visible(self, visible: bool) -> None:
+        self.query_one("#next-button", Button).display = visible
+
     # -----------------------------------------------------------------------
     # Step dispatcher
     # -----------------------------------------------------------------------
@@ -237,27 +242,28 @@ class InstallPluginScreen(BaseScreen):
         body.remove_children()
 
         match _STEPS[index].id:
-            case "url":
+            case "source":
                 self._render_url(title, body)
             case "preview":
-                self._render_preview(title, body)
+                self._render_preview_stable(title, body)
             case "install":
                 self._render_install(title, body)
             case "done":
                 self._render_done(title, body)
 
     # -----------------------------------------------------------------------
-    # Step 1: URL input
+    # Step 1 (Stable): URL input
     # -----------------------------------------------------------------------
 
     def _render_url(self, title: Static, body: Container) -> None:
         title.update("Repository URL")
         self._set_next_label("Next")
+        self._set_next_visible(True)
         self._set_cancel_visible(True)
 
         body.mount(DimText(
             "Enter the URL of the plugin's git repository.\n"
-            "You must include a version tag or commit SHA after @"
+            "Include a version tag or commit SHA after @"
         ))
         body.mount(Text(""))
         body.mount(DimText("  Example: https://github.com/user/titan-plugin-example@v1.0.0"))
@@ -276,7 +282,6 @@ class InstallPluginScreen(BaseScreen):
         ))
 
     def _validate_url_step(self) -> bool:
-        # Read current input value even if the user clicked Next without pressing Enter
         try:
             self._raw_url = self.query_one("#prompt-input", Input).value
         except Exception:
@@ -287,46 +292,60 @@ class InstallPluginScreen(BaseScreen):
             w.remove()
         try:
             validate_url(self._raw_url)
-            self._base_url, self._version = parse_repo_url(self._raw_url)
+            self._base_url, self._requested_ref = parse_repo_url(self._raw_url)
             return True
         except ValueError as e:
             body.mount(ErrorText(f"{Icons.ERROR} {e}"))
             return False
 
     # -----------------------------------------------------------------------
-    # Step 2: Preview
+    # Step 2 (Stable): Preview — fetch metadata + resolve SHA
     # -----------------------------------------------------------------------
 
-    def _render_preview(self, title: Static, body: Container) -> None:
+    def _render_preview_stable(self, title: Static, body: Container) -> None:
         title.update("Plugin Preview")
         self._set_next_label("Next", disabled=True)
         self._set_cancel_visible(True)
 
         body.mount(LoadingIndicator())
-        body.mount(DimText("Fetching plugin metadata…"))
+        body.mount(DimText("Fetching plugin metadata and resolving commit SHA…"))
 
-        self.call_after_refresh(self._start_fetch)
+        self.call_after_refresh(self._start_fetch_stable)
 
-    def _start_fetch(self) -> None:
-        self.run_worker(self._fetch_metadata(), exclusive=True)
+    def _start_fetch_stable(self) -> None:
+        self.run_worker(self._fetch_metadata_stable(), exclusive=True)
 
-    async def _fetch_metadata(self) -> None:
+    async def _fetch_metadata_stable(self) -> None:
         body = self.query_one("#content-body", Container)
 
         self._token = await asyncio.to_thread(get_github_token)
+        host = detect_host(self._base_url)
 
-        host    = detect_host(self._base_url)
-        raw_url = build_raw_pyproject_url(self._base_url, self._version, host)
+        # Resolve tag/ref → commit SHA (security anchor: installs always use the SHA)
+        resolved_sha, sha_error = await asyncio.to_thread(
+            resolve_ref_to_commit_sha, self._base_url, self._requested_ref, host, self._token
+        )
+
+        if sha_error:
+            body.remove_children()
+            body.mount(Panel(
+                f"Could not resolve '{self._requested_ref}' to a commit SHA.\n\n{sha_error}",
+                panel_type="error",
+            ))
+            self._set_next_label("Next", disabled=True)
+            return
+
+        self._resolved_commit = resolved_sha
+
+        raw_url = build_raw_pyproject_url(self._base_url, self._resolved_commit, host)
 
         if raw_url is None:
             body.remove_children()
             body.mount(Panel(
-                "Unknown host — cannot preview plugin metadata.\n"
-                "Proceed with extra caution.",
-                panel_type="warning",
+                "Could not build the metadata URL for this repository.",
+                panel_type="error",
             ))
-            self._render_security_warning(body)
-            self._set_next_label("I understand, Install")
+            self._set_next_label("Next", disabled=True)
             return
 
         content, error = await asyncio.to_thread(fetch_pyproject_toml, raw_url, self._token)
@@ -339,7 +358,7 @@ class InstallPluginScreen(BaseScreen):
                 "Check that the URL and version tag are correct.",
                 panel_type="error",
             ))
-            self._set_next_label("Proceed anyway", disabled=True)
+            self._set_next_label("Next", disabled=True)
             return
 
         if error == "network_error":
@@ -361,7 +380,6 @@ class InstallPluginScreen(BaseScreen):
             ))
         else:
             self._render_metadata(body)
-
             if not self._metadata.get("titan_entry_points"):
                 body.mount(Panel(
                     "This package does not declare a Titan plugin entry point.\n"
@@ -369,8 +387,17 @@ class InstallPluginScreen(BaseScreen):
                     panel_type="warning",
                 ))
 
+        body.mount(Text(""))
+        body.mount(BoldText("Version resolution"))
+        body.mount(DimText(f"  Requested:       {self._requested_ref}"))
+        body.mount(DimText(f"  Installs commit: {self._resolved_commit}"))
+
         self._render_security_warning(body)
         self._set_next_label("I understand, Install")
+
+    # -----------------------------------------------------------------------
+    # Shared metadata rendering
+    # -----------------------------------------------------------------------
 
     def _render_metadata(self, body: Container) -> None:
         m = self._metadata
@@ -422,9 +449,9 @@ class InstallPluginScreen(BaseScreen):
         self._set_next_label("Next", disabled=True)
         self._set_cancel_visible(False)
 
-        body.mount(DimText(f"Running pipx inject for {self._base_url}@{self._version}…"))
-        body.mount(LoadingIndicator())
+        body.mount(DimText(f"Preparing isolated runtime for {self._base_url}@{self._resolved_commit}…"))
 
+        body.mount(LoadingIndicator())
         self.call_after_refresh(self._start_install)
 
     def _start_install(self) -> None:
@@ -432,51 +459,44 @@ class InstallPluginScreen(BaseScreen):
 
     async def _run_install(self) -> None:
         body = self.query_one("#content-body", Container)
-
-        result = await asyncio.to_thread(
-            install_community_plugin, self._base_url, self._version, self._token
-        )
+        eps = self._metadata.get("titan_entry_points", {})
+        plugin_name = next(iter(eps), "")
+        package_name = self._metadata.get("name") or self._base_url.rstrip("/").split("/")[-1]
+        error = await asyncio.to_thread(self._prepare_project_plugin_install, plugin_name)
 
         body.remove_children()
 
-        if result.returncode != 0:
+        if error:
             self._install_success = False
-            pipx_output = result.stderr or result.stdout or "Unknown error"
-            logger.error("community_plugin_install_failed",
-                         base_url=self._base_url,
-                         version=self._version,
-                         output=pipx_output)
+            logger.error(
+                "community_plugin_install_failed",
+                repo_url=self._base_url,
+                resolved_commit=self._resolved_commit,
+                output=error,
+            )
             body.mount(Panel(
-                "pipx inject failed.\n\n"
+                "Installation failed.\n\n"
                 "Possible reasons:\n"
-                "  • The repository does not exist or is private\n"
-                "  • The version tag or commit SHA is incorrect\n"
-                "  • pipx is not installed or titan-cli is not injected correctly",
+                "  • The repository or path does not exist\n"
+                "  • The commit SHA is unreachable\n"
+                "  • git or virtualenv setup failed",
                 panel_type="error",
             ))
             body.mount(Text(""))
-            body.mount(BoldText("pipx output:"))
-            body.mount(DimText(pipx_output[:800]))
+            body.mount(BoldText("Output:"))
+            body.mount(DimText(error[:800]))
         else:
             self._install_success = True
 
-            eps          = self._metadata.get("titan_entry_points", {})
-            plugin_name  = next(iter(eps), "")
-            package_name = self._metadata.get("name") or self._base_url.rstrip("/").split("/")[-1]
-
-            self._installed_record = CommunityPluginRecord(
+            self._installed_record = InstalledPluginSummary(
                 repo_url=self._base_url,
-                version=self._version,
                 package_name=package_name,
                 titan_plugin_name=plugin_name,
-                installed_at=datetime.now(timezone.utc).isoformat(),
+                requested_ref=self._requested_ref,
+                resolved_commit=self._resolved_commit,
             )
-            save_community_plugin(self._installed_record)
-
-            # Auto-reload: config.load() resets the registry and re-initializes all plugins
             await asyncio.to_thread(self.config.load)
 
-            # Check if installed plugin needs configuration
             installed_plugin = self.config.registry._plugins.get(plugin_name)
             if installed_plugin and hasattr(installed_plugin, "get_config_schema"):
                 try:
@@ -485,10 +505,9 @@ class InstallPluginScreen(BaseScreen):
                 except Exception:
                     self._plugin_has_config = False
 
-            body.mount(SuccessText(f"{Icons.SUCCESS} Plugin installed successfully!"))
+            body.mount(SuccessText(f"{Icons.SUCCESS} Plugin added to this project."))
 
         if self._plugin_has_config and self._installed_record:
-            # Open config wizard automatically — on close, advance to Done
             plugin_name = self._installed_record.titan_plugin_name
             self.call_after_refresh(lambda pn=plugin_name: self._open_config_wizard(pn))
         else:
@@ -499,6 +518,44 @@ class InstallPluginScreen(BaseScreen):
         wizard = PluginConfigWizardScreen(self.config, plugin_name)
         self.app.push_screen(wizard, lambda _: self._load_step(self.current_step + 1))
 
+    def _prepare_project_plugin_install(self, plugin_name: str) -> Optional[str]:
+        """Persist the project pin and provision its isolated runtime."""
+        try:
+            self._save_project_plugin_source(plugin_name)
+            self._runtime_manager.ensure_stable_runtime(
+                plugin_name=plugin_name,
+                repo_url=self._base_url,
+                resolved_commit=self._resolved_commit,
+                token=self._token,
+            )
+        except Exception as e:
+            return str(e)
+        return None
+
+    def _save_project_plugin_source(self, plugin_name: str) -> None:
+        """Persist the stable source for a plugin in the current project config."""
+        project_cfg_path = self.config.project_config_path or (self.config.project_root / ".titan" / "config.toml")
+        project_cfg_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if project_cfg_path.exists():
+            with open(project_cfg_path, "rb") as f:
+                project_cfg_dict = tomli.load(f)
+        else:
+            project_cfg_dict = {}
+
+        plugins_table = project_cfg_dict.setdefault("plugins", {})
+        plugin_table = plugins_table.setdefault(plugin_name, {})
+        plugin_table["enabled"] = True
+
+        source_table = plugin_table.setdefault("source", {})
+        source_table["channel"] = PluginChannel.STABLE
+        source_table["repo_url"] = self._base_url
+        source_table["requested_ref"] = self._requested_ref
+        source_table["resolved_commit"] = self._resolved_commit
+
+        with open(project_cfg_path, "wb") as f:
+            tomli_w.dump(project_cfg_dict, f)
+
     # -----------------------------------------------------------------------
     # Step 4: Done
     # -----------------------------------------------------------------------
@@ -506,6 +563,7 @@ class InstallPluginScreen(BaseScreen):
     def _render_done(self, title: Static, body: Container) -> None:
         self._set_next_label("Finish")
         self._set_cancel_visible(False)
+        self._set_next_visible(True)
 
         if self._install_success and self._installed_record:
             title.update("Installation complete")
@@ -513,10 +571,12 @@ class InstallPluginScreen(BaseScreen):
 
             body.mount(SuccessText(f"{Icons.SUCCESS} Plugin ready to use!"))
             body.mount(Text(""))
+
             if r.package_name:
                 body.mount(DimText(f"  Package:     {r.package_name}"))
-            if r.version:
-                body.mount(DimText(f"  Version:     {r.version}"))
+            if r.requested_ref:
+                body.mount(DimText(f"  Version:     {r.requested_ref}"))
+                body.mount(DimText(f"  Commit:      {r.resolved_commit}"))
             if r.titan_plugin_name:
                 body.mount(DimText(f"  Plugin name: {r.titan_plugin_name}"))
             body.mount(Text(""))
@@ -524,7 +584,7 @@ class InstallPluginScreen(BaseScreen):
             if r.titan_plugin_name:
                 body.mount(Panel(
                     f"The plugin '{r.titan_plugin_name}' is now available.\n"
-                    "Enable it in Plugin Management to use it in your workflows.",
+                    "Titan pinned this version in the current project's config and prepared its local runtime.",
                     panel_type="info",
                 ))
             else:
@@ -558,8 +618,9 @@ class InstallPluginScreen(BaseScreen):
             self.dismiss(result=self._install_success)
             return
 
-        if step_id == "url" and not self._validate_url_step():
-            return
+        if step_id == "source":
+            if not self._validate_url_step():
+                return
 
         self._load_step(self.current_step + 1)
 

@@ -125,6 +125,31 @@ def test_run_command_api_error(gh_network):
         assert "pull request not found" in str(exc_info.value).lower()
 
 
+def test_run_command_api_error_logs_with_custom_logger(gh_network):
+    """API failures should be logged via the custom structured logger."""
+    gh_network._logger = Mock()
+
+    with patch('titan_plugin_github.clients.network.gh_network.subprocess.run') as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["gh", "pr", "create", "--body", "secret body"],
+            stderr="GraphQL: Something went wrong",
+        )
+
+        with pytest.raises(GitHubAPIError):
+            gh_network.run_command(["pr", "create", "--body", "secret body"])
+
+    gh_network._logger.error.assert_called_once()
+    event_name = gh_network._logger.error.call_args.args[0]
+    event_fields = gh_network._logger.error.call_args.kwargs
+
+    assert event_name == "gh_command_failed"
+    assert event_fields["subcommand"] == "pr"
+    assert event_fields["action"] == "create"
+    assert event_fields["exit_code"] == 1
+    assert isinstance(event_fields["duration"], float)
+
+
 def test_run_command_cli_not_found(gh_network):
     """Test command execution when gh CLI is not installed"""
     with patch('titan_plugin_github.clients.network.gh_network.subprocess.run') as mock_run:

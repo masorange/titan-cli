@@ -14,8 +14,9 @@ from textual.containers import Container
 from titan_cli import __version__
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import StatusBarWidget
-from titan_cli.core.plugins.community import (
-    load_community_plugins,
+from titan_cli.core.plugins.community_sources import (
+    CommunityPluginRecord,
+    PluginChannel,
     get_github_token,
     check_for_updates,
 )
@@ -133,10 +134,12 @@ class MainMenuScreen(BaseScreen):
             yield OptionList(*options)
 
     def on_mount(self) -> None:
+        for message in self.config.get_plugin_sync_events():
+            self.app.notify(message, severity="information", timeout=6)
         self.run_worker(self._check_plugin_updates(), exclusive=False)
 
     async def _check_plugin_updates(self) -> None:
-        records = await asyncio.to_thread(load_community_plugins)
+        records = self._get_project_stable_records()
         if not records:
             return
         token = await asyncio.to_thread(get_github_token)
@@ -144,11 +147,33 @@ class MainMenuScreen(BaseScreen):
         for record, latest in updates:
             self.app.notify(
                 f"Update available for '{record.titan_plugin_name}': "
-                f"{record.version} → {latest}\n"
+                f"{record.requested_ref} → {latest}\n"
                 "Go to Plugin Management to update.",
                 severity="warning",
                 timeout=12,
             )
+
+    def _get_project_stable_records(self) -> list[CommunityPluginRecord]:
+        """Return synthetic records for project-pinned community plugins."""
+        records: list[CommunityPluginRecord] = []
+        for plugin_name in self.config.get_enabled_plugins():
+            repo_url = self.config.get_project_plugin_repo_url(plugin_name)
+            resolved_commit = self.config.get_project_plugin_resolved_commit(plugin_name)
+            if not repo_url or not resolved_commit:
+                continue
+            records.append(
+                CommunityPluginRecord(
+                    repo_url=repo_url,
+                    package_name=plugin_name,
+                    titan_plugin_name=plugin_name,
+                    installed_at="",
+                    channel=PluginChannel.STABLE,
+                    dev_local_path=None,
+                    requested_ref=self.config.get_project_plugin_requested_ref(plugin_name) or resolved_commit,
+                    resolved_commit=resolved_commit,
+                )
+            )
+        return records
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle menu option selection."""

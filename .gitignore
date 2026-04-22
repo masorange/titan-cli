@@ -134,6 +134,8 @@ venv.bak/
 # IDE settings
 .idea/
 .vscode/
+.codex
+.titan/worktrees/
 *.swp
 *.swo
 

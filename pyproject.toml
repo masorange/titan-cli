@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "titan-cli"
-version = "0.2.0"
+version = "0.4.2"
 description = "Modular development tools orchestrator - Streamline your workflows with AI integration and intuitive terminal UI"
 authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
 readme = "README.md"
@@ -35,6 +35,7 @@ pydantic = ">=2.0.0,<3.0.0"
 keyring = ">=25.7.0,<26.0.0"
 python-dotenv = ">=1.2.1,<2.0.0"
 anthropic = ">=0.75.0,<0.76.0"
+openai = ">=2.0.0,<3.0.0"
 google-genai = "^1.58.0"
 google-auth = ">=2.43.0,<3.0.0"
 pyyaml = ">=6.0.3,<7.0.0"
@@ -43,6 +44,7 @@ textual = ">=1.0.0,<2.0.0"
 requests = ">=2.31.0,<3.0.0"
 packaging = ">=23.0,<25.0"
 structlog = ">=25.5.0,<26.0.0"
+h2 = ">=4.1.0,<5.0.0"
 
 [tool.poetry.group.docs]
 optional = true

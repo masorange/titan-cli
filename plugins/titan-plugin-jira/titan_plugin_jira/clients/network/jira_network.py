@@ -6,6 +6,7 @@ Returns raw JSON responses (dicts).
 NO model parsing, NO business logic.
 """
 
+import base64
 import json
 import time
 from typing import Dict, List, Union
@@ -19,9 +20,9 @@ from ...exceptions import JiraAPIError
 
 class JiraNetwork:
     """
-    Jira REST API v2 Network Layer.
+    Jira REST API v3 Network Layer.
 
-    Handles HTTP communication with Jira Server/Cloud.
+    Handles HTTP communication with Jira Cloud.
     Returns raw JSON (dicts), does NOT parse to models.
     """
 
@@ -58,11 +59,13 @@ class JiraNetwork:
         self.timeout = timeout
         self._logger = get_logger(__name__)
 
-        # Setup session with auth
+        # Setup session with Basic Auth (email:api_token)
+        # JIRA Cloud requires Basic Auth for API tokens, not Bearer tokens
+        credentials = base64.b64encode(f"{self.email}:{self.api_token}".encode()).decode()
         self.session = requests.Session()
         self.session.headers.update({
             "Accept": "application/json",
-            "Authorization": f"Bearer {self.api_token}"
+            "Authorization": f"Basic {credentials}"
         })
 
     def make_request(
@@ -84,15 +87,9 @@ class JiraNetwork:
 
         Raises:
             JiraAPIError: If request fails
-
-        Examples:
-            >>> network = JiraNetwork(...)
-            >>> data = network.make_request("GET", "issue/PROJ-123")
-            >>> print(data["key"])
-            'PROJ-123'
         """
-        # Build full URL (Jira Server uses API v2)
-        url = f"{self.base_url}/rest/api/2/{endpoint.lstrip('/')}"
+        # Build full URL (Jira Cloud uses API v3)
+        url = f"{self.base_url}/rest/api/3/{endpoint.lstrip('/')}"
 
         # Add Content-Type for POST/PUT/PATCH
         if method.upper() in ('POST', 'PUT', 'PATCH') and 'json' in kwargs:

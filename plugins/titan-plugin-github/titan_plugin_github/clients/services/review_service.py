@@ -191,6 +191,7 @@ class ReviewService:
                 error_code="API_ERROR"
             )
 
+
     @log_client_operation()
     def get_pr_reviews(self, pr_number: int) -> ClientResult[List[UIReview]]:
         """
@@ -273,14 +274,17 @@ class ReviewService:
 
     @log_client_operation()
     def submit_review(
-        self, pr_number: int, review_id: int, event: str, body: str = ""
+        self, pr_number: int, review_id: int | None, event: str, body: str = ""
     ) -> ClientResult[None]:
         """
         Submit a review.
 
+        If review_id is None, creates a review directly with the event.
+        If review_id is provided, submits the pending review with the event.
+
         Args:
             pr_number: PR number
-            review_id: Review ID
+            review_id: Review ID (or None to create directly)
             event: Review event (APPROVE, REQUEST_CHANGES, COMMENT)
             body: Optional review body text
 
@@ -289,6 +293,23 @@ class ReviewService:
         """
         try:
             repo = self.gh.get_repo_string()
+
+            # If no review_id, create review directly with event
+            if review_id is None:
+                args = [
+                    "api",
+                    f"/repos/{repo}/pulls/{pr_number}/reviews",
+                    "--method", "POST",
+                    "-f", f"event={event}",
+                ]
+
+                if body:
+                    args.extend(["-f", f"body={body}"])
+
+                self.gh.run_command(args)
+                return ClientSuccess(data=None, message=f"Review submitted with event {event}")
+
+            # Otherwise, submit pending review with event
             args = [
                 "api",
                 f"/repos/{repo}/pulls/{pr_number}/reviews/{review_id}/events",

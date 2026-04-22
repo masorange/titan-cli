@@ -76,7 +76,7 @@ class Messages:
 
         class AIIssue:
             """AI issue generation step messages"""
-            AI_NOT_CONFIGURED: str = "AI not configured. Run 'titan ai configure' to enable AI features."
+            AI_NOT_CONFIGURED: str = "AI not configured. Open AI Configuration to enable AI features."
             AI_NOT_CONFIGURED_SKIP: str = "AI not configured - skipping analysis"
             GENERATING_ISSUE: str = "Generating JIRA issue with AI..."
             GENERATION_SUCCESS: str = "AI generated JIRA issue successfully"

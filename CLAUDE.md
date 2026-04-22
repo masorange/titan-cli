@@ -203,6 +203,31 @@ Each plugin is an independent Python package that can register:
 - **Clients**: Wrappers for external APIs (GitHub, Jira, etc.)
 - **AI Agents**: Specialized logic for LLM analysis
 
+### Plugin Documentation Maintenance
+
+When you change an official plugin, you must also review its public plugin documentation and update it if needed.
+
+This applies when you:
+
+- Add a new public client function
+- Remove a public client function
+- Change parameters of an existing public client function
+- Change the expected usage or behavior of an existing public client function
+- Add a workflow that exposes a new user-facing plugin capability
+
+Keep the matching page in `docs/` up to date:
+
+- `docs/plugins/git-plugin.md`
+- `docs/plugins/github-plugin.md`
+- `docs/plugins/jira-plugin.md`
+
+The documentation must show:
+
+- What the operation does
+- How it is called
+- Which parameters are required
+- Which parameters are optional
+
 #### Modern Plugin Architecture (2026-02)
 
 **📖 [Complete Plugin Architecture Guide](.claude/docs/plugin-architecture.md)**
@@ -299,8 +324,9 @@ When creating new steps or refactoring existing ones:
 
 - **Python 3.11+**
 - **Textual**: TUI framework
-- **Anthropic SDK**: Claude integration
-- **Google GenAI SDK**: Gemini integration
+- **Anthropic SDK**: Anthropic direct provider
+- **Google GenAI SDK**: Gemini direct provider
+- **OpenAI SDK**: OpenAI direct provider and LiteLLM/OpenAI-compatible gateways
 - **PyGithub**: GitHub API client
 - **Requests**: HTTP client for APIs
 
@@ -327,6 +353,11 @@ titan-dev
 - Installs dependencies with Poetry (`.venv/`)
 - Creates `~/.local/bin/titan-dev` script pointing to local codebase
 - Allows immediate testing of code changes
+- Enables development logging
+
+Logs for `titan-dev` are written to `~/.local/state/titan/logs/titan.log` during TUI execution.
+For live visual debugging, use `titan-dev --devtools` and run `textual console`
+in another terminal.
 
 **Important:** The `titan-dev` command is for contributors only. End users who install from PyPI only get `titan`.
 
@@ -335,7 +366,7 @@ titan-dev
 Titan uses a two-level configuration system:
 
 1. **Global Configuration** (`~/.titan/config.toml`):
-   - AI provider settings (shared across all projects)
+   - AI connection settings (shared across all projects)
    - Global preferences
 
 2. **Project Configuration** (`.titan/config.toml` at the git root):
@@ -351,14 +382,14 @@ Titan uses a two-level configuration system:
 
 Example global config:
 ```toml
-[ai.providers.default]
-name = "My Claude"
-type = "individual"
-provider = "anthropic"
-model = "claude-sonnet-4-5"
-
 [ai]
-default = "default"
+default_connection = "default"
+
+[ai.connections.default]
+name = "My Claude"
+kind = "direct_provider"
+provider = "anthropic"
+default_model = "claude-sonnet-4-5"
 ```
 
 Example project config:
@@ -419,6 +450,9 @@ poetry run pytest       # Direct pytest
 ```
 
 **Key difference:** `titan` is the production version from PyPI, `titan-dev` runs your local codebase changes.
+For debugging, `titan-dev` writes logs to `~/.local/state/titan/logs/titan.log`.
+If you need live Textual inspection, use `titan-dev --devtools`
+and run `textual console` in another terminal.
 
 ## Current Project Status
 
@@ -429,17 +463,19 @@ poetry run pytest       # Direct pytest
 - ✅ Git plugin (commits, branches, etc.)
 - ✅ GitHub plugin (PRs, issues with AI)
 - ✅ Jira plugin (search, AI-powered analysis)
-- ✅ Claude integration (Anthropic)
-- ✅ Gemini integration (Google)
+- ✅ Anthropic direct provider
+- ✅ OpenAI direct provider
+- ✅ Gemini direct provider
+- ✅ LiteLLM/OpenAI-compatible gateway
 - ✅ All workflow steps migrated to Textual
 
 ### Features
 
 - **Declarative Workflows**: Define flows in YAML
-- **Integrated AI**: Use Claude or Gemini to generate commit messages, PR descriptions, issue analysis
+- **Integrated AI**: Use configured AI connections to generate commit messages, PR descriptions, and issue analysis
 - **Interactive TUI**: Modern interface with Textual
 - **Extensible**: Plugin system
-- **Multi-Provider**: Supports multiple AI providers
+- **Multi-Connection**: Supports direct providers and LLM gateways
 
 ## Recent Important Commits
 
@@ -461,7 +497,7 @@ Titan has been redesigned to work on a per-project basis:
 
 - **Removed**: Global `project_root` and `active_project` settings from `[core]` configuration
 - **New Flow**: Titan must be run from within a project directory
-- **Global Config**: Now only stores AI provider settings (shared across projects)
+- **Global Config**: Now only stores AI connection settings (shared across projects)
 - **Project Config**: Each project has its own `.titan/config.toml` with:
   - Project name
   - Enabled plugins
@@ -491,6 +527,7 @@ Two new wizards guide users through initial setup:
 
 - **Textual Documentation**: https://textual.textualize.io/
 - **Anthropic API**: https://docs.anthropic.com/
+- **OpenAI API**: https://platform.openai.com/docs/
 - **Google GenAI**: https://ai.google.dev/
 
 ---

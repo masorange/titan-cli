@@ -9,7 +9,7 @@ from typing import Callable, List, Any, Optional
 from textual.app import ComposeResult
 from ..models import UICommentThread
 from titan_cli.ui.tui.widgets import PanelContainer, BoldText, Text, PromptChoice, ChoiceOption
-from .comment import Comment
+from .comment_view import CommentView
 from .reply_comment import ReplyComment
 
 
@@ -87,9 +87,9 @@ class CommentThread(PanelContainer):
         """Compose thread: main comment + replies + action buttons."""
         # Main comment (with full context: path, line, diff_hunk, body)
         if self.thread.main_comment:
-            yield Comment(
-                comment=self.thread.main_comment,
-                is_outdated=self.thread.is_outdated
+            yield CommentView.from_ui_comment(
+                self.thread.main_comment,
+                is_outdated=self.thread.is_outdated,
             )
 
         # Replies (if any)

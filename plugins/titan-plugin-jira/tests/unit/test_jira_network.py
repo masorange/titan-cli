@@ -31,10 +31,26 @@ def test_network_initialization(jira_network):
 
 
 def test_network_builds_correct_auth_header(jira_network):
-    """Test that authentication header is built correctly"""
-    # The session should have Bearer token in headers
+    """Test that authentication header is built correctly with Basic Auth"""
+    import base64
+
+    # Verify header exists
     assert "Authorization" in jira_network.session.headers
-    assert jira_network.session.headers["Authorization"] == "Bearer test-token-123"
+    auth_header = jira_network.session.headers["Authorization"]
+
+    # Verify format (should start with "Basic ")
+    assert auth_header.startswith("Basic "), "Should use Basic Auth (not Bearer)"
+
+    # Decode and verify credentials
+    encoded_part = auth_header.split()[1]
+    decoded = base64.b64decode(encoded_part).decode()
+
+    assert decoded == "test@example.com:test-token-123", \
+        f"Expected 'email:token' format, got '{decoded}'"
+
+    # Verify it matches expected encoding
+    expected_credentials = base64.b64encode(b"test@example.com:test-token-123").decode()
+    assert auth_header == f"Basic {expected_credentials}"
 
 
 @patch('titan_plugin_jira.clients.network.jira_network.requests.Session')
@@ -99,13 +115,13 @@ def test_network_make_request_with_params(mock_session_class):
 
     # Create network and make request
     network = JiraNetwork("https://test.atlassian.net", "test@example.com", "token")
-    result = network.make_request("GET", "search", params={"jql": "project=TEST", "maxResults": 50})
+    result = network.make_request("POST", "search/jql", json={"jql": "project=TEST", "maxResults": 50})
 
     # Assertions
     assert result == {"issues": []}
     call_args = mock_session.request.call_args
-    assert call_args[1]["params"]["jql"] == "project=TEST"
-    assert call_args[1]["params"]["maxResults"] == 50
+    assert call_args[1]["json"]["jql"] == "project=TEST"
+    assert call_args[1]["json"]["maxResults"] == 50
 
 
 @patch('titan_plugin_jira.clients.network.jira_network.requests.Session')
@@ -278,3 +294,24 @@ def test_network_custom_timeout():
         timeout=60
     )
     assert network.timeout == 60
+
+
+@patch('titan_plugin_jira.clients.network.jira_network.requests.Session')
+def test_network_uses_api_v3_endpoint(mock_session_class):
+    """Test that API v3 endpoint is used, not v2 (critical for migration)."""
+    mock_session = MagicMock()
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"key": "TEST-123", "id": "10123"}
+    mock_response.content = b'{"key": "TEST-123"}'
+    mock_session.request.return_value = mock_response
+    mock_session_class.return_value = mock_session
+
+    network = JiraNetwork("https://test.atlassian.net", "test@example.com", "token")
+    network.make_request("GET", "issue/TEST-123")
+
+    # Verify URL contains /rest/api/3/ (not /rest/api/2/)
+    call_args = mock_session.request.call_args
+    url = call_args[0][1]  # Second positional argument is the URL
+    assert "/rest/api/3/" in url, f"Expected API v3, got: {url}"
+    assert "/rest/api/2/" not in url, f"Still using API v2: {url}"

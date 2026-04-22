@@ -1,5 +1,5 @@
 name: "Analyze JIRA Open and Ready to Dev Issues"
-description: "List all JIRA issues in Open or Ready to Dev status and analyze selected issue with AI"
+description: "Search open JIRA issues, select one interactively, and analyze it with AI"
 
 params:
   # Can override which saved query to use
@@ -19,16 +19,8 @@ steps:
     plugin: jira
     step: prompt_select_issue
 
-  - id: get_issue_details
-    name: "Get Full Issue Details"
-    plugin: jira
-    step: get_issue
-    requires:
-      - jira_issue_key
-
   - id: ai_analyze_issue
     name: "AI Analyze Issue"
     plugin: jira
     step: ai_analyze_issue_requirements
-    requires:
-      - jira_issue
+    # Uses 'selected_issue' from previous step (no API call needed)

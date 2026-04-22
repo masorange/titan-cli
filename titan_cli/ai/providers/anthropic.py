@@ -2,6 +2,8 @@
 Anthropic AI provider (Claude)
 """
 
+from titan_cli.core.models import AIDirectProvider
+
 from .base import AIProvider
 from ..models import AIRequest, AIResponse
 from ..exceptions import (
@@ -23,7 +25,7 @@ class AnthropicProvider(AIProvider):
     - API key from https://console.anthropic.com/
     """
 
-    def __init__(self, api_key: str, model: str = get_default_model("anthropic"), base_url: str = None):
+    def __init__(self, api_key: str, model: str = get_default_model(AIDirectProvider.ANTHROPIC), base_url: str = None):
         super().__init__(api_key, model)
         try:
             from anthropic import Anthropic
@@ -102,7 +104,7 @@ class AnthropicProvider(AIProvider):
             if "authentication" in error_msg or "api key" in error_msg:
                 raise AIProviderAuthenticationError(
                     f"Anthropic authentication failed: {e}\n"
-                    f"Check your API key via `titan ai configure`"
+                    "Check your AI connection settings in the AI Configuration screen."
                 )
             elif "rate limit" in error_msg:
                 raise AIProviderRateLimitError(

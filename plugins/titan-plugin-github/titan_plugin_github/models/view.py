@@ -13,6 +13,8 @@ These models are GitHub-specific and live in the GitHub plugin, not in the core.
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from .review_enums import FileChangeStatus, FindingSeverity
+
 
 @dataclass
 class UIComment:
@@ -29,6 +31,8 @@ class UIComment:
     path: Optional[str] = None
     line: Optional[int] = None
     diff_hunk: Optional[str] = None
+    position: Optional[int] = None        # GitHub diff position (None when comment is outdated)
+    original_line: Optional[int] = None   # originalLine from GitHub (line in old file version)
 
     @classmethod
     def from_review_comment(cls, comment: 'Any', is_outdated: bool = False) -> 'UIComment':
@@ -209,7 +213,7 @@ class UIFileChange:
     path: str
     additions: int
     deletions: int
-    status: str       # "added", "removed", "modified", "renamed", etc.
+    status: FileChangeStatus
     status_icon: str  # "+", "−", "~", "→", etc.
 
 
@@ -227,12 +231,26 @@ class UIPRCreated:
 
 
 @dataclass
+class UIRelease:
+    """
+    UI model for a newly created GitHub release.
+
+    Returned after create_release — contains the identifiers needed
+    to display the result or navigate to the release page.
+    """
+    tag_name: str
+    title: str
+    url: str
+    is_prerelease: bool
+
+
+@dataclass
 class UIReviewSuggestion:
     """AI-generated review comment for a PR."""
     file_path: str
     line: Optional[int]
     body: str
-    severity: str  # "critical", "improvement", "suggestion"
+    severity: FindingSeverity
     diff_context: Optional[str] = None  # Extracted diff hunk around the line
     snippet: Optional[str] = None  # Exact code line reported by AI for line lookup
     reply_to_comment_id: Optional[int] = None  # If set, this is a reply to an existing thread
@@ -247,5 +265,6 @@ __all__ = [
     "UIPRMergeResult",
     "UIFileChange",
     "UIPRCreated",
+    "UIRelease",
     "UIReviewSuggestion",
 ]

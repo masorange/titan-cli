@@ -8,14 +8,15 @@ from .app import TitanApp
 __all__ = ["TitanApp"]
 
 
-def launch_tui(debug: bool = False):
+def launch_tui(debug: bool = False, devtools: bool = False):
     """
     Launch the Titan TUI application.
 
     This is the main entry point for running Titan in TUI mode.
 
     Args:
-        debug: Enable Textual devtools (requires `textual console` in another terminal)
+        debug: Enable DEBUG level file logging (set by titan-dev or --debug)
+        devtools: Enable Textual devtools for visual debugging (requires `textual console` in another terminal)
 
     Flow:
     1. Check if global config exists (~/.titan/config.toml)
@@ -27,8 +28,10 @@ def launch_tui(debug: bool = False):
 
     Logging:
     - Production (debug=False): Console logging disabled, logs only to file
-    - Development (debug=True): Console logging enabled + Textual devtools
+    - Development (debug=True, devtools=False): Console logging disabled, logs only to file at DEBUG level
+    - Development + Visual (debug=True, devtools=True): Console logging enabled for Textual devtools,
       (use `textual console` in another terminal to see logs)
+      while logs continue to be written to file
     """
     import os
     from titan_cli.core.config import TitanConfig
@@ -37,15 +40,16 @@ def launch_tui(debug: bool = False):
     from titan_cli.core.utils import find_project_root
     from .screens import GlobalSetupWizardScreen, ProjectSetupWizardScreen, MainMenuScreen
 
-    # Enable Textual devtools in debug mode
-    # This allows `textual console` to receive logs
-    if debug:
+    # Enable Textual devtools only if explicitly requested.
+    # Keep console logging enabled in this mode so `textual console` can receive logs.
+    if devtools:
         features = set()
         features.add("debug")
         features.add("devtools")
         os.environ["TEXTUAL"] = ",".join(sorted(features))
     else:
-        # In production mode, disable console logging (TUI would hide it anyway)
+        # Without Textual devtools, the TUI would hide console logs anyway.
+        # Keep logging only in the file handler, even in debug mode.
         disable_console_logging()
 
     # Check if global config exists

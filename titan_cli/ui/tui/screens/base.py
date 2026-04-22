@@ -72,6 +72,7 @@ class BaseScreen(Screen):
         Args:
             status_bar: StatusBarWidget to update
         """
+        from titan_cli.ai.constants import get_source_display_name
         # Get git status
         git_branch = "N/A"
         try:
@@ -89,13 +90,21 @@ class BaseScreen(Screen):
 
         # Get AI info directly from config
         ai_info = "N/A"
-        if self.config.config and self.config.config.ai and self.config.config.ai.default:
-            default_provider_id = self.config.config.ai.default
-            if default_provider_id in self.config.config.ai.providers:
-                provider_cfg = self.config.config.ai.providers[default_provider_id]
-                provider_name = provider_cfg.provider
-                model = provider_cfg.model or "default"
-                ai_info = f"{provider_name}/{model}"
+        if (
+            self.config.config
+            and self.config.config.ai
+            and self.config.config.ai.default_connection
+        ):
+            default_connection_id = self.config.config.ai.default_connection
+            if default_connection_id in self.config.config.ai.connections:
+                connection_cfg = self.config.config.ai.connections[
+                    default_connection_id
+                ]
+                source_name = get_source_display_name(
+                    connection_cfg.provider or connection_cfg.gateway_backend
+                )
+                model = connection_cfg.default_model or "default"
+                ai_info = f"{source_name} / {model}"
 
         # Get project name directly from config
         project_name = self.config.get_project_name() or "N/A"

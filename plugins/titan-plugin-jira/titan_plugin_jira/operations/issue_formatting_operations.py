@@ -75,6 +75,13 @@ def build_issue_table_row(
     """
     Build a table row for an issue with formatted fields.
 
+    Formats each field with appropriate defaults for missing values:
+    - Status defaults to "Unknown"
+    - Summary is truncated to max_length and defaults to "No summary"
+    - Assignee defaults to "Unassigned"
+    - Issue type defaults to "Unknown"
+    - Priority defaults to "Unknown"
+
     Args:
         index: Row number (1-based)
         issue_key: Issue key (e.g., "PROJ-123")
@@ -87,14 +94,6 @@ def build_issue_table_row(
 
     Returns:
         List of formatted field values for table row
-
-    Examples:
-        >>> row = build_issue_table_row(1, "PROJ-123", "Open", "Fix bug", "Alice", "Bug", "High")
-        >>> row
-        ['1', 'PROJ-123', 'Open', 'Fix bug', 'Alice', 'Bug', 'High']
-        >>> row = build_issue_table_row(1, "PROJ-1", None, None, None, None, None)
-        >>> row
-        ['1', 'PROJ-1', 'Unknown', 'No summary', 'Unassigned', 'Unknown', 'Unknown']
     """
     return [
         str(index),

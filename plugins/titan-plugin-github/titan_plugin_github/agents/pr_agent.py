@@ -8,18 +8,29 @@ This agent analyzes the complete context of a branch and automatically:
 3. Creates PR title and description following templates
 """
 
-import logging
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 
+from titan_cli.core.logging import get_logger
 from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from titan_cli.core.result import ClientSuccess, ClientError
 from .config_loader import load_agent_config
 from ..utils import calculate_pr_size, is_i18n_change
 
 # Set up logger
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+class PRStatus(StrEnum):
+    """Outcome of the PR analysis portion of PRAgent."""
+
+    OK = "ok"
+    NO_COMMITS = "no_commits"
+    SOURCE_DATA_FAILED = "source_data_failed"
+    GENERATION_FAILED = "generation_failed"
+    INCOMPLETE = "incomplete"
 
 
 @dataclass
@@ -35,6 +46,8 @@ class PRAnalysis:
     pr_title: Optional[str] = None
     pr_body: Optional[str] = None
     pr_size: Optional[str] = None
+    pr_status: PRStatus = PRStatus.OK
+    pr_error: Optional[str] = None
 
     # Metadata
     total_tokens_used: int = 0
@@ -133,6 +146,8 @@ class PRAgent(BaseAIAgent):
         pr_title = None
         pr_body = None
         pr_size = None
+        pr_status = PRStatus.OK
+        pr_error = None
         files_changed = 0
         lines_changed = 0
         commits = []
@@ -204,9 +219,11 @@ class PRAgent(BaseAIAgent):
 
             match (commits_result, diff_result):
                 case (ClientSuccess(data=commits_data), ClientSuccess(data=branch_diff)):
-                    if branch_diff and commits_data:
-                        commits = commits_data  # Extract commits list
+                    commits = commits_data or []
 
+                    if not commits or not branch_diff:
+                        pr_status = PRStatus.NO_COMMITS
+                    else:
                         # Read PR template (uses embedded default if file not found)
                         template = self._read_pr_template()
 
@@ -228,17 +245,25 @@ class PRAgent(BaseAIAgent):
                             lines_changed = pr_result["lines_changed"]
                             total_tokens += pr_result["tokens_used"]
 
+                            if not pr_title or not pr_body:
+                                pr_status = PRStatus.INCOMPLETE
+                            else:
+                                pr_status = PRStatus.OK
+
                         except Exception as e:
                             logger.error(f"Failed to generate PR description: {e}")
-                            # Return analysis without PR data
+                            pr_status = PRStatus.GENERATION_FAILED
+                            pr_error = str(e)
 
                 case _:
                     logger.error("Failed to get branch commits or diff")
-                    # Return analysis without PR data
+                    pr_status = PRStatus.SOURCE_DATA_FAILED
+                    pr_error = "Failed to get branch commits or diff."
 
         except Exception as e:
             logger.error(f"Failed to analyze branch for PR: {e}")
-            # Return analysis without PR data
+            pr_status = PRStatus.SOURCE_DATA_FAILED
+            pr_error = str(e)
 
         return PRAnalysis(
             needs_commit=needs_commit,
@@ -247,6 +272,8 @@ class PRAgent(BaseAIAgent):
             pr_title=pr_title,
             pr_body=pr_body,
             pr_size=pr_size,
+            pr_status=pr_status,
+            pr_error=pr_error,
             total_tokens_used=total_tokens,
             branch_commits=commits,
             files_changed=files_changed,
@@ -522,21 +549,27 @@ DESCRIPTION:
         """
         Parse AI response to extract title and description.
 
+        Handles various AI response formats (case-insensitive, with or without preamble).
+
         Returns:
             Tuple of (title, description)
         """
-        if "TITLE:" not in content or "DESCRIPTION:" not in content:
+        # Normalize content for case-insensitive matching
+        content_upper = content.upper()
+        title_idx = content_upper.find("TITLE:")
+        desc_idx = content_upper.find("DESCRIPTION:")
+
+        if title_idx == -1 or desc_idx == -1:
             raise ValueError(
                 f"AI response format incorrect. Expected 'TITLE:' and 'DESCRIPTION:' sections.\n"
                 f"Got: {content[:200]}..."
             )
 
-        # Extract title and description
-        parts = content.split("DESCRIPTION:", 1)
-        title = parts[0].replace("TITLE:", "").strip()
-        description = parts[1].strip() if len(parts) > 1 else ""
+        # Extract title and description using original content (preserves casing)
+        title = content[title_idx + 6:desc_idx].strip()  # +6 for len("TITLE:")
+        description = content[desc_idx + 12:].strip()  # +12 for len("DESCRIPTION:")
 
-        # Clean up title
+        # Clean up title (remove quotes if present)
         title = title.strip('"').strip("'")
 
         # Ensure title subject starts with capital letter (conventional commits requirement)

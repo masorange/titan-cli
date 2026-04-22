@@ -10,6 +10,7 @@ from .user import NetworkUser
 from .review import NetworkReview
 from .pull_request import NetworkPullRequest, NetworkPRSearchResult, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
 from .issue import NetworkIssue
+from .release import NetworkRelease
 
 __all__ = [
     "NetworkUser",
@@ -20,4 +21,5 @@ __all__ = [
     "NetworkPRFile",
     "NetworkPRCreated",
     "NetworkIssue",
+    "NetworkRelease",
 ]

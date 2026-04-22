@@ -1,11 +1,68 @@
 # core/plugin_registry.py
+import importlib
+import sys
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 from ..errors import PluginLoadError, PluginInitializationError
 from .plugin_base import TitanPlugin
+from .community_sources import PluginChannel, get_github_token, parse_plugin_metadata
+from .runtime import PluginRuntimeManager
 from titan_cli.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _load_local_plugin(
+    repo_path: Path,
+    plugin_name: str,
+    extra_sys_paths: Optional[list[Path]] = None,
+) -> TitanPlugin:
+    """Load a Titan plugin directly from a local repository path."""
+    pyproject_path = repo_path / "pyproject.toml"
+    if not pyproject_path.is_file():
+        raise FileNotFoundError(f"No pyproject.toml found in {repo_path}")
+
+    metadata = parse_plugin_metadata(pyproject_path.read_text(encoding="utf-8"))
+    if metadata.get("parse_error"):
+        raise ValueError(f"Could not parse {pyproject_path}")
+
+    entry_point = (metadata.get("titan_entry_points") or {}).get(plugin_name)
+    if not entry_point:
+        raise ValueError(
+            f"Local repository {repo_path} does not expose titan plugin '{plugin_name}'"
+        )
+
+    module_name, sep, class_name = entry_point.partition(":")
+    if not module_name or not sep or not class_name:
+        raise ValueError(f"Invalid entry point for '{plugin_name}': {entry_point}")
+
+    package_root = module_name.split(".", 1)[0]
+    sys_paths = [str(path) for path in (extra_sys_paths or [])] + [str(repo_path)]
+    for sys_path_entry in reversed(sys_paths):
+        if sys_path_entry in sys.path:
+            sys.path.remove(sys_path_entry)
+        sys.path.insert(0, sys_path_entry)
+
+    stale_modules = [
+        name for name in list(sys.modules)
+        if name == package_root or name.startswith(f"{package_root}.")
+    ]
+    for name in stale_modules:
+        sys.modules.pop(name, None)
+
+    module = importlib.import_module(module_name)
+    plugin_class = getattr(module, class_name)
+    if not issubclass(plugin_class, TitanPlugin):
+        raise TypeError("Plugin class must inherit from TitanPlugin")
+    plugin = plugin_class()
+    plugin._dev_local_package_root = package_root
+    return plugin
+
+
+def _load_dev_local_plugin(repo_path: Path, plugin_name: str) -> TitanPlugin:
+    """Load a Titan plugin from a local development repository."""
+    return _load_local_plugin(repo_path, plugin_name)
 
 
 class PluginRegistry:
@@ -16,6 +73,10 @@ class PluginRegistry:
         self._failed_plugins: Dict[str, Exception] = {}
         self._discovered_plugin_names: List[str] = []
         self._plugin_versions: Dict[str, str] = {}
+        self._plugin_sync_events: list[str] = []
+        self._dev_local_sys_paths: set[str] = set()
+        self._dev_local_package_roots: set[str] = set()
+        self._runtime_manager = PluginRuntimeManager()
         if discover_on_init:
             self.discover()
 
@@ -58,6 +119,8 @@ class PluginRegistry:
             config: TitanConfig instance
             secrets: SecretManager instance
         """
+        self._apply_source_overrides(config)
+
         # Create a copy of plugin names to iterate over, as _plugins might change
         plugins_to_initialize = list(self._plugins.keys())
         initialized = set()
@@ -131,6 +194,101 @@ class PluginRegistry:
                             del self._plugins[name]
                 break # Exit the loop if no progress is made
 
+    def _apply_source_overrides(self, config: Any) -> None:
+        """Apply effective per-project plugin sources before initialization."""
+        config_model = getattr(config, "config", None)
+        plugins = getattr(config_model, "plugins", None)
+        if not config or not plugins:
+            return
+
+        for plugin_name in config.get_enabled_plugins():
+            channel = config.get_plugin_source_channel(plugin_name)
+
+            if channel == PluginChannel.DEV_LOCAL:
+                repo_path = config.get_plugin_source_path(plugin_name)
+                if not repo_path:
+                    error = PluginLoadError(
+                        plugin_name=plugin_name,
+                        original_exception=ValueError("dev_local source requires a local path"),
+                    )
+                    self._failed_plugins[plugin_name] = error
+                    self._plugins.pop(plugin_name, None)
+                    continue
+
+                try:
+                    plugin = _load_dev_local_plugin(repo_path, plugin_name)
+                    self._plugins[plugin_name] = plugin
+                    self._dev_local_sys_paths.add(str(repo_path))
+                    package_root = getattr(plugin, "_dev_local_package_root", None)
+                    if package_root:
+                        self._dev_local_package_roots.add(package_root)
+                    self._plugin_versions[plugin_name] = PluginChannel.DEV_LOCAL
+                    if plugin_name not in self._discovered_plugin_names:
+                        self._discovered_plugin_names.append(plugin_name)
+                    logger.info(
+                        "plugin_dev_local_override_applied",
+                        name=plugin_name,
+                        path=str(repo_path),
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "plugin_dev_local_override_failed",
+                        name=plugin_name,
+                        path=str(repo_path),
+                    )
+                    error = PluginLoadError(plugin_name=plugin_name, original_exception=e)
+                    self._failed_plugins[plugin_name] = error
+                    self._plugins.pop(plugin_name, None)
+                continue
+
+            repo_url = config.get_project_plugin_repo_url(plugin_name)
+            resolved_commit = config.get_project_plugin_resolved_commit(plugin_name)
+            if not repo_url or not resolved_commit:
+                continue
+
+            try:
+                runtime = self._runtime_manager.ensure_stable_runtime(
+                    plugin_name=plugin_name,
+                    repo_url=repo_url,
+                    resolved_commit=resolved_commit,
+                    token=get_github_token(),
+                )
+                plugin = _load_local_plugin(
+                    runtime.paths.source_dir,
+                    plugin_name,
+                    extra_sys_paths=[runtime.paths.site_packages],
+                )
+                self._plugins[plugin_name] = plugin
+                self._dev_local_sys_paths.add(str(runtime.paths.site_packages))
+                self._dev_local_sys_paths.add(str(runtime.paths.source_dir))
+                package_root = getattr(plugin, "_dev_local_package_root", None)
+                if package_root:
+                    self._dev_local_package_roots.add(package_root)
+                self._plugin_versions[plugin_name] = f"stable@{resolved_commit[:12]}"
+                if runtime.created:
+                    requested_ref = config.get_project_plugin_requested_ref(plugin_name) or resolved_commit[:12]
+                    self._plugin_sync_events.append(
+                        f"Syncing plugin '{plugin_name}' to project version {requested_ref}."
+                    )
+                if plugin_name not in self._discovered_plugin_names:
+                    self._discovered_plugin_names.append(plugin_name)
+                logger.info(
+                    "plugin_stable_runtime_applied",
+                    name=plugin_name,
+                    repo_url=repo_url,
+                    resolved_commit=resolved_commit,
+                )
+            except Exception as e:
+                logger.exception(
+                    "plugin_stable_runtime_failed",
+                    name=plugin_name,
+                    repo_url=repo_url,
+                    resolved_commit=resolved_commit,
+                )
+                error = PluginLoadError(plugin_name=plugin_name, original_exception=e)
+                self._failed_plugins[plugin_name] = error
+                self._plugins.pop(plugin_name, None)
+
     def list_installed(self) -> List[str]:
         """List successfully loaded plugins."""
         return list(self._plugins.keys())
@@ -149,15 +307,11 @@ class PluginRegistry:
         Returns:
             List of enabled plugin names
         """
-        if not config or not config.config or not config.config.plugins:
+        if not config:
             return []
-
-        enabled = []
-        for plugin_name, plugin_config in config.config.plugins.items():
-            if hasattr(plugin_config, 'enabled') and plugin_config.enabled:
-                enabled.append(plugin_name)
-
-        return enabled
+        if hasattr(config, "get_enabled_plugins"):
+            return config.get_enabled_plugins()
+        return []
 
     def list_failed(self) -> Dict[str, Exception]:
         """
@@ -167,6 +321,10 @@ class PluginRegistry:
             Dict mapping plugin name to error
         """
         return self._failed_plugins.copy()
+
+    def list_sync_events(self) -> list[str]:
+        """List plugin runtime sync events from the latest load cycle."""
+        return list(self._plugin_sync_events)
 
     def get_plugin(self, name: str) -> Optional[TitanPlugin]:
         """Get plugin instance by name."""
@@ -178,7 +336,24 @@ class PluginRegistry:
 
     def reset(self):
         """Resets the registry, clearing all loaded plugins and re-discovering."""
+        for repo_path in list(self._dev_local_sys_paths):
+            while repo_path in sys.path:
+                sys.path.remove(repo_path)
+        self._dev_local_sys_paths.clear()
+
+        for package_root in list(self._dev_local_package_roots):
+            stale_modules = [
+                name for name in list(sys.modules)
+                if name == package_root or name.startswith(f"{package_root}.")
+            ]
+            for name in stale_modules:
+                sys.modules.pop(name, None)
+        self._dev_local_package_roots.clear()
+
+        importlib.invalidate_caches()
+
         self._plugins.clear()
         self._failed_plugins.clear()
         self._plugin_versions.clear()
+        self._plugin_sync_events.clear()
         self.discover()

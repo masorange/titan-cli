@@ -53,7 +53,7 @@ class Messages:
         AUTH_INVALID: str = "Invalid GitHub token"
 
         class AI:
-            AI_NOT_CONFIGURED: str = "AI not configured. Run 'titan ai configure' to enable AI features."
+            AI_NOT_CONFIGURED: str = "AI not configured. Open AI Configuration to enable AI features."
             GITHUB_CLIENT_NOT_AVAILABLE: str = "GitHub client is not available in the workflow context."
             GIT_CLIENT_NOT_AVAILABLE: str = "Git client is not available in the workflow context."
             MISSING_PR_HEAD_BRANCH: str = "Missing pr_head_branch in context"

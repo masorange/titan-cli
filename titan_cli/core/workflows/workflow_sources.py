@@ -23,8 +23,9 @@ class WorkflowInfo:
     """Metadata about a discovered, but not yet parsed, workflow."""
     name: str
     description: str
-    source: str  # "project", "user", "system", "plugin:github"
+    source: str
     path: Path
+    title: Optional[str] = None
     category: Optional[str] = None
     required_plugins: Set[str] = field(default_factory=set)
     tags: dict = field(default_factory=dict)
@@ -80,11 +81,13 @@ def _parse_workflow_info(file: Path, source_name: str, plugin_registry: PluginRe
         description=config.get("description", "No description available."),
         source=source_name,
         path=file,
+        title=config.get("name"),
         category=config.get("category"),
         required_plugins=required_plugins,
         tags=tags,
         extends_ref=extends_ref,
     )
+
 
 
 class WorkflowSource(ABC):
@@ -276,55 +279,57 @@ class PluginWorkflowSource(WorkflowSource):
         workflows = []
         for plugin_name in self._plugin_registry.list_installed():
             plugin_instance = self._plugin_registry.get_plugin(plugin_name)
-            if plugin_instance and plugin_instance.workflows_path:
-                plugin_workflows_dir = plugin_instance.workflows_path
-                if plugin_workflows_dir.is_dir():
-                    seen_in_plugin: set = set()
-                    for file in sorted(plugin_workflows_dir.rglob("*.yaml")):
-                        rel_name = str(file.relative_to(plugin_workflows_dir).with_suffix(""))
-                        if rel_name not in seen_in_plugin:
-                            info = self._to_workflow_info(file, plugin_name)
-                            info.name = rel_name
-                            workflows.append(info)
-                            seen_in_plugin.add(rel_name)
-                    for file in sorted(plugin_workflows_dir.rglob("*.yml")):
-                        rel_name = str(file.relative_to(plugin_workflows_dir).with_suffix(""))
-                        if rel_name not in seen_in_plugin:
-                            info = self._to_workflow_info(file, plugin_name)
-                            info.name = rel_name
-                            workflows.append(info)
-                            seen_in_plugin.add(rel_name)
+            if not plugin_instance or not plugin_instance.workflows_path:
+                continue
+
+            plugin_workflows_dir = plugin_instance.workflows_path
+            if not plugin_workflows_dir.is_dir():
+                continue
+
+            seen_in_plugin: set = set()
+            for file in sorted(plugin_workflows_dir.rglob("*.yaml")):
+                rel_name = str(file.relative_to(plugin_workflows_dir).with_suffix(""))
+                if rel_name not in seen_in_plugin:
+                    info = self._to_workflow_info(file, plugin_name)
+                    info.name = rel_name
+                    workflows.append(info)
+                    seen_in_plugin.add(rel_name)
+            for file in sorted(plugin_workflows_dir.rglob("*.yml")):
+                rel_name = str(file.relative_to(plugin_workflows_dir).with_suffix(""))
+                if rel_name not in seen_in_plugin:
+                    info = self._to_workflow_info(file, plugin_name)
+                    info.name = rel_name
+                    workflows.append(info)
+                    seen_in_plugin.add(rel_name)
         return workflows
 
     def find(self, name: str) -> Optional[Path]:
-        # If the first path segment matches a known plugin name, treat it as a
-        # qualified reference (e.g. "myplugin/subdir/workflow-name") and only
-        # search within that plugin's workflows directory.
+        def _search_dir(wf_dir: Path, workflow_name: str) -> Optional[Path]:
+            yaml_file = wf_dir / f"{workflow_name}.yaml"
+            if yaml_file.is_file():
+                return yaml_file
+            yml_file = wf_dir / f"{workflow_name}.yml"
+            if yml_file.is_file():
+                return yml_file
+            return None
+
+        def _find_in_plugin(plugin_name_ref: str, workflow_name: str) -> Optional[Path]:
+            plugin_instance = self._plugin_registry.get_plugin(plugin_name_ref)
+            if not plugin_instance or not plugin_instance.workflows_path:
+                return None
+            return _search_dir(plugin_instance.workflows_path, workflow_name)
+
+        # Qualified reference: first segment is a plugin name
         if "/" in name:
             plugin_name_ref, workflow_name = name.split('/', 1)
-            plugin_instance = self._plugin_registry.get_plugin(plugin_name_ref)
-            if plugin_instance and plugin_instance.workflows_path:
-                plugin_workflows_dir = plugin_instance.workflows_path
-                yaml_file = plugin_workflows_dir / f"{workflow_name}.yaml"
-                if yaml_file.is_file():
-                    return yaml_file
-                yml_file = plugin_workflows_dir / f"{workflow_name}.yml"
-                if yml_file.is_file():
-                    return yml_file
-                return None  # Plugin found but workflow not in it
+            if self._plugin_registry.get_plugin(plugin_name_ref):
+                return _find_in_plugin(plugin_name_ref, workflow_name)
 
-        # General search across all plugins — supports relative paths like
-        # "subdir/workflow-name" when the first segment is not a plugin name.
+        # General search across all plugins
         for plugin_name in self._plugin_registry.list_installed():
-            plugin_instance = self._plugin_registry.get_plugin(plugin_name)
-            if plugin_instance and plugin_instance.workflows_path:
-                plugin_workflows_dir = plugin_instance.workflows_path
-                yaml_file = plugin_workflows_dir / f"{name}.yaml"
-                if yaml_file.is_file():
-                    return yaml_file
-                yml_file = plugin_workflows_dir / f"{name}.yml"
-                if yml_file.is_file():
-                    return yml_file
+            result = _find_in_plugin(plugin_name, name)
+            if result:
+                return result
         return None
 
     def contains(self, path: Path) -> bool:

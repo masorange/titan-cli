@@ -14,8 +14,8 @@ from titan_cli.core.plugins.models import GitHubPluginConfig
 from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
-from .services import PRService, ReviewService, IssueService, TeamService
-from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated
+from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService
+from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated, UIRelease
 
 
 class GitHubClient:
@@ -42,7 +42,8 @@ class GitHubClient:
         secrets: SecretManager,
         git_client: GitClient,
         repo_owner: str,
-        repo_name: str
+        repo_name: str,
+        pr_template: Optional[str] = None
     ):
         """
         Initialize GitHub client.
@@ -53,6 +54,7 @@ class GitHubClient:
             git_client: Initialized GitClient instance
             repo_owner: GitHub repository owner
             repo_name: GitHub repository name
+            pr_template: Optional PR template content (loaded from config)
 
         Raises:
             GitHubAuthenticationError: If gh CLI is not authenticated
@@ -62,6 +64,7 @@ class GitHubClient:
         self.git_client = git_client
         self.repo_owner = repo_owner
         self.repo_name = repo_name
+        self.pr_template = pr_template
 
         # Initialize network layers
         self._gh_network = GHNetwork(repo_owner, repo_name)
@@ -72,6 +75,11 @@ class GitHubClient:
         self._review_service = ReviewService(self._gh_network, self._graphql_network)
         self._issue_service = IssueService(self._gh_network)
         self._team_service = TeamService(self._gh_network)
+        self._release_service = ReleaseService(self._gh_network)
+
+    def get_pr_template(self) -> Optional[str]:
+        """Get the PR template if available."""
+        return self.pr_template
 
     # ============================================================================
     # Pull Request Operations
@@ -99,9 +107,9 @@ class GitHubClient:
         """List all PRs in the repository."""
         return self._pr_service.list_all_prs(state, max_results)
 
-    def get_pr_diff(self, pr_number: int) -> ClientResult[str]:
+    def get_pr_diff(self, pr_number: int, context_lines: int = 3) -> ClientResult[str]:
         """Get diff for a PR."""
-        return self._pr_service.get_pr_diff(pr_number)
+        return self._pr_service.get_pr_diff(pr_number, context_lines)
 
     def get_pr_file_patches(
         self, pr_number: int, file_paths: List[str]
@@ -208,9 +216,9 @@ class GitHubClient:
         return self._review_service.create_draft_review(pr_number, payload)
 
     def submit_review(
-        self, pr_number: int, review_id: int, event: str, body: str = ""
+        self, pr_number: int, review_id: int | None, event: str, body: str = ""
     ) -> ClientResult[None]:
-        """Submit a review."""
+        """Submit a review. If review_id is None, creates directly with event."""
         return self._review_service.submit_review(pr_number, review_id, event, body)
 
     def delete_review(self, pr_number: int, review_id: int) -> ClientResult[None]:
@@ -254,6 +262,29 @@ class GitHubClient:
     def list_labels(self) -> ClientResult[List[str]]:
         """List all labels in the repository."""
         return self._issue_service.list_labels()
+
+    # ============================================================================
+    # Release Operations
+    # ============================================================================
+
+    def create_release(
+        self,
+        tag_name: str,
+        title: Optional[str] = None,
+        notes: Optional[str] = None,
+        generate_notes: bool = False,
+        verify_tag: bool = True,
+        prerelease: bool = False,
+    ) -> ClientResult[UIRelease]:
+        """Create a GitHub release."""
+        return self._release_service.create_release(
+            tag_name=tag_name,
+            title=title,
+            notes=notes,
+            generate_notes=generate_notes,
+            verify_tag=verify_tag,
+            prerelease=prerelease,
+        )
 
     # ============================================================================
     # Team Operations

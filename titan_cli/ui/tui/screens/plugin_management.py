@@ -8,6 +8,8 @@ Screen for managing installed plugins:
 """
 
 from textual.app import ComposeResult
+from pathlib import Path
+
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -21,22 +23,20 @@ from titan_cli.ui.tui.widgets import (
     BoldText,
     BoldPrimaryText,
     WarningText,
+    SegmentedSwitch,
+    SegmentedSwitchOption,
+    DevSourcePathModal,
 )
 from .base import BaseScreen
 from .plugin_config_wizard import PluginConfigWizardScreen
 from .install_plugin_screen import InstallPluginScreen
-from titan_cli.core.plugins.community import (
-    get_community_plugin_names,
-    get_community_plugin_by_titan_name,
-    remove_community_plugin,
-    uninstall_community_plugin,
-    install_community_plugin,
-    save_community_plugin,
+from titan_cli.core.plugins.local_sources import get_local_plugin_validation_error
+from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
+    PluginChannel,
     check_for_update,
     get_github_token,
 )
-from datetime import datetime, timezone
 from titan_cli.core.logging import get_logger
 import asyncio
 import tomli
@@ -61,7 +61,9 @@ class PluginManagementScreen(BaseScreen):
         ("q", "go_back", "Back"),
         Binding("e", "toggle_plugin", "Enable/Disable"),
         Binding("c", "configure_plugin", "Configure"),
+        Binding("d", "set_dev_source", "Set Dev Path"),
         Binding("i", "install_plugin", "Install"),
+        Binding("r", "remove_plugin_from_project", "Remove from Project"),
         Binding("u", "uninstall_plugin", "Uninstall"),
         Binding("U", "update_plugin", "Update"),
     ]
@@ -145,6 +147,26 @@ class PluginManagementScreen(BaseScreen):
         height: auto;
     }
 
+    .source-switch-row {
+        height: 3;
+        width: auto;
+        align: left middle;
+        margin-top: 1;
+    }
+
+    .source-switch-row DimText {
+        width: auto;
+        height: 3;
+        margin-right: 1;
+        margin-top: 1;
+        content-align: left middle;
+    }
+
+    .source-switch-row SegmentedSwitch {
+        height: 3;
+        content-align: left middle;
+    }
+
     .button-container {
         height: auto;
         min-height: 5;
@@ -167,7 +189,9 @@ class PluginManagementScreen(BaseScreen):
             show_back=True
         )
         self.selected_plugin = None
+        self.selected_missing_plugin = None
         self.installed_plugins = []
+        self._source_switch_plugin = None
 
     def compose_content(self) -> ComposeResult:
         """Compose the plugin management screen."""
@@ -177,7 +201,7 @@ class PluginManagementScreen(BaseScreen):
                 left_panel = Container(id="left-panel")
                 left_panel.border_title = "Installed Plugins"
                 with left_panel:
-                    yield OptionList(id="plugin-list")
+                    yield OptionList()
                     yield Button(f"{Icons.PLUGIN} Install Plugin", variant="primary", id="install-plugin-button")
 
                 # Right panel: Plugin details and actions
@@ -196,8 +220,14 @@ class PluginManagementScreen(BaseScreen):
         """Load and display installed plugins."""
         self.installed_plugins = self.config.registry.list_installed()
 
-        plugin_list = self.query_one("#plugin-list", OptionList)
-        plugin_list.clear_options()
+        left_panel = self.query_one("#left-panel", Container)
+        plugin_list = left_panel.query_one(OptionList)
+        install_button = left_panel.query_one("#install-plugin-button", Button)
+        selected_id = self.selected_plugin
+        if self.selected_missing_plugin:
+            selected_id = f"missing:{self.selected_missing_plugin}"
+
+        options = []
 
         # Find plugins enabled in config but not installed
         missing_plugins = []
@@ -207,44 +237,56 @@ class PluginManagementScreen(BaseScreen):
                     missing_plugins.append(plugin_name)
 
         if not self.installed_plugins and not missing_plugins:
-            plugin_list.add_option(Option("No plugins installed", id="none", disabled=True))
+            new_plugin_list = OptionList(Option("No plugins installed", id="none", disabled=True))
+            plugin_list.remove()
+            left_panel.mount(new_plugin_list, before=install_button)
             self._show_no_plugin_selected()
             return
 
         # Add installed plugin options
-        community_names = get_community_plugin_names()
         for plugin_name in self.installed_plugins:
             is_enabled = self.config.is_plugin_enabled(plugin_name)
             status_icon = Icons.SUCCESS if is_enabled else Icons.ERROR
             status_text = "Enabled" if is_enabled else "Disabled"
-            community_badge = " [community]" if plugin_name in community_names else ""
 
-            plugin_list.add_option(
+            active_rec = self._build_stable_record(plugin_name)
+            badge = " [community]" if active_rec else ""
+
+            options.append(
                 Option(
-                    f"{status_icon} {plugin_name}{community_badge} - {status_text}",
-                    id=plugin_name
+                    f"{status_icon} {plugin_name}{badge} - {status_text}",
+                    id=plugin_name,
                 )
             )
 
         # Add missing plugin options
         for plugin_name in missing_plugins:
-            plugin_list.add_option(
+            options.append(
                 Option(
                     f"{Icons.WARNING} {plugin_name} - Not installed",
                     id=f"missing:{plugin_name}"
                 )
             )
 
+        new_plugin_list = OptionList(*options)
+        plugin_list.remove()
+        left_panel.mount(new_plugin_list, before=install_button)
+
         # Select first plugin by default
         all_plugins = self.installed_plugins + [f"missing:{p}" for p in missing_plugins]
         if all_plugins:
-            plugin_list.highlighted = 0
-            first = all_plugins[0]
-            if first.startswith("missing:"):
-                self._show_plugin_missing(first.removeprefix("missing:"))
+            target = selected_id if selected_id in all_plugins else all_plugins[0]
+            new_plugin_list.highlighted = all_plugins.index(target)
+            new_plugin_list.refresh(repaint=True, layout=True)
+            if target.startswith("missing:"):
+                plugin_name = target.removeprefix("missing:")
+                self.selected_plugin = None
+                self.selected_missing_plugin = plugin_name
+                self._show_plugin_missing(plugin_name)
             else:
-                self.selected_plugin = first
-                self._show_plugin_details(first)
+                self.selected_missing_plugin = None
+                self.selected_plugin = target
+                self._show_plugin_details(target)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle plugin selection (Enter key)."""
@@ -252,9 +294,12 @@ class PluginManagementScreen(BaseScreen):
             return
 
         if event.option.id.startswith("missing:"):
-            self._show_plugin_missing(event.option.id.removeprefix("missing:"))
+            self.selected_plugin = None
+            self.selected_missing_plugin = event.option.id.removeprefix("missing:")
+            self._show_plugin_missing(self.selected_missing_plugin)
             return
 
+        self.selected_missing_plugin = None
         self.selected_plugin = event.option.id
         self._show_plugin_details(self.selected_plugin)
 
@@ -264,9 +309,12 @@ class PluginManagementScreen(BaseScreen):
             return
 
         if event.option.id.startswith("missing:"):
-            self._show_plugin_missing(event.option.id.removeprefix("missing:"))
+            self.selected_plugin = None
+            self.selected_missing_plugin = event.option.id.removeprefix("missing:")
+            self._show_plugin_missing(self.selected_missing_plugin)
             return
 
+        self.selected_missing_plugin = None
         self.selected_plugin = event.option.id
         self._show_plugin_details(self.selected_plugin)
 
@@ -292,10 +340,12 @@ class PluginManagementScreen(BaseScreen):
             "but is not installed in this Titan environment."
         ))
         details.mount(Text(""))
-        details.mount(DimText("Press i to install it from a community plugin URL."))
+        details.mount(DimText("Press i to add it from a community plugin URL."))
+        details.mount(DimText("Press r to remove it from this project's config."))
         details.mount(Text(""))
         details.mount(Horizontal(
             Button("Install Plugin", variant="primary", id="install-plugin-button-details"),
+            Button("Remove from Project", variant="error", id="remove-plugin-button-details"),
             classes="button-container"
         ))
 
@@ -304,10 +354,11 @@ class PluginManagementScreen(BaseScreen):
         if not plugin_name or plugin_name == "none":
             self._show_no_plugin_selected()
             return
-        
+
+        plugin = self.config.registry._plugins.get(plugin_name)
+
         # Get plugin info
         is_enabled = self.config.is_plugin_enabled(plugin_name)
-        plugin = self.config.registry._plugins.get(plugin_name)
 
         # Clear and rebuild details
         details = self.query_one("#details-content", Container)
@@ -367,22 +418,63 @@ class PluginManagementScreen(BaseScreen):
                     else:
                         details.mount(DimText(f"  {key}: {value}"))
 
-        # Actions
-        # Community plugin info
-        community_record = get_community_plugin_by_titan_name(plugin_name)
-        if community_record:
+        active_rec = self._build_stable_record(plugin_name)
+        is_community_plugin = self._is_community_plugin(plugin_name)
+        active_channel = self.config.get_plugin_source_channel(plugin_name)
+        active_path = self.config.get_plugin_source_path(plugin_name)
+        switch_value = self._get_source_switch_value(active_channel, active_path, active_rec)
+        source_label = "Development Source" if active_channel == PluginChannel.DEV_LOCAL else PluginChannel.STABLE
+        if active_rec:
             details.mount(Text(""))
             details.mount(BoldText("Source:"))
-            details.mount(DimText("  Community plugin"))
-            details.mount(DimText(f"  {community_record.repo_url}@{community_record.version}"))
+            if is_enabled and is_community_plugin and switch_value:
+                details.mount(
+                    Horizontal(
+                        DimText("  Active:"),
+                        self._build_source_switch(switch_value),
+                        classes="source-switch-row",
+                    )
+                )
+                self._source_switch_plugin = plugin_name
+            else:
+                details.mount(DimText(f"  Active: {source_label}"))
+            if active_channel == PluginChannel.DEV_LOCAL and active_path:
+                details.mount(DimText(f"  Path: {active_path}"))
+            elif active_rec.repo_url:
+                details.mount(DimText(f"  Repo: {active_rec.repo_url}"))
+                if active_rec.requested_ref:
+                    details.mount(DimText(f"  {active_rec.requested_ref} → {active_rec.resolved_commit}"))
+            if active_rec.installed_at:
+                details.mount(DimText(f"  Installed: {active_rec.installed_at[:10]}"))
+        elif active_channel == PluginChannel.DEV_LOCAL and active_path:
+            details.mount(Text(""))
+            details.mount(BoldText("Source:"))
+            if is_enabled and is_community_plugin and switch_value:
+                details.mount(
+                    Horizontal(
+                        DimText("  Active:"),
+                        self._build_source_switch(switch_value),
+                        classes="source-switch-row",
+                    )
+                )
+                self._source_switch_plugin = plugin_name
+            else:
+                details.mount(DimText("  Active: Development Source"))
+            details.mount(DimText(f"  Path: {active_path}"))
+        else:
+            self._source_switch_plugin = None
 
         details.mount(Text(""))  # Spacer
         details.mount(BoldText("Actions:"))
         action_verb = "disable" if is_enabled else "enable"
         details.mount(DimText(f"  Press e to {action_verb} this plugin"))
         details.mount(DimText("  Press c to configure this plugin"))
-        if community_record:
-            details.mount(DimText("  Press u to uninstall this plugin"))
+        if active_channel == PluginChannel.DEV_LOCAL:
+            details.mount(DimText("  Press u to remove the development source"))
+        elif active_rec:
+            details.mount(DimText("  Press u to remove this plugin from the current project"))
+        if is_community_plugin:
+            details.mount(DimText("  Press d to configure a local development path"))
 
         # Buttons
         details.mount(Text(""))  # Spacer
@@ -390,9 +482,12 @@ class PluginManagementScreen(BaseScreen):
             Button("Enable/Disable", variant="default", id="toggle-button"),
             Button("Configure", variant="primary", id="configure-button"),
         ]
-        if community_record:
+        if is_community_plugin:
+            buttons.append(Button("Set Dev Path", variant="default", id="set-dev-path-button"))
+        if active_channel == PluginChannel.STABLE and active_rec:
             buttons.append(Button("Update", variant="warning", id="update-button"))
-            buttons.append(Button("Uninstall", variant="error", id="uninstall-button"))
+        if active_channel == PluginChannel.DEV_LOCAL or active_rec:
+            buttons.append(Button("Remove", variant="error", id="uninstall-button"))
         details.mount(Horizontal(*buttons, classes="button-container"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -403,10 +498,103 @@ class PluginManagementScreen(BaseScreen):
             self.action_configure_plugin()
         elif event.button.id in ("install-plugin-button", "install-plugin-button-details"):
             self.action_install_plugin()
+        elif event.button.id == "remove-plugin-button-details":
+            self.action_remove_plugin_from_project()
         elif event.button.id == "update-button":
             self.action_update_plugin()
         elif event.button.id == "uninstall-button":
             self.action_uninstall_plugin()
+        elif event.button.id == "set-dev-path-button":
+            self.action_set_dev_source()
+
+    def on_segmented_switch_changed(self, event: SegmentedSwitch.Changed) -> None:
+        """Handle source switch changes."""
+        if not self._source_switch_plugin or self._source_switch_plugin != self.selected_plugin:
+            return
+
+        try:
+            active_path = self.config.get_plugin_source_path(self.selected_plugin)
+
+            if event.value == PluginChannel.STABLE:
+                if not active_path:
+                    self.app.notify(
+                        "No local development path is configured for this plugin.",
+                        severity="warning",
+                    )
+                    return
+                self.config.set_global_plugin_source(
+                    self.selected_plugin,
+                    PluginChannel.STABLE,
+                    str(active_path),
+                )
+            elif event.value == PluginChannel.DEV_LOCAL:
+                if not active_path:
+                    self.app.notify(
+                        "No local development path is configured for this plugin.",
+                        severity="warning",
+                    )
+                    return
+
+                self.config.set_global_plugin_source(
+                    self.selected_plugin,
+                    PluginChannel.DEV_LOCAL,
+                    str(active_path),
+                )
+
+            self.config.load()
+            self.installed_plugins = self.config.registry.list_installed()
+            self._show_plugin_details(self.selected_plugin)
+            self.app.notify(
+                f"Plugin source for '{self.selected_plugin}' changed to "
+                f"{'Development Source' if event.value == PluginChannel.DEV_LOCAL else PluginChannel.STABLE}.",
+                severity="information",
+            )
+        except Exception as e:
+            logger.exception("plugin_source_switch_failed", plugin=self.selected_plugin, value=event.value)
+            self.app.notify(f"Failed to change plugin source: {e}", severity="error")
+
+    def _build_source_switch(self, value: str) -> SegmentedSwitch:
+        """Build the reusable source switch widget."""
+        return SegmentedSwitch(
+            options=[
+                SegmentedSwitchOption(value=PluginChannel.STABLE, label="Stable"),
+                SegmentedSwitchOption(value=PluginChannel.DEV_LOCAL, label="Develop"),
+            ],
+            value=value,
+            boxed=False,
+        )
+
+    def _get_source_switch_value(self, active_channel: str, active_path, active_record: CommunityPluginRecord | None) -> str | None:
+        """Return the switch value when source switching should be available."""
+        if active_path:
+            if active_channel == PluginChannel.DEV_LOCAL:
+                return PluginChannel.DEV_LOCAL
+            if active_record:
+                return PluginChannel.STABLE
+        return None
+
+    def _is_community_plugin(self, plugin_name: str) -> bool:
+        """Return whether the plugin is managed as a community plugin."""
+        return self._build_stable_record(plugin_name) is not None or self.config.get_plugin_source_path(plugin_name) is not None
+
+    def _build_stable_record(self, plugin_name: str) -> CommunityPluginRecord | None:
+        """Build a synthetic stable record from the shared project config."""
+        repo_url = self.config.get_project_plugin_repo_url(plugin_name)
+        resolved_commit = self.config.get_project_plugin_resolved_commit(plugin_name)
+        if not repo_url or not resolved_commit:
+            return None
+
+        requested_ref = self.config.get_project_plugin_requested_ref(plugin_name) or resolved_commit
+        return CommunityPluginRecord(
+            repo_url=repo_url,
+            package_name=plugin_name,
+            titan_plugin_name=plugin_name,
+            installed_at="",
+            channel=PluginChannel.STABLE,
+            dev_local_path=None,
+            requested_ref=requested_ref,
+            resolved_commit=resolved_commit,
+        )
 
     def action_toggle_plugin(self) -> None:
         """Toggle enable/disable state of selected plugin."""
@@ -487,15 +675,95 @@ class PluginManagementScreen(BaseScreen):
 
         self.app.push_screen(InstallPluginScreen(self.config), on_install_done)
 
-    def action_update_plugin(self) -> None:
-        """Check for and apply an update to the selected community plugin."""
+    def action_set_dev_source(self) -> None:
+        """Configure a local development path for the selected plugin."""
         if not self.selected_plugin:
             self.app.notify("Please select a plugin", severity="warning")
             return
 
-        record = get_community_plugin_by_titan_name(self.selected_plugin)
+        if not self._is_community_plugin(self.selected_plugin):
+            self.app.notify(
+                "Development source is only available for community plugins.",
+                severity="warning",
+            )
+            return
+
+        current_path = self.config.get_plugin_source_path(self.selected_plugin)
+
+        self.app.push_screen(
+            DevSourcePathModal(
+                plugin_name=self.selected_plugin,
+                initial_value=str(current_path) if current_path else "",
+            ),
+            self._handle_dev_source_selected,
+        )
+
+    def _handle_dev_source_selected(self, path_value: str | None) -> None:
+        """Persist a validated development source path for the selected plugin."""
+        if not path_value or not self.selected_plugin:
+            return
+
+        repo_path = Path(path_value).expanduser().resolve()
+        error = get_local_plugin_validation_error(repo_path, self.selected_plugin)
+        if error:
+            logger.warning(
+                "plugin_dev_source_validation_failed",
+                plugin=self.selected_plugin,
+                path=str(repo_path),
+                error=error,
+            )
+            self.app.notify(error, severity="error")
+            return
+
+        self.config.set_global_plugin_source(
+            self.selected_plugin,
+            PluginChannel.STABLE,
+            str(repo_path),
+        )
+        self.config.load()
+        self.installed_plugins = self.config.registry.list_installed()
+        self._show_plugin_details(self.selected_plugin)
+        logger.info(
+            "plugin_dev_source_configured",
+            plugin=self.selected_plugin,
+            path=str(repo_path),
+        )
+        self.app.notify(
+            f"Development path configured for '{self.selected_plugin}'.",
+            severity="information",
+        )
+
+    def action_remove_plugin_from_project(self) -> None:
+        """Remove the selected missing plugin from the current project's config."""
+        plugin_name = self.selected_missing_plugin
+        if not plugin_name:
+            self.app.notify("Please select a missing plugin", severity="warning")
+            return
+
+        try:
+            self._remove_plugin_from_project(plugin_name)
+            self.selected_missing_plugin = None
+            self.config.load()
+            self._load_plugins()
+            self.app.notify(f"Plugin '{plugin_name}' removed from this project.", severity="information")
+        except Exception as e:
+            logger.exception("plugin_remove_from_project_failed", plugin=plugin_name)
+            self.app.notify(f"Failed to remove plugin from project: {e}", severity="error")
+
+    def action_update_plugin(self) -> None:
+        """Check for and apply an update to the selected stable community plugin."""
+        if not self.selected_plugin:
+            self.app.notify("Please select a plugin", severity="warning")
+            return
+
+        active_record = self._build_stable_record(self.selected_plugin)
+        if not active_record or active_record.channel != PluginChannel.STABLE:
+            self.app.notify("Only plugins currently using the stable source can be updated", severity="warning")
+            return
+
+        record = self._build_stable_record(self.selected_plugin)
         if not record:
-            self.app.notify("Only community plugins can be updated", severity="warning")
+            self.app.notify("Only stable community plugins can be updated", severity="warning")
             return
 
         self.run_worker(self._run_update(record), exclusive=True)
@@ -509,39 +777,46 @@ class PluginManagementScreen(BaseScreen):
 
         if not latest:
             self.app.notify(
-                f"'{record.titan_plugin_name}' is already up to date ({record.version}).",
+                f"'{record.titan_plugin_name}' is already up to date ({record.requested_ref}).",
                 severity="information",
             )
             return
 
         self.app.notify(
-            f"Updating '{record.titan_plugin_name}' {record.version} → {latest}…",
+            f"Updating '{record.titan_plugin_name}' {record.requested_ref} → {latest}…",
             severity="information",
             timeout=60,
         )
 
-        result = await asyncio.to_thread(
-            install_community_plugin, record.repo_url, latest, token
+        token = await asyncio.to_thread(get_github_token)
+        from titan_cli.core.plugins.community_sources import detect_host, resolve_ref_to_commit_sha
+        host = detect_host(record.repo_url)
+        resolved_sha, sha_error = await asyncio.to_thread(
+            resolve_ref_to_commit_sha, record.repo_url, latest, host, token
         )
 
-        if result.returncode != 0:
-            logger.error("plugin_update_failed", plugin=record.titan_plugin_name, stderr=result.stderr)
+        if sha_error or not resolved_sha:
             self.app.notify(
-                f"Failed to update '{record.titan_plugin_name}': {result.stderr or result.stdout}",
+                f"Could not resolve '{latest}' to a commit SHA: {sha_error}",
                 severity="error",
             )
             return
 
-        # Update tracking record with new version
-        remove_community_plugin(record.package_name)
-        updated_record = CommunityPluginRecord(
-            repo_url=record.repo_url,
-            version=latest,
-            package_name=record.package_name,
-            titan_plugin_name=record.titan_plugin_name,
-            installed_at=datetime.now(timezone.utc).isoformat(),
-        )
-        save_community_plugin(updated_record)
+        try:
+            await asyncio.to_thread(
+                self._update_project_stable_source,
+                record.titan_plugin_name,
+                record.repo_url,
+                latest,
+                resolved_sha,
+            )
+        except Exception as e:
+            logger.error("plugin_update_failed", plugin=record.titan_plugin_name, error=str(e))
+            self.app.notify(
+                f"Failed to update '{record.titan_plugin_name}': {e}",
+                severity="error",
+            )
+            return
 
         self.config.load()
         self._load_plugins()
@@ -552,34 +827,94 @@ class PluginManagementScreen(BaseScreen):
         )
 
     def action_uninstall_plugin(self) -> None:
-        """Uninstall the selected community plugin."""
+        """Remove the selected project-pinned community plugin or dev override."""
         if not self.selected_plugin:
             self.app.notify("Please select a plugin", severity="warning")
             return
 
-        record = get_community_plugin_by_titan_name(self.selected_plugin)
-        if not record:
-            self.app.notify("Only community plugins can be uninstalled", severity="warning")
+        if self.config.get_plugin_source_channel(self.selected_plugin) == PluginChannel.DEV_LOCAL:
+            self.config.clear_global_plugin_source(self.selected_plugin)
+            self.config.load()
+            self.installed_plugins = self.config.registry.list_installed()
+            self._show_plugin_details(self.selected_plugin)
+            self.app.notify(
+                f"Development source removed for '{self.selected_plugin}'",
+                severity="information",
+            )
             return
 
-        self.run_worker(self._run_uninstall(record.package_name), exclusive=True)
+        record = self._build_stable_record(self.selected_plugin)
+        if not record:
+            self.app.notify("Only community plugins can be removed", severity="warning")
+            return
 
-    async def _run_uninstall(self, package_name: str) -> None:
-        """Run pipx/pip uninstall and update tracking file."""
-        logger.info("plugin_uninstall_started", package=package_name)
-        self.app.notify(f"Uninstalling '{package_name}'…", severity="information", timeout=30)
-        result = await asyncio.to_thread(uninstall_community_plugin, package_name)
+        self.run_worker(self._run_uninstall(record.titan_plugin_name), exclusive=True)
 
-        if result.returncode != 0:
-            logger.error("plugin_uninstall_failed", package=package_name, stderr=result.stderr or result.stdout)
+    async def _run_uninstall(self, titan_plugin_name: str) -> None:
+        """Remove a stable community plugin from the current project config."""
+        logger.info("plugin_uninstall_started", plugin=titan_plugin_name, channel=PluginChannel.STABLE)
+        self.app.notify(f"Removing '{titan_plugin_name}' from this project…", severity="information", timeout=30)
+
+        try:
+            await asyncio.to_thread(self._remove_plugin_from_project, titan_plugin_name)
+        except Exception as e:
+            logger.error("plugin_uninstall_failed", plugin=titan_plugin_name, error=str(e))
             self.app.notify(
-                f"Failed to uninstall '{package_name}': {result.stderr or result.stdout}",
+                f"Failed to remove '{titan_plugin_name}' from this project: {e}",
                 severity="error",
             )
             return
 
-        logger.info("plugin_uninstalled", package=package_name)
-        remove_community_plugin(package_name)
+        logger.info("plugin_uninstalled", plugin=titan_plugin_name, channel=PluginChannel.STABLE)
         self.config.load()
         self._load_plugins()
-        self.app.notify(f"Plugin '{package_name}' uninstalled.", severity="information")
+        self.app.notify(f"Plugin '{titan_plugin_name}' removed from this project.", severity="information")
+
+    def _update_project_stable_source(
+        self,
+        plugin_name: str,
+        repo_url: str,
+        requested_ref: str,
+        resolved_commit: str,
+    ) -> None:
+        """Update the shared stable pin for a project community plugin."""
+        project_cfg_path = self.config.project_config_path
+        if not project_cfg_path or not project_cfg_path.exists():
+            raise FileNotFoundError("No project configuration found")
+
+        with open(project_cfg_path, "rb") as f:
+            project_cfg_dict = tomli.load(f)
+
+        plugin_table = project_cfg_dict.setdefault("plugins", {}).setdefault(plugin_name, {})
+        plugin_table["enabled"] = True
+        source_table = plugin_table.setdefault("source", {})
+        source_table["channel"] = PluginChannel.STABLE
+        source_table["repo_url"] = repo_url
+        source_table["requested_ref"] = requested_ref
+        source_table["resolved_commit"] = resolved_commit
+
+        with open(project_cfg_path, "wb") as f:
+            tomli_w.dump(project_cfg_dict, f)
+
+    def _remove_plugin_from_project_config(self, plugin_name: str) -> None:
+        """Remove a plugin block from the current project's config."""
+        project_cfg_path = self.config.project_config_path
+        if not project_cfg_path or not project_cfg_path.exists():
+            raise FileNotFoundError("No project configuration found")
+
+        with open(project_cfg_path, "rb") as f:
+            project_cfg_dict = tomli.load(f)
+
+        plugins_table = project_cfg_dict.get("plugins")
+        if not plugins_table or plugin_name not in plugins_table:
+            raise KeyError(f"Plugin '{plugin_name}' is not configured in this project")
+
+        plugins_table.pop(plugin_name, None)
+
+        with open(project_cfg_path, "wb") as f:
+            tomli_w.dump(project_cfg_dict, f)
+
+    def _remove_plugin_from_project(self, plugin_name: str) -> None:
+        """Remove a plugin from the project and clear any local source override."""
+        self._remove_plugin_from_project_config(plugin_name)
+        self.config.clear_global_plugin_source(plugin_name)

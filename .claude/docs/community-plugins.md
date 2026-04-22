@@ -1,10 +1,15 @@
-# Community Plugin Installer
+# Community Plugins
 
 ## Overview
 
-Titan supports installing plugins from user-provided git repositories, not just the official ones bundled with the CLI. Installation always uses `pipx inject` to keep the plugin isolated in Titan's own venv.
+Titan supports community plugins in addition to the official plugins bundled with the CLI.
 
-Community plugins are tracked separately in `~/.titan/community_plugins.toml` (global, not per-project).
+There are two source channels:
+
+- `stable`: a shared project pin stored in `.titan/config.toml`
+- `dev_local`: a user-local override stored in `~/.titan/config.toml`
+
+Titan itself can remain globally installed, while project-pinned community plugins are prepared in isolated local runtimes.
 
 ---
 
@@ -12,132 +17,163 @@ Community plugins are tracked separately in `~/.titan/community_plugins.toml` (g
 
 | File | Role |
 |------|------|
-| `titan_cli/core/plugins/community.py` | All business logic: URL parsing, host detection, pyproject.toml fetch, pipx install/uninstall, tracking file I/O |
-| `titan_cli/ui/tui/screens/install_plugin_screen.py` | 4-step install wizard |
-| `titan_cli/ui/tui/screens/plugin_management.py` | Modified: install button (`i`), uninstall (`u`), `[community]` badge |
-| `titan_cli/ui/tui/widgets/wizard.py` | Shared wizard widgets: `StepStatus`, `WizardStep`, `StepIndicator` |
+| `titan_cli/core/plugins/community_sources.py` | URL parsing, metadata preview, ref resolution, update checks |
+| `titan_cli/core/plugins/runtime.py` | Isolated runtime/cache manager for `stable` community plugins |
+| `titan_cli/core/plugins/models.py` | Plugin source config model |
+| `titan_cli/core/plugins/plugin_registry.py` | Resolves effective source and loads `dev_local` or cached `stable` plugin code |
+| `titan_cli/ui/tui/screens/install_plugin_screen.py` | Adds a stable community plugin to the current project |
+| `titan_cli/ui/tui/screens/plugin_management.py` | Displays source state and handles update/remove/dev override actions |
 
 ---
 
-## URL Format
+## Source Model
 
-Users must always include an explicit version — bare URLs without `@version` are rejected:
+### Shared project pin (`stable`)
 
-```
-# Accepted
-https://github.com/user/titan-plugin-custom@v1.2.0
-https://github.com/user/titan-plugin-custom@abc123def456
-
-# Rejected
-https://github.com/user/titan-plugin-custom
-```
-
-Internally this becomes: `git+https://github.com/user/titan-plugin-custom.git@v1.2.0`
-
----
-
-## Install Flow (4 steps)
-
-### 1. URL
-User enters `https://repo@version`. Validated with `validate_url()` before advancing.
-
-### 2. Preview
-Fetches `pyproject.toml` from the repo at that exact version and shows:
-- Package name, version, description, authors
-- Titan entry points registered (`[titan.plugins]`)
-- Python dependencies
-
-**Host detection** (`PluginHost` StrEnum): `GITHUB`, `GITLAB`, `BITBUCKET`, `UNKNOWN`
-
-Raw URL patterns per host:
-```
-GitHub:    https://raw.githubusercontent.com/{path}/{version}/pyproject.toml
-GitLab:    https://gitlab.com/{path}/-/raw/{version}/pyproject.toml
-Bitbucket: https://bitbucket.org/{path}/raw/{version}/pyproject.toml
-Unknown:   fetch skipped — warning shown, install still allowed
-```
-
-Error cases (all allow proceeding):
-- HTTP 404 → URL or version not found
-- Network error → connection problem
-- No `[titan.plugins]` entry point → warns plugin won't be visible in Titan
-- Unparseable pyproject.toml → warns metadata unreadable
-
-A **security warning** is always shown regardless of outcome.
-
-### 3. Install
-Runs `pipx inject titan-cli git+<url>.git@<version>` as a subprocess (async, non-blocking).
-
-Requires Titan to be running inside a pipx environment (`is_running_in_pipx()`). If not, shows an error and blocks install.
-
-On success:
-1. Saves record to `~/.titan/community_plugins.toml`
-2. Calls `self.config.load()` → auto-reloads registry + re-initializes all plugins (no restart needed)
-
-On failure: shows pipx stderr + actionable suggestions.
-
-### 4. Done
-Success or failure summary. "Finish" dismisses the wizard.
-
----
-
-## Tracking File
-
-`~/.titan/community_plugins.toml` — global, one record per installed community plugin:
+The shared stable source lives in `.titan/config.toml`:
 
 ```toml
-[[plugins]]
+[plugins.custom]
+enabled = true
+
+[plugins.custom.source]
+channel = "stable"
 repo_url = "https://github.com/user/titan-plugin-custom"
-version = "v1.2.0"
-package_name = "titan-plugin-custom"
-titan_plugin_name = "custom"
-installed_at = "2026-03-06T10:30:00+00:00"
+requested_ref = "v1.2.0"
+resolved_commit = "0123456789abcdef0123456789abcdef01234567"
 ```
 
-Key functions in `community.py`:
-- `load_community_plugins()` → `list[CommunityPluginRecord]`
-- `save_community_plugin(record)` → appends to file
-- `remove_community_plugin(package_name)` → removes by package name
-- `get_community_plugin_names()` → `set[str]` of titan_plugin_names (used for `[community]` badge)
-- `get_community_plugin_by_titan_name(name)` → `Optional[CommunityPluginRecord]`
+Notes:
+- `requested_ref` stores the exact tag/ref used by that repository
+- `resolved_commit` is the operational truth
+- this block is meant to be committed and reviewed in PRs
 
----
+### User-local override (`dev_local`)
 
-## Uninstall Flow
+The active local development override lives in `~/.titan/config.toml`:
 
-In Plugin Management, pressing `u` (or clicking "Uninstall") on a community plugin:
-1. Runs `pipx runpip titan-cli uninstall -y <package_name>`
-2. Calls `remove_community_plugin(package_name)`
-3. Calls `self.config.load()` to reload registry
-4. Refreshes the plugin list
-
-Only community plugins show the Uninstall button/keybinding.
-
----
-
-## Wizard Widgets (`titan_cli/ui/tui/widgets/wizard.py`)
-
-Shared by `install_plugin_screen.py` and `plugin_config_wizard.py`:
-
-```python
-class StepStatus(StrEnum):
-    PENDING     = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED   = "completed"
-
-@dataclass
-class WizardStep:
-    id: str
-    title: str
-
-class StepIndicator(Static):
-    def __init__(self, step_number: int, step: WizardStep, status: StepStatus): ...
+```toml
+[plugins.custom.source]
+channel = "dev_local"
+path = "/absolute/path/to/local/plugin/repo"
 ```
 
-Exported from `titan_cli/ui/tui/widgets/__init__.py`.
+Notes:
+- this is not committed to the project
+- if present, it wins over the project's `stable` pin on that machine
+- when switching back to `stable`, the remembered `path` may stay in global config as UX state, but it is ignored
 
 ---
 
-## Known Technical Debt
+## Resolution Rules
 
-`plugin_config_wizard.py` still uses plain dicts (`{"id": ..., "title": ...}`) for its steps instead of `WizardStep`. It wraps them with `WizardStep(id=step["id"], title=step["title"])` when calling `StepIndicator`. Full refactor is pending a future PR.
+Titan resolves the effective source in this order:
+
+1. global `dev_local` override
+2. project `stable` pin
+
+If neither exists, the plugin is treated as a normal installed plugin with no community source metadata.
+
+---
+
+## Stable Install Flow
+
+### 1. URL
+
+The user enters a URL with an explicit ref:
+
+```text
+https://github.com/user/titan-plugin-custom@v1.2.0
+https://github.com/user/titan-plugin-custom@abc123def456
+```
+
+Bare repository URLs without `@ref` are rejected.
+
+### 2. Preview
+
+Titan fetches `pyproject.toml` from that source and shows:
+- package name
+- version
+- description
+- authors
+- Titan entry points
+- Python dependencies
+
+### 3. Pin + runtime
+
+Titan resolves the requested ref to a full commit SHA and then:
+
+1. writes the shared stable pin into the current project's `.titan/config.toml`
+2. prepares an isolated runtime for that plugin commit
+3. reloads config/registry so the plugin becomes available immediately
+
+### 4. Done
+
+The wizard shows the pinned ref/commit and the Titan plugin name if found.
+
+---
+
+## Runtime Layout
+
+Stable community plugins are prepared in a cache like:
+
+```text
+~/.titan/plugin-cache/<plugin_name>/<resolved_commit>/
+  src/
+  venv/
+```
+
+The runtime manager:
+
+1. checks out the pinned commit into `src/`
+2. creates a dedicated `venv/`
+3. installs the plugin into that isolated environment
+
+The plugin registry then loads the plugin from:
+- the cached source directory
+- the cached `site-packages`
+
+This gives dependency isolation per `plugin + commit` while still using the current in-process plugin API.
+
+---
+
+## Update Flow
+
+Only `stable` community plugins can be updated.
+
+Update behavior:
+
+1. check latest release/tag from the repo host
+2. resolve that ref to a full SHA
+3. update the current project's `.titan/config.toml`
+4. prepare the runtime for the new commit
+5. reload Titan config/registry
+
+`dev_local` has no update flow by design.
+
+---
+
+## Remove Flow
+
+In Plugin Management:
+
+- if the active source is `dev_local`, remove the local override from global config
+- if the active source is `stable`, remove the plugin from the current project's config
+
+This no longer uninstalls a package from Titan's global environment, because `stable` community plugins are no longer managed with `pipx inject`.
+
+---
+
+## Important Notes
+
+- `~/.titan/community_plugins.toml` is no longer used
+- `community.py` was replaced by `community_sources.py`
+- official plugins can still follow their own global install path; the per-project runtime model here is specifically for community plugins
+
+---
+
+## Known Limits
+
+- community plugins still run in-process after being imported
+- dependency isolation is per plugin runtime, but execution is not sandboxed in a subprocess
+- a future architecture could move plugin execution out-of-process if stronger isolation is needed
