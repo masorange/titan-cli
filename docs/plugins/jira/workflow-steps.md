@@ -38,41 +38,41 @@ The Jira plugin exposes public reusable workflow steps through `JiraPlugin.get_s
 
 Use these steps to query Jira and let the user choose the issue that the workflow should act on.
 
-- `search_saved_query`
-- `search_jql`
-- `prompt_select_issue`
+- `search_saved_query`: search Jira issues using a named saved query
+- `search_jql`: search Jira issues using explicit JQL from workflow context
+- `prompt_select_issue`: prompt the user to choose one issue from the search results
 
 ## Issue Retrieval and Analysis
 
 Use these steps to retrieve full issue details and produce AI-assisted requirement analysis.
 
-- `get_issue`
-- `ai_analyze_issue_requirements`
+- `get_issue`: fetch full Jira issue details for a selected issue
+- `ai_analyze_issue_requirements`: generate an AI-assisted requirements analysis for the selected issue
 
 ## Transitions and Fix Versions
 
 Use these steps to inspect transitions, move issues, and manage fix-version data.
 
-- `get_transitions`
-- `transition_issue`
-- `verify_issue_state`
-- `list_versions`
-- `create_version`
-- `ensure_version_exists`
-- `assign_fix_version`
-- `verify_issue_has_fix_version`
+- `get_transitions`: load the transitions available for an issue
+- `transition_issue`: move an issue to another Jira state
+- `verify_issue_state`: check that an issue is already in the expected state
+- `list_versions`: list versions available for the current Jira project
+- `create_version`: create a Jira version
+- `ensure_version_exists`: create a version only when it does not already exist
+- `assign_fix_version`: assign a fix version to an issue
+- `verify_issue_has_fix_version`: verify that an issue already has the expected fix version
 
 ## Issue Creation
 
 Use these steps to guide a user from a rough request to a created Jira issue.
 
-- `prompt_issue_description`
-- `select_issue_type`
-- `select_issue_priority`
-- `ai_enhance_issue_description`
-- `review_issue_description`
-- `confirm_auto_assign`
-- `create_generic_issue`
+- `prompt_issue_description`: capture a brief user description for the new issue
+- `select_issue_type`: choose the Jira issue type for the new issue
+- `select_issue_priority`: choose the Jira issue priority
+- `ai_enhance_issue_description`: expand the raw request into title and description using AI
+- `review_issue_description`: review and optionally edit the generated issue content
+- `confirm_auto_assign`: ask whether the new issue should be self-assigned
+- `create_generic_issue`: create the Jira issue from the prepared workflow context
 
 ## Docstring-based reference
 
