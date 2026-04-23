@@ -1,6 +1,6 @@
 # Workflow Decision Flow
 
-Use this order when designing a workflow:
+Use this order when designing a project workflow:
 
 1. Is there already a workflow that does most of the job?
 2. If yes, can it be extended with hooks?

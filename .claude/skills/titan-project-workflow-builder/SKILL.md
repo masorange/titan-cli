@@ -1,21 +1,33 @@
 ---
-name: titan-workflow-builder
-description: Design and create complete Titan workflows from user requirements. Use when the user wants to create, extend, refactor, or scaffold a Titan workflow, asks for workflow YAML, project steps, hooks, or wants guidance that ends with a working workflow.
+name: titan-project-workflow-builder
+description: Design and create Titan workflows for a specific project under .titan/. Use when the user wants a workflow in .titan/workflows, project steps under .titan/steps, or project-scoped operations, clients, and services.
 disable-model-invocation: false
 ---
 
-# Titan Workflow Builder
+# Titan Project Workflow Builder
 
-Build Titan workflows end-to-end while teaching briefly as you go.
+Build Titan workflows for the current project under `.titan/` while teaching briefly as you go.
 
 ## Goal
 
-Turn user requirements into a complete Titan workflow that:
+Turn user requirements into a complete project workflow that:
 
-1. Reuses existing Titan capabilities first.
+1. Reuses existing Titan and project capabilities first.
 2. Chooses the smallest correct architecture.
 3. Produces working files under `.titan/`.
 4. Respects Titan semantics for hooks, params, result types, and cleanup.
+
+## Scope
+
+This skill is only for project workflows and project-local reusable code.
+
+Target outputs:
+
+1. `.titan/workflows/*.yaml`
+2. `.titan/steps/**`
+3. `.titan/operations/**`, `.titan/clients/**`, `.titan/services/**` when justified
+
+Do not use this skill for plugin package workflows. Use the plugin workflow builders instead.
 
 ## Workflow
 
@@ -25,7 +37,7 @@ Capture:
 
 1. What the workflow should automate.
 2. Whether this should extend an existing workflow or create a new one.
-3. Whether the workflow is simple or introduces a reusable domain integration.
+3. Whether the workflow is simple or introduces a reusable project domain integration.
 
 Keep questions minimal. If the repo already makes the answer clear, do not ask.
 
@@ -92,7 +104,7 @@ Always verify:
 When the user wants implementation, finish with:
 
 1. A workflow file.
-2. Any required step/operation/client files.
+2. Any required step, operation, client, or service files.
 3. A short explanation of key decisions.
 
 When the user wants guidance only, provide:

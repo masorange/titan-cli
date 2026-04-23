@@ -1,6 +1,6 @@
 ---
 name: titan-workflow-architecture
-description: Choose the correct Titan architecture for new workflow code. Use when deciding between command steps, project steps, operations, clients, services, or a plugin-like project layout, or when the user asks how much architecture is justified.
+description: Choose the correct Titan architecture for new workflow code. Use when deciding between command steps, project steps, operations, clients, services, plugin registration, or project versus plugin layout, or when the user asks how much architecture is justified.
 disable-model-invocation: false
 user-invocable: false
 ---
@@ -12,6 +12,15 @@ Decide the smallest correct architecture for workflow-related code.
 ## Goal
 
 Prevent both under-design and over-design.
+
+## Target Types
+
+Decide which target you are designing for first:
+
+1. `project`
+   Workflow and supporting code under `.titan/`.
+2. `plugin`
+   Workflow and supporting code inside a plugin package.
 
 ## Decision Rules
 
@@ -58,6 +67,18 @@ For reusable domains, prefer a project layout that resembles a plugin while stay
 
 See `references/plugin-like-project-architecture.md`.
 
+### 6. Distinguish project discovery from plugin registration
+
+For projects:
+
+1. runtime entrypoints for project steps stay under `.titan/steps/**`
+
+For plugins:
+
+1. steps are exposed through plugin registration
+2. workflow files live under the plugin package
+3. registration structure is part of the architecture, not an implementation detail
+
 ## References
 
 1. `references/when-to-use-command-vs-step.md`
@@ -65,6 +86,7 @@ See `references/plugin-like-project-architecture.md`.
 3. `references/when-to-create-client.md`
 4. `references/plugin-like-project-architecture.md`
 5. `references/layer-boundaries.md`
+6. `references/project-vs-plugin-architecture.md`
 
 ## Assets
 
