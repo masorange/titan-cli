@@ -7,7 +7,22 @@ from ..messages import msg
 
 
 def get_pull_request_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Fetch a pull request and store it in workflow context."""
+    """
+    Fetch a pull request and store it in workflow context.
+
+    Requires:
+        ctx.github: An initialized GitHubClient.
+
+    Inputs (from ctx.data):
+        pr_number (int): Pull request number to fetch.
+
+    Outputs (saved to ctx.data):
+        pr_info: The fetched pull request object.
+
+    Returns:
+        Success: If the pull request is fetched successfully.
+        Error: If required context is missing or the GitHub call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -42,7 +57,25 @@ def get_pull_request_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def merge_pull_request_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Merge a pull request using the configured GitHub client."""
+    """
+    Merge a pull request using the configured GitHub client.
+
+    Requires:
+        ctx.github: An initialized GitHubClient.
+
+    Inputs (from ctx.data):
+        pr_number (int): Pull request number to merge.
+        merge_method (str, optional): Merge strategy.
+        commit_title (str, optional): Override commit title.
+        commit_message (str, optional): Override commit message.
+
+    Outputs (saved to ctx.data):
+        merge_result: The GitHub merge result object.
+
+    Returns:
+        Success: If the pull request is merged successfully.
+        Error: If required context is missing or the GitHub call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -91,7 +124,23 @@ def merge_pull_request_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def verify_pull_request_state_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Verify a pull request is currently in the expected state."""
+    """
+    Verify a pull request is currently in the expected state.
+
+    Requires:
+        ctx.github: An initialized GitHubClient.
+
+    Inputs (from ctx.data):
+        pr_number (int): Pull request number to inspect.
+        expected_state (str): Expected pull request state.
+
+    Outputs (saved to ctx.data):
+        verified_pr_info: The pull request object when verification succeeds.
+
+    Returns:
+        Success: If the pull request is in the expected state.
+        Error: If required context is missing, verification fails, or the GitHub call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 

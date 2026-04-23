@@ -1,8 +1,15 @@
 # Plugins
 
----
+Titan exposes plugin capabilities through three public layers:
 
-## Built-in plugins
+- `Client API`: Python entry points used from Titan code.
+- `Workflow Steps`: reusable step functions exposed through `plugin.get_steps()`.
+- `Built-in Workflows`: YAML workflows shipped by each plugin.
+
+This section documents official plugins from those three angles so users can both call
+plugin clients directly and compose workflows from reusable public steps.
+
+## Official plugins
 
 Titan ships with three official plugins:
 
@@ -12,7 +19,7 @@ Titan ships with three official plugins:
 | **github** | Create PRs with AI descriptions, manage issues, code reviews |
 | **jira** | Search issues, AI-powered analysis, workflow automation |
 
-Enable them per-project in `.titan/config.toml`:
+Enable them per project in `.titan/config.toml`:
 
 ```toml
 [plugins.git]
@@ -20,7 +27,17 @@ enabled = true
 
 [plugins.github]
 enabled = true
+
+[plugins.jira]
+enabled = true
 ```
+
+For each plugin, the docs are split into:
+
+- `Overview`: requirements, configuration, and entry points.
+- `Client API`: public client methods grouped by domain.
+- `Workflow Steps`: public reusable steps grouped by functionality.
+- `Built-in Workflows`: workflows shipped by the plugin and how to extend them.
 
 ## Community plugins
 
@@ -28,8 +45,8 @@ Titan also supports community plugins from external repositories.
 
 There are currently two source channels:
 
-- `stable`: pin a plugin version in the project config using a git tag or commit
-- `dev_local`: use a local checkout of a plugin repository during development
+- `stable`: pin a plugin version in the project config using a git tag or commit.
+- `dev_local`: use a local checkout of a plugin repository during development.
 
 The shared stable pin lives in `.titan/config.toml`:
 

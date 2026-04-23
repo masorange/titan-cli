@@ -30,6 +30,10 @@ def create_worktree(ctx: WorkflowContext) -> WorkflowResult:
         worktree_path: Path to the created worktree
         base_branch: Base branch name (e.g., "develop" or "main")
 
+    Returns:
+        Success: If the worktree is created successfully.
+        Error: If the Git client is unavailable or worktree creation fails.
+
     Example:
         ```yaml
         - name: "Create Worktree"

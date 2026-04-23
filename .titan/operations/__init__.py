@@ -33,6 +33,17 @@ from .log_operations import (
     format_session_label,
 )
 
+from .plugin_docs_operations import (
+    OFFICIAL_PLUGIN_REFS,
+    build_all_plugin_inventories,
+    build_plugin_inventory,
+    extract_docstring_summary,
+    inventory_output_path,
+    parse_docstring_sections,
+    validate_generated_inventories,
+    write_plugin_inventories,
+)
+
 __all__ = [
     # Ruff operations
     "parse_ruff_json_output",
@@ -58,4 +69,14 @@ __all__ = [
     "parse_log_file",
     "analyze_session",
     "format_session_label",
+
+    # Plugin docs operations
+    "OFFICIAL_PLUGIN_REFS",
+    "build_all_plugin_inventories",
+    "build_plugin_inventory",
+    "extract_docstring_summary",
+    "inventory_output_path",
+    "parse_docstring_sections",
+    "validate_generated_inventories",
+    "write_plugin_inventories",
 ]

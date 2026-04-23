@@ -1,4 +1,4 @@
-# Jira Plugin
+# Jira Client API
 
 The Jira plugin adds Jira operations to Titan through a high-level client and reusable workflows. It covers issue lookup, JQL search, comments, transitions, issue creation, metadata discovery, links, and AI-assisted issue workflows.
 

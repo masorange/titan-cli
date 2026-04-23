@@ -8,7 +8,13 @@ from ..operations import issue_has_fix_version
 
 
 def get_transitions_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Fetch available transitions for a Jira issue."""
+    """
+    Fetch available transitions for a Jira issue.
+
+    Returns:
+        Success: If transitions are fetched successfully.
+        Error: If required context is missing or the Jira call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -44,7 +50,13 @@ def get_transitions_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def transition_issue_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Transition a Jira issue to a target status."""
+    """
+    Transition a Jira issue to a target status.
+
+    Returns:
+        Success: If the issue transitions successfully.
+        Error: If required context is missing or the Jira call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -87,7 +99,13 @@ def transition_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def verify_issue_state_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Verify that a Jira issue is currently in the expected status."""
+    """
+    Verify that a Jira issue is currently in the expected status.
+
+    Returns:
+        Success: If the issue is in the expected status.
+        Error: If required context is missing, verification fails, or the Jira call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -140,7 +158,13 @@ def verify_issue_state_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def create_version_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Create a Jira version."""
+    """
+    Create a Jira version.
+
+    Returns:
+        Success: If the version is created successfully.
+        Error: If required context is missing or the Jira call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -192,7 +216,13 @@ def create_version_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def ensure_version_exists_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Ensure a Jira version exists, creating it if missing."""
+    """
+    Ensure a Jira version exists, creating it if missing.
+
+    Returns:
+        Success: If the version already exists or is created successfully.
+        Error: If required context is missing or the Jira call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -244,7 +274,13 @@ def ensure_version_exists_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def assign_fix_version_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Assign a fixVersion to a Jira issue."""
+    """
+    Assign a fixVersion to a Jira issue.
+
+    Returns:
+        Success: If the fix version is assigned successfully.
+        Error: If required context is missing or the Jira call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -295,7 +331,13 @@ def assign_fix_version_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def verify_issue_has_fix_version_step(ctx: WorkflowContext) -> WorkflowResult:
-    """Verify a Jira issue has the expected fixVersion."""
+    """
+    Verify a Jira issue has the expected fixVersion.
+
+    Returns:
+        Success: If the issue has the expected fix version.
+        Error: If required context is missing, verification fails, or the Jira call fails.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
