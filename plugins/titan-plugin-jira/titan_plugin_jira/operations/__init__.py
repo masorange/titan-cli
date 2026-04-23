@@ -29,6 +29,13 @@ from .issue_operations import (
     transition_issue_to_ready_for_dev,
 )
 
+from .issue_management_operations import (
+    find_transition_by_target_status,
+    find_transition_by_name_contains,
+    find_version_by_name,
+    issue_has_fix_version,
+)
+
 __all__ = [
     # JQL operations
     "substitute_jql_variables",
@@ -44,4 +51,9 @@ __all__ = [
     # Issue operations
     "find_ready_to_dev_transition",
     "transition_issue_to_ready_for_dev",
+    # Workflow operations
+    "find_transition_by_target_status",
+    "find_transition_by_name_contains",
+    "find_version_by_name",
+    "issue_has_fix_version",
 ]

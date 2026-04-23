@@ -263,6 +263,15 @@ class JiraPlugin(TitanPlugin):
         from .steps.get_issue_step import get_issue_step
         from .steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
         from .steps.list_versions_step import list_versions_step
+        from .steps.issue_management_steps import (
+            get_transitions_step,
+            transition_issue_step,
+            verify_issue_state_step,
+            create_version_step,
+            ensure_version_exists_step,
+            assign_fix_version_step,
+            verify_issue_has_fix_version_step,
+        )
 
         # Generic Issue Creation Workflow steps
         from .steps.prompt_issue_description_step import prompt_issue_description
@@ -281,6 +290,13 @@ class JiraPlugin(TitanPlugin):
             "get_issue": get_issue_step,
             "ai_analyze_issue_requirements": ai_analyze_issue_requirements_step,
             "list_versions": list_versions_step,
+            "get_transitions": get_transitions_step,
+            "transition_issue": transition_issue_step,
+            "verify_issue_state": verify_issue_state_step,
+            "create_version": create_version_step,
+            "ensure_version_exists": ensure_version_exists_step,
+            "assign_fix_version": assign_fix_version_step,
+            "verify_issue_has_fix_version": verify_issue_has_fix_version_step,
 
             # Generic Issue Creation Workflow steps
             "prompt_issue_description": prompt_issue_description,
