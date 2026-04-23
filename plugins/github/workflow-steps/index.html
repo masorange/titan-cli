@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://masorange.github.io/titan-cli/getting-started/installation/">
+        <link rel="canonical" href="https://masorange.github.io/titan-cli/plugins/github/workflow-steps/">
       
       
-        <link rel="prev" href="../..">
+        <link rel="prev" href="../client-api/">
       
       
-        <link rel="next" href="../quick-start/">
+        <link rel="next" href="../built-in-workflows/">
       
       
         
       
       
-      <link rel="icon" href="../../assets/images/favicon.png">
+      <link rel="icon" href="../../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
     
     
       
-        <title>Installation - Titan CLI</title>
+        <title>Workflow Steps - Titan CLI</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,7 +53,7 @@
       
     
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#installation" class="md-skip">
+        <a href="#github-workflow-steps" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +92,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="Titan CLI" class="md-header__button md-logo" aria-label="Titan CLI" data-md-component="logo">
+    <a href="../../.." title="Titan CLI" class="md-header__button md-logo" aria-label="Titan CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Installation
+              Workflow Steps
             
           </span>
         </div>
@@ -225,7 +225,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../.." class="md-tabs__link">
+      <a href="../../.." class="md-tabs__link">
         
   
   
@@ -242,13 +242,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../../getting-started/installation/" class="md-tabs__link">
           
   
   
@@ -268,7 +266,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../concepts/workflows/" class="md-tabs__link">
+        <a href="../../../concepts/workflows/" class="md-tabs__link">
           
   
   
@@ -284,11 +282,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../plugins/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../" class="md-tabs__link">
           
   
   
@@ -308,7 +308,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../contributing/development-setup/" class="md-tabs__link">
+        <a href="../../../contributing/development-setup/" class="md-tabs__link">
           
   
   
@@ -342,7 +342,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="Titan CLI" class="md-nav__button md-logo" aria-label="Titan CLI" data-md-component="logo">
+    <a href="../../.." title="Titan CLI" class="md-nav__button md-logo" aria-label="Titan CLI" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -372,7 +372,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../.." class="md-nav__link">
+      <a href="../../.." class="md-nav__link">
         
   
   
@@ -396,31 +396,28 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
             
   
   
@@ -438,7 +435,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -453,37 +450,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Installation
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../../getting-started/installation/" class="md-nav__link">
         
   
   
@@ -499,92 +469,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Requirements
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install-with-pipx-recommended" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Install with pipx (recommended)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install-with-pip" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Install with pip
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#first-launch" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        First launch
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-gets-created" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What gets created
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-step" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Next step
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -597,7 +481,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../quick-start/" class="md-nav__link">
+      <a href="../../../getting-started/quick-start/" class="md-nav__link">
         
   
   
@@ -625,7 +509,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../your-first-workflow/" class="md-nav__link">
+      <a href="../../../getting-started/your-first-workflow/" class="md-nav__link">
         
   
   
@@ -714,7 +598,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/workflows/" class="md-nav__link">
+      <a href="../../../concepts/workflows/" class="md-nav__link">
         
   
   
@@ -742,7 +626,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/ai-integration/" class="md-nav__link">
+      <a href="../../../concepts/ai-integration/" class="md-nav__link">
         
   
   
@@ -774,28 +658,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -813,7 +700,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -831,7 +718,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/" class="md-nav__link">
+      <a href="../../" class="md-nav__link">
         
   
   
@@ -865,10 +752,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -877,7 +767,7 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_2" >
         
           
-          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
             
   
   
@@ -913,7 +803,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/git/overview/" class="md-nav__link">
+      <a href="../../git/overview/" class="md-nav__link">
         
   
   
@@ -941,7 +831,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/git/client-api/" class="md-nav__link">
+      <a href="../../git/client-api/" class="md-nav__link">
         
   
   
@@ -969,7 +859,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/git/workflow-steps/" class="md-nav__link">
+      <a href="../../git/workflow-steps/" class="md-nav__link">
         
   
   
@@ -997,7 +887,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/git/built-in-workflows/" class="md-nav__link">
+      <a href="../../git/built-in-workflows/" class="md-nav__link">
         
   
   
@@ -1030,28 +920,31 @@
                 
   
   
+    
   
   
+  
     
     
     
     
       
       
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
         
           
+          
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_3" >
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="">
             
   
   
@@ -1069,7 +962,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1087,7 +980,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/github/overview/" class="md-nav__link">
+      <a href="../overview/" class="md-nav__link">
         
   
   
@@ -1115,7 +1008,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/github/client-api/" class="md-nav__link">
+      <a href="../client-api/" class="md-nav__link">
         
   
   
@@ -1140,10 +1033,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../plugins/github/workflow-steps/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Steps
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1159,6 +1079,125 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#functional-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Functional groups
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pull-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull Requests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prompt-and-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prompt and Selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#issue-creation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue Creation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pull-request-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull Request Review
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Review
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worktree-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worktree Support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docstring-based-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docstring-based reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1171,7 +1210,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/github/built-in-workflows/" class="md-nav__link">
+      <a href="../built-in-workflows/" class="md-nav__link">
         
   
   
@@ -1213,10 +1252,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1225,7 +1267,7 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_4" >
         
           
-          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="">
             
   
   
@@ -1261,7 +1303,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/jira/overview/" class="md-nav__link">
+      <a href="../../jira/overview/" class="md-nav__link">
         
   
   
@@ -1289,7 +1331,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/jira/client-api/" class="md-nav__link">
+      <a href="../../jira/client-api/" class="md-nav__link">
         
   
   
@@ -1317,7 +1359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/jira/workflow-steps/" class="md-nav__link">
+      <a href="../../jira/workflow-steps/" class="md-nav__link">
         
   
   
@@ -1345,7 +1387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/jira/built-in-workflows/" class="md-nav__link">
+      <a href="../../jira/built-in-workflows/" class="md-nav__link">
         
   
   
@@ -1442,7 +1484,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/development-setup/" class="md-nav__link">
+      <a href="../../../contributing/development-setup/" class="md-nav__link">
         
   
   
@@ -1470,7 +1512,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/architecture/" class="md-nav__link">
+      <a href="../../../contributing/architecture/" class="md-nav__link">
         
   
   
@@ -1525,10 +1567,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#functional-groups" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Requirements
+        Functional groups
       
     </span>
   </a>
@@ -1536,10 +1578,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-with-pipx-recommended" class="md-nav__link">
+  <a href="#summary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install with pipx (recommended)
+        Summary
       
     </span>
   </a>
@@ -1547,10 +1589,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-with-pip" class="md-nav__link">
+  <a href="#pull-requests" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install with pip
+        Pull Requests
       
     </span>
   </a>
@@ -1558,10 +1600,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#first-launch" class="md-nav__link">
+  <a href="#prompt-and-selection" class="md-nav__link">
     <span class="md-ellipsis">
       
-        First launch
+        Prompt and Selection
       
     </span>
   </a>
@@ -1569,10 +1611,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-gets-created" class="md-nav__link">
+  <a href="#issue-creation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What gets created
+        Issue Creation
       
     </span>
   </a>
@@ -1580,10 +1622,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-step" class="md-nav__link">
+  <a href="#pull-request-review" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next step
+        Pull Request Review
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Review
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worktree-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worktree Support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docstring-based-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docstring-based reference
       
     </span>
   </a>
@@ -1610,70 +1685,333 @@
   
 
 
-<h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h1>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
+<h1 id="github-workflow-steps">GitHub Workflow Steps<a class="headerlink" href="#github-workflow-steps" title="Permanent link">&para;</a></h1>
+<p>The GitHub plugin exposes public reusable workflow steps through <code>GitHubPlugin.get_steps()</code>. The reference groups them by user-facing functionality so workflow authors can find related building blocks quickly.</p>
+<h2 id="functional-groups">Functional groups<a class="headerlink" href="#functional-groups" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Python 3.10 or later</li>
-<li>macOS, Linux, or Windows (WSL2 recommended on Windows)</li>
+<li><a href="#pull-requests">Pull Requests</a></li>
+<li><a href="#prompt-and-selection">Prompt and Selection</a></li>
+<li><a href="#issue-creation">Issue Creation</a></li>
+<li><a href="#pull-request-review">Pull Request Review</a></li>
+<li><a href="#code-review">Code Review</a></li>
+<li><a href="#worktree-support">Worktree Support</a></li>
 </ul>
-<hr />
-<h2 id="install-with-pipx-recommended">Install with pipx (recommended)<a class="headerlink" href="#install-with-pipx-recommended" title="Permanent link">&para;</a></h2>
-<p><a href="https://pipx.pypa.io/">pipx</a> installs Titan in an isolated environment and puts it on your <code>PATH</code> automatically — no virtualenv management needed.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Install pipx if you don&#39;t have it</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python3<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--user<span class="w"> </span>pipx
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>python3<span class="w"> </span>-m<span class="w"> </span>pipx<span class="w"> </span>ensurepath
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># Install Titan</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>pipx<span class="w"> </span>install<span class="w"> </span>titan-cli
-</code></pre></div>
-<p>Verify:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>titan<span class="w"> </span>--version
-</code></pre></div>
-<hr />
-<h2 id="install-with-pip">Install with pip<a class="headerlink" href="#install-with-pip" title="Permanent link">&para;</a></h2>
-<p>If you prefer a regular pip install into an existing environment:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pip<span class="w"> </span>install<span class="w"> </span>titan-cli
-</code></pre></div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>Using pip directly can create dependency conflicts with other packages. pipx is strongly recommended.</p>
-</div>
-<hr />
-<h2 id="first-launch">First launch<a class="headerlink" href="#first-launch" title="Permanent link">&para;</a></h2>
-<p>Run Titan from inside a project directory:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>/path/to/your-project
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>titan
-</code></pre></div>
-<p>On first launch, two setup wizards run automatically:</p>
-<ol>
-<li><strong>Global setup</strong> — Configure AI connections. This is optional and can be skipped.</li>
-<li><strong>Project setup</strong> — Choose a project name and enable the plugins you want (Git, GitHub, Jira).</li>
-</ol>
-<p>After setup, the main menu appears and you're ready to run workflows.</p>
-<hr />
-<h2 id="what-gets-created">What gets created<a class="headerlink" href="#what-gets-created" title="Permanent link">&para;</a></h2>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Path</th>
-<th>Purpose</th>
+<th>Step</th>
+<th>Group</th>
+<th>Used by built-in workflows</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>~/.titan/config.toml</code></td>
-<td>Global config: AI connections and credentials</td>
+<td><code>create_pr</code></td>
+<td>Pull Requests</td>
+<td><code>create-pr-ai</code></td>
 </tr>
 <tr>
-<td><code>.titan/config.toml</code></td>
-<td>Project config: enabled plugins and settings</td>
+<td><code>get_pull_request</code></td>
+<td>Pull Requests</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>merge_pull_request</code></td>
+<td>Pull Requests</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>verify_pull_request_state</code></td>
+<td>Pull Requests</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>ai_suggest_pr_description</code></td>
+<td>Pull Requests</td>
+<td><code>create-pr-ai</code></td>
+</tr>
+<tr>
+<td><code>prompt_for_pr_title</code></td>
+<td>Prompt and Selection</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>prompt_for_pr_body</code></td>
+<td>Prompt and Selection</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>prompt_for_issue_body_step</code></td>
+<td>Prompt and Selection</td>
+<td><code>create-issue-ai</code></td>
+</tr>
+<tr>
+<td><code>prompt_for_self_assign</code></td>
+<td>Prompt and Selection</td>
+<td><code>create-issue-ai</code></td>
+</tr>
+<tr>
+<td><code>prompt_for_labels</code></td>
+<td>Prompt and Selection</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>select_cli</code></td>
+<td>Prompt and Selection</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>ai_suggest_issue_title_and_body</code></td>
+<td>Issue Creation</td>
+<td><code>create-issue-ai</code></td>
+</tr>
+<tr>
+<td><code>preview_and_confirm_issue</code></td>
+<td>Issue Creation</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>create_issue</code></td>
+<td>Issue Creation</td>
+<td><code>create-issue-ai</code></td>
+</tr>
+<tr>
+<td><code>select_pr_for_review</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>fetch_pending_comments</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>check_clean_state</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>checkout_pr_branch</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>review_comments</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>push_commits</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>send_comment_replies</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>request_review</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>checkout_original_branch</code></td>
+<td>Pull Request Review</td>
+<td><code>respond-pr-comments</code></td>
+</tr>
+<tr>
+<td><code>select_pr_for_code_review</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>fetch_pr_review_bundle</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>build_change_manifest</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>build_existing_comments_index</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>build_review_checklist</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>ai_review_plan</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>validate_review_plan</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>resolve_review_context</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>ai_review_findings</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>normalize_findings</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>dedupe_findings</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>build_new_comment_actions</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>validate_review_actions</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>submit_review_actions</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>build_thread_review_candidates</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>build_thread_review_contexts</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>ai_thread_resolution</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>normalize_thread_decisions</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>build_thread_actions</code></td>
+<td>Code Review</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>create_worktree</code></td>
+<td>Worktree Support</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>cleanup_worktree</code></td>
+<td>Worktree Support</td>
+<td>-</td>
 </tr>
 </tbody>
 </table>
-<p>The project config lives at the <strong>git repository root</strong>, so it works correctly in monorepos.</p>
-<hr />
-<h2 id="next-step">Next step<a class="headerlink" href="#next-step" title="Permanent link">&para;</a></h2>
-<p><a href="../quick-start/">→ Quick Start</a> — Learn the basics of the Titan interface.</p>
+<h2 id="pull-requests">Pull Requests<a class="headerlink" href="#pull-requests" title="Permanent link">&para;</a></h2>
+<p>Use these steps to generate PR content, inspect PR state, and create or merge pull requests.</p>
+<ul>
+<li><code>create_pr</code>: create a pull request from workflow context data</li>
+<li><code>get_pull_request</code>: fetch a pull request and expose it to later steps</li>
+<li><code>merge_pull_request</code>: merge a pull request with workflow-selected merge options</li>
+<li><code>verify_pull_request_state</code>: validate that a pull request is in the expected state</li>
+<li><code>ai_suggest_pr_description</code>: generate PR title and body from branch changes using AI</li>
+</ul>
+<h2 id="prompt-and-selection">Prompt and Selection<a class="headerlink" href="#prompt-and-selection" title="Permanent link">&para;</a></h2>
+<p>Use these steps when a workflow needs interactive user input before creation or review work starts.</p>
+<ul>
+<li><code>prompt_for_pr_title</code>: capture a PR title interactively when one is not already available</li>
+<li><code>prompt_for_pr_body</code>: capture a PR body interactively when one is not already available</li>
+<li><code>prompt_for_issue_body_step</code>: capture the raw issue request before AI expansion</li>
+<li><code>prompt_for_self_assign</code>: ask whether the current user should be assigned to the issue</li>
+<li><code>prompt_for_labels</code>: prompt for labels to attach to an issue or PR</li>
+<li><code>select_cli</code>: choose which external CLI a workflow should use</li>
+</ul>
+<h2 id="issue-creation">Issue Creation<a class="headerlink" href="#issue-creation" title="Permanent link">&para;</a></h2>
+<p>Use these steps to build and submit GitHub issues.</p>
+<ul>
+<li><code>ai_suggest_issue_title_and_body</code>: generate issue content and suggested labels from user input</li>
+<li><code>preview_and_confirm_issue</code>: show generated issue content and ask for explicit confirmation</li>
+<li><code>create_issue</code>: create the final GitHub issue from workflow context data</li>
+</ul>
+<h2 id="pull-request-review">Pull Request Review<a class="headerlink" href="#pull-request-review" title="Permanent link">&para;</a></h2>
+<p>Use these steps for the contributor flow of responding to PR comments and restoring local branch state afterward.</p>
+<ul>
+<li><code>select_pr_for_review</code>: select a pull request that needs comment response work</li>
+<li><code>fetch_pending_comments</code>: load unresolved PR comments into workflow context</li>
+<li><code>check_clean_state</code>: ensure the current branch is safe to leave before checkout</li>
+<li><code>checkout_pr_branch</code>: switch to the PR branch while preserving original branch context</li>
+<li><code>review_comments</code>: guide the user through resolving comments and making local changes</li>
+<li><code>push_commits</code>: push local follow-up commits back to the PR branch</li>
+<li><code>send_comment_replies</code>: submit replies for the reviewed comments</li>
+<li><code>request_review</code>: request another review after follow-up work is pushed</li>
+<li><code>checkout_original_branch</code>: restore the original branch after review work completes</li>
+</ul>
+<h2 id="code-review">Code Review<a class="headerlink" href="#code-review" title="Permanent link">&para;</a></h2>
+<p>These are advanced review-pipeline steps for structured AI-assisted code review. They are public and reusable, but many are intended to be composed together rather than used in isolation.</p>
+<ul>
+<li><code>select_pr_for_code_review</code>: choose a PR for the advanced code-review pipeline</li>
+<li><code>fetch_pr_review_bundle</code>: collect PR, diff, file, and discussion context for review</li>
+<li><code>build_change_manifest</code>: build a structured manifest of changed files and targets</li>
+<li><code>build_existing_comments_index</code>: index existing review comments to avoid duplicate findings</li>
+<li><code>build_review_checklist</code>: prepare a review checklist from PR context</li>
+<li><code>ai_review_plan</code>: ask AI to propose the review strategy</li>
+<li><code>validate_review_plan</code>: verify that the AI review plan is structurally usable</li>
+<li><code>resolve_review_context</code>: expand the exact contexts needed for targeted analysis</li>
+<li><code>ai_review_findings</code>: run targeted AI analysis and produce candidate findings</li>
+<li><code>normalize_findings</code>: normalize raw findings into workflow-friendly structures</li>
+<li><code>dedupe_findings</code>: remove duplicate or overlapping findings before submission</li>
+<li><code>build_new_comment_actions</code>: translate findings into GitHub review actions</li>
+<li><code>validate_review_actions</code>: validate those review actions before posting</li>
+<li><code>submit_review_actions</code>: submit review comments or review actions to GitHub</li>
+<li><code>build_thread_review_candidates</code>: collect review threads that may need follow-up decisions</li>
+<li><code>build_thread_review_contexts</code>: expand context needed to evaluate thread resolution</li>
+<li><code>ai_thread_resolution</code>: ask AI whether open threads should be resolved or reopened</li>
+<li><code>normalize_thread_decisions</code>: normalize thread resolution decisions for execution</li>
+<li><code>build_thread_actions</code>: build GitHub actions from normalized thread decisions</li>
+</ul>
+<h2 id="worktree-support">Worktree Support<a class="headerlink" href="#worktree-support" title="Permanent link">&para;</a></h2>
+<p>Use these steps when a GitHub workflow should operate in a dedicated worktree.</p>
+<ul>
+<li><code>create_worktree</code>: create an isolated worktree for GitHub-focused workflow tasks</li>
+<li><code>cleanup_worktree</code>: remove a worktree created during workflow execution</li>
+</ul>
+<h2 id="docstring-based-reference">Docstring-based reference<a class="headerlink" href="#docstring-based-reference" title="Permanent link">&para;</a></h2>
+<p>The semiautomated step inventory reads public step docstrings from code and validates that each exposed step documents:</p>
+<ul>
+<li><code>Requires</code></li>
+<li><code>Inputs (from ctx.data)</code> when applicable</li>
+<li><code>Outputs (saved to ctx.data)</code> when applicable</li>
+<li><code>Returns</code></li>
+</ul>
+<p>The generated machine-readable inventory lives under <code>docs/plugins/_generated/</code>.</p>
+<p>For this project, the inventory is maintained through:</p>
+<ul>
+<li><code>.titan/workflows/sync-plugin-docs.yaml</code></li>
+<li><code>.titan/workflows/validate-plugin-docs.yaml</code></li>
+<li><code>.titan/steps/sync_plugin_docs.py</code></li>
+<li><code>.titan/steps/validate_plugin_docs.py</code></li>
+</ul>
 
 
 
@@ -1731,10 +2069,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
