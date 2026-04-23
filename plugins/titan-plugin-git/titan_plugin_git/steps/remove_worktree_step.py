@@ -21,6 +21,10 @@ def remove_worktree(ctx: WorkflowContext) -> WorkflowResult:
         path: Path to the worktree to remove (required, or uses worktree_path from context)
         force: Force removal even if worktree has uncommitted changes (default: false)
 
+    Returns:
+        Success: If the worktree is removed successfully or is already gone.
+        Error: If cleanup fails.
+
     Example:
         ```yaml
         - name: "Cleanup Worktree"

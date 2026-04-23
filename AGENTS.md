@@ -474,11 +474,32 @@ This applies when you:
 - Change the expected usage or behavior of an existing public client function
 - Add a workflow that exposes a new user-facing plugin capability
 
+Public workflow steps exposed through `plugin.py -> get_steps()` are part of that contract.
+
+This also applies when you:
+
+- Add a new public workflow step
+- Remove a public workflow step
+- Rename a public workflow step
+- Change the required `ctx.data` inputs of a public workflow step
+- Change the metadata outputs or return behavior (`Success`, `Skip`, `Exit`, `Error`) of a public workflow step
+
 Update the matching page in the `Plugins` documentation section:
 
-- `docs/plugins/git-plugin.md`
-- `docs/plugins/github-plugin.md`
-- `docs/plugins/jira-plugin.md`
+- `docs/plugins/git/overview.md`
+- `docs/plugins/git/client-api.md`
+- `docs/plugins/git/workflow-steps.md`
+- `docs/plugins/git/built-in-workflows.md`
+- `docs/plugins/github/overview.md`
+- `docs/plugins/github/client-api.md`
+- `docs/plugins/github/workflow-steps.md`
+- `docs/plugins/github/built-in-workflows.md`
+- `docs/plugins/jira/overview.md`
+- `docs/plugins/jira/client-api.md`
+- `docs/plugins/jira/workflow-steps.md`
+- `docs/plugins/jira/built-in-workflows.md`
+- `docs/plugins/_meta/*.json`
+- `docs/plugins/_generated/*.json`
 
 At minimum, the documentation must show:
 
@@ -487,6 +508,20 @@ At minimum, the documentation must show:
 - Which parameters are required
 - Which parameters are optional
 - Any important usage constraints
+
+For public workflow steps, docstrings must use the exact canonical section headers:
+
+- `Requires:`
+- `Inputs (from ctx.data):`
+- `Outputs (saved to ctx.data):`
+- `Returns:`
+
+`Returns:` is always required for public steps exposed through `get_steps()`.
+
+When you change public steps in this repository, run the project workflows:
+
+- `sync-plugin-docs`
+- `validate-plugin-docs`
 
 ### Core Concepts
 

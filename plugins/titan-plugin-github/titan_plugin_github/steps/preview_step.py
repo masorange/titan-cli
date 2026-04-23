@@ -4,6 +4,14 @@ from titan_cli.engine.results import WorkflowResult, Success, Error
 def preview_and_confirm_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Show a preview of the AI-generated issue and ask for confirmation.
+
+    Inputs (from ctx.data):
+        issue_title (str): Generated issue title.
+        issue_body (str): Generated issue body.
+
+    Returns:
+        Success: If the user confirms the issue preview.
+        Error: If required context is missing, the user rejects, or the prompt is cancelled.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")

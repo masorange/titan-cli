@@ -360,6 +360,57 @@ pr_number = ctx.get("selected_pr_number")  # None if not set
 pr_number = ctx.get("selected_pr_number", 0)  # With default
 ```
 
+### Public step docstring convention
+
+This convention is mandatory for any public step exposed through `plugin.py -> get_steps()`.
+
+Public steps are part of the plugin's workflow API. Their docstrings are used as the source for semiautomated documentation inventory and validation.
+
+Required section headers:
+
+- `Requires:`
+- `Inputs (from ctx.data):`
+- `Outputs (saved to ctx.data):`
+- `Returns:`
+
+Rules:
+
+1. `Returns:` is always required.
+2. `Requires:` is required when the step depends on `ctx.git`, `ctx.github`, `ctx.jira`, `ctx.ai`, or other context-provided services.
+3. `Inputs (from ctx.data):` is required when the step reads workflow data from `ctx.get(...)`.
+4. `Outputs (saved to ctx.data):` is required when the step returns metadata that later steps consume.
+5. Use these exact header names. Do not replace them with variants such as `Params:`, `Stores in:`, or `Output variables:`.
+6. If the step can return `Skip` or `Exit`, document that explicitly in `Returns:`.
+
+Template:
+
+```python
+def my_public_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    One-line summary.
+
+    Requires:
+        ctx.github: An initialized GitHubClient.
+
+    Inputs (from ctx.data):
+        pr_number (int): Pull request number to inspect.
+
+    Outputs (saved to ctx.data):
+        pr_info: The fetched pull request object.
+
+    Returns:
+        Success: If the step completes successfully.
+        Skip: If the step is not applicable.
+        Error: If required context is missing or execution fails.
+    """
+```
+
+Scope:
+
+- Mandatory for plugin public steps exposed in `get_steps()`.
+- Recommended for project steps under `.titan/steps/`.
+- Optional for internal helpers that are not part of the public workflow API.
+
 ---
 
 ## Real Examples

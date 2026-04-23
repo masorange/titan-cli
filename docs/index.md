@@ -59,7 +59,7 @@ On first run, Titan guides you through setting up global preferences and enablin
 
     Browse the capabilities of the official Git, GitHub, and Jira plugins.
 
-    [→ Plugins](plugins/overview.md)
+    [→ Plugins](plugins/index.md)
 
 - **Build your own workflow**
 
