@@ -3,7 +3,12 @@ from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Error, Success, WorkflowResult
 
-from operations import build_all_plugin_inventories, validate_generated_inventories
+from operations import (
+    build_all_plugin_inventories,
+    validate_generated_inventories,
+    validate_generated_step_references,
+    validate_workflow_steps_pages,
+)
 
 
 def validate_plugin_docs(ctx: WorkflowContext) -> WorkflowResult:
@@ -29,6 +34,8 @@ def validate_plugin_docs(ctx: WorkflowContext) -> WorkflowResult:
     with ctx.textual.loading("Validating plugin docs inventory..."):
         inventories, errors = build_all_plugin_inventories(repo_root)
         errors.extend(validate_generated_inventories(repo_root, inventories))
+        errors.extend(validate_generated_step_references(repo_root, inventories))
+        errors.extend(validate_workflow_steps_pages(repo_root, inventories))
 
     if errors:
         ctx.textual.warning_text(f"Found {len(errors)} plugin docs validation issue(s):")

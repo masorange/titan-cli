@@ -3,7 +3,12 @@ from pathlib import Path
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Error, Success, WorkflowResult
 
-from operations import build_all_plugin_inventories, write_plugin_inventories
+from operations import (
+    build_all_plugin_inventories,
+    update_plugin_workflow_steps_pages,
+    write_plugin_inventories,
+    write_plugin_step_references,
+)
 
 
 def sync_plugin_docs(ctx: WorkflowContext) -> WorkflowResult:
@@ -37,6 +42,8 @@ def sync_plugin_docs(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Plugin docs inventory validation failed. Fix the reported issues and run sync again.")
 
     written_paths = write_plugin_inventories(repo_root, inventories)
+    written_paths.extend(write_plugin_step_references(repo_root, inventories))
+    written_paths.extend(update_plugin_workflow_steps_pages(repo_root, inventories))
     for path in written_paths:
         ctx.textual.success_text(f"Generated {path.relative_to(repo_root)}")
 

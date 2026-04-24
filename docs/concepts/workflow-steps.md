@@ -55,13 +55,16 @@ Those values can come from:
 
 ## Returning data to later steps
 
-Use the `metadata` argument on `Success` or `Skip` to save values back into the workflow context.
+There are two ways to make values available to later steps:
+
+- `ctx.set("key", value)` while the step is running
+- `metadata={...}` on `Success(...)` or `Skip(...)`
+
+Both end up in the workflow context. In practice, project and plugin steps often use `ctx.set(...)` while building up values during the step, then return a plain `Success(...)` at the end.
 
 ```python
-return Success(
-    "Branch created",
-    metadata={"branch_name": "feat/search"},
-)
+ctx.set("branch_name", "feat/search")
+return Success("Branch created")
 ```
 
 Later steps can then read that value with `ctx.get("branch_name")`.
@@ -120,10 +123,8 @@ def choose_branch(ctx: WorkflowContext) -> WorkflowResult:
     if not branch_name:
         return Error("Missing branch_name")
 
-    return Success(
-        "Branch selected",
-        metadata={"selected_branch": branch_name},
-    )
+    ctx.set("selected_branch", branch_name)
+    return Success("Branch selected")
 ```
 
 ## When to use a command step instead
@@ -154,6 +155,174 @@ That lets you:
 - show loading indicators during long operations
 
 See [Textual in Steps](textual-steps.md) for the public API.
+
+## Using built-in clients inside steps
+
+When Titan builds the workflow context, some steps can access ready-to-use clients directly from `ctx`.
+
+Common examples:
+
+- `ctx.git` for Git operations
+- `ctx.github` for GitHub operations
+- `ctx.jira` for Jira operations
+- `ctx.ai` for AI-powered operations when AI is configured
+
+Always check that the client you need is available before using it.
+
+### Example: using `ctx.git`
+
+```python
+from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+
+
+def show_git_status(ctx: WorkflowContext) -> WorkflowResult:
+    if not ctx.git:
+        return Error("Git client is not available")
+
+    result = ctx.git.get_status()
+
+    match result:
+        case ClientSuccess(data=status):
+            ctx.set("git_status", status)
+            return Success("Git status loaded")
+        case ClientError(error_message=err):
+            return Error(f"Failed to get git status: {err}")
+```
+
+Typical use cases:
+
+- inspect repository state
+- get the current branch
+- create commits or push branches
+
+### Example: using `ctx.github`
+
+```python
+from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+
+
+def fetch_pull_request(ctx: WorkflowContext) -> WorkflowResult:
+    if not ctx.github:
+        return Error("GitHub client is not available")
+
+    pr_number = ctx.get("pr_number")
+    if not pr_number:
+        return Error("Missing pr_number")
+
+    result = ctx.github.get_pull_request(int(pr_number))
+
+    match result:
+        case ClientSuccess(data=pr):
+            ctx.set("pr_info", pr)
+            return Success("Pull request loaded")
+        case ClientError(error_message=err):
+            return Error(f"Failed to fetch PR: {err}")
+```
+
+Typical use cases:
+
+- fetch PR or issue data
+- create pull requests or issues
+- request reviews or submit review actions
+
+### Example: using `ctx.jira`
+
+```python
+from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
+
+
+def load_jira_issue(ctx: WorkflowContext) -> WorkflowResult:
+    if not ctx.jira:
+        return Error("Jira client is not available")
+
+    issue_key = ctx.get("jira_issue_key")
+    if not issue_key:
+        return Error("Missing jira_issue_key")
+
+    result = ctx.jira.get_issue(key=issue_key)
+
+    match result:
+        case ClientSuccess(data=issue):
+            ctx.set("jira_issue", issue)
+            return Success("Jira issue loaded")
+        case ClientError(error_message=err):
+            return Error(f"Failed to fetch Jira issue: {err}")
+```
+
+Typical use cases:
+
+- load issue details
+- search issues with JQL
+- transition issues or assign fix versions
+
+### Pattern to follow
+
+When using built-in clients in steps:
+
+1. check that the client exists on `ctx`
+2. read required inputs from `ctx.get(...)`
+3. call the client method
+4. handle `ClientSuccess` and `ClientError`
+5. return `Success`, `Skip`, or `Error` with useful metadata for later steps
+
+If your step also needs a consistent UI, combine this pattern with [Textual in Steps](textual-steps.md).
+
+## Built-in core steps
+
+Titan also exposes built-in reusable steps through `plugin: core`.
+
+These are not tied to a specific plugin like Git or GitHub. Use them when Titan already provides a generic capability directly.
+
+### `ai_code_assistant`
+
+Launches an external AI coding assistant CLI with context collected earlier in the workflow.
+
+Typical use cases:
+
+- after linting to help fix remaining lint errors
+- after test failures to help diagnose or propose fixes
+- after a validation step that stores machine-readable output in `ctx.data`
+
+Example YAML:
+
+```yaml
+- id: ai-help-tests
+  name: "AI Help - Tests"
+  plugin: core
+  step: ai_code_assistant
+  params:
+    context_key: "step_output"
+    prompt_template: "Help me fix these failing tests:\n\n{context}"
+    ask_confirmation: true
+    fail_on_decline: false
+    cli_preference: "auto"
+```
+
+Supported params:
+
+- `context_key`: required key in `ctx.data` to read context from
+- `prompt_template`: prompt template using `{context}` placeholder
+- `ask_confirmation`: ask the user before launching the assistant
+- `fail_on_decline`: return `Error` instead of `Skip` if the user declines
+- `cli_preference`: `"auto"`, `"claude"`, or `"gemini"`
+- `pre_launch_warning`: optional warning text shown before CLI selection
+
+Behavior:
+
+- returns `Skip` if there is no context under `context_key`
+- returns `Skip` if no supported assistant CLI is available
+- returns `Error` if required params are missing or invalid
+- returns `Error` if the launched CLI exits with a non-zero code
+- returns `Success` when the assistant exits successfully
+
+Notes:
+
+- The step clears the consumed `context_key` from `ctx.data` after reading it, so later steps do not accidentally reuse stale context.
+- With `cli_preference: "auto"`, Titan selects an available CLI automatically or prompts if several are installed.
+- This step uses Titan's Textual UI and temporarily suspends the TUI while the external CLI runs.
 
 ## Recommended structure for public plugin steps
 

@@ -40,8 +40,16 @@ from .plugin_docs_operations import (
     extract_docstring_summary,
     inventory_output_path,
     parse_docstring_sections,
+    render_plugin_inline_step_contracts_markdown,
+    render_plugin_step_reference_markdown,
+    step_reference_output_path,
+    update_plugin_workflow_steps_pages,
     validate_generated_inventories,
+    validate_generated_step_references,
+    validate_workflow_steps_pages,
     write_plugin_inventories,
+    write_plugin_step_references,
+    workflow_steps_page_path,
 )
 
 __all__ = [
@@ -77,6 +85,14 @@ __all__ = [
     "extract_docstring_summary",
     "inventory_output_path",
     "parse_docstring_sections",
+    "render_plugin_inline_step_contracts_markdown",
+    "render_plugin_step_reference_markdown",
+    "step_reference_output_path",
+    "update_plugin_workflow_steps_pages",
     "validate_generated_inventories",
+    "validate_generated_step_references",
+    "validate_workflow_steps_pages",
     "write_plugin_inventories",
+    "write_plugin_step_references",
+    "workflow_steps_page_path",
 ]

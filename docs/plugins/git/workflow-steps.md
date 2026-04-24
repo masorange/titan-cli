@@ -2,6 +2,8 @@
 
 The Git plugin exposes reusable public workflow steps through `GitPlugin.get_steps()`. These steps are grouped here by workflow intent so authors can discover related building blocks more easily.
 
+For full contract details for every public step, including documented inputs, outputs, and return behavior, see the [detailed step reference](../generated/git-step-reference.md).
+
 ## Functional groups
 
 - [Status and Inspection](#status-and-inspection)
@@ -73,6 +75,573 @@ Use these steps to isolate workflow work in dedicated worktrees.
 - `remove_worktree`: remove a worktree when finished
 - `worktree_commit`: commit changes inside a specific worktree
 - `worktree_push`: push a branch from a specific worktree
+
+<!-- BEGIN GENERATED STEP CONTRACTS -->
+## Detailed Step Contracts
+
+The summaries above show what each git step is for. The sections below show the documented contract for each public step: what it expects from `ctx.data`, what it saves back, and what result types it may return.
+
+Expand a step to see its workflow usage, required context, inputs, outputs, and result behavior.
+
+How to read these contracts:
+
+- `Inputs (from ctx.data)` = values the step expects before it runs.
+- `Outputs (saved to ctx.data)` = metadata keys saved for later steps when the step returns `Success` or `Skip`.
+- `Returns` = the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate payload.
+
+### Status and Inspection
+
+??? info "`get_status`"
+    Retrieves the current git status and saves it to the context.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: get_status
+    ```
+
+    **Used by built-in workflows:** `commit-ai`
+
+    **Available to later steps:** `git_status`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `git_status` | GitStatus | The full git status object, which includes the `is_clean` flag. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `git_status` | If there are changes to commit (workflow continues) |
+    | `Exit` | - | If working directory is clean (stops commit workflow; parent continues) |
+    | `Error` | - | If the GitClient is not available or the git command fails. |
+
+
+??? info "`get_current_branch`"
+    Retrieves the current git branch name and saves it to the context.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: get_current_branch
+    ```
+
+    **Available to later steps:** `pr_head_branch`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_head_branch` | str | The name of the current branch, to be used as the head branch for a PR. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `pr_head_branch` | If the current branch was retrieved successfully. |
+    | `Error` | - | If the GitClient is not available or the git command fails. |
+
+
+??? info "`get_base_branch`"
+    Retrieves the configured main/base branch name and saves it to the context.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: get_base_branch
+    ```
+
+    **Available to later steps:** `pr_base_branch`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_base_branch` | str | The name of the base branch, to be used as the base branch for a PR. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `pr_base_branch` | If the base branch was retrieved successfully. |
+    | `Error` | - | If the GitClient is not available or the git command fails. |
+
+
+### Commits
+
+??? info "`create_commit`"
+    Creates a git commit.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: create_commit
+    ```
+
+    **Used by built-in workflows:** `commit-ai`
+
+    **Available to later steps:** `commit_hash`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `git_status` | GitStatus | The git status object, used to check if the working directory is clean. |
+    | `commit_message` | str | The message for the commit. |
+    | `all_files` | bool, optional | Whether to commit all modified and new files. Defaults to True. |
+    | `no_verify` | bool, optional | Skip pre-commit and commit-msg hooks. Defaults to False. |
+    | `commit_hash` | str, optional | If present, indicates a commit was already created. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `commit_hash` | str | The hash of the created commit. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `commit_hash` | If the commit was created successfully. |
+    | `Error` | - | If the GitClient is not available, or the commit operation fails. |
+    | `Skip` | `commit_hash` | If there are no changes to commit or a commit was already created. |
+
+
+??? info "`push`"
+    Pushes changes to a remote repository.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: push
+    ```
+
+    **Used by built-in workflows:** `commit-ai`
+
+    **Available to later steps:** `pr_head_branch`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_head_branch` | str | The name of the branch that was pushed. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `pr_head_branch` | If the push was successful. |
+    | `Error` | - | If the push operation fails. |
+
+
+??? info "`ai_generate_commit_message`"
+    Generate a commit message using AI based on the current changes.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: ai_generate_commit_message
+    ```
+
+    **Used by built-in workflows:** `commit-ai`
+
+    **Available to later steps:** `commit_message`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+    | `ctx.ai` | - | An initialized AIClient. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `git_status` | - | Current git status with changes. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `commit_message` | str | AI-generated commit message. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `commit_message` | If the commit message was generated successfully. |
+    | `Error` | - | If the operation fails. |
+    | `Skip` | `commit_message` | If no changes, AI not configured, or user declined. |
+
+
+### Branching
+
+??? info "`save_current_branch`"
+    Save current branch and stash uncommitted changes.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: save_current_branch
+    ```
+
+    **Available to later steps:** `original_branch`, `has_stashed_changes`
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `original_branch` | str | Name of the branch the user was on |
+    | `has_stashed_changes` | bool | Whether changes were stashed |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `original_branch`, `has_stashed_changes` | Branch saved and changes stashed if needed |
+    | `Error` | - | Git operation failed |
+
+
+??? info "`restore_original_branch`"
+    Restore original branch and pop stashed changes.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: restore_original_branch
+    ```
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `original_branch` | str | Name of the branch to restore |
+    | `has_stashed_changes` | bool | Whether to pop stashed changes |
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | Branch restored and changes popped if needed |
+    | `Error` | - | Git operation failed |
+
+
+??? info "`checkout`"
+    Checkout a Git branch.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: checkout
+    ```
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `branch` | str | Branch name to checkout |
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | Branch checked out successfully |
+    | `Error` | - | Git operation failed |
+
+
+??? info "`pull`"
+    Pull from Git remote.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: pull
+    ```
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `remote` | str, optional | Remote name (defaults to "origin") |
+    | `branch` | str, optional | Branch name (defaults to current branch) |
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | Pull completed successfully |
+    | `Error` | - | Git operation failed |
+
+
+??? info "`create_branch`"
+    Create a new Git branch.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: create_branch
+    ```
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `new_branch` | str | Name of the branch to create |
+    | `start_point` | str, optional | Starting point for the branch (defaults to HEAD) |
+    | `delete_if_exists` | bool, optional | Delete the branch if it already exists (default: False) |
+    | `checkout` | bool, optional | Checkout the new branch after creation (default: True) |
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | Branch created successfully |
+    | `Error` | - | Git operation failed |
+
+
+### Diff Summaries
+
+??? info "`show_uncommitted_diff_summary`"
+    Show uncommitted changes and let the user select which files to include
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: show_uncommitted_diff_summary
+    ```
+
+    **Used by built-in workflows:** `commit-ai`
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | Files selected and saved to context |
+    | `Exit` | - | No files selected by the user |
+    | `Skip` | - | Could not retrieve diff stat |
+
+
+??? info "`show_branch_diff_summary`"
+    Show summary of branch changes (git diff base...head --stat).
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: show_branch_diff_summary
+    ```
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_head_branch` | str | Head branch name |
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | Always (even if no changes, for workflow continuity) |
+
+
+### Worktrees
+
+??? info "`create_worktree`"
+    Create a temporary git worktree in detached HEAD mode from remote main branch.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: create_worktree
+    ```
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | If the worktree is created successfully. |
+    | `Error` | - | If the Git client is unavailable or worktree creation fails. |
+
+
+??? info "`remove_worktree`"
+    Remove a git worktree.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: remove_worktree
+    ```
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | If the worktree is removed successfully or is already gone. |
+    | `Error` | - | If cleanup fails. |
+
+
+??? info "`worktree_commit`"
+    Create a commit in a worktree.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: worktree_commit
+    ```
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | If the commit is created in the worktree. |
+    | `Error` | - | If required context is missing or the git command fails. |
+
+
+??? info "`worktree_push`"
+    Push from a worktree.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: worktree_push
+    ```
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    None documented.
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | - | If the branch is pushed from the worktree. |
+    | `Error` | - | If required context is missing or the git command fails. |
+<!-- END GENERATED STEP CONTRACTS -->
 
 ## Docstring-based reference
 

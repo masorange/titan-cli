@@ -4,6 +4,8 @@
 
 Use it when you want your custom step to look and behave like the rest of Titan: consistent headings, status output, prompts, markdown, tables, and loading indicators.
 
+Read this page after [Workflows](workflows.md) and [Workflow Steps](workflow-steps.md) if you want your own Python steps to use Titan's built-in TUI patterns instead of printing plain text or building ad-hoc prompts.
+
 ![Example of a successful step rendered with Titan's Textual UI](../assets/textual/step-success.png)
 
 ## When to use `ctx.textual`

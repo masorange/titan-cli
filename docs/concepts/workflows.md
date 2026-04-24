@@ -166,6 +166,8 @@ Calls a built-in Titan step.
 
 Use this when Titan already provides the generic behavior directly.
 
+For the public built-in core step reference, see [Workflow Steps](workflow-steps.md#built-in-core-steps).
+
 ### Command step
 
 Runs a shell command.
@@ -199,7 +201,7 @@ Use this when you want to compose workflows instead of repeating steps.
 | Run a straightforward command | Command step |
 | Compose existing flows | Nested workflow |
 
-For a full guide to writing Python steps, see [Workflow Steps](workflow-steps.md).
+For a full guide to writing Python steps and built-in core steps, see [Workflow Steps](workflow-steps.md).
 
 ## Parameters and variable substitution
 
