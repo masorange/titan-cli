@@ -1,6 +1,8 @@
 """Auto-update utility for Titan CLI."""
 
 import os
+import re
+import shutil
 import sys
 import subprocess
 from typing import Dict, Optional
@@ -101,7 +103,7 @@ def check_for_updates() -> Dict[str, any]:
     return result
 
 
-def update_core() -> Dict[str, any]:
+def update_core(target_version: Optional[str] = None) -> Dict[str, any]:
     """
     Upgrade the titan-cli core package.
 
@@ -118,6 +120,13 @@ def update_core() -> Dict[str, any]:
     if mock_version:
         if os.environ.get("TITAN_MOCK_CORE_FAIL"):
             return {"success": False, "method": None, "installed_version": None, "error": "Mock core failure"}
+        if target_version and not _meets_target_version(mock_version, target_version):
+            return {
+                "success": False,
+                "method": None,
+                "installed_version": mock_version,
+                "error": _target_version_error(mock_version, target_version),
+            }
         return {"success": True, "method": "pipx", "installed_version": mock_version, "error": None}
 
     result = {
@@ -138,15 +147,14 @@ def update_core() -> Dict[str, any]:
         )
 
         if proc.returncode == 0:
-            installed_version = _get_installed_version_runtime() or _get_installed_version_pipx()
-            if installed_version and _is_newer_installed_version(installed_version):
+            installed_version = get_installed_version()
+            if installed_version and _is_expected_installed_version(installed_version, target_version):
                 result["success"] = True
                 result["method"] = "pipx"
                 result["installed_version"] = installed_version
             elif installed_version:
-                result["error"] = (
-                    f"Installed version remains at {installed_version}; update did not apply"
-                )
+                result["installed_version"] = installed_version
+                result["error"] = _target_version_error(installed_version, target_version)
             else:
                 result["error"] = "Could not verify installed version"
             return result
@@ -167,15 +175,14 @@ def update_core() -> Dict[str, any]:
         )
 
         if proc.returncode == 0:
-            installed_version = _get_installed_version_runtime() or _get_installed_version_pip()
-            if installed_version and _is_newer_installed_version(installed_version):
+            installed_version = get_installed_version()
+            if installed_version and _is_expected_installed_version(installed_version, target_version):
                 result["success"] = True
                 result["method"] = "pip"
                 result["installed_version"] = installed_version
             elif installed_version:
-                result["error"] = (
-                    f"Installed version remains at {installed_version}; update did not apply"
-                )
+                result["installed_version"] = installed_version
+                result["error"] = _target_version_error(installed_version, target_version)
             else:
                 result["error"] = "Could not verify installed version"
         else:
@@ -185,6 +192,40 @@ def update_core() -> Dict[str, any]:
     except subprocess.TimeoutExpired:
         result["error"] = "Update timed out"
         return result
+
+
+def get_installed_version() -> Optional[str]:
+    """Get the Titan version that is visible to the user after installation."""
+    return (
+        _get_active_titan_version()
+        or _get_installed_version_pipx()
+        or _get_installed_version_pip()
+        or _get_installed_version_runtime()
+    )
+
+
+def _get_active_titan_version() -> Optional[str]:
+    """Get the version reported by the `titan` command currently on PATH."""
+    titan_command = shutil.which("titan")
+    if not titan_command:
+        return None
+
+    try:
+        proc = subprocess.run(
+            [titan_command, "version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            return None
+
+        match = re.search(r"v?(\d+(?:\.\d+)+(?:[-+\.a-zA-Z0-9]*)?)", proc.stdout.strip())
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None
 
 
 def update_plugins() -> Dict[str, any]:
@@ -303,6 +344,41 @@ def _is_newer_installed_version(installed_version: str) -> bool:
         return version.parse(installed_version) > version.parse(__version__)
     except Exception:
         return installed_version != __version__
+
+
+def _is_expected_installed_version(
+    installed_version: str,
+    target_version: Optional[str] = None,
+) -> bool:
+    """Return True when installed version satisfies the expected post-update state."""
+    if target_version:
+        return _meets_target_version(installed_version, target_version)
+    return _is_newer_installed_version(installed_version)
+
+
+def _meets_target_version(installed_version: str, target_version: str) -> bool:
+    """Return True when installed version is at least the requested target."""
+    try:
+        return version.parse(installed_version) >= version.parse(target_version)
+    except Exception:
+        return installed_version == target_version
+
+
+def meets_target_version(installed_version: str, target_version: str) -> bool:
+    """Return True when installed version is at least the requested target."""
+    return _meets_target_version(installed_version, target_version)
+
+
+def _target_version_error(
+    installed_version: str,
+    target_version: Optional[str] = None,
+) -> str:
+    """Build a precise error for a failed post-update version check."""
+    if target_version:
+        return (
+            f"Installed version is {installed_version}; expected at least {target_version}"
+        )
+    return f"Installed version remains at {installed_version}; update did not apply"
 
 
 def get_update_message(update_info: Dict[str, any]) -> Optional[str]:
