@@ -1810,6 +1810,7 @@
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">search_saved_query</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>analyze-jira-issues</code></p>
+<p><strong>Available to later steps:</strong> <code>jira_issues</code>, <code>jira_issue_count</code>, <code>used_query_name</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <table>
 <thead>
@@ -1869,36 +1870,44 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>jira_issues</code>, <code>jira_issue_count</code>, <code>used_query_name</code></td>
 <td>Issues found</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Query not found or search failed</td>
 </tr>
 <tr>
 <td><code>Personal</code></td>
+<td>-</td>
 <td>my_open_issues, my_bugs, my_in_review, my_in_progress</td>
 </tr>
 <tr>
 <td><code>Team</code></td>
+<td>-</td>
 <td>current_sprint, team_open, team_bugs, team_in_review</td>
 </tr>
 <tr>
 <td><code>Priority</code></td>
+<td>-</td>
 <td>critical_issues, high_priority, blocked_issues</td>
 </tr>
 <tr>
 <td><code>Time</code></td>
+<td>-</td>
 <td>updated_today, created_this_week, recent_bugs</td>
 </tr>
 <tr>
 <td><code>Status</code></td>
+<td>-</td>
 <td>todo_issues, in_progress_all, done_recently</td>
 </tr>
 </tbody>
@@ -1915,6 +1924,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jira</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">search_jql</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>jira_issues</code>, <code>jira_issue_count</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <table>
 <thead>
@@ -1964,24 +1974,29 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>jira_issues</code>, <code>jira_issue_count</code></td>
 <td>Issues found</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Search failed or JQL not provided</td>
 </tr>
 <tr>
 <td><code>You can use ${variable_name} in the JQL and it will be replaced with values from ctx.data.</code></td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td><code>Example</code></td>
+<td>-</td>
 <td>"project = ${project_key} AND fixVersion = ${fix_version}"</td>
 </tr>
 </tbody>
@@ -1999,6 +2014,7 @@
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompt_select_issue</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>analyze-jira-issues</code></p>
+<p><strong>Available to later steps:</strong> <code>jira_issue_key</code>, <code>selected_issue</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <table>
 <thead>
@@ -2043,16 +2059,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>jira_issue_key</code>, <code>selected_issue</code></td>
 <td>If the user selects a valid issue.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If there are no issues, the selection is invalid, or the prompt is cancelled.</td>
 </tr>
 </tbody>
@@ -2070,6 +2089,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jira</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_issue</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>jira_issue</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <table>
 <thead>
@@ -2114,16 +2134,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>jira_issue</code></td>
 <td>Issue retrieved</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to get issue</td>
 </tr>
 </tbody>
@@ -2141,6 +2164,7 @@
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_analyze_issue_requirements</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>analyze-jira-issues</code></p>
+<p><strong>Available to later steps:</strong> <code>ai_analysis</code>, <code>analysis_sections</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <table>
 <thead>
@@ -2190,20 +2214,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>ai_analysis</code>, <code>analysis_sections</code></td>
 <td>If the issue analysis completes successfully.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>ai_analysis</code>, <code>analysis_sections</code></td>
 <td>If AI is not configured or not available.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If no issue is available to analyze.</td>
 </tr>
 </tbody>
@@ -2226,16 +2254,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If transitions are fetched successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the Jira call fails.</td>
 </tr>
 </tbody>
@@ -2257,16 +2288,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the issue transitions successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the Jira call fails.</td>
 </tr>
 </tbody>
@@ -2288,16 +2322,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the issue is in the expected status.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing, verification fails, or the Jira call fails.</td>
 </tr>
 </tbody>
@@ -2314,6 +2351,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jira</span>
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">list_versions</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>versions</code>, <code>versions_full</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <table>
 <thead>
@@ -2358,16 +2396,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>versions</code>, <code>versions_full</code></td>
 <td>Unreleased versions listed</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to fetch versions or project_key not configured</td>
 </tr>
 </tbody>
@@ -2389,16 +2430,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the version is created successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the Jira call fails.</td>
 </tr>
 </tbody>
@@ -2420,16 +2464,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the version already exists or is created successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the Jira call fails.</td>
 </tr>
 </tbody>
@@ -2451,16 +2498,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the fix version is assigned successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the Jira call fails.</td>
 </tr>
 </tbody>
@@ -2482,16 +2532,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the issue has the expected fix version.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing, verification fails, or the Jira call fails.</td>
 </tr>
 </tbody>
@@ -2515,12 +2568,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>WorkflowResult</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -2570,12 +2625,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>WorkflowResult</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -2598,12 +2655,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>WorkflowResult</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -2658,12 +2717,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>WorkflowResult</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -2708,12 +2769,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>WorkflowResult</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -2736,12 +2799,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>WorkflowResult</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -2811,12 +2876,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>WorkflowResult</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>

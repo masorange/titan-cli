@@ -2167,11 +2167,14 @@
 <li>metadata returned by earlier steps</li>
 </ul>
 <h2 id="returning-data-to-later-steps">Returning data to later steps<a class="headerlink" href="#returning-data-to-later-steps" title="Permanent link">&para;</a></h2>
-<p>Use the <code>metadata</code> argument on <code>Success</code> or <code>Skip</code> to save values back into the workflow context.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">return</span> <span class="n">Success</span><span class="p">(</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="s2">&quot;Branch created&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;branch_name&quot;</span><span class="p">:</span> <span class="s2">&quot;feat/search&quot;</span><span class="p">},</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="p">)</span>
+<p>There are two ways to make values available to later steps:</p>
+<ul>
+<li><code>ctx.set("key", value)</code> while the step is running</li>
+<li><code>metadata={...}</code> on <code>Success(...)</code> or <code>Skip(...)</code></li>
+</ul>
+<p>Both end up in the workflow context. In practice, project and plugin steps often use <code>ctx.set(...)</code> while building up values during the step, then return a plain <code>Success(...)</code> at the end.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">ctx</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;branch_name&quot;</span><span class="p">,</span> <span class="s2">&quot;feat/search&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Branch created&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Later steps can then read that value with <code>ctx.get("branch_name")</code>.</p>
 <h2 id="result-types">Result types<a class="headerlink" href="#result-types" title="Permanent link">&para;</a></h2>
@@ -2210,10 +2213,8 @@
 <a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">branch_name</span><span class="p">:</span>
 <a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>        <span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="s2">&quot;Missing branch_name&quot;</span><span class="p">)</span>
 <a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="k">return</span> <span class="n">Success</span><span class="p">(</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>        <span class="s2">&quot;Branch selected&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;selected_branch&quot;</span><span class="p">:</span> <span class="n">branch_name</span><span class="p">},</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    <span class="p">)</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">ctx</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;selected_branch&quot;</span><span class="p">,</span> <span class="n">branch_name</span><span class="p">)</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Branch selected&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="when-to-use-a-command-step-instead">When to use a command step instead<a class="headerlink" href="#when-to-use-a-command-step-instead" title="Permanent link">&para;</a></h2>
 <p>Use a command step when:</p>
@@ -2263,12 +2264,10 @@
 <a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>
 <a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>    <span class="k">match</span> <span class="n">result</span><span class="p">:</span>
 <a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>        <span class="k">case</span> <span class="n">ClientSuccess</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">status</span><span class="p">):</span>
-<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>            <span class="k">return</span> <span class="n">Success</span><span class="p">(</span>
-<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>                <span class="s2">&quot;Git status loaded&quot;</span><span class="p">,</span>
-<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;git_status&quot;</span><span class="p">:</span> <span class="n">status</span><span class="p">},</span>
-<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>            <span class="p">)</span>
-<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>        <span class="k">case</span> <span class="n">ClientError</span><span class="p">(</span><span class="n">error_message</span><span class="o">=</span><span class="n">err</span><span class="p">):</span>
-<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>            <span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to get git status: </span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;git_status&quot;</span><span class="p">,</span> <span class="n">status</span><span class="p">)</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>            <span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Git status loaded&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>        <span class="k">case</span> <span class="n">ClientError</span><span class="p">(</span><span class="n">error_message</span><span class="o">=</span><span class="n">err</span><span class="p">):</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>            <span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to get git status: </span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Typical use cases:</p>
 <ul>
@@ -2293,12 +2292,10 @@
 <a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>
 <a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>    <span class="k">match</span> <span class="n">result</span><span class="p">:</span>
 <a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>        <span class="k">case</span> <span class="n">ClientSuccess</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">pr</span><span class="p">):</span>
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>            <span class="k">return</span> <span class="n">Success</span><span class="p">(</span>
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>                <span class="s2">&quot;Pull request loaded&quot;</span><span class="p">,</span>
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;pr_info&quot;</span><span class="p">:</span> <span class="n">pr</span><span class="p">},</span>
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>            <span class="p">)</span>
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>        <span class="k">case</span> <span class="n">ClientError</span><span class="p">(</span><span class="n">error_message</span><span class="o">=</span><span class="n">err</span><span class="p">):</span>
-<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>            <span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to fetch PR: </span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;pr_info&quot;</span><span class="p">,</span> <span class="n">pr</span><span class="p">)</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>            <span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Pull request loaded&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>        <span class="k">case</span> <span class="n">ClientError</span><span class="p">(</span><span class="n">error_message</span><span class="o">=</span><span class="n">err</span><span class="p">):</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>            <span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to fetch PR: </span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Typical use cases:</p>
 <ul>
@@ -2323,12 +2320,10 @@
 <a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>
 <a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>    <span class="k">match</span> <span class="n">result</span><span class="p">:</span>
 <a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>        <span class="k">case</span> <span class="n">ClientSuccess</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">issue</span><span class="p">):</span>
-<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>            <span class="k">return</span> <span class="n">Success</span><span class="p">(</span>
-<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>                <span class="s2">&quot;Jira issue loaded&quot;</span><span class="p">,</span>
-<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;jira_issue&quot;</span><span class="p">:</span> <span class="n">issue</span><span class="p">},</span>
-<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>            <span class="p">)</span>
-<a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>        <span class="k">case</span> <span class="n">ClientError</span><span class="p">(</span><span class="n">error_message</span><span class="o">=</span><span class="n">err</span><span class="p">):</span>
-<a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a>            <span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to fetch Jira issue: </span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;jira_issue&quot;</span><span class="p">,</span> <span class="n">issue</span><span class="p">)</span>
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>            <span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Jira issue loaded&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>        <span class="k">case</span> <span class="n">ClientError</span><span class="p">(</span><span class="n">error_message</span><span class="o">=</span><span class="n">err</span><span class="p">):</span>
+<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>            <span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to fetch Jira issue: </span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Typical use cases:</p>
 <ul>

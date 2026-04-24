@@ -2108,6 +2108,7 @@
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_pr</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>create-pr-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>pr_number</code>, <code>pr_url</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2209,16 +2210,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_number</code>, <code>pr_url</code></td>
 <td>If the PR is created successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If any required context arguments are missing or if the API call fails.</td>
 </tr>
 </tbody>
@@ -2235,6 +2239,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_pull_request</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>pr_info</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2291,16 +2296,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_info</code></td>
 <td>If the pull request is fetched successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the GitHub call fails.</td>
 </tr>
 </tbody>
@@ -2317,6 +2325,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">merge_pull_request</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>merge_result</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2388,16 +2397,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>merge_result</code></td>
 <td>If the pull request is merged successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the GitHub call fails.</td>
 </tr>
 </tbody>
@@ -2414,6 +2426,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verify_pull_request_state</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>verified_pr_info</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2475,16 +2488,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>verified_pr_info</code></td>
 <td>If the pull request is in the expected state.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing, verification fails, or the GitHub call fails.</td>
 </tr>
 </tbody>
@@ -2502,6 +2518,7 @@
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_suggest_pr_description</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>create-pr-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>pr_title</code>, <code>pr_body</code>, <code>pr_size</code>, <code>ai_generated</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2583,20 +2600,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_title</code>, <code>pr_body</code>, <code>pr_size</code>, <code>ai_generated</code></td>
 <td>PR description generated</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>pr_title</code>, <code>pr_body</code>, <code>pr_size</code>, <code>ai_generated</code></td>
 <td>AI not configured or user declined</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to generate PR description</td>
 </tr>
 </tbody>
@@ -2614,6 +2635,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompt_for_pr_title</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>pr_title</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2653,20 +2675,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_title</code></td>
 <td>If the title was captured successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the user cancels or the title is empty.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>pr_title</code></td>
 <td>If pr_title already exists.</td>
 </tr>
 </tbody>
@@ -2683,6 +2709,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompt_for_pr_body</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>pr_body</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2722,20 +2749,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_body</code></td>
 <td>If the body was captured successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the user cancels.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>pr_body</code></td>
 <td>If pr_body already exists.</td>
 </tr>
 </tbody>
@@ -2753,6 +2784,7 @@
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompt_for_issue_body_step</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>create-issue-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>issue_body</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2792,20 +2824,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>issue_body</code></td>
 <td>If the body was captured successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the user cancels.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>issue_body</code></td>
 <td>If issue_body already exists.</td>
 </tr>
 </tbody>
@@ -2823,6 +2859,7 @@
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompt_for_self_assign</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>create-issue-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>assignees</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2862,16 +2899,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>assignees</code></td>
 <td>If the assignment preference is captured successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the GitHub client is unavailable or the prompt fails.</td>
 </tr>
 </tbody>
@@ -2888,6 +2928,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prompt_for_labels</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>labels</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2927,20 +2968,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>labels</code></td>
 <td>If label selection completes successfully.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>labels</code></td>
 <td>If the repository has no labels.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the GitHub client is unavailable or the prompt fails.</td>
 </tr>
 </tbody>
@@ -2962,12 +3007,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success with the chosen CLI name stored in ctx.data</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -2986,6 +3033,7 @@
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_suggest_issue_title_and_body</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>create-issue-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>issue_title</code>, <code>issue_body</code>, <code>issue_category</code>, <code>labels</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <table>
 <thead>
@@ -3040,20 +3088,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>issue_title</code>, <code>issue_body</code>, <code>issue_category</code>, <code>labels</code></td>
 <td>If issue content is generated and accepted.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>issue_title</code>, <code>issue_body</code>, <code>issue_category</code>, <code>labels</code></td>
 <td>If AI is unavailable or the user rejects the generated issue.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or generation fails.</td>
 </tr>
 </tbody>
@@ -3097,16 +3149,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the user confirms the issue preview.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing, the user rejects, or the prompt is cancelled.</td>
 </tr>
 </tbody>
@@ -3124,6 +3179,7 @@
 <a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_issue</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>create-issue-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>issue</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -3195,16 +3251,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>issue</code></td>
 <td>If the issue is created successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the GitHub call fails.</td>
 </tr>
 </tbody>
@@ -3223,6 +3282,7 @@
 <a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">select_pr_for_review</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>respond-pr-comments</code></p>
+<p><strong>Available to later steps:</strong> <code>selected_pr_number</code>, <code>selected_pr_title</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3250,20 +3310,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>selected_pr_number</code>, <code>selected_pr_title</code></td>
 <td>PR selected successfully</td>
 </tr>
 <tr>
 <td><code>Exit</code></td>
+<td>-</td>
 <td>No PRs available or user cancelled</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to fetch PRs</td>
 </tr>
 </tbody>
@@ -3281,6 +3345,7 @@
 <a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fetch_pending_comments</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>respond-pr-comments</code></p>
+<p><strong>Available to later steps:</strong> <code>review_threads</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3303,20 +3368,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>review_threads</code></td>
 <td>Threads fetched</td>
 </tr>
 <tr>
 <td><code>Exit</code></td>
+<td>-</td>
 <td>No unresolved threads</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to fetch threads</td>
 </tr>
 </tbody>
@@ -3339,20 +3408,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Working tree is clean</td>
 </tr>
 <tr>
 <td><code>Exit</code></td>
+<td>-</td>
 <td>Uncommitted changes detected — user must stash manually</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to check status</td>
 </tr>
 </tbody>
@@ -3370,6 +3443,7 @@
 <a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkout_pr_branch</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>respond-pr-comments</code></p>
+<p><strong>Available to later steps:</strong> <code>original_branch</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3392,16 +3466,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>original_branch</code></td>
 <td>PR branch checked out</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to fetch or checkout</td>
 </tr>
 </tbody>
@@ -3424,16 +3501,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>All threads processed</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to process threads</td>
 </tr>
 </tbody>
@@ -3451,6 +3531,7 @@
 <a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push_commits</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>respond-pr-comments</code></p>
+<p><strong>Available to later steps:</strong> <code>push_successful</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3473,20 +3554,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>push_successful</code></td>
 <td>Commits pushed</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>push_successful</code></td>
 <td>No commits to push or user cancelled</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to push</td>
 </tr>
 </tbody>
@@ -3509,20 +3594,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Replies sent</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td>-</td>
 <td>No replies to send or user cancelled</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to send replies</td>
 </tr>
 </tbody>
@@ -3545,20 +3634,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Review re-requested</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td>-</td>
 <td>Push didn't succeed or user cancelled</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to request review</td>
 </tr>
 </tbody>
@@ -3581,16 +3674,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Restored to original branch</td>
 </tr>
 <tr>
 <td><code>Exit</code></td>
+<td>-</td>
 <td>No original branch saved or checkout failed</td>
 </tr>
 </tbody>
@@ -3608,6 +3704,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">select_pr_for_code_review</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>review_pr_number</code>, <code>review_pr_title</code>, <code>review_pr_head</code>, <code>review_pr_base</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3645,12 +3742,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success, Exit (no PRs or cancelled), or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -3667,6 +3766,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fetch_pr_review_bundle</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>review_pr</code>, <code>review_diff</code>, <code>review_changed_files</code>, <code>review_changed_files_with_stats</code>, <code>review_commit_sha</code>, <code>review_threads</code>, <code>review_general_comments</code>, <code>pr_template</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3724,12 +3824,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success, Skip (empty diff), or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -3746,6 +3848,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build_change_manifest</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>change_manifest</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3768,12 +3871,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -3790,6 +3895,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build_existing_comments_index</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>existing_comments_index (List[ExistingCommentIndexEntry])</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3812,12 +3918,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>existing_comments_index (List[ExistingCommentIndexEntry])</code></td>
 <td>-</td>
 </tr>
 </tbody>
@@ -3834,6 +3942,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build_review_checklist</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>review_checklist (List[ReviewChecklistItem])</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3856,12 +3965,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>review_checklist (List[ReviewChecklistItem])</code></td>
 <td>-</td>
 </tr>
 </tbody>
@@ -3878,6 +3989,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_review_plan</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>review_plan (ReviewPlan)</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3900,12 +4012,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -3922,6 +4036,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">validate_review_plan</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>validated_review_plan</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3944,12 +4059,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error (halts workflow on validation failure)</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -3966,6 +4083,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">resolve_review_context</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>review_context_package (ReviewContextPackage)</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -3988,12 +4106,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4010,6 +4130,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_review_findings</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>raw_findings</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4032,12 +4153,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4054,6 +4177,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">normalize_findings</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>normalized_findings</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4076,12 +4200,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4098,6 +4224,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dedupe_findings</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>deduped_findings</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4120,12 +4247,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4142,6 +4271,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build_new_comment_actions</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>review_action_proposals (List[ReviewActionProposal])</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4164,12 +4294,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Skip (no findings)</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4186,6 +4318,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">validate_review_actions</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>approved_action_proposals (List[ReviewActionProposal])</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4208,12 +4341,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success, Skip (none approved), or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4235,12 +4370,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success, Skip (no approved actions), or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4257,6 +4394,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build_thread_review_candidates</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>thread_review_candidates (List[ThreadReviewCandidate])</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4279,12 +4417,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success, Skip (no candidates), or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4301,6 +4441,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-38-2" name="__codelineno-38-2" href="#__codelineno-38-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build_thread_review_contexts</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>thread_review_contexts (List[ThreadReviewContext])</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4323,12 +4464,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success, Skip (no candidates), or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4345,6 +4488,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_thread_resolution</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>raw_thread_decisions</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4367,12 +4511,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4389,6 +4535,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">normalize_thread_decisions</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>thread_decisions</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4411,12 +4558,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4433,6 +4582,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build_thread_actions</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>review_action_proposals (List[ReviewActionProposal])</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4455,12 +4605,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success, Skip (no actionable decisions), or Error</code></td>
+<td>-</td>
 <td>-</td>
 </tr>
 </tbody>
@@ -4478,6 +4630,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
 <a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_worktree</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>worktree_path</code>, <code>worktree_created</code></p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
 <table>
 <thead>
@@ -4505,16 +4658,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>worktree_path</code>, <code>worktree_created</code></td>
 <td>Worktree created</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Failed to create worktree</td>
 </tr>
 </tbody>
@@ -4536,16 +4692,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Worktree cleaned up</td>
 </tr>
 <tr>
 <td><code>Exit</code></td>
+<td>-</td>
 <td>No worktree to cleanup</td>
 </tr>
 </tbody>

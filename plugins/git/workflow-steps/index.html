@@ -2055,6 +2055,7 @@
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_status</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>commit-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>git_status</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2096,20 +2097,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>git_status</code></td>
 <td>If there are changes to commit (workflow continues)</td>
 </tr>
 <tr>
 <td><code>Exit</code></td>
+<td>-</td>
 <td>If working directory is clean (stops commit workflow; parent continues)</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the GitClient is not available or the git command fails.</td>
 </tr>
 </tbody>
@@ -2122,6 +2127,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_current_branch</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>pr_head_branch</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2163,16 +2169,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_head_branch</code></td>
 <td>If the current branch was retrieved successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the GitClient is not available or the git command fails.</td>
 </tr>
 </tbody>
@@ -2185,6 +2194,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_base_branch</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>pr_base_branch</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2226,16 +2236,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_base_branch</code></td>
 <td>If the base branch was retrieved successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the GitClient is not available or the git command fails.</td>
 </tr>
 </tbody>
@@ -2250,6 +2263,7 @@
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_commit</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>commit-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>commit_hash</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2326,20 +2340,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>commit_hash</code></td>
 <td>If the commit was created successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the GitClient is not available, or the commit operation fails.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>commit_hash</code></td>
 <td>If there are no changes to commit or a commit was already created.</td>
 </tr>
 </tbody>
@@ -2353,6 +2371,7 @@
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>commit-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>pr_head_branch</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2394,16 +2413,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>pr_head_branch</code></td>
 <td>If the push was successful.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the push operation fails.</td>
 </tr>
 </tbody>
@@ -2417,6 +2439,7 @@
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_generate_commit_message</span>
 </code></pre></div>
 <p><strong>Used by built-in workflows:</strong> <code>commit-ai</code></p>
+<p><strong>Available to later steps:</strong> <code>commit_message</code></p>
 <p><strong>Requires</strong></p>
 <table>
 <thead>
@@ -2478,20 +2501,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>commit_message</code></td>
 <td>If the commit message was generated successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the operation fails.</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td><code>commit_message</code></td>
 <td>If no changes, AI not configured, or user declined.</td>
 </tr>
 </tbody>
@@ -2505,6 +2532,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">save_current_branch</span>
 </code></pre></div>
+<p><strong>Available to later steps:</strong> <code>original_branch</code>, <code>has_stashed_changes</code></p>
 <p><strong>Inputs (from ctx.data)</strong></p>
 <p>None documented.</p>
 <p><strong>Outputs (saved to ctx.data)</strong></p>
@@ -2534,16 +2562,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td><code>original_branch</code>, <code>has_stashed_changes</code></td>
 <td>Branch saved and changes stashed if needed</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Git operation failed</td>
 </tr>
 </tbody>
@@ -2585,16 +2616,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Branch restored and changes popped if needed</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Git operation failed</td>
 </tr>
 </tbody>
@@ -2631,16 +2665,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Branch checked out successfully</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Git operation failed</td>
 </tr>
 </tbody>
@@ -2682,16 +2719,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Pull completed successfully</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Git operation failed</td>
 </tr>
 </tbody>
@@ -2743,16 +2783,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Branch created successfully</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>Git operation failed</td>
 </tr>
 </tbody>
@@ -2776,20 +2819,24 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Files selected and saved to context</td>
 </tr>
 <tr>
 <td><code>Exit</code></td>
+<td>-</td>
 <td>No files selected by the user</td>
 </tr>
 <tr>
 <td><code>Skip</code></td>
+<td>-</td>
 <td>Could not retrieve diff stat</td>
 </tr>
 </tbody>
@@ -2826,12 +2873,14 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>Always (even if no changes, for workflow continuity)</td>
 </tr>
 </tbody>
@@ -2854,16 +2903,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the worktree is created successfully.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If the Git client is unavailable or worktree creation fails.</td>
 </tr>
 </tbody>
@@ -2885,16 +2937,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the worktree is removed successfully or is already gone.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If cleanup fails.</td>
 </tr>
 </tbody>
@@ -2916,16 +2971,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the commit is created in the worktree.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the git command fails.</td>
 </tr>
 </tbody>
@@ -2947,16 +3005,19 @@
 <thead>
 <tr>
 <th>Result</th>
+<th>Saved for later steps</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Success</code></td>
+<td>-</td>
 <td>If the branch is pushed from the worktree.</td>
 </tr>
 <tr>
 <td><code>Error</code></td>
+<td>-</td>
 <td>If required context is missing or the git command fails.</td>
 </tr>
 </tbody>
