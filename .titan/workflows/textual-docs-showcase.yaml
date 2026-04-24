@@ -1,0 +1,33 @@
+name: "Textual Docs Showcase"
+description: "Temporary workflow for capturing real TUI screenshots for individual ctx.textual components"
+
+steps:
+  - id: text-methods
+    name: "Text Methods"
+    plugin: project
+    step: textual_text_methods_demo
+
+  - id: loading
+    name: "loading()"
+    plugin: project
+    step: textual_loading_demo
+
+  - id: ask-multiline
+    name: "ask_multiline()"
+    plugin: project
+    step: textual_ask_multiline_demo
+
+  - id: ask-choice
+    name: "ask_choice()"
+    plugin: project
+    step: textual_ask_choice_demo
+
+  - id: ask-multiselect
+    name: "ask_multiselect()"
+    plugin: project
+    step: textual_ask_multiselect_demo
+
+  - id: ask-option
+    name: "ask_option()"
+    plugin: project
+    step: textual_ask_option_demo

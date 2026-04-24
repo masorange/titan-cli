@@ -53,8 +53,11 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quick-start.md
     - Your First Workflow: getting-started/your-first-workflow.md
+    - Your First Textual Step: getting-started/your-first-textual-step.md
   - Concepts:
     - Workflows: concepts/workflows.md
+    - Workflow Steps: concepts/workflow-steps.md
+    - Textual in Steps: concepts/textual-steps.md
     - AI Integration: concepts/ai-integration.md
   - Plugins:
     - Overview: plugins/index.md

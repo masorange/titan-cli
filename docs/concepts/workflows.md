@@ -1,125 +1,213 @@
 # Workflows
 
-A workflow is a sequence of steps that Titan executes in order. You define workflows in YAML files and run them from the Titan TUI or CLI.
+Titan workflows are YAML files that automate a sequence of actions: plugin steps, project steps, shell commands, and even other workflows.
 
-Workflows are the core of Titan. Everything you do — committing, opening a PR, analyzing a Jira ticket — is a workflow.
+This page explains the workflow model from a user point of view: what kinds of workflows you can create, what kinds of steps they can contain, and how they fit together.
 
----
+## What a workflow is
 
-## A minimal example
+A workflow is a sequence of steps executed in order.
+
+Typical examples:
+
+- run checks, then create a commit
+- gather input, generate content with AI, then create a GitHub issue
+- create a worktree, do review work, then clean it up
+
+A minimal workflow looks like this:
 
 ```yaml
 name: "Run tests and commit"
-description: "Runs the test suite, then commits if tests pass"
+description: "Run tests, then create a commit"
 
 steps:
   - id: run-tests
     name: "Run Tests"
     command: "pytest"
 
-  - id: commit
-    name: "Commit"
+  - id: create-commit
+    name: "Create Commit"
     plugin: git
     step: create_commit
 ```
 
-This workflow runs `pytest` as a shell command, then calls the `create_commit` step from the `git` plugin.
+## Workflow types
 
----
+There are several ways to use workflows in Titan.
 
-## YAML structure
+### 1. New workflow from scratch
+
+Create a brand new YAML file and define the full sequence yourself.
+
+Use this when you want a custom automation that does not naturally extend an existing workflow.
+
+### 2. Extended workflow
+
+Extend another workflow and inject your own steps into its hooks.
+
+Use this when Titan or a plugin already gives you most of what you need.
 
 ```yaml
-name: "My Workflow"           # Required. Shown in the menu.
-description: "What it does"  # Optional. Shown below the name.
+name: "Commit with AI + Linter"
+extends: "plugin:git/commit-ai"
 
-params:                       # Optional. Default values accessible in all steps.
+hooks:
+  before_commit:
+    - id: run-lint
+      name: "Run Linter"
+      plugin: project
+      step: run_linter
+```
+
+### 3. Nested workflow
+
+Call another workflow as a step.
+
+Use this when you want to compose larger flows from smaller reusable ones.
+
+```yaml
+steps:
+  - id: commit-first
+    workflow: "commit-ai"
+```
+
+## Where workflows live
+
+Titan discovers workflows from four sources.
+
+| Priority | Source | Location | Typical use |
+|----------|--------|----------|-------------|
+| 1 | Project | `.titan/workflows/*.yaml` | Project-specific automation shared with the repo |
+| 2 | User | `~/.titan/workflows/*.yaml` | Personal reusable workflows across projects |
+| 3 | System | Bundled with Titan CLI | Built-in core workflows |
+| 4 | Plugin | Bundled with each plugin | Workflows shipped by plugins |
+
+Higher priority wins when two workflows have the same name.
+
+That means a project workflow can override a plugin workflow simply by using the same filename and workflow name.
+
+## Workflow structure
+
+```yaml
+name: "My Workflow"
+description: "What it does"
+
+params:
   draft: false
   assignees: []
 
-hooks:                        # Optional. Named injection points for extending this workflow.
+hooks:
   - before_commit
   - after_push
 
 steps:
-  - id: my_step              # Optional. Auto-generated if omitted.
-    name: "My Step"          # Optional. Shown in the TUI while running.
-    plugin: github           # Which plugin provides this step.
-    step: create_pr          # The step function name inside that plugin.
-    on_error: continue       # Optional. "fail" (default) or "continue".
-    params:                  # Optional. Extra values passed to this step.
+  - id: my_step
+    name: "My Step"
+    plugin: github
+    step: create_pr
+    on_error: continue
+    params:
       draft: "${draft}"
 ```
 
----
+Main fields:
+
+- `name`: human-friendly label shown in Titan
+- `description`: optional explanation
+- `params`: default values available through `ctx.get(...)`
+- `hooks`: named extension points other workflows can fill
+- `steps`: the ordered actions to run
 
 ## Step types
 
-Every step must define exactly one action.
+Every workflow step must define exactly one action type.
 
 ### Plugin step
 
-Calls a registered step function from a plugin.
+Calls a public step exposed by a plugin.
 
 ```yaml
 - plugin: github
   step: create_pr
 ```
 
-**Special plugin values:**
+Use this when the capability already exists in a plugin and you want to reuse it.
 
-| Value | Meaning |
-|-------|---------|
-| `plugin: git` | Built-in Git plugin |
-| `plugin: github` | Built-in GitHub plugin |
-| `plugin: jira` | Built-in Jira plugin |
-| `plugin: project` | A step in `.titan/steps/` of the current project |
-| `plugin: user` | A step in `~/.titan/steps/` (personal steps) |
-| `plugin: core` | A built-in Titan step (e.g. `ai_code_assistant`) |
+### Project step
 
-### Shell command
+Calls a Python step from `.titan/steps/`.
 
-Runs a shell command directly.
+```yaml
+- plugin: project
+  step: run_linter
+```
+
+Use this when the logic is specific to this repository.
+
+### User step
+
+Calls a Python step from `~/.titan/steps/`.
+
+```yaml
+- plugin: user
+  step: my_global_helper
+```
+
+Use this for personal reusable automations across many projects.
+
+### Core step
+
+Calls a built-in Titan step.
+
+```yaml
+- plugin: core
+  step: ai_code_assistant
+```
+
+Use this when Titan already provides the generic behavior directly.
+
+### Command step
+
+Runs a shell command.
 
 ```yaml
 - id: lint
   name: "Run Linter"
   command: "ruff check ."
-  on_error: continue    # keep going even if lint fails
 ```
 
-Add `use_shell: true` if your command needs pipes or redirects (`cmd1 | cmd2`).
+Use this when the action is simple and you do not need custom Python logic or UI behavior.
 
-### Nested workflow
+### Nested workflow step
 
-Calls another workflow as a step.
-
-```yaml
-- id: commit-first
-  workflow: "commit-ai"
-```
-
-**Resolution modes:**
+Runs another workflow.
 
 ```yaml
-# Resolved by precedence (project overrides win):
 - workflow: "commit-ai"
-
-# Always the base workflow from the git plugin, ignoring any project override:
-- workflow: "plugin:git/commit-ai"
 ```
 
-Use the `plugin:` prefix when you explicitly need the base workflow, not a project's customized version.
+Use this when you want to compose workflows instead of repeating steps.
 
----
+## Choosing the right step type
 
-## Parameters
+| Use case | Best fit |
+|----------|----------|
+| Reuse a built-in plugin capability | Plugin step |
+| Add project-specific Python logic | Project step |
+| Reuse a personal helper across projects | User step |
+| Use a Titan-provided generic helper | Core step |
+| Run a straightforward command | Command step |
+| Compose existing flows | Nested workflow |
 
-Workflow-level `params` define defaults accessible in all steps via `ctx.get("key")`.
+For a full guide to writing Python steps, see [Workflow Steps](workflow-steps.md).
+
+## Parameters and variable substitution
+
+Workflow-level `params` define defaults that all steps can read with `ctx.get(...)`.
 
 Step-level `params` are merged into the context before that step runs.
 
-Use `${key}` to interpolate values from the context at runtime:
+Use `${key}` to interpolate values from the current context:
 
 ```yaml
 params:
@@ -129,46 +217,26 @@ steps:
   - plugin: github
     step: create_issue
     params:
-      assignees: "${assignees}"   # resolved from ctx.data at runtime
+      assignees: "${assignees}"
       labels: "${labels}"
 ```
 
----
+## Extending workflows with hooks
 
-## Where workflows live
+Hooks let you customize an existing workflow without copying the whole thing.
 
-Titan discovers workflows from four sources. When the same workflow name exists in multiple sources, **higher priority wins**:
-
-| Priority | Source | Location |
-|----------|--------|----------|
-| 1 (highest) | Project | `.titan/workflows/*.yaml` |
-| 2 | User | `~/.titan/workflows/*.yaml` |
-| 3 | System | Bundled with Titan CLI |
-| 4 (lowest) | Plugin | Bundled with each plugin |
-
-This means you can override any built-in workflow by creating a file with the same name in `.titan/workflows/`.
-
----
-
-## Extending workflows
-
-Instead of replacing a workflow entirely, you can **extend** it — injecting extra steps at named hook points.
-
-### How it works
-
-A base workflow declares hooks (named injection points):
+Base workflow:
 
 ```yaml
-# Built into the git plugin
 name: "Commit with AI"
 hooks:
-  - before_commit      # ← injection point
+  - before_commit
 
 steps:
   - plugin: git
     step: get_status
 
-  - hook: before_commit  # ← your steps get injected here
+  - hook: before_commit
 
   - plugin: git
     step: ai_generate_commit_message
@@ -177,171 +245,138 @@ steps:
     step: create_commit
 ```
 
-Your project extends it by filling those hooks:
+Project extension:
 
 ```yaml
-# .titan/workflows/commit-ai.yaml
-name: "Commit with AI + Linter"
+name: "Commit with AI + Checks"
 extends: "plugin:git/commit-ai"
 
 hooks:
   before_commit:
     - id: run-lint
       name: "Run Linter"
-      command: "ruff check ."
-      on_error: continue
+      plugin: project
+      step: run_linter
+
+    - id: run-tests
+      name: "Run Tests"
+      command: "pytest"
 ```
 
-Now when you run `commit-ai`, Titan runs the base workflow with your lint step injected before the commit.
-
-**Notes:**
+Notes:
 
 - `extends: "plugin:git/commit-ai"` targets the base plugin workflow directly
-- `extends: "commit-ai"` resolves by precedence — could be another project override
-- The `after` hook is always available, even if not declared in the base, for appending steps at the very end
-- Params are shallow-merged: your params override base params on conflict
+- `extends: "commit-ai"` resolves by precedence and may pick a project override
+- `after` is always available as an implicit hook at the end of a workflow
 
----
+## Workflow resolution for nested workflows
 
-## Step results
+There are two useful forms when calling another workflow:
 
-Every step function returns one of four result types. The engine checks the result after each step to decide what to do next.
+```yaml
+# Use the highest-precedence workflow named commit-ai
+- workflow: "commit-ai"
 
+# Always call the base workflow shipped by the git plugin
+- workflow: "plugin:git/commit-ai"
 ```
-Step returns:
-  Success  →  merge metadata into ctx.data  →  continue to next step
-  Skip     →  merge metadata into ctx.data  →  continue to next step
-  Error    →  check on_error config         →  stop OR continue
-  Exit     →  merge metadata into ctx.data  →  STOP entire workflow
+
+Use the prefixed form when you explicitly want the base plugin workflow and do not want a project override.
+
+## Step result types
+
+Every step returns one of four result types.
+
+```python
+from titan_cli.engine import Success, Skip, Error, Exit
 ```
+
+| Result | Meaning |
+|--------|---------|
+| `Success` | Step completed and workflow continues |
+| `Skip` | Step had nothing to do and workflow continues |
+| `Error` | Step failed; workflow stops unless `on_error: continue` |
+| `Exit` | Stop the whole workflow early in a controlled way |
 
 ### `Success`
 
-The step completed. Workflow continues.
-
 ```python
-return Success("PR created")
-return Success("Branch created", metadata={"branch_name": "feat/my-feature"})
+return Success("Done")
+return Success("Created branch", metadata={"branch_name": "feat/search"})
 ```
 
-`metadata` is merged into `ctx.data` so subsequent steps can read it.
+`metadata` is merged into `ctx.data` so later steps can reuse it.
 
 ### `Skip`
 
-The step had nothing to do, but the workflow should continue. Semantically different from `Success`: nothing happened, the step was not applicable.
+Use `Skip` when the step is not applicable, but later steps should still run.
 
 ```python
 return Skip("AI not configured")
-return Skip("No commits to push")
+return Skip("No labels to select")
 ```
 
 ### `Error`
 
-The step failed. Behavior depends on `on_error` in the YAML:
-
-| `on_error` | Behavior |
-|------------|----------|
-| `"fail"` (default) | Workflow stops immediately |
-| `"continue"` | Workflow continues to the next step |
+Use `Error` when the step actually failed.
 
 ```python
 return Error("GitHub client not available")
-return Error("API rate limit exceeded")
+```
+
+In YAML, `on_error` controls whether the workflow stops or continues:
+
+```yaml
+- plugin: project
+  step: run_linter
+  on_error: continue
 ```
 
 ### `Exit`
 
-Stops the **entire workflow immediately**. Not an error — signals "the workflow is no longer needed". The engine converts it to `Success` for any parent workflow.
+Use `Exit` when the whole workflow should stop cleanly because it is no longer needed.
 
 ```python
-return Exit("No changes to commit")   # Nothing to do — stop cleanly
-return Exit("No open PRs found")
+return Exit("No changes to commit")
 ```
-
----
 
 ## Critical: `Skip` vs `Exit`
 
 This is the most common mistake when writing workflow steps.
 
-**`Exit` stops ALL remaining steps**, including cleanup steps. Use it only before any resources have been allocated.
+- `Skip` means: this step has nothing to do, continue the workflow
+- `Exit` means: stop the whole workflow now
 
-**`Skip` continues to the next step.** Use it for "nothing to do here, keep going".
+If resources have already been created, prefer `Skip` so cleanup steps can still run.
 
-### The wrong way
-
-```yaml
-steps:
-  - step: create_worktree    # Creates a worktree on disk
-  - step: do_work            # Returns Exit("nothing to do") ← workflow stops here
-  - step: cleanup_worktree   # ← NEVER RUNS. Worktree left on disk.
-```
-
-### The right way
-
-```python
-# In do_work step
-if not items:
-    return Skip("Nothing to do")   # Continues to cleanup_worktree
-```
-
-### Guaranteed cleanup pattern
-
-To ensure a step always runs (cleanup, teardown):
-
-1. Use `on_error: continue` on all steps after resource creation
-2. Use `Skip` (not `Exit`) in intermediate steps when they have nothing to do
-3. Use `Exit` only in early steps where no resources have been created yet
+Wrong:
 
 ```yaml
 steps:
-  # Early steps: Exit is fine here — nothing created yet
-  - plugin: github
-    step: select_pr_for_review
+  - step: create_worktree
+  - step: do_work
+  - step: cleanup_worktree
+```
 
-  # After this, a worktree exists on disk — must guarantee cleanup
-  - id: create_worktree
-    plugin: github
-    step: create_worktree
-    on_error: continue          # even if this fails, try to cleanup
+If `do_work` returns `Exit`, `cleanup_worktree` never runs.
 
-  - plugin: github
-    step: do_work               # returns Skip (not Exit) when nothing to do
+Safer pattern:
+
+```yaml
+steps:
+  - step: create_worktree
     on_error: continue
 
-  - plugin: github
-    step: cleanup_worktree      # ALWAYS runs thanks to Skip + on_error: continue
+  - step: do_work
+    on_error: continue
+
+  - step: cleanup_worktree
 ```
 
----
+And inside `do_work`, return `Skip` instead of `Exit` when there is simply nothing to do.
 
-## Writing a step function
+## What to read next
 
-Step functions are Python functions that follow this signature:
-
-```python
-from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
-
-def my_step(ctx: WorkflowContext) -> WorkflowResult:
-    value = ctx.get("some_key")          # read from context
-    value = ctx.get("some_key", "default")  # with default
-
-    # ... do work ...
-
-    return Success("Done", metadata={"result": value})
-```
-
-**The function name must exactly match the `step:` field in the YAML.**
-
-```python
-# .titan/steps/run_linter.py
-def run_linter(ctx: WorkflowContext) -> WorkflowResult:  # ← function name = step name
-    ...
-```
-
-```yaml
-- plugin: project
-  step: run_linter   # ← must match exactly
-```
-
-For a hands-on example, see [Your First Workflow](../getting-started/your-first-workflow.md).
+- [Workflow Steps](workflow-steps.md): how to write Python step functions
+- [Textual in Steps](textual-steps.md): how to use `ctx.textual` for consistent TUI output
+- [Your First Workflow](../getting-started/your-first-workflow.md): hands-on tutorial
