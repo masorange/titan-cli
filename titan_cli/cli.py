@@ -4,14 +4,19 @@ Titan CLI - Main CLI application
 Combines all tool commands into a single CLI interface.
 """
 import os
-import subprocess
 import sys
 import typer
 
 from titan_cli import __version__
 from titan_cli.messages import msg
 from titan_cli.ui.tui import launch_tui
-from titan_cli.utils.autoupdate import check_for_updates, update_core, update_plugins
+from titan_cli.utils.autoupdate import (
+    check_for_updates,
+    get_installed_version,
+    meets_target_version,
+    update_core,
+    update_plugins,
+)
 from titan_cli.core.logging import setup_logging, get_logger
 
 
@@ -86,7 +91,7 @@ def main(
 
                     # Step 1: update core
                     typer.echo("⏳ Updating Titan CLI...")
-                    core_result = update_core()
+                    core_result = update_core(target_version=latest)
 
                     if not core_result["success"]:
                         logger.error("update_core_failed", error=core_result["error"])
@@ -116,12 +121,30 @@ def main(
                     if not plugins_result.get("skipped"):
                         typer.echo("✅ Plugins updated")
 
-                    logger.info("update_successful", version=installed_version)
-                    typer.echo()
-                    typer.echo("🔄 Relaunching Titan with new version...")
-                    typer.echo()
+                    final_version = get_installed_version()
+                    if not final_version or not meets_target_version(final_version, latest):
+                        logger.error(
+                            "update_final_version_check_failed",
+                            expected=latest,
+                            installed=final_version,
+                        )
+                        typer.echo(
+                            "❌ Failed to verify Titan CLI after plugin update: "
+                            f"installed version is {final_version or 'unknown'}, "
+                            f"expected at least {latest}"
+                        )
+                        typer.echo()
+                        typer.echo("   Please update manually:")
+                        typer.echo("     pipx upgrade --force titan-cli")
+                        typer.echo("     pipx upgrade --include-injected titan-cli")
+                        sys.exit(1)
 
-                    subprocess.run(["titan"] + sys.argv[1:], shell=False, check=False)
+                    logger.info("update_successful", version=final_version)
+                    typer.echo()
+                    typer.echo(
+                        "✅ Update complete. Please run `titan` again to use "
+                        f"v{final_version}."
+                    )
                     sys.exit(0)
                 else:
                     logger.info("update_skipped")
