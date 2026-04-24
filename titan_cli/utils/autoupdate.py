@@ -6,6 +6,8 @@ import subprocess
 from typing import Dict, Optional
 from pathlib import Path
 
+from packaging import version
+
 from titan_cli import __version__
 
 
@@ -137,10 +139,14 @@ def update_core() -> Dict[str, any]:
 
         if proc.returncode == 0:
             installed_version = _get_installed_version_runtime() or _get_installed_version_pipx()
-            if installed_version:
+            if installed_version and _is_newer_installed_version(installed_version):
                 result["success"] = True
                 result["method"] = "pipx"
                 result["installed_version"] = installed_version
+            elif installed_version:
+                result["error"] = (
+                    f"Installed version remains at {installed_version}; update did not apply"
+                )
             else:
                 result["error"] = "Could not verify installed version"
             return result
@@ -162,10 +168,14 @@ def update_core() -> Dict[str, any]:
 
         if proc.returncode == 0:
             installed_version = _get_installed_version_runtime() or _get_installed_version_pip()
-            if installed_version:
+            if installed_version and _is_newer_installed_version(installed_version):
                 result["success"] = True
                 result["method"] = "pip"
                 result["installed_version"] = installed_version
+            elif installed_version:
+                result["error"] = (
+                    f"Installed version remains at {installed_version}; update did not apply"
+                )
             else:
                 result["error"] = "Could not verify installed version"
         else:
@@ -285,6 +295,14 @@ def _get_installed_version_pip() -> Optional[str]:
     except Exception:
         pass
     return None
+
+
+def _is_newer_installed_version(installed_version: str) -> bool:
+    """Return True when the installed version is newer than the running one."""
+    try:
+        return version.parse(installed_version) > version.parse(__version__)
+    except Exception:
+        return installed_version != __version__
 
 
 def get_update_message(update_info: Dict[str, any]) -> Optional[str]:
