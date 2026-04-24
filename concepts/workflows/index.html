@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://masorange.github.io/titan-cli/concepts/workflows/">
       
       
-        <link rel="prev" href="../../getting-started/your-first-workflow/">
+        <link rel="prev" href="../../getting-started/your-first-textual-step/">
       
       
-        <link rel="next" href="../ai-integration/">
+        <link rel="next" href="../workflow-steps/">
       
       
         
@@ -530,6 +530,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/your-first-textual-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your First Textual Step
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -661,10 +689,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#a-minimal-example" class="md-nav__link">
+  <a href="#what-a-workflow-is" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A minimal example
+        What a workflow is
       
     </span>
   </a>
@@ -672,10 +700,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#yaml-structure" class="md-nav__link">
+  <a href="#workflow-types" class="md-nav__link">
     <span class="md-ellipsis">
       
-        YAML structure
+        Workflow types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Workflow types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-new-workflow-from-scratch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. New workflow from scratch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-extended-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Extended workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-nested-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Nested workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-workflows-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where workflows live
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow structure
       
     </span>
   </a>
@@ -706,10 +795,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#shell-command" class="md-nav__link">
+  <a href="#project-step" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Shell command
+        Project step
       
     </span>
   </a>
@@ -717,10 +806,43 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#nested-workflow" class="md-nav__link">
+  <a href="#user-step" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Nested workflow
+        User step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-workflow-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested workflow step
       
     </span>
   </a>
@@ -733,10 +855,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#parameters" class="md-nav__link">
+  <a href="#choosing-the-right-step-type" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Parameters
+        Choosing the right step type
       
     </span>
   </a>
@@ -744,10 +866,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-workflows-live" class="md-nav__link">
+  <a href="#parameters-and-variable-substitution" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where workflows live
+        Parameters and variable substitution
       
     </span>
   </a>
@@ -755,43 +877,37 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#extending-workflows" class="md-nav__link">
+  <a href="#extending-workflows-with-hooks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Extending workflows
+        Extending workflows with hooks
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Extending workflows">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-results" class="md-nav__link">
+  <a href="#workflow-resolution-for-nested-workflows" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step results
+        Workflow resolution for nested workflows
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Step results">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-result-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step result types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step result types">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -852,52 +968,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Critical: Skip vs Exit">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#the-wrong-way" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The wrong way
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-right-way" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The right way
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#guaranteed-cleanup-pattern" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Guaranteed cleanup pattern
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
-  <a href="#writing-a-step-function" class="md-nav__link">
+  <a href="#what-to-read-next" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Writing a step function
+        What to read next
       
     </span>
   </a>
@@ -908,6 +985,62 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow-steps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Steps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../textual-steps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Textual in Steps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1703,10 +1836,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#a-minimal-example" class="md-nav__link">
+  <a href="#what-a-workflow-is" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A minimal example
+        What a workflow is
       
     </span>
   </a>
@@ -1714,10 +1847,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#yaml-structure" class="md-nav__link">
+  <a href="#workflow-types" class="md-nav__link">
     <span class="md-ellipsis">
       
-        YAML structure
+        Workflow types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Workflow types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-new-workflow-from-scratch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. New workflow from scratch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-extended-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Extended workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-nested-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Nested workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-workflows-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where workflows live
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow structure
       
     </span>
   </a>
@@ -1748,10 +1942,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#shell-command" class="md-nav__link">
+  <a href="#project-step" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Shell command
+        Project step
       
     </span>
   </a>
@@ -1759,10 +1953,43 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#nested-workflow" class="md-nav__link">
+  <a href="#user-step" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Nested workflow
+        User step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-workflow-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested workflow step
       
     </span>
   </a>
@@ -1775,10 +2002,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#parameters" class="md-nav__link">
+  <a href="#choosing-the-right-step-type" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Parameters
+        Choosing the right step type
       
     </span>
   </a>
@@ -1786,10 +2013,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-workflows-live" class="md-nav__link">
+  <a href="#parameters-and-variable-substitution" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where workflows live
+        Parameters and variable substitution
       
     </span>
   </a>
@@ -1797,43 +2024,37 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#extending-workflows" class="md-nav__link">
+  <a href="#extending-workflows-with-hooks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Extending workflows
+        Extending workflows with hooks
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Extending workflows">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-results" class="md-nav__link">
+  <a href="#workflow-resolution-for-nested-workflows" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step results
+        Workflow resolution for nested workflows
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Step results">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-result-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step result types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step result types">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1894,52 +2115,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Critical: Skip vs Exit">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#the-wrong-way" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The wrong way
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-right-way" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The right way
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#guaranteed-cleanup-pattern" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Guaranteed cleanup pattern
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
-  <a href="#writing-a-step-function" class="md-nav__link">
+  <a href="#what-to-read-next" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Writing a step function
+        What to read next
       
     </span>
   </a>
@@ -1967,313 +2149,346 @@
 
 
 <h1 id="workflows">Workflows<a class="headerlink" href="#workflows" title="Permanent link">&para;</a></h1>
-<p>A workflow is a sequence of steps that Titan executes in order. You define workflows in YAML files and run them from the Titan TUI or CLI.</p>
-<p>Workflows are the core of Titan. Everything you do — committing, opening a PR, analyzing a Jira ticket — is a workflow.</p>
-<hr />
-<h2 id="a-minimal-example">A minimal example<a class="headerlink" href="#a-minimal-example" title="Permanent link">&para;</a></h2>
+<p>Titan workflows are YAML files that automate a sequence of actions: plugin steps, project steps, shell commands, and even other workflows.</p>
+<p>This page explains the workflow model from a user point of view: what kinds of workflows you can create, what kinds of steps they can contain, and how they fit together.</p>
+<h2 id="what-a-workflow-is">What a workflow is<a class="headerlink" href="#what-a-workflow-is" title="Permanent link">&para;</a></h2>
+<p>A workflow is a sequence of steps executed in order.</p>
+<p>Typical examples:</p>
+<ul>
+<li>run checks, then create a commit</li>
+<li>gather input, generate content with AI, then create a GitHub issue</li>
+<li>create a worktree, do review work, then clean it up</li>
+</ul>
+<p>A minimal workflow looks like this:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">tests</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">commit&quot;</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Runs</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">test</span><span class="nv"> </span><span class="s">suite,</span><span class="nv"> </span><span class="s">then</span><span class="nv"> </span><span class="s">commits</span><span class="nv"> </span><span class="s">if</span><span class="nv"> </span><span class="s">tests</span><span class="nv"> </span><span class="s">pass&quot;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">tests,</span><span class="nv"> </span><span class="s">then</span><span class="nv"> </span><span class="s">create</span><span class="nv"> </span><span class="s">a</span><span class="nv"> </span><span class="s">commit&quot;</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nt">steps</span><span class="p">:</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-tests</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">Tests&quot;</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pytest&quot;</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">commit</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Commit&quot;</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create-commit</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Create</span><span class="nv"> </span><span class="s">Commit&quot;</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_commit</span>
 </code></pre></div>
-<p>This workflow runs <code>pytest</code> as a shell command, then calls the <code>create_commit</code> step from the <code>git</code> plugin.</p>
-<hr />
-<h2 id="yaml-structure">YAML structure<a class="headerlink" href="#yaml-structure" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;My</span><span class="nv"> </span><span class="s">Workflow&quot;</span><span class="w">           </span><span class="c1"># Required. Shown in the menu.</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;What</span><span class="nv"> </span><span class="s">it</span><span class="nv"> </span><span class="s">does&quot;</span><span class="w">  </span><span class="c1"># Optional. Shown below the name.</span>
+<h2 id="workflow-types">Workflow types<a class="headerlink" href="#workflow-types" title="Permanent link">&para;</a></h2>
+<p>There are several ways to use workflows in Titan.</p>
+<h3 id="1-new-workflow-from-scratch">1. New workflow from scratch<a class="headerlink" href="#1-new-workflow-from-scratch" title="Permanent link">&para;</a></h3>
+<p>Create a brand new YAML file and define the full sequence yourself.</p>
+<p>Use this when you want a custom automation that does not naturally extend an existing workflow.</p>
+<h3 id="2-extended-workflow">2. Extended workflow<a class="headerlink" href="#2-extended-workflow" title="Permanent link">&para;</a></h3>
+<p>Extend another workflow and inject your own steps into its hooks.</p>
+<p>Use this when Titan or a plugin already gives you most of what you need.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Commit</span><span class="nv"> </span><span class="s">with</span><span class="nv"> </span><span class="s">AI</span><span class="nv"> </span><span class="s">+</span><span class="nv"> </span><span class="s">Linter&quot;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;plugin:git/commit-ai&quot;</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">params</span><span class="p">:</span><span class="w">                       </span><span class="c1"># Optional. Default values accessible in all steps.</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">draft</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">assignees</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="nt">hooks</span><span class="p">:</span><span class="w">                        </span><span class="c1"># Optional. Named injection points for extending this workflow.</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">before_commit</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">after_push</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="nt">steps</span><span class="p">:</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_step</span><span class="w">              </span><span class="c1"># Optional. Auto-generated if omitted.</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;My</span><span class="nv"> </span><span class="s">Step&quot;</span><span class="w">          </span><span class="c1"># Optional. Shown in the TUI while running.</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span><span class="w">           </span><span class="c1"># Which plugin provides this step.</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_pr</span><span class="w">          </span><span class="c1"># The step function name inside that plugin.</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">    </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span><span class="w">       </span><span class="c1"># Optional. &quot;fail&quot; (default) or &quot;continue&quot;.</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="nt">params</span><span class="p">:</span><span class="w">                  </span><span class="c1"># Optional. Extra values passed to this step.</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">      </span><span class="nt">draft</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${draft}&quot;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">hooks</span><span class="p">:</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">before_commit</span><span class="p">:</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-lint</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">Linter&quot;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">project</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run_linter</span>
 </code></pre></div>
-<hr />
-<h2 id="step-types">Step types<a class="headerlink" href="#step-types" title="Permanent link">&para;</a></h2>
-<p>Every step must define exactly one action.</p>
-<h3 id="plugin-step">Plugin step<a class="headerlink" href="#plugin-step" title="Permanent link">&para;</a></h3>
-<p>Calls a registered step function from a plugin.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_pr</span>
+<h3 id="3-nested-workflow">3. Nested workflow<a class="headerlink" href="#3-nested-workflow" title="Permanent link">&para;</a></h3>
+<p>Call another workflow as a step.</p>
+<p>Use this when you want to compose larger flows from smaller reusable ones.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">commit-first</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">workflow</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;commit-ai&quot;</span>
 </code></pre></div>
-<p><strong>Special plugin values:</strong></p>
-<table>
-<thead>
-<tr>
-<th>Value</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>plugin: git</code></td>
-<td>Built-in Git plugin</td>
-</tr>
-<tr>
-<td><code>plugin: github</code></td>
-<td>Built-in GitHub plugin</td>
-</tr>
-<tr>
-<td><code>plugin: jira</code></td>
-<td>Built-in Jira plugin</td>
-</tr>
-<tr>
-<td><code>plugin: project</code></td>
-<td>A step in <code>.titan/steps/</code> of the current project</td>
-</tr>
-<tr>
-<td><code>plugin: user</code></td>
-<td>A step in <code>~/.titan/steps/</code> (personal steps)</td>
-</tr>
-<tr>
-<td><code>plugin: core</code></td>
-<td>A built-in Titan step (e.g. <code>ai_code_assistant</code>)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="shell-command">Shell command<a class="headerlink" href="#shell-command" title="Permanent link">&para;</a></h3>
-<p>Runs a shell command directly.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">Linter&quot;</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ruff</span><span class="nv"> </span><span class="s">check</span><span class="nv"> </span><span class="s">.&quot;</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span><span class="w">    </span><span class="c1"># keep going even if lint fails</span>
-</code></pre></div>
-<p>Add <code>use_shell: true</code> if your command needs pipes or redirects (<code>cmd1 | cmd2</code>).</p>
-<h3 id="nested-workflow">Nested workflow<a class="headerlink" href="#nested-workflow" title="Permanent link">&para;</a></h3>
-<p>Calls another workflow as a step.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">commit-first</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">workflow</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;commit-ai&quot;</span>
-</code></pre></div>
-<p><strong>Resolution modes:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Resolved by precedence (project overrides win):</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">workflow</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;commit-ai&quot;</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Always the base workflow from the git plugin, ignoring any project override:</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">workflow</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;plugin:git/commit-ai&quot;</span>
-</code></pre></div>
-<p>Use the <code>plugin:</code> prefix when you explicitly need the base workflow, not a project's customized version.</p>
-<hr />
-<h2 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h2>
-<p>Workflow-level <code>params</code> define defaults accessible in all steps via <code>ctx.get("key")</code>.</p>
-<p>Step-level <code>params</code> are merged into the context before that step runs.</p>
-<p>Use <code>${key}</code> to interpolate values from the context at runtime:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">params</span><span class="p">:</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">assignees</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="nt">steps</span><span class="p">:</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_issue</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">      </span><span class="nt">assignees</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${assignees}&quot;</span><span class="w">   </span><span class="c1"># resolved from ctx.data at runtime</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${labels}&quot;</span>
-</code></pre></div>
-<hr />
 <h2 id="where-workflows-live">Where workflows live<a class="headerlink" href="#where-workflows-live" title="Permanent link">&para;</a></h2>
-<p>Titan discovers workflows from four sources. When the same workflow name exists in multiple sources, <strong>higher priority wins</strong>:</p>
+<p>Titan discovers workflows from four sources.</p>
 <table>
 <thead>
 <tr>
 <th>Priority</th>
 <th>Source</th>
 <th>Location</th>
+<th>Typical use</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>1 (highest)</td>
+<td>1</td>
 <td>Project</td>
 <td><code>.titan/workflows/*.yaml</code></td>
+<td>Project-specific automation shared with the repo</td>
 </tr>
 <tr>
 <td>2</td>
 <td>User</td>
 <td><code>~/.titan/workflows/*.yaml</code></td>
+<td>Personal reusable workflows across projects</td>
 </tr>
 <tr>
 <td>3</td>
 <td>System</td>
 <td>Bundled with Titan CLI</td>
+<td>Built-in core workflows</td>
 </tr>
 <tr>
-<td>4 (lowest)</td>
+<td>4</td>
 <td>Plugin</td>
 <td>Bundled with each plugin</td>
+<td>Workflows shipped by plugins</td>
 </tr>
 </tbody>
 </table>
-<p>This means you can override any built-in workflow by creating a file with the same name in <code>.titan/workflows/</code>.</p>
-<hr />
-<h2 id="extending-workflows">Extending workflows<a class="headerlink" href="#extending-workflows" title="Permanent link">&para;</a></h2>
-<p>Instead of replacing a workflow entirely, you can <strong>extend</strong> it — injecting extra steps at named hook points.</p>
-<h3 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
-<p>A base workflow declares hooks (named injection points):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Built into the git plugin</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Commit</span><span class="nv"> </span><span class="s">with</span><span class="nv"> </span><span class="s">AI&quot;</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">hooks</span><span class="p">:</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">before_commit</span><span class="w">      </span><span class="c1"># ← injection point</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="nt">steps</span><span class="p">:</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_status</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">hook</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">before_commit</span><span class="w">  </span><span class="c1"># ← your steps get injected here</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_generate_commit_message</span>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>
-<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
-<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_commit</span>
+<p>Higher priority wins when two workflows have the same name.</p>
+<p>That means a project workflow can override a plugin workflow simply by using the same filename and workflow name.</p>
+<h2 id="workflow-structure">Workflow structure<a class="headerlink" href="#workflow-structure" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;My</span><span class="nv"> </span><span class="s">Workflow&quot;</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;What</span><span class="nv"> </span><span class="s">it</span><span class="nv"> </span><span class="s">does&quot;</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nt">params</span><span class="p">:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">draft</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">assignees</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="nt">hooks</span><span class="p">:</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">before_commit</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">after_push</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_step</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;My</span><span class="nv"> </span><span class="s">Step&quot;</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_pr</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">      </span><span class="nt">draft</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${draft}&quot;</span>
 </code></pre></div>
-<p>Your project extends it by filling those hooks:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># .titan/workflows/commit-ai.yaml</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Commit</span><span class="nv"> </span><span class="s">with</span><span class="nv"> </span><span class="s">AI</span><span class="nv"> </span><span class="s">+</span><span class="nv"> </span><span class="s">Linter&quot;</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;plugin:git/commit-ai&quot;</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="nt">hooks</span><span class="p">:</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nt">before_commit</span><span class="p">:</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-lint</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">Linter&quot;</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">      </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ruff</span><span class="nv"> </span><span class="s">check</span><span class="nv"> </span><span class="s">.&quot;</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">      </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span>
-</code></pre></div>
-<p>Now when you run <code>commit-ai</code>, Titan runs the base workflow with your lint step injected before the commit.</p>
-<p><strong>Notes:</strong></p>
+<p>Main fields:</p>
 <ul>
-<li><code>extends: "plugin:git/commit-ai"</code> targets the base plugin workflow directly</li>
-<li><code>extends: "commit-ai"</code> resolves by precedence — could be another project override</li>
-<li>The <code>after</code> hook is always available, even if not declared in the base, for appending steps at the very end</li>
-<li>Params are shallow-merged: your params override base params on conflict</li>
+<li><code>name</code>: human-friendly label shown in Titan</li>
+<li><code>description</code>: optional explanation</li>
+<li><code>params</code>: default values available through <code>ctx.get(...)</code></li>
+<li><code>hooks</code>: named extension points other workflows can fill</li>
+<li><code>steps</code>: the ordered actions to run</li>
 </ul>
-<hr />
-<h2 id="step-results">Step results<a class="headerlink" href="#step-results" title="Permanent link">&para;</a></h2>
-<p>Every step function returns one of four result types. The engine checks the result after each step to decide what to do next.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>Step returns:
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  Success  →  merge metadata into ctx.data  →  continue to next step
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  Skip     →  merge metadata into ctx.data  →  continue to next step
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>  Error    →  check on_error config         →  stop OR continue
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  Exit     →  merge metadata into ctx.data  →  STOP entire workflow
+<h2 id="step-types">Step types<a class="headerlink" href="#step-types" title="Permanent link">&para;</a></h2>
+<p>Every workflow step must define exactly one action type.</p>
+<h3 id="plugin-step">Plugin step<a class="headerlink" href="#plugin-step" title="Permanent link">&para;</a></h3>
+<p>Calls a public step exposed by a plugin.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_pr</span>
 </code></pre></div>
-<h3 id="success"><code>Success</code><a class="headerlink" href="#success" title="Permanent link">&para;</a></h3>
-<p>The step completed. Workflow continues.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;PR created&quot;</span><span class="p">)</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Branch created&quot;</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;branch_name&quot;</span><span class="p">:</span> <span class="s2">&quot;feat/my-feature&quot;</span><span class="p">})</span>
+<p>Use this when the capability already exists in a plugin and you want to reuse it.</p>
+<h3 id="project-step">Project step<a class="headerlink" href="#project-step" title="Permanent link">&para;</a></h3>
+<p>Calls a Python step from <code>.titan/steps/</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">project</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run_linter</span>
 </code></pre></div>
-<p><code>metadata</code> is merged into <code>ctx.data</code> so subsequent steps can read it.</p>
-<h3 id="skip"><code>Skip</code><a class="headerlink" href="#skip" title="Permanent link">&para;</a></h3>
-<p>The step had nothing to do, but the workflow should continue. Semantically different from <code>Success</code>: nothing happened, the step was not applicable.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">return</span> <span class="n">Skip</span><span class="p">(</span><span class="s2">&quot;AI not configured&quot;</span><span class="p">)</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">return</span> <span class="n">Skip</span><span class="p">(</span><span class="s2">&quot;No commits to push&quot;</span><span class="p">)</span>
+<p>Use this when the logic is specific to this repository.</p>
+<h3 id="user-step">User step<a class="headerlink" href="#user-step" title="Permanent link">&para;</a></h3>
+<p>Calls a Python step from <code>~/.titan/steps/</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">user</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_global_helper</span>
 </code></pre></div>
-<h3 id="error"><code>Error</code><a class="headerlink" href="#error" title="Permanent link">&para;</a></h3>
-<p>The step failed. Behavior depends on <code>on_error</code> in the YAML:</p>
+<p>Use this for personal reusable automations across many projects.</p>
+<h3 id="core-step">Core step<a class="headerlink" href="#core-step" title="Permanent link">&para;</a></h3>
+<p>Calls a built-in Titan step.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">core</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_code_assistant</span>
+</code></pre></div>
+<p>Use this when Titan already provides the generic behavior directly.</p>
+<p>For the public built-in core step reference, see <a href="../workflow-steps/#built-in-core-steps">Workflow Steps</a>.</p>
+<h3 id="command-step">Command step<a class="headerlink" href="#command-step" title="Permanent link">&para;</a></h3>
+<p>Runs a shell command.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">Linter&quot;</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ruff</span><span class="nv"> </span><span class="s">check</span><span class="nv"> </span><span class="s">.&quot;</span>
+</code></pre></div>
+<p>Use this when the action is simple and you do not need custom Python logic or UI behavior.</p>
+<h3 id="nested-workflow-step">Nested workflow step<a class="headerlink" href="#nested-workflow-step" title="Permanent link">&para;</a></h3>
+<p>Runs another workflow.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">workflow</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;commit-ai&quot;</span>
+</code></pre></div>
+<p>Use this when you want to compose workflows instead of repeating steps.</p>
+<h2 id="choosing-the-right-step-type">Choosing the right step type<a class="headerlink" href="#choosing-the-right-step-type" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th><code>on_error</code></th>
-<th>Behavior</th>
+<th>Use case</th>
+<th>Best fit</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>"fail"</code> (default)</td>
-<td>Workflow stops immediately</td>
+<td>Reuse a built-in plugin capability</td>
+<td>Plugin step</td>
 </tr>
 <tr>
-<td><code>"continue"</code></td>
-<td>Workflow continues to the next step</td>
+<td>Add project-specific Python logic</td>
+<td>Project step</td>
+</tr>
+<tr>
+<td>Reuse a personal helper across projects</td>
+<td>User step</td>
+</tr>
+<tr>
+<td>Use a Titan-provided generic helper</td>
+<td>Core step</td>
+</tr>
+<tr>
+<td>Run a straightforward command</td>
+<td>Command step</td>
+</tr>
+<tr>
+<td>Compose existing flows</td>
+<td>Nested workflow</td>
 </tr>
 </tbody>
 </table>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="s2">&quot;GitHub client not available&quot;</span><span class="p">)</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="s2">&quot;API rate limit exceeded&quot;</span><span class="p">)</span>
+<p>For a full guide to writing Python steps and built-in core steps, see <a href="../workflow-steps/">Workflow Steps</a>.</p>
+<h2 id="parameters-and-variable-substitution">Parameters and variable substitution<a class="headerlink" href="#parameters-and-variable-substitution" title="Permanent link">&para;</a></h2>
+<p>Workflow-level <code>params</code> define defaults that all steps can read with <code>ctx.get(...)</code>.</p>
+<p>Step-level <code>params</code> are merged into the context before that step runs.</p>
+<p>Use <code>${key}</code> to interpolate values from the current context:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">params</span><span class="p">:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">assignees</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_issue</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">      </span><span class="nt">assignees</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${assignees}&quot;</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${labels}&quot;</span>
+</code></pre></div>
+<h2 id="extending-workflows-with-hooks">Extending workflows with hooks<a class="headerlink" href="#extending-workflows-with-hooks" title="Permanent link">&para;</a></h2>
+<p>Hooks let you customize an existing workflow without copying the whole thing.</p>
+<p>Base workflow:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Commit</span><span class="nv"> </span><span class="s">with</span><span class="nv"> </span><span class="s">AI&quot;</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nt">hooks</span><span class="p">:</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">before_commit</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">get_status</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">hook</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">before_commit</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ai_generate_commit_message</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_commit</span>
+</code></pre></div>
+<p>Project extension:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Commit</span><span class="nv"> </span><span class="s">with</span><span class="nv"> </span><span class="s">AI</span><span class="nv"> </span><span class="s">+</span><span class="nv"> </span><span class="s">Checks&quot;</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;plugin:git/commit-ai&quot;</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="nt">hooks</span><span class="p">:</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">before_commit</span><span class="p">:</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-lint</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">Linter&quot;</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">      </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">project</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">      </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run_linter</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-tests</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Run</span><span class="nv"> </span><span class="s">Tests&quot;</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">      </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pytest&quot;</span>
+</code></pre></div>
+<p>Notes:</p>
+<ul>
+<li><code>extends: "plugin:git/commit-ai"</code> targets the base plugin workflow directly</li>
+<li><code>extends: "commit-ai"</code> resolves by precedence and may pick a project override</li>
+<li><code>after</code> is always available as an implicit hook at the end of a workflow</li>
+</ul>
+<h2 id="workflow-resolution-for-nested-workflows">Workflow resolution for nested workflows<a class="headerlink" href="#workflow-resolution-for-nested-workflows" title="Permanent link">&para;</a></h2>
+<p>There are two useful forms when calling another workflow:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Use the highest-precedence workflow named commit-ai</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">workflow</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;commit-ai&quot;</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Always call the base workflow shipped by the git plugin</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">workflow</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;plugin:git/commit-ai&quot;</span>
+</code></pre></div>
+<p>Use the prefixed form when you explicitly want the base plugin workflow and do not want a project override.</p>
+<h2 id="step-result-types">Step result types<a class="headerlink" href="#step-result-types" title="Permanent link">&para;</a></h2>
+<p>Every step returns one of four result types.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">titan_cli.engine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Success</span><span class="p">,</span> <span class="n">Skip</span><span class="p">,</span> <span class="n">Error</span><span class="p">,</span> <span class="n">Exit</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Result</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Success</code></td>
+<td>Step completed and workflow continues</td>
+</tr>
+<tr>
+<td><code>Skip</code></td>
+<td>Step had nothing to do and workflow continues</td>
+</tr>
+<tr>
+<td><code>Error</code></td>
+<td>Step failed; workflow stops unless <code>on_error: continue</code></td>
+</tr>
+<tr>
+<td><code>Exit</code></td>
+<td>Stop the whole workflow early in a controlled way</td>
+</tr>
+</tbody>
+</table>
+<h3 id="success"><code>Success</code><a class="headerlink" href="#success" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Done&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Created branch&quot;</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;branch_name&quot;</span><span class="p">:</span> <span class="s2">&quot;feat/search&quot;</span><span class="p">})</span>
+</code></pre></div>
+<p><code>metadata</code> is merged into <code>ctx.data</code> so later steps can reuse it.</p>
+<h3 id="skip"><code>Skip</code><a class="headerlink" href="#skip" title="Permanent link">&para;</a></h3>
+<p>Use <code>Skip</code> when the step is not applicable, but later steps should still run.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">return</span> <span class="n">Skip</span><span class="p">(</span><span class="s2">&quot;AI not configured&quot;</span><span class="p">)</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="k">return</span> <span class="n">Skip</span><span class="p">(</span><span class="s2">&quot;No labels to select&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="error"><code>Error</code><a class="headerlink" href="#error" title="Permanent link">&para;</a></h3>
+<p>Use <code>Error</code> when the step actually failed.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">return</span> <span class="n">Error</span><span class="p">(</span><span class="s2">&quot;GitHub client not available&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>In YAML, <code>on_error</code> controls whether the workflow stops or continues:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">project</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run_linter</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">  </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span>
 </code></pre></div>
 <h3 id="exit"><code>Exit</code><a class="headerlink" href="#exit" title="Permanent link">&para;</a></h3>
-<p>Stops the <strong>entire workflow immediately</strong>. Not an error — signals "the workflow is no longer needed". The engine converts it to <code>Success</code> for any parent workflow.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">return</span> <span class="n">Exit</span><span class="p">(</span><span class="s2">&quot;No changes to commit&quot;</span><span class="p">)</span>   <span class="c1"># Nothing to do — stop cleanly</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">return</span> <span class="n">Exit</span><span class="p">(</span><span class="s2">&quot;No open PRs found&quot;</span><span class="p">)</span>
+<p>Use <code>Exit</code> when the whole workflow should stop cleanly because it is no longer needed.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">return</span> <span class="n">Exit</span><span class="p">(</span><span class="s2">&quot;No changes to commit&quot;</span><span class="p">)</span>
 </code></pre></div>
-<hr />
 <h2 id="critical-skip-vs-exit">Critical: <code>Skip</code> vs <code>Exit</code><a class="headerlink" href="#critical-skip-vs-exit" title="Permanent link">&para;</a></h2>
 <p>This is the most common mistake when writing workflow steps.</p>
-<p><strong><code>Exit</code> stops ALL remaining steps</strong>, including cleanup steps. Use it only before any resources have been allocated.</p>
-<p><strong><code>Skip</code> continues to the next step.</strong> Use it for "nothing to do here, keep going".</p>
-<h3 id="the-wrong-way">The wrong way<a class="headerlink" href="#the-wrong-way" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">steps</span><span class="p">:</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_worktree</span><span class="w">    </span><span class="c1"># Creates a worktree on disk</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">do_work</span><span class="w">            </span><span class="c1"># Returns Exit(&quot;nothing to do&quot;) ← workflow stops here</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cleanup_worktree</span><span class="w">   </span><span class="c1"># ← NEVER RUNS. Worktree left on disk.</span>
+<ul>
+<li><code>Skip</code> means: this step has nothing to do, continue the workflow</li>
+<li><code>Exit</code> means: stop the whole workflow now</li>
+</ul>
+<p>If resources have already been created, prefer <code>Skip</code> so cleanup steps can still run.</p>
+<p>Wrong:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_worktree</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">do_work</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cleanup_worktree</span>
 </code></pre></div>
-<h3 id="the-right-way">The right way<a class="headerlink" href="#the-right-way" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># In do_work step</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="k">if</span> <span class="ow">not</span> <span class="n">items</span><span class="p">:</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="k">return</span> <span class="n">Skip</span><span class="p">(</span><span class="s2">&quot;Nothing to do&quot;</span><span class="p">)</span>   <span class="c1"># Continues to cleanup_worktree</span>
+<p>If <code>do_work</code> returns <code>Exit</code>, <code>cleanup_worktree</code> never runs.</p>
+<p>Safer pattern:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_worktree</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">    </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">do_work</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="w">    </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cleanup_worktree</span>
 </code></pre></div>
-<h3 id="guaranteed-cleanup-pattern">Guaranteed cleanup pattern<a class="headerlink" href="#guaranteed-cleanup-pattern" title="Permanent link">&para;</a></h3>
-<p>To ensure a step always runs (cleanup, teardown):</p>
-<ol>
-<li>Use <code>on_error: continue</code> on all steps after resource creation</li>
-<li>Use <code>Skip</code> (not <code>Exit</code>) in intermediate steps when they have nothing to do</li>
-<li>Use <code>Exit</code> only in early steps where no resources have been created yet</li>
-</ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nt">steps</span><span class="p">:</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="c1"># Early steps: Exit is fine here — nothing created yet</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">select_pr_for_review</span>
-<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>
-<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">  </span><span class="c1"># After this, a worktree exists on disk — must guarantee cleanup</span>
-<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_worktree</span>
-<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">    </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_worktree</span>
-<a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">    </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span><span class="w">          </span><span class="c1"># even if this fails, try to cleanup</span>
-<a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a>
-<a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">do_work</span><span class="w">               </span><span class="c1"># returns Skip (not Exit) when nothing to do</span>
-<a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">    </span><span class="nt">on_error</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">continue</span>
-<a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a>
-<a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="w">    </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cleanup_worktree</span><span class="w">      </span><span class="c1"># ALWAYS runs thanks to Skip + on_error: continue</span>
-</code></pre></div>
-<hr />
-<h2 id="writing-a-step-function">Writing a step function<a class="headerlink" href="#writing-a-step-function" title="Permanent link">&para;</a></h2>
-<p>Step functions are Python functions that follow this signature:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">titan_cli.engine</span><span class="w"> </span><span class="kn">import</span> <span class="n">WorkflowContext</span><span class="p">,</span> <span class="n">WorkflowResult</span><span class="p">,</span> <span class="n">Success</span><span class="p">,</span> <span class="n">Error</span><span class="p">,</span> <span class="n">Skip</span><span class="p">,</span> <span class="n">Exit</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">my_step</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">WorkflowContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WorkflowResult</span><span class="p">:</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="n">value</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;some_key&quot;</span><span class="p">)</span>          <span class="c1"># read from context</span>
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    <span class="n">value</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;some_key&quot;</span><span class="p">,</span> <span class="s2">&quot;default&quot;</span><span class="p">)</span>  <span class="c1"># with default</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>
-<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>    <span class="c1"># ... do work ...</span>
-<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>
-<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>    <span class="k">return</span> <span class="n">Success</span><span class="p">(</span><span class="s2">&quot;Done&quot;</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="n">value</span><span class="p">})</span>
-</code></pre></div>
-<p><strong>The function name must exactly match the <code>step:</code> field in the YAML.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># .titan/steps/run_linter.py</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">run_linter</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">WorkflowContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WorkflowResult</span><span class="p">:</span>  <span class="c1"># ← function name = step name</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="o">...</span>
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">plugin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">project</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run_linter</span><span class="w">   </span><span class="c1"># ← must match exactly</span>
-</code></pre></div>
-<p>For a hands-on example, see <a href="../../getting-started/your-first-workflow/">Your First Workflow</a>.</p>
+<p>And inside <code>do_work</code>, return <code>Skip</code> instead of <code>Exit</code> when there is simply nothing to do.</p>
+<h2 id="what-to-read-next">What to read next<a class="headerlink" href="#what-to-read-next" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../workflow-steps/">Workflow Steps</a>: how to write Python step functions</li>
+<li><a href="../textual-steps/">Textual in Steps</a>: how to use <code>ctx.textual</code> for consistent TUI output</li>
+<li><a href="../../getting-started/your-first-workflow/">Your First Workflow</a>: hands-on tutorial</li>
+</ul>
 
 
 
