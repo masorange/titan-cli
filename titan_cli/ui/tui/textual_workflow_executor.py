@@ -19,6 +19,7 @@ from titan_cli.engine.results import WorkflowResult, Success, Error, is_error, i
 from titan_cli.engine.steps.command_step import execute_command_step as execute_external_command_step
 from titan_cli.engine.steps.ai_assistant_step import execute_ai_assistant_step
 from titan_cli.core.logging import get_logger
+from titan_cli.engine.interaction.textual import TextualInteractionPort
 
 logger = get_logger(__name__)
 
@@ -173,6 +174,7 @@ class TextualWorkflowExecutor:
                 output_widget = self._message_target.query_one("#execution-content", WorkflowExecutionContent)
 
                 ctx.textual = TextualComponents(app, output_widget)
+                ctx.interaction = TextualInteractionPort(ctx.textual)
             except Exception:
                 # If we can't get the components, steps will fall back to ctx.ui
                 pass

@@ -124,6 +124,15 @@ def _get_log_file_path(custom_path: Optional[Path] = None) -> Path:
     return log_dir / "titan.log"
 
 
+def _get_fallback_log_file_path() -> Path:
+    """Return a writable fallback log path for sandboxed or restricted contexts."""
+    import tempfile
+
+    log_dir = Path(tempfile.gettempdir()) / "titan" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "titan.log"
+
+
 def _write_session_separator(log_file: Path) -> None:
     """
     Write a plaintext session separator directly to the log file.
@@ -151,14 +160,27 @@ def _setup_file_handler(log_file: Optional[Path], is_dev: bool) -> None:
     file_path = _get_log_file_path(log_file)
 
     # Write session separator before attaching the handler
-    _write_session_separator(file_path)
+    try:
+        _write_session_separator(file_path)
+    except (PermissionError, OSError):
+        file_path = _get_fallback_log_file_path()
+        _write_session_separator(file_path)
 
-    file_handler = RotatingFileHandler(
-        file_path,
-        maxBytes=10 * 1024 * 1024,  # 10 MB
-        backupCount=5,  # Keep 5 files
-        encoding="utf-8",
-    )
+    try:
+        file_handler = RotatingFileHandler(
+            file_path,
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,  # Keep 5 files
+            encoding="utf-8",
+        )
+    except (PermissionError, OSError):
+        file_path = _get_fallback_log_file_path()
+        file_handler = RotatingFileHandler(
+            file_path,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
 
     # File always logs at DEBUG in dev, INFO in prod
     file_handler.setLevel(logging.DEBUG if is_dev else logging.INFO)

@@ -2,6 +2,8 @@
 Search JIRA issues using saved query from utils registry
 """
 
+from contextlib import nullcontext
+
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.ui.tui.widgets import Table
@@ -60,22 +62,23 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
             project: "ECAPP"
         ```
     """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
+    ui = ctx.textual or getattr(ctx, "interaction", None)
+    if not ui:
+        return Error("UI interaction context is not available for this step.")
 
     # Begin step container
-    ctx.textual.begin_step("Search Open Issues")
+    ui.begin_step("Search Open Issues")
 
     if not ctx.jira:
-        ctx.textual.error_text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
-        ctx.textual.end_step("error")
+        ui.error_text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
+        ui.end_step("error")
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
 
     # Get query name
     query_name = ctx.get("query_name")
     if not query_name:
-        ctx.textual.error_text(msg.Steps.Search.QUERY_NAME_REQUIRED)
-        ctx.textual.end_step("error")
+        ui.error_text(msg.Steps.Search.QUERY_NAME_REQUIRED)
+        ui.end_step("error")
         return Error(msg.Steps.Search.QUERY_NAME_REQUIRED)
 
     # Get all predefined queries from utils
@@ -98,8 +101,8 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     if query_name not in all_queries:
         # Build helpful error message using operations
         error_msg = build_query_not_found_message(query_name, predefined_queries, custom_queries, max_predefined_shown=15)
-        ctx.textual.error_text(error_msg)
-        ctx.textual.end_step("error")
+        ui.error_text(error_msg)
+        ui.end_step("error")
         return Error(error_msg)
 
     jql = all_queries[query_name]
@@ -115,32 +118,36 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
     jql, format_error = format_jql_with_project(jql, project)
     if format_error:
         error_msg = msg.Steps.Search.PROJECT_REQUIRED.format(query_name=query_name, jql=jql)
-        ctx.textual.error_text(error_msg)
-        ctx.textual.end_step("error")
+        ui.error_text(error_msg)
+        ui.end_step("error")
         return Error(error_msg)
 
     # Show which query is being used
     is_custom = query_name in custom_queries
     source_label = "Custom" if is_custom else "Predefined"
 
-    ctx.textual.text("")
-    ctx.textual.bold_text(f"Using {source_label} Query: {query_name}")
-    ctx.textual.dim_text(f"  JQL: {jql}")
-    ctx.textual.text("")
+    ui.text("")
+    if hasattr(ui, "bold_text"):
+        ui.bold_text(f"Using {source_label} Query: {query_name}")
+    else:
+        ui.text(f"Using {source_label} Query: {query_name}")
+    ui.dim_text(f"  JQL: {jql}")
+    ui.text("")
 
     # Get max results
     max_results = ctx.get("max_results", 50)
 
     # Execute search with loading indicator
-    with ctx.textual.loading("Searching JIRA issues..."):
+    loading = ui.loading("Searching JIRA issues...") if hasattr(ui, "loading") else nullcontext()
+    with loading:
         result = ctx.jira.search_issues(jql=jql, max_results=max_results)
 
     # Pattern match on Result
     match result:
         case ClientSuccess(data=issues):
             if not issues:
-                ctx.textual.dim_text(f"No issues found for query: {query_name}")
-                ctx.textual.end_step("success")
+                ui.dim_text(f"No issues found for query: {query_name}")
+                ui.end_step("success")
                 return Success(
                     "No issues found",
                     metadata={
@@ -151,13 +158,16 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
                 )
 
             # Show results
-            ctx.textual.text("")  # spacing
-            ctx.textual.success_text(f"Found {len(issues)} issues")
-            ctx.textual.text("")
+            ui.text("")  # spacing
+            ui.success_text(f"Found {len(issues)} issues")
+            ui.text("")
 
             # Show detailed table
-            ctx.textual.bold_text("Found Issues:")
-            ctx.textual.text("")
+            if hasattr(ui, "bold_text"):
+                ui.bold_text("Found Issues:")
+            else:
+                ui.text("Found Issues:")
+            ui.text("")
 
             try:
                 # Sort issues intelligently
@@ -167,26 +177,34 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
                 # Build table data using operations
                 headers, rows = build_issue_table_data(sorted_issues, summary_max_length=60)
 
-                # Render table using textual widget
-                ctx.textual.mount(
-                    Table(
-                        headers=headers,
-                        rows=rows,
-                        title=f"Issues (sorted by {sorter.get_sort_description()})"
+                if ctx.textual:
+                    # Render table using textual widget
+                    ctx.textual.mount(
+                        Table(
+                            headers=headers,
+                            rows=rows,
+                            title=f"Issues (sorted by {sorter.get_sort_description()})"
+                        )
                     )
-                )
+                else:
+                    ui.text(f"Issues (sorted by {sorter.get_sort_description()})")
+                    for row in rows:
+                        ui.text(" | ".join(str(cell) for cell in row))
 
                 # Use sorted issues for downstream steps
                 issues = sorted_issues
             except Exception as e:
                 # If table rendering fails, show error but continue with raw issue list
-                ctx.textual.error_text(f"Error rendering table: {e}")
-                ctx.textual.primary_text(f"Found {len(issues)} issues (showing raw data)")
+                ui.error_text(f"Error rendering table: {e}")
+                if hasattr(ui, "primary_text"):
+                    ui.primary_text(f"Found {len(issues)} issues (showing raw data)")
+                else:
+                    ui.text(f"Found {len(issues)} issues (showing raw data)")
                 for i, issue in enumerate(issues, 1):
-                    ctx.textual.text(f"{i}. {issue.key} - {issue.summary}")
-                ctx.textual.text("")
+                    ui.text(f"{i}. {issue.key} - {issue.summary}")
+                ui.text("")
 
-            ctx.textual.end_step("success")
+            ui.end_step("success")
             return Success(
                 f"Found {len(issues)} issues using query: {query_name}",
                 metadata={
@@ -198,8 +216,8 @@ def search_saved_query_step(ctx: WorkflowContext) -> WorkflowResult:
 
         case ClientError(error_message=err):
             error_msg = f"JIRA search failed: {err}"
-            ctx.textual.error_text(error_msg)
-            ctx.textual.end_step("error")
+            ui.error_text(error_msg)
+            ui.end_step("error")
             return Error(error_msg)
 
 

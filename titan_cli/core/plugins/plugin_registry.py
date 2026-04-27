@@ -105,7 +105,7 @@ class PluginRegistry:
                 self._plugin_versions[ep.name] = ep.dist.version if ep.dist else "unknown"
                 logger.debug("plugin_loaded", name=ep.name)
             except Exception as e:
-                logger.exception("plugin_load_failed", name=ep.name)
+                logger.warning("plugin_load_failed", name=ep.name, error=str(e))
                 error = PluginLoadError(plugin_name=ep.name, original_exception=e)
                 self._failed_plugins[ep.name] = error
 

@@ -1,10 +1,10 @@
-"""
-WorkflowContext - Dependency injection container for workflows.
-"""
+"""Workflow execution context with backwards-compatible UI bindings."""
 
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
+from titan_cli.engine.interaction.headless import HeadlessInteractionPort
+from titan_cli.engine.interaction.textual import TextualInteractionPort
 from titan_cli.core.secrets import SecretManager
 
 
@@ -29,8 +29,9 @@ class WorkflowContext:
     # Core dependencies
     secrets: SecretManager
 
-    # Textual TUI components (for TUI mode)
+    # Legacy Textual TUI components (for compatibility during refactor)
     textual: Optional[Any] = None
+    interaction: Optional[Any] = None
 
     # Plugin registry
     plugin_manager: Optional[Any] = None
@@ -52,6 +53,16 @@ class WorkflowContext:
 
     # Internal state for workflow execution
     _workflow_stack: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Normalize legacy and new interaction wiring."""
+        if self.interaction is None:
+            if self.textual is not None:
+                self.interaction = TextualInteractionPort(self.textual)
+            else:
+                self.interaction = HeadlessInteractionPort()
+        elif self.textual is None and hasattr(self.interaction, "legacy"):
+            self.textual = self.interaction.legacy
 
     def set(self, key: str, value: Any) -> None:
         """Set shared data."""

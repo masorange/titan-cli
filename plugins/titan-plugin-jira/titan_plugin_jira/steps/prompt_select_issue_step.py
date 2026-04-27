@@ -6,6 +6,11 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from ..messages import msg
 
 
+def _interaction(ctx: WorkflowContext):
+    """Return the preferred interaction surface, keeping textual compatibility."""
+    return getattr(ctx, "interaction", None) or getattr(ctx, "textual", None)
+
+
 def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Prompt user to select a JIRA issue from search results.
@@ -21,65 +26,66 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the user selects a valid issue.
         Error: If there are no issues, the selection is invalid, or the prompt is cancelled.
     """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
+    ui = _interaction(ctx)
+    if not ui:
+        return Error("Interaction context is not available for this step.")
 
     # Begin step container
-    ctx.textual.begin_step("Select Issue to Analyze")
+    ui.begin_step("Select Issue to Analyze")
 
     # Get issues from previous search
     issues = ctx.get("jira_issues")
     if not issues:
-        ctx.textual.error_text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
-        ctx.textual.end_step("error")
+        ui.error_text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
+        ui.end_step("error")
         return Error(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
 
     if len(issues) == 0:
-        ctx.textual.error_text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
-        ctx.textual.end_step("error")
+        ui.error_text(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
+        ui.end_step("error")
         return Error(msg.Steps.PromptSelectIssue.NO_ISSUES_AVAILABLE)
 
     # Prompt user to select issue (issues already displayed in table from previous step)
-    ctx.textual.text("")
+    ui.text("")
 
     try:
         # Ask for selection using text input and validate
-        response = ctx.textual.ask_text(
+        response = ui.ask_text(
             msg.Steps.PromptSelectIssue.ASK_ISSUE_NUMBER,
             default=""
         )
 
         if not response or not response.strip():
-            ctx.textual.error_text(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED)
-            ctx.textual.end_step("error")
+            ui.error_text(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED)
+            ui.end_step("error")
             return Error(msg.Steps.PromptSelectIssue.NO_ISSUE_SELECTED)
 
         # Validate it's a number
         try:
             selected_index = int(response.strip())
         except ValueError:
-            ctx.textual.error_text(f"Invalid input: '{response}' is not a number")
-            ctx.textual.end_step("error")
+            ui.error_text(f"Invalid input: '{response}' is not a number")
+            ui.end_step("error")
             return Error(f"Invalid input: '{response}' is not a number")
 
         # Validate it's in range
         if selected_index < 1 or selected_index > len(issues):
-            ctx.textual.error_text(f"Invalid selection: must be between 1 and {len(issues)}")
-            ctx.textual.end_step("error")
+            ui.error_text(f"Invalid selection: must be between 1 and {len(issues)}")
+            ui.end_step("error")
             return Error(f"Invalid selection: must be between 1 and {len(issues)}")
 
         # Convert to 0-based index
         selected_issue = issues[selected_index - 1]
 
-        ctx.textual.text("")
-        ctx.textual.success_text(
+        ui.text("")
+        ui.success_text(
             msg.Steps.PromptSelectIssue.ISSUE_SELECTION_CONFIRM.format(
                 key=selected_issue.key,
                 summary=selected_issue.summary
             )
         )
 
-        ctx.textual.end_step("success")
+        ui.end_step("success")
         return Success(
             msg.Steps.PromptSelectIssue.SELECT_SUCCESS.format(key=selected_issue.key),
             metadata={
@@ -88,8 +94,8 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
             }
         )
     except (KeyboardInterrupt, EOFError):
-        ctx.textual.error_text("User cancelled issue selection")
-        ctx.textual.end_step("error")
+        ui.error_text("User cancelled issue selection")
+        ui.end_step("error")
         return Error("User cancelled issue selection")
 
 

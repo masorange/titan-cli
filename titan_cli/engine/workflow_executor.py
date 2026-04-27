@@ -28,6 +28,11 @@ class WorkflowExecutor:
         self._plugin_registry = plugin_registry
         self._workflow_registry = workflow_registry
 
+    @staticmethod
+    def _is_control_flow_exception(error: Exception) -> bool:
+        """Return True for app-level control flow that must escape step wrapping."""
+        return hasattr(error, "prompt")
+
     def execute(self, workflow: ParsedWorkflow, ctx: WorkflowContext, params_override: Optional[Dict[str, Any]] = None) -> WorkflowResult:
         """
         Executes the given ParsedWorkflow.
@@ -72,6 +77,8 @@ class WorkflowExecutor:
                         # This should be caught by model validation, but as a safeguard:
                         step_result = Error(f"Invalid step configuration for '{step_id}'.")
                 except Exception as e:
+                    if self._is_control_flow_exception(e):
+                        raise
                     step_result = Error(f"An unexpected error occurred in step '{step_name}': {e}", e)
 
                 # Handle step result
@@ -82,7 +89,11 @@ class WorkflowExecutor:
                     return Success(step_result.message, step_result.metadata)
                 elif is_error(step_result):
                     if step_config.on_error == "fail":
-                        return Error(f"Workflow failed at step '{step_name}'", step_result.exception)
+                        detail = f": {step_result.message}" if step_result.message else ""
+                        return Error(
+                            f"Workflow failed at step '{step_name}'{detail}",
+                            exception=step_result.exception,
+                        )
                     # else: on_error == "continue" - continue to next step
                 elif is_skip(step_result):
                     if step_result.metadata:
@@ -170,6 +181,8 @@ class WorkflowExecutor:
                 # Plugin and project steps receive only ctx (params are in ctx.data)
                 return step_func(ctx)
         except Exception as e:
+            if self._is_control_flow_exception(e):
+                raise
             error_source = f"plugin '{plugin_name}'" if plugin_name not in ("project", "user", "core") else f"{plugin_name} step"
             return Error(f"Error executing step '{step_func_name}' from {error_source}: {e}", e)
 

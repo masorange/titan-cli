@@ -26,13 +26,28 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
     """
     Executes a shell command defined in a workflow step.
     """
+    interaction = getattr(ctx, "interaction", None)
+    legacy_textual = getattr(ctx, "textual", None)
+
+    def emit_text(message: str) -> None:
+        if interaction:
+            interaction.step_output(message)
+        elif legacy_textual:
+            legacy_textual.text(message)
+
+    def emit_dim(message: str) -> None:
+        if interaction:
+            interaction.info(message)
+        elif legacy_textual:
+            legacy_textual.dim_text(message)
+
     command_template = step.command
     if not command_template:
         return Error("Command step is missing the 'command' attribute.")
 
     command = resolve_parameters_in_string(command_template, ctx)
 
-    ctx.textual.text(f"Executing command: {command}")
+    emit_text(f"Executing command: {command}")
 
     try:
         use_venv = step.params.get("use_venv", False)
@@ -40,7 +55,7 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
         cwd = ctx.get("cwd") or os.getcwd()
 
         if use_venv:
-            ctx.textual.dim_text("Activating poetry virtual environment for step...")
+            emit_dim("Activating poetry virtual environment for step...")
             
             venv_env = get_poetry_venv_env(cwd=cwd)
             if venv_env:
@@ -68,7 +83,7 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
         stdout_output, stderr_output = process.communicate()
 
         if stdout_output:
-            ctx.textual.text(stdout_output)
+            emit_text(stdout_output)
         
         if process.returncode != 0:
             error_message = f"Command failed with exit code {process.returncode}"
@@ -87,4 +102,3 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
         return Error(f"Command not found: {command_to_report}")
     except Exception as e:
         return Error(f"An unexpected error occurred: {e}", exception=e)
-
