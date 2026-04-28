@@ -15,9 +15,9 @@ def test_list_repository_directory_returns_entries():
 
     service = RepositoryContentService(gh_network)
     result = service.list_repository_directory(
-        "workspace/catalog",
+        "catalog/entries",
         repo_owner="example-org",
-        repo_name="backend-monorepo",
+        repo_name="source-repo",
         ref="main",
     )
 
@@ -25,9 +25,7 @@ def test_list_repository_directory_returns_entries():
     assert result.data == [{"name": "feature-a", "type": "dir"}]
     gh_network.run_command.assert_called_once_with([
         "api",
-        "repos/example-org/backend-monorepo/contents/workspace/catalog",
-        "-F",
-        "ref=main",
+        "/repos/example-org/source-repo/contents/catalog/entries?ref=main",
     ])
 
 
@@ -38,7 +36,7 @@ def test_list_repository_directory_returns_error_when_payload_is_file():
     gh_network.run_command.return_value = '{"name": "openapi.yaml", "type": "file"}'
 
     service = RepositoryContentService(gh_network)
-    result = service.list_repository_directory("workspace/catalog/feature-a/spec/openapi.yaml")
+    result = service.list_repository_directory("catalog/entries/feature-a/spec/openapi.yaml")
 
     assert isinstance(result, ClientError)
     assert result.error_code == "NOT_A_DIRECTORY"
@@ -51,7 +49,7 @@ def test_path_exists_returns_false_for_404():
     gh_network.run_command.side_effect = GitHubAPIError("GitHub API error: 404 Not Found")
 
     service = RepositoryContentService(gh_network)
-    result = service.path_exists("workspace/catalog/feature-a/spec/openapi.yaml")
+    result = service.path_exists("catalog/entries/feature-a/spec/openapi.yaml")
 
     assert isinstance(result, ClientSuccess)
     assert result.data is False
@@ -64,7 +62,7 @@ def test_path_exists_returns_error_for_non_404_api_failure():
     gh_network.run_command.side_effect = GitHubAPIError("GitHub API error: 403 Forbidden")
 
     service = RepositoryContentService(gh_network)
-    result = service.path_exists("workspace/catalog/feature-a/spec/openapi.yaml")
+    result = service.path_exists("catalog/entries/feature-a/spec/openapi.yaml")
 
     assert isinstance(result, ClientError)
     assert result.error_code == "API_ERROR"

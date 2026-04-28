@@ -227,18 +227,18 @@ def test_list_repository_directory_delegates_to_repository_content_service(githu
     )
 
     result = github_client.list_repository_directory(
-        "workspace/catalog",
+        "catalog/entries",
         repo_owner="example-org",
-        repo_name="backend-monorepo",
+        repo_name="source-repo",
         ref="main",
     )
 
     assert isinstance(result, ClientSuccess)
     assert result.data == [{"name": "feature-a", "type": "dir"}]
     github_client._repository_content_service.list_repository_directory.assert_called_once_with(
-        path="workspace/catalog",
+        path="catalog/entries",
         repo_owner="example-org",
-        repo_name="backend-monorepo",
+        repo_name="source-repo",
         ref="main",
     )
 
@@ -249,16 +249,16 @@ def test_path_exists_delegates_to_repository_content_service(github_client):
     )
 
     result = github_client.path_exists(
-        "workspace/catalog/feature-a/spec/openapi.yaml",
+        "catalog/entries/feature-a/spec/openapi.yaml",
         repo_owner="example-org",
-        repo_name="backend-monorepo",
+        repo_name="source-repo",
     )
 
     assert isinstance(result, ClientSuccess)
     assert result.data is False
     github_client._repository_content_service.path_exists.assert_called_once_with(
-        path="workspace/catalog/feature-a/spec/openapi.yaml",
+        path="catalog/entries/feature-a/spec/openapi.yaml",
         repo_owner="example-org",
-        repo_name="backend-monorepo",
+        repo_name="source-repo",
         ref=None,
     )

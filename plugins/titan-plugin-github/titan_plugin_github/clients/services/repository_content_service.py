@@ -92,11 +92,10 @@ class RepositoryContentService:
 
     @staticmethod
     def _build_contents_args(owner: str, repo: str, path: str, ref: Optional[str]) -> list[str]:
-        endpoint = f"repos/{owner}/{repo}/contents/{path}" if path else f"repos/{owner}/{repo}/contents"
-        args = ["api", endpoint]
+        endpoint = f"/repos/{owner}/{repo}/contents/{path}" if path else f"/repos/{owner}/{repo}/contents"
         if ref:
-            args.extend(["-F", f"ref={ref}"])
-        return args
+            endpoint = f"{endpoint}?ref={ref}"
+        return ["api", endpoint]
 
 
 __all__ = ["RepositoryContentService"]
