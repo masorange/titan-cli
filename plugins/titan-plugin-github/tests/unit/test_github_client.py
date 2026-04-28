@@ -6,6 +6,7 @@ Tests that the client correctly delegates to services and provides a clean publi
 
 import pytest
 from unittest.mock import Mock, patch
+
 from titan_cli.core.result import ClientSuccess
 from titan_plugin_github.clients import GitHubClient
 
@@ -218,3 +219,46 @@ def test_resolve_review_thread_delegates_to_service(github_client):
 
     assert isinstance(result, ClientSuccess)
     github_client._review_service.resolve_review_thread.assert_called_once_with("thread_123")
+
+
+def test_list_repository_directory_delegates_to_repository_content_service(github_client):
+    github_client._repository_content_service.list_repository_directory = Mock(
+        return_value=ClientSuccess(data=[{"name": "feature-a", "type": "dir"}], message="ok")
+    )
+
+    result = github_client.list_repository_directory(
+        "workspace/catalog",
+        repo_owner="example-org",
+        repo_name="backend-monorepo",
+        ref="main",
+    )
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data == [{"name": "feature-a", "type": "dir"}]
+    github_client._repository_content_service.list_repository_directory.assert_called_once_with(
+        path="workspace/catalog",
+        repo_owner="example-org",
+        repo_name="backend-monorepo",
+        ref="main",
+    )
+
+
+def test_path_exists_delegates_to_repository_content_service(github_client):
+    github_client._repository_content_service.path_exists = Mock(
+        return_value=ClientSuccess(data=False, message="missing")
+    )
+
+    result = github_client.path_exists(
+        "workspace/catalog/feature-a/spec/openapi.yaml",
+        repo_owner="example-org",
+        repo_name="backend-monorepo",
+    )
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data is False
+    github_client._repository_content_service.path_exists.assert_called_once_with(
+        path="workspace/catalog/feature-a/spec/openapi.yaml",
+        repo_owner="example-org",
+        repo_name="backend-monorepo",
+        ref=None,
+    )

@@ -10,6 +10,7 @@ from .review_service import ReviewService
 from .issue_service import IssueService
 from .team_service import TeamService
 from .release_service import ReleaseService
+from .repository_content_service import RepositoryContentService
 
 __all__ = [
     "PRService",
@@ -17,4 +18,5 @@ __all__ = [
     "IssueService",
     "TeamService",
     "ReleaseService",
+    "RepositoryContentService",
 ]

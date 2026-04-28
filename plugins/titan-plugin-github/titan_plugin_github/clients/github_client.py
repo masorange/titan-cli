@@ -14,7 +14,7 @@ from titan_cli.core.plugins.models import GitHubPluginConfig
 from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
-from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService
+from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService, RepositoryContentService
 from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated, UIRelease
 
 
@@ -76,6 +76,7 @@ class GitHubClient:
         self._issue_service = IssueService(self._gh_network)
         self._team_service = TeamService(self._gh_network)
         self._release_service = ReleaseService(self._gh_network)
+        self._repository_content_service = RepositoryContentService(self._gh_network)
 
     def get_pr_template(self) -> Optional[str]:
         """Get the PR template if available."""
@@ -397,4 +398,34 @@ class GitHubClient:
         return ClientSuccess(
             data=fallback_branch,
             message=f"Default branch from git client: {fallback_branch}"
+        )
+
+    def list_repository_directory(
+        self,
+        path: str,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+        ref: Optional[str] = None,
+    ) -> ClientResult[List[Dict[str, Any]]]:
+        """List contents for a repository directory using the GitHub contents API."""
+        return self._repository_content_service.list_repository_directory(
+            path=path,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            ref=ref,
+        )
+
+    def path_exists(
+        self,
+        path: str,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+        ref: Optional[str] = None,
+    ) -> ClientResult[bool]:
+        """Return whether a repository path exists in GitHub contents API."""
+        return self._repository_content_service.path_exists(
+            path=path,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            ref=ref,
         )
