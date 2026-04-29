@@ -53,14 +53,29 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quick-start.md
     - Your First Workflow: getting-started/your-first-workflow.md
+    - Your First Textual Step: getting-started/your-first-textual-step.md
   - Concepts:
     - Workflows: concepts/workflows.md
+    - Workflow Steps: concepts/workflow-steps.md
+    - Textual in Steps: concepts/textual-steps.md
     - AI Integration: concepts/ai-integration.md
   - Plugins:
-    - Overview: plugins/overview.md
-    - Git Plugin: plugins/git-plugin.md
-    - GitHub Plugin: plugins/github-plugin.md
-    - Jira Plugin: plugins/jira-plugin.md
+    - Overview: plugins/index.md
+    - Git:
+      - Overview: plugins/git/overview.md
+      - Client API: plugins/git/client-api.md
+      - Workflow Steps: plugins/git/workflow-steps.md
+      - Built-in Workflows: plugins/git/built-in-workflows.md
+    - GitHub:
+      - Overview: plugins/github/overview.md
+      - Client API: plugins/github/client-api.md
+      - Workflow Steps: plugins/github/workflow-steps.md
+      - Built-in Workflows: plugins/github/built-in-workflows.md
+    - Jira:
+      - Overview: plugins/jira/overview.md
+      - Client API: plugins/jira/client-api.md
+      - Workflow Steps: plugins/jira/workflow-steps.md
+      - Built-in Workflows: plugins/jira/built-in-workflows.md
   - Contributing:
     - Development Setup: contributing/development-setup.md
     - Architecture: contributing/architecture.md

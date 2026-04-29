@@ -27,6 +27,8 @@ Titan stores your API key securely in the OS keyring — you'll be prompted for 
 
 AI is **optional**. All built-in workflows work without it; AI steps are skipped if no AI connection is configured.
 
+Workflow authors can reuse AI-powered behavior through built-in core steps such as `plugin: core` / `ai_code_assistant`. See [Workflow Steps](workflow-steps.md#built-in-core-steps).
+
 ## Connection Types
 
 ### Direct Provider

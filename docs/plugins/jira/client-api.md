@@ -1,4 +1,4 @@
-# Jira Plugin
+# Jira Client API
 
 The Jira plugin adds Jira operations to Titan through a high-level client and reusable workflows. It covers issue lookup, JQL search, comments, transitions, issue creation, metadata discovery, links, and AI-assisted issue workflows.
 
@@ -295,6 +295,70 @@ client.list_project_versions(project_key="APP")
 **Parameters:**
 
 - `project_key`: Optional. Project key. Uses the configured default project when omitted.
+
+### Create a version
+
+Creates a Jira version in a project.
+
+**Call:**
+
+```python
+client.create_version(
+    name="25.45",
+    project_key="APP",
+    description="Weekly mobile release",
+    release_date="2026-04-30",
+)
+```
+
+**Parameters:**
+
+- `name`: Required. Version name.
+- `project_key`: Optional. Project key. Uses the configured default project when omitted.
+- `description`: Optional. Version description.
+- `release_date`: Optional. Jira release date in `YYYY-MM-DD` format.
+
+### Ensure a version exists
+
+Returns an existing version by name or creates it if missing.
+
+**Call:**
+
+```python
+client.ensure_version_exists(
+    name="25.45",
+    project_key="APP",
+    description="Weekly mobile release",
+)
+```
+
+**Parameters:**
+
+- `name`: Required. Version name.
+- `project_key`: Optional. Project key. Uses the configured default project when omitted.
+- `description`: Optional. Description to use if the version must be created.
+- `release_date`: Optional. Release date to use if the version must be created.
+
+### Assign a fixVersion
+
+Assigns a Jira fixVersion to an issue, by version ID or version name.
+
+**Call:**
+
+```python
+client.assign_fix_version(
+    issue_key="APP-123",
+    version_name="25.45",
+    project_key="APP",
+)
+```
+
+**Parameters:**
+
+- `issue_key`: Required. Issue key.
+- `version_id`: Optional. Jira version ID.
+- `version_name`: Optional. Version name. Required when `version_id` is not provided.
+- `project_key`: Optional. Project key used to resolve `version_name`. Uses the configured default project when omitted.
 
 ### Get priorities
 

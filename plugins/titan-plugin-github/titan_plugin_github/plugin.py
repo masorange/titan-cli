@@ -136,6 +136,11 @@ class GitHubPlugin(TitanPlugin):
         from .steps.ai_pr_step import ai_suggest_pr_description_step
         from .steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
         from .steps.preview_step import preview_and_confirm_issue_step
+        from .steps.pull_request_steps import (
+            get_pull_request_step,
+            merge_pull_request_step,
+            verify_pull_request_state_step,
+        )
         from .steps.pr_review_steps import (
             select_pr_for_review_step,
             fetch_pending_comments_step,
@@ -184,6 +189,9 @@ class GitHubPlugin(TitanPlugin):
             "ai_suggest_issue_title_and_body": ai_suggest_issue_title_and_body_step,
             "create_issue": create_issue_steps,
             "preview_and_confirm_issue": preview_and_confirm_issue_step,
+            "get_pull_request": get_pull_request_step,
+            "merge_pull_request": merge_pull_request_step,
+            "verify_pull_request_state": verify_pull_request_state_step,
             "select_pr_for_review": select_pr_for_review_step,
             "fetch_pending_comments": fetch_pending_comments_step,
             "check_clean_state": check_clean_state_step,

@@ -27,6 +27,11 @@ def ai_analyze_issue_requirements_step(ctx: WorkflowContext) -> WorkflowResult:
     Outputs (saved to ctx.data):
         ai_analysis (str): AI-generated analysis
         analysis_sections (dict): Structured analysis breakdown
+
+    Returns:
+        Success: If the issue analysis completes successfully.
+        Skip: If AI is not configured or not available.
+        Error: If no issue is available to analyze.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")

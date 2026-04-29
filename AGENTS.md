@@ -34,6 +34,20 @@ For high-level architecture overview, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ---
 
+## Agent Skills
+
+Project-maintained agent skills now live in `.claude/skills/`.
+
+- Use `.claude/skills/titan-project-workflow-builder/` for end-to-end project workflow creation under `.titan/`.
+- Use `.claude/skills/titan-official-plugin-workflow-builder/` for workflows that belong to official plugins inside this repository.
+- Use `.claude/skills/titan-public-plugin-workflow-builder/` for workflows that belong to public or community plugin packages.
+- Use `.claude/skills/titan-workflow-architecture/` for deciding the minimum correct architecture.
+- Use `.claude/skills/titan-capability-discovery/` to inspect what Titan, the current project, or the target plugin already provide before creating new code.
+
+These skills generate project artifacts under `.titan/`, but `.titan/skills/` is no longer the canonical location for workflow-authoring skills.
+
+---
+
 ## 🚀 Quick Start
 
 ### Setup
@@ -460,11 +474,32 @@ This applies when you:
 - Change the expected usage or behavior of an existing public client function
 - Add a workflow that exposes a new user-facing plugin capability
 
+Public workflow steps exposed through `plugin.py -> get_steps()` are part of that contract.
+
+This also applies when you:
+
+- Add a new public workflow step
+- Remove a public workflow step
+- Rename a public workflow step
+- Change the required `ctx.data` inputs of a public workflow step
+- Change the metadata outputs or return behavior (`Success`, `Skip`, `Exit`, `Error`) of a public workflow step
+
 Update the matching page in the `Plugins` documentation section:
 
-- `docs/plugins/git-plugin.md`
-- `docs/plugins/github-plugin.md`
-- `docs/plugins/jira-plugin.md`
+- `docs/plugins/git/overview.md`
+- `docs/plugins/git/client-api.md`
+- `docs/plugins/git/workflow-steps.md`
+- `docs/plugins/git/built-in-workflows.md`
+- `docs/plugins/github/overview.md`
+- `docs/plugins/github/client-api.md`
+- `docs/plugins/github/workflow-steps.md`
+- `docs/plugins/github/built-in-workflows.md`
+- `docs/plugins/jira/overview.md`
+- `docs/plugins/jira/client-api.md`
+- `docs/plugins/jira/workflow-steps.md`
+- `docs/plugins/jira/built-in-workflows.md`
+- `docs/plugins/_meta/*.json`
+- `docs/plugins/_generated/*.json`
 
 At minimum, the documentation must show:
 
@@ -473,6 +508,20 @@ At minimum, the documentation must show:
 - Which parameters are required
 - Which parameters are optional
 - Any important usage constraints
+
+For public workflow steps, docstrings must use the exact canonical section headers:
+
+- `Requires:`
+- `Inputs (from ctx.data):`
+- `Outputs (saved to ctx.data):`
+- `Returns:`
+
+`Returns:` is always required for public steps exposed through `get_steps()`.
+
+When you change public steps in this repository, run the project workflows:
+
+- `sync-plugin-docs`
+- `validate-plugin-docs`
 
 ### Core Concepts
 

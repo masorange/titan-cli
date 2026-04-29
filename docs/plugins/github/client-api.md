@@ -1,4 +1,4 @@
-# GitHub Plugin
+# GitHub Client API
 
 The GitHub plugin adds GitHub operations to Titan through a high-level client and reusable workflows. It covers pull requests, reviews, issues, releases, teams, and repository metadata.
 
