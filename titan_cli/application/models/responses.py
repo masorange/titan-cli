@@ -63,6 +63,30 @@ class PluginInspection:
 
 
 @dataclass(slots=True)
+class KnownPluginSummary:
+    """Plugin available for guided installation."""
+
+    name: str
+    description: str
+    package_name: str
+    source: str = "official"
+    repo_url: Optional[str] = None
+    recommended_ref: Optional[str] = None
+    dependencies: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class PluginMutationResult:
+    """Result returned after mutating plugin configuration."""
+
+    plugin_name: str
+    changed: bool
+    message: str
+    source: dict[str, Any] = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class ProjectInspection:
     """Complete project snapshot for native clients."""
 

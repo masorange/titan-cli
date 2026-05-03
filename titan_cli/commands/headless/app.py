@@ -2,7 +2,7 @@
 
 import typer
 
-from titan_cli.commands.headless import ai, project, runs, workflows
+from titan_cli.commands.headless import ai, plugins, project, runs, workflows
 from titan_cli.runtime.container import TitanRuntimeContainer
 
 
@@ -16,5 +16,5 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
     app.add_typer(runs.build_app(container), name="runs")
     app.add_typer(project.build_app(container), name="project")
     app.add_typer(ai.build_app(container), name="ai")
+    app.add_typer(plugins.build_app(container), name="plugins")
     return app
-

@@ -28,6 +28,7 @@ from titan_cli.application.services.project_inspection_service import (
     ProjectInspectionService,
 )
 from titan_cli.application.services.ai_connection_service import AIConnectionService
+from titan_cli.application.services.plugin_service import PluginService
 from titan_cli.application.services.workflow_service import WorkflowService
 
 
@@ -63,6 +64,11 @@ def _ai_config() -> TitanConfig:
     return TitanConfig(skip_plugin_init=True)
 
 
+def _plugin_service() -> PluginService:
+    """Build the plugin service used by headless CLI commands."""
+    return PluginService(config=TitanConfig())
+
+
 class _CLIContainer(TitanRuntimeContainer):
     """Container adapter that preserves the historical cli.py patch points."""
 
@@ -77,6 +83,9 @@ class _CLIContainer(TitanRuntimeContainer):
 
     def ai_connection_service(self) -> AIConnectionService:
         return AIConnectionService(config=_ai_config())
+
+    def plugin_service(self) -> PluginService:
+        return _plugin_service()
 
 
 app.add_typer(build_headless_app(_CLIContainer()), name="headless")
