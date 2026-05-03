@@ -87,6 +87,22 @@ class PluginMutationResult:
 
 
 @dataclass(slots=True)
+class PluginSourcePreview:
+    """Preview metadata for a stable community plugin source."""
+
+    repo_url: str
+    requested_ref: str
+    resolved_commit: str
+    package_name: Optional[str]
+    version: Optional[str]
+    description: Optional[str]
+    authors: list[str] = field(default_factory=list)
+    titan_entry_points: dict[str, str] = field(default_factory=dict)
+    python_dependencies: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class ProjectInspection:
     """Complete project snapshot for native clients."""
 

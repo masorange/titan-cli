@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 from titan_cli.application.models.responses import StartWorkflowResponse
 from titan_cli.application.models.responses import KnownPluginSummary
 from titan_cli.application.models.responses import PluginMutationResult
+from titan_cli.application.models.responses import PluginSourcePreview
 from titan_cli.application.models.responses import PluginInspection
 from titan_cli.application.models.responses import ProjectInspection
 from titan_cli.application.models.responses import WorkflowDetail
@@ -476,6 +477,98 @@ def test_headless_plugins_configure_passes_config_payload(monkeypatch):
         "message": "configured",
         "source": {},
         "config": {"platform": "ios"},
+    }
+
+
+def test_headless_plugins_preview_source_outputs_plugin_metadata(monkeypatch):
+    captured = None
+
+    class StubPluginService:
+        def preview_stable_source(self, raw_url):
+            nonlocal captured
+            captured = raw_url
+            return PluginSourcePreview(
+                repo_url="https://github.com/example/titan-plugin-demo",
+                requested_ref="v1.0.0",
+                resolved_commit="a" * 40,
+                package_name="titan-plugin-demo",
+                version="1.0.0",
+                description="Demo plugin",
+                authors=["Titan Team"],
+                titan_entry_points={"demo": "demo.plugin:DemoPlugin"},
+                python_dependencies=["titan-cli"],
+            )
+
+    monkeypatch.setattr(
+        "titan_cli.cli._plugin_service",
+        lambda: StubPluginService(),
+    )
+
+    source = "https://github.com/example/titan-plugin-demo@v1.0.0"
+    result = CliRunner().invoke(
+        app,
+        ["headless", "plugins", "preview-source", "--source", source, "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert captured == source
+    assert json.loads(result.stdout) == {
+        "repo_url": "https://github.com/example/titan-plugin-demo",
+        "requested_ref": "v1.0.0",
+        "resolved_commit": "a" * 40,
+        "package_name": "titan-plugin-demo",
+        "version": "1.0.0",
+        "description": "Demo plugin",
+        "authors": ["Titan Team"],
+        "titan_entry_points": {"demo": "demo.plugin:DemoPlugin"},
+        "python_dependencies": ["titan-cli"],
+        "warnings": [],
+    }
+
+
+def test_headless_plugins_install_outputs_mutation(monkeypatch):
+    captured = None
+
+    class StubPluginService:
+        def install_stable_source(self, raw_url):
+            nonlocal captured
+            captured = raw_url
+            return PluginMutationResult(
+                plugin_name="demo",
+                changed=True,
+                message="Plugin 'demo' installed.",
+                source={
+                    "channel": "stable",
+                    "repo_url": "https://github.com/example/titan-plugin-demo",
+                    "requested_ref": "v1.0.0",
+                    "resolved_commit": "a" * 40,
+                },
+            )
+
+    monkeypatch.setattr(
+        "titan_cli.cli._plugin_service",
+        lambda: StubPluginService(),
+    )
+
+    source = "https://github.com/example/titan-plugin-demo@v1.0.0"
+    result = CliRunner().invoke(
+        app,
+        ["headless", "plugins", "install", "--source", source, "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert captured == source
+    assert json.loads(result.stdout) == {
+        "plugin_name": "demo",
+        "changed": True,
+        "message": "Plugin 'demo' installed.",
+        "source": {
+            "channel": "stable",
+            "repo_url": "https://github.com/example/titan-plugin-demo",
+            "requested_ref": "v1.0.0",
+            "resolved_commit": "a" * 40,
+        },
+        "config": {},
     }
 
 

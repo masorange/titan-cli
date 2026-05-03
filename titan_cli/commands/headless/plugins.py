@@ -72,6 +72,50 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
         except Exception as exc:
             fail_headless_command(exc, as_json=output_json)
 
+    @app.command("preview-source")
+    def preview_plugin_source(
+        source: str = typer.Option(
+            ...,
+            "--source",
+            help="Repository URL with version suffix, e.g. https://github.com/org/plugin@v1.0.0.",
+        ),
+        output_json: bool = typer.Option(
+            False,
+            "--json",
+            help="Print a machine-readable JSON response.",
+        ),
+    ):
+        """Preview a stable community plugin source before installation."""
+        try:
+            preview = run_headless_operation(
+                lambda: container.plugin_service().preview_stable_source(source)
+            )
+            output_presenter(output_json).write(preview)
+        except Exception as exc:
+            fail_headless_command(exc, as_json=output_json)
+
+    @app.command("install")
+    def install_plugin_source(
+        source: str = typer.Option(
+            ...,
+            "--source",
+            help="Repository URL with version suffix, e.g. https://github.com/org/plugin@v1.0.0.",
+        ),
+        output_json: bool = typer.Option(
+            False,
+            "--json",
+            help="Print a machine-readable JSON response.",
+        ),
+    ):
+        """Install and pin a stable community plugin source."""
+        try:
+            result = run_headless_operation(
+                lambda: container.plugin_service().install_stable_source(source)
+            )
+            output_presenter(output_json).write(result)
+        except Exception as exc:
+            fail_headless_command(exc, as_json=output_json)
+
     @app.command("set-enabled")
     def set_plugin_enabled(
         plugin_name: str = typer.Argument(..., help="Plugin name."),
