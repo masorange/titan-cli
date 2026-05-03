@@ -1,0 +1,28 @@
+"""Dependency composition for Titan command entrypoints."""
+
+from titan_cli.application.services.project_inspection_service import (
+    ProjectInspectionService,
+)
+from titan_cli.application.services.workflow_service import WorkflowService
+from titan_cli.core.config import TitanConfig
+
+
+class TitanRuntimeContainer:
+    """Build application services used by CLI, headless, and automation adapters."""
+
+    def config(self, *, skip_plugin_init: bool = False) -> TitanConfig:
+        """Return a Titan configuration instance for the current execution context."""
+        return TitanConfig(skip_plugin_init=skip_plugin_init)
+
+    def workflow_service(self) -> WorkflowService:
+        """Return the workflow orchestration service."""
+        return WorkflowService(config=self.config())
+
+    def project_inspection_service(self) -> ProjectInspectionService:
+        """Return the project inspection service."""
+        return ProjectInspectionService(config=self.config())
+
+    def ai_config(self) -> TitanConfig:
+        """Return config for AI settings without loading plugins."""
+        return self.config(skip_plugin_init=True)
+
