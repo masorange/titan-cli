@@ -27,6 +27,7 @@ from titan_cli.utils.autoupdate import (
 from titan_cli.application.services.project_inspection_service import (
     ProjectInspectionService,
 )
+from titan_cli.application.services.ai_connection_service import AIConnectionService
 from titan_cli.application.services.workflow_service import WorkflowService
 
 
@@ -73,6 +74,9 @@ class _CLIContainer(TitanRuntimeContainer):
 
     def ai_config(self) -> TitanConfig:
         return _ai_config()
+
+    def ai_connection_service(self) -> AIConnectionService:
+        return AIConnectionService(config=_ai_config())
 
 
 app.add_typer(build_headless_app(_CLIContainer()), name="headless")
@@ -244,4 +248,3 @@ def tui(ctx: typer.Context):
         else False
     )
     launch_tui(debug=debug, devtools=devtools)
-

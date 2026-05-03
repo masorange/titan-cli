@@ -3,6 +3,7 @@
 from titan_cli.application.services.project_inspection_service import (
     ProjectInspectionService,
 )
+from titan_cli.application.services.ai_connection_service import AIConnectionService
 from titan_cli.application.services.workflow_service import WorkflowService
 from titan_cli.core.config import TitanConfig
 
@@ -26,3 +27,6 @@ class TitanRuntimeContainer:
         """Return config for AI settings without loading plugins."""
         return self.config(skip_plugin_init=True)
 
+    def ai_connection_service(self) -> AIConnectionService:
+        """Return the AI connection application service."""
+        return AIConnectionService(config=self.ai_config())
