@@ -19,8 +19,11 @@ from titan_cli.application.models.requests import (
 from titan_cli.application.models.responses import (
     StartWorkflowResponse,
     WorkflowDetail,
+    WorkflowOutput,
+    WorkflowResult as WorkflowRunResult,
     WorkflowRunState,
     WorkflowStepSummary,
+    WorkflowStepResult,
     WorkflowSummary,
 )
 from titan_cli.application.runtime.event_bus import EventBus
@@ -234,6 +237,7 @@ class WorkflowService:
             status=session.status,
             events=list(session.events),
             pending_prompt=session.pending_prompt,
+            result=self._workflow_result_from_session(session),
         )
 
     def get_run(self, run_id: str) -> WorkflowRunState | None:
@@ -250,6 +254,7 @@ class WorkflowService:
             pending_prompt=session.pending_prompt,
             prompt_history=list(session.prompt_history),
             metadata=dict(session.metadata),
+            result=self._workflow_result_from_session(session),
         )
 
     def stream_events(
@@ -489,6 +494,119 @@ class WorkflowService:
                 "value": value,
             },
         )
+
+    def _workflow_result_from_session(self, session: RunSession) -> WorkflowRunResult:
+        """Build a UI-friendly terminal snapshot from structured run events."""
+        steps: list[WorkflowStepResult] = []
+        current_step: WorkflowStepResult | None = None
+        final_output: WorkflowOutput | None = None
+
+        for event in session.events:
+            payload = event.payload
+
+            if event.type == "step_started":
+                step_name = str(payload.get("step_name") or "Step")
+                current_step = WorkflowStepResult(
+                    id=str(
+                        payload.get("step_id")
+                        or self._slugify_step_title(step_name)
+                    ),
+                    title=step_name,
+                    status="running",
+                    plugin=self._optional_str(payload.get("plugin")),
+                    metadata={
+                        key: value
+                        for key, value in payload.items()
+                        if key not in {"step_id", "step_name", "plugin"}
+                    },
+                )
+                steps.append(current_step)
+                continue
+
+            if event.type == "step_finished":
+                if current_step is not None:
+                    current_step.status = self._normalize_step_status(
+                        payload.get("result")
+                    )
+                continue
+
+            if event.type == "step_failed":
+                if current_step is not None:
+                    current_step.status = "failed"
+                    current_step.error = self._optional_str(payload.get("message"))
+                continue
+
+            if event.type == "run_output":
+                text = str(payload.get("text") or "")
+                if not text.strip():
+                    continue
+                output = WorkflowOutput(kind="text", content=text)
+                if current_step is not None:
+                    current_step.outputs.append(output)
+                final_output = output
+                continue
+
+            if event.type == "run_markdown":
+                markdown = str(payload.get("text") or "")
+                if not markdown.strip():
+                    continue
+                output = WorkflowOutput(
+                    kind="markdown",
+                    title="Markdown output",
+                    content=markdown,
+                )
+                if current_step is not None:
+                    current_step.outputs.append(output)
+                final_output = output
+                continue
+
+            if event.type == "workflow_run_failed":
+                if current_step is not None and current_step.status == "running":
+                    current_step.status = "failed"
+                    current_step.error = self._optional_str(payload.get("message"))
+
+        return WorkflowRunResult(
+            run_id=session.run_id,
+            workflow_name=session.workflow_name,
+            status=session.status,
+            steps=steps,
+            result=final_output,
+            diagnostics={
+                "result_message": session.result_message,
+                "pending_prompt_id": (
+                    session.pending_prompt.prompt_id
+                    if session.pending_prompt is not None
+                    else None
+                ),
+            },
+        )
+
+    def _normalize_step_status(self, value: object) -> str:
+        """Convert engine result labels into stable UI status values."""
+        raw = str(value or "").lower()
+        if raw in {"success", "succeeded", "completed", "done"}:
+            return "success"
+        if raw in {"error", "failed", "failure"}:
+            return "failed"
+        if raw in {"skip", "skipped"}:
+            return "skipped"
+        return raw or "unknown"
+
+    def _optional_str(self, value: object) -> Optional[str]:
+        """Return string values while preserving absent metadata as null."""
+        if value is None:
+            return None
+        return str(value)
+
+    def _slugify_step_title(self, title: str) -> str:
+        """Build a stable fallback step id from a human-readable title."""
+        slug = "".join(
+            character.lower() if character.isalnum() else "_"
+            for character in title.strip()
+        ).strip("_")
+        while "__" in slug:
+            slug = slug.replace("__", "_")
+        return slug or "step"
 
     def _step_summary_from_dict(self, step: dict) -> WorkflowStepSummary:
         """Normalize resolved workflow step dictionaries for native clients."""

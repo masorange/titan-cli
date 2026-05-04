@@ -139,6 +139,7 @@ class StartWorkflowResponse:
     status: str
     events: list[RunEvent] = field(default_factory=list)
     pending_prompt: Optional[PromptRequest] = None
+    result: Optional["WorkflowResult"] = None
 
 
 @dataclass(slots=True)
@@ -153,6 +154,7 @@ class WorkflowRunState:
     pending_prompt: Optional[PromptRequest] = None
     prompt_history: list[PromptResponse] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    result: Optional["WorkflowResult"] = None
 
 
 @dataclass(slots=True)

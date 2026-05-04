@@ -95,6 +95,7 @@ def test_headless_runs_start_passes_headless_request_and_outputs_json(monkeypatc
         "status": "completed",
         "events": [],
         "pending_prompt": None,
+        "result": None,
     }
 
 
