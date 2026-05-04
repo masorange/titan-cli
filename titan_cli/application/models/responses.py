@@ -153,3 +153,38 @@ class WorkflowRunState:
     pending_prompt: Optional[PromptRequest] = None
     prompt_history: list[PromptResponse] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WorkflowOutput:
+    """User-facing output produced by a workflow or step."""
+
+    kind: str
+    content: str
+    title: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WorkflowStepResult:
+    """Final UI-agnostic state for a single workflow step."""
+
+    id: str
+    title: str
+    status: str
+    plugin: Optional[str] = None
+    error: Optional[str] = None
+    outputs: list[WorkflowOutput] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WorkflowResult:
+    """Stable terminal result contract for cross-platform UI clients."""
+
+    run_id: str
+    workflow_name: str
+    status: str
+    steps: list[WorkflowStepResult] = field(default_factory=list)
+    result: Optional[WorkflowOutput] = None
+    diagnostics: dict[str, Any] = field(default_factory=dict)
