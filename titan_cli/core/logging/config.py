@@ -196,6 +196,7 @@ def _setup_console_handler(log_level: int, is_dev: bool) -> None:
     # This prevents EVENT/SYSTEM spam in the console while keeping app logs visible
     logging.getLogger("textual").setLevel(logging.WARNING)
     logging.getLogger("rich").setLevel(logging.WARNING)
+    logging.getLogger("markdown_it").setLevel(logging.WARNING)
 
 
 def _configure_structlog(is_dev: bool) -> None:
