@@ -401,6 +401,76 @@ def test_headless_ai_models_outputs_direct_provider_suggestions(monkeypatch):
     assert {"id": "gemini-2.5-pro", "name": "gemini-2.5-pro", "owned_by": "gemini", "source": "suggested"} in payload["items"]
 
 
+def test_headless_plugins_list_outputs_inspected_plugins(monkeypatch):
+    captured_project_path = None
+
+    class StubProjectInspectionService:
+        def inspect_project(self, project_path=None):
+            nonlocal captured_project_path
+            captured_project_path = project_path
+            return ProjectInspection(
+                name="demo",
+                type="ios",
+                path="/tmp/demo",
+                config_path="/tmp/demo/.titan/config.toml",
+                configured=True,
+                plugins=[
+                    PluginInspection(
+                        name="ragnarok",
+                        enabled=True,
+                        installed=True,
+                        loaded=True,
+                        available=True,
+                        version="0.7.0",
+                        description="Ragnarok workflows",
+                        source={
+                            "channel": "dev_local",
+                            "path": "/tmp/ragnarok-plugin",
+                        },
+                        workflows=["analyze-jira-issues"],
+                        steps=["ai_analyze_issue_requirements"],
+                    )
+                ],
+                diagnostics=[],
+            )
+
+    monkeypatch.setattr(
+        "titan_cli.cli._project_inspection_service",
+        lambda: StubProjectInspectionService(),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["headless", "plugins", "list", "--project-path", "/tmp/demo", "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert captured_project_path == "/tmp/demo"
+    assert json.loads(result.stdout) == {
+        "installed": ["ragnarok"],
+        "enabled": ["ragnarok"],
+        "items": [
+            {
+                "name": "ragnarok",
+                "enabled": True,
+                "installed": True,
+                "loaded": True,
+                "available": True,
+                "version": "0.7.0",
+                "description": "Ragnarok workflows",
+                "source": {
+                    "channel": "dev_local",
+                    "path": "/tmp/ragnarok-plugin",
+                },
+                "workflows": ["analyze-jira-issues"],
+                "steps": ["ai_analyze_issue_requirements"],
+                "error": None,
+            }
+        ],
+        "diagnostics": [],
+    }
+
+
 def test_headless_plugins_available_outputs_curated_plugins(monkeypatch):
     class StubPluginService:
         def list_available_plugins(self):

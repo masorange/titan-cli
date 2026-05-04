@@ -1,5 +1,7 @@
 """Headless plugin management commands."""
 
+from typing import Optional
+
 import typer
 
 from titan_cli.commands.headless.common import (
@@ -17,19 +19,21 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
 
     @app.command("list")
     def list_plugins(
+        project_path: Optional[str] = typer.Option(
+            None,
+            "--project-path",
+            help="Project directory used to resolve project config and plugin state.",
+        ),
         output_json: bool = typer.Option(
             False,
             "--json",
             help="Print a machine-readable JSON response.",
         ),
     ):
-        """List installed and enabled plugins."""
+        """List installed, enabled, and inspected plugins."""
         try:
             payload = run_headless_operation(
-                lambda: {
-                    "installed": container.plugin_service().list_plugins(),
-                    "enabled": container.plugin_service().list_enabled_plugins(),
-                }
+                lambda: _build_plugin_list_payload(container, project_path)
             )
             output_presenter(output_json).write(payload)
         except Exception as exc:
@@ -206,3 +210,23 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
             fail_headless_command(exc, as_json=output_json)
 
     return app
+
+
+def _build_plugin_list_payload(
+    container: TitanRuntimeContainer,
+    project_path: Optional[str],
+) -> dict[str, object]:
+    """Build a backward-compatible plugin list payload for native clients."""
+    inspection = container.project_inspection_service().inspect_project(
+        project_path=project_path,
+    )
+    return {
+        "installed": [
+            plugin.name for plugin in inspection.plugins if plugin.installed
+        ],
+        "enabled": [
+            plugin.name for plugin in inspection.plugins if plugin.enabled
+        ],
+        "items": inspection.plugins,
+        "diagnostics": inspection.diagnostics,
+    }
