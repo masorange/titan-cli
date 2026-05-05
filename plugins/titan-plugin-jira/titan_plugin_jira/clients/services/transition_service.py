@@ -70,7 +70,9 @@ class TransitionService:
         self,
         issue_key: str,
         new_status: str,
-        comment: Optional[str] = None
+        comment: Optional[str] = None,
+        fields: Optional[dict] = None,
+        update: Optional[dict] = None,
     ) -> ClientResult[None]:
         """
         Transition issue to new status.
@@ -79,6 +81,8 @@ class TransitionService:
             issue_key: Issue key
             new_status: Target status name
             comment: Optional comment to add
+            fields: Optional Jira fields payload to send with the transition
+            update: Optional Jira update payload to merge into the transition
 
         Returns:
             ClientResult[None] (operation success/failure)
@@ -113,6 +117,9 @@ class TransitionService:
                 "transition": {"id": transition_id}
             }
 
+            if fields:
+                payload["fields"] = fields
+
             # Add comment if provided
             if comment:
                 payload["update"] = {
@@ -129,6 +136,10 @@ class TransitionService:
                         }
                     }]
                 }
+
+            if update:
+                existing_update = payload.get("update", {})
+                payload["update"] = {**existing_update, **update}
 
             # 4. Network call
             self.network.make_request("POST", f"issue/{issue_key}/transitions", json=payload)

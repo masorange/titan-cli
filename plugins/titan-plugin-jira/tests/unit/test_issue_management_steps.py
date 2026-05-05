@@ -61,6 +61,32 @@ def test_transition_issue_step_success():
     assert result.metadata == {"transition_target_status": "QA"}
 
 
+def test_transition_issue_step_passes_fields_and_update():
+    jira = Mock()
+    jira.transition_issue.return_value = ClientSuccess(data=None, message="ok")
+    fields = {"customfield_11281": {"id": "19077"}}
+    update = {"labels": [{"add": "qa"}]}
+    ctx = make_context(
+        jira,
+        jira_issue_key="TEST-1",
+        target_status="QA",
+        transition_comment="Completed",
+        fields=fields,
+        update=update,
+    )
+
+    result = transition_issue_step(ctx)
+
+    assert isinstance(result, Success)
+    jira.transition_issue.assert_called_once_with(
+        "TEST-1",
+        "QA",
+        comment="Completed",
+        fields=fields,
+        update=update,
+    )
+
+
 def test_verify_issue_state_step_mismatch_returns_error(sample_ui_issue):
     jira = Mock()
     jira.get_issue.return_value = ClientSuccess(data=sample_ui_issue, message="ok")

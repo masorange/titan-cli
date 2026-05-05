@@ -159,6 +159,64 @@ class TestTransitionServiceTransitionIssue:
         assert "update" in payload
         assert "comment" in payload["update"]
 
+    def test_transition_with_fields_adds_fields_payload(self, service, mock_jira_network, sample_transitions_response):
+        """Test custom transition fields are included in the payload"""
+        mock_jira_network.make_request.side_effect = [
+            sample_transitions_response,
+            None,
+        ]
+
+        fields = {
+            "customfield_11281": {"id": "19077"},
+            "customfield_11577": {"value": "Done, ready for QA"},
+        }
+
+        service.transition_issue("TEST-123", "Done", fields=fields)
+
+        post_call = mock_jira_network.make_request.call_args_list[1]
+        payload = post_call.kwargs["json"]
+        assert payload["fields"] == fields
+
+    def test_transition_with_comment_and_update_merges_updates(self, service, mock_jira_network, sample_transitions_response):
+        """Test explicit update payload is merged with generated comment update."""
+        mock_jira_network.make_request.side_effect = [
+            sample_transitions_response,
+            None,
+        ]
+
+        update = {
+            "labels": [{"add": "ready-for-qa"}],
+        }
+
+        service.transition_issue(
+            "TEST-123",
+            "Done",
+            comment="Moving to done",
+            update=update,
+        )
+
+        post_call = mock_jira_network.make_request.call_args_list[1]
+        payload = post_call.kwargs["json"]
+        assert payload["update"]["labels"] == [{"add": "ready-for-qa"}]
+        assert "comment" in payload["update"]
+
+    def test_transition_with_fields_and_update_includes_both(self, service, mock_jira_network, sample_transitions_response):
+        """Test fields and update can be sent together in one transition payload."""
+        mock_jira_network.make_request.side_effect = [
+            sample_transitions_response,
+            None,
+        ]
+
+        fields = {"customfield_1": {"id": "100"}}
+        update = {"labels": [{"add": "qa"}]}
+
+        service.transition_issue("TEST-123", "Done", fields=fields, update=update)
+
+        post_call = mock_jira_network.make_request.call_args_list[1]
+        payload = post_call.kwargs["json"]
+        assert payload["fields"] == fields
+        assert payload["update"] == update
+
     def test_case_insensitive_status_match(self, service, mock_jira_network, sample_transitions_response):
         """Test status name matching is case-insensitive"""
         mock_jira_network.make_request.side_effect = [
