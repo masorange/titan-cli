@@ -11,6 +11,7 @@ from ..models.review_models import (
     ReviewStrategy,
     ScoredReviewCandidate,
 )
+from .prompt_formatting_operations import comment_context_to_json
 from .review_strategy_operations import build_deterministic_review_plan, summarize_candidate_clusters
 
 
@@ -23,7 +24,7 @@ def build_review_plan_prompt(
     excluded_files: list[ExcludedFileEntry],
 ) -> str:
     manifest_json = _manifest_to_json(manifest)
-    comments_json = _comments_to_json(comments)
+    comments_json = comment_context_to_json(comments)
     checklist_json = _checklist_to_json(checklist)
     candidates_json = _candidates_to_json(candidates[: strategy.max_focus_files + 4])
     candidate_clusters_json = _candidate_clusters_to_json(candidates)
@@ -113,26 +114,6 @@ def _manifest_to_json(manifest: ChangeManifest) -> str:
         },
         indent=2,
     )
-
-
-def _comments_to_json(comments: list[CommentContextEntry]) -> str:
-    return json.dumps(
-        [
-            {
-                "kind": entry.kind,
-                "path": entry.path,
-                "line": entry.line,
-                "category": entry.category,
-                "title": entry.title,
-                "summary": entry.summary,
-                "is_resolved": entry.is_resolved,
-            }
-            for entry in comments
-        ],
-        indent=2,
-    )
-
-
 def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
     return json.dumps(
         [

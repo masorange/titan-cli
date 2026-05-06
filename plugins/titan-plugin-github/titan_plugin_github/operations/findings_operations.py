@@ -3,13 +3,14 @@
 import json
 from typing import Any
 
-from ..models.review_models import CommentContextEntry, Finding, FocusContextBatch, ReviewChecklistItem
+from ..models.review_models import Finding, FocusContextBatch, ReviewChecklistItem
+from .prompt_formatting_operations import comment_context_to_json
 
 
 def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     """Build prompt parts separately so callers can log size breakdowns."""
     checklist_json = _checklist_to_json(batch.checklist_applicable)
-    comments_json = _comments_to_json(batch.comment_context)
+    comments_json = comment_context_to_json(batch.comment_context)
     files_text = _files_context_to_text(batch.files_context)
     related_text = _related_files_to_text(batch.related_files)
     pr_context = _pr_context_to_text(batch)
@@ -77,26 +78,6 @@ def _pr_context_to_text(batch: FocusContextBatch) -> str:
 
 def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
     return json.dumps([str(item.id) for item in checklist[:4]], indent=2)
-
-
-def _comments_to_json(comments: list[CommentContextEntry]) -> str:
-    return json.dumps(
-        [
-            {
-                "kind": entry.kind,
-                "path": entry.path,
-                "line": entry.line,
-                "category": entry.category,
-                "title": entry.title,
-                "summary": entry.summary,
-                "is_resolved": entry.is_resolved,
-            }
-            for entry in comments
-        ],
-        indent=2,
-    )
-
-
 def _files_context_to_text(files_context: dict) -> str:
     if not files_context:
         return "(no files to review)\n"

@@ -167,6 +167,24 @@ def _show_review_plan_summary(ctx: WorkflowContext, plan) -> None:
             ctx.textual.dim_text(f"{request.type} -> {request.for_path}")
 
 
+def _strip_markdown_fences(text: str) -> str:
+    """Remove outer markdown code fences from a CLI response."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.split("\n")
+    return "\n".join(lines[1:-1]) if len(lines) > 2 else stripped
+
+
+def _extract_json_slice(text: str, opening: str, closing: str, label: str) -> str:
+    """Extract the outermost JSON object or array substring from a response."""
+    start = text.find(opening)
+    end = text.rfind(closing) + 1
+    if start == -1 or end == 0:
+        raise ValueError(f"No JSON {label} found in response")
+    return text[start:end]
+
+
 def _fit_batch_to_budget(batch, prompt_parts: dict[str, str], budget_chars: int):
     """Shrink or split a batch until it fits the prompt budget, or mark it oversized."""
     prompt = prompt_parts["prompt"]
@@ -905,7 +923,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
         "existing_comments_index_built",
         existing_comments_total=len(index),
         comments_for_prompt_count=len(comment_context),
-        comments_for_dedupe_count=len(index),
+        dedupe_comment_count=len(index),
         resolved_comments_count=resolved_count,
         unresolved_comments_count=len(index) - resolved_count,
         adjudicated_threads_count=adjudicated_count,
@@ -1205,16 +1223,8 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
 
     # Parse JSON response
     try:
-        text = response.stdout.strip()
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start == -1 or end == 0:
-            raise ValueError("No JSON object found in response")
-        plan = ReviewPlan.model_validate_json(text[start:end])
+        text = _strip_markdown_fences(response.stdout)
+        plan = ReviewPlan.model_validate_json(_extract_json_slice(text, "{", "}", "object"))
     except (json.JSONDecodeError, ValidationError, ValueError) as e:
         ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
         fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
@@ -1517,15 +1527,8 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             continue
 
         try:
-            text = response.stdout.strip()
-            if text.startswith("```"):
-                lines = text.split("\n")
-                text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-            start = text.find("[")
-            end = text.rfind("]") + 1
-            if start == -1 or end == 0:
-                raise ValueError("No JSON array found in response")
-            raw = json.loads(text[start:end])
+            text = _strip_markdown_fences(response.stdout)
+            raw = json.loads(_extract_json_slice(text, "[", "]", "array"))
             if isinstance(raw, list):
                 aggregated_raw.extend(raw)
         except (json.JSONDecodeError, ValueError) as e:
