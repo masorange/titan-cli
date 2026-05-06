@@ -2,8 +2,9 @@
 """
 Operations for AI-powered PR code review.
 
-Pure business logic functions for loading project skills, building review
-context, and inspecting diff content. All functions are UI-agnostic.
+Pure business logic functions for loading project instruction files,
+selecting review targets, and inspecting diff content. All functions are
+UI-agnostic.
 """
 
 import json
@@ -17,6 +18,8 @@ from ..managers.diff_context_manager import DiffContextManager
 from ..models.view import UIFileChange
 
 logger = get_logger(__name__)
+
+
 class ProjectInstructionFile(StrEnum):
     CLAUDE = "CLAUDE.md"   # Claude Code (Anthropic)
     GEMINI = "GEMINI.md"   # Gemini CLI (Google)
@@ -205,6 +208,8 @@ Example: ["app/src/main/Foo.kt", "lib/Bar.kt"]"""
     except Exception as e:
         logger.warning(f"File selection failed, using first {MAX_FILES_FOR_REVIEW} files: {e}")
         return all_paths[:MAX_FILES_FOR_REVIEW]
+
+
 def extract_hunk_for_line(file_diff: str, target_line: Optional[int]) -> Optional[str]:
     """
     Extract the diff hunk (starting with @@) that contains the target line.

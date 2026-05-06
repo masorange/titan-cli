@@ -328,7 +328,7 @@ def _estimate_comment_chars(comment_context: list[CommentContextEntry]) -> int:
 
 
 def _log_file_context(entry: FileContextEntry, path: str) -> FileContextEntry:
-    logger.info(
+    logger.debug(
         "file_context_resolved",
         path=path,
         read_mode=entry.read_mode,

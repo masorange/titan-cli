@@ -86,11 +86,11 @@ def build_review_action_payload(
     """
     manager = diff_manager or (get_or_create_diff_manager(diff) if diff else None)
     valid_lines = {p: set(ls) for p, ls in manager.get_all_valid_lines().items()} if manager else {}
-    logger.info("build_review_payload_start", action_count=len(actions), files_in_diff=len(valid_lines))
+    logger.debug("build_review_payload_start", action_count=len(actions), files_in_diff=len(valid_lines))
     if valid_lines:
         for path, lines in valid_lines.items():  # Log TODOS los archivos
             sorted_lines = sorted(list(lines))[:10]  # First 10 lines
-            logger.info("valid_lines_for_file", path=path, line_count=len(lines), sample_lines=sorted_lines)
+            logger.debug("valid_lines_for_file", path=path, line_count=len(lines), sample_lines=sorted_lines)
     else:
         logger.warning("no_valid_lines_in_diff", diff_length=len(diff) if diff else 0)
 
@@ -117,7 +117,7 @@ def build_review_action_payload(
         if action.path and resolved_line:
             file_valid_lines = valid_lines.get(action.path, set())
             inline_safe = resolved_line in file_valid_lines
-            logger.info("validate_comment_action",
+            logger.debug("validate_comment_action",
                 action_idx=idx, path=action.path, line=action.line, resolved_line=resolved_line,
                 original_line=action.original_line,
                 resolution_source=action.resolution_source,
@@ -136,7 +136,7 @@ def build_review_action_payload(
                     "side": "RIGHT",
                     "body": action.body,
                 })
-                logger.info("inline_comment_added", action_idx=idx, path=action.path, line=resolved_line)
+                logger.debug("inline_comment_added", action_idx=idx, path=action.path, line=resolved_line)
                 continue
 
         # Fallback: include in the general review body
@@ -145,7 +145,7 @@ def build_review_action_payload(
         if display_line:
             location += f" (line {display_line})"
         general_parts.append(f"{location}:\n{action.body}")
-        logger.info(
+        logger.debug(
             "fallback_to_general_body",
             action_idx=idx,
             path=action.path,
@@ -157,7 +157,7 @@ def build_review_action_payload(
     if general_parts:
         payload["body"] = "\n\n---\n\n".join(general_parts)
 
-    logger.info("build_review_payload_complete",
+    logger.debug("build_review_payload_complete",
         commit_sha=commit_sha,
         inline_comment_count=len(inline_comments),
         general_comment_count=len(general_parts),

@@ -58,7 +58,7 @@ def _preview_edges(text: str, limit: int) -> tuple[str, str]:
 def _log_ai_prompt(step_name: str, cli_name: str, prompt: str, **extra) -> None:
     """Log prompt metadata plus previews for review debugging."""
     first, last = _preview_edges(prompt, _PROMPT_PREVIEW_CHARS)
-    logger.info(
+    logger.debug(
         "ai_prompt_built",
         step=step_name,
         cli=cli_name,
@@ -67,7 +67,7 @@ def _log_ai_prompt(step_name: str, cli_name: str, prompt: str, **extra) -> None:
         prompt_last_chars=last,
         **extra,
     )
-    logger.info(
+    logger.debug(
         "ai_prompt_full",
         step=step_name,
         cli=cli_name,
@@ -80,7 +80,7 @@ def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, ex
     """Log response metadata plus previews for review debugging."""
     stdout_first, stdout_last = _preview_edges(stdout, _RESPONSE_PREVIEW_CHARS)
     stderr_first, stderr_last = _preview_edges(stderr, _RESPONSE_PREVIEW_CHARS)
-    logger.info(
+    logger.debug(
         "ai_response_received",
         step=step_name,
         cli=cli_name,
@@ -93,7 +93,7 @@ def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, ex
         stderr_last_chars=stderr_last,
         **extra,
     )
-    logger.info(
+    logger.debug(
         "ai_response_full",
         step=step_name,
         cli=cli_name,
@@ -138,7 +138,7 @@ def _looks_like_contradicted_api_claim(finding, visible_content: str) -> bool:
 
     contradicted = any(identifier.lower() in lower_visible for identifier in identifiers)
     if contradicted:
-        logger.info(
+        logger.debug(
             "finding_contradicted_by_visible_context",
             path=finding.path,
             title=finding.title,
@@ -314,7 +314,7 @@ def _collapse_derived_findings(findings: list) -> tuple[list, int]:
 
         if any(_is_derived_from_central(finding, central) for central in central_findings):
             removed += 1
-            logger.info(
+            logger.debug(
                 "finding_collapsed_to_root_cause",
                 path=finding.path,
                 title=finding.title,
@@ -919,7 +919,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.dim_text(
         f"prompt comments: {len(comment_context)} · adjudicated threads: {adjudicated_count}"
     )
-    logger.info(
+    logger.debug(
         "existing_comments_index_built",
         existing_comments_total=len(index),
         comments_for_prompt_count=len(comment_context),
@@ -963,7 +963,7 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
     )
     ctx.data["pr_classification"] = classification
 
-    logger.info(
+    logger.debug(
         "pr_classified",
         size_class=classification.size_class,
         files_changed=classification.files_changed,
@@ -1008,7 +1008,7 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     ctx.data["review_candidates"] = candidates
     ctx.data["excluded_review_files"] = excluded
 
-    logger.info(
+    logger.debug(
         "review_candidates_scored",
         candidates=len(candidates),
         excluded=len(excluded),
@@ -1077,7 +1077,7 @@ def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
     strategy = _select_strategy(classification)
     ctx.data["review_strategy"] = strategy
 
-    logger.info(
+    logger.debug(
         "review_strategy_selected",
         strategy=strategy.strategy,
         size_class=strategy.size_class,
@@ -1463,7 +1463,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         prompt = prompt_parts["prompt"]
         fitted_batches, changed = _fit_batch_to_budget(batch, prompt_parts, strategy.max_prompt_chars)
         if changed:
-            logger.info(
+            logger.debug(
                 "findings_batch_rebalanced",
                 original_batch_id=batch.batch_id,
                 produced_batches=[candidate.batch_id for candidate in fitted_batches],
@@ -1523,7 +1523,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
         if not response.succeeded:
             findings_failed = True
-            logger.info("findings_batch_failed", batch_id=batch.batch_id, exit_code=response.exit_code)
+            logger.debug("findings_batch_failed", batch_id=batch.batch_id, exit_code=response.exit_code)
             continue
 
         try:
@@ -1533,7 +1533,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 aggregated_raw.extend(raw)
         except (json.JSONDecodeError, ValueError) as e:
             findings_failed = True
-            logger.info("findings_batch_parse_failed", batch_id=batch.batch_id, error=str(e))
+            logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=str(e))
 
     if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
         candidates = ctx.get("review_candidates", [])
@@ -1692,7 +1692,7 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     if removed:
         summary += f" ({removed} duplicate(s) removed)"
     ctx.textual.success_text(summary)
-    logger.info(
+    logger.debug(
         "findings_deduplicated",
         deduped_findings_count=len(deduped),
         findings_removed_due_to_existing_threads=removed_existing,
@@ -2039,7 +2039,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
                         ctx.textual.dim_text(
                             f"Rejected inline: {comment.get('path')}:{comment.get('line')} -> {rejection_kind}"
                         )
-                    logger.info(
+                    logger.debug(
                         "inline_comments_filtered_after_422",
                         pr_number=pr_number,
                         inline_candidates_total=len(payload.get("comments", [])),
