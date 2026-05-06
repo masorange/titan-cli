@@ -3,7 +3,7 @@
 Operations for AI-powered PR code review.
 
 Pure business logic functions for loading project skills, building review
-context, and constructing review payloads. All functions are UI-agnostic.
+context, and inspecting diff content. All functions are UI-agnostic.
 """
 
 import json
@@ -14,27 +14,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from titan_cli.core.logging import get_logger
 from ..managers.diff_context_manager import DiffContextManager
-from ..models.view import UIReviewSuggestion, UIFileChange
+from ..models.view import UIFileChange
 
 logger = get_logger(__name__)
-
-
-def load_project_claude_md() -> Optional[str]:
-    """
-    Load the project's CLAUDE.md file if it exists.
-
-    Returns:
-        Content of CLAUDE.md, or None if not found
-    """
-    for candidate in (Path("CLAUDE.md"), Path(".claude/CLAUDE.md")):
-        if candidate.exists() and candidate.is_file():
-            try:
-                return candidate.read_text(encoding="utf-8")
-            except OSError:
-                return None
-    return None
-
-
 class ProjectInstructionFile(StrEnum):
     CLAUDE = "CLAUDE.md"   # Claude Code (Anthropic)
     GEMINI = "GEMINI.md"   # Gemini CLI (Google)
@@ -525,83 +507,3 @@ def extract_valid_diff_lines(diff: str) -> Dict[str, set]:
         path: set(lines)
         for path, lines in DiffContextManager.from_diff(diff).get_all_valid_lines().items()
     }
-
-
-def build_review_payload(
-    suggestions: List[UIReviewSuggestion],
-    commit_id: str,
-    diff: str = "",
-) -> Dict:
-    """
-    Build the GitHub API payload for creating a draft review.
-
-    Validates inline comment line numbers against the actual diff to ensure
-    GitHub accepts them. Comments on lines not present in the diff fall back
-    to general comments.
-
-    Args:
-        suggestions: List of approved UIReviewSuggestion objects
-        commit_id: Latest commit SHA for the PR
-        diff: Full unified diff (used to validate line numbers)
-
-    Returns:
-        Dict payload for create_draft_review
-    """
-
-    valid_lines_by_file = extract_valid_diff_lines(diff) if diff else {}
-    logger.info(f"Valid diff lines by file: { {f: sorted(list(lines)[:5]) for f, lines in valid_lines_by_file.items()} }")
-
-    inline_comments = []
-    general_comments: List[str] = []
-
-    for s in suggestions:
-        # Replies to existing threads use in_reply_to — no path/line needed
-        if s.reply_to_comment_id is not None:
-            inline_comments.append({
-                "body": s.body,
-                "in_reply_to": s.reply_to_comment_id,
-            })
-            logger.info(f"Reply comment to thread {s.reply_to_comment_id}")
-            continue
-
-        # Resolve line from snippet if available (more accurate than AI-reported line)
-        resolved_line = s.line
-
-        if s.snippet and diff:
-            file_diff = extract_diff_for_file(diff, s.file_path)
-            if file_diff:
-                snippet_line = find_line_by_snippet(file_diff, s.snippet)
-                if snippet_line is not None:
-                    resolved_line = snippet_line
-
-        if resolved_line is not None:
-            file_valid_lines = valid_lines_by_file.get(s.file_path, set())
-
-            if resolved_line in file_valid_lines:
-                inline_comments.append({
-                    "path": s.file_path,
-                    "line": resolved_line,
-                    "side": "RIGHT",
-                    "body": s.body,
-                })
-                logger.info(f"Inline comment: {s.file_path}:{resolved_line}")
-            else:
-                logger.info(
-                    f"Line {resolved_line} not in diff for {s.file_path} "
-                    f"(valid: {sorted(file_valid_lines)[:20]}) → general comment"
-                )
-                general_comments.append(f"**{s.file_path}** (line {resolved_line}):\n{s.body}")
-        else:
-            general_comments.append(f"**{s.file_path}**: {s.body}")
-
-    logger.info(f"Review payload: {len(inline_comments)} inline, {len(general_comments)} general")
-
-    payload: Dict = {
-        "commit_id": commit_id,
-        "comments": inline_comments,
-    }
-
-    if general_comments:
-        payload["body"] = "\n\n".join(general_comments)
-
-    return payload
