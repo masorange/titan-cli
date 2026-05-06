@@ -76,10 +76,10 @@ def test_build_comment_review_context_summarizes_long_threads():
     assert "Latest reply" in context[0].summary
 
 
-def test_build_comment_review_context_filters_automated_comments():
+def test_build_comment_review_context_filters_bot_comments():
     bot_comment = UIComment(
         id=3,
-        body="<!-- 0 Errors 5 Warnings --><table><tr><td>Danger report</td></tr></table>",
+        body="Automated report.",
         author_login="danger[bot]",
         author_name="Danger",
         formatted_date="2026-01-03",
