@@ -869,13 +869,15 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     general = ctx.get("review_general_comments", [])
     changed_files = ctx.get("review_changed_files_with_stats", [])
 
-    from ..operations.comment_context_operations import build_comment_context
-    from ..operations.manifest_operations import build_existing_comments_index as _build
+    from ..operations.manifest_operations import (
+        build_comment_review_context,
+        build_existing_comments_index as _build,
+    )
 
     try:
         index = _build(threads, general)
         is_smallish_pr = len(changed_files) <= 8
-        comment_context = build_comment_context(
+        comment_context = build_comment_review_context(
             threads,
             general,
             max_entries=4 if is_smallish_pr else 8,
@@ -889,7 +891,6 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.data["existing_comments_index"] = index
     ctx.data["comment_review_context"] = comment_context
-    ctx.data["comments_for_dedupe"] = index
 
     resolved_count = sum(1 for e in index if e.is_resolved)
     adjudicated_count = sum(1 for e in index if e.is_adjudicated)
@@ -915,9 +916,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
         "Comments index built",
         metadata={
             "existing_comments_index": index,
-            "comments_for_dedupe": index,
             "comment_review_context": comment_context,
-            "comment_review_context_count": len(comment_context),
         },
     )
 
@@ -1385,7 +1384,6 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         metadata={
             "review_context_package": package,
             "review_context_batches": package.batches,
-            "review_context_batch_count": batch_count,
         },
     )
 
@@ -1453,7 +1451,6 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         batch = batch_queue.pop(0)
         prompt_parts = build_findings_prompt_parts(batch)
         prompt = prompt_parts["prompt"]
-        prompt_breakdown = summarize_findings_prompt_parts(prompt_parts)
         fitted_batches, changed = _fit_batch_to_budget(batch, prompt_parts, strategy.max_prompt_chars)
         if changed:
             logger.info(
@@ -1551,7 +1548,6 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     return Success(
         "AI findings retrieved",
         metadata={
-            "raw_findings_count": len(ctx.data["raw_findings"]),
             "ai_findings_failed": findings_failed,
         },
     )
@@ -1631,7 +1627,7 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
         summary += f" ({skipped} skipped)"
     ctx.textual.success_text(summary)
     ctx.textual.end_step("success")
-    return Success("Findings normalized", metadata={"normalized_findings_count": len(findings)})
+    return Success("Findings normalized")
 
 
 def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
@@ -1659,7 +1655,7 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Deduplicate Findings")
 
     findings = ctx.get("normalized_findings")
-    existing_index = ctx.get("comments_for_dedupe", ctx.get("existing_comments_index", []))
+    existing_index = ctx.get("existing_comments_index", [])
 
     if findings is None:
         ctx.textual.end_step("error")
@@ -1761,7 +1757,7 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.success_text(f"✓ {len(actions)} action(s) ready for review")
     ctx.textual.end_step("success")
-    return Success("Actions built", metadata={"review_action_proposals_count": len(actions)})
+    return Success("Actions built")
 
 
 def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:

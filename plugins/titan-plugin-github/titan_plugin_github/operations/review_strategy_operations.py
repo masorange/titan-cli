@@ -29,16 +29,6 @@ def classify_pr(manifest: ChangeManifest, comment_entries: int = 0, comment_thre
     roles = sorted({_classify_file_role(f.path, f.is_test, f.is_docs, f.is_generated, f.is_config) for f in manifest.files})
     role_count = len(roles)
     active_review = comment_threads >= 5 or comment_entries >= 10
-    complexity_score = _compute_complexity_score(
-        files_changed=files_changed,
-        total_lines=total_lines,
-        high_signal_files=high_signal_files,
-        role_count=role_count,
-        comment_threads=comment_threads,
-        is_repetitive_migration=False,
-        repetition_ratio=repetition_ratio,
-    )
-
     is_repetitive_migration = files_changed >= 12 and total_lines <= 700 and repetition_ratio >= 0.35
     complexity_score = _compute_complexity_score(
         files_changed=files_changed,
