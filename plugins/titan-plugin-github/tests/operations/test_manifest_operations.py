@@ -233,3 +233,90 @@ def test_is_duplicate_matches_adjudicated_resolved_thread_more_aggressively():
     )
 
     assert is_duplicate(finding, existing) is True
+
+
+def test_is_duplicate_returns_false_for_different_paths():
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT,
+        category="functional_correctness",
+        path="src/api.py",
+        line=10,
+        title="Serializer drops non-string analytics values",
+        why="Why",
+        evidence="bundle.getString(k)",
+        suggested_comment="Comment",
+    )
+    existing = ExistingCommentIndexEntry(
+        comment_id=1,
+        thread_id="t3",
+        is_resolved=True,
+        path="src/different_api.py",
+        line=10,
+        category="functional_correctness",
+        title="This change may lose non-string analytics values",
+        author="reviewer",
+        has_author_reply=True,
+        last_reply_author="author",
+        reply_count=1,
+        is_adjudicated=True,
+    )
+
+    assert is_duplicate(finding, existing) is False
+
+
+def test_is_duplicate_returns_false_for_different_lines():
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT,
+        category="functional_correctness",
+        path="src/api.py",
+        line=10,
+        title="Serializer drops non-string analytics values",
+        why="Why",
+        evidence="bundle.getString(k)",
+        suggested_comment="Comment",
+    )
+    existing = ExistingCommentIndexEntry(
+        comment_id=1,
+        thread_id="t3",
+        is_resolved=True,
+        path="src/api.py",
+        line=20,
+        category="functional_correctness",
+        title="This change may lose non-string analytics values",
+        author="reviewer",
+        has_author_reply=True,
+        last_reply_author="author",
+        reply_count=1,
+        is_adjudicated=True,
+    )
+
+    assert is_duplicate(finding, existing) is False
+
+
+def test_is_duplicate_returns_false_if_not_adjudicated_and_dissimilar():
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT,
+        category="functional_correctness",
+        path="src/api.py",
+        line=10,
+        title="Serializer drops non-string analytics values",
+        why="Why",
+        evidence="bundle.getString(k)",
+        suggested_comment="Comment",
+    )
+    existing = ExistingCommentIndexEntry(
+        comment_id=1,
+        thread_id="t3",
+        is_resolved=True,
+        path="src/api.py",
+        line=10,
+        category="functional_correctness",
+        title="Completely different title",
+        author="reviewer",
+        has_author_reply=True,
+        last_reply_author="author",
+        reply_count=1,
+        is_adjudicated=False,
+    )
+
+    assert is_duplicate(finding, existing, title_similarity_threshold=0.9) is False
