@@ -2084,7 +2084,9 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
                 return Error(f"Failed to create draft review: {err}")
 
     with ctx.textual.loading("Submitting review..."):
-        submit_result = ctx.github.submit_review(pr_number, review_id, event, review_body)
+        submit_result = ctx.github.submit_review(
+            pr_number, review_id, event, payload.get("body", "")
+        )
 
     match submit_result:
         case ClientSuccess():
