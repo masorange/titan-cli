@@ -41,6 +41,11 @@ from ..operations.manifest_operations import (
     build_change_manifest as build_change_manifest_operation,
 )
 
+from ..operations.manifest_operations import (
+        build_comment_review_context,
+        build_existing_comments_index as build_existing_comments_index_operation,
+    )
+
 logger = get_logger(__name__)
 
 _PROMPT_PREVIEW_CHARS = 2000
@@ -887,11 +892,6 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     general = ctx.get("review_general_comments", [])
     changed_files = ctx.get("review_changed_files_with_stats", [])
 
-    from ..operations.manifest_operations import (
-        build_comment_review_context,
-        build_existing_comments_index as build_existing_comments_index_operation,
-    )
-
     try:
         index = build_existing_comments_index_operation(threads, general)
         is_smallish_pr = len(changed_files) <= 8
@@ -906,9 +906,6 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     except Exception as e:
         ctx.textual.end_step("error")
         return Error(f"Failed to build comments index: {e}")
-
-    ctx.data["existing_comments_index"] = index
-    ctx.data["comment_review_context"] = comment_context
 
     resolved_count = sum(1 for e in index if e.is_resolved)
     adjudicated_count = sum(1 for e in index if e.is_adjudicated)
