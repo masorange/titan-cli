@@ -1,0 +1,102 @@
+version: 1
+
+items:
+  - id: functional_correctness
+    name: Functional Correctness
+    description: Logic bugs, incorrect behavior, wrong branching, and missing edge-case handling.
+
+  - id: error_handling
+    name: Error Handling
+    description: Missing propagation, swallowed failures, incorrect fallback paths, or broken error UX.
+
+  - id: api_contract
+    name: API Contract
+    description: Breaking changes in workflow schemas, plugin contracts, config models, serialized payloads, or client interfaces.
+    relevant_file_patterns:
+      - "titan_cli/core/models.py"
+      - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/models/**"
+      - "plugins/*/*/clients/**"
+      - "**/*.yaml"
+      - "**/*.toml"
+
+  - id: data_validation
+    name: Data Validation
+    description: Missing validation, unsafe coercion, unchecked external input, or invalid assumptions in config and model parsing.
+    relevant_file_patterns:
+      - "titan_cli/core/config.py"
+      - "titan_cli/core/models.py"
+      - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/models/**"
+      - "**/*validator*"
+
+  - id: semantic_correctness
+    name: Semantic Correctness
+    description: Changes that preserve execution but alter the meaning of mapped data, prompts, classifications, workflow metadata, or review decisions.
+    relevant_file_patterns:
+      - "plugins/*/*/models/mappers/**"
+      - "**/*mapper*"
+      - "**/*serializer*"
+      - "**/*parser*"
+      - "**/*formatter*"
+      - "**/*normalizer*"
+
+  - id: state_consistency
+    name: State Consistency
+    description: Inconsistent workflow state, context mutation issues, incorrect result transitions, or thread/review status mismatches.
+    relevant_file_patterns:
+      - "titan_cli/engine/**"
+      - "titan_cli/core/workflows/**"
+      - "plugins/*/*/steps/**"
+      - "**/*context*"
+      - "**/*state*"
+      - "**/*result*"
+
+  - id: security
+    name: Security
+    description: Secret leakage, insecure token handling, unsafe auth flows, or accidental exposure of sensitive data.
+    relevant_file_patterns:
+      - "titan_cli/core/secrets.py"
+      - "titan_cli/ai/oauth_helper.py"
+      - "**/*secret*"
+      - "**/*token*"
+      - "**/*auth*"
+      - "**/*credential*"
+
+  - id: concurrency
+    name: Concurrency
+    description: Thread-safety issues, async misuse, UI cross-thread update hazards, or race conditions in workflow execution.
+    relevant_file_patterns:
+      - "titan_cli/ui/tui/**"
+      - "titan_cli/engine/**"
+      - "**/*thread*"
+      - "**/*async*"
+
+  - id: performance
+    name: Performance
+    description: Unbounded scans, repeated expensive operations, prompt bloat, or inefficient workflow/runtime behavior.
+    relevant_file_patterns:
+      - "titan_cli/core/workflows/**"
+      - "titan_cli/engine/**"
+      - "titan_cli/ai/**"
+      - "plugins/*/*/clients/**"
+
+  - id: test_coverage
+    name: Test Coverage
+    description: Missing regression coverage for new behavior, weak assertions, or tests that do not exercise the changed path.
+    relevant_file_patterns:
+      - "tests/**"
+      - "plugins/*/tests/**"
+
+  - id: code_style
+    name: Code Style & Maintainability
+    description: Unclear structure, brittle branching, magic values, or changes that make workflows and plugins harder to extend safely.
+
+  - id: documentation
+    name: Documentation
+    description: Missing updates to plugin docs, workflow docs, or user-facing usage guidance when public behavior changes.
+    relevant_file_patterns:
+      - "docs/**"
+      - "README.md"
+      - "DEVELOPMENT.md"
+      - "docs/plugins/**"

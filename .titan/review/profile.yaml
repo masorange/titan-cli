@@ -1,0 +1,200 @@
+version: 1
+
+change_patterns:
+  central_behavior:
+    - "titan_cli/core/**"
+    - "titan_cli/engine/**"
+    - "titan_cli/ai/**"
+    - "plugins/*/*/operations/**"
+    - "plugins/*/*/clients/**"
+    - "plugins/*/*/managers/**"
+
+  entrypoint:
+    - "titan_cli/cli.py"
+    - "titan_cli/commands/**"
+    - "titan_cli/preview.py"
+    - "plugins/*/*/plugin.py"
+    - "plugins/*/*/steps/**"
+
+  repeated_callsite:
+    - "titan_cli/ui/components/**"
+    - "titan_cli/ui/views/**"
+    - "titan_cli/ui/tui/widgets/**"
+    - "plugins/*/*/workflows/**"
+    - ".titan/workflows/**"
+
+file_roles:
+  tests:
+    - "tests/**"
+    - "plugins/*/tests/**"
+    - ".titan/steps/test_*.py"
+    - ".titan/operations/*test*"
+
+  config_or_contracts:
+    - ".titan/config.toml"
+    - ".titan/workflows/**"
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/*.toml"
+    - "**/*.json"
+    - "titan_cli/core/models.py"
+    - "titan_cli/core/plugins/models.py"
+    - "plugins/*/*/models/**"
+
+  workflow_orchestration:
+    - "titan_cli/core/workflows/**"
+    - "titan_cli/engine/**"
+    - "plugins/*/*/steps/**"
+    - "plugins/*/*/workflows/**"
+    - ".titan/steps/**"
+    - ".titan/workflows/**"
+
+  integration_or_adapter:
+    - "titan_cli/ai/providers/**"
+    - "titan_cli/ai/litellm_client.py"
+    - "titan_cli/utils/cli_launcher.py"
+    - "titan_cli/utils/cli_configs.py"
+    - "plugins/*/*/clients/**"
+    - "plugins/*/*/models/mappers/**"
+    - "plugins/*/*/models/network/**"
+
+  entrypoints_or_ui:
+    - "titan_cli/ui/**"
+    - "titan_cli/commands/**"
+    - "titan_cli/preview.py"
+    - "plugins/*/*/widgets/**"
+
+  business_logic:
+    - "titan_cli/core/**"
+    - "titan_cli/engine/**"
+    - "titan_cli/ai/**"
+    - "plugins/*/*/operations/**"
+    - "plugins/*/*/managers/**"
+    - "plugins/*/*/agents/**"
+
+candidate_scoring:
+  - name: config_and_contract_surface
+    patterns:
+      - "titan_cli/core/models.py"
+      - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/models/**"
+      - "**/*.yaml"
+      - "**/*.toml"
+    score_delta: 4
+    reason: "configuration or contract surface"
+
+  - name: workflow_runtime_surface
+    patterns:
+      - "titan_cli/core/workflows/**"
+      - "titan_cli/engine/**"
+      - "plugins/*/*/steps/**"
+      - ".titan/steps/**"
+    score_delta: 4
+    reason: "workflow runtime or execution surface"
+
+  - name: external_integration_surface
+    patterns:
+      - "titan_cli/ai/providers/**"
+      - "titan_cli/ai/litellm_client.py"
+      - "titan_cli/utils/cli_launcher.py"
+      - "titan_cli/utils/cli_configs.py"
+      - "plugins/*/*/clients/**"
+    score_delta: 5
+    reason: "external integration or provider boundary"
+
+  - name: semantic_mapping
+    patterns:
+      - "plugins/*/*/models/mappers/**"
+      - "**/*mapper*"
+      - "**/*serializer*"
+      - "**/*parser*"
+      - "**/*formatter*"
+      - "**/*normalizer*"
+      - "**/*validator*"
+    score_delta: 3
+    reason: "semantic mapping or normalization surface"
+
+  - name: security_sensitive
+    patterns:
+      - "titan_cli/core/secrets.py"
+      - "titan_cli/ai/oauth_helper.py"
+      - "**/*secret*"
+      - "**/*token*"
+      - "**/*auth*"
+      - "**/*credential*"
+      - "**/*keyring*"
+    score_delta: 5
+    reason: "security, auth, or credential-sensitive area"
+
+candidate_exclusions:
+  low_signal_test_max_changes: 25
+  low_signal_config_max_changes: 12
+
+review_axes:
+  functional_correctness:
+    always_include: true
+
+  error_handling:
+    always_include: true
+
+  semantic_correctness:
+    patterns:
+      - "plugins/*/*/models/mappers/**"
+      - "**/*mapper*"
+      - "**/*serializer*"
+      - "**/*parser*"
+      - "**/*formatter*"
+      - "**/*normalizer*"
+      - "**/*validator*"
+
+  state_consistency:
+    patterns:
+      - "titan_cli/engine/**"
+      - "titan_cli/core/workflows/**"
+      - "plugins/*/*/steps/**"
+      - "**/*state*"
+      - "**/*result*"
+      - "**/*context*"
+      - "**/*thread*"
+
+  api_contract:
+    patterns:
+      - "titan_cli/core/models.py"
+      - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/models/**"
+      - "plugins/*/*/clients/**"
+      - "**/*.yaml"
+      - "**/*.toml"
+      - "**/*schema*"
+
+  data_validation:
+    patterns:
+      - "titan_cli/core/config.py"
+      - "titan_cli/core/models.py"
+      - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/models/**"
+      - "**/*validator*"
+      - "**/*request*"
+
+  security:
+    patterns:
+      - "titan_cli/core/secrets.py"
+      - "titan_cli/ai/oauth_helper.py"
+      - "**/*secret*"
+      - "**/*token*"
+      - "**/*auth*"
+      - "**/*credential*"
+
+  concurrency:
+    patterns:
+      - "titan_cli/ui/tui/**"
+      - "titan_cli/engine/**"
+      - "**/*thread*"
+      - "**/*async*"
+
+  performance:
+    patterns:
+      - "titan_cli/core/workflows/**"
+      - "titan_cli/engine/**"
+      - "titan_cli/ai/**"
+      - "plugins/*/*/clients/**"
