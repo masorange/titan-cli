@@ -1,0 +1,31 @@
+name: "Import Translations"
+description: "Upload translation file to PoEditor project"
+
+params:
+  project_id: null
+  file_path: null
+  language_code: "en"
+  updating: "terms_translations"
+
+steps:
+  - id: list_projects
+    name: "List Projects"
+    plugin: poeditor
+    step: list_projects_step
+    skip_if: "{{ project_id }}"
+
+  - id: select_project
+    name: "Select Project"
+    plugin: poeditor
+    step: select_project_step
+    skip_if: "{{ project_id }}"
+
+  - id: import_file
+    name: "Upload Translation File"
+    plugin: poeditor
+    step: import_translations_step
+    params:
+      project_id: "{{ project_id or selected_project_id }}"
+      file_path: "{{ file_path }}"
+      language_code: "{{ language_code }}"
+      updating: "{{ updating }}"
