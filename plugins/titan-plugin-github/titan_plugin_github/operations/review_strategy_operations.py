@@ -1,13 +1,19 @@
 """Deterministic operations for selecting PR review focus."""
 
+from .review_profile_operations import (
+    classify_file_role,
+    match_change_patterns,
+    matching_scoring_rules,
+    select_review_axes,
+)
 from ..models.review_enums import (
-    ChecklistCategory,
     ExclusionReason,
     FileReadMode,
     FileReviewPriority,
     PRSizeClass,
     ReviewStrategyType,
 )
+from ..models.review_profile_models import ReviewProfile
 from ..models.review_models import (
     ChangeManifest,
     ExcludedFileEntry,
@@ -18,15 +24,40 @@ from ..models.review_models import (
     ReviewStrategy,
     ScoredReviewCandidate,
 )
+from ..review_profiles import DEFAULT_REVIEW_PROFILE
 
 
-def classify_pr(manifest: ChangeManifest, comment_entries: int = 0, comment_threads: int = 0) -> PRClassification:
+def classify_pr(
+    manifest: ChangeManifest,
+    comment_entries: int = 0,
+    comment_threads: int = 0,
+    review_profile: ReviewProfile | None = None,
+) -> PRClassification:
+    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
     total_lines = manifest.total_additions + manifest.total_deletions
     files_changed = len(manifest.files)
-    repeated_callsite_files = sum(1 for f in manifest.files if _candidate_group(f.path) == "repeated_callsite")
-    high_signal_files = sum(1 for f in manifest.files if _candidate_group(f.path) in {"central_behavior", "entrypoint"})
+    repeated_callsite_files = sum(
+        1 for f in manifest.files if "repeated_callsite" in match_change_patterns(f.path, review_profile)
+    )
+    high_signal_files = sum(
+        1
+        for f in manifest.files
+        if {"central_behavior", "entrypoint"}.intersection(match_change_patterns(f.path, review_profile))
+    )
     repetition_ratio = (repeated_callsite_files / files_changed) if files_changed else 0.0
-    roles = sorted({_classify_file_role(f.path, f.is_test, f.is_docs, f.is_generated, f.is_config) for f in manifest.files})
+    roles = sorted(
+        {
+            classify_file_role(
+                f.path,
+                review_profile,
+                is_test=f.is_test,
+                is_docs=f.is_docs,
+                is_generated=f.is_generated,
+                is_config=f.is_config,
+            )
+            for f in manifest.files
+        }
+    )
     role_count = len(roles)
     active_review = comment_threads >= 5 or comment_entries >= 10
     is_repetitive_migration = files_changed >= 12 and total_lines <= 700 and repetition_ratio >= 0.35
@@ -162,10 +193,12 @@ def _score_to_size_class(score: int) -> PRSizeClass:
 
 def score_review_candidates(
     manifest: ChangeManifest,
+    review_profile: ReviewProfile | None = None,
 ) -> tuple[list[ScoredReviewCandidate], list[ExcludedFileEntry]]:
+    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
     candidates: list[ScoredReviewCandidate] = []
     excluded: list[ExcludedFileEntry] = []
-    repeated_callsite_paths = _detect_repeated_callsite_paths(manifest)
+    repeated_callsite_paths = _detect_repeated_callsite_paths(manifest, review_profile)
 
     for entry in manifest.files:
         reasons: list[str] = []
@@ -187,8 +220,6 @@ def score_review_candidates(
             continue
 
         score = 0
-        path_lower = entry.path.lower()
-
         if entry.total_changes >= 200:
             score += 6
             reasons.append("large change set")
@@ -203,58 +234,22 @@ def score_review_candidates(
             score += 3
             reasons.append("new file")
 
-        domain_tokens = [
-            "controller",
-            "service",
-            "store",
-            "client",
-            "handler",
-            "validator",
-            "middleware",
-            "repository",
-            "viewmodel",
-            "presenter",
-            "coordinator",
-            "manager",
-            "api",
-            "router",
-            "mapper",
-            "serializer",
-            "formatter",
-            "adapter",
-            "converter",
-            "event",
-            "classification",
-            "normalizer",
-            "parser",
-            "model",
-        ]
-        matched_tokens = [token for token in domain_tokens if token in path_lower]
-        if matched_tokens:
-            score += 4
-            reasons.append(f"domain-critical path ({', '.join(matched_tokens[:3])})")
-
-        if any(token in path_lower for token in ("mapper", "serializer", "formatter", "adapter", "converter", "event", "classification", "normalizer", "parser", "model")):
-            score += 3
-            reasons.append("semantic mapping surface")
-
-        if any(token in path_lower for token in ("auth", "permission", "security", "payment", "billing")):
-            score += 5
-            reasons.append("security or access-sensitive area")
-
-        if any(token in path_lower for token in ("util", "interceptor", "configuration", "intent")):
-            score += 5
-            reasons.append("shared helper or policy surface")
+        for rule in matching_scoring_rules(entry.path, review_profile):
+            score += rule.score_delta
+            reasons.append(rule.reason)
 
         if entry.path in repeated_callsite_paths:
             score -= 2
             reasons.append("repeated call-site migration")
 
-        if entry.is_config and entry.total_changes <= 10:
+        if (
+            entry.is_config
+            and entry.total_changes <= review_profile.candidate_exclusions.low_signal_config_max_changes
+        ):
             excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.LOW_SIGNAL_CONFIG))
             continue
 
-        if entry.is_test and entry.total_changes <= 20:
+        if entry.is_test and entry.total_changes <= review_profile.candidate_exclusions.low_signal_test_max_changes:
             excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.LOW_SIGNAL_TEST))
             continue
         if entry.is_test:
@@ -289,11 +284,15 @@ def score_review_candidates(
     return candidates, excluded
 
 
-def summarize_candidate_clusters(candidates: list[ScoredReviewCandidate]) -> list[dict]:
+def summarize_candidate_clusters(
+    candidates: list[ScoredReviewCandidate],
+    review_profile: ReviewProfile | None = None,
+) -> list[dict]:
     """Build a compact summary of repeated candidate groups for planning prompts."""
+    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
     clusters: dict[str, list[ScoredReviewCandidate]] = {}
     for candidate in candidates:
-        group = _candidate_group(candidate.path)
+        group = _candidate_group(candidate.path, review_profile)
         clusters.setdefault(group, []).append(candidate)
 
     summary: list[dict] = []
@@ -377,7 +376,9 @@ def build_deterministic_review_plan(
     excluded_files: list[ExcludedFileEntry],
     checklist: list[ReviewChecklistItem],
     strategy: ReviewStrategy,
+    review_profile: ReviewProfile | None = None,
 ) -> ReviewPlan:
+    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
     focus_candidates = candidates[: strategy.max_focus_files]
     focus_files = [
         FileReviewPlan(
@@ -389,7 +390,7 @@ def build_deterministic_review_plan(
         for candidate in focus_candidates
     ]
 
-    review_axes = _select_review_axes(checklist, focus_candidates)
+    review_axes = select_review_axes(checklist, focus_candidates, review_profile)
     trimmed_excluded = list(excluded_files)
     for candidate in candidates[strategy.max_focus_files :]:
         trimmed_excluded.append(
@@ -408,60 +409,14 @@ def build_deterministic_review_plan(
     )
 
 
-def _select_review_axes(
-    checklist: list[ReviewChecklistItem],
-    focus_candidates: list[ScoredReviewCandidate],
-) -> list[ChecklistCategory]:
-    if not checklist:
-        return [
-            ChecklistCategory.FUNCTIONAL_CORRECTNESS,
-            ChecklistCategory.ERROR_HANDLING,
-        ]
-
-    candidate_paths = [candidate.path.lower() for candidate in focus_candidates]
-    selected: list[ChecklistCategory] = []
-
-    for item in checklist:
-        if item.id in (ChecklistCategory.FUNCTIONAL_CORRECTNESS, ChecklistCategory.ERROR_HANDLING):
-            selected.append(item.id)
-            continue
-        if item.id == ChecklistCategory.SEMANTIC_CORRECTNESS and any(
-            token in path
-            for path in candidate_paths
-            for token in ("mapper", "serializer", "formatter", "adapter", "converter", "event", "classification", "normalizer", "parser", "model")
-        ):
-            selected.append(item.id)
-            continue
-        if item.id == ChecklistCategory.STATE_CONSISTENCY and any(
-            token in path
-            for path in candidate_paths
-            for token in ("state", "result", "status", "callback", "listener", "event", "store")
-        ):
-            selected.append(item.id)
-            continue
-        if item.id == ChecklistCategory.TEST_COVERAGE and any("test" in path or "spec" in path for path in candidate_paths):
-            selected.append(item.id)
-            continue
-        if item.id == ChecklistCategory.API_CONTRACT and any(
-            token in path for path in candidate_paths for token in ("api", "schema", "model", "contract")
-        ):
-            selected.append(item.id)
-            continue
-        if item.id == ChecklistCategory.DATA_VALIDATION and any(
-            token in path for path in candidate_paths for token in ("validator", "request", "form", "serializer")
-        ):
-            selected.append(item.id)
-
-    if not selected:
-        selected = [ChecklistCategory.FUNCTIONAL_CORRECTNESS, ChecklistCategory.ERROR_HANDLING]
-    return selected[:4]
-
-
-def _detect_repeated_callsite_paths(manifest: ChangeManifest) -> set[str]:
+def _detect_repeated_callsite_paths(
+    manifest: ChangeManifest,
+    review_profile: ReviewProfile,
+) -> set[str]:
     repeated: set[str] = set()
     callsite_like = [
         entry for entry in manifest.files
-        if _candidate_group(entry.path) == "repeated_callsite" and entry.total_changes <= 20
+        if "repeated_callsite" in match_change_patterns(entry.path, review_profile) and entry.total_changes <= 20
     ]
     if len(callsite_like) < 4:
         return repeated
@@ -469,37 +424,12 @@ def _detect_repeated_callsite_paths(manifest: ChangeManifest) -> set[str]:
     return repeated
 
 
-def _candidate_group(path: str) -> str:
-    path_lower = path.lower()
-    if any(token in path_lower for token in ("/utils/", "/configuration/", "/interceptors/", "intentutils", "customtabsutils")):
+def _candidate_group(path: str, review_profile: ReviewProfile) -> str:
+    matches = match_change_patterns(path, review_profile)
+    if "central_behavior" in matches:
         return "central_behavior"
-    if any(token in path_lower for token in ("mainactivity", "dispatcher", "listener")):
+    if "entrypoint" in matches:
         return "entrypoint"
-    if any(token in path_lower for token in ("screen", "successscreen", "components", "content", "dialog")):
+    if "repeated_callsite" in matches:
         return "repeated_callsite"
-    return "other"
-
-
-def _classify_file_role(
-    path: str,
-    is_test: bool = False,
-    is_docs: bool = False,
-    is_generated: bool = False,
-    is_config: bool = False,
-) -> str:
-    path_lower = path.lower()
-    if is_docs or is_generated:
-        return "docs_or_generated"
-    if is_test or any(token in path_lower for token in ("/test/", "/tests/", "test_", "_test", ".spec.")):
-        return "tests"
-    if is_config or any(token in path_lower for token in ("config", "schema", "contract", "constants", "settings", ".yaml", ".yml", ".toml")):
-        return "config_or_contracts"
-    if any(token in path_lower for token in ("workflow", "step", "executor", "pipeline", "command")):
-        return "workflow_orchestration"
-    if any(token in path_lower for token in ("adapter", "client", "network", "api", "gateway", "serializer", "parser", "mapper", "converter")):
-        return "integration_or_adapter"
-    if any(token in path_lower for token in ("screen", "view", "activity", "controller", "cli", "main", "router")):
-        return "entrypoints_or_ui"
-    if any(token in path_lower for token in ("service", "usecase", "operations", "manager", "logic", "core", "model")):
-        return "business_logic"
     return "other"

@@ -1,6 +1,7 @@
 from titan_plugin_github.models.review_enums import ChecklistCategory, ExclusionReason, PRSizeClass, ReviewStrategyType
 from titan_plugin_github.models.review_models import ReviewChecklistItem
 from titan_plugin_github.models.review_models import ChangeManifest, ChangedFileEntry, PullRequestManifest
+from titan_plugin_github.models.review_profile_models import CandidateExclusions, ReviewAxisRule, ReviewProfile
 from titan_plugin_github.operations.review_strategy_operations import (
     build_deterministic_review_plan,
     classify_pr,
@@ -221,3 +222,89 @@ def test_deterministic_plan_can_select_semantic_axes():
     plan = build_deterministic_review_plan(candidates, excluded, checklist, strategy)
 
     assert ChecklistCategory.SEMANTIC_CORRECTNESS in plan.review_axes
+
+
+def test_score_review_candidates_uses_custom_profile_thresholds_and_rules():
+    manifest = make_manifest(
+        [
+            ChangedFileEntry(path="tests/test_api.py", status="modified", additions=6, deletions=0, is_test=True),
+            ChangedFileEntry(path="src/auth/session.py", status="modified", additions=12, deletions=2),
+        ]
+    )
+    profile = ReviewProfile(
+        version=1,
+        change_patterns={},
+        file_roles={},
+        candidate_scoring=[],
+        candidate_exclusions=CandidateExclusions(low_signal_test_max_changes=5, low_signal_config_max_changes=10),
+        review_axes={},
+    )
+
+    candidates, excluded = score_review_candidates(manifest, review_profile=profile)
+    auth_candidate = next(candidate for candidate in candidates if candidate.path == "src/auth/session.py")
+
+    assert {candidate.path for candidate in candidates} == {"src/auth/session.py", "tests/test_api.py"}
+    assert excluded == []
+    assert "security or access-sensitive area" not in auth_candidate.reasons
+
+
+def test_classify_pr_uses_custom_change_patterns():
+    manifest = make_manifest(
+        [
+            ChangedFileEntry(path=f"src/widgets/view_{idx}.py", status="modified", additions=3, deletions=2)
+            for idx in range(12)
+        ]
+    )
+    profile = ReviewProfile(
+        version=1,
+        change_patterns={"repeated_callsite": ["**/widgets/**"]},
+        file_roles={},
+        candidate_scoring=[],
+        candidate_exclusions=CandidateExclusions(),
+        review_axes={},
+    )
+
+    classification = classify_pr(manifest, review_profile=profile)
+
+    assert classification.repeated_callsite_files == 12
+    assert classification.is_repetitive_migration is True
+
+
+def test_deterministic_plan_uses_profile_review_axes():
+    candidates, excluded = score_review_candidates(
+        make_manifest([ChangedFileEntry(path="src/auth/session.py", status="modified", additions=18, deletions=3)])
+    )
+    strategy = select_review_strategy(classify_pr(make_manifest([ChangedFileEntry(path="src/auth/session.py", status="modified", additions=18, deletions=3)])))
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional Correctness",
+            description="desc",
+        ),
+        ReviewChecklistItem(
+            id=ChecklistCategory.ERROR_HANDLING,
+            name="Error Handling",
+            description="desc",
+        ),
+        ReviewChecklistItem(
+            id=ChecklistCategory.SECURITY,
+            name="Security",
+            description="desc",
+        ),
+    ]
+    profile = ReviewProfile(
+        version=1,
+        change_patterns={},
+        file_roles={},
+        candidate_scoring=[],
+        candidate_exclusions=CandidateExclusions(),
+        review_axes={
+            ChecklistCategory.FUNCTIONAL_CORRECTNESS: ReviewAxisRule(always_include=True),
+            ChecklistCategory.ERROR_HANDLING: ReviewAxisRule(always_include=True),
+            ChecklistCategory.SECURITY: ReviewAxisRule(patterns=["**/auth/**"]),
+        },
+    )
+
+    plan = build_deterministic_review_plan(candidates, excluded, checklist, strategy, review_profile=profile)
+
+    assert ChecklistCategory.SECURITY in plan.review_axes

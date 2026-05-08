@@ -18,6 +18,7 @@ from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 from ..managers.diff_context_manager import get_or_create_diff_manager
 from ..models.review_enums import FileReadMode, ReviewActionType, ReviewStrategyType, ThreadDecisionType
 from ..models.review_models import ReviewActionProposal
+from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread
 from ..operations.code_review_operations import (
     select_files_for_review,
@@ -946,6 +947,7 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
     manifest = ctx.get("change_manifest")
     comments_index = ctx.get("existing_comments_index", [])
     review_threads = ctx.get("review_threads", [])
+    review_profile = _get_review_profile(ctx)
 
     if not manifest:
         ctx.textual.end_step("error")
@@ -957,7 +959,9 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         manifest,
         comment_entries=len(comments_index),
         comment_threads=len(review_threads),
+        review_profile=review_profile,
     )
+    ctx.data["review_profile"] = review_profile
     ctx.data["pr_classification"] = classification
 
     logger.debug(
@@ -995,6 +999,7 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Score Review Candidates")
 
     manifest = ctx.get("change_manifest")
+    review_profile = _get_review_profile(ctx)
     if not manifest:
         ctx.textual.end_step("error")
         return Error("No change manifest in context")
@@ -1003,7 +1008,8 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         score_review_candidates as score_review_candidates_operation,
     )
 
-    candidates, excluded = score_review_candidates_operation(manifest)
+    candidates, excluded = score_review_candidates_operation(manifest, review_profile=review_profile)
+    ctx.data["review_profile"] = review_profile
     ctx.data["review_candidates"] = candidates
     ctx.data["excluded_review_files"] = excluded
 
@@ -1140,6 +1146,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     candidates = ctx.get("review_candidates", [])
     excluded_files = ctx.get("excluded_review_files", [])
     strategy = ctx.get("review_strategy")
+    review_profile = _get_review_profile(ctx)
     cli_preference = ctx.data.get("cli_preference", "auto")
     project_root = ctx.data.get("project_root")
 
@@ -1156,7 +1163,13 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     import json
 
     if strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS:
-        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
+        fallback = build_default_review_plan(
+            candidates,
+            excluded_files,
+            checklist,
+            strategy,
+            review_profile=review_profile,
+        )
         ctx.data["review_plan"] = fallback
         ctx.textual.success_text(
             f"✓ Deterministic plan: {len(fallback.focus_files)} focus file(s) · "
@@ -1170,7 +1183,13 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
 
     if not adapter:
         ctx.textual.warning_text("No headless CLI available — using default review plan")
-        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
+        fallback = build_default_review_plan(
+            candidates,
+            excluded_files,
+            checklist,
+            strategy,
+            review_profile=review_profile,
+        )
         ctx.data["review_plan"] = fallback
         ctx.textual.dim_text(f"Default plan: {len(fallback.focus_files)} focus files")
         _show_review_plan_summary(ctx, fallback)
@@ -1184,6 +1203,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         candidates,
         strategy,
         excluded_files,
+        review_profile,
     )
 
     cli_display = adapter.cli_name.value.capitalize()
@@ -1216,7 +1236,13 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — using default plan")
         if response.stderr:
             ctx.textual.dim_text(response.stderr[:200])
-        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
+        fallback = build_default_review_plan(
+            candidates,
+            excluded_files,
+            checklist,
+            strategy,
+            review_profile=review_profile,
+        )
         ctx.data["review_plan"] = fallback
         _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
@@ -1228,7 +1254,13 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         plan = ReviewPlan.model_validate_json(_extract_json_slice(text, "{", "}", "object"))
     except (json.JSONDecodeError, ValidationError, ValueError) as e:
         ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
-        fallback = build_default_review_plan(candidates, excluded_files, checklist, strategy)
+        fallback = build_default_review_plan(
+            candidates,
+            excluded_files,
+            checklist,
+            strategy,
+            review_profile=review_profile,
+        )
         ctx.data["review_plan"] = fallback
         _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
@@ -1271,6 +1303,7 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     plan = ctx.get("review_plan")
     manifest = ctx.get("change_manifest")
     checklist = ctx.get("review_checklist", [])
+    review_profile = _get_review_profile(ctx)
 
     if not plan or not manifest:
         ctx.textual.end_step("error")
@@ -1291,7 +1324,13 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         candidates = ctx.get("review_candidates", [])
         excluded_files = ctx.get("excluded_review_files", [])
         strategy = ctx.get("review_strategy")
-        corrected = build_default_review_plan(candidates, excluded_files, checklist, strategy)
+        corrected = build_default_review_plan(
+            candidates,
+            excluded_files,
+            checklist,
+            strategy,
+            review_profile=review_profile,
+        )
         ctx.data["validated_review_plan"] = corrected
         ctx.textual.warning_text("Plan corrected: using conservative fallback")
         _show_review_plan_summary(ctx, corrected)
@@ -1303,6 +1342,18 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     _show_review_plan_summary(ctx, plan)
     ctx.textual.end_step("success")
     return Success("Review plan validated", metadata={"validated_review_plan": plan})
+
+
+def _get_review_profile(ctx: WorkflowContext) -> ReviewProfile:
+    """Resolve review profile from workflow managers with cached fallback."""
+    review_profile = ctx.get("review_profile")
+    if review_profile:
+        return review_profile
+    if ctx.github_managers:
+        return ctx.github_managers.review_profile.get_effective_profile()
+    from ..review_profiles import DEFAULT_REVIEW_PROFILE
+
+    return DEFAULT_REVIEW_PROFILE.model_copy(deep=True)
 
 
 def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:

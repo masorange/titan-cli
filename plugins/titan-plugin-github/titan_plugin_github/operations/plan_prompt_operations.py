@@ -11,6 +11,7 @@ from ..models.review_models import (
     ReviewStrategy,
     ScoredReviewCandidate,
 )
+from ..models.review_profile_models import ReviewProfile
 from .prompt_formatting_operations import comment_context_to_json
 from .review_strategy_operations import build_deterministic_review_plan, summarize_candidate_clusters
 
@@ -22,12 +23,13 @@ def build_review_plan_prompt(
     candidates: list[ScoredReviewCandidate],
     strategy: ReviewStrategy,
     excluded_files: list[ExcludedFileEntry],
+    review_profile: ReviewProfile | None = None,
 ) -> str:
     manifest_json = _manifest_to_json(manifest)
     comments_json = comment_context_to_json(comments)
     checklist_json = _checklist_to_json(checklist)
     candidates_json = _candidates_to_json(candidates[: strategy.max_focus_files + 4])
-    candidate_clusters_json = _candidate_clusters_to_json(candidates)
+    candidate_clusters_json = _candidate_clusters_to_json(candidates, review_profile)
     excluded_json = _excluded_to_json(excluded_files[:10])
     schema = _review_plan_schema()
 
@@ -77,8 +79,15 @@ def build_default_review_plan(
     excluded_files: list[ExcludedFileEntry],
     checklist: list[ReviewChecklistItem],
     strategy: ReviewStrategy,
+    review_profile: ReviewProfile | None = None,
 ) -> ReviewPlan:
-    return build_deterministic_review_plan(candidates, excluded_files, checklist, strategy)
+    return build_deterministic_review_plan(
+        candidates,
+        excluded_files,
+        checklist,
+        strategy,
+        review_profile=review_profile,
+    )
 
 
 def _manifest_to_json(manifest: ChangeManifest) -> str:
@@ -150,8 +159,11 @@ def _excluded_to_json(excluded_files: list[ExcludedFileEntry]) -> str:
     )
 
 
-def _candidate_clusters_to_json(candidates: list[ScoredReviewCandidate]) -> str:
-    return json.dumps(summarize_candidate_clusters(candidates), indent=2)
+def _candidate_clusters_to_json(
+    candidates: list[ScoredReviewCandidate],
+    review_profile: ReviewProfile | None = None,
+) -> str:
+    return json.dumps(summarize_candidate_clusters(candidates, review_profile), indent=2)
 
 
 def _review_plan_schema() -> str:

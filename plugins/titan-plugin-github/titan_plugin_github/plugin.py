@@ -8,7 +8,7 @@ from titan_cli.core.secrets import SecretManager
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from .clients.github_client import GitHubClient
 from .exceptions import GitHubError
-from .managers import ChecklistManager, GitHubManagers
+from .managers import ChecklistManager, GitHubManagers, ReviewProfileManager
 
 
 class GitHubPlugin(TitanPlugin):
@@ -125,6 +125,7 @@ class GitHubPlugin(TitanPlugin):
         """Return workflow-local managers for the GitHub plugin."""
         return GitHubManagers(
             checklist=ChecklistManager(project_root=project_root),
+            review_profile=ReviewProfileManager(project_root=project_root),
         )
 
     def get_steps(self) -> dict:
