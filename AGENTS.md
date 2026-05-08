@@ -1399,6 +1399,8 @@ Executes a `ParsedWorkflow` by iterating through steps, resolving plugin calls, 
 - Merge step metadata into `ctx.data`
 - Show final workflow success/failure message
 
+For workflow step authoring rules, including how to publish step outputs through result metadata instead of direct `ctx.data` mutation, see [.claude/docs/workflow-step-rules.md](.claude/docs/workflow-step-rules.md).
+
 **What the executor does NOT do:**
 - ❌ Does NOT show step headers (steps do this via `ctx.textual.begin_step()`)
 - ❌ Does NOT show success/skip messages (steps handle their own UI)

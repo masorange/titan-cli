@@ -24,17 +24,21 @@ from ..operations.code_review_operations import (
     compute_diff_stat,
 )
 from ..operations.review_action_operations import (
-    build_new_comment_actions as _build_new_comment_actions,
+    build_new_comment_actions as build_new_comment_actions_operation,
     build_review_action_payload,
     classify_github_review_rejection,
     extract_diff_hunk_for_action,
     resolve_action_anchors,
 )
 from ..operations.thread_resolution_operations import (
-    build_thread_review_candidates as _build_thread_review_candidates,
-    build_thread_review_contexts as _build_thread_review_contexts,
+    build_thread_review_candidates as build_thread_review_candidates_operation,
+    build_thread_review_contexts as build_thread_review_contexts_operation,
     build_thread_resolution_prompt,
-    build_thread_actions as _build_thread_actions,
+    build_thread_actions as build_thread_actions_operation,
+)
+
+from ..operations.manifest_operations import (
+    build_change_manifest as build_change_manifest_operation,
 )
 
 logger = get_logger(__name__)
@@ -823,15 +827,11 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No PR data in context (run fetch_pr_review_bundle first)")
 
-    from ..operations.manifest_operations import build_change_manifest as _build
-
     try:
-        manifest = _build(pr, files)
+        manifest = build_change_manifest_operation(pr, files)
     except Exception as e:
         ctx.textual.end_step("error")
         return Error(f"Failed to build change manifest: {e}")
-
-    ctx.data["change_manifest"] = manifest
 
     test_count = sum(1 for f in manifest.files if f.is_test)
     docs_count = sum(1 for f in manifest.files if f.is_docs)
@@ -889,11 +889,11 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
 
     from ..operations.manifest_operations import (
         build_comment_review_context,
-        build_existing_comments_index as _build,
+        build_existing_comments_index as build_existing_comments_index_operation,
     )
 
     try:
-        index = _build(threads, general)
+        index = build_existing_comments_index_operation(threads, general)
         is_smallish_pr = len(changed_files) <= 8
         comment_context = build_comment_review_context(
             threads,
@@ -954,9 +954,9 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No change manifest in context")
 
-    from ..operations.review_strategy_operations import classify_pr as _classify
+    from ..operations.review_strategy_operations import classify_pr as classify_pr_operation
 
-    classification = _classify(
+    classification = classify_pr_operation(
         manifest,
         comment_entries=len(comments_index),
         comment_threads=len(review_threads),
@@ -1002,9 +1002,11 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No change manifest in context")
 
-    from ..operations.review_strategy_operations import score_review_candidates as _score
+    from ..operations.review_strategy_operations import (
+        score_review_candidates as score_review_candidates_operation,
+    )
 
-    candidates, excluded = _score(manifest)
+    candidates, excluded = score_review_candidates_operation(manifest)
     ctx.data["review_candidates"] = candidates
     ctx.data["excluded_review_files"] = excluded
 
@@ -1072,9 +1074,11 @@ def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No pr_classification in context")
 
-    from ..operations.review_strategy_operations import select_review_strategy as _select_strategy
+    from ..operations.review_strategy_operations import (
+        select_review_strategy as select_review_strategy_operation,
+    )
 
-    strategy = _select_strategy(classification)
+    strategy = select_review_strategy_operation(classification)
     ctx.data["review_strategy"] = strategy
 
     logger.debug(
@@ -1736,7 +1740,7 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No findings to submit")
 
-    actions = _build_new_comment_actions(findings)
+    actions = build_new_comment_actions_operation(findings)
     manifest_files = {file.path: file for file in getattr(manifest, "files", [])}
     read_modes = {
         path: entry.read_mode.value if entry.read_mode else None
@@ -2146,7 +2150,7 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No PR data in context")
 
-    candidates = _build_thread_review_candidates(threads, pr.author_name)
+    candidates = build_thread_review_candidates_operation(threads, pr.author_name)
 
     if not candidates:
         if not threads:
@@ -2194,7 +2198,7 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No thread_review_candidates in context")
 
-    contexts = _build_thread_review_contexts(candidates, threads, diff)
+    contexts = build_thread_review_contexts_operation(candidates, threads, diff)
 
     ctx.data["thread_review_contexts"] = contexts
     ctx.textual.success_text(f"✓ {len(contexts)} thread context(s) built")
@@ -2420,7 +2424,7 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No thread_decisions in context")
 
-    actions = _build_thread_actions(decisions, contexts)
+    actions = build_thread_actions_operation(decisions, contexts)
 
     if not actions:
         ctx.textual.dim_text("No actionable thread decisions")

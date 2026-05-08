@@ -309,6 +309,36 @@ def create_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     return Success("Issue created")
 ```
 
+#### Operation Import Aliases in Steps
+
+When a step imports an operation with the same name as the step, or when the
+layer boundary would otherwise be unclear, alias the imported operation with a
+descriptive `_operation` suffix.
+
+```python
+# ✅ GOOD: clear step vs operation boundary
+from ..operations.manifest_operations import (
+    build_change_manifest as build_change_manifest_operation,
+)
+
+
+def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
+    manifest = build_change_manifest_operation(pr, files)
+```
+
+Avoid private-looking or abbreviated aliases for imported operations:
+
+```python
+# ❌ BAD: looks private and hides intent
+from ..operations.manifest_operations import build_change_manifest as _build
+from ..operations.review_strategy_operations import score_review_candidates as _score
+```
+
+Keep operation function names natural in `operations/`; do not add an
+`_operation` suffix to every operation definition just to avoid aliases. The
+suffix is for step-layer imports where it clarifies orchestration vs pure
+business logic.
+
 ---
 
 ## Best Practices
