@@ -5,6 +5,7 @@ from typing import Protocol
 from titan_cli.core.result import ClientResult
 
 from ..models import UIPoEditorProject
+from ..models.network.rest import NetworkUploadStats
 from ..models.view import TermsAddResult
 
 
@@ -25,7 +26,7 @@ class PoEditorClientProtocol(Protocol):
 
     def upload_file(
         self, project_id: str, file_path: str, language_code: str, updating: str = "terms_translations"
-    ) -> ClientResult[dict]:
+    ) -> ClientResult[NetworkUploadStats]:
         """Upload translation file to project."""
         ...
 

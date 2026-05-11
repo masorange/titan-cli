@@ -1,5 +1,9 @@
 """Network models for PoEditor REST API."""
 
-from .project import NetworkPoEditorLanguage, NetworkPoEditorProject
+from .project import (
+    NetworkPoEditorLanguage,
+    NetworkPoEditorProject,
+    NetworkUploadStats,
+)
 
-__all__ = ["NetworkPoEditorLanguage", "NetworkPoEditorProject"]
+__all__ = ["NetworkPoEditorLanguage", "NetworkPoEditorProject", "NetworkUploadStats"]

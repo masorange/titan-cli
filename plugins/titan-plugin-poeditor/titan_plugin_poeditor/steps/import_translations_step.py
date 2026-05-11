@@ -85,16 +85,16 @@ def import_translations_step(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.success_text(
                 msg(
                     "upload_success",
-                    added=upload_stats["added"],
-                    updated=upload_stats["updated"],
-                    deleted=upload_stats["deleted"],
+                    added=upload_stats.added,
+                    updated=upload_stats.updated,
+                    deleted=upload_stats.deleted,
                 )
             )
             ctx.textual.text("")
-            ctx.textual.text(f"✓ {upload_stats['added']} new terms added")
-            ctx.textual.text(f"✓ {upload_stats['updated']} terms updated")
-            if upload_stats["deleted"] > 0:
-                ctx.textual.text(f"✓ {upload_stats['deleted']} terms deleted")
+            ctx.textual.text(f"✓ {upload_stats.added} new terms added")
+            ctx.textual.text(f"✓ {upload_stats.updated} terms updated")
+            if upload_stats.deleted > 0:
+                ctx.textual.text(f"✓ {upload_stats.deleted} terms deleted")
 
             ctx.textual.end_step("success")
 
@@ -102,11 +102,17 @@ def import_translations_step(ctx: WorkflowContext) -> WorkflowResult:
             return Success(
                 msg(
                     "upload_success",
-                    added=upload_stats["added"],
-                    updated=upload_stats["updated"],
-                    deleted=upload_stats["deleted"],
+                    added=upload_stats.added,
+                    updated=upload_stats.updated,
+                    deleted=upload_stats.deleted,
                 ),
-                metadata={"upload_stats": upload_stats},
+                metadata={
+                    "upload_stats": {
+                        "added": upload_stats.added,
+                        "updated": upload_stats.updated,
+                        "deleted": upload_stats.deleted,
+                    }
+                },
             )
 
         case ClientError(error_message=err, error_code=code):

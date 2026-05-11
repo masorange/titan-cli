@@ -8,6 +8,7 @@ from titan_cli.core.logging import log_client_operation
 from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 
 from ...exceptions import PoEditorAPIError
+from ...models.network.rest import NetworkUploadStats
 from ..network import PoEditorNetwork
 
 
@@ -33,7 +34,7 @@ class UploadService:
         file_path: str,
         language_code: str,
         updating: str = "terms_translations",
-    ) -> ClientResult[dict]:
+    ) -> ClientResult[NetworkUploadStats]:
         """Upload translation file to PoEditor project.
 
         Args:
@@ -43,10 +44,7 @@ class UploadService:
             updating: What to update - "terms", "terms_translations", or "translations"
 
         Returns:
-            ClientResult[dict] with upload statistics:
-                - added: Number of new terms added
-                - updated: Number of terms updated
-                - deleted: Number of terms deleted (if applicable)
+            ClientResult[NetworkUploadStats] with upload statistics
         """
         try:
             # Validate file exists and is a file
@@ -104,15 +102,15 @@ class UploadService:
                     # For "terms" or "terms_translations", use terms section
                     stats_source = result.get("terms", {})
 
-                upload_stats = {
-                    "added": stats_source.get("added", 0),
-                    "updated": stats_source.get("updated", 0),
-                    "deleted": stats_source.get("deleted", 0),
-                }
+                upload_stats = NetworkUploadStats(
+                    added=stats_source.get("added", 0),
+                    updated=stats_source.get("updated", 0),
+                    deleted=stats_source.get("deleted", 0),
+                )
 
                 return ClientSuccess(
                     data=upload_stats,
-                    message=f"Uploaded to project {project_id}: {upload_stats['added']} added, {upload_stats['updated']} updated",
+                    message=f"Uploaded to project {project_id}: {upload_stats.added} added, {upload_stats.updated} updated",
                 )
 
         except PoEditorAPIError as e:

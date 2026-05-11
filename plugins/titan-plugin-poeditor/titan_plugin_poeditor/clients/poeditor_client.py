@@ -3,6 +3,7 @@
 from titan_cli.core.result import ClientResult
 
 from ..models import UIPoEditorProject
+from ..models.network.rest import NetworkUploadStats
 from ..models.view import TermsAddResult
 from .network import PoEditorNetwork
 from .services import ProjectService, TermService, UploadService
@@ -66,7 +67,7 @@ class PoEditorClient:
         file_path: str,
         language_code: str,
         updating: str = "terms_translations",
-    ) -> ClientResult[dict]:
+    ) -> ClientResult[NetworkUploadStats]:
         """Upload translation file to project.
 
         Args:
@@ -76,7 +77,7 @@ class PoEditorClient:
             updating: What to update - "terms", "terms_translations", or "translations"
 
         Returns:
-            ClientResult[dict] with upload statistics
+            ClientResult[NetworkUploadStats] with upload statistics
         """
         return self._upload_service.upload_file(
             project_id, file_path, language_code, updating
