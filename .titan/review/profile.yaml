@@ -126,6 +126,14 @@ candidate_scoring:
     score_delta: 5
     reason: "security, auth, or credential-sensitive area"
 
+  - name: operational_documentation_surface
+    patterns:
+      - ".claude/**"
+      - ".titan/**"
+      - "AGENTS.md"
+    score_delta: 3
+    reason: "operational documentation or workflow guidance surface"
+
 candidate_exclusions:
   low_signal_test_max_changes: 25
   low_signal_config_max_changes: 12
@@ -198,3 +206,12 @@ review_axes:
       - "titan_cli/engine/**"
       - "titan_cli/ai/**"
       - "plugins/*/*/clients/**"
+
+  documentation:
+    patterns:
+      - ".claude/**"
+      - ".titan/**"
+      - "AGENTS.md"
+      - "docs/**"
+      - "README.md"
+      - "DEVELOPMENT.md"

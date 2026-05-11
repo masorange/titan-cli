@@ -177,6 +177,16 @@ def _show_review_plan_summary(ctx: WorkflowContext, plan) -> None:
             ctx.textual.dim_text(f"{request.type} -> {request.for_path}")
 
 
+def _show_review_plan_validation_summary(ctx: WorkflowContext, plan) -> None:
+    """Render a compact validation summary without repeating the full plan."""
+    focus_count = len(getattr(plan, "focus_files", []) or [])
+    axes_count = len(getattr(plan, "review_axes", []) or [])
+    extra_count = len(getattr(plan, "extra_context_requests", []) or [])
+    ctx.textual.dim_text(
+        f"Validated plan: {focus_count} focus file(s) · {axes_count} axes · {extra_count} extra context request(s)"
+    )
+
+
 def _strip_markdown_fences(text: str) -> str:
     """Remove outer markdown code fences from a CLI response."""
     stripped = text.strip()
@@ -1053,6 +1063,17 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         excluded=len(excluded),
         top_candidates=[candidate.path for candidate in candidates[:5]],
     )
+    if not candidates:
+        ctx.textual.dim_text("No reviewable candidates remain after exclusions.")
+        ctx.textual.end_step("skip")
+        return Exit(
+            "No reviewable candidates after exclusions",
+            metadata={
+                "review_profile": review_profile,
+                "review_candidates": candidates,
+                "excluded_review_files": excluded,
+            },
+        )
     ctx.textual.success_text(f"✓ {len(candidates)} candidate file(s), {len(excluded)} excluded")
     for candidate in candidates[:5]:
         ctx.textual.dim_text(
@@ -1136,6 +1157,7 @@ def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
         f"✓ {strategy.strategy.value} · focus {strategy.max_focus_files} · "
         f"prompt budget {strategy.max_prompt_chars} chars"
     )
+    ctx.textual.text(" ")
     ctx.textual.dim_text(
         f"up to {strategy.max_focus_files} focus files per plan · "
         f"{strategy.max_prompt_chars} chars per batch"
@@ -1312,6 +1334,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         f"{len(plan.review_axes)} axes · "
         f"{len(plan.extra_context_requests)} extra context request(s)"
     )
+    ctx.textual.text(" ")
     _show_review_plan_summary(ctx, plan)
     ctx.textual.end_step("success")
     return Success("Review plan built", metadata={"review_plan": plan})
@@ -1379,7 +1402,7 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.data["validated_review_plan"] = plan
     ctx.textual.success_text("✓ Plan validated")
-    _show_review_plan_summary(ctx, plan)
+    _show_review_plan_validation_summary(ctx, plan)
     ctx.textual.end_step("success")
     return Success("Review plan validated", metadata={"validated_review_plan": plan})
 

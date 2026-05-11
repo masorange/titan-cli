@@ -96,6 +96,9 @@ items:
     name: Documentation
     description: Missing updates to plugin docs, workflow docs, or user-facing usage guidance when public behavior changes.
     relevant_file_patterns:
+      - ".claude/**"
+      - ".titan/**"
+      - "AGENTS.md"
       - "docs/**"
       - "README.md"
       - "DEVELOPMENT.md"

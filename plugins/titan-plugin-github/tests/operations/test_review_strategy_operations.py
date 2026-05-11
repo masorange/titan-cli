@@ -248,6 +248,39 @@ def test_score_review_candidates_uses_custom_profile_thresholds_and_rules():
     assert "security or access-sensitive area" not in auth_candidate.reasons
 
 
+def test_score_review_candidates_keeps_reviewable_documentation_paths():
+    manifest = make_manifest(
+        [
+            ChangedFileEntry(
+                path=".claude/skills/titan-workflow-architecture/SKILL.md",
+                status="modified",
+                additions=0,
+                deletions=95,
+                is_docs=True,
+            )
+        ]
+    )
+    profile = ReviewProfile(
+        version=1,
+        change_patterns={},
+        file_roles={},
+        candidate_scoring=[],
+        candidate_exclusions=CandidateExclusions(),
+        review_axes={
+            ChecklistCategory.DOCUMENTATION: ReviewAxisRule(
+                patterns=[".claude/**", "AGENTS.md"]
+            )
+        },
+    )
+
+    candidates, excluded = score_review_candidates(manifest, review_profile=profile)
+
+    assert [candidate.path for candidate in candidates] == [
+        ".claude/skills/titan-workflow-architecture/SKILL.md"
+    ]
+    assert excluded == []
+
+
 def test_classify_pr_uses_custom_change_patterns():
     manifest = make_manifest(
         [

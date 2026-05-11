@@ -44,6 +44,14 @@ def matching_scoring_rules(path: str, review_profile: ReviewProfile) -> list[Can
     return [rule for rule in review_profile.candidate_scoring if path_matches_any(path, rule.patterns)]
 
 
+def is_reviewable_documentation(path: str, review_profile: ReviewProfile) -> bool:
+    """Return True when a documentation-like path should still be reviewed."""
+    documentation_rule = review_profile.review_axes.get(ChecklistCategory.DOCUMENTATION)
+    if not documentation_rule:
+        return False
+    return path_matches_any(path, documentation_rule.patterns)
+
+
 def select_review_axes(
     checklist: list[ReviewChecklistItem],
     focus_candidates: list[ScoredReviewCandidate],

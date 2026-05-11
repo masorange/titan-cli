@@ -3,9 +3,10 @@ from unittest.mock import Mock
 from titan_cli.core.result import ClientSuccess
 from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Exit, Success
+from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest
 from titan_plugin_github.models.review_enums import FileChangeStatus
 from titan_plugin_github.models.view import UIFileChange, UIPullRequest
-from titan_plugin_github.steps.code_review_steps import fetch_pr_review_bundle
+from titan_plugin_github.steps.code_review_steps import fetch_pr_review_bundle, score_review_candidates
 
 
 class _FakeTextual:
@@ -22,6 +23,15 @@ class _FakeTextual:
         pass
 
     def error_text(self, _text):
+        pass
+
+    def success_text(self, _text):
+        pass
+
+    def text(self, _text):
+        pass
+
+    def bold_text(self, _text):
         pass
 
     def show_diff_stat(self, *_args, **_kwargs):
@@ -150,3 +160,40 @@ def test_fetch_pr_review_bundle_exits_when_pr_has_no_files_and_no_diff():
 
     assert isinstance(result, Exit)
     assert result.message == "Empty PR diff"
+
+
+def test_score_review_candidates_exits_when_no_reviewable_candidates_remain():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["change_manifest"] = ChangeManifest(
+        pr=PullRequestManifest(
+            number=215,
+            title="docs-only cleanup",
+            base="master",
+            head="cleanup",
+            author="alex",
+            description="Body",
+        ),
+        files=[
+            MockChangedFile(
+                path="docs/readme.md",
+                status="modified",
+                additions=1,
+                deletions=0,
+                is_docs=True,
+            )
+        ],
+        total_additions=1,
+        total_deletions=0,
+    )
+
+    result = score_review_candidates(ctx)
+
+    assert isinstance(result, Exit)
+    assert result.message == "No reviewable candidates after exclusions"
+
+
+def MockChangedFile(**kwargs):
+    from titan_plugin_github.models.review_models import ChangedFileEntry
+
+    return ChangedFileEntry(**kwargs)

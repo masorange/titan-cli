@@ -41,7 +41,6 @@ def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("Git client not available")
 
-    ctx.textual.text("")
     with ctx.textual.loading(f"Creating worktree for PR #{pr_number}..."):
         remote = getattr(ctx.git, 'default_remote', 'origin')
         worktree_path, worktree_created = setup_worktree(

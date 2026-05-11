@@ -2,6 +2,7 @@
 
 from .review_profile_operations import (
     classify_file_role,
+    is_reviewable_documentation,
     match_change_patterns,
     matching_scoring_rules,
     select_review_axes,
@@ -215,7 +216,7 @@ def score_review_candidates(
         if entry.is_generated:
             excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.GENERATED))
             continue
-        if entry.is_docs:
+        if entry.is_docs and not is_reviewable_documentation(entry.path, review_profile):
             excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.DOCS))
             continue
 
