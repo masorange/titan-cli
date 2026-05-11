@@ -52,7 +52,7 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     # 2. Get required data from context and client config
     title = ctx.get("pr_title")
     body = ctx.get("pr_body")
-    base = ctx.git.main_branch  # Get base branch from git client config
+    base = ctx.get("pr_base_branch") or ctx.git.main_branch
     head = ctx.get("pr_head_branch")
     is_draft = ctx.get("pr_is_draft", False)  # Default to not a draft
 
