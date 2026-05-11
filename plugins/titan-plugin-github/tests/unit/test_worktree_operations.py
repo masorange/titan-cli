@@ -26,7 +26,12 @@ class TestSetupWorktree:
 
         assert success is True
         assert "titan-review-123" in abs_path
+        mock_git_client.fetch_refspec.assert_called_once_with(
+            "origin",
+            "pull/123/head:refs/titan/review/pr-123",
+        )
         mock_git_client.create_worktree.assert_called_once()
+        assert mock_git_client.create_worktree.call_args.kwargs["branch"] == "refs/titan/review/pr-123"
 
     def test_removes_existing_worktree_before_creating(self, mock_git_client):
         """Test that existing worktree is removed first"""
@@ -34,6 +39,18 @@ class TestSetupWorktree:
 
         mock_git_client.remove_worktree.assert_called_once()
         mock_git_client.create_worktree.assert_called_once()
+
+    def test_handles_refspec_fetch_failure(self, mock_git_client):
+        """Test handling of refspec fetch failure for fork PRs."""
+        mock_git_client.fetch_refspec.return_value = ClientError(
+            error_message="Fetch failed", error_code="FETCH_ERROR"
+        )
+
+        abs_path, success = setup_worktree(mock_git_client, 123, "feature-branch")
+
+        assert success is False
+        assert abs_path == ""
+        mock_git_client.create_worktree.assert_not_called()
 
     def test_handles_creation_failure(self, mock_git_client):
         """Test handling of worktree creation failure"""

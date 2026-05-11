@@ -150,6 +150,15 @@ class RemoteService:
             return ClientError(error_message=str(e), error_code="FETCH_ERROR")
 
     @log_client_operation()
+    def fetch_refspec(self, remote: str, refspec: str) -> ClientResult[None]:
+        """Fetch an explicit refspec from a remote."""
+        try:
+            self.git.run_command(["git", "fetch", remote, refspec])
+            return ClientSuccess(data=None, message="Refspec fetch completed")
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="FETCH_ERROR")
+
+    @log_client_operation()
     def get_github_repo_info(self) -> ClientResult[Tuple[Optional[str], Optional[str]]]:
         """
         Extract GitHub repository owner and name from 'origin' remote URL.

@@ -17,7 +17,7 @@ from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
 from ..models.review_enums import FileReadMode, ReviewActionType, ReviewStrategyType, ThreadDecisionType
-from ..models.review_models import ReviewActionProposal
+from ..models.review_models import PRClassification, ReviewActionProposal
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
 from ..operations.code_review_operations import (
@@ -1010,9 +1010,7 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         comment_threads=len(review_threads),
         review_profile=review_profile,
     )
-    ctx.data["review_profile"] = review_profile
-    ctx.data["pr_classification"] = classification
-
+    
     logger.debug(
         "pr_classified",
         size_class=classification.size_class,
@@ -1020,25 +1018,15 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         total_lines_changed=classification.total_lines_changed,
         comment_entries=classification.comment_entries,
     )
-    ctx.textual.success_text(
-        f"✓ {classification.size_class.value} PR · {classification.files_changed} files · "
-        f"{classification.total_lines_changed} changed lines"
-    )
-    ctx.textual.dim_text(
-        f"high-signal files: {classification.high_signal_files} · "
-        f"repeated call sites: {classification.repeated_callsite_files}"
-        + (" · repetitive migration detected" if classification.is_repetitive_migration else "")
-    )
-    if classification.roles:
-        ctx.textual.dim_text(
-            f"roles: {', '.join(classification.roles)} · complexity score: {classification.complexity_score}"
-            + (" · active review" if classification.active_review else "")
-        )
-    if classification.rationale:
-        ctx.textual.dim_text(classification.rationale)
+    _render_pr_classification(ctx, classification)
     ctx.textual.end_step("success")
-    return Success("PR classified", metadata={"pr_classification": classification})
-
+    return Success(
+        "PR classified",
+        metadata={
+            "pr_classification": classification,
+            "review_profile": review_profile,
+        },
+    )
 
 def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     """Rank changed files and precompute excluded files."""
@@ -1058,9 +1046,6 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     candidates, excluded = score_review_candidates_operation(manifest, review_profile=review_profile)
-    ctx.data["review_profile"] = review_profile
-    ctx.data["review_candidates"] = candidates
-    ctx.data["excluded_review_files"] = excluded
 
     logger.debug(
         "review_candidates_scored",
@@ -1077,6 +1062,7 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     return Success(
         "Review candidates scored",
         metadata={
+            "review_profile": review_profile,
             "review_candidates": candidates,
             "excluded_review_files": excluded,
         },
@@ -1105,13 +1091,19 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
         return Error("GitHub managers are not available in workflow context.")
 
     checklist = ctx.github_managers.checklist.get_effective_checklist()
+    applicable_preview_ids = _build_review_checklist_preview(ctx, checklist)
     ctx.data["review_checklist"] = checklist
+    ctx.data["review_checklist_applicable_preview"] = applicable_preview_ids
 
-    ctx.textual.success_text(f"✓ {len(checklist)} checklist categories ready")
-    for item in checklist:
-        ctx.textual.dim_text(f"{item.id}")
+    _render_review_checklist(ctx, checklist, applicable_preview_ids)
     ctx.textual.end_step("success")
-    return Success("Review checklist built", metadata={"review_checklist": checklist})
+    return Success(
+        "Review checklist built",
+        metadata={
+            "review_checklist": checklist,
+            "review_checklist_applicable_preview": applicable_preview_ids,
+        },
+    )
 
 
 def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
@@ -1131,7 +1123,6 @@ def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     strategy = select_review_strategy_operation(classification)
-    ctx.data["review_strategy"] = strategy
 
     logger.debug(
         "review_strategy_selected",
@@ -1403,6 +1394,70 @@ def _get_review_profile(ctx: WorkflowContext) -> ReviewProfile:
     from ..review_profiles import DEFAULT_REVIEW_PROFILE
 
     return DEFAULT_REVIEW_PROFILE.model_copy(deep=True)
+
+
+def _render_pr_classification(ctx: WorkflowContext, classification: PRClassification) -> None:
+    """Render deterministic PR classification in a compact, structured format."""
+    roles_text = ", ".join(classification.roles) if classification.roles else "none"
+    rationale = classification.rationale or "Classification derived from deterministic PR composition signals."
+
+    ctx.textual.success_text(f"✓ PR classified as {classification.size_class.value.upper()}")
+
+    ctx.textual.text(" ")
+    ctx.textual.text("Scope")
+    ctx.textual.dim_text(f"Files changed: {classification.files_changed}")
+    ctx.textual.dim_text(f"Lines changed: {classification.total_lines_changed}")
+    ctx.textual.dim_text(
+        f"Review activity: {classification.comment_threads} threads, {classification.comment_entries} comment entries"
+    )
+
+    ctx.textual.text(" ")
+    ctx.textual.text("Signals")
+    ctx.textual.dim_text(f"High-signal files: {classification.high_signal_files}")
+    ctx.textual.dim_text(f"Repeated call sites: {classification.repeated_callsite_files}")
+    ctx.textual.dim_text(f"Roles: {roles_text}")
+    ctx.textual.dim_text(f"Complexity score: {classification.complexity_score}/20")
+
+    ctx.textual.text(" ")
+    ctx.textual.text("Flags")
+    ctx.textual.dim_text(
+        f"Repetitive migration: {'yes' if classification.is_repetitive_migration else 'no'}"
+    )
+    ctx.textual.dim_text(f"Active review: {'yes' if classification.active_review else 'no'}")
+
+    ctx.textual.text(" ")
+    ctx.textual.text("Why")
+    ctx.textual.dim_text(rationale)
+
+
+def _build_review_checklist_preview(ctx: WorkflowContext, checklist: list) -> set[str]:
+    """Build a deterministic preview of checklist categories that look relevant."""
+    candidates = ctx.get("review_candidates", [])
+    review_profile = _get_review_profile(ctx)
+
+    from ..operations.review_profile_operations import select_review_axes
+
+    applicable = select_review_axes(checklist, candidates, review_profile)
+    return {str(item_id) for item_id in applicable}
+
+
+def _render_review_checklist(
+    ctx: WorkflowContext,
+    checklist: list,
+    applicable_preview_ids: set[str],
+) -> None:
+    """Render the resolved checklist with applicable categories emphasized."""
+    applicable_count = sum(1 for item in checklist if str(item.id) in applicable_preview_ids)
+    ctx.textual.success_text(
+        f"✓ {applicable_count} of {len(checklist)} checklist categories look relevant for this PR"
+    )
+    ctx.textual.text(" ")
+    for item in checklist:
+        label = f"{item.id}"
+        if str(item.id) in applicable_preview_ids:
+            ctx.textual.bold_text(label)
+        else:
+            ctx.textual.dim_text(label)
 
 
 def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
