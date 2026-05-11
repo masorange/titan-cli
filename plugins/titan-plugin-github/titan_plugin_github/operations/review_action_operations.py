@@ -106,13 +106,6 @@ def build_review_action_payload(
 
         # new_comment — try inline first, fall back to general body
         resolved_line = action.resolved_line
-        if manager and action.path:
-            resolved_line = resolved_line or manager.resolve_line_anchor(
-                action.path,
-                line=action.line,
-                snippet=action.anchor_snippet,
-                evidence=action.evidence,
-            )
 
         if action.path and resolved_line:
             file_valid_lines = valid_lines.get(action.path, set())
@@ -151,6 +144,7 @@ def build_review_action_payload(
             path=action.path,
             line=action.line,
             resolved_line=resolved_line,
+            resolution_source=action.resolution_source,
         )
 
     payload: Dict = {"commit_id": commit_sha, "comments": inline_comments}
@@ -206,12 +200,7 @@ def extract_diff_hunk_for_action(
         return None
 
     manager = diff_manager or get_or_create_diff_manager(diff)
-    resolved_line = action.resolved_line or manager.resolve_line_anchor(
-        action.path,
-        line=action.line,
-        snippet=action.anchor_snippet,
-        evidence=action.evidence,
-    )
+    resolved_line = action.resolved_line
     if resolved_line is None:
         return None
 

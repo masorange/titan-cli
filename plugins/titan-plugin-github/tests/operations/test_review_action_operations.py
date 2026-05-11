@@ -41,7 +41,28 @@ def test_build_new_comment_actions_keeps_anchor_data():
     assert actions[0].evidence == 'print("world")'
 
 
-def test_build_review_action_payload_resolves_line_from_snippet():
+def test_build_review_action_payload_uses_pre_resolved_line():
+    action = ReviewActionProposal(
+        action_type=ReviewActionType.NEW_COMMENT,
+        source=ReviewActionSource.NEW_FINDING,
+        path="src/foo.py",
+        line=999,
+        resolved_line=12,
+        resolution_source="snippet",
+        title="Test",
+        body="Comment body",
+        reasoning="Why",
+        anchor_snippet='print("world")',
+        evidence='print("world")',
+    )
+
+    payload = build_review_action_payload([action], commit_sha="abc123", diff=DIFF)
+
+    assert payload["comments"][0]["line"] == 12
+    assert "body" not in payload
+
+
+def test_build_review_action_payload_falls_back_without_resolved_line():
     action = ReviewActionProposal(
         action_type=ReviewActionType.NEW_COMMENT,
         source=ReviewActionSource.NEW_FINDING,
@@ -56,8 +77,8 @@ def test_build_review_action_payload_resolves_line_from_snippet():
 
     payload = build_review_action_payload([action], commit_sha="abc123", diff=DIFF)
 
-    assert payload["comments"][0]["line"] == 12
-    assert "body" not in payload
+    assert payload["comments"] == []
+    assert payload["body"] == "**src/foo.py** (line 999):\nComment body"
 
 
 def test_extract_diff_hunk_for_action_returns_none_without_resolved_anchor():
@@ -74,6 +95,27 @@ def test_extract_diff_hunk_for_action_returns_none_without_resolved_anchor():
     )
 
     assert extract_diff_hunk_for_action(action, DIFF) is None
+
+
+def test_extract_diff_hunk_for_action_uses_pre_resolved_line():
+    action = ReviewActionProposal(
+        action_type=ReviewActionType.NEW_COMMENT,
+        source=ReviewActionSource.NEW_FINDING,
+        path="src/foo.py",
+        line=999,
+        resolved_line=12,
+        title="Test",
+        body="Comment body",
+        reasoning="Why",
+        anchor_snippet='print("world")',
+        evidence='print("world")',
+    )
+
+    hunk = extract_diff_hunk_for_action(action, DIFF)
+
+    assert hunk is not None
+    assert hunk.startswith("@@")
+    assert 'print("world")' in hunk
 
 
 def test_resolve_action_anchors_persists_resolved_line():
