@@ -65,7 +65,15 @@ class PoEditorNetwork:
             )
 
             # PoEditor API response format: {"response": {...}, "result": {...}}
-            json_response = response.json() if response.content else {}
+            try:
+                json_response = response.json() if response.content else {}
+            except ValueError as e:
+                # JSON parsing failed - return error with raw body for debugging
+                raise PoEditorAPIError(
+                    f"Invalid JSON response from PoEditor API: {e}",
+                    status_code=response.status_code,
+                    response={"raw_body": response.text[:500]},  # Truncate for safety
+                ) from e
 
             # Check API-level status (PoEditor returns 200 even for logical errors)
             api_response = json_response.get("response", {})
@@ -89,10 +97,19 @@ class PoEditorNetwork:
                 status_code=e.response.status_code,
                 duration=duration,
             )
+            # Try to parse JSON response, but don't let it hide the original error
+            error_response = None
+            if e.response.content:
+                try:
+                    error_response = e.response.json()
+                except ValueError:
+                    # JSON parsing failed - include raw body for debugging
+                    error_response = {"raw_body": e.response.text[:500]}
+
             raise PoEditorAPIError(
                 f"PoEditor API HTTP error: {e}",
                 status_code=e.response.status_code,
-                response=e.response.json() if e.response.content else None,
+                response=error_response,
             ) from e
 
         except requests.exceptions.RequestException as e:
