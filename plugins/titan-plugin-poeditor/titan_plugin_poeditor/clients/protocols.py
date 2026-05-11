@@ -23,7 +23,7 @@ class PoEditorClientProtocol(Protocol):
         ...
 
     def upload_file(
-        self, project_id: str, file_path: str, language_code: str
+        self, project_id: str, file_path: str, language_code: str, updating: str = "terms_translations"
     ) -> ClientResult[dict]:
         """Upload translation file to project."""
         ...
