@@ -19,7 +19,7 @@ from ..managers.diff_context_manager import get_or_create_diff_manager
 from ..models.review_enums import FileReadMode, ReviewActionType, ReviewStrategyType, ThreadDecisionType
 from ..models.review_models import ReviewActionProposal
 from ..models.review_profile_models import ReviewProfile
-from ..models.view import UICommentThread
+from ..models.view import UICommentThread, UIPullRequest
 from ..operations.code_review_operations import (
     select_files_for_review,
     compute_diff_stat,
@@ -670,34 +670,24 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("error")
             return Error(f"Failed to fetch files: {err}")
 
-    # Fetch diff — prefer git diff with extended context (20 lines) for better AI review quality
+    # Fetch diff. For fork PRs, gh pr diff is the source of truth because the
+    # head branch usually does not exist under the local origin remote.
     with ctx.textual.loading(f"Fetching PR #{pr_number} diff..."):
-        match (ctx.git, pr_result):
-            case (git, ClientSuccess(data=pr_for_diff)) if git:
-                fetch_result = git.fetch(all=True)
-                match fetch_result:
-                    case ClientError(error_message=err):
-                        logger.warning(f"Git fetch failed: {err}, will try diff anyway")
-                    case _:
-                        pass
-
-                diff_result = git.get_branch_diff(
-                    pr_for_diff.base_ref,
-                    pr_for_diff.head_ref,
-                    context_lines=20,
-                    use_remote=True
-                )
-            case _:
-                logger.debug("Git plugin not available; using gh pr diff")
-                diff_result = ctx.github.get_pr_diff(pr_number)
+        diff_result = _get_review_diff(ctx, pr_number, pr, all_files_with_stats)
 
     # Validate diff — fallback to per-file patches if PR is too large
     match diff_result:
         case ClientSuccess(data=diff):
             if not diff or not diff.strip():
+                if all_files_with_stats:
+                    ctx.textual.warning_text(
+                        "Diff came back empty despite changed files in the PR."
+                    )
+                    ctx.textual.end_step("error")
+                    return Error("Could not resolve PR diff despite changed files")
                 ctx.textual.dim_text("PR diff is empty — nothing to review.")
-                ctx.textual.end_step("skip")
-                return Skip("Empty PR diff")
+                ctx.textual.end_step("success")
+                return Exit("Empty PR diff")
         case ClientError(error_message=err) if "too_large" in err or "too large" in err.lower():
             ctx.textual.warning_text("PR diff is too large. Selecting files that matter...")
 
@@ -780,6 +770,65 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             "pr_template": pr_template,
         },
     )
+
+
+def _get_review_diff(
+    ctx: WorkflowContext,
+    pr_number: int,
+    pr: UIPullRequest,
+    all_files_with_stats: list,
+):
+    """Resolve the most trustworthy diff source for a PR review."""
+    if pr.is_cross_repository:
+        logger.info(
+            "review_diff_using_github",
+            pr_number=pr_number,
+            reason="cross_repository_pr",
+            head_repository_owner=pr.head_repository_owner,
+        )
+        return ctx.github.get_pr_diff(pr_number)
+
+    if not ctx.git:
+        logger.debug("Git plugin not available; using gh pr diff")
+        return ctx.github.get_pr_diff(pr_number)
+
+    fetch_result = ctx.git.fetch(all=True)
+    match fetch_result:
+        case ClientError(error_message=err):
+            logger.warning(f"Git fetch failed: {err}, will try diff anyway")
+        case _:
+            pass
+
+    git_diff_result = ctx.git.get_branch_diff(
+        pr.base_ref,
+        pr.head_ref,
+        context_lines=20,
+        use_remote=True,
+    )
+
+    match git_diff_result:
+        case ClientSuccess(data=diff) if diff and diff.strip():
+            return git_diff_result
+        case ClientSuccess(data=_):
+            if all_files_with_stats:
+                logger.warning(
+                    "git_diff_empty_with_changed_files",
+                    pr_number=pr_number,
+                    base_ref=pr.base_ref,
+                    head_ref=pr.head_ref,
+                    files_changed=len(all_files_with_stats),
+                )
+                return ctx.github.get_pr_diff(pr_number)
+            return git_diff_result
+        case ClientError(error_message=err):
+            logger.warning(
+                "git_diff_failed_falling_back_to_github",
+                pr_number=pr_number,
+                base_ref=pr.base_ref,
+                head_ref=pr.head_ref,
+                error=err,
+            )
+            return ctx.github.get_pr_diff(pr_number)
 
 
 def _resolve_headless_adapter(cli_preference: str):
