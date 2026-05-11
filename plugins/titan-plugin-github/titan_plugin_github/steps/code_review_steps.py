@@ -161,18 +161,22 @@ def _show_review_plan_summary(ctx: WorkflowContext, plan) -> None:
     """Render a concise review plan summary in the UI."""
     if getattr(plan, "focus_files", None):
         ctx.textual.dim_text("focus files:")
+        ctx.textual.text(" ")
         for file_plan in plan.focus_files:
             ctx.textual.dim_text(
                 f"{file_plan.path} · {file_plan.priority.value} · {file_plan.read_mode.value}"
             )
 
+    ctx.textual.text(" ")
     if getattr(plan, "review_axes", None):
         ctx.textual.dim_text("review axes:")
+        ctx.textual.text(" ")
         for axis in plan.review_axes:
             ctx.textual.dim_text(str(axis))
 
     if getattr(plan, "extra_context_requests", None):
         ctx.textual.dim_text("extra context:")
+        ctx.textual.text(" ")
         for request in plan.extra_context_requests:
             ctx.textual.dim_text(f"{request.type} -> {request.for_path}")
 
