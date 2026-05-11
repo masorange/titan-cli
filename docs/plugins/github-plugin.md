@@ -604,14 +604,14 @@ The GitHub plugin ships with workflows that use these capabilities directly:
 
 - `create-pr-ai`: Creates a pull request after committing and pushing changes, with AI-generated PR content.
 - `create-issue-ai`: Creates a GitHub issue from an AI-suggested title and description.
-- `review-pr-new-findings`: Runs a focused AI review over the changed files most likely to contain actionable problems.
+- `review-pr`: Runs a focused AI review over the changed files most likely to contain actionable problems.
 - `respond-pr-comments`: Helps review pending comments, reply to them, and request another review.
 
 These workflows can be used as-is or extended from `.titan/workflows/`.
 
 ## Review profile configuration
 
-The `review-pr-new-findings` workflow can be tailored per project with files under `.titan/review/`.
+The `review-pr` workflow can be tailored per project with files under `.titan/review/`.
 If these files do not exist, the plugin uses built-in defaults automatically.
 
 ### Review profile

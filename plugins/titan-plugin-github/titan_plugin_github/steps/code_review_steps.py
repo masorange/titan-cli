@@ -1483,6 +1483,60 @@ def _render_review_checklist(
             ctx.textual.dim_text(label)
 
 
+def _show_review_context_batches(ctx: WorkflowContext, batches: list) -> None:
+    """Render batch composition for resolved review context."""
+    for batch in batches:
+        file_paths = list(getattr(batch, "files_context", {}).keys())
+        related_count = len(getattr(batch, "related_files", {}) or {})
+        checklist_count = len(getattr(batch, "checklist_applicable", []) or [])
+        degraded = getattr(batch, "degraded_context", False)
+
+        ctx.textual.text(" ")
+        ctx.textual.bold_text(batch.batch_id)
+        ctx.textual.dim_text(
+            f"files: {len(file_paths)} · checklist: {checklist_count}"
+            + (f" · related: {related_count}" if related_count else "")
+            + (" · degraded" if degraded else "")
+        )
+        for path in file_paths:
+            ctx.textual.dim_text(f"  {path}")
+
+
+def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
+    """Render the start of a findings batch review."""
+    file_paths = list(getattr(batch, "files_context", {}).keys())
+    ctx.textual.text(" ")
+    ctx.textual.bold_text(f"Reviewing {batch.batch_id} ({len(file_paths)} file(s))")
+    for path in file_paths:
+        ctx.textual.dim_text(f"  {path}")
+
+
+def _render_findings_batch_split(ctx: WorkflowContext, batch_id: str, produced_batches: list[str]) -> None:
+    """Render a batch split caused by prompt budget constraints."""
+    ctx.textual.warning_text(
+        f"{batch_id} exceeded prompt budget and was split into {', '.join(produced_batches)}"
+    )
+
+
+def _render_findings_batch_result(
+    ctx: WorkflowContext,
+    batch_id: str,
+    *,
+    status: str,
+    findings_count: int = 0,
+    detail: str = "",
+) -> None:
+    """Render the outcome of a findings batch review."""
+    if status == "success":
+        ctx.textual.success_text(f"✓ {batch_id} complete · {findings_count} raw finding(s)")
+        return
+
+    message = f"{batch_id} {status}"
+    if detail:
+        message += f" · {detail}"
+    ctx.textual.warning_text(message)
+
+
 def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     """
     Fetch the exact code context according to the validated review plan.
@@ -1567,6 +1621,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         f"comments in context: {sum(len(batch.comment_context) for batch in package.batches)} · "
         f"trimmed by budget: {trimmed_count}"
     )
+    _show_review_context_batches(ctx, package.batches)
     ctx.textual.end_step("success")
     return Success(
         "Review context resolved",
@@ -1635,6 +1690,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     aggregated_raw = []
     findings_failed = False
     batch_queue = list(batches)
+    ctx.textual.dim_text(f"Reviewing {len(batch_queue)} batch(es) with {cli_display}")
 
     while batch_queue:
         batch = batch_queue.pop(0)
@@ -1649,10 +1705,16 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 prompt_actual_chars=len(prompt),
                 prompt_budget_target_chars=strategy.max_prompt_chars,
             )
+            _render_findings_batch_split(
+                ctx,
+                batch.batch_id,
+                [candidate.batch_id for candidate in fitted_batches],
+            )
             batch_queue = fitted_batches + batch_queue
             continue
 
         batch = fitted_batches[0]
+        _render_findings_batch_started(ctx, batch)
         prompt_parts = build_findings_prompt_parts(batch)
         prompt = prompt_parts["prompt"]
         prompt_breakdown = summarize_findings_prompt_parts(prompt_parts)
@@ -1683,6 +1745,12 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.warning_text(
                 f"Skipping {batch.batch_id}: prompt still too large ({len(prompt)} chars > {strategy.max_prompt_chars})"
             )
+            _render_findings_batch_result(
+                ctx,
+                batch.batch_id,
+                status="skipped",
+                detail="prompt still too large",
+            )
             continue
         with ctx.textual.loading(f"Asking {cli_display} to review {len(batch.files_context)} file(s) in {batch.batch_id}…"):
             response = adapter.execute(prompt, cwd=project_root, timeout=300)
@@ -1703,6 +1771,12 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         if not response.succeeded:
             findings_failed = True
             logger.debug("findings_batch_failed", batch_id=batch.batch_id, exit_code=response.exit_code)
+            _render_findings_batch_result(
+                ctx,
+                batch.batch_id,
+                status="failed",
+                detail=f"CLI exit {response.exit_code}",
+            )
             continue
 
         try:
@@ -1710,9 +1784,21 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             raw = json.loads(_extract_json_slice(text, "[", "]", "array"))
             if isinstance(raw, list):
                 aggregated_raw.extend(raw)
+                _render_findings_batch_result(
+                    ctx,
+                    batch.batch_id,
+                    status="success",
+                    findings_count=len(raw),
+                )
         except (json.JSONDecodeError, ValueError) as e:
             findings_failed = True
             logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=str(e))
+            _render_findings_batch_result(
+                ctx,
+                batch.batch_id,
+                status="failed",
+                detail="parse error",
+            )
 
     if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
         candidates = ctx.get("review_candidates", [])

@@ -1,4 +1,4 @@
-name: "Review PR (New Findings)"
+name: "Review PR"
 description: "Focused AI review for new actionable findings with bounded prompt context"
 
 steps:
