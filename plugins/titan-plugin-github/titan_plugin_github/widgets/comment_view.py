@@ -95,6 +95,7 @@ class CommentView(Widget):
         focused_diff: Optional[str] = None,
         severity: Optional[FindingSeverity | ThreadSeverity] = None,
         is_outdated: bool = False,
+        line_label: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -121,6 +122,7 @@ class CommentView(Widget):
         self.focused_diff = focused_diff
         self.severity = severity
         self.is_outdated = is_outdated
+        self.line_label = line_label
 
     @classmethod
     def from_resolved_context(cls, ctx: ResolvedCommentContext) -> "CommentView":
@@ -223,9 +225,10 @@ class CommentView(Widget):
         return cls(
             body=action.body,
             file_path=action.path,
-            line=action.line,
+            line=action.resolved_line or action.line,
             diff_hunk=diff_hunk,
             severity=action.severity,
+            line_label=_build_action_line_label(action),
         )
 
     def compose(self) -> ComposeResult:
@@ -300,7 +303,9 @@ class CommentView(Widget):
         file_widget.styles.width = "auto"
         file_widget.styles.margin = (0, 1, 0, 0)
 
-        if self.line:
+        if self.line_label:
+            line_info = self.line_label
+        elif self.line:
             line_info = f"Line {self.line}"
         elif self.severity:
             # AI suggestion with file but no resolved line yet
@@ -355,6 +360,22 @@ class CommentView(Widget):
             diff_hunk=self.diff_hunk,
             line=self.line,
         )
+
+
+def _build_action_line_label(action: Any) -> Optional[str]:
+    """Build a user-facing line label for review action preview."""
+    resolved_line = getattr(action, "resolved_line", None)
+    original_line = getattr(action, "original_line", None) or getattr(action, "line", None)
+    resolution_source = getattr(action, "resolution_source", None)
+
+    if resolved_line and original_line and resolved_line != original_line:
+        suffix = f" via {resolution_source}" if resolution_source else ""
+        return f"Line {resolved_line} (AI {original_line}{suffix})"
+    if resolved_line:
+        return f"Line {resolved_line}"
+    if original_line:
+        return f"Line {original_line}"
+    return None
 
 
 __all__ = ["CommentView"]

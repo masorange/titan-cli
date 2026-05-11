@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 
 _HUNK_HEADER_RE = re.compile(r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@(.*)")
 _FILE_HEADER_RE = re.compile(r"^diff --git a/.+ b/(.+)$")
+_COMMENT_PREFIXES = ("//", "#", "/*", "*/", "*")
 
 
 class DiffContextManager:
@@ -101,11 +102,53 @@ class DiffContextManager:
         logger.debug(f"get_hunks: path={path}, count={len(hunks)}")
         return hunks
 
-    def get_hunk_for_line(self, path: str, line: int) -> Optional[ParsedHunk]:
+    def get_hunk_texts(self, path: str) -> list[str]:
+        """Return raw hunk text blocks for ``path``."""
+        return [hunk.content for hunk in self.get_hunks(path)]
+
+    def build_expanded_hunks(
+        self,
+        path: str,
+        file_content: str,
+        extra_lines: int = 10,
+    ) -> list[str]:
+        """
+        Return diff hunks enriched with surrounding file context.
+
+        Uses already-parsed hunk coordinates instead of reparsing @@ headers.
+        """
+        hunks = self.get_hunks(path)
+        if not hunks:
+            return []
+
+        file_lines = file_content.split("\n")
+        expanded: list[str] = []
+
+        for hunk in hunks:
+            expand_start = max(0, hunk.new_line_start - extra_lines - 1)
+            expand_end = min(len(file_lines), hunk.new_line_end + extra_lines)
+            surrounding = "\n".join(file_lines[expand_start:expand_end])
+            expanded.append(
+                f"{hunk.header}\n"
+                f"# --- surrounding context (lines {expand_start + 1}-{expand_end}) ---\n"
+                f"{surrounding}\n"
+                f"# --- diff hunk ---\n"
+                + "\n".join(hunk.content.split("\n")[1:])
+            )
+
+        logger.debug(
+            "build_expanded_hunks: path=%s, count=%s, extra_lines=%s",
+            path,
+            len(expanded),
+            extra_lines,
+        )
+        return expanded
+
+    def get_hunk_for_line(self, path: str, line: int, allow_fallback: bool = True) -> Optional[ParsedHunk]:
         """
         Return the hunk containing new-file ``line`` for ``path``.
 
-        Falls back to the first hunk when no exact match is found.
+        Falls back to the first hunk only when ``allow_fallback`` is True.
         """
         hunks = self.get_hunks(path)
         if not hunks:
@@ -115,8 +158,11 @@ class DiffContextManager:
             if hunk.contains_new_line(line):
                 logger.debug(f"get_hunk_for_line: path={path}, line={line} → exact match ({hunk.new_line_start}-{hunk.new_line_end})")
                 return hunk
-        logger.debug(f"get_hunk_for_line: path={path}, line={line} → fallback to first hunk ({hunks[0].new_line_start}-{hunks[0].new_line_end})")
-        return hunks[0]
+        if allow_fallback:
+            logger.debug(f"get_hunk_for_line: path={path}, line={line} → fallback to first hunk ({hunks[0].new_line_start}-{hunks[0].new_line_end})")
+            return hunks[0]
+        logger.debug(f"get_hunk_for_line: path={path}, line={line} → no exact match")
+        return None
 
     def get_hunk_for_old_line(self, path: str, line: int) -> Optional[ParsedHunk]:
         """
@@ -192,6 +238,32 @@ class DiffContextManager:
                         return current
                     current += 1
         logger.debug(f"find_line_by_snippet: path={path} → not found")
+        return None
+
+    def resolve_line_anchor(
+        self,
+        path: str,
+        line: Optional[int] = None,
+        snippet: Optional[str] = None,
+        evidence: Optional[str] = None,
+    ) -> Optional[int]:
+        """Resolve the best inline comment line using snippet/evidence before trusting AI line."""
+        search_candidates = [snippet, _extract_best_anchor_from_text(evidence)]
+        for candidate in search_candidates:
+            resolved = self.find_line_by_snippet(path, candidate or "")
+            if resolved is not None:
+                logger.debug(
+                    "resolve_line_anchor: path=%s resolved via snippet/evidence to line=%s",
+                    path,
+                    resolved,
+                )
+                return resolved
+
+        if line is not None and line in self.get_valid_review_lines(path):
+            logger.debug("resolve_line_anchor: path=%s using validated line=%s", path, line)
+            return line
+
+        logger.debug("resolve_line_anchor: path=%s could not resolve line", path)
         return None
 
     # ------------------------------------------------------------------
@@ -569,4 +641,39 @@ def build_focused_diff_from_hunk(
     return _build_focused_diff_from_hunk(hunk_content, target_line, is_outdated, before, after)
 
 
+def _extract_best_anchor_from_text(text: Optional[str]) -> Optional[str]:
+    """Extract a short single-line anchor from evidence text."""
+    if not text:
+        return None
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("```") or line.startswith(_COMMENT_PREFIXES):
+            continue
+        if line.startswith(("+", "-", "*")):
+            line = line[1:].strip()
+        if len(line) < 6:
+            continue
+        return line[:160]
+    return None
+
+
 __all__ = ["DiffContextManager", "extract_lines_from_hunk", "build_focused_diff_from_hunk"]
+
+
+def get_or_create_diff_manager(
+    diff: str,
+    cache: Optional[dict] = None,
+    cache_key: str = "review_diff_manager",
+) -> DiffContextManager:
+    """Return a cached diff manager when available, otherwise parse once and store it."""
+    if cache is not None:
+        existing = cache.get(cache_key)
+        if existing is not None:
+            logger.debug("get_or_create_diff_manager: reusing cached manager")
+            return existing
+
+    manager = DiffContextManager.from_diff(diff)
+    if cache is not None:
+        cache[cache_key] = manager
+    return manager

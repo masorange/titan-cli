@@ -51,6 +51,8 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         labels=label_names,
         formatted_created_at=format_date(rest_pr.createdAt) if rest_pr.createdAt else "",
         formatted_updated_at=format_date(rest_pr.updatedAt) if rest_pr.updatedAt else "",
+        is_cross_repository=rest_pr.isCrossRepository,
+        head_repository_owner=rest_pr.headRepositoryOwnerLogin,
     )
 
 

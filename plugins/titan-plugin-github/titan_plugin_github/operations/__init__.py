@@ -46,16 +46,11 @@ from .issue_operations import (
 from .code_review_operations import (
     ProjectInstructionFile,
     load_project_instructions,
-    load_all_project_skills,
-    load_project_docs,
-    select_relevant_skills,
     select_files_for_review,
-    extract_doc_summary,
     extract_diff_for_file,
     extract_hunk_for_line,
     extract_valid_diff_lines,
     find_line_by_snippet,
-    build_review_payload,
     compute_diff_stat,
 )
 
@@ -89,15 +84,10 @@ __all__ = [
     # Code review operations
     "ProjectInstructionFile",
     "load_project_instructions",
-    "load_all_project_skills",
-    "load_project_docs",
-    "select_relevant_skills",
     "select_files_for_review",
-    "extract_doc_summary",
     "extract_diff_for_file",
     "extract_hunk_for_line",
     "extract_valid_diff_lines",
     "find_line_by_snippet",
-    "build_review_payload",
     "compute_diff_stat",
 ]

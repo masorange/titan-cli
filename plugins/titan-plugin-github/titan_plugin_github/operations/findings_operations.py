@@ -1,132 +1,122 @@
-"""
-Operations for building AI prompts for targeted code review (second IA call).
-
-Pure functions — no UI, no side effects. Prompt templates and helpers for
-the findings phase: ReviewContextPackage → Finding[].
-"""
+"""Operations for building AI prompts for focused findings review."""
 
 import json
+from typing import Any
 
-from ..models.review_models import (
-    ExistingCommentIndexEntry,
-    FileContextEntry,
-    Finding,
-    ReviewChecklistItem,
-    ReviewContextPackage,
-)
+from ..models.review_models import Finding, FocusContextBatch, ReviewChecklistItem
+from .prompt_formatting_operations import comment_context_to_json
 
-def build_review_findings_prompt(package: ReviewContextPackage) -> str:
-    """
-    Build the prompt for the second AI call: find actionable problems.
 
-    The AI receives exact code context (not just metadata) and is asked to
-    produce a JSON array of Finding objects. Each finding represents a real,
-    actionable problem — not style preferences or nitpicks unless clearly wrong.
-
-    The prompt is CLI-agnostic. Project skills hint included generically.
-
-    Args:
-        package: Complete context package from resolve_review_context step
-
-    Returns:
-        Formatted prompt string ready to send to a headless CLI adapter
-    """
-    checklist_json = _checklist_to_json(package.checklist_applicable)
-    existing_json = _existing_comments_to_json(package.existing_comments_compact)
-    files_text = _files_context_to_text(package.files_context)
-    related_text = _related_files_to_text(package.related_files)
+def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
+    """Build prompt parts separately so callers can log size breakdowns."""
+    checklist_json = _checklist_to_json(batch.checklist_applicable)
+    comments_json = comment_context_to_json(batch.comment_context)
+    files_text = _files_context_to_text(batch.files_context)
+    related_text = _related_files_to_text(batch.related_files)
+    pr_context = _pr_context_to_text(batch)
     schema = _finding_schema()
-    pr_context = _pr_context_to_text(package)
 
-    return f"""You are performing the second pass of a two-phase code review.
+    instructions = """- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
+- Also report changes that preserve execution but alter the observable meaning of data, events, labels, classifications, or results
+- Also report changes that degrade fidelity of recorded, serialized, converted, or displayed data even if the code still runs
+- Also report changes that remove an important previous guarantee such as success/failure signaling, fallback behavior, or state consistency
+- Do not repeat issues already covered by Existing Comments
+- Do not report deleted lines as findings
+- Do not speculate beyond the shown code
+- Do not claim that a function, overload, or parameter does not exist unless the relevant declaration is clearly visible in the provided context
+- Prefer describing an observable behavior risk over making an unverified compilation claim
+- Do not report code style preferences, refactor suggestions, architecture preferences, or naming opinions without observable impact
+- Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
+- If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
+- If there are no findings, return []"""
 
-The first pass already decided WHAT to read. Now your task is to read the exact code provided and find ACTIONABLE problems.
+    prompt = f"""You are performing a focused pull request code review.
+
+This is one bounded review batch. Review only the provided code and report actionable problems that are actually present.
 
 ## PR Context
 {pr_context}
 
-## Code to Review
+## Existing Comments (do not duplicate these)
+{comments_json}
 
-Each file section shows either numbered lines (format: `  N | code`) for full files, or annotated diff hunks where each line is explicitly labelled:
-- `[DELETED - do not review]` — OLD code being removed by this PR. Will NOT exist after merge. Never report findings about these lines.
-- `[ADDED]` — NEW code introduced by this PR. This is your primary review target.
-- `[CONTEXT]` — Unchanged lines surrounding the change.
-The `@@` header in hunks shows the starting line number of the new file.
-
-{files_text}{related_text}
-
-## Review Checklist (applicable to this PR)
+## Review Axes
 {checklist_json}
 
-## Existing Comments (do NOT duplicate these)
-{existing_json}
-
-## Project Skills
-Use any project-specific skills, guidelines, or tools available in your context if they're relevant to this review.
+## Code to Review
+{files_text}{related_text}
 
 ## Instructions
+{instructions}
 
-Find problems in the code above. For each problem, produce one Finding JSON object.
-
-Rules:
-- Only report ACTIONABLE problems (bugs, missing error handling, incorrect logic, security issues)
-- VERIFY the problem actually exists: re-read the relevant code before reporting — do NOT report problems based on what you expect the code to look like
-- The problem must be PRESENT in the code shown above — do NOT report missing features or suggest upgrades unless the current code is clearly broken
-- Do NOT report problems about lines prefixed with `-` in diffs — those lines are being DELETED by this PR and will not exist after merge
-- Do NOT report deprecated API/library versions if the code already uses the current version (check `+` and ` ` lines, not `-` lines)
-- Do NOT report style preferences unless they indicate a real bug
-- Do NOT duplicate existing comments (listed above)
-- Severity: "blocking" = will cause bugs/failures, "important" = should be fixed, "nit" = minor improvement
-- `line` must be the EXACT line number from the numbered code shown above — use the line number prefix (`  N |`) for full files, or count from the `@@` hunk header for diffs. Never guess.
-- `evidence` must quote the exact line(s) of code that prove the problem exists
-- `suggested_comment` must be a ready-to-post GitHub review comment (include the evidence and why)
-- If there are no findings, return an empty array: []
-
-Respond ONLY with a valid JSON array matching this exact schema for each element:
+Respond ONLY with a valid JSON array matching this schema:
 {schema}
+"""
 
-Return ONLY the JSON array. No explanation, no markdown fences."""
+    return {
+        "pr_context": pr_context,
+        "comments": comments_json,
+        "review_axes": checklist_json,
+        "files_context": files_text,
+        "related_context": related_text,
+        "instructions": instructions,
+        "schema": schema,
+        "prompt": prompt,
+    }
 
 
-def _pr_context_to_text(package: ReviewContextPackage) -> str:
-    if not package.pr_manifest:
-        return "No PR metadata available."
-    pr = package.pr_manifest
+def _pr_context_to_text(batch: FocusContextBatch) -> str:
+    if not batch.pr_manifest:
+        return f"Batch {batch.batch_id}"
+    pr = batch.pr_manifest
     return (
-        f"PR #{pr.number}: {pr.title}\n"
-        f"Author: {pr.author} | Base: {pr.base} → Head: {pr.head}\n"
-        f"Description: {pr.description[:300] if pr.description else '(none)'}"
+        f"PR #{pr.number}: {_short_title(pr.title)}\n"
+        f"{pr.base} -> {pr.head}\n"
+        f"Batch: {batch.batch_id}"
     )
 
 
 def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
-    if not checklist:
-        return "[]"
-    data = [
-        {
-            "id": item.id,
-            "name": item.name,
-            "description": item.description,
-        }
-        for item in checklist
-    ]
-    return json.dumps(data, indent=2)
+    return json.dumps([str(item.id) for item in checklist[:4]], indent=2)
+def _files_context_to_text(files_context: dict) -> str:
+    if not files_context:
+        return "(no files to review)\n"
+
+    parts: list[str] = []
+    for path, entry in files_context.items():
+        parts.append(f"### {path}")
+        if entry.worktree_reference:
+            parts.append("Read from worktree instead of inline context.")
+            if entry.review_hint:
+                parts.append(entry.review_hint)
+            if entry.changed_hunk_headers:
+                parts.append("Changed regions to inspect first:")
+                parts.extend(f"- {header}" for header in entry.changed_hunk_headers)
+        elif entry.full_content:
+            parts.append("```")
+            parts.append(_add_line_numbers(entry.full_content))
+            parts.append("```")
+        elif entry.expanded_hunks:
+            for hunk in entry.expanded_hunks:
+                parts.append("```")
+                parts.append(_annotate_diff_hunk(hunk))
+                parts.append("```")
+        else:
+            for hunk in entry.hunks:
+                parts.append("```")
+                parts.append(_annotate_diff_hunk(hunk))
+                parts.append("```")
+        parts.append("")
+    return "\n".join(parts)
 
 
-def _existing_comments_to_json(comments: list[ExistingCommentIndexEntry]) -> str:
-    if not comments:
-        return "[]"
-    data = [
-        {
-            "path": c.path,
-            "line": c.line,
-            "category": c.category,
-            "title": c.title,
-            "is_resolved": c.is_resolved,
-        }
-        for c in comments
-    ]
-    return json.dumps(data, indent=2)
+def _related_files_to_text(related_files: dict[str, str]) -> str:
+    if not related_files:
+        return ""
+    parts = ["\n## Related Context"]
+    for label, content in related_files.items():
+        parts.extend([f"\n### {label}", "```", content[:2000], "```"])
+    return "\n".join(parts) + "\n"
 
 
 def _add_line_numbers(content: str) -> str:
@@ -136,62 +126,33 @@ def _add_line_numbers(content: str) -> str:
 
 
 def _annotate_diff_hunk(hunk: str) -> str:
-    """
-    Replace diff prefixes with explicit line numbers and labels so the AI
-    cannot confuse line numbers or deleted code with current code.
-
-    Format: `  N [TYPE] code`
-      -  →  [DELETED - do not review]
-      +  →  [ADDED]
-      (space)  →  [CONTEXT]
-
-    The new file line numbers are extracted from the @@ header and incremented
-    as we process each line, so the AI always sees the exact line numbers.
-    """
     import re
 
     lines = hunk.splitlines()
     if not lines:
         return ""
 
-    # Extract starting line number for new file from @@ header
-    # Format: @@ -old_start,old_count +new_start,new_count @@ [context]
     new_line_start = None
     header_line = None
-
-    for i, line in enumerate(lines):
+    for line in lines:
         if line.startswith("@@"):
             header_line = line
-            match = re.search(r'\+(\d+)', line)
+            match = re.search(r"\+(\d+)", line)
             if match:
                 new_line_start = int(match.group(1))
             break
 
     if new_line_start is None:
-        # Fallback: if we can't parse the header, return annotated but unnumbered
-        result = []
-        for line in lines:
-            if line.startswith("@@"):
-                result.append(line)
-            elif line.startswith("---") or line.startswith("+++"):
-                result.append(line)
-            elif line.startswith("-"):
-                result.append(f"[DELETED - do not review] {line[1:]}")
-            elif line.startswith("+"):
-                result.append(f"[ADDED] {line[1:]}")
-            else:
-                result.append(f"[CONTEXT] {line[1:] if line.startswith(' ') else line}")
-        return "\n".join(result)
+        return "\n".join(lines)
 
-    # Process hunk lines with line numbers
     result = [header_line] if header_line else []
     current_line = new_line_start
-    width = len(str(current_line + 100))  # Estimate width for padding
+    width = len(str(current_line + 100))
 
     for line in lines:
         if line.startswith("@@"):
-            continue  # Already added header
-        elif line.startswith("---") or line.startswith("+++"):
+            continue
+        if line.startswith("---") or line.startswith("+++"):
             result.append(line)
         elif line.startswith("-"):
             result.append(f"[DELETED - do not review] {line[1:]}")
@@ -203,51 +164,7 @@ def _annotate_diff_hunk(hunk: str) -> str:
             current_line += 1
         else:
             result.append(line)
-
     return "\n".join(result)
-
-
-def _files_context_to_text(files_context: dict[str, FileContextEntry]) -> str:
-    if not files_context:
-        return "(no files to review)\n"
-
-    parts: list[str] = []
-    for path, entry in files_context.items():
-        parts.append(f"### {path}")
-
-        if entry.full_content:
-            parts.append("```")
-            parts.append(_add_line_numbers(entry.full_content))
-            parts.append("```")
-        elif entry.expanded_hunks:
-            for hunk in entry.expanded_hunks:
-                parts.append("```")
-                parts.append(_annotate_diff_hunk(hunk))
-                parts.append("```")
-        elif entry.hunks:
-            for hunk in entry.hunks:
-                parts.append("```")
-                parts.append(_annotate_diff_hunk(hunk))
-                parts.append("```")
-        else:
-            parts.append("(no content available)")
-
-        parts.append("")
-
-    return "\n".join(parts)
-
-
-def _related_files_to_text(related_files: dict[str, str]) -> str:
-    if not related_files:
-        return ""
-
-    parts: list[str] = ["\n## Related Files (for context only — not primary review targets)"]
-    for label, content in related_files.items():
-        parts.append(f"\n### {label}")
-        parts.append("```")
-        parts.append(content[:2000])  # Cap related files to avoid token explosion
-        parts.append("```")
-    return "\n".join(parts) + "\n"
 
 
 def _finding_schema() -> str:
@@ -255,26 +172,36 @@ def _finding_schema() -> str:
         [
             {
                 "severity": "<blocking|important|nit>",
-                "category": "<problem category, e.g. error_handling>",
-                "path": "<file path, exactly as shown in the section header>",
-                "line": "<integer line number from the numbered code, or null for file-level findings>",
-                "title": "<short, actionable problem description>",
-                "why": "<explanation of why this is a problem>",
-                "evidence": "<exact code snippet quoted from the file that proves the problem>",
+                "category": "<problem category>",
+                "path": "<file path>",
+                "line": "<line or null>",
+                "title": "<short actionable title>",
+                "why": "<why this is a problem>",
+                "evidence": "<exact supporting snippet>",
+                "snippet": "<short anchor snippet from the target line or null>",
                 "suggested_comment": "<ready-to-post GitHub review comment>",
             }
         ],
         indent=2,
     )
 
+
 def build_default_findings() -> list[Finding]:
-    """
-    Return an empty findings list as fallback when AI call fails.
-
-    Used when the AI call fails or produces unparseable output.
-    Returning empty rather than fabricating findings is always safer.
-
-    Returns:
-        Empty list (no findings is a valid state)
-    """
     return []
+
+
+def summarize_findings_prompt_parts(parts: dict[str, str]) -> dict[str, Any]:
+    """Return character counts for each prompt block."""
+    return {
+        "pr_context_chars": len(parts["pr_context"]),
+        "comment_context_chars": len(parts["comments"]),
+        "review_axes_chars": len(parts["review_axes"]),
+        "files_context_chars": len(parts["files_context"]),
+        "related_context_chars": len(parts["related_context"]),
+        "instructions_chars": len(parts["instructions"]),
+        "schema_chars": len(parts["schema"]),
+    }
+
+
+def _short_title(title: str, limit: int = 90) -> str:
+    return title if len(title) <= limit else title[: limit - 3] + "..."

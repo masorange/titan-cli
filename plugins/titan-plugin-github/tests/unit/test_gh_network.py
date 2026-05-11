@@ -150,6 +150,25 @@ def test_run_command_api_error_logs_with_custom_logger(gh_network):
     assert isinstance(event_fields["duration"], float)
 
 
+def test_run_command_api_error_preserves_stdout_and_stderr(gh_network):
+    with patch('titan_plugin_github.clients.network.gh_network.subprocess.run') as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["gh", "api", "/repos/foo/bar/pulls/1/reviews"],
+            stderr='gh: Unprocessable Entity (HTTP 422)',
+            output='{"message":"Validation Failed","errors":[{"field":"line"}]}'
+        )
+
+        with pytest.raises(GitHubAPIError) as exc_info:
+            gh_network.run_command(["api", "/repos/foo/bar/pulls/1/reviews"])
+
+    exc = exc_info.value
+    assert exc.exit_code == 1
+    assert "Validation Failed" in str(exc)
+    assert exc.stderr == 'gh: Unprocessable Entity (HTTP 422)'
+    assert '"field":"line"' in exc.stdout
+
+
 def test_run_command_cli_not_found(gh_network):
     """Test command execution when gh CLI is not installed"""
     with patch('titan_plugin_github.clients.network.gh_network.subprocess.run') as mock_run:

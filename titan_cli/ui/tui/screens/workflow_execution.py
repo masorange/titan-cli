@@ -202,6 +202,8 @@ class WorkflowExecutionScreen(BaseScreen):
 
             # Build context and create executor
             execution_context = ctx_builder.build()
+            if secrets.project_path:
+                execution_context.data["project_root"] = str(secrets.project_path)
             executor = TextualWorkflowExecutor(
                 plugin_registry=self.config.registry,
                 workflow_registry=self.config.workflows,
