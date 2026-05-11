@@ -24,7 +24,9 @@ class ReviewPlanValidator:
         offered_checklist_ids: frozenset[str] | None = None,
     ):
         self.manifest = change_manifest
-        self.offered_checklist_ids = offered_checklist_ids or _ALL_CHECKLIST_IDS
+        self.offered_checklist_ids = (
+            _ALL_CHECKLIST_IDS if offered_checklist_ids is None else offered_checklist_ids
+        )
 
     def validate_semantically(self, plan: ReviewPlan) -> tuple[bool, list[str]]:
         errors: list[str] = []
