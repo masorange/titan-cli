@@ -15,8 +15,13 @@ items:
     relevant_file_patterns:
       - "titan_cli/core/models.py"
       - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/plugin.py"
+      - "plugins/*/*/protocols.py"
       - "plugins/*/*/models/**"
       - "plugins/*/*/clients/**"
+      - "plugins/*/*/clients/services/**"
+      - "plugins/*/*/workflows/**/*.yaml"
+      - "titan_cli/core/workflows/**/*.yaml"
       - "**/*.yaml"
       - "**/*.toml"
 
@@ -40,6 +45,9 @@ items:
       - "**/*parser*"
       - "**/*formatter*"
       - "**/*normalizer*"
+      - "**/*messages.py"
+      - "**/*formatting.py"
+      - "**/*prompt*"
 
   - id: state_consistency
     name: State Consistency
@@ -47,7 +55,10 @@ items:
     relevant_file_patterns:
       - "titan_cli/engine/**"
       - "titan_cli/core/workflows/**"
+      - "titan_cli/ui/tui/screens/workflow_execution.py"
       - "plugins/*/*/steps/**"
+      - "plugins/*/*/operations/thread_*"
+      - "plugins/*/*/operations/review_action_*"
       - "**/*context*"
       - "**/*state*"
       - "**/*result*"

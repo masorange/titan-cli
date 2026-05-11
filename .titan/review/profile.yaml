@@ -8,6 +8,9 @@ change_patterns:
     - "plugins/*/*/operations/**"
     - "plugins/*/*/clients/**"
     - "plugins/*/*/managers/**"
+    - "plugins/*/*/models/validators.py"
+    - "titan_cli/engine/context.py"
+    - "titan_cli/engine/results.py"
 
   entrypoint:
     - "titan_cli/cli.py"
@@ -15,11 +18,14 @@ change_patterns:
     - "titan_cli/preview.py"
     - "plugins/*/*/plugin.py"
     - "plugins/*/*/steps/**"
+    - "plugins/*/*/workflows/*.yaml"
+    - "titan_cli/ui/tui/screens/workflow_execution.py"
 
   repeated_callsite:
     - "titan_cli/ui/components/**"
     - "titan_cli/ui/views/**"
     - "titan_cli/ui/tui/widgets/**"
+    - "plugins/*/*/widgets/**"
     - "plugins/*/*/workflows/**"
     - ".titan/workflows/**"
 
@@ -44,6 +50,7 @@ file_roles:
   workflow_orchestration:
     - "titan_cli/core/workflows/**"
     - "titan_cli/engine/**"
+    - "titan_cli/ui/tui/screens/workflow_execution.py"
     - "plugins/*/*/steps/**"
     - "plugins/*/*/workflows/**"
     - ".titan/steps/**"
@@ -52,9 +59,9 @@ file_roles:
   integration_or_adapter:
     - "titan_cli/ai/providers/**"
     - "titan_cli/ai/litellm_client.py"
-    - "titan_cli/utils/cli_launcher.py"
-    - "titan_cli/utils/cli_configs.py"
+    - "titan_cli/external_cli/**"
     - "plugins/*/*/clients/**"
+    - "plugins/*/*/clients/services/**"
     - "plugins/*/*/models/mappers/**"
     - "plugins/*/*/models/network/**"
 
@@ -73,20 +80,25 @@ file_roles:
     - "plugins/*/*/agents/**"
 
 candidate_scoring:
-  - name: config_and_contract_surface
+  - name: wiring_and_contract_surface
     patterns:
       - "titan_cli/core/models.py"
       - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/plugin.py"
+      - "plugins/*/*/protocols.py"
       - "plugins/*/*/models/**"
+      - "plugins/*/*/workflows/**/*.yaml"
+      - "titan_cli/core/workflows/**/*.yaml"
       - "**/*.yaml"
       - "**/*.toml"
     score_delta: 4
-    reason: "configuration or contract surface"
+    reason: "wiring, schema, or contract surface"
 
   - name: workflow_runtime_surface
     patterns:
       - "titan_cli/core/workflows/**"
       - "titan_cli/engine/**"
+      - "titan_cli/ui/tui/screens/workflow_execution.py"
       - "plugins/*/*/steps/**"
       - ".titan/steps/**"
     score_delta: 4
@@ -96,9 +108,9 @@ candidate_scoring:
     patterns:
       - "titan_cli/ai/providers/**"
       - "titan_cli/ai/litellm_client.py"
-      - "titan_cli/utils/cli_launcher.py"
-      - "titan_cli/utils/cli_configs.py"
+      - "titan_cli/external_cli/**"
       - "plugins/*/*/clients/**"
+      - "plugins/*/*/clients/services/**"
     score_delta: 5
     reason: "external integration or provider boundary"
 
@@ -111,8 +123,31 @@ candidate_scoring:
       - "**/*formatter*"
       - "**/*normalizer*"
       - "**/*validator*"
+      - "**/*messages.py"
+      - "**/*formatting.py"
+      - "**/*prompt*"
     score_delta: 3
     reason: "semantic mapping or normalization surface"
+
+  - name: stateful_logic_surface
+    patterns:
+      - "titan_cli/engine/context.py"
+      - "titan_cli/engine/results.py"
+      - "plugins/*/*/models/validators.py"
+      - "plugins/*/*/operations/**"
+      - "plugins/*/*/managers/**"
+      - "plugins/*/*/operations/thread_*"
+      - "plugins/*/*/operations/review_action_*"
+    score_delta: 5
+    reason: "stateful logic or validation surface"
+
+  - name: shared_component_surface
+    patterns:
+      - "titan_cli/ui/components/**"
+      - "titan_cli/ui/tui/widgets/**"
+      - "plugins/*/*/widgets/**"
+    score_delta: 4
+    reason: "shared component or widget-root surface"
 
   - name: security_sensitive
     patterns:
@@ -154,12 +189,18 @@ review_axes:
       - "**/*formatter*"
       - "**/*normalizer*"
       - "**/*validator*"
+      - "**/*messages.py"
+      - "**/*formatting.py"
+      - "**/*prompt*"
 
   state_consistency:
     patterns:
       - "titan_cli/engine/**"
       - "titan_cli/core/workflows/**"
+      - "titan_cli/ui/tui/screens/workflow_execution.py"
       - "plugins/*/*/steps/**"
+      - "plugins/*/*/operations/thread_*"
+      - "plugins/*/*/operations/review_action_*"
       - "**/*state*"
       - "**/*result*"
       - "**/*context*"
@@ -169,8 +210,13 @@ review_axes:
     patterns:
       - "titan_cli/core/models.py"
       - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/plugin.py"
+      - "plugins/*/*/protocols.py"
       - "plugins/*/*/models/**"
       - "plugins/*/*/clients/**"
+      - "plugins/*/*/clients/services/**"
+      - "plugins/*/*/workflows/**/*.yaml"
+      - "titan_cli/core/workflows/**/*.yaml"
       - "**/*.yaml"
       - "**/*.toml"
       - "**/*schema*"
