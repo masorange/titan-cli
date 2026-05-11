@@ -8,12 +8,6 @@ params:
   updating: "terms_translations"
 
 steps:
-  - id: list_projects
-    name: "List Projects"
-    plugin: poeditor
-    step: list_projects_step
-    skip_if: "{{ project_id }}"
-
   - id: select_project
     name: "Select Project"
     plugin: poeditor
