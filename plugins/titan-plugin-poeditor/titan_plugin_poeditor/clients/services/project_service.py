@@ -101,13 +101,20 @@ class ProjectService:
             # Get project details
             project_data = self.network.make_request("projects/view", id=project_id)
 
+            # Validate response structure
+            if "project" not in project_data:
+                return ClientError(
+                    error_message="Invalid API response: missing 'project' field",
+                    error_code="INVALID_RESPONSE",
+                )
+
             # Get project languages
             languages_data = self.network.make_request(
                 "languages/list", id=project_id
             )
 
             # Parse project
-            network_project = self._parse_project(project_data.get("project", {}))
+            network_project = self._parse_project(project_data["project"])
 
             # Parse languages
             network_languages = [
