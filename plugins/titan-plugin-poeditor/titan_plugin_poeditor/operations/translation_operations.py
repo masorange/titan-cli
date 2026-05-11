@@ -127,6 +127,14 @@ Do not include any explanation, just the JSON object."""
                 error_message=f"AI did not generate keys for all values. Missing: {missing_values}"
             )
 
+        # Validate that all generated keys are unique
+        generated_keys = list(keys_map.values())
+        if len(generated_keys) != len(set(generated_keys)):
+            duplicates = {k for k in generated_keys if generated_keys.count(k) > 1}
+            return ClientError(
+                error_message=f"AI generated duplicate keys: {duplicates}"
+            )
+
         # Invert the map to key -> value
         result = {key: value for value, key in keys_map.items()}
 
