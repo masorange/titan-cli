@@ -236,13 +236,6 @@ class TermService:
                 error_code="INTERNAL_ERROR",
             )
 
-    def _add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[dict]:
-        """DEPRECATED: Use add_terms() instead.
-
-        Internal wrapper for backward compatibility.
-        """
-        return self.add_terms(project_id, terms)
-
     def _add_translations(
         self,
         project_id: str,
