@@ -38,3 +38,14 @@ class UIPoEditorProject:
     is_open: bool
     fallback_language: str
     raw: dict | None = None
+
+
+@dataclass
+class TermsAddResult:
+    """Result of adding terms to a project.
+
+    Contains statistics about the terms operation.
+    """
+
+    parsed: int
+    added: int

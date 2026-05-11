@@ -3,6 +3,7 @@
 from titan_cli.core.result import ClientResult
 
 from ..models import UIPoEditorProject
+from ..models.view import TermsAddResult
 from .network import PoEditorNetwork
 from .services import ProjectService, TermService, UploadService
 
@@ -92,7 +93,7 @@ class PoEditorClient:
         """
         return self._term_service.get_project_languages(project_id)
 
-    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[dict]:
+    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[TermsAddResult]:
         """Add new terms to a project.
 
         Adds terms to a localization project following POEditor API v2 spec:
@@ -109,7 +110,7 @@ class PoEditorClient:
                 - tags (list|str, optional): Tag names
 
         Returns:
-            ClientResult[dict] with statistics:
+            ClientResult[TermsAddResult] with statistics:
                 - parsed (int): Number of terms parsed
                 - added (int): Number of terms added
 

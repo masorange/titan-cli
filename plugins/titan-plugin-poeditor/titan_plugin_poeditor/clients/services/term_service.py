@@ -4,6 +4,7 @@ from titan_cli.core.logging import log_client_operation
 from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 
 from ...exceptions import PoEditorAPIError
+from ...models.view import TermsAddResult
 from ..network import PoEditorNetwork
 
 
@@ -153,7 +154,7 @@ class TermService:
             )
 
     @log_client_operation()
-    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[dict]:
+    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult["TermsAddResult"]:
         """Add terms to project following POEditor API v2 specification.
 
         Adds new terms to a localization project.
@@ -170,7 +171,7 @@ class TermService:
                 - tags (list|str, optional): Array or string of tag names
 
         Returns:
-            ClientResult with add statistics:
+            ClientResult[TermsAddResult] with add statistics:
                 - parsed (int): Number of terms parsed
                 - added (int): Number of terms successfully added
 
@@ -219,10 +220,7 @@ class TermService:
             added = terms_result.get("added", 0)
 
             return ClientSuccess(
-                data={
-                    "parsed": parsed,
-                    "added": added
-                },
+                data=TermsAddResult(parsed=parsed, added=added),
                 message=f"Parsed {parsed} terms, added {added}"
             )
 

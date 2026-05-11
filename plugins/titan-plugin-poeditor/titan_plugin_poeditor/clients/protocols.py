@@ -5,6 +5,7 @@ from typing import Protocol
 from titan_cli.core.result import ClientResult
 
 from ..models import UIPoEditorProject
+from ..models.view import TermsAddResult
 
 
 class PoEditorClientProtocol(Protocol):
@@ -32,7 +33,7 @@ class PoEditorClientProtocol(Protocol):
         """Get all language codes for a project."""
         ...
 
-    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[dict]:
+    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[TermsAddResult]:
         """Add new terms to a project."""
         ...
 
