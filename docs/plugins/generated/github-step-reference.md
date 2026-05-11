@@ -464,6 +464,8 @@ Ask user to explicitly choose which AI CLI to use for PR analysis.
   step: select_cli
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Returns**
 
 | Result | Saved for later steps | Description |
@@ -890,6 +892,8 @@ List all open PRs and ask user to select one.
   step: select_pr_for_code_review
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `review_pr_number`, `review_pr_title`, `review_pr_head`, `review_pr_base`
 
 **Outputs (saved to ctx.data)**
@@ -923,6 +927,8 @@ Fetch all data needed for a full PR review cycle.
 - plugin: github
   step: fetch_pr_review_bundle
 ```
+
+**Used by built-in workflows:** `review-pr`
 
 **Available to later steps:** `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template`
 
@@ -962,6 +968,8 @@ Build a structured manifest of the PR changes (no AI involved).
   step: build_change_manifest
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `change_manifest`
 
 **Outputs (saved to ctx.data)**
@@ -993,6 +1001,8 @@ Build a compact index of existing PR comments for deduplication.
   step: build_existing_comments_index
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `existing_comments_index (List[ExistingCommentIndexEntry])`
 
 **Outputs (saved to ctx.data)**
@@ -1006,6 +1016,104 @@ Build a compact index of existing PR comments for deduplication.
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
 | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | - |
+
+### `classify_pr`
+
+Classify PR size and composition before planning.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: github
+  step: classify_pr
+```
+
+**Used by built-in workflows:** `review-pr`
+
+**Available to later steps:** `pr_classification`, `review_profile`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.textual` | - | Textual UI context. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `change_manifest` | ChangeManifest | Structured PR change summary. |
+| `existing_comments_index` | List[ExistingCommentIndexEntry], optional | Existing comments used to estimate review activity. |
+| `review_threads` | List[UICommentThread], optional | Current review threads. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `pr_classification` | PRClassification | Deterministic PR classification. |
+| `review_profile` | ReviewProfile | Resolved review profile used during classification. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `pr_classification`, `review_profile` | When PR classification is computed successfully. |
+| `Error` | - | When required context is missing or the step cannot run. |
+
+### `score_review_candidates`
+
+Rank changed files and precompute excluded files.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: github
+  step: score_review_candidates
+```
+
+**Used by built-in workflows:** `review-pr`
+
+**Available to later steps:** `review_profile`, `review_candidates`, `excluded_review_files`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.textual` | - | Textual UI context. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `change_manifest` | ChangeManifest | Structured PR change summary. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `review_profile` | ReviewProfile | Resolved review profile used during scoring. |
+| `review_candidates` | List[ScoredReviewCandidate] | Ranked review candidates. |
+| `excluded_review_files` | List[ExcludedFileEntry] | Files excluded from deep review. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `review_profile`, `review_candidates`, `excluded_review_files` | When review candidates are scored successfully. |
+| `Exit` | - | When no reviewable candidates remain after exclusions. |
+| `Error` | - | When required context is missing or the step cannot run. |
 
 ### `build_review_checklist`
 
@@ -1024,6 +1132,8 @@ Assemble the review checklist for this PR.
   step: build_review_checklist
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `review_checklist (List[ReviewChecklistItem])`
 
 **Outputs (saved to ctx.data)**
@@ -1037,6 +1147,52 @@ Assemble the review checklist for this PR.
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
 | `Success` | `review_checklist (List[ReviewChecklistItem])` | - |
+
+### `select_review_strategy`
+
+Choose review strategy based on deterministic PR classification.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: github
+  step: select_review_strategy
+```
+
+**Used by built-in workflows:** `review-pr`
+
+**Available to later steps:** `review_strategy`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.textual` | - | Textual UI context. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `pr_classification` | PRClassification | Deterministic PR classification. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `review_strategy` | ReviewStrategy | Execution strategy for planning and findings. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `review_strategy` | When a review strategy is selected successfully. |
+| `Error` | - | When required context is missing or the step cannot run. |
 
 ### `ai_review_plan`
 
@@ -1054,6 +1210,8 @@ First AI call: decide which files to read and which checklist items apply.
 - plugin: github
   step: ai_review_plan
 ```
+
+**Used by built-in workflows:** `review-pr`
 
 **Available to later steps:** `review_plan (ReviewPlan)`
 
@@ -1086,6 +1244,8 @@ Validate the AI-generated ReviewPlan against local semantic rules.
   step: validate_review_plan
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `validated_review_plan`
 
 **Outputs (saved to ctx.data)**
@@ -1116,6 +1276,8 @@ Fetch the exact code context according to the validated review plan.
 - plugin: github
   step: resolve_review_context
 ```
+
+**Used by built-in workflows:** `review-pr`
 
 **Available to later steps:** `review_context_package (ReviewContextPackage)`
 
@@ -1148,6 +1310,8 @@ Second AI call: find actionable problems in the exact code context.
   step: ai_review_findings
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `raw_findings`
 
 **Outputs (saved to ctx.data)**
@@ -1178,6 +1342,8 @@ Parse and validate raw AI output into Finding models.
 - plugin: github
   step: normalize_findings
 ```
+
+**Used by built-in workflows:** `review-pr`
 
 **Available to later steps:** `normalized_findings`
 
@@ -1210,6 +1376,8 @@ Remove findings that duplicate existing PR comments.
   step: dedupe_findings
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `deduped_findings`
 
 **Outputs (saved to ctx.data)**
@@ -1240,6 +1408,8 @@ Convert deduplicated findings into ReviewActionProposal objects.
 - plugin: github
   step: build_new_comment_actions
 ```
+
+**Used by built-in workflows:** `review-pr`
 
 **Available to later steps:** `review_action_proposals (List[ReviewActionProposal])`
 
@@ -1272,6 +1442,8 @@ Present each ReviewActionProposal to the user for approval, editing, or skipping
   step: validate_review_actions
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `approved_action_proposals (List[ReviewActionProposal])`
 
 **Outputs (saved to ctx.data)**
@@ -1302,6 +1474,8 @@ Submit approved ReviewActionProposal objects to GitHub.
 - plugin: github
   step: submit_review_actions
 ```
+
+**Used by built-in workflows:** `review-pr`
 
 **Returns**
 
@@ -1483,6 +1657,8 @@ Create a worktree for PR review.
   step: create_worktree
 ```
 
+**Used by built-in workflows:** `review-pr`
+
 **Available to later steps:** `worktree_path`, `worktree_created`
 
 **Outputs (saved to ctx.data)**
@@ -1515,6 +1691,8 @@ Cleanup a worktree created for PR review.
 - plugin: github
   step: cleanup_worktree
 ```
+
+**Used by built-in workflows:** `review-pr`
 
 **Returns**
 
