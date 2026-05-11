@@ -49,3 +49,14 @@ class TermsAddResult:
 
     parsed: int
     added: int
+
+
+@dataclass
+class TermsWithTranslationsResult:
+    """Result of creating terms with translations.
+
+    Contains statistics about the operation.
+    """
+
+    terms_added: int
+    languages_updated: int

@@ -4,7 +4,7 @@ from titan_cli.core.logging import log_client_operation
 from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 
 from ...exceptions import PoEditorAPIError
-from ...models.view import TermsAddResult
+from ...models.view import TermsAddResult, TermsWithTranslationsResult
 from ..network import PoEditorNetwork
 
 
@@ -63,7 +63,7 @@ class TermService:
         terms_map: dict[str, str],
         translations_by_language: dict[str, dict[str, str]],
         source_language: str = "en"
-    ) -> ClientResult[dict]:
+    ) -> ClientResult[TermsWithTranslationsResult]:
         """Create terms in PoEditor and add translations for all languages.
 
         Args:
@@ -134,10 +134,10 @@ class TermService:
                 )
 
             return ClientSuccess(
-                data={
-                    "terms_added": len(terms_map),
-                    "languages_updated": len(translations_by_language)
-                },
+                data=TermsWithTranslationsResult(
+                    terms_added=len(terms_map),
+                    languages_updated=len(translations_by_language)
+                ),
                 message=f"Added {len(terms_map)} terms and updated {len(translations_by_language)} languages"
             )
 
