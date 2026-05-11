@@ -60,16 +60,18 @@ class TermService:
         self,
         project_id: str,
         terms_map: dict[str, str],
-        translations_by_language: dict[str, dict[str, str]]
+        translations_by_language: dict[str, dict[str, str]],
+        source_language: str = "en"
     ) -> ClientResult[dict]:
         """Create terms in PoEditor and add translations for all languages.
 
         Args:
             project_id: PoEditor project ID
-            terms_map: Dict mapping term keys to default language values
+            terms_map: Dict mapping term keys to source language values
                       Example: {"home_title": "Home", "settings_title": "Settings"}
             translations_by_language: Dict mapping language codes to term translations
                       Example: {"es": {"home_title": "Inicio"}, "fr": {"home_title": "Accueil"}}
+            source_language: Source language code for terms_map values (default: "en")
 
         Returns:
             ClientResult with success statistics or error
@@ -89,9 +91,24 @@ class TermService:
                     error_code=add_terms_result.error_code
                 )
 
-            # Then add translations for each language
+            # Add source language translations from terms_map
+            source_translations_payload = [
+                {
+                    "term": term_key,
+                    "translation": {
+                        "content": term_value
+                    }
+                }
+                for term_key, term_value in terms_map.items()
+            ]
+
+            source_result = self._add_translations(project_id, source_language, source_translations_payload)
             failed_languages = []
 
+            if isinstance(source_result, ClientError):
+                failed_languages.append(f"{source_language} (source): {source_result.error_message}")
+
+            # Then add translations for each language
             for language_code, translations in translations_by_language.items():
                 translations_payload = [
                     {

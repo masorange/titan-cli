@@ -125,14 +125,16 @@ class PoEditorClient:
         self,
         project_id: str,
         terms_map: dict[str, str],
-        translations_by_language: dict[str, dict[str, str]]
+        translations_by_language: dict[str, dict[str, str]],
+        source_language: str = "en"
     ) -> ClientResult[dict]:
         """Create terms in PoEditor and add translations for all languages.
 
         Args:
             project_id: PoEditor project ID
-            terms_map: Dict mapping term keys to default language values
+            terms_map: Dict mapping term keys to source language values
             translations_by_language: Dict mapping language codes to term translations
+            source_language: Source language code for terms_map values (default: "en")
 
         Returns:
             ClientResult with success statistics or error
@@ -140,5 +142,6 @@ class PoEditorClient:
         return self._term_service.create_terms_with_translations(
             project_id,
             terms_map,
-            translations_by_language
+            translations_by_language,
+            source_language
         )
