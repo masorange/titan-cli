@@ -49,12 +49,17 @@ class UploadService:
                 - deleted: Number of terms deleted (if applicable)
         """
         try:
-            # Validate file exists
+            # Validate file exists and is a file
             file_path_obj = Path(file_path)
             if not file_path_obj.exists():
                 return ClientError(
                     error_message=f"File not found: {file_path}",
                     error_code="FILE_NOT_FOUND",
+                )
+            if not file_path_obj.is_file():
+                return ClientError(
+                    error_message=f"Path is not a file: {file_path}",
+                    error_code="INVALID_FILE_PATH",
                 )
 
             # PoEditor file upload requires multipart/form-data
