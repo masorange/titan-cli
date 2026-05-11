@@ -47,8 +47,19 @@ class ProjectService:
             # 1. Network call
             data = self.network.make_request("projects/list")
 
-            # Handle response
-            projects_data = data.get("projects", [])
+            # Validate response structure
+            if "projects" not in data:
+                return ClientError(
+                    error_message="Invalid API response: missing 'projects' field",
+                    error_code="INVALID_RESPONSE",
+                )
+
+            projects_data = data["projects"]
+            if not isinstance(projects_data, list):
+                return ClientError(
+                    error_message="Invalid API response: 'projects' is not a list",
+                    error_code="INVALID_RESPONSE",
+                )
 
             # 2. Parse to Network models
             network_projects = [self._parse_project(p) for p in projects_data]
