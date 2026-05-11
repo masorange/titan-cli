@@ -22,16 +22,18 @@ def format_iso_date(iso_date: str) -> str:
         return "N/A"
 
 
-def get_completeness_icon(percentage: float) -> str:
+def get_completeness_icon(percentage: float | None) -> str:
     """Get icon based on translation completeness percentage.
 
     Args:
-        percentage: Completeness percentage (0-100)
+        percentage: Completeness percentage (0-100) or None if unknown
 
     Returns:
         Icon representing completeness level
     """
-    if percentage >= 100:
+    if percentage is None:
+        return "⚪"  # Unknown progress
+    elif percentage >= 100:
         return "🟢"
     elif percentage >= 75:
         return "🟡"

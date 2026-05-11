@@ -21,7 +21,7 @@ def from_network_project(
         UIPoEditorProject ready for rendering
     """
     # Calculate overall progress based on languages
-    progress_percentage = 0.0
+    progress_percentage: float | None = None
     if languages:
         total_percentage = sum(lang.percentage for lang in languages)
         progress_percentage = total_percentage / len(languages) if languages else 0.0
