@@ -1001,7 +1001,25 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
-    """Classify PR size and composition before planning."""
+    """
+    Classify PR size and composition before planning.
+
+    Requires:
+        ctx.textual: Textual UI context.
+
+    Inputs (from ctx.data):
+        change_manifest (ChangeManifest): Structured PR change summary.
+        existing_comments_index (List[ExistingCommentIndexEntry], optional): Existing comments used to estimate review activity.
+        review_threads (List[UICommentThread], optional): Current review threads.
+
+    Outputs (saved to ctx.data):
+        pr_classification (PRClassification): Deterministic PR classification.
+        review_profile (ReviewProfile): Resolved review profile used during classification.
+
+    Returns:
+        Success: When PR classification is computed successfully.
+        Error: When required context is missing or the step cannot run.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -1043,7 +1061,25 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
-    """Rank changed files and precompute excluded files."""
+    """
+    Rank changed files and precompute excluded files.
+
+    Requires:
+        ctx.textual: Textual UI context.
+
+    Inputs (from ctx.data):
+        change_manifest (ChangeManifest): Structured PR change summary.
+
+    Outputs (saved to ctx.data):
+        review_profile (ReviewProfile): Resolved review profile used during scoring.
+        review_candidates (List[ScoredReviewCandidate]): Ranked review candidates.
+        excluded_review_files (List[ExcludedFileEntry]): Files excluded from deep review.
+
+    Returns:
+        Success: When review candidates are scored successfully.
+        Exit: When no reviewable candidates remain after exclusions.
+        Error: When required context is missing or the step cannot run.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
@@ -1155,7 +1191,22 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
-    """Choose review strategy based on deterministic PR classification."""
+    """
+    Choose review strategy based on deterministic PR classification.
+
+    Requires:
+        ctx.textual: Textual UI context.
+
+    Inputs (from ctx.data):
+        pr_classification (PRClassification): Deterministic PR classification.
+
+    Outputs (saved to ctx.data):
+        review_strategy (ReviewStrategy): Execution strategy for planning and findings.
+
+    Returns:
+        Success: When a review strategy is selected successfully.
+        Error: When required context is missing or the step cannot run.
+    """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
