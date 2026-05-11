@@ -57,6 +57,11 @@ def import_translations_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error(msg("file_not_found", file_path=file_path))
 
+    if not file_path_obj.is_file():
+        ctx.textual.error_text(f"Path is not a file: {file_path}")
+        ctx.textual.end_step("error")
+        return Error(f"Path is not a file: {file_path}")
+
     # Display upload details
     ctx.textual.text(f"Project ID: {project_id}")
     ctx.textual.text(f"File: {file_path}")
