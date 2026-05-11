@@ -4,10 +4,14 @@ from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
+from titan_cli.core.logging import get_logger
 
 from ..checklists.defaults import DEFAULT_REVIEW_CHECKLIST
 from ..models.review_models import ReviewChecklistItem
 from ..models.review_profile_models import ReviewChecklistFile
+
+
+logger = get_logger(__name__)
 
 
 class ChecklistManager:
@@ -26,7 +30,15 @@ class ChecklistManager:
         """
         config_path = self._checklist_path()
         if not config_path or not config_path.exists():
-            return [item.model_copy(deep=True) for item in DEFAULT_REVIEW_CHECKLIST]
+            checklist = [item.model_copy(deep=True) for item in DEFAULT_REVIEW_CHECKLIST]
+            logger.debug(
+                "review_checklist_resolved",
+                source="default",
+                path=str(config_path) if config_path else None,
+                items_count=len(checklist),
+                item_ids=[str(item.id) for item in checklist],
+            )
+            return checklist
 
         try:
             with config_path.open("r", encoding="utf-8") as handle:
@@ -39,7 +51,7 @@ class ChecklistManager:
         except ValidationError as exc:
             raise ValueError(f"Invalid review checklist configuration at {config_path}: {exc}") from exc
 
-        return [
+        checklist = [
             ReviewChecklistItem(
                 id=item.id,
                 name=item.name,
@@ -48,6 +60,14 @@ class ChecklistManager:
             )
             for item in checklist_file.items
         ]
+        logger.debug(
+            "review_checklist_resolved",
+            source="project",
+            path=str(config_path),
+            items_count=len(checklist),
+            item_ids=[str(item.id) for item in checklist],
+        )
+        return checklist
 
     def _checklist_path(self) -> Path | None:
         if not self.project_root:

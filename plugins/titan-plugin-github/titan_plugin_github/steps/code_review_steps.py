@@ -1113,8 +1113,31 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
 
     checklist = ctx.github_managers.checklist.get_effective_checklist()
     applicable_preview_ids = _build_review_checklist_preview(ctx, checklist)
+    review_profile = _get_review_profile(ctx)
     ctx.data["review_checklist"] = checklist
     ctx.data["review_checklist_applicable_preview"] = applicable_preview_ids
+    ctx.data["review_profile"] = review_profile
+
+    manifest = ctx.get("change_manifest")
+    candidates = ctx.get("review_candidates", [])
+    profile_path = None
+    checklist_path = None
+    if ctx.github_managers:
+        profile_path = ctx.github_managers.review_profile._profile_path()
+        checklist_path = ctx.github_managers.checklist._checklist_path()
+    logger.debug(
+        "review_config_applied_to_pr",
+        project_root=str(ctx.data.get("project_root")) if ctx.data.get("project_root") else None,
+        profile_source=("project" if profile_path and profile_path.exists() else "default"),
+        profile_path=str(profile_path) if profile_path else None,
+        checklist_source=("project" if checklist_path and checklist_path.exists() else "default"),
+        checklist_path=str(checklist_path) if checklist_path else None,
+        manifest_files=len(manifest.files) if manifest else 0,
+        candidate_files=len(candidates),
+        offered_checklist_ids=[str(item.id) for item in checklist],
+        applicable_checklist_preview=sorted(applicable_preview_ids),
+        top_candidate_paths=[candidate.path for candidate in candidates[:5]],
+    )
 
     _render_review_checklist(ctx, checklist, applicable_preview_ids)
     ctx.textual.end_step("success")
