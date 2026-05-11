@@ -7,6 +7,7 @@ líneas válidas para inline comment, y fallbacks.
 """
 
 from titan_plugin_github.managers.diff_context_manager import DiffContextManager
+from titan_plugin_github.managers.diff_context_manager import _extract_best_anchor_from_text
 
 
 # ---------------------------------------------------------------------------
@@ -343,3 +344,28 @@ class TestFocusedReviewHelpers:
         assert len(expanded) == 1
         assert "surrounding context" in expanded[0]
         assert 'print("world")' in expanded[0]
+
+
+class TestExtractBestAnchorFromText:
+    def test_skips_python_and_shell_comment_lines(self):
+        text = """
+# temporary workaround
+# another note
+actual_value = serviceId
+"""
+
+        result = _extract_best_anchor_from_text(text)
+
+        assert result == "actual_value = serviceId"
+
+    def test_skips_block_comment_lines(self):
+        text = """
+/*
+ * transitional note
+ */
+return route.toPath()
+"""
+
+        result = _extract_best_anchor_from_text(text)
+
+        assert result == "return route.toPath()"

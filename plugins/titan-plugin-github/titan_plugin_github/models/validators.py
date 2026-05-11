@@ -95,9 +95,6 @@ def is_duplicate(
     if same_category and not existing.is_resolved:
         return True
 
-    if same_category and existing.is_adjudicated:
-        return True
-
     if existing.is_adjudicated and similarity > 0.58:
         return True
 

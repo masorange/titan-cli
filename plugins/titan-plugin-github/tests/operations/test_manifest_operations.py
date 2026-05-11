@@ -206,7 +206,7 @@ def test_build_comment_review_context_keeps_bug_like_comments():
     assert context[0].path == "src/api.py"
 
 
-def test_is_duplicate_matches_adjudicated_resolved_thread_more_aggressively():
+def test_is_duplicate_matches_adjudicated_resolved_thread_when_titles_are_similar():
     finding = Finding(
         severity=FindingSeverity.IMPORTANT,
         category="functional_correctness",
@@ -233,6 +233,35 @@ def test_is_duplicate_matches_adjudicated_resolved_thread_more_aggressively():
     )
 
     assert is_duplicate(finding, existing) is True
+
+
+def test_is_duplicate_does_not_suppress_different_adjudicated_issue_same_category():
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT,
+        category="performance",
+        path="src/api.py",
+        line=10,
+        title="Repeated JSON parsing inside render loop",
+        why="Why",
+        evidence="parseJson() in loop",
+        suggested_comment="Comment",
+    )
+    existing = ExistingCommentIndexEntry(
+        comment_id=1,
+        thread_id="t3",
+        is_resolved=True,
+        path="src/api.py",
+        line=10,
+        category="performance",
+        title="Rename temporary variable for clarity",
+        author="reviewer",
+        has_author_reply=True,
+        last_reply_author="author",
+        reply_count=1,
+        is_adjudicated=True,
+    )
+
+    assert is_duplicate(finding, existing) is False
 
 
 def test_is_duplicate_returns_false_for_different_paths():

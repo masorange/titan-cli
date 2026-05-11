@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 
 _HUNK_HEADER_RE = re.compile(r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@(.*)")
 _FILE_HEADER_RE = re.compile(r"^diff --git a/.+ b/(.+)$")
+_COMMENT_PREFIXES = ("//", "#", "/*", "*/", "*")
 
 
 class DiffContextManager:
@@ -647,7 +648,7 @@ def _extract_best_anchor_from_text(text: Optional[str]) -> Optional[str]:
 
     for raw_line in text.splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("```") or line.startswith("//"):
+        if not line or line.startswith("```") or line.startswith(_COMMENT_PREFIXES):
             continue
         if line.startswith(("+", "-", "*")):
             line = line[1:].strip()
