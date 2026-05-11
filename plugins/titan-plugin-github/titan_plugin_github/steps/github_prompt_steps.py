@@ -134,6 +134,16 @@ def prompt_for_issue_body_step(ctx: WorkflowContext) -> WorkflowResult:
 def prompt_for_self_assign_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Asks the user if they want to assign the issue to themselves.
+
+    Requires:
+        ctx.github: An initialized GitHubClient.
+
+    Outputs (saved to ctx.data):
+        assignees (list[str]): Updated assignees list when the user chooses self-assignment.
+
+    Returns:
+        Success: If the assignment preference is captured successfully.
+        Error: If the GitHub client is unavailable or the prompt fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -176,6 +186,17 @@ def prompt_for_self_assign_step(ctx: WorkflowContext) -> WorkflowResult:
 def prompt_for_labels_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Prompts the user to select labels for the issue.
+
+    Requires:
+        ctx.github: An initialized GitHubClient.
+
+    Outputs (saved to ctx.data):
+        labels (list[str]): Labels selected by the user.
+
+    Returns:
+        Success: If label selection completes successfully.
+        Skip: If the repository has no labels.
+        Error: If the GitHub client is unavailable or the prompt fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")

@@ -48,6 +48,29 @@ class Messages:
             GET_FAILED: str = "Failed to get JIRA issue: {e}"
             ISSUE_NOT_FOUND: str = "JIRA issue not found: {issue_key}"
 
+        class Versions:
+            """Version management step messages"""
+            LIST_PROJECT_REQUIRED: str = "project_key is required. Provide it in workflow params or configure default_project in JIRA plugin."
+            VERSION_NAME_REQUIRED: str = "version_name is required"
+            CREATE_SUCCESS: str = "Created JIRA version: {version_name}"
+            CREATE_FAILED: str = "Failed to create JIRA version: {e}"
+            ENSURE_SUCCESS: str = "Version available: {version_name}"
+            ASSIGN_SUCCESS: str = "Assigned fix version '{version_name}' to {issue_key}"
+            ASSIGN_FAILED: str = "Failed to assign fix version: {e}"
+            VERIFY_SUCCESS: str = "Issue {issue_key} has fix version '{version_name}'"
+            VERIFY_FAILED: str = "Issue {issue_key} does not have fix version '{version_name}'"
+
+        class Transitions:
+            """Transition workflow step messages"""
+            ISSUE_KEY_REQUIRED: str = "JIRA issue key is required"
+            TARGET_STATUS_REQUIRED: str = "target_status is required"
+            GET_SUCCESS: str = "Retrieved {count} transition(s) for {issue_key}"
+            GET_FAILED: str = "Failed to get transitions: {e}"
+            TRANSITION_SUCCESS: str = "Updated JIRA issue {issue_key} to {status}"
+            TRANSITION_FAILED: str = "Failed to transition JIRA issue: {e}"
+            VERIFY_SUCCESS: str = "Issue {issue_key} is in status '{status}'"
+            VERIFY_FAILED: str = "Issue {issue_key} is '{actual_status}', expected '{expected_status}'"
+
         class CreateIssue:
             """Create issue step messages"""
             CREATING_ISSUE: str = "Creating JIRA issue: {summary}"

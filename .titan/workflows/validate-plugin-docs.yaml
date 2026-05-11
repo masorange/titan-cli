@@ -1,0 +1,8 @@
+name: "Validate Plugin Docs"
+description: "Validate public plugin step docstrings, grouping metadata, and generated inventories"
+
+steps:
+  - id: validate_plugin_docs
+    name: "Validate Plugin Docs"
+    plugin: project
+    step: validate_plugin_docs

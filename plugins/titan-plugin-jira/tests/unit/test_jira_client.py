@@ -279,6 +279,57 @@ def test_list_project_versions_no_default_key():
     assert result.error_code == "MISSING_PROJECT_KEY"
 
 
+def test_create_version_delegates_to_metadata_service(jira_client):
+    """Test that create_version delegates to MetadataService."""
+    jira_client._metadata_service.create_version = Mock(
+        return_value=ClientSuccess(data=Mock(id="1", name="1.0.0"), message="Created")
+    )
+
+    result = jira_client.create_version("1.0.0")
+
+    assert isinstance(result, ClientSuccess)
+    jira_client._metadata_service.create_version.assert_called_once_with(
+        project_key="TEST",
+        name="1.0.0",
+        description=None,
+        release_date=None,
+    )
+
+
+def test_ensure_version_exists_delegates_to_metadata_service(jira_client):
+    """Test that ensure_version_exists delegates to MetadataService."""
+    jira_client._metadata_service.ensure_version_exists = Mock(
+        return_value=ClientSuccess(data=Mock(id="1", name="1.0.0"), message="Ready")
+    )
+
+    result = jira_client.ensure_version_exists("1.0.0")
+
+    assert isinstance(result, ClientSuccess)
+    jira_client._metadata_service.ensure_version_exists.assert_called_once_with(
+        project_key="TEST",
+        name="1.0.0",
+        description=None,
+        release_date=None,
+    )
+
+
+def test_assign_fix_version_delegates_to_issue_service(jira_client):
+    """Test that assign_fix_version delegates to IssueService."""
+    jira_client._issue_service.assign_fix_version_reference = Mock(
+        return_value=ClientSuccess(data=None, message="Assigned")
+    )
+
+    result = jira_client.assign_fix_version("TEST-123", version_name="1.0.0")
+
+    assert isinstance(result, ClientSuccess)
+    jira_client._issue_service.assign_fix_version_reference.assert_called_once_with(
+        issue_key="TEST-123",
+        project_key="TEST",
+        version_id=None,
+        version_name="1.0.0",
+    )
+
+
 def test_get_comments_delegates(jira_client):
     """Test that get_comments delegates to CommentService"""
     jira_client._comment_service.get_comments = Mock(
@@ -321,11 +372,24 @@ def test_transition_issue_delegates(jira_client):
         return_value=ClientSuccess(data=None, message="Success")
     )
 
-    result = jira_client.transition_issue("TEST-123", "Done", comment="Completed")
+    fields = {"customfield_1": {"id": "100"}}
+    update = {"labels": [{"add": "qa"}]}
+
+    result = jira_client.transition_issue(
+        "TEST-123",
+        "Done",
+        comment="Completed",
+        fields=fields,
+        update=update,
+    )
 
     assert isinstance(result, ClientSuccess)
     jira_client._transition_service.transition_issue.assert_called_once_with(
-        "TEST-123", "Done", "Completed"
+        "TEST-123",
+        "Done",
+        comment="Completed",
+        fields=fields,
+        update=update,
     )
 
 

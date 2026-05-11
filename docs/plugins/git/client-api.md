@@ -1,4 +1,4 @@
-# Git Plugin
+# Git Client API
 
 The Git plugin adds core Git operations to Titan through a high-level client and reusable workflows. It covers branches, commits, status inspection, diffs, remotes, stashes, tags, and worktrees.
 
