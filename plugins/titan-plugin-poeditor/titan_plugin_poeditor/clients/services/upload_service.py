@@ -91,12 +91,18 @@ class UploadService:
 
                 # Extract upload statistics
                 result = json_response.get("result", {})
-                terms = result.get("terms", {})
+
+                # Get stats from correct section based on updating mode
+                if updating == "translations":
+                    stats_source = result.get("translations", {})
+                else:
+                    # For "terms" or "terms_translations", use terms section
+                    stats_source = result.get("terms", {})
 
                 upload_stats = {
-                    "added": terms.get("added", 0),
-                    "updated": terms.get("updated", 0),
-                    "deleted": terms.get("deleted", 0),
+                    "added": stats_source.get("added", 0),
+                    "updated": stats_source.get("updated", 0),
+                    "deleted": stats_source.get("deleted", 0),
                 }
 
                 return ClientSuccess(
