@@ -123,13 +123,16 @@
     },
     {
       "id": "P0-007",
-      "title": "Define FinalResult model",
+      "title": "Define RunResult model",
       "description": "Define the terminal run snapshot returned by headless and consumed by adapters.",
-      "status": "in_progress",
+      "status": "done",
       "priority": "high",
       "dependencies": ["P0-003", "P0-005", "P0-006"],
       "notes": [
-        "A first draft exists with run_id, workflow_name, status, steps, result, and diagnostics"
+        "A first draft existed with run_id, workflow_name, status, steps, result, and diagnostics",
+        "RunResult replaces FinalResult as the canonical terminal run snapshot name",
+        "RunResult is terminal-only and does not represent live execution state",
+        "Run status is limited to completed, failed, and cancelled while step status is limited to success, failed, and skipped"
       ],
       "acceptance_criteria": [
         "Run status is included",
@@ -234,10 +237,11 @@
       "notes": [
         "The current application/ package mixes protocol-shaped models, service orchestration, and runtime state concerns",
         "The V1 plan defines Core, Engine, Ports/Contracts, and UI Adapters as the canonical architecture",
-        "This task decides the destination of protocol contracts, run coordination, and the future of application/ before implementation starts"
+        "This task decides the destination of protocol contracts, run coordination, and the future of application/ before implementation starts",
+        "The physical location of EngineEvent, EngineCommand, PromptRequest, OutputPayload, and RunResult must be decided without assuming the legacy layout is correct"
       ],
       "acceptance_criteria": [
-        "The physical location of EngineEvent, EngineCommand, PromptRequest, OutputPayload, and FinalResult is decided",
+        "The physical location of EngineEvent, EngineCommand, PromptRequest, OutputPayload, and RunResult is decided",
         "The destination of WorkflowService and related run coordination code is decided",
         "A clear migration stance for the current application/ package is documented"
       ]

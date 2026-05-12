@@ -59,7 +59,7 @@ Titan needs both live execution visibility and a terminal snapshot.
 Protocol V1 will support both:
 
 - `event stream`
-- `final_result`
+- `run_result`
 
 #### Impact
 Headless and desktop integrations must account for both live updates and final run summaries.
@@ -104,8 +104,8 @@ Protocol V1 includes:
 2. `EngineCommand`
 3. Structured prompt requests
 4. Semantic output emitted by the engine
-5. `FinalResult`
-6. Both `event stream` and `final_result` consumption modes
+5. `RunResult`
+6. Both `event stream` and `run_result` consumption modes
 7. A serializable contract usable by both `headless` and `desktop`
 
 Protocol V1 excludes:
@@ -147,7 +147,7 @@ All step-related events reuse a shared `StepRef` object under `payload.step`.
 Semantic output is emitted only through `output_emitted` and structured input requests only through `prompt_requested`.
 
 #### Impact
-Runtime and adapters can align on a single outbound stream model while keeping `PromptRequest`, `OutputPayload`, and `FinalResult` as separate follow-up refinements.
+Runtime and adapters can align on a single outbound stream model while keeping `PromptRequest`, `OutputPayload`, and `RunResult` as separate follow-up refinements.
 
 ### D-008 - Protocol V1 inbound command model
 - Date: `2026-05-12`
@@ -231,3 +231,49 @@ The remaining formats are explicitly deferred.
 
 #### Impact
 Adapters can implement a minimal output renderer for the first PoC while preserving a stable contract shape for future richer output formats.
+
+### D-011 - Protocol V1 terminal run snapshot model
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan needs a clear terminal run snapshot contract that does not get confused with live execution state and is not tied to legacy naming from pre-V1 architecture.
+
+#### Decision
+The canonical terminal snapshot is named `RunResult`.
+
+`RunResult` includes:
+
+1. `run_id`
+2. `workflow_name`
+3. `status`
+4. `steps`
+5. `result`
+6. `diagnostics`
+
+`RunResult.status` is terminal-only and can be only:
+
+1. `completed`
+2. `failed`
+3. `cancelled`
+
+Each step summary includes `id`, `title`, `status`, `plugin`, `error`, `outputs`, and `metadata`.
+Step status in V1 can be only `success`, `failed`, or `skipped`.
+
+#### Impact
+The protocol distinguishes clearly between the live event stream and the terminal snapshot, while avoiding coupling the V1 contract to legacy object names such as `FinalResult` or current implementation details.
+
+### D-012 - Legacy architecture is not canonical for V1
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan already contains pre-V1 structures and documentation that mix runtime, contract, adapter, and orchestration concerns in ways that do not cleanly match the new four-layer target architecture.
+
+#### Decision
+Pre-V1 structures such as `application/`, `interaction/`, `commands/`, `headless/`, and earlier architecture documents are treated as transitional material, not as the canonical source of truth for V1 design.
+
+They may be reused, split, moved, renamed, or removed as the PoC clarifies the correct separation between `Core`, `Engine`, `Ports / Contracts`, and `UI Adapters`.
+
+#### Impact
+V1 planning and implementation can evolve toward the four-layer architecture without being constrained by inherited code layout or earlier headless/runtime abstractions.
