@@ -424,6 +424,24 @@ Para simplificar la PoC:
 }
 ```
 
+### Campos base V1
+1. `prompt_id` identifica de forma unica el prompt dentro del run.
+2. `kind` define el tipo de input solicitado.
+3. `message` es el texto principal mostrado al usuario.
+4. `default` define el valor por defecto cuando aplique.
+5. `required` indica si el prompt requiere respuesta explicita.
+6. `options` se reserva para prompts basados en seleccion.
+
+### `PromptOption`
+```json
+{
+  "id": "opt-1",
+  "label": "Main",
+  "value": "main",
+  "description": "Default branch"
+}
+```
+
 ### `options`
 Usado en `select_one` y `multi_select`.
 
@@ -437,6 +455,24 @@ Usado en `select_one` y `multi_select`.
   }
 ]
 ```
+
+### Kinds definidos en el contrato
+- `confirm`
+- `text`
+- `multiline`
+- `select_one`
+- `multi_select`
+- `secret`
+
+### Kinds soportados oficialmente en V1
+- `confirm`
+- `text`
+
+### Kinds diferidos para despues de la PoC inicial
+- `multiline`
+- `select_one`
+- `multi_select`
+- `secret`
 
 ### Recomendacion PoC
 Soportar solo:

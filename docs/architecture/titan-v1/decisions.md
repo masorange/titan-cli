@@ -168,3 +168,34 @@ The official V1 inbound runtime command set is:
 
 #### Impact
 Adapters and runtime can treat the bidirectional protocol as interaction over an existing `run_id`, while run bootstrap stays outside the stream contract and can evolve independently.
+
+### D-009 - Protocol V1 prompt request model
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan needs a stable prompt contract that is small enough for the first PoC while still reserving space for richer prompt types later.
+
+#### Decision
+Protocol V1 `PromptRequest` includes the fields `prompt_id`, `kind`, `message`, `default`, `required`, and `options`.
+
+`PromptOption` is defined with `id`, `label`, `value`, and `description` for future selection-based prompts.
+
+The kinds defined in the contract are:
+
+1. `confirm`
+2. `text`
+3. `multiline`
+4. `select_one`
+5. `multi_select`
+6. `secret`
+
+Official V1 support for the first PoC is limited to:
+
+1. `confirm`
+2. `text`
+
+The remaining kinds are explicitly deferred.
+
+#### Impact
+Adapters can implement a minimal prompt surface for the first PoC without blocking future prompt expansion or requiring the runtime to redefine the prompt contract later.

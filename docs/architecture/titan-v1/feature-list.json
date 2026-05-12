@@ -87,12 +87,14 @@
       "id": "P0-005",
       "title": "Define PromptRequest model",
       "description": "Define the prompt contract including supported prompt kinds for V1.",
-      "status": "in_progress",
+      "status": "done",
       "priority": "high",
       "dependencies": ["P0-003", "P0-004"],
       "notes": [
-        "A first draft exists",
-        "No final restriction has been made yet on the exact V1 prompt kinds"
+        "A first draft existed",
+        "PromptRequest fields are frozen as prompt_id, kind, message, default, required, and options",
+        "PromptOption is defined for future selection prompts",
+        "Official V1 support is limited to confirm and text while multiline, select_one, multi_select, and secret are deferred"
       ],
       "acceptance_criteria": [
         "PromptRequest fields are defined",
