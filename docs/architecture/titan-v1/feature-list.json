@@ -27,13 +27,15 @@
       "id": "P0-002",
       "title": "Define protocol V1 scope",
       "description": "Define what belongs to the first protocol version and what is explicitly out of scope.",
-      "status": "in_progress",
+      "status": "done",
       "priority": "high",
       "dependencies": ["P0-001"],
       "notes": [
         "The first version must stay intentionally small",
         "Both event stream mode and final result mode are included",
-        "Desktop v1 will consume the same protocol through a local subprocess"
+        "Desktop v1 will consume the same protocol through a local subprocess",
+        "V1 includes events, commands, prompt requests, semantic outputs, and final result",
+        "V1 explicitly excludes advanced rendering concerns, concrete UI layout, run persistence, and advanced protocol capabilities not required for the first PoC"
       ],
       "acceptance_criteria": [
         "V1 includes events, commands, prompt requests, and final result",

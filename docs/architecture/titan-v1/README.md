@@ -74,6 +74,33 @@ Los adapters renderizan, transportan y devuelven respuestas, pero no contienen l
 4. Desktop y headless consumen el mismo protocolo conceptual.
 5. Textual deja de ser referencia arquitectonica.
 
+## Alcance de Protocolo V1
+
+### Incluido en V1
+1. Un contrato bidireccional entre `Engine` y `UI Adapters`.
+2. Salida estructurada basada en `EngineEvent`.
+3. Entrada estructurada basada en `EngineCommand`.
+4. Prompts estructurados para solicitar input al usuario.
+5. Output semantico emitido por el engine.
+6. Snapshot terminal `FinalResult` para cerrar un run.
+7. Dos modos oficiales de consumo:
+- `event stream`
+- `final_result`
+8. Transporte serializable y apto para boundaries de proceso.
+9. Un mismo contrato conceptual para `headless` y `desktop`.
+
+### Fuera de alcance en V1
+1. Concerns de rendering avanzado.
+2. Widgets concretos, layout visual o decisiones de UX finales.
+3. Acoplamiento del runtime a Textual o a cualquier UI concreta.
+4. Persistencia de runs como capacidad oficial del protocolo.
+5. Orquestacion de multiples runs concurrentes en la primera PoC desktop.
+6. Tipos avanzados de output o prompts que no sean necesarios para la primera PoC.
+7. Multiples estrategias de transporte mas alla de la primera integracion necesaria para headless y desktop.
+
+### Restriccion de iteracion
+V1 debe permanecer intencionalmente pequeno. Las siguientes tareas de fase 0 refinan la forma exacta de `events`, `commands`, `PromptRequest`, `OutputPayload` y `FinalResult`, pero no deben reabrir el alcance base salvo necesidad real de PoC.
+
 ## Especificacion V1 del Protocolo
 
 ### Modelo General
