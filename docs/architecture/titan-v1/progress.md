@@ -10,6 +10,7 @@
 | PromptRequest model | Done | Alejandro | 2026-05-12 |
 | OutputPayload model | Done | Alejandro | 2026-05-12 |
 | RunResult model | Done | Alejandro | 2026-05-12 |
+| Physical architecture | Done | Alejandro | 2026-05-12 |
 | Desktop PoC definition | In progress | Alejandro | 2026-05-12 |
 | Headless transport | In progress | Alejandro | 2026-05-12 |
 | Textual transition | Pending | Team | 2026-05-12 |
@@ -17,8 +18,8 @@
 ## Current
 - Phase: `phase-0`
 - Status: `in_progress`
-- Focus: `Decide implementation architecture before coding`
-- Next task: `P0-013`
+- Focus: `Define headless transport around the approved boundaries`
+- Next task: `P0-008`
 
 ## Done
 - 4-layer architecture defined
@@ -34,13 +35,14 @@
 - PromptRequest model frozen with official V1 support limited to `confirm` and `text`
 - OutputPayload model frozen with `format` naming and string-only `content` in V1
 - RunResult model frozen as the terminal-only run snapshot
+- Physical architecture frozen with contracts in `ports/protocol`, run semantics in `engine`, and `application/` treated as transitional
 
 ## In Progress
-- Decide physical architecture for protocol and run coordination
+- Define transport strategy for headless V1
 
 ## Next
-1. Decide physical architecture for protocol and run coordination
-2. Define transport strategy for headless V1
+1. Define transport strategy for headless V1
+2. Start implementation on top of the approved physical boundaries
 
 ## Open Questions
 - What is the exact bidirectional transport for desktop subprocess communication?

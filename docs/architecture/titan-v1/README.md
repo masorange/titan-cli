@@ -80,6 +80,14 @@ Los adapters renderizan, transportan y devuelven respuestas, pero no contienen l
 3. Esas areas se consideran transitorias y podran cambiar durante la PoC para separar mejor runtime, contratos y adapters.
 4. La documentacion previa a esta planificacion tampoco se toma como canon cuando entre en conflicto con este plan V1.
 
+## Arquitectura Fisica Minima
+1. Los contratos aprobados del protocolo V1 viven en `titan_cli/ports/protocol/`.
+2. La ejecucion de workflows y la semantica de `run` viven en `titan_cli/engine/`.
+3. `commands/headless/` permanece como adapter y no como runtime core.
+4. `application/` se considera transicional y no debe recibir nuevos contratos V1.
+5. La infraestructura concreta de `run` debe empezar con la forma minima necesaria para la PoC.
+6. No se asume de entrada una estructura fuerte con `RunStore`, `EventBus`, `RunSession` compleja o modulos separados de proyeccion salvo necesidad real de PoC.
+
 ## Alcance de Protocolo V1
 
 ### Incluido en V1
@@ -119,6 +127,7 @@ V1 debe permanecer intencionalmente pequeno. Las siguientes tareas de fase 0 ref
 ### Fase 0
 1. Congelar este contrato V1 como draft.
 2. Decidir el transporte bidireccional exacto del subprocess.
+3. Aplicar la arquitectura fisica minima sin hacer crecer la estructura heredada.
 
 ### Fase 1
 1. Hacer que `headless` soporte:

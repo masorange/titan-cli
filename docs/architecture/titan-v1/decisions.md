@@ -277,3 +277,24 @@ They may be reused, split, moved, renamed, or removed as the PoC clarifies the c
 
 #### Impact
 V1 planning and implementation can evolve toward the four-layer architecture without being constrained by inherited code layout or earlier headless/runtime abstractions.
+
+### D-013 - Minimal physical architecture for protocol and run semantics
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan needs a physical code layout that matches the V1 four-layer architecture closely enough to start implementation, but without locking the PoC into unnecessary internal infrastructure.
+
+#### Decision
+Approved V1 protocol contracts live in `titan_cli/ports/protocol/`.
+
+Workflow execution and run semantics live in `titan_cli/engine/`.
+
+`commands/headless/` remains an adapter layer.
+
+`application/` is transitional and must not receive new V1 protocol contracts.
+
+The concrete run infrastructure must start minimal. V1 does not require a precommitted internal architecture based on `RunStore`, `EventBus`, complex `RunSession` types, or a dedicated projection module unless the PoC proves they are necessary.
+
+#### Impact
+Implementation can start with clear physical boundaries for contracts, engine, and adapters while avoiding premature internal runtime architecture that may not survive the PoC.

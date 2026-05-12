@@ -231,14 +231,16 @@
       "id": "P0-013",
       "title": "Decide physical architecture for protocol and run coordination",
       "description": "Decide where protocol contracts and run coordination live physically in the codebase before starting implementation.",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "dependencies": ["P0-005", "P0-006"],
       "notes": [
         "The current application/ package mixes protocol-shaped models, service orchestration, and runtime state concerns",
         "The V1 plan defines Core, Engine, Ports/Contracts, and UI Adapters as the canonical architecture",
         "This task decides the destination of protocol contracts, run coordination, and the future of application/ before implementation starts",
-        "The physical location of EngineEvent, EngineCommand, PromptRequest, OutputPayload, and RunResult must be decided without assuming the legacy layout is correct"
+        "The physical location of EngineEvent, EngineCommand, PromptRequest, OutputPayload, and RunResult must be decided without assuming the legacy layout is correct",
+        "Approved protocol contracts live in titan_cli/ports/protocol/ while workflow execution and run semantics live in titan_cli/engine/",
+        "application/ is explicitly transitional and the internal run infrastructure must start minimal unless the PoC proves more structure is needed"
       ],
       "acceptance_criteria": [
         "The physical location of EngineEvent, EngineCommand, PromptRequest, OutputPayload, and RunResult is decided",
