@@ -32,13 +32,13 @@ def execute_command_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Workf
     def emit_text(message: str) -> None:
         if interaction:
             interaction.step_output(message)
-        elif legacy_textual:
+        if legacy_textual:
             legacy_textual.text(message)
 
     def emit_dim(message: str) -> None:
         if interaction:
             interaction.info(message)
-        elif legacy_textual:
+        if legacy_textual:
             legacy_textual.dim_text(message)
 
     command_template = step.command

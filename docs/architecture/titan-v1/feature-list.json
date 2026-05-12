@@ -1,0 +1,217 @@
+{
+  "feature": "titan-v1-architecture",
+  "phase": "phase-0",
+  "title": "Phase 0 - Protocol V1 and architecture draft",
+  "goal": "Freeze the initial architectural model and define the first executable protocol contract for headless and desktop adapters.",
+  "status": "in_progress",
+  "tasks": [
+    {
+      "id": "P0-001",
+      "title": "Freeze 4-layer architecture draft",
+      "description": "Confirm the conceptual boundaries for Core, Engine, Ports/Contracts, and UI Adapters.",
+      "status": "done",
+      "priority": "high",
+      "dependencies": [],
+      "notes": [
+        "The agreed layers are Core, Engine, Ports/Contracts, and UI Adapters",
+        "Textual is transitional only",
+        "Desktop and headless are the primary adapter targets"
+      ],
+      "acceptance_criteria": [
+        "The 4 layers are explicitly named",
+        "Each layer has a clear responsibility",
+        "The adapter boundary is defined"
+      ]
+    },
+    {
+      "id": "P0-002",
+      "title": "Define protocol V1 scope",
+      "description": "Define what belongs to the first protocol version and what is explicitly out of scope.",
+      "status": "in_progress",
+      "priority": "high",
+      "dependencies": ["P0-001"],
+      "notes": [
+        "The first version must stay intentionally small",
+        "Both event stream mode and final result mode are included",
+        "Desktop v1 will consume the same protocol through a local subprocess"
+      ],
+      "acceptance_criteria": [
+        "V1 includes events, commands, prompt requests, and final result",
+        "V1 excludes advanced rendering concerns",
+        "The scope is written down explicitly"
+      ]
+    },
+    {
+      "id": "P0-003",
+      "title": "Define outbound event model",
+      "description": "List and describe the first set of engine events emitted during workflow execution.",
+      "status": "in_progress",
+      "priority": "high",
+      "dependencies": ["P0-002"],
+      "notes": [
+        "A first draft exists with run, step, output, prompt, and terminal events"
+      ],
+      "acceptance_criteria": [
+        "run_started is defined",
+        "step lifecycle events are defined",
+        "output_emitted is defined",
+        "prompt_requested is defined",
+        "run terminal events are defined"
+      ]
+    },
+    {
+      "id": "P0-004",
+      "title": "Define inbound command model",
+      "description": "List and describe the first set of commands that adapters can send to the engine.",
+      "status": "in_progress",
+      "priority": "high",
+      "dependencies": ["P0-002"],
+      "notes": [
+        "A first draft exists with start_run, submit_prompt_response, and cancel_run",
+        "It is still open whether start_run belongs inside the runtime protocol or remains an adapter-level action"
+      ],
+      "acceptance_criteria": [
+        "submit_prompt_response is defined",
+        "cancel_run is defined",
+        "start_run is either accepted or explicitly left outside the runtime protocol"
+      ]
+    },
+    {
+      "id": "P0-005",
+      "title": "Define PromptRequest model",
+      "description": "Define the prompt contract including supported prompt kinds for V1.",
+      "status": "in_progress",
+      "priority": "high",
+      "dependencies": ["P0-003", "P0-004"],
+      "notes": [
+        "A first draft exists",
+        "No final restriction has been made yet on the exact V1 prompt kinds"
+      ],
+      "acceptance_criteria": [
+        "PromptRequest fields are defined",
+        "Supported kinds for V1 are listed",
+        "Option structure is defined for future selection prompts"
+      ]
+    },
+    {
+      "id": "P0-006",
+      "title": "Define OutputPayload model",
+      "description": "Define the semantic output types exposed by the engine.",
+      "status": "in_progress",
+      "priority": "medium",
+      "dependencies": ["P0-003"],
+      "notes": [
+        "A first draft exists",
+        "It is still open whether V1 output content should remain string-only"
+      ],
+      "acceptance_criteria": [
+        "text output is defined",
+        "markdown output is defined",
+        "Any deferred kinds are explicitly noted"
+      ]
+    },
+    {
+      "id": "P0-007",
+      "title": "Define FinalResult model",
+      "description": "Define the terminal run snapshot returned by headless and consumed by adapters.",
+      "status": "in_progress",
+      "priority": "high",
+      "dependencies": ["P0-003", "P0-005", "P0-006"],
+      "notes": [
+        "A first draft exists with run_id, workflow_name, status, steps, result, and diagnostics"
+      ],
+      "acceptance_criteria": [
+        "Run status is included",
+        "Step summaries are included",
+        "Final outputs and diagnostics are included"
+      ]
+    },
+    {
+      "id": "P0-008",
+      "title": "Define transport strategy for headless V1",
+      "description": "Clarify how the protocol is transported in headless mode.",
+      "status": "in_progress",
+      "priority": "high",
+      "dependencies": ["P0-003", "P0-004", "P0-007"],
+      "notes": [
+        "Both final result mode and event stream mode are required",
+        "stdout is reserved for protocol JSON and stderr for diagnostics"
+      ],
+      "acceptance_criteria": [
+        "stdout/stderr rules are defined",
+        "JSON Lines event stream mode is defined",
+        "Final result mode is defined"
+      ]
+    },
+    {
+      "id": "P0-009",
+      "title": "Define desktop PoC integration model",
+      "description": "Describe how the desktop client communicates with Titan in the first iteration.",
+      "status": "done",
+      "priority": "high",
+      "dependencies": ["P0-008"],
+      "notes": [
+        "Desktop v1 uses a local subprocess",
+        "The desktop consumes the event stream and submits commands/responses back"
+      ],
+      "acceptance_criteria": [
+        "The desktop launches Titan as a subprocess",
+        "The desktop consumes the event stream",
+        "The desktop submits prompt responses back to the engine"
+      ]
+    },
+    {
+      "id": "P0-010",
+      "title": "Define workflow screen PoC scope",
+      "description": "Freeze the minimal UX scope for the first workflow execution screen.",
+      "status": "in_progress",
+      "priority": "medium",
+      "dependencies": ["P0-009"],
+      "notes": [
+        "A first draft exists with header, step list, output panel, prompt panel, and actions"
+      ],
+      "acceptance_criteria": [
+        "The screen shows run header",
+        "The screen shows step list",
+        "The screen shows output timeline",
+        "The screen shows the active prompt"
+      ]
+    },
+    {
+      "id": "P0-011",
+      "title": "Choose desktop technology for the PoC",
+      "description": "Confirm the desktop UI technology to use for the first adapter prototype.",
+      "status": "done",
+      "priority": "high",
+      "dependencies": [],
+      "notes": [
+        "Kotlin/Compose Desktop is the current preferred direction",
+        "Tauri was considered as the main alternative",
+        "The choice is based on stronger Kotlin/Android familiarity and expected implementation speed"
+      ],
+      "acceptance_criteria": [
+        "The preferred desktop technology is chosen",
+        "The rationale is documented"
+      ]
+    },
+    {
+      "id": "P0-012",
+      "title": "Assess Compose Desktop viability and distribution cost",
+      "description": "Evaluate the current robustness of Compose Desktop and the practical cost of distributing desktop builds.",
+      "status": "done",
+      "priority": "medium",
+      "dependencies": ["P0-011"],
+      "notes": [
+        "Compose Desktop is considered robust enough for a Titan desktop client",
+        "Distribution is viable but requires OS-specific builds",
+        "macOS signing and notarization remain a real operational cost",
+        "Packaging uses jpackage/jlink through the JetBrains plugin"
+      ],
+      "acceptance_criteria": [
+        "Robustness is assessed",
+        "Distribution constraints are identified",
+        "Main packaging risks are documented"
+      ]
+    }
+  ]
+}

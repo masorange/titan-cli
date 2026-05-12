@@ -8,7 +8,10 @@ from ..messages import msg
 
 def _interaction(ctx: WorkflowContext):
     """Return the preferred interaction surface, keeping textual compatibility."""
-    return getattr(ctx, "interaction", None) or getattr(ctx, "textual", None)
+    textual = getattr(ctx, "textual", None)
+    if textual is not None:
+        return textual
+    return getattr(ctx, "interaction", None)
 
 
 def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:

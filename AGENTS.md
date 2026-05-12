@@ -32,6 +32,13 @@ Documentation for AI coding agents working on Titan CLI.
 
 For high-level architecture overview, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
+For the Titan V1 architecture initiative, shared planning and protocol memory lives in `docs/architecture/titan-v1/`:
+- `README.md` - architecture and protocol draft
+- `rules.md` - maintenance and iteration rules
+- `decisions.md` - durable architectural decisions
+- `progress.md` - short current snapshot
+- `feature-list.json` - structured task backlog
+
 ---
 
 ## Agent Skills
