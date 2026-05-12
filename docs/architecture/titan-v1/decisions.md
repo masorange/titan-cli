@@ -177,7 +177,7 @@ Adapters and runtime can treat the bidirectional protocol as interaction over an
 Titan needs a stable prompt contract that is small enough for the first PoC while still reserving space for richer prompt types later.
 
 #### Decision
-Protocol V1 `PromptRequest` includes the fields `prompt_id`, `kind`, `message`, `default`, `required`, and `options`.
+Protocol V1 `PromptRequest` includes the fields `prompt_id`, `prompt_type`, `message`, `default`, `required`, and `options`.
 
 `PromptOption` is defined with `id`, `label`, `value`, and `description` for future selection-based prompts.
 
@@ -199,3 +199,35 @@ The remaining kinds are explicitly deferred.
 
 #### Impact
 Adapters can implement a minimal prompt surface for the first PoC without blocking future prompt expansion or requiring the runtime to redefine the prompt contract later.
+
+### D-010 - Protocol V1 output payload model
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan needs a small output contract for the first PoC that works for headless and desktop adapters without prematurely committing to structured table, diff, or JSON payloads.
+
+#### Decision
+Protocol V1 `OutputPayload` uses the fields `format`, `title`, `content`, and `metadata`.
+
+`content` is explicitly string-only in V1.
+
+The formats defined in the contract are:
+
+1. `text`
+2. `markdown`
+3. `table`
+4. `diff`
+5. `warning`
+6. `error`
+7. `json`
+
+Official V1 support for the first PoC is limited to:
+
+1. `text`
+2. `markdown`
+
+The remaining formats are explicitly deferred.
+
+#### Impact
+Adapters can implement a minimal output renderer for the first PoC while preserving a stable contract shape for future richer output formats.

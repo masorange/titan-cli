@@ -8,6 +8,7 @@
 | Event model | Done | Alejandro | 2026-05-12 |
 | Command model | Done | Alejandro | 2026-05-12 |
 | PromptRequest model | Done | Alejandro | 2026-05-12 |
+| OutputPayload model | Done | Alejandro | 2026-05-12 |
 | Desktop PoC definition | In progress | Alejandro | 2026-05-12 |
 | Headless transport | In progress | Alejandro | 2026-05-12 |
 | Textual transition | Pending | Team | 2026-05-12 |
@@ -15,8 +16,8 @@
 ## Current
 - Phase: `phase-0`
 - Status: `in_progress`
-- Focus: `Freeze output and final result protocol shapes`
-- Next task: `P0-006`
+- Focus: `Freeze final result shape and implementation architecture`
+- Next task: `P0-007`
 
 ## Done
 - 4-layer architecture defined
@@ -30,17 +31,16 @@
 - Outbound event model frozen with shared `StepRef`
 - Inbound command model frozen with `start_run` left outside the runtime protocol
 - PromptRequest model frozen with official V1 support limited to `confirm` and `text`
+- OutputPayload model frozen with `format` naming and string-only `content` in V1
 
 ## In Progress
-- Freeze output/result draft shapes
+- Freeze final result draft shape
 
 ## Next
-1. Freeze `OutputPayload`
-2. Freeze `FinalResult`
-3. Decide physical architecture for protocol and run coordination
+1. Freeze `FinalResult`
+2. Decide physical architecture for protocol and run coordination
 
 ## Open Questions
-- Should `OutputPayload.content` stay string-only in V1?
 - What is the exact bidirectional transport for desktop subprocess communication?
 
 ## Risks

@@ -249,7 +249,7 @@ Evento generico de salida semantica.
       "step_index": 1
     },
     "output": {
-      "kind": "markdown",
+      "format": "markdown",
       "title": "Repository Status",
       "content": "## Clean working tree",
       "metadata": {}
@@ -273,7 +273,7 @@ Evento generico de salida semantica.
     },
     "prompt": {
       "prompt_id": "prompt-1",
-      "kind": "confirm",
+      "prompt_type": "confirm",
       "message": "Do you want to continue?",
       "default": true,
       "required": true,
@@ -385,25 +385,60 @@ Evento generico de salida semantica.
 
 ```json
 {
-  "kind": "text | markdown | table | diff | warning | error | json",
+  "format": "text | markdown | table | diff | warning | error | json",
   "title": "optional title",
-  "content": "string or structured content representation",
+  "content": "string",
   "metadata": {}
 }
 ```
 
+### Campos base V1
+1. `format` define el formato semantico del output.
+2. `title` es opcional.
+3. `content` es obligatorio y en V1 siempre es `string`.
+4. `metadata` es opcional y siempre es un objeto JSON.
+
 ### Reglas V1 de output
-1. `kind=text`
+1. `format=text`
 - `content` string
 
-2. `kind=markdown`
+2. `format=markdown`
 - `content` markdown string
 
-3. `kind=table`
-- `content` puede ser string en V1 o tabla estructurada si decidimos ampliarlo
+3. `format=table`
+- diferido para despues de la PoC inicial
 
-4. `kind=json`
-- `content` string JSON o estructura; mejor decidir una sola convencion despues
+4. `format=diff`
+- diferido para despues de la PoC inicial
+
+5. `format=warning`
+- diferido para despues de la PoC inicial
+
+6. `format=error`
+- diferido para despues de la PoC inicial
+
+7. `format=json`
+- diferido para despues de la PoC inicial
+
+### Formatos definidos en el contrato
+- `text`
+- `markdown`
+- `table`
+- `diff`
+- `warning`
+- `error`
+- `json`
+
+### Formatos soportados oficialmente en V1
+- `text`
+- `markdown`
+
+### Formatos diferidos para despues de la PoC inicial
+- `table`
+- `diff`
+- `warning`
+- `error`
+- `json`
 
 ### Recomendacion V1
 Para simplificar la PoC:
@@ -416,7 +451,7 @@ Para simplificar la PoC:
 ```json
 {
   "prompt_id": "prompt-1",
-  "kind": "text | multiline | confirm | select_one | multi_select | secret",
+  "prompt_type": "text | multiline | confirm | select_one | multi_select | secret",
   "message": "Question shown to the user",
   "default": null,
   "required": true,
@@ -426,7 +461,7 @@ Para simplificar la PoC:
 
 ### Campos base V1
 1. `prompt_id` identifica de forma unica el prompt dentro del run.
-2. `kind` define el tipo de input solicitado.
+2. `prompt_type` define el tipo de input solicitado.
 3. `message` es el texto principal mostrado al usuario.
 4. `default` define el valor por defecto cuando aplique.
 5. `required` indica si el prompt requiere respuesta explicita.
@@ -546,7 +581,7 @@ Soportar solo:
       "error": null,
       "outputs": [
         {
-          "kind": "markdown",
+          "format": "markdown",
           "title": "Repository Status",
           "content": "## Clean working tree",
           "metadata": {}
@@ -556,7 +591,7 @@ Soportar solo:
     }
   ],
   "result": {
-    "kind": "markdown",
+    "format": "markdown",
     "title": "Final Summary",
     "content": "# Done",
     "metadata": {}

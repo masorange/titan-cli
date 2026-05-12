@@ -92,7 +92,7 @@
       "dependencies": ["P0-003", "P0-004"],
       "notes": [
         "A first draft existed",
-        "PromptRequest fields are frozen as prompt_id, kind, message, default, required, and options",
+        "PromptRequest fields are frozen as prompt_id, prompt_type, message, default, required, and options",
         "PromptOption is defined for future selection prompts",
         "Official V1 support is limited to confirm and text while multiline, select_one, multi_select, and secret are deferred"
       ],
@@ -106,12 +106,14 @@
       "id": "P0-006",
       "title": "Define OutputPayload model",
       "description": "Define the semantic output types exposed by the engine.",
-      "status": "in_progress",
+      "status": "done",
       "priority": "medium",
       "dependencies": ["P0-003"],
       "notes": [
-        "A first draft exists",
-        "It is still open whether V1 output content should remain string-only"
+        "A first draft existed",
+        "OutputPayload fields are frozen as format, title, content, and metadata",
+        "V1 output content is explicitly string-only",
+        "Official V1 support is limited to text and markdown while table, diff, warning, error, and json are deferred"
       ],
       "acceptance_criteria": [
         "text output is defined",
