@@ -119,3 +119,52 @@ Protocol V1 excludes:
 
 #### Impact
 The remaining phase-0 tasks should refine the exact shapes of events, commands, prompts, outputs, and final results without expanding the baseline scope unless a real PoC need appears.
+
+### D-007 - Protocol V1 outbound event model
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan needs a stable outbound event contract for the first headless and desktop integrations without over-generalizing the event stream.
+
+#### Decision
+Protocol V1 outbound events use a shared envelope with `type`, `run_id`, `sequence`, `timestamp`, and `payload`.
+
+The official V1 outbound event set is:
+
+1. `run_started`
+2. `step_started`
+3. `output_emitted`
+4. `prompt_requested`
+5. `step_finished`
+6. `step_failed`
+7. `step_skipped`
+8. `run_completed`
+9. `run_failed`
+10. `run_cancelled`
+
+All step-related events reuse a shared `StepRef` object under `payload.step`.
+Semantic output is emitted only through `output_emitted` and structured input requests only through `prompt_requested`.
+
+#### Impact
+Runtime and adapters can align on a single outbound stream model while keeping `PromptRequest`, `OutputPayload`, and `FinalResult` as separate follow-up refinements.
+
+### D-008 - Protocol V1 inbound command model
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan needs a minimal inbound command set for the first runtime protocol without mixing run bootstrap concerns with interaction on an already active run.
+
+#### Decision
+Protocol V1 inbound runtime commands use a shared envelope with `type`, `run_id`, `timestamp`, and `payload`.
+
+The official V1 inbound runtime command set is:
+
+1. `submit_prompt_response`
+2. `cancel_run`
+
+`start_run` is explicitly left outside the runtime protocol and remains an adapter-level action used to create and begin a run.
+
+#### Impact
+Adapters and runtime can treat the bidirectional protocol as interaction over an existing `run_id`, while run bootstrap stays outside the stream contract and can evolve independently.

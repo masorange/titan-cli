@@ -47,11 +47,14 @@
       "id": "P0-003",
       "title": "Define outbound event model",
       "description": "List and describe the first set of engine events emitted during workflow execution.",
-      "status": "in_progress",
+      "status": "done",
       "priority": "high",
       "dependencies": ["P0-002"],
       "notes": [
-        "A first draft exists with run, step, output, prompt, and terminal events"
+        "A first draft exists with run, step, output, prompt, and terminal events",
+        "All outbound events use a shared event envelope",
+        "Step-related events reuse StepRef through payload.step",
+        "Output is unified under output_emitted and input requests under prompt_requested"
       ],
       "acceptance_criteria": [
         "run_started is defined",
@@ -65,12 +68,14 @@
       "id": "P0-004",
       "title": "Define inbound command model",
       "description": "List and describe the first set of commands that adapters can send to the engine.",
-      "status": "in_progress",
+      "status": "done",
       "priority": "high",
       "dependencies": ["P0-002"],
       "notes": [
-        "A first draft exists with start_run, submit_prompt_response, and cancel_run",
-        "It is still open whether start_run belongs inside the runtime protocol or remains an adapter-level action"
+        "A first draft existed with start_run, submit_prompt_response, and cancel_run",
+        "V1 inbound runtime commands are limited to submit_prompt_response and cancel_run",
+        "start_run is explicitly left outside the runtime protocol and remains an adapter-level action",
+        "All inbound runtime commands use a shared command envelope and require run_id"
       ],
       "acceptance_criteria": [
         "submit_prompt_response is defined",
@@ -213,6 +218,24 @@
         "Robustness is assessed",
         "Distribution constraints are identified",
         "Main packaging risks are documented"
+      ]
+    },
+    {
+      "id": "P0-013",
+      "title": "Decide physical architecture for protocol and run coordination",
+      "description": "Decide where protocol contracts and run coordination live physically in the codebase before starting implementation.",
+      "status": "pending",
+      "priority": "high",
+      "dependencies": ["P0-005", "P0-006"],
+      "notes": [
+        "The current application/ package mixes protocol-shaped models, service orchestration, and runtime state concerns",
+        "The V1 plan defines Core, Engine, Ports/Contracts, and UI Adapters as the canonical architecture",
+        "This task decides the destination of protocol contracts, run coordination, and the future of application/ before implementation starts"
+      ],
+      "acceptance_criteria": [
+        "The physical location of EngineEvent, EngineCommand, PromptRequest, OutputPayload, and FinalResult is decided",
+        "The destination of WorkflowService and related run coordination code is decided",
+        "A clear migration stance for the current application/ package is documented"
       ]
     }
   ]

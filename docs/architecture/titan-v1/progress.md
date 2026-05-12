@@ -5,8 +5,8 @@
 | Area | Status | Owner | Updated |
 |---|---|---|---|
 | Protocol V1 scope | Done | Alejandro | 2026-05-12 |
-| Event model | In progress | Alejandro | 2026-05-12 |
-| Command model | In progress | Alejandro | 2026-05-12 |
+| Event model | Done | Alejandro | 2026-05-12 |
+| Command model | Done | Alejandro | 2026-05-12 |
 | Desktop PoC definition | In progress | Alejandro | 2026-05-12 |
 | Headless transport | In progress | Alejandro | 2026-05-12 |
 | Textual transition | Pending | Team | 2026-05-12 |
@@ -14,8 +14,8 @@
 ## Current
 - Phase: `phase-0`
 - Status: `in_progress`
-- Focus: `Freeze outbound events and protocol shapes`
-- Next task: `P0-003`
+- Focus: `Freeze prompt and output protocol shapes`
+- Next task: `P0-005`
 
 ## Done
 - 4-layer architecture defined
@@ -26,21 +26,19 @@
 - Compose Desktop viability reviewed
 - Initial protocol draft captured in `README.md`
 - Protocol V1 scope closed and written down explicitly
+- Outbound event model frozen with shared `StepRef`
+- Inbound command model frozen with `start_run` left outside the runtime protocol
 
 ## In Progress
-- Freeze event model draft
-- Freeze command model draft
 - Freeze prompt/output/result draft shapes
 
 ## Next
-1. Freeze outbound events
-2. Freeze inbound commands
-3. Freeze `PromptRequest`
-4. Freeze `OutputPayload`
-5. Freeze `FinalResult`
+1. Freeze `PromptRequest`
+2. Freeze `OutputPayload`
+3. Freeze `FinalResult`
+4. Decide physical architecture for protocol and run coordination
 
 ## Open Questions
-- Should `start_run` belong to the runtime protocol?
 - Should `OutputPayload.content` stay string-only in V1?
 - Which prompt kinds are officially in V1?
 - What is the exact bidirectional transport for desktop subprocess communication?

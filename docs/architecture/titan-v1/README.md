@@ -164,7 +164,37 @@ El protocolo tiene 3 piezas:
 5. `payload` siempre es un objeto JSON.
 6. Campos en `snake_case`.
 
+### Subobjetos comunes V1
+
+#### `StepRef`
+```json
+{
+  "step_id": "check_status",
+  "step_name": "Check Status",
+  "step_index": 1
+}
+```
+
+### Reglas del modelo outbound V1
+1. Todos los eventos outbound usan el mismo `Event envelope`.
+2. Todos los eventos asociados a un step reutilizan `StepRef` dentro de `payload.step`.
+3. Todo output semantico del engine se emite mediante `output_emitted`.
+4. Toda solicitud estructurada de input se emite mediante `prompt_requested`.
+5. V1 no anade mas familias de eventos outbound salvo necesidad real de PoC.
+
 ## Outbound: `EngineEvent`
+
+### Lista oficial de eventos V1
+1. `run_started`
+2. `step_started`
+3. `output_emitted`
+4. `prompt_requested`
+5. `step_finished`
+6. `step_failed`
+7. `step_skipped`
+8. `run_completed`
+9. `run_failed`
+10. `run_cancelled`
 
 ### 1. `run_started`
 Se emite cuando empieza un run.
@@ -192,9 +222,11 @@ Se emite cuando empieza un run.
   "sequence": 2,
   "timestamp": "2026-05-12T10:00:01Z",
   "payload": {
-    "step_id": "check_status",
-    "step_name": "Check Status",
-    "step_index": 1,
+    "step": {
+      "step_id": "check_status",
+      "step_name": "Check Status",
+      "step_index": 1
+    },
     "plugin": "git",
     "step_kind": "plugin"
   }
@@ -211,7 +243,11 @@ Evento generico de salida semantica.
   "sequence": 3,
   "timestamp": "2026-05-12T10:00:02Z",
   "payload": {
-    "step_id": "check_status",
+    "step": {
+      "step_id": "check_status",
+      "step_name": "Check Status",
+      "step_index": 1
+    },
     "output": {
       "kind": "markdown",
       "title": "Repository Status",
@@ -230,7 +266,11 @@ Evento generico de salida semantica.
   "sequence": 4,
   "timestamp": "2026-05-12T10:00:03Z",
   "payload": {
-    "step_id": "confirm_push",
+    "step": {
+      "step_id": "confirm_push",
+      "step_name": "Confirm Push",
+      "step_index": 2
+    },
     "prompt": {
       "prompt_id": "prompt-1",
       "kind": "confirm",
@@ -251,8 +291,11 @@ Evento generico de salida semantica.
   "sequence": 5,
   "timestamp": "2026-05-12T10:00:06Z",
   "payload": {
-    "step_id": "check_status",
-    "step_index": 1,
+    "step": {
+      "step_id": "check_status",
+      "step_name": "Check Status",
+      "step_index": 1
+    },
     "status": "success",
     "message": "Status retrieved",
     "metadata": {}
@@ -268,8 +311,11 @@ Evento generico de salida semantica.
   "sequence": 6,
   "timestamp": "2026-05-12T10:00:07Z",
   "payload": {
-    "step_id": "push",
-    "step_index": 3,
+    "step": {
+      "step_id": "push",
+      "step_name": "Push",
+      "step_index": 3
+    },
     "message": "Push rejected",
     "error_type": "GitError",
     "recoverable": false
@@ -285,8 +331,11 @@ Evento generico de salida semantica.
   "sequence": 7,
   "timestamp": "2026-05-12T10:00:07Z",
   "payload": {
-    "step_id": "create_commit",
-    "step_index": 2,
+    "step": {
+      "step_id": "create_commit",
+      "step_name": "Create Commit",
+      "step_index": 2
+    },
     "message": "No changes to commit"
   }
 }
@@ -396,23 +445,31 @@ Soportar solo:
 
 ## Inbound: `EngineCommand`
 
-### 1. `start_run`
-Puede ser CLI-interno o logico, pero lo dejo en el contrato conceptual.
+### Reglas del modelo inbound V1
+1. Todos los comandos inbound V1 usan el mismo `Command envelope`.
+2. Todos los comandos inbound V1 requieren `run_id`.
+3. V1 solo define comandos inbound para runs ya creados.
+4. `submit_prompt_response` es el unico comando V1 para responder a un prompt pendiente.
+5. `cancel_run` es el unico comando V1 para terminar anticipadamente un run.
+6. V1 no anade mas comandos inbound salvo necesidad real de PoC.
+
+### Lista oficial de comandos inbound V1
+1. `submit_prompt_response`
+2. `cancel_run`
+
+### `start_run` fuera del runtime protocol V1
+`start_run` sigue existiendo como accion de adapter, CLI o API para arrancar un run, pero no forma parte del runtime protocol bidireccional de un run ya iniciado.
 
 ```json
 {
-  "type": "start_run",
-  "run_id": "run-123",
-  "timestamp": "2026-05-12T10:00:00Z",
-  "payload": {
-    "workflow_name": "demo-workflow",
-    "project_path": "/path/to/project",
-    "params": {}
-  }
+  "action": "start_run",
+  "workflow_name": "demo-workflow",
+  "project_path": "/path/to/project",
+  "params": {}
 }
 ```
 
-### 2. `submit_prompt_response`
+### 1. `submit_prompt_response`
 ```json
 {
   "type": "submit_prompt_response",
@@ -425,7 +482,7 @@ Puede ser CLI-interno o logico, pero lo dejo en el contrato conceptual.
 }
 ```
 
-### 3. `cancel_run`
+### 2. `cancel_run`
 ```json
 {
   "type": "cancel_run",
