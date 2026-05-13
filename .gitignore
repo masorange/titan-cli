@@ -135,6 +135,10 @@ venv.bak/
 .idea/
 .vscode/
 .codex
+.gradle/
+.kotlin/
+desktop/.gradle/
+desktop/.kotlin/
 .titan/worktrees/
 *.swp
 *.swo
