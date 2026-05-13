@@ -32,12 +32,17 @@ Documentation for AI coding agents working on Titan CLI.
 
 For high-level architecture overview, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-For the Titan V1 architecture initiative, shared planning and protocol memory lives in `docs/architecture/titan-v1/`:
-- `README.md` - architecture and protocol draft
+For the Titan V1 harness initiative, shared planning and protocol memory lives in `docs/harness/`:
+- `README.md` - harness entrypoint and startup workflow
+- `init.sh` - startup verification script
+- `architecture.md` - V1 architecture overview and scope
 - `rules.md` - maintenance and iteration rules
 - `decisions.md` - durable architectural decisions
+- `protocol.md` - approved V1 protocol contract
+- `poc-desktop.md` - desktop PoC scope
 - `progress.md` - short current snapshot
 - `feature-list.json` - structured task backlog
+- `session-handoff.md` - optional session continuity guide
 
 ---
 
