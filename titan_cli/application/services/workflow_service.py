@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import threading
 import uuid
-import uuid as uuid_module
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Optional
@@ -188,8 +187,13 @@ class RunInteractionPort(HeadlessInteractionPort):
         message: str,
         default: object = None,
     ) -> object:
+        full_prompt_id = (
+            f"{self._ctx.current_step_id}:{prompt_id}"
+            if self._ctx.current_step_id
+            else prompt_id
+        )
         prompt = PromptRequest(
-            prompt_id=f"{prompt_id}-{uuid_module.uuid4()}",
+            prompt_id=full_prompt_id,
             prompt_type=prompt_type,
             message=message,
             default=default,

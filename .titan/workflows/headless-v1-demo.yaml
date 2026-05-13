@@ -1,0 +1,18 @@
+name: "Headless V1 Demo"
+description: "Minimal workflow used to validate the V1 headless protocol round trip."
+
+steps:
+  - id: emit-text
+    name: "Emit Text"
+    plugin: project
+    step: headless_v1_emit_text
+
+  - id: confirm-continue
+    name: "Confirm Continue"
+    plugin: project
+    step: headless_v1_confirm_continue
+
+  - id: emit-markdown
+    name: "Emit Markdown"
+    plugin: project
+    step: headless_v1_emit_markdown

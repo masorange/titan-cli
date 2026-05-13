@@ -93,53 +93,65 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
 
 def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkflowRequest) -> None:
     """Run a workflow and expose the official V1 event stream over stdio."""
-    service = container.workflow_service()
-    session = service.create_run(request)
+    service = run_headless_operation(lambda: container.workflow_service())
+    session = run_headless_operation(lambda: service.create_run(request))
+    last_sequence = 0
 
     worker = threading.Thread(
-        target=lambda: run_headless_operation(lambda: service.execute_run(session, request)),
-        daemon=True,
+        target=lambda: service.execute_run(session, request),
     )
     worker.start()
 
-    replay = True
-    while True:
-        for event in service.stream_events(
-            session.run_id,
-            replay=replay,
-            timeout_seconds=0.1,
-        ):
-            typer.echo(json.dumps(to_jsonable(event)))
-
-        replay = False
-        run_state = service.get_run(session.run_id)
-        if run_state is None:
-            return
-
-        if run_state.status in {
-            RunSessionStatus.COMPLETED,
-            RunSessionStatus.FAILED,
-            RunSessionStatus.CANCELLED,
-        }:
-            return
-
-        if run_state.status == RunSessionStatus.WAITING_FOR_INPUT:
-            command = _read_engine_command(run_state.run_id)
-            if command.type == CommandType.SUBMIT_PROMPT_RESPONSE:
-                prompt_id = str(command.payload.get("prompt_id") or "")
-                service.submit_prompt_response(
-                    SubmitPromptResponseRequest(
-                        run_id=command.run_id,
-                        prompt_id=prompt_id,
-                        value=command.payload.get("value"),
+    try:
+        while True:
+            for event in run_headless_operation(
+                lambda: list(
+                    service.stream_events(
+                        session.run_id,
+                        replay=True,
+                        timeout_seconds=0.1,
                     )
                 )
-                continue
+            ):
+                if event.sequence <= last_sequence:
+                    continue
+                typer.echo(json.dumps(to_jsonable(event)))
+                last_sequence = event.sequence
 
-            if command.type == CommandType.CANCEL_RUN:
-                reason = str(command.payload.get("reason") or "Run cancelled by user")
-                service.cancel_run(command.run_id, reason=reason)
-                continue
+            run_state = run_headless_operation(lambda: service.get_run(session.run_id))
+            if run_state is None:
+                return
+
+            if run_state.status in {
+                RunSessionStatus.COMPLETED,
+                RunSessionStatus.FAILED,
+                RunSessionStatus.CANCELLED,
+            }:
+                return
+
+            if run_state.status == RunSessionStatus.WAITING_FOR_INPUT:
+                command = _read_engine_command(run_state.run_id)
+                if command.type == CommandType.SUBMIT_PROMPT_RESPONSE:
+                    prompt_id = str(command.payload.get("prompt_id") or "")
+                    run_headless_operation(
+                        lambda: service.submit_prompt_response(
+                            SubmitPromptResponseRequest(
+                                run_id=command.run_id,
+                                prompt_id=prompt_id,
+                                value=command.payload.get("value"),
+                            )
+                        )
+                    )
+                    continue
+
+                if command.type == CommandType.CANCEL_RUN:
+                    reason = str(command.payload.get("reason") or "Run cancelled by user")
+                    run_headless_operation(
+                        lambda: service.cancel_run(command.run_id, reason=reason)
+                    )
+                    continue
+    finally:
+        worker.join(timeout=1.0)
 
 
 def _read_engine_command(run_id: str) -> EngineCommand:
