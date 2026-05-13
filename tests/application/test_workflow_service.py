@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from titan_cli.application.models.requests import StartWorkflowRequest
 from titan_cli.application.models.requests import SubmitPromptResponseRequest
+from titan_cli.application.runtime.status import RunSessionStatus
 from titan_cli.application.services.workflow_service import WorkflowService
 from titan_cli.core.workflows.workflow_sources import WorkflowInfo
 from titan_cli.engine.results import Error, Success
@@ -38,12 +39,12 @@ def test_start_workflow_creates_run_state():
     response = service.start_workflow(StartWorkflowRequest(workflow_name="demo"))
     run = service.get_run(response.run_id)
 
-    assert response.status == "failed"
+    assert response.status == RunSessionStatus.FAILED
     assert run is not None
     assert run.workflow_name == "demo"
-    assert run.status == "failed"
-    assert run.events[0].type == "workflow_run_created"
-    assert run.events[-1].type == "workflow_run_failed"
+    assert run.status == RunSessionStatus.FAILED
+    assert run.events[0].type == "run_started"
+    assert run.events[-1].type == "run_failed"
 
 
 @patch("titan_cli.application.services.workflow_service.SecretManager")
@@ -68,11 +69,11 @@ def test_start_workflow_executes_successfully(mock_executor_cls, mock_secret_man
     run = service.get_run(response.run_id)
 
     assert run is not None
-    assert response.status == "completed"
-    assert run.status == "completed"
+    assert response.status == RunSessionStatus.COMPLETED
+    assert run.status == RunSessionStatus.COMPLETED
     assert run.result_message == "workflow ok"
-    assert run.events[1].type == "workflow_run_started"
-    assert run.events[-1].type == "workflow_run_completed"
+    assert run.events[0].type == "run_started"
+    assert run.events[-1].type == "run_completed"
     mock_executor.execute.assert_called_once()
 
 
@@ -99,10 +100,10 @@ def test_start_workflow_marks_failed_when_executor_returns_error(
     run = service.get_run(response.run_id)
 
     assert run is not None
-    assert response.status == "failed"
-    assert run.status == "failed"
+    assert response.status == RunSessionStatus.FAILED
+    assert run.status == RunSessionStatus.FAILED
     assert run.result_message == "boom"
-    assert run.events[-1].type == "workflow_run_failed"
+    assert run.events[-1].type == "run_failed"
 
 
 @patch("titan_cli.application.services.workflow_service.SecretManager")
@@ -132,10 +133,10 @@ def test_start_workflow_waits_for_prompt_when_interaction_is_required(
     run = service.get_run(response.run_id)
 
     assert run is not None
-    assert response.status == "waiting_for_input"
-    assert run.status == "waiting_for_input"
+    assert response.status == RunSessionStatus.WAITING_FOR_INPUT
+    assert run.status == RunSessionStatus.WAITING_FOR_INPUT
     assert run.pending_prompt is not None
-    assert run.pending_prompt.kind == "text"
+    assert run.pending_prompt.prompt_type == "text"
     assert run.events[-1].type == "prompt_requested"
 
 
@@ -172,11 +173,11 @@ def test_start_workflow_consumes_preseeded_prompt_responses(
     run = service.get_run(response.run_id)
 
     assert run is not None
-    assert response.status == "completed"
+    assert response.status == RunSessionStatus.COMPLETED
     assert run.pending_prompt is None
     assert len(run.prompt_history) == 1
     assert run.prompt_history[0].value == "seeded-answer"
-    assert any(event.type == "prompt_answered" for event in run.events)
+    assert not any(event.type == "prompt_answered" for event in run.events)
 
 
 @patch("titan_cli.application.services.workflow_service.SecretManager")
@@ -205,11 +206,11 @@ def test_start_workflow_exposes_markdown_events_in_headless_runs(
     response = service.start_workflow(StartWorkflowRequest(workflow_name="demo"))
     run = service.get_run(response.run_id)
 
-    assert response.status == "completed"
+    assert response.status == RunSessionStatus.COMPLETED
     assert run is not None
-    assert any(event.type == "run_markdown" for event in run.events)
+    assert any(event.type == "output_emitted" for event in run.events)
     assert not any(
-        event.type == "workflow_run_failed"
+        event.type == "run_failed"
         and "markdown" in str(event.payload.get("message", ""))
         for event in run.events
     )
@@ -250,7 +251,7 @@ def test_submit_prompt_response_resumes_run(
     waiting = service.get_run(response.run_id)
 
     assert waiting is not None
-    assert waiting.status == "waiting_for_input"
+    assert waiting.status == RunSessionStatus.WAITING_FOR_INPUT
     assert waiting.pending_prompt is not None
 
     updated = service.submit_prompt_response(
@@ -262,9 +263,9 @@ def test_submit_prompt_response_resumes_run(
     )
 
     assert updated is not None
-    assert updated.status == "completed"
+    assert updated.status == RunSessionStatus.COMPLETED
     assert updated.pending_prompt is None
     assert updated.prompt_history[-1].value == "hello"
-    assert any(event.type == "workflow_run_resumed" for event in updated.events)
-    assert updated.events[-1].type == "workflow_run_completed"
+    assert not any(event.type == "workflow_run_resumed" for event in updated.events)
+    assert updated.events[-1].type == "run_completed"
     assert state["calls"] == 2

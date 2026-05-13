@@ -3,6 +3,9 @@ import json
 from typer.testing import CliRunner
 
 from titan_cli.application.models.responses import StartWorkflowResponse
+from titan_cli.application.models.responses import WorkflowRunState
+from titan_cli.application.runtime.run_session import RunSession
+from titan_cli.application.runtime.status import RunSessionStatus
 from titan_cli.application.models.responses import KnownPluginSummary
 from titan_cli.application.models.responses import PluginMutationResult
 from titan_cli.application.models.responses import PluginSourcePreview
@@ -12,6 +15,12 @@ from titan_cli.application.models.responses import WorkflowDetail
 from titan_cli.application.models.responses import WorkflowStepSummary
 from titan_cli.application.models.responses import WorkflowSummary
 from titan_cli.cli import app
+from titan_cli.ports.protocol import EngineEvent
+from titan_cli.ports.protocol import EventType
+from titan_cli.ports.protocol import OutputPayload
+from titan_cli.ports.protocol import PromptRequest
+from titan_cli.ports.protocol import RunResult
+from titan_cli.ports.protocol import StepRef
 
 
 def test_headless_workflows_list_outputs_json(monkeypatch):
@@ -59,6 +68,16 @@ def test_headless_runs_start_passes_headless_request_and_outputs_json(monkeypatc
                 run_id="run-1",
                 status="completed",
                 events=[],
+                result=RunResult(
+                    run_id="run-1",
+                    workflow_name="demo",
+                    status="completed",
+                    result=OutputPayload(
+                        format="markdown",
+                        title="Summary",
+                        content="# Done",
+                    ),
+                ),
             )
 
     monkeypatch.setattr(
@@ -92,11 +111,189 @@ def test_headless_runs_start_passes_headless_request_and_outputs_json(monkeypatc
     assert captured_request.interaction_mode == "headless"
     assert json.loads(result.stdout) == {
         "run_id": "run-1",
+        "workflow_name": "demo",
         "status": "completed",
-        "events": [],
-        "pending_prompt": None,
-        "result": None,
+        "steps": [],
+        "result": {
+            "format": "markdown",
+            "title": "Summary",
+            "content": "# Done",
+            "metadata": {},
+        },
+        "diagnostics": {},
     }
+
+
+def test_headless_runs_start_event_stream_outputs_json_lines(monkeypatch):
+    captured_request = None
+
+    class StubWorkflowService:
+        def __init__(self):
+            self.session = RunSession(
+                run_id="run-1",
+                workflow_name="demo",
+                status=RunSessionStatus.RUNNING,
+            )
+
+        def create_run(self, request):
+            nonlocal captured_request
+            captured_request = request
+            return self.session
+
+        def execute_run(self, session, request):
+            session.events.append(
+                EngineEvent(
+                    type=EventType.RUN_STARTED,
+                    run_id=session.run_id,
+                    sequence=1,
+                    payload={"workflow_name": request.workflow_name},
+                )
+            )
+            session.events.append(
+                EngineEvent(
+                    type=EventType.RUN_COMPLETED,
+                    run_id=session.run_id,
+                    sequence=2,
+                    payload={"message": "done"},
+                )
+            )
+            session.status = RunSessionStatus.COMPLETED
+
+        def stream_events(self, run_id, replay=True, timeout_seconds=0.1):
+            if replay:
+                for event in self.session.events:
+                    yield event
+
+        def get_run(self, run_id):
+            return self.session
+
+    monkeypatch.setattr(
+        "titan_cli.cli._workflow_service",
+        lambda: StubWorkflowService(),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "headless",
+            "runs",
+            "start",
+            "demo",
+            "--mode",
+            "event_stream",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured_request is not None
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    assert [line["type"] for line in lines] == ["run_started", "run_completed"]
+
+
+def test_headless_runs_start_event_stream_reads_prompt_response_from_stdin(monkeypatch):
+    submitted_request = None
+
+    class StubWorkflowService:
+        def __init__(self):
+            self.session = RunSession(
+                run_id="run-1",
+                workflow_name="demo",
+                status=RunSessionStatus.RUNNING,
+            )
+            self._cursor = 0
+
+        def create_run(self, request):
+            return self.session
+
+        def execute_run(self, session, request):
+            session.events.append(
+                EngineEvent(
+                    type=EventType.RUN_STARTED,
+                    run_id=session.run_id,
+                    sequence=1,
+                    payload={"workflow_name": request.workflow_name},
+                )
+            )
+            prompt = PromptRequest(
+                prompt_id="prompt-1",
+                prompt_type="text",
+                message="Enter value",
+            )
+            session.pending_prompt = prompt
+            session.events.append(
+                EngineEvent(
+                    type=EventType.PROMPT_REQUESTED,
+                    run_id=session.run_id,
+                    sequence=2,
+                    payload={
+                        "step": StepRef(
+                            step_id="ask_value",
+                            step_name="Ask Value",
+                            step_index=1,
+                        ),
+                        "prompt": prompt,
+                    },
+                )
+            )
+            session.status = RunSessionStatus.WAITING_FOR_INPUT
+
+        def stream_events(self, run_id, replay=True, timeout_seconds=0.1):
+            while self._cursor < len(self.session.events):
+                event = self.session.events[self._cursor]
+                self._cursor += 1
+                yield event
+
+        def get_run(self, run_id):
+            return WorkflowRunState(
+                run_id=self.session.run_id,
+                workflow_name=self.session.workflow_name,
+                status=self.session.status,
+                pending_prompt=self.session.pending_prompt,
+            )
+
+        def submit_prompt_response(self, request):
+            nonlocal submitted_request
+            submitted_request = request
+            self.session.pending_prompt = None
+            self.session.status = RunSessionStatus.COMPLETED
+            self.session.events.append(
+                EngineEvent(
+                    type=EventType.RUN_COMPLETED,
+                    run_id=self.session.run_id,
+                    sequence=3,
+                    payload={"message": "done"},
+                )
+            )
+            return self.get_run(request.run_id)
+
+    monkeypatch.setattr(
+        "titan_cli.cli._workflow_service",
+        lambda: StubWorkflowService(),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "headless",
+            "runs",
+            "start",
+            "demo",
+            "--mode",
+            "event_stream",
+        ],
+        input='{"type":"submit_prompt_response","run_id":"run-1","payload":{"prompt_id":"prompt-1","value":"hello"}}\n',
+    )
+
+    assert result.exit_code == 0
+    assert submitted_request is not None
+    assert submitted_request.prompt_id == "prompt-1"
+    assert submitted_request.value == "hello"
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    assert [line["type"] for line in lines] == [
+        "run_started",
+        "prompt_requested",
+        "run_completed",
+    ]
 
 
 def test_headless_workflows_describe_outputs_resolved_steps(monkeypatch):

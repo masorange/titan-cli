@@ -47,6 +47,10 @@ class WorkflowContext:
     workflow_name: Optional[str] = None
     current_step: Optional[int] = None
     total_steps: Optional[int] = None
+    current_step_id: Optional[str] = None
+    current_step_name: Optional[str] = None
+    current_step_plugin: Optional[str] = None
+    current_step_kind: Optional[str] = None
 
     # Shared data storage between steps
     data: Dict[str, Any] = field(default_factory=dict)

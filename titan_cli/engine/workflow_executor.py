@@ -65,6 +65,16 @@ class WorkflowExecutor:
 
                 step_id = step_config.id
                 step_name = step_config.name or step_id
+                ctx.current_step_id = step_id
+                ctx.current_step_name = step_name
+                ctx.current_step_plugin = step_config.plugin
+                ctx.current_step_kind = (
+                    "workflow"
+                    if step_config.workflow
+                    else "command"
+                    if step_config.command
+                    else "plugin"
+                )
 
                 try:
                     if step_config.workflow:
@@ -101,6 +111,10 @@ class WorkflowExecutor:
                 else: # Success
                     if step_result.metadata:
                         ctx.data.update(step_result.metadata)
+                ctx.current_step_id = None
+                ctx.current_step_name = None
+                ctx.current_step_plugin = None
+                ctx.current_step_kind = None
 
         finally:
             ctx.exit_workflow(workflow.name)

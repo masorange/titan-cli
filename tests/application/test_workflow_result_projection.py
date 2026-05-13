@@ -1,5 +1,9 @@
+from titan_cli.application.runtime.status import RunSessionStatus
 from titan_cli.application.runtime.run_session import RunSession
 from titan_cli.application.services.workflow_service import WorkflowService
+from titan_cli.ports.protocol import EventType
+from titan_cli.ports.protocol import OutputPayload
+from titan_cli.ports.protocol import StepRef
 
 
 class EmptyConfig:
@@ -11,28 +15,73 @@ def test_workflow_service_projects_events_into_ui_result():
     session = RunSession(
         run_id="run-1",
         workflow_name="analyze-jira-issues",
-        status="completed",
+        status=RunSessionStatus.COMPLETED,
         result_message="done",
     )
 
     service._append_event(
         session,
-        "workflow_run_started",
+        EventType.RUN_STARTED,
         {"workflow_name": "analyze-jira-issues"},
     )
     service._append_event(
         session,
-        "step_started",
-        {"step_name": "AI Analyze Issue", "plugin": "jira"},
+        EventType.STEP_STARTED,
+        {
+            "step": StepRef(
+                step_id="ai_analyze_issue",
+                step_name="AI Analyze Issue",
+                step_index=1,
+            ),
+            "plugin": "jira",
+        },
     )
-    service._append_event(session, "run_output", {"text": "AI Analysis Results"})
     service._append_event(
         session,
-        "run_markdown",
-        {"text": "# JIRA Issue Analysis\n\nLooks good."},
+        EventType.OUTPUT_EMITTED,
+        {
+            "step": StepRef(
+                step_id="ai_analyze_issue",
+                step_name="AI Analyze Issue",
+                step_index=1,
+            ),
+            "output": OutputPayload(
+                format="text",
+                content="AI Analysis Results",
+            ),
+        },
     )
-    service._append_event(session, "step_finished", {"result": "success"})
-    service._append_event(session, "workflow_run_completed", {"message": "done"})
+    service._append_event(
+        session,
+        EventType.OUTPUT_EMITTED,
+        {
+            "step": StepRef(
+                step_id="ai_analyze_issue",
+                step_name="AI Analyze Issue",
+                step_index=1,
+            ),
+            "output": OutputPayload(
+                format="markdown",
+                title="Markdown output",
+                content="# JIRA Issue Analysis\n\nLooks good.",
+            ),
+        },
+    )
+    service._append_event(
+        session,
+        EventType.STEP_FINISHED,
+        {
+            "step": StepRef(
+                step_id="ai_analyze_issue",
+                step_name="AI Analyze Issue",
+                step_index=1,
+            ),
+            "status": "success",
+            "message": "done",
+            "metadata": {},
+        },
+    )
+    service._append_event(session, EventType.RUN_COMPLETED, {"message": "done"})
 
     result = service._workflow_result_from_session(session)
 
@@ -44,9 +93,9 @@ def test_workflow_service_projects_events_into_ui_result():
     assert result.steps[0].title == "AI Analyze Issue"
     assert result.steps[0].status == "success"
     assert result.steps[0].plugin == "jira"
-    assert [output.kind for output in result.steps[0].outputs] == ["text", "markdown"]
+    assert [output.format for output in result.steps[0].outputs] == ["text", "markdown"]
     assert result.result is not None
-    assert result.result.kind == "markdown"
+    assert result.result.format == "markdown"
 
 
 def test_workflow_service_marks_running_step_failed_from_workflow_failure():
@@ -54,12 +103,22 @@ def test_workflow_service_marks_running_step_failed_from_workflow_failure():
     session = RunSession(
         run_id="run-2",
         workflow_name="demo",
-        status="failed",
+        status=RunSessionStatus.FAILED,
         result_message="boom",
     )
 
-    service._append_event(session, "step_started", {"step_name": "Explode"})
-    service._append_event(session, "workflow_run_failed", {"message": "boom"})
+    service._append_event(
+        session,
+        EventType.STEP_STARTED,
+        {
+            "step": StepRef(
+                step_id="explode",
+                step_name="Explode",
+                step_index=1,
+            )
+        },
+    )
+    service._append_event(session, EventType.RUN_FAILED, {"message": "boom"})
 
     result = service._workflow_result_from_session(session)
 

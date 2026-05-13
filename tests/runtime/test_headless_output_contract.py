@@ -1,37 +1,36 @@
 import json
 from datetime import datetime, timezone
 
-from titan_cli.application.models.events import RunEvent
-from titan_cli.application.models.responses import (
-    WorkflowOutput,
-    WorkflowResult,
-    WorkflowStepResult,
-)
+from titan_cli.ports.protocol import EngineEvent
+from titan_cli.ports.protocol import OutputPayload
+from titan_cli.ports.protocol import RunResult
+from titan_cli.ports.protocol import RunStepResult
+from titan_cli.ports.protocol import StepRef
 from titan_cli.runtime.output import to_jsonable
 
 
 def test_workflow_result_contract_serializes_to_snake_case_json():
-    result = WorkflowResult(
+    result = RunResult(
         run_id="run-1",
         workflow_name="analyze-jira-issues",
         status="completed",
         steps=[
-            WorkflowStepResult(
+            RunStepResult(
                 id="ai_analyze_issue",
                 title="AI Analyze Issue",
                 status="success",
                 plugin="jira",
                 outputs=[
-                    WorkflowOutput(
-                        kind="markdown",
+                    OutputPayload(
+                        format="markdown",
                         title="JIRA Issue Analysis",
                         content="# Analysis\n\nLooks good.",
                     )
                 ],
             )
         ],
-        result=WorkflowOutput(
-            kind="markdown",
+        result=OutputPayload(
+            format="markdown",
             title="Final analysis",
             content="# Final analysis",
         ),
@@ -53,7 +52,7 @@ def test_workflow_result_contract_serializes_to_snake_case_json():
                 "error": None,
                 "outputs": [
                     {
-                        "kind": "markdown",
+                        "format": "markdown",
                         "content": "# Analysis\n\nLooks good.",
                         "title": "JIRA Issue Analysis",
                         "metadata": {},
@@ -63,7 +62,7 @@ def test_workflow_result_contract_serializes_to_snake_case_json():
             }
         ],
         "result": {
-            "kind": "markdown",
+            "format": "markdown",
             "content": "# Final analysis",
             "title": "Final analysis",
             "metadata": {},
@@ -74,14 +73,17 @@ def test_workflow_result_contract_serializes_to_snake_case_json():
 
 
 def test_run_events_keep_machine_readable_timestamps_and_payloads():
-    event = RunEvent(
+    event = EngineEvent(
         type="step_started",
         run_id="run-1",
+        sequence=2,
         timestamp=datetime(2026, 4, 27, 8, 0, tzinfo=timezone.utc),
         payload={
-            "step_id": "search_open_issues",
-            "step_name": "Search Open Issues",
-            "step_index": 1,
+            "step": StepRef(
+                step_id="search_open_issues",
+                step_name="Search Open Issues",
+                step_index=1,
+            ),
             "plugin": "jira",
         },
     )
@@ -89,10 +91,13 @@ def test_run_events_keep_machine_readable_timestamps_and_payloads():
     assert to_jsonable(event) == {
         "type": "step_started",
         "run_id": "run-1",
+        "sequence": 2,
         "payload": {
-            "step_id": "search_open_issues",
-            "step_name": "Search Open Issues",
-            "step_index": 1,
+            "step": {
+                "step_id": "search_open_issues",
+                "step_name": "Search Open Issues",
+                "step_index": 1,
+            },
             "plugin": "jira",
         },
         "timestamp": "2026-04-27T08:00:00+00:00",

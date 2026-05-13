@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .events import RunEvent
-from .prompts import PromptRequest, PromptResponse
+from .prompts import PromptResponse
+from titan_cli.application.runtime.status import RunSessionStatus
+from titan_cli.ports.protocol import EngineEvent
+from titan_cli.ports.protocol import PromptRequest
+from titan_cli.ports.protocol import RunResult
 
 
 @dataclass(slots=True)
@@ -136,10 +139,10 @@ class StartWorkflowResponse:
     """Initial response returned when a workflow run starts."""
 
     run_id: str
-    status: str
-    events: list[RunEvent] = field(default_factory=list)
+    status: RunSessionStatus
+    events: list[EngineEvent] = field(default_factory=list)
     pending_prompt: Optional[PromptRequest] = None
-    result: Optional["WorkflowResult"] = None
+    result: Optional[RunResult] = None
 
 
 @dataclass(slots=True)
@@ -148,45 +151,10 @@ class WorkflowRunState:
 
     run_id: str
     workflow_name: str
-    status: str
+    status: RunSessionStatus
     result_message: Optional[str] = None
-    events: list[RunEvent] = field(default_factory=list)
+    events: list[EngineEvent] = field(default_factory=list)
     pending_prompt: Optional[PromptRequest] = None
     prompt_history: list[PromptResponse] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    result: Optional["WorkflowResult"] = None
-
-
-@dataclass(slots=True)
-class WorkflowOutput:
-    """User-facing output produced by a workflow or step."""
-
-    kind: str
-    content: str
-    title: Optional[str] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class WorkflowStepResult:
-    """Final UI-agnostic state for a single workflow step."""
-
-    id: str
-    title: str
-    status: str
-    plugin: Optional[str] = None
-    error: Optional[str] = None
-    outputs: list[WorkflowOutput] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class WorkflowResult:
-    """Stable terminal result contract for cross-platform UI clients."""
-
-    run_id: str
-    workflow_name: str
-    status: str
-    steps: list[WorkflowStepResult] = field(default_factory=list)
-    result: Optional[WorkflowOutput] = None
-    diagnostics: dict[str, Any] = field(default_factory=dict)
+    result: Optional[RunResult] = None
