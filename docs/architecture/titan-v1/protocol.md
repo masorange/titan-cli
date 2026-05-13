@@ -14,9 +14,10 @@ El protocolo tiene 3 piezas:
 
 ## Transporte V1
 
-### Headless
-- `stdout`: protocolo JSON
-- `stderr`: logs y diagnosticos tecnicos
+### Protocolo canonico
+El protocolo oficial V1 es bidireccional, orientado a sesion y basado en mensajes.
+
+No depende de un transporte concreto. `stdio`, sockets, WebSocket o HTTP son bindings posibles, no parte del contrato abstracto.
 
 ### Modos
 1. Final result mode
@@ -25,10 +26,31 @@ El protocolo tiene 3 piezas:
 2. Event stream mode
 - devuelve `EngineEvent` en JSON Lines
 
+### Binding headless V1
+El binding oficial V1 para headless local usa subprocess y `stdio`:
+
+1. `stdout`
+- contiene solo mensajes del protocolo
+
+2. `stdin`
+- recibe comandos inbound del protocolo mientras el run esta vivo
+
+3. `stderr`
+- contiene logs tecnicos y diagnostico operativo
+- no forma parte del protocolo abstracto
+
+### Reglas del binding headless V1
+1. En `event_stream`, `stdout` emite `EngineEvent` en JSON Lines.
+2. En `run_result`, `stdout` emite un unico `RunResult` serializado como JSON.
+3. En `event_stream`, `stdin` recibe `EngineCommand` en JSON Lines.
+4. `stdout` nunca debe mezclar logs humanos con mensajes del protocolo.
+5. `stderr` puede contener errores operativos y logs tecnicos.
+6. `start_run` queda fuera del runtime protocol y pertenece al nivel adapter/comando.
+
 ### Desktop v1
 - lanza Titan como subprocess local
-- consume stream de eventos
-- envia comandos/respuestas por el canal acordado del subprocess
+- consume stream de eventos desde el binding headless V1
+- envia comandos/respuestas por el canal inbound del binding headless V1
 
 ## Envelope comun
 

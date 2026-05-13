@@ -298,3 +298,29 @@ The concrete run infrastructure must start minimal. V1 does not require a precom
 
 #### Impact
 Implementation can start with clear physical boundaries for contracts, engine, and adapters while avoiding premature internal runtime architecture that may not survive the PoC.
+
+### D-014 - Headless V1 transport binding
+- Date: `2026-05-12`
+- Status: `accepted`
+
+#### Context
+Titan needs a concrete transport for the first local headless and desktop integrations while preserving a protocol model that can later map to other transports such as sockets or web channels.
+
+#### Decision
+The canonical V1 protocol remains transport-agnostic, bidirectional, session-oriented, and message-based.
+
+The official local headless binding for V1 uses subprocess `stdio`:
+
+1. `stdout` for protocol messages
+2. `stdin` for inbound protocol commands during a live run
+3. `stderr` for logs and operational diagnostics
+
+Serialization in V1 is:
+
+1. `event_stream` -> JSON Lines
+2. `run_result` -> single JSON object
+
+`start_run` remains outside the runtime protocol and belongs to the adapter or command layer.
+
+#### Impact
+Titan can implement one pragmatic local binding for the PoC without coupling the protocol itself to `stdio` forever, preserving a clean path to future desktop, web, and CI/CD transports.

@@ -144,12 +144,14 @@
       "id": "P0-008",
       "title": "Define transport strategy for headless V1",
       "description": "Clarify how the protocol is transported in headless mode.",
-      "status": "in_progress",
+      "status": "done",
       "priority": "high",
       "dependencies": ["P0-003", "P0-004", "P0-007"],
       "notes": [
-        "Both final result mode and event stream mode are required",
-        "stdout is reserved for protocol JSON and stderr for diagnostics"
+        "Both run_result mode and event_stream mode are required",
+        "The canonical protocol is transport-agnostic and the official local headless binding uses subprocess stdio",
+        "stdout is reserved for protocol messages, stdin carries inbound commands for live runs, and stderr is reserved for diagnostics",
+        "Serialization is JSON Lines for event streams and a single JSON object for run_result mode"
       ],
       "acceptance_criteria": [
         "stdout/stderr rules are defined",

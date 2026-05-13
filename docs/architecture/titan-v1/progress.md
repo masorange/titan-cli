@@ -11,15 +11,15 @@
 | OutputPayload model | Done | Alejandro | 2026-05-12 |
 | RunResult model | Done | Alejandro | 2026-05-12 |
 | Physical architecture | Done | Alejandro | 2026-05-12 |
+| Headless transport | Done | Alejandro | 2026-05-12 |
 | Desktop PoC definition | In progress | Alejandro | 2026-05-12 |
-| Headless transport | In progress | Alejandro | 2026-05-12 |
 | Textual transition | Pending | Team | 2026-05-12 |
 
 ## Current
 - Phase: `phase-0`
 - Status: `in_progress`
-- Focus: `Define headless transport around the approved boundaries`
-- Next task: `P0-008`
+- Focus: `Start implementation on top of approved boundaries`
+- Next task: `implementation`
 
 ## Done
 - 4-layer architecture defined
@@ -36,16 +36,17 @@
 - OutputPayload model frozen with `format` naming and string-only `content` in V1
 - RunResult model frozen as the terminal-only run snapshot
 - Physical architecture frozen with contracts in `ports/protocol`, run semantics in `engine`, and `application/` treated as transitional
+- Headless V1 transport frozen as a transport-agnostic protocol with a local stdio + JSON binding
 
 ## In Progress
-- Define transport strategy for headless V1
+- Prepare implementation on top of the approved protocol and physical boundaries
 
 ## Next
-1. Define transport strategy for headless V1
-2. Start implementation on top of the approved physical boundaries
+1. Start implementation on top of the approved physical boundaries
+2. Validate the local headless binding against desktop needs
 
 ## Open Questions
-- What is the exact bidirectional transport for desktop subprocess communication?
+
 
 ## Risks
 - Protocol scope grows too early
