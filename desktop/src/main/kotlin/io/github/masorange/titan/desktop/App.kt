@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.material.MaterialTheme
 import io.github.masorange.titan.desktop.adapter.LocalTitanCliAdapter
 import io.github.masorange.titan.desktop.adapter.RunningTitanProcess
+import io.github.masorange.titan.desktop.protocol.EventStreamDecoder
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.state.WorkflowScreenStateReducer
 import io.github.masorange.titan.desktop.ui.WorkflowScreen
@@ -46,6 +47,14 @@ fun App() {
             launch {
                 activeProcess.stdoutLines.collect { line ->
                     appendLine(protocolEvents, line)
+
+                    val event = EventStreamDecoder.decodeEventLine(line)
+                    if (event == null) {
+                        appendLine(diagnostics, "Invalid protocol event line: $line")
+                        return@collect
+                    }
+
+                    screenState = WorkflowScreenStateReducer.reduce(screenState, event)
                 }
             }
             launch {
