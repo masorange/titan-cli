@@ -39,6 +39,8 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 
+_HEADLESS_LOGGING_INITIALIZED = False
+
 
 def get_version() -> str:
     """Retrieve the package version."""
@@ -67,6 +69,16 @@ def _ai_config() -> TitanConfig:
 def _plugin_service() -> PluginService:
     """Build the plugin service used by headless CLI commands."""
     return PluginService(config=TitanConfig())
+
+
+def _ensure_headless_logging(verbose: bool, debug: bool) -> None:
+    """Initialize Titan logging for headless mode without using stdout."""
+    global _HEADLESS_LOGGING_INITIALIZED
+    if _HEADLESS_LOGGING_INITIALIZED:
+        return
+
+    setup_logging(verbose=verbose, debug=debug, console_enabled=False)
+    _HEADLESS_LOGGING_INITIALIZED = True
 
 
 class _CLIContainer(TitanRuntimeContainer):
@@ -122,6 +134,7 @@ def main(
     # Headless commands are consumed by native clients. They must keep stdout
     # clean so responses remain parseable JSON.
     if ctx.invoked_subcommand == "headless":
+        _ensure_headless_logging(verbose=verbose, debug=debug)
         ctx.ensure_object(dict)
         ctx.obj["devtools"] = devtools
         return

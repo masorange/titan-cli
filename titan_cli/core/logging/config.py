@@ -23,6 +23,8 @@ def setup_logging(
     verbose: bool = False,
     debug: bool = False,
     log_file: Optional[Path] = None,
+    *,
+    console_enabled: bool = True,
 ) -> structlog.BoundLogger:
     """
     Configure structlog for Titan CLI.
@@ -31,6 +33,7 @@ def setup_logging(
         verbose: Enable verbose output (INFO level)
         debug: Enable debug mode (DEBUG level + detailed output)
         log_file: Optional custom log file path (default: ~/.local/state/titan/logs/titan.log)
+        console_enabled: Whether to attach the console handler.
 
     Returns:
         Configured structlog logger instance
@@ -50,7 +53,8 @@ def setup_logging(
     _setup_file_handler(log_file, is_dev)
 
     # Setup console logging
-    _setup_console_handler(log_level, is_dev)
+    if console_enabled:
+        _setup_console_handler(log_level, is_dev)
 
     # Configure structlog
     _configure_structlog(is_dev)

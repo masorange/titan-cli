@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 from typer.testing import CliRunner
 
@@ -15,7 +16,10 @@ from titan_cli.application.models.responses import WorkflowDetail
 from titan_cli.application.models.responses import WorkflowStepSummary
 from titan_cli.application.models.responses import WorkflowSummary
 from titan_cli.cli import app
+from titan_cli.commands.headless.runs import _command_log_fields
+from titan_cli.commands.headless.runs import _event_log_fields
 from titan_cli.ports.protocol import EngineEvent
+from titan_cli.ports.protocol import EngineCommand
 from titan_cli.ports.protocol import EventType
 from titan_cli.ports.protocol import OutputPayload
 from titan_cli.ports.protocol import PromptRequest
@@ -55,6 +59,64 @@ def test_headless_workflows_list_outputs_json(monkeypatch):
             }
         ]
     }
+
+
+def test_headless_command_log_fields_redact_prompt_value() -> None:
+    command = EngineCommand(
+        type="submit_prompt_response",
+        run_id="run-1",
+        timestamp=datetime(2026, 5, 13, 13, 0, tzinfo=timezone.utc),
+        payload={
+            "prompt_id": "prompt-1",
+            "value": "super-secret-response",
+        },
+    )
+
+    fields = _command_log_fields(command)
+
+    assert fields["run_id"] == "run-1"
+    assert fields["command_type"] == "submit_prompt_response"
+    assert fields["prompt_id"] == "prompt-1"
+    assert fields["value_present"] is True
+    assert fields["value_type"] == "str"
+    assert fields["value_length"] == len("super-secret-response")
+    assert "value" not in fields
+
+
+def test_headless_event_log_fields_redact_prompt_and_output_contents() -> None:
+    event = EngineEvent(
+        type=EventType.PROMPT_REQUESTED,
+        run_id="run-1",
+        sequence=4,
+        timestamp=datetime(2026, 5, 13, 13, 0, tzinfo=timezone.utc),
+        payload={
+            "step": StepRef(step_id="confirm", step_name="Confirm", step_index=2),
+            "prompt": PromptRequest(
+                prompt_id="confirm:confirm",
+                prompt_type="confirm",
+                message="Do you want to continue?",
+            ),
+            "output": OutputPayload(
+                format="markdown",
+                title="Hidden",
+                content="# Sensitive output",
+            ),
+        },
+    )
+
+    fields = _event_log_fields(event)
+
+    assert fields["run_id"] == "run-1"
+    assert fields["sequence"] == 4
+    assert fields["event_type"] == "prompt_requested"
+    assert fields["step_id"] == "confirm"
+    assert fields["prompt_id"] == "confirm:confirm"
+    assert fields["prompt_type"] == "confirm"
+    assert fields["prompt_message_length"] == len("Do you want to continue?")
+    assert fields["output_format"] == "markdown"
+    assert fields["output_content_length"] == len("# Sensitive output")
+    assert "message" not in fields
+    assert "content" not in fields
 
 
 def test_headless_runs_start_passes_headless_request_and_outputs_json(monkeypatch):
