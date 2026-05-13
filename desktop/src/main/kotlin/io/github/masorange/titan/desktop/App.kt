@@ -11,6 +11,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.material.MaterialTheme
 import io.github.masorange.titan.desktop.adapter.LocalTitanCliAdapter
 import io.github.masorange.titan.desktop.adapter.RunningTitanProcess
+import io.github.masorange.titan.desktop.state.WorkflowScreenState
+import io.github.masorange.titan.desktop.state.WorkflowScreenStateReducer
 import io.github.masorange.titan.desktop.ui.WorkflowScreen
 import kotlinx.coroutines.launch
 
@@ -22,7 +24,14 @@ fun App() {
         val scope = rememberCoroutineScope()
         val protocolEvents = remember { mutableStateListOf<String>() }
         val diagnostics = remember { mutableStateListOf<String>() }
-        var statusText by remember { mutableStateOf("Idle") }
+        var screenState by remember {
+            mutableStateOf(
+                WorkflowScreenStateReducer.initialState(
+                    projectPath = launchConfig.projectRoot.toString(),
+                    workflowName = launchConfig.workflowName,
+                )
+            )
+        }
         var processHandle by remember { mutableStateOf<RunningTitanProcess?>(null) }
 
         fun appendLine(target: MutableList<String>, value: String) {
@@ -46,45 +55,46 @@ fun App() {
             }
             launch {
                 val exitCode = activeProcess.awaitExit()
-                statusText = "Process finished with exit code $exitCode"
+                if (!screenState.isTerminal) {
+                    diagnostics += "Process finished with exit code $exitCode"
+                }
                 processHandle = null
             }
         }
 
         WorkflowScreen(
-            statusText = statusText,
+            screenState = screenState,
             projectRoot = launchConfig.projectRoot.toString(),
             commandPreview = launchConfig.command.joinToString(" "),
-            workflowName = launchConfig.workflowName,
             protocolEvents = protocolEvents,
             diagnostics = diagnostics,
-            isRunActive = processHandle != null,
             onStart = {
                 if (processHandle != null) {
                     return@WorkflowScreen
                 }
                 protocolEvents.clear()
                 diagnostics.clear()
-                statusText = "Launching headless demo run"
+                screenState = WorkflowScreenStateReducer.initialState(
+                    projectPath = launchConfig.projectRoot.toString(),
+                    workflowName = launchConfig.workflowName,
+                )
                 scope.launch {
                     runCatching { adapter.startDemoRun() }
                         .onSuccess { runningProcess ->
                             processHandle = runningProcess
-                            statusText = "Run active"
                         }
                         .onFailure { error ->
-                            statusText = "Launch failed"
                             appendLine(diagnostics, error.message ?: error.toString())
                         }
                 }
             },
             onCancel = {
                 val activeProcess = processHandle ?: return@WorkflowScreen
-                statusText = "Cancelling run"
                 scope.launch {
                     activeProcess.cancelRun()
                 }
             },
+            onSubmit = null,
         )
     }
 }

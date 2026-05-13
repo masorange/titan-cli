@@ -2,6 +2,8 @@ package io.github.masorange.titan.desktop.protocol
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
@@ -41,6 +43,36 @@ data class PromptRequest(
     @SerialName("prompt_id") val promptId: String,
     @SerialName("prompt_type") val promptType: String,
     val message: String,
-    val default: String? = null,
+    val default: JsonElement? = null,
     val required: Boolean = true,
+    val options: List<PromptOption> = emptyList(),
+)
+
+@Serializable
+data class PromptOption(
+    val id: String,
+    val label: String,
+    val value: JsonElement? = null,
+    val description: String? = null,
+)
+
+@Serializable
+data class RunStepResult(
+    val id: String,
+    val title: String,
+    val status: String,
+    val plugin: String? = null,
+    val error: String? = null,
+    val outputs: List<OutputPayload> = emptyList(),
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class RunResult(
+    @SerialName("run_id") val runId: String,
+    @SerialName("workflow_name") val workflowName: String,
+    val status: String,
+    val steps: List<RunStepResult> = emptyList(),
+    val result: OutputPayload? = null,
+    val diagnostics: JsonObject = JsonObject(emptyMap()),
 )
