@@ -12,10 +12,12 @@ import androidx.compose.material.MaterialTheme
 import io.github.masorange.titan.desktop.adapter.LocalTitanCliAdapter
 import io.github.masorange.titan.desktop.adapter.RunningTitanProcess
 import io.github.masorange.titan.desktop.protocol.EventStreamDecoder
+import io.github.masorange.titan.desktop.protocol.PromptCommandEncoder
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.state.WorkflowScreenStateReducer
 import io.github.masorange.titan.desktop.ui.WorkflowScreen
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
 
 @Composable
 fun App() {
@@ -33,12 +35,53 @@ fun App() {
                 )
             )
         }
+        var promptDraftText by remember { mutableStateOf("") }
+        var isSubmittingPrompt by remember { mutableStateOf(false) }
         var processHandle by remember { mutableStateOf<RunningTitanProcess?>(null) }
 
         fun appendLine(target: MutableList<String>, value: String) {
             target += value
             if (target.size > 200) {
                 target.removeAt(0)
+            }
+        }
+
+        LaunchedEffect(screenState.activePrompt?.promptId) {
+            val prompt = screenState.activePrompt ?: return@LaunchedEffect
+            when (prompt.promptType) {
+                "text" -> {
+                    promptDraftText = prompt.defaultValue.asStringOrDefault(default = "")
+                }
+            }
+        }
+
+        fun submitPromptValue(value: JsonPrimitive) {
+            val prompt = screenState.activePrompt ?: return
+            val activeProcess = processHandle ?: return
+            val runId = screenState.runId ?: return
+            val textPromptBlocked = prompt.promptType == "text" && prompt.required && value.content.isBlank()
+            if (textPromptBlocked || isSubmittingPrompt) {
+                return
+            }
+
+            isSubmittingPrompt = true
+            scope.launch {
+                runCatching {
+                    PromptCommandEncoder.encodeSubmitPromptResponse(
+                        runId = runId,
+                        promptId = prompt.promptId,
+                        value = value,
+                    )
+                }.onSuccess { commandJson ->
+                    runCatching { activeProcess.sendCommand(commandJson) }
+                        .onFailure { error ->
+                            isSubmittingPrompt = false
+                            appendLine(diagnostics, error.message ?: error.toString())
+                        }
+                }.onFailure { error ->
+                    isSubmittingPrompt = false
+                    appendLine(diagnostics, error.message ?: error.toString())
+                }
             }
         }
 
@@ -55,6 +98,9 @@ fun App() {
                     }
 
                     screenState = WorkflowScreenStateReducer.reduce(screenState, event)
+                    if (screenState.activePrompt == null) {
+                        isSubmittingPrompt = false
+                    }
                 }
             }
             launch {
@@ -83,6 +129,8 @@ fun App() {
                 }
                 protocolEvents.clear()
                 diagnostics.clear()
+                promptDraftText = ""
+                isSubmittingPrompt = false
                 screenState = WorkflowScreenStateReducer.initialState(
                     projectPath = launchConfig.projectRoot.toString(),
                     workflowName = launchConfig.workflowName,
@@ -103,7 +151,16 @@ fun App() {
                     activeProcess.cancelRun()
                 }
             },
-            onSubmit = null,
+            promptDraftText = promptDraftText,
+            onPromptDraftTextChange = { promptDraftText = it },
+            isSubmittingPrompt = isSubmittingPrompt,
+            onSubmitText = { submitPromptValue(JsonPrimitive(promptDraftText)) },
+            onSubmitConfirm = { submitPromptValue(JsonPrimitive(it)) },
         )
     }
+}
+
+private fun kotlinx.serialization.json.JsonElement?.asStringOrDefault(default: String): String {
+    val primitive = this as? JsonPrimitive ?: return default
+    return primitive.content
 }

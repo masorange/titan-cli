@@ -19,6 +19,7 @@ import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedButton
 import androidx.compose.material.Text
+import androidx.compose.material.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,7 +40,11 @@ fun WorkflowScreen(
     diagnostics: List<String>,
     onStart: () -> Unit,
     onCancel: () -> Unit,
-    onSubmit: (() -> Unit)?,
+    promptDraftText: String,
+    onPromptDraftTextChange: (String) -> Unit,
+    isSubmittingPrompt: Boolean,
+    onSubmitText: (() -> Unit)?,
+    onSubmitConfirm: ((Boolean) -> Unit)?,
 ) {
     Row(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -71,15 +76,23 @@ fun WorkflowScreen(
                 }
             }
 
-            SectionCard(title = "Step List") {
+            SectionCard(title = "Step List", modifier = Modifier.weight(1f)) {
                 StepListPanel(steps = screenState.steps)
             }
 
             SectionCard(title = "Active Prompt") {
                 PromptPanel(
                     prompt = screenState.activePrompt,
-                    canSubmit = screenState.activePrompt != null && onSubmit != null,
-                    onSubmit = { onSubmit?.invoke() },
+                    promptDraftText = promptDraftText,
+                    onPromptDraftTextChange = onPromptDraftTextChange,
+                    canSubmit = canSubmitPrompt(
+                        prompt = screenState.activePrompt,
+                        promptDraftText = promptDraftText,
+                        isSubmitting = isSubmittingPrompt,
+                    ),
+                    isSubmitting = isSubmittingPrompt,
+                    onSubmitText = { onSubmitText?.invoke() },
+                    onSubmitConfirm = { onSubmitConfirm?.invoke(it) },
                 )
             }
         }
@@ -123,8 +136,12 @@ private fun StepListPanel(steps: List<StepItemState>) {
 @Composable
 private fun PromptPanel(
     prompt: ActivePromptState?,
+    promptDraftText: String,
+    onPromptDraftTextChange: (String) -> Unit,
     canSubmit: Boolean,
-    onSubmit: () -> Unit,
+    isSubmitting: Boolean,
+    onSubmitText: () -> Unit,
+    onSubmitConfirm: (Boolean) -> Unit,
 ) {
     if (prompt == null) {
         PlaceholderBlock("No active prompt. The prompt panel opens only on `prompt_requested`.")
@@ -138,14 +155,40 @@ private fun PromptPanel(
         Text(prompt.message)
         Text("Required: ${if (prompt.required) "yes" else "no"}")
         Text("Default: ${prompt.defaultValue.renderPromptDefault()}")
+        when (prompt.promptType) {
+            "confirm" -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onSubmitConfirm(true) }, enabled = !isSubmitting) {
+                        Text(if (isSubmitting) "Submitting..." else "Confirm")
+                    }
+                    OutlinedButton(onClick = { onSubmitConfirm(false) }, enabled = !isSubmitting) {
+                        Text("Cancel")
+                    }
+                }
+            }
+            "text" -> {
+                TextField(
+                    value = promptDraftText,
+                    onValueChange = onPromptDraftTextChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Response") },
+                )
+            }
+            else -> {
+                PlaceholderBlock("Prompt type `${prompt.promptType}` is not supported in the V1 desktop PoC.")
+            }
+        }
         if (prompt.options.isNotEmpty()) {
             Text("Options:")
             prompt.options.forEach { option ->
                 Text("- ${option.label}")
             }
         }
-        OutlinedButton(onClick = onSubmit, enabled = canSubmit) {
-            Text("Submit")
+        if (prompt.promptType == "text") {
+            OutlinedButton(onClick = onSubmitText, enabled = canSubmit) {
+                Text(if (isSubmitting) "Submitting..." else "Submit")
+            }
         }
     }
 }
@@ -192,7 +235,7 @@ private fun SectionCard(
 ) {
     Card(modifier = modifier.fillMaxWidth(), elevation = 6.dp) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(title, style = MaterialTheme.typography.h6)
@@ -202,6 +245,20 @@ private fun SectionCard(
 }
 
 private fun RunVisualStatus.label(): String = name.lowercase()
+
+private fun canSubmitPrompt(
+    prompt: ActivePromptState?,
+    promptDraftText: String,
+    isSubmitting: Boolean,
+): Boolean {
+    if (prompt == null || isSubmitting) {
+        return false
+    }
+    return when (prompt.promptType) {
+        "text" -> !prompt.required || promptDraftText.isNotBlank()
+        else -> false
+    }
+}
 
 private fun kotlinx.serialization.json.JsonElement?.renderPromptDefault(): String {
     val primitive = this as? JsonPrimitive ?: return "none"
