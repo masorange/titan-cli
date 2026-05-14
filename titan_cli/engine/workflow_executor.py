@@ -33,7 +33,13 @@ class WorkflowExecutor:
         """Return True for app-level control flow that must escape step wrapping."""
         return hasattr(error, "prompt")
 
-    def execute(self, workflow: ParsedWorkflow, ctx: WorkflowContext, params_override: Optional[Dict[str, Any]] = None) -> WorkflowResult:
+    def execute(
+        self,
+        workflow: ParsedWorkflow,
+        ctx: WorkflowContext,
+        params_override: Optional[Dict[str, Any]] = None,
+        start_step_index: int = 0,
+    ) -> WorkflowResult:
         """
         Executes the given ParsedWorkflow.
         """
@@ -45,22 +51,26 @@ class WorkflowExecutor:
         # Load params into ctx.data so steps can access them
         ctx.data.update(effective_params)
 
+        step_configs = []
+        for step_data in workflow.steps:
+            step_config = WorkflowStepModel(**step_data)
+            if step_config.hook:
+                continue
+            step_configs.append(step_config)
+
         # Inject workflow metadata into context
         ctx.workflow_name = workflow.name
-        ctx.total_steps = len([s for s in workflow.steps if not s.get("hook")])
+        ctx.total_steps = len(step_configs)
 
         ctx.enter_workflow(workflow.name)
         try:
-            step_index = 0
-            for step_data in workflow.steps:
-                step_config = WorkflowStepModel(**step_data)
+            if start_step_index < 0:
+                start_step_index = 0
 
-                # Hooks are resolved by the registry, so we just skip the placeholder.
-                # Check the parsed model instead of raw dict to handle auto-generated IDs
-                if step_config.hook:
-                    continue
-
-                step_index += 1
+            for step_index, step_config in enumerate(
+                step_configs[start_step_index:],
+                start=start_step_index + 1,
+            ):
                 ctx.current_step = step_index
 
                 step_id = step_config.id

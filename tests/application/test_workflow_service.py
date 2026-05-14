@@ -121,7 +121,7 @@ def test_start_workflow_waits_for_prompt_when_interaction_is_required(
     config.config.ai = None
     mock_secret_manager_cls.return_value = MagicMock()
 
-    def _execute(_workflow, ctx, params_override=None):
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
         ctx.interaction.ask_text("Enter value", default="demo")
         return Success("unreachable")
 
@@ -155,9 +155,10 @@ def test_start_workflow_consumes_preseeded_prompt_responses(
     config.config.ai = None
     mock_secret_manager_cls.return_value = MagicMock()
 
-    def _execute(_workflow, ctx, params_override=None):
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
         answer = ctx.interaction.ask_text("Enter value", default="demo")
         assert answer == "seeded-answer"
+        assert start_step_index == 0
         return Success("workflow ok")
 
     mock_executor = mock_executor_cls.return_value
@@ -195,8 +196,9 @@ def test_start_workflow_exposes_markdown_events_in_headless_runs(
     config.config.ai = None
     mock_secret_manager_cls.return_value = MagicMock()
 
-    def _execute(_workflow, ctx, params_override=None):
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
         ctx.textual.markdown("## AI Analysis\n\nLooks good.")
+        assert start_step_index == 0
         return Success("workflow ok")
 
     mock_executor = mock_executor_cls.return_value
@@ -232,9 +234,11 @@ def test_submit_prompt_response_resumes_run(
     mock_secret_manager_cls.return_value = MagicMock()
 
     state = {"calls": 0}
+    seen_start_step_indexes = []
 
-    def _execute(_workflow, ctx, params_override=None):
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
         state["calls"] += 1
+        seen_start_step_indexes.append(start_step_index)
         if state["calls"] == 1:
             ctx.interaction.ask_text("Enter value", default="demo")
             return Success("unreachable")
@@ -269,3 +273,4 @@ def test_submit_prompt_response_resumes_run(
     assert not any(event.type == "workflow_run_resumed" for event in updated.events)
     assert updated.events[-1].type == "run_completed"
     assert state["calls"] == 2
+    assert seen_start_step_indexes == [0, 0]

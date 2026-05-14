@@ -61,6 +61,18 @@ def test_headless_v1_demo_event_stream_round_trip_completes() -> None:
     assert "run_completed" in event_types
     assert event_types[-1] == "run_result_emitted"
     assert lines[-1]["payload"]["run_result"]["status"] == "completed"
+    assert event_types.count("run_started") == 1
+    assert sum(
+        1
+        for line in lines
+        if line["type"] == "step_started"
+        and line.get("payload", {}).get("step", {}).get("step_id") == "emit-text"
+    ) == 1
+    assert [step["id"] for step in lines[-1]["payload"]["run_result"]["steps"]] == [
+        "emit-text",
+        "confirm-continue",
+        "emit-markdown",
+    ]
     assert any(
         line["type"] == "prompt_requested"
         and line["payload"]["prompt"]["prompt_id"] == "confirm-continue:confirm"
@@ -90,3 +102,10 @@ def test_headless_v1_demo_event_stream_cancel_run() -> None:
     assert lines[-2]["payload"]["message"] == "user_cancelled_demo"
     assert event_types[-1] == "run_result_emitted"
     assert lines[-1]["payload"]["run_result"]["status"] == "cancelled"
+    assert event_types.count("run_started") == 1
+    assert sum(
+        1
+        for line in lines
+        if line["type"] == "step_started"
+        and line.get("payload", {}).get("step", {}).get("step_id") == "emit-text"
+    ) == 1

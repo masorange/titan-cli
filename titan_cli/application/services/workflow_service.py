@@ -69,15 +69,20 @@ class RunInteractionPort(HeadlessInteractionPort):
         session: RunSession,
         ctx: WorkflowContext,
         queued_prompt_responses: Optional[list[object]] = None,
+        resume_step_id: Optional[str] = None,
     ) -> None:
         super().__init__()
         self._service = service
         self._session = session
         self._ctx = ctx
         self._queued_prompt_responses = queued_prompt_responses or []
+        self._resume_step_id = resume_step_id
+        self._suppress_replayed_prefix = bool(resume_step_id and self._queued_prompt_responses)
 
     def step_output(self, text: str) -> None:
         super().step_output(text)
+        if self._suppress_replayed_prefix:
+            return
         self._service._append_event(
             self._session,
             EventType.OUTPUT_EMITTED,
@@ -92,6 +97,8 @@ class RunInteractionPort(HeadlessInteractionPort):
 
     def markdown(self, markdown_text: str) -> None:
         self.messages.append(("markdown", markdown_text))
+        if self._suppress_replayed_prefix:
+            return
         self._service._append_event(
             self._session,
             EventType.OUTPUT_EMITTED,
@@ -107,6 +114,8 @@ class RunInteractionPort(HeadlessInteractionPort):
 
     def begin_step(self, step_name: str) -> None:
         super().begin_step(step_name)
+        if self._suppress_replayed_prefix and self._ctx.current_step_id == self._resume_step_id:
+            return
         self._service._append_event(
             self._session,
             EventType.STEP_STARTED,
@@ -119,6 +128,8 @@ class RunInteractionPort(HeadlessInteractionPort):
 
     def end_step(self, result_type: str) -> None:
         super().end_step(result_type)
+        if self._suppress_replayed_prefix:
+            return
         normalized = self._service._normalize_step_status(result_type)
 
         if normalized == RunStepStatus.SUCCESS:
@@ -201,6 +212,8 @@ class RunInteractionPort(HeadlessInteractionPort):
         if self._queued_prompt_responses:
             value = self._queued_prompt_responses.pop(0)
             self._service._record_prompt_answer(self._session, prompt, value)
+            if self._suppress_replayed_prefix and self._ctx.current_step_id == self._resume_step_id:
+                self._suppress_replayed_prefix = False
             return value
 
         self._session.pending_prompt = prompt
@@ -370,7 +383,15 @@ class WorkflowService:
         session.metadata.setdefault("prompt_responses", [])
         session.metadata["prompt_responses"].append(request.value)
         session.status = RunSessionStatus.RUNNING
-        self._execute_run(session, self._request_from_session(session))
+        resume_step_index = int(session.metadata.get("resume_step_index") or 1)
+        self._execute_run(
+            session,
+            self._request_from_session(session),
+            start_step_index=max(resume_step_index - 1, 0),
+            emit_run_started=False,
+            queued_prompt_responses=[request.value],
+            resume_step_id=session.metadata.get("resume_step_id"),
+        )
         self._run_store.save(session)
         return self.get_run(request.run_id)
 
@@ -420,6 +441,8 @@ class WorkflowService:
         session: RunSession,
         request: StartWorkflowRequest,
         config: TitanConfig,
+        queued_prompt_responses: Optional[list[object]] = None,
+        resume_step_id: Optional[str] = None,
     ) -> WorkflowContext:
         """Build execution context mirroring the current TUI flow."""
         workspace_path = Path(request.project_path) if request.project_path else config.project_root
@@ -455,10 +478,16 @@ class WorkflowService:
             self,
             session,
             ctx,
-            queued_prompt_responses=list(request.prompt_responses),
+            queued_prompt_responses=(
+                list(queued_prompt_responses)
+                if queued_prompt_responses is not None
+                else list(request.prompt_responses)
+            ),
+            resume_step_id=resume_step_id,
         )
         ctx.textual = ctx.interaction
         ctx.data.update(request.params)
+        ctx.data.update(dict(session.metadata.get("ctx_data", {})))
         ctx.data.setdefault("project_root", str(workspace_path))
         ctx.data.setdefault("cwd", str(workspace_path))
         return ctx
@@ -473,22 +502,32 @@ class WorkflowService:
             interaction_mode=session.metadata.get("interaction_mode", "headless"),
         )
 
-    def _execute_run(self, session: RunSession, request: StartWorkflowRequest) -> None:
+    def _execute_run(
+        self,
+        session: RunSession,
+        request: StartWorkflowRequest,
+        *,
+        start_step_index: int = 0,
+        emit_run_started: bool = True,
+        queued_prompt_responses: Optional[list[object]] = None,
+        resume_step_id: Optional[str] = None,
+    ) -> None:
         """Execute a workflow synchronously and update run state."""
         config = self._config_for_project_path(request.project_path)
         workflow = config.workflows.get_workflow(request.workflow_name)
 
         session.status = RunSessionStatus.RUNNING
-        self._append_event(
-            session,
-            EventType.RUN_STARTED,
-            {
-                "workflow_name": request.workflow_name,
-                "workflow_title": workflow.description if workflow else request.workflow_name,
-                "project_path": request.project_path or str(config.project_root),
-                "total_steps": self._count_workflow_steps(workflow),
-            },
-        )
+        if emit_run_started:
+            self._append_event(
+                session,
+                EventType.RUN_STARTED,
+                {
+                    "workflow_name": request.workflow_name,
+                    "workflow_title": workflow.description if workflow else request.workflow_name,
+                    "project_path": request.project_path or str(config.project_root),
+                    "total_steps": self._count_workflow_steps(workflow),
+                },
+            )
 
         if workflow is None:
             session.status = RunSessionStatus.FAILED
@@ -500,14 +539,30 @@ class WorkflowService:
             )
             return
 
+        ctx: WorkflowContext | None = None
         try:
-            ctx = self._build_context(session, request, config)
+            ctx = self._build_context(
+                session,
+                request,
+                config,
+                queued_prompt_responses=queued_prompt_responses,
+                resume_step_id=resume_step_id,
+            )
             executor = WorkflowExecutor(
                 plugin_registry=config.registry,
                 workflow_registry=config.workflows,
             )
-            result = executor.execute(workflow, ctx, params_override=request.params)
+            result = executor.execute(
+                workflow,
+                ctx,
+                params_override=request.params,
+                start_step_index=start_step_index,
+            )
             session.metadata.update(ctx.data)
+            session.metadata.pop("resume_step_index", None)
+            session.metadata.pop("resume_step_id", None)
+            session.metadata.pop("resume_step_name", None)
+            session.metadata.pop("ctx_data", None)
 
             cancel_reason = session.metadata.get("cancel_requested")
             if cancel_reason:
@@ -544,6 +599,11 @@ class WorkflowService:
             session.status = RunSessionStatus.WAITING_FOR_INPUT
             session.pending_prompt = prompt_exc.prompt
             session.result_message = prompt_exc.prompt.message
+            if ctx is not None:
+                session.metadata["ctx_data"] = dict(ctx.data)
+                session.metadata["resume_step_index"] = ctx.current_step
+                session.metadata["resume_step_id"] = ctx.current_step_id
+                session.metadata["resume_step_name"] = ctx.current_step_name
             self._run_store.save(session)
         except Exception as exc:
             session.status = RunSessionStatus.FAILED
@@ -603,6 +663,21 @@ class WorkflowService:
             if event.type == EventType.STEP_STARTED:
                 step = payload.get("step")
                 if not isinstance(step, StepRef):
+                    continue
+
+                existing_step = step_by_id.get(step.step_id)
+                if existing_step is not None:
+                    existing_step.title = step.step_name
+                    existing_step.plugin = self._optional_str(payload.get("plugin"))
+                    existing_step.status = RunStepStatus.SUCCESS
+                    existing_step.error = None
+                    existing_step.outputs.clear()
+                    existing_step.metadata = {
+                        key: value
+                        for key, value in payload.items()
+                        if key not in {"step", "plugin"}
+                    }
+                    last_step = existing_step
                     continue
 
                 current_step = RunStepResult(

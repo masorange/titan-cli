@@ -73,7 +73,27 @@ La app desktop consume los eventos del protocolo por `stdout`, incluido el event
 ## Verificacion rapida
 
 ```bash
-poetry run titan headless runs start headless-v1-demo --project-path /home/alex/git/titan-cli --prompt-responses-json "[true]"
-./desktop/gradlew -p desktop build
+./docs/harness/validate_desktop_poc.sh
 ./desktop/gradlew -p desktop run
 ```
+
+## Validacion manual de la PoC
+
+### Flujo completed
+
+1. Ejecuta `./desktop/gradlew -p desktop run`.
+2. Pulsa `Start`.
+3. Verifica que `Run Header` muestra el run activo.
+4. Verifica que aparece `Emit Text` en `Step List` y su output en `Output Timeline`.
+5. Espera a que aparezca `Active Prompt` con `Confirm` y `Cancel`.
+6. Pulsa `Confirm`.
+7. Verifica que el prompt desaparece, aparece `Emit Markdown`, y el run termina en `completed`.
+8. Verifica que el estado final queda consolidado por el evento `run_result_emitted`.
+
+### Flujo cancelled
+
+1. Ejecuta `./desktop/gradlew -p desktop run`.
+2. Pulsa `Start`.
+3. Cuando aparezca `Active Prompt`, pulsa `Cancel`.
+4. Verifica que el run termina en estado terminal consistente y que el prompt desaparece.
+5. Verifica que el estado final queda consolidado por el evento `run_result_emitted`.
