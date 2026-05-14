@@ -1,6 +1,8 @@
 package io.github.masorange.titan.desktop.state
 
 import io.github.masorange.titan.desktop.protocol.PromptOption
+import io.github.masorange.titan.desktop.protocol.WorkflowDetail
+import io.github.masorange.titan.desktop.protocol.WorkflowStepSummary
 import kotlinx.serialization.json.JsonElement
 
 data class WorkflowScreenState(
@@ -12,6 +14,7 @@ data class WorkflowScreenState(
     val terminalMessage: String? = null,
     val isRunActive: Boolean = false,
     val isTerminal: Boolean = false,
+    val workflowDetail: WorkflowDetail? = null,
 )
 
 data class RunHeaderState(
@@ -65,4 +68,21 @@ enum class StepVisualStatus {
     SUCCESS,
     FAILED,
     SKIPPED,
+}
+
+fun WorkflowStepSummary.toPendingStepItem(index: Int): StepItemState {
+    val stepId = id ?: name ?: "step_$index"
+    val stepName = name ?: id ?: "Step $index"
+    val pluginLabel = plugin ?: when {
+        command != null -> "command"
+        workflow != null -> "workflow"
+        else -> null
+    }
+    return StepItemState(
+        stepId = stepId,
+        stepName = stepName,
+        stepIndex = index,
+        plugin = pluginLabel,
+        status = StepVisualStatus.PENDING,
+    )
 }

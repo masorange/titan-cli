@@ -1,9 +1,12 @@
 package io.github.masorange.titan.desktop.adapter
 
+import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import kotlinx.coroutines.flow.Flow
 
 interface TitanWorkflowAdapter {
     val launchConfig: TitanLaunchConfig
+
+    suspend fun describeWorkflow(): WorkflowDetail
 
     suspend fun startDemoRun(): RunningTitanProcess
 }

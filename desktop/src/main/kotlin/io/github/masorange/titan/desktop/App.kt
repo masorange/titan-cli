@@ -1,5 +1,6 @@
 package io.github.masorange.titan.desktop
 
+import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -8,11 +9,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.material.MaterialTheme
 import io.github.masorange.titan.desktop.adapter.LocalTitanCliAdapter
 import io.github.masorange.titan.desktop.adapter.RunningTitanProcess
 import io.github.masorange.titan.desktop.protocol.EventStreamDecoder
 import io.github.masorange.titan.desktop.protocol.PromptCommandEncoder
+import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.state.WorkflowScreenStateReducer
 import io.github.masorange.titan.desktop.ui.WorkflowScreen
@@ -27,6 +28,11 @@ fun App() {
         val scope = rememberCoroutineScope()
         val protocolEvents = remember { mutableStateListOf<String>() }
         val diagnostics = remember { mutableStateListOf<String>() }
+        var workflowDetail by remember { mutableStateOf<WorkflowDetail?>(null) }
+        var isLoadingWorkflow by remember { mutableStateOf(true) }
+        var isStartingRun by remember { mutableStateOf(false) }
+        var isCancellingRun by remember { mutableStateOf(false) }
+        var activeErrorMessage by remember { mutableStateOf<String?>(null) }
         var screenState by remember {
             mutableStateOf(
                 WorkflowScreenStateReducer.initialState(
@@ -44,6 +50,29 @@ fun App() {
             if (target.size > 200) {
                 target.removeAt(0)
             }
+        }
+
+        fun rebuildInitialScreenState() {
+            screenState = WorkflowScreenStateReducer.initialState(
+                projectPath = launchConfig.projectRoot.toString(),
+                workflowName = launchConfig.workflowName,
+                workflowDetail = workflowDetail,
+            )
+        }
+
+        LaunchedEffect(launchConfig.workflowName, launchConfig.projectRoot.toString(), launchConfig.command.joinToString(" ")) {
+            isLoadingWorkflow = true
+            runCatching { adapter.describeWorkflow() }
+                .onSuccess { detail ->
+                    workflowDetail = detail
+                    rebuildInitialScreenState()
+                }
+                .onFailure { error ->
+                    workflowDetail = null
+                    rebuildInitialScreenState()
+                    activeErrorMessage = error.message ?: error.toString()
+                }
+            isLoadingWorkflow = false
         }
 
         LaunchedEffect(screenState.activePrompt?.promptId) {
@@ -76,10 +105,12 @@ fun App() {
                     runCatching { activeProcess.sendCommand(commandJson) }
                         .onFailure { error ->
                             isSubmittingPrompt = false
+                            activeErrorMessage = error.message ?: error.toString()
                             appendLine(diagnostics, error.message ?: error.toString())
                         }
                 }.onFailure { error ->
                     isSubmittingPrompt = false
+                    activeErrorMessage = error.message ?: error.toString()
                     appendLine(diagnostics, error.message ?: error.toString())
                 }
             }
@@ -94,6 +125,7 @@ fun App() {
                     val event = EventStreamDecoder.decodeEventLine(line)
                     if (event == null) {
                         appendLine(diagnostics, "Invalid protocol event line: $line")
+                        activeErrorMessage = "Invalid protocol event line received"
                         return@collect
                     }
 
@@ -101,16 +133,21 @@ fun App() {
                         val runResult = EventStreamDecoder.decodeRunResultPayload(event)
                         if (runResult == null) {
                             appendLine(diagnostics, "Invalid run_result_emitted payload")
+                            activeErrorMessage = "Invalid terminal run snapshot payload"
                             return@collect
                         }
                         screenState = WorkflowScreenStateReducer.applyRunResult(screenState, runResult)
                         isSubmittingPrompt = false
+                        isCancellingRun = false
                         return@collect
                     }
 
                     screenState = WorkflowScreenStateReducer.reduce(screenState, event)
                     if (screenState.activePrompt == null) {
                         isSubmittingPrompt = false
+                    }
+                    if (!screenState.isRunActive) {
+                        isCancellingRun = false
                     }
                 }
             }
@@ -123,7 +160,10 @@ fun App() {
                 val exitCode = activeProcess.awaitExit()
                 if (!screenState.isTerminal) {
                     diagnostics += "Process finished with exit code $exitCode"
+                    activeErrorMessage = "Workflow process finished unexpectedly with exit code $exitCode"
                 }
+                isStartingRun = false
+                isCancellingRun = false
                 processHandle = null
             }
         }
@@ -132,39 +172,52 @@ fun App() {
             screenState = screenState,
             projectRoot = launchConfig.projectRoot.toString(),
             commandPreview = launchConfig.command.joinToString(" "),
-            protocolEvents = protocolEvents,
-            diagnostics = diagnostics,
             onStart = {
-                if (processHandle != null) {
+                if (processHandle != null || isStartingRun || isLoadingWorkflow) {
                     return@WorkflowScreen
                 }
                 protocolEvents.clear()
                 diagnostics.clear()
                 promptDraftText = ""
                 isSubmittingPrompt = false
-                screenState = WorkflowScreenStateReducer.initialState(
-                    projectPath = launchConfig.projectRoot.toString(),
-                    workflowName = launchConfig.workflowName,
-                )
+                activeErrorMessage = null
+                isStartingRun = true
+                rebuildInitialScreenState()
                 scope.launch {
                     runCatching { adapter.startDemoRun() }
                         .onSuccess { runningProcess ->
                             processHandle = runningProcess
+                            isStartingRun = false
                         }
                         .onFailure { error ->
+                            isStartingRun = false
+                            activeErrorMessage = error.message ?: error.toString()
                             appendLine(diagnostics, error.message ?: error.toString())
                         }
                 }
             },
             onCancel = {
                 val activeProcess = processHandle ?: return@WorkflowScreen
+                if (isCancellingRun) {
+                    return@WorkflowScreen
+                }
+                isCancellingRun = true
                 scope.launch {
-                    activeProcess.cancelRun()
+                    runCatching { activeProcess.cancelRun() }
+                        .onFailure { error ->
+                            isCancellingRun = false
+                            activeErrorMessage = error.message ?: error.toString()
+                        }
                 }
             },
             promptDraftText = promptDraftText,
             onPromptDraftTextChange = { promptDraftText = it },
             isSubmittingPrompt = isSubmittingPrompt,
+            isLoadingWorkflow = isLoadingWorkflow,
+            isStartingRun = isStartingRun,
+            isCancellingRun = isCancellingRun,
+            activeErrorMessage = activeErrorMessage,
+            onDismissError = { activeErrorMessage = null },
             onSubmitText = { submitPromptValue(JsonPrimitive(promptDraftText)) },
             onSubmitConfirm = { submitPromptValue(JsonPrimitive(it)) },
         )

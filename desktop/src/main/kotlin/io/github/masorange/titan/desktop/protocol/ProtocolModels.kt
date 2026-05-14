@@ -76,3 +76,22 @@ data class RunResult(
     val result: OutputPayload? = null,
     val diagnostics: JsonObject = JsonObject(emptyMap()),
 )
+
+@Serializable
+data class WorkflowStepSummary(
+    val id: String? = null,
+    val name: String? = null,
+    val plugin: String? = null,
+    val step: String? = null,
+    val command: String? = null,
+    val workflow: String? = null,
+    val hook: String? = null,
+)
+
+@Serializable
+data class WorkflowDetail(
+    val name: String,
+    val description: String? = null,
+    val source: String? = null,
+    val steps: List<WorkflowStepSummary> = emptyList(),
+)

@@ -6,6 +6,7 @@ import io.github.masorange.titan.desktop.protocol.PromptOption
 import io.github.masorange.titan.desktop.protocol.PromptRequest
 import io.github.masorange.titan.desktop.protocol.RunResult
 import io.github.masorange.titan.desktop.protocol.StepRef
+import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -21,11 +22,18 @@ object WorkflowScreenStateReducer {
     fun initialState(
         projectPath: String,
         workflowName: String,
+        workflowDetail: WorkflowDetail? = null,
     ): WorkflowScreenState = WorkflowScreenState(
         header = RunHeaderState(
-            workflowName = workflowName,
+            workflowName = workflowDetail?.name ?: workflowName,
+            workflowTitle = workflowDetail?.description,
             projectPath = projectPath,
-        )
+            totalSteps = workflowDetail?.steps?.size,
+        ),
+        steps = workflowDetail?.steps?.mapIndexed { index, step ->
+            step.toPendingStepItem(index + 1)
+        } ?: emptyList(),
+        workflowDetail = workflowDetail,
     )
 
     fun reduce(

@@ -2,6 +2,7 @@ package io.github.masorange.titan.desktop.adapter
 
 import io.github.masorange.titan.desktop.protocol.EngineCommandEnvelope
 import io.github.masorange.titan.desktop.protocol.EngineEventEnvelope
+import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import java.io.BufferedWriter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -23,6 +25,43 @@ class LocalTitanCliAdapter(
     resolver: TitanExecutableResolver = TitanExecutableResolver(),
 ) : TitanWorkflowAdapter {
     override val launchConfig: TitanLaunchConfig = resolver.resolve()
+    private val json = Json { ignoreUnknownKeys = true }
+
+    override suspend fun describeWorkflow(): WorkflowDetail = withContext(Dispatchers.IO) {
+        val command = buildList {
+            addAll(launchConfig.command)
+            addAll(
+                listOf(
+                    "headless",
+                    "workflows",
+                    "describe",
+                    launchConfig.workflowName,
+                    "--project-path",
+                    launchConfig.projectRoot.toString(),
+                    "--json",
+                )
+            )
+        }
+
+        val process = ProcessBuilder(command)
+            .directory(launchConfig.projectRoot.toFile())
+            .redirectErrorStream(false)
+            .start()
+
+        val stdout = process.inputStream.bufferedReader().readText()
+        val stderr = process.errorStream.bufferedReader().readText()
+        val exitCode = process.waitFor()
+
+        if (exitCode != 0) {
+            throw IllegalStateException(
+                stderr.ifBlank {
+                    "Failed to describe workflow '${launchConfig.workflowName}'"
+                }
+            )
+        }
+
+        json.decodeFromString<WorkflowDetail>(stdout)
+    }
 
     override suspend fun startDemoRun(): RunningTitanProcess = withContext(Dispatchers.IO) {
         val command = buildList {

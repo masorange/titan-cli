@@ -8,7 +8,7 @@ import androidx.compose.ui.window.application
 fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
-        title = "Titan Desktop PoC",
+        title = "Titan Desktop",
         state = WindowState(width = 1200.dp, height = 840.dp),
     ) {
         App()
