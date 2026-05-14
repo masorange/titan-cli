@@ -121,3 +121,27 @@ class JiraPluginConfig(BaseModel):
         if '@' not in v:
             raise ValueError("email must be a valid email address")
         return v.lower()  # Normalize email to lowercase
+
+
+class PoEditorPluginConfig(BaseModel):
+    """Configuration for PoEditor plugin."""
+
+    api_token: Optional[str] = Field(
+        None,
+        description="PoEditor API token",
+        json_schema_extra={"format": "password", "required_in_schema": True},
+    )
+
+    default_project_id: Optional[str] = Field(
+        None,
+        description="Default PoEditor project ID",
+        json_schema_extra={"config_scope": "project"},
+    )
+
+    timeout: int = Field(
+        30,
+        description="Request timeout in seconds",
+        ge=1,
+        le=300,
+        json_schema_extra={"config_scope": "global"},
+    )

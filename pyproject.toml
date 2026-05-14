@@ -23,7 +23,8 @@ packages = [
     {include = "titan_cli"},
     {include = "titan_plugin_git", from = "plugins/titan-plugin-git"},
     {include = "titan_plugin_github", from = "plugins/titan-plugin-github"},
-    {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"}
+    {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"},
+    {include = "titan_plugin_poeditor", from = "plugins/titan-plugin-poeditor"}
 ]
 
 [tool.poetry.dependencies]
@@ -64,6 +65,7 @@ textual-dev = "^1.0.0"
 titan-plugin-git = {path = "plugins/titan-plugin-git", develop = true}
 titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}
 titan-plugin-jira = {path = "plugins/titan-plugin-jira", develop = true}
+titan-plugin-poeditor = {path = "plugins/titan-plugin-poeditor", develop = true}
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -76,13 +78,15 @@ titan = "titan_cli.cli:app"
 git = "titan_plugin_git.plugin:GitPlugin"
 github = "titan_plugin_github.plugin:GitHubPlugin"
 jira = "titan_plugin_jira.plugin:JiraPlugin"
+poeditor = "titan_plugin_poeditor.plugin:PoEditorPlugin"
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
     "plugins/titan-plugin-git/tests",
     "plugins/titan-plugin-github/tests",
-    "plugins/titan-plugin-jira/tests"
+    "plugins/titan-plugin-jira/tests",
+    "plugins/titan-plugin-poeditor/tests"
 ]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

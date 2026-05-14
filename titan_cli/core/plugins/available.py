@@ -28,4 +28,10 @@ KNOWN_PLUGINS: List[KnownPlugin] = [
         "package_name": "titan-plugin-jira",
         "dependencies": []
     },
+    {
+        "name": "poeditor",
+        "description": "PoEditor integration for localization management.",
+        "package_name": "titan-plugin-poeditor",
+        "dependencies": []
+    },
 ]

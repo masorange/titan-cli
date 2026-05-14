@@ -59,6 +59,7 @@ class WorkflowContextBuilder:
         self._git = None
         self._github = None
         self._jira = None
+        self._poeditor = None
 
         # Plugin managers (keyed by plugin name)
         self._plugin_managers: dict = {}
@@ -170,6 +171,38 @@ class WorkflowContextBuilder:
                 self._jira = None
         return self
 
+    def with_poeditor(self, poeditor_client: Optional[Any] = None) -> WorkflowContextBuilder:
+        """
+        Add PoEditor client to workflow context.
+
+        The PoEditor client is optional and only used by PoEditor plugin steps.
+        Other plugin steps will have ctx.poeditor = None and should ignore it.
+
+        Args:
+            poeditor_client: Optional PoEditorClient instance (auto-loaded if None).
+                            If None, attempts to load from PoEditor plugin registry.
+                            If plugin is not available or fails to load, sets ctx.poeditor = None.
+
+        Returns:
+            Self for method chaining
+
+        Note:
+            Steps from other plugins do not need to handle ctx.poeditor.
+            Only PoEditor plugin steps should check for and use ctx.poeditor.
+        """
+        if poeditor_client:
+            self._poeditor = poeditor_client
+        else:
+            # Auto-create from plugin registry
+            poeditor_plugin = self._plugin_registry.get_plugin("poeditor")
+            if poeditor_plugin and poeditor_plugin.is_available():
+                try:
+                    self._poeditor = poeditor_plugin.get_client()
+                except Exception: # Catch any exception during client retrieval
+                    self._poeditor = None # Fail silently
+            else:
+                self._poeditor = None
+        return self
 
     def build(self) -> WorkflowContext:
         """Build the WorkflowContext."""
@@ -181,4 +214,5 @@ class WorkflowContextBuilder:
             github=self._github,
             github_managers=self._plugin_managers.get("github"),
             jira=self._jira,
+            poeditor=self._poeditor,
         )
