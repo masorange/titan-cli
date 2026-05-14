@@ -61,6 +61,7 @@ Variables opcionales:
 
 1. `TITAN_CLI_COMMAND`: reemplaza el comando base. Ejemplo: `TITAN_CLI_COMMAND="poetry run titan"`
 2. `TITAN_PROJECT_ROOT`: fija explicitamente el `project_path`
+3. `TITAN_WORKFLOW_NAME`: selecciona el workflow a ejecutar. Por defecto `headless-v1-demo`
 
 ## Comando demo usado por el adapter
 
@@ -69,6 +70,19 @@ titan headless runs start headless-v1-demo --project-path <repo-root>
 ```
 
 La app desktop consume los eventos del protocolo por `stdout`, incluido el evento terminal `run_result_emitted`, y deja `stderr` para diagnostico tecnico.
+
+## Probar otro workflow
+
+Para lanzar la desktop app contra un workflow real existente, por ejemplo `commit-ai`:
+
+```bash
+TITAN_WORKFLOW_NAME="commit-ai" ./desktop/gradlew -p desktop run
+```
+
+Nota actual:
+
+- `commit-ai` usa una seleccion multiple de archivos en el workflow base.
+- En el adapter desktop actual esa seleccion se resuelve por defecto con las opciones ya marcadas por Titan, asi que no aparece todavia como prompt interactivo especifico.
 
 ## Verificacion rapida
 

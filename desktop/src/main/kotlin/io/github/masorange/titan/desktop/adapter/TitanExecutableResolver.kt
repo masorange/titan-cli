@@ -27,9 +27,15 @@ class TitanExecutableResolver(
             ?.let { Path.of(it) }
             ?: inferProjectRoot(workingDirectory)
 
+        val workflowName = environment["TITAN_WORKFLOW_NAME"]
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "headless-v1-demo"
+
         return TitanLaunchConfig(
             command = command,
             projectRoot = projectRoot.normalize().toAbsolutePath(),
+            workflowName = workflowName,
         )
     }
 
