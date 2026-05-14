@@ -26,4 +26,20 @@ class EventStreamDecoderTest {
 
         assertNull(event)
     }
+
+    @Test
+    fun `decode run result payload parses terminal snapshot`() {
+        val event = assertNotNull(
+            EventStreamDecoder.decodeEventLine(
+                """
+                {"type":"run_result_emitted","run_id":"run-123","sequence":4,"payload":{"run_result":{"run_id":"run-123","workflow_name":"demo","status":"completed","steps":[],"result":{"format":"markdown","title":"Summary","content":"# Done","metadata":{}},"diagnostics":{"result_message":"done"}}}}
+                """.trimIndent()
+            )
+        )
+
+        val runResult = assertNotNull(EventStreamDecoder.decodeRunResultPayload(event))
+        assertEquals("run-123", runResult.runId)
+        assertEquals("completed", runResult.status)
+        assertEquals("# Done", runResult.result?.content)
+    }
 }

@@ -21,6 +21,7 @@ class EventType(StrEnum):
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
     RUN_CANCELLED = "run_cancelled"
+    RUN_RESULT_EMITTED = "run_result_emitted"
 
 
 class CommandType(StrEnum):

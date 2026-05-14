@@ -9,7 +9,7 @@ from titan_cli.cli import app
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_headless_v1_demo_run_result_mode_completes() -> None:
+def test_headless_v1_demo_event_stream_emits_terminal_run_result() -> None:
     result = CliRunner().invoke(
         app,
         [
@@ -21,14 +21,13 @@ def test_headless_v1_demo_run_result_mode_completes() -> None:
             str(REPO_ROOT),
             "--prompt-responses-json",
             "[true]",
-            "--mode",
-            "run_result",
-            "--json",
         ],
     )
 
     assert result.exit_code == 0
-    payload = json.loads(result.stdout)
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    assert lines[-1]["type"] == "run_result_emitted"
+    payload = lines[-1]["payload"]["run_result"]
     assert payload["status"] == "completed"
     assert [step["id"] for step in payload["steps"]] == [
         "emit-text",
@@ -50,8 +49,6 @@ def test_headless_v1_demo_event_stream_round_trip_completes() -> None:
             "headless-v1-demo",
             "--project-path",
             str(REPO_ROOT),
-            "--mode",
-            "event_stream",
         ],
         input='{"type":"submit_prompt_response","payload":{"prompt_id":"confirm-continue:confirm","value":true}}\n',
     )
@@ -62,6 +59,8 @@ def test_headless_v1_demo_event_stream_round_trip_completes() -> None:
     assert "run_started" in event_types
     assert "prompt_requested" in event_types
     assert "run_completed" in event_types
+    assert event_types[-1] == "run_result_emitted"
+    assert lines[-1]["payload"]["run_result"]["status"] == "completed"
     assert any(
         line["type"] == "prompt_requested"
         and line["payload"]["prompt"]["prompt_id"] == "confirm-continue:confirm"
@@ -79,8 +78,6 @@ def test_headless_v1_demo_event_stream_cancel_run() -> None:
             "headless-v1-demo",
             "--project-path",
             str(REPO_ROOT),
-            "--mode",
-            "event_stream",
         ],
         input='{"type":"cancel_run","payload":{"reason":"user_cancelled_demo"}}\n',
     )
@@ -89,5 +86,7 @@ def test_headless_v1_demo_event_stream_cancel_run() -> None:
     lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
     event_types = [line["type"] for line in lines]
     assert "prompt_requested" in event_types
-    assert event_types[-1] == "run_cancelled"
-    assert lines[-1]["payload"]["message"] == "user_cancelled_demo"
+    assert event_types[-2] == "run_cancelled"
+    assert lines[-2]["payload"]["message"] == "user_cancelled_demo"
+    assert event_types[-1] == "run_result_emitted"
+    assert lines[-1]["payload"]["run_result"]["status"] == "cancelled"

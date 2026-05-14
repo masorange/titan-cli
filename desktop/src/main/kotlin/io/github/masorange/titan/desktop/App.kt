@@ -97,6 +97,17 @@ fun App() {
                         return@collect
                     }
 
+                    if (event.type == "run_result_emitted") {
+                        val runResult = EventStreamDecoder.decodeRunResultPayload(event)
+                        if (runResult == null) {
+                            appendLine(diagnostics, "Invalid run_result_emitted payload")
+                            return@collect
+                        }
+                        screenState = WorkflowScreenStateReducer.applyRunResult(screenState, runResult)
+                        isSubmittingPrompt = false
+                        return@collect
+                    }
+
                     screenState = WorkflowScreenStateReducer.reduce(screenState, event)
                     if (screenState.activePrompt == null) {
                         isSubmittingPrompt = false

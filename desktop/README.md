@@ -22,22 +22,11 @@ Todavia no implementa el modelo completo de estado desktop ni la proyeccion fina
 
 ### Ejecutar headless
 
-Modo `run_result`:
+Modo oficial `event_stream`:
 
 ```bash
 poetry run titan headless runs start headless-v1-demo \
-  --project-path /home/alex/git/titan-cli \
-  --prompt-responses-json "[true]" \
-  --mode run_result \
-  --json
-```
-
-Modo `event_stream`:
-
-```bash
-poetry run titan headless runs start headless-v1-demo \
-  --project-path /home/alex/git/titan-cli \
-  --mode event_stream
+  --project-path /home/alex/git/titan-cli
 ```
 
 ### Ejecutar desktop
@@ -76,15 +65,15 @@ Variables opcionales:
 ## Comando demo usado por el adapter
 
 ```text
-titan headless runs start headless-v1-demo --project-path <repo-root> --mode event_stream
+titan headless runs start headless-v1-demo --project-path <repo-root>
 ```
 
-La app desktop consume los eventos del protocolo por `stdout` y deja `stderr` para diagnostico tecnico.
+La app desktop consume los eventos del protocolo por `stdout`, incluido el evento terminal `run_result_emitted`, y deja `stderr` para diagnostico tecnico.
 
 ## Verificacion rapida
 
 ```bash
-poetry run titan headless runs start headless-v1-demo --project-path /home/alex/git/titan-cli --prompt-responses-json "[true]" --mode run_result --json
+poetry run titan headless runs start headless-v1-demo --project-path /home/alex/git/titan-cli --prompt-responses-json "[true]"
 ./desktop/gradlew -p desktop build
 ./desktop/gradlew -p desktop run
 ```

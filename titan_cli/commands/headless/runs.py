@@ -20,8 +20,9 @@ from titan_cli.core.logging import get_logger
 from titan_cli.ports.protocol import CommandType
 from titan_cli.ports.protocol import EngineCommand
 from titan_cli.ports.protocol import EngineEvent
+from titan_cli.ports.protocol import EventType
 from titan_cli.runtime.container import TitanRuntimeContainer
-from titan_cli.runtime.output import output_presenter, to_jsonable
+from titan_cli.runtime.output import to_jsonable
 
 
 def _protocol_logger():
@@ -114,14 +115,9 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
             help="JSON array of pre-seeded prompt responses for headless execution.",
         ),
         mode: str = typer.Option(
-            "run_result",
+            "event_stream",
             "--mode",
-            help="Headless protocol output mode: run_result or event_stream.",
-        ),
-        output_json: bool = typer.Option(
-            False,
-            "--json",
-            help="Print a machine-readable JSON response.",
+            help="Headless protocol output mode. Only event_stream is supported in V1.",
         ),
     ):
         """Run a workflow through the headless V1 adapter binding."""
@@ -144,31 +140,14 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
                 preseeded_prompt_responses=len(request.prompt_responses),
             )
 
-            if mode == "event_stream":
-                _run_event_stream_mode(container, request)
-                return
+            if mode != "event_stream":
+                raise typer.BadParameter("--mode must be 'event_stream'")
 
-            if mode != "run_result":
-                raise typer.BadParameter("--mode must be either 'run_result' or 'event_stream'")
-
-            response = run_headless_operation(
-                lambda: container.workflow_service().start_workflow(request)
-            )
-            _log_protocol_state(
-                "headless_run_result_completed",
-                run_id=response.run_id,
-                session_status=str(response.status),
-                terminal_status=(str(response.result.status) if response.result else None),
-            )
-            if response.result is None:
-                raise ValueError(
-                    "run_result mode requires a terminal run. Use event_stream mode or pre-seed prompt responses."
-                )
-            output_presenter(output_json).write(response.result)
+            _run_event_stream_mode(container, request)
         except typer.BadParameter:
             raise
         except Exception as exc:
-            fail_headless_command(exc, as_json=output_json)
+            fail_headless_command(exc, as_json=False)
 
     return app
 
@@ -219,6 +198,16 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
                 RunSessionStatus.FAILED,
                 RunSessionStatus.CANCELLED,
             }:
+                if run_state.result is not None:
+                    result_event = EngineEvent(
+                        type=EventType.RUN_RESULT_EMITTED,
+                        run_id=run_state.run_id,
+                        sequence=last_sequence + 1,
+                        payload={"run_result": run_state.result},
+                    )
+                    _log_outbound_event(result_event)
+                    typer.echo(json.dumps(to_jsonable(result_event)))
+                    last_sequence = result_event.sequence
                 _log_protocol_state(
                     "headless_event_stream_finished",
                     run_id=session.run_id,

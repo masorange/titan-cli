@@ -35,8 +35,6 @@ class LocalTitanCliAdapter(
                     launchConfig.workflowName,
                     "--project-path",
                     launchConfig.projectRoot.toString(),
-                    "--mode",
-                    "event_stream",
                 )
             )
         }

@@ -169,3 +169,47 @@ def test_run_result_serializes_to_v1_terminal_snapshot_shape():
             "result_message": "Workflow completed successfully",
         },
     }
+
+
+def test_engine_event_serializes_run_result_payload_for_terminal_stream_shape():
+    event = EngineEvent(
+        type="run_result_emitted",
+        run_id="run-123",
+        sequence=8,
+        timestamp=datetime(2026, 5, 12, 10, 0, 8, tzinfo=timezone.utc),
+        payload={
+            "run_result": RunResult(
+                run_id="run-123",
+                workflow_name="demo-workflow",
+                status="completed",
+                result=OutputPayload(
+                    format="markdown",
+                    title="Final Summary",
+                    content="# Done",
+                ),
+                diagnostics={"result_message": "Workflow completed successfully"},
+            )
+        },
+    )
+
+    assert to_jsonable(event) == {
+        "type": "run_result_emitted",
+        "run_id": "run-123",
+        "sequence": 8,
+        "timestamp": "2026-05-12T10:00:08+00:00",
+        "payload": {
+            "run_result": {
+                "run_id": "run-123",
+                "workflow_name": "demo-workflow",
+                "status": "completed",
+                "steps": [],
+                "result": {
+                    "format": "markdown",
+                    "title": "Final Summary",
+                    "content": "# Done",
+                    "metadata": {},
+                },
+                "diagnostics": {"result_message": "Workflow completed successfully"},
+            }
+        },
+    }
