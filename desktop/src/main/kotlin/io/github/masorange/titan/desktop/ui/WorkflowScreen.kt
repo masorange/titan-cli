@@ -107,11 +107,8 @@ fun WorkflowContent(
             screenState = screenState,
             runHeaderState = screenState.header,
             onStart = onStart,
-            isSubmittingPrompt = isSubmittingPrompt,
             isLoadingWorkflow = isLoadingWorkflow,
             isStartingRun = isStartingRun,
-            isCancellingRun = isCancellingRun,
-            onSubmitText = onSubmitText,
         )
         Row(modifier = Modifier.fillMaxWidth()) {
             Column(

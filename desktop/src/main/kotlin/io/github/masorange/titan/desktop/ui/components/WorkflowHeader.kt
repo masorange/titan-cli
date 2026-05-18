@@ -9,22 +9,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedButton
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import io.github.masorange.titan.desktop.state.ActivePromptState
-import io.github.masorange.titan.desktop.state.OutputTimelineItemState
 import io.github.masorange.titan.desktop.state.RunHeaderState
 import io.github.masorange.titan.desktop.state.RunVisualStatus
-import io.github.masorange.titan.desktop.state.StepItemState
-import io.github.masorange.titan.desktop.state.StepVisualStatus
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.theme.H1Text
-import io.github.masorange.titan.desktop.theme.H3Text
-import kotlinx.serialization.json.JsonNull
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
@@ -33,11 +26,8 @@ fun WorkflowHeader(
     screenState: WorkflowScreenState,
     runHeaderState: RunHeaderState,
     onStart: () -> Unit,
-    isSubmittingPrompt: Boolean,
     isLoadingWorkflow: Boolean,
     isStartingRun: Boolean,
-    isCancellingRun: Boolean,
-    onSubmitText: () -> Unit,
 ) {
     Card(modifier = modifier, elevation = 6.dp) {
         Column(
@@ -91,11 +81,8 @@ private fun WorkflowExecutionPathCardPreview() {
                 ),
                 runHeaderState = RunHeaderState(workflowName = "Example Workflow"),
                 onStart = {},
-                isSubmittingPrompt = false,
                 isLoadingWorkflow = false,
                 isStartingRun = false,
-                isCancellingRun = false,
-                onSubmitText = {},
             )
         }
     }

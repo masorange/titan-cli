@@ -20,6 +20,8 @@ dependencies {
 
     implementation(compose.desktop.currentOs)
     implementation(compose.components.uiToolingPreview)
+    implementation(compose.uiTooling)
+
     testImplementation(kotlin("test"))
 }
 
