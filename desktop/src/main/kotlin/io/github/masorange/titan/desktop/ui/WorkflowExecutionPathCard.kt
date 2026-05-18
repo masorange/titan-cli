@@ -6,14 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
@@ -22,127 +19,165 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.masorange.titan.desktop.state.StepVisualStatus
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
-private val TimelineGreen = Color(0xFF10B981)
-private val TimelineLine = Color(0xFFD1D5DB)
-private val CardBorder = Color(0xFFE5E7EB)
-private val SubtitleColor = Color(0xFF4B5563)
-private val DurationColor = Color(0xFF374151)
+private val SuccessBackground = Color(0xFFEAF7EF)
+private val SuccessBorder = Color(0xFFC8F0D5)
+private val SuccessIcon = Color(0xFF16A34A)
+
+private val RunningBackground = Color(0xFFDCE7FF)
+private val RunningBorder = Color(0xFF111827)
+private val RunningIcon = Color(0xFF111827)
+
+private val FailedBackground = Color(0xFFFDE8E8)
+private val FailedBorder = Color(0xFFF5B5B5)
+private val FailedIcon = Color(0xFFDC2626)
+
+private val PendingBackground = Color(0xFFF8FAFC)
+private val PendingBorder = Color(0xFFE2E8F0)
+private val PendingIcon = Color(0xFF94A3B8)
+
+private val SkippedBackground = Color(0xFFFFF7E6)
+private val SkippedBorder = Color(0xFFF5D28C)
+private val SkippedIcon = Color(0xFFD97706)
+
+private val TitleColor = Color(0xFF0F172A)
+private val SubtitleColor = Color(0xFF475569)
 
 @Composable
 fun WorkflowExecutionPathCard(
     title: String,
     subtitle: String,
-    duration: String? = null,
+    status: StepVisualStatus,
     modifier: Modifier = Modifier,
-    isLast: Boolean = false,
-    indicatorText: String = "✓",
-    indicatorColor: Color = TimelineGreen,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.Top,
+    val palette = statusPalette(status)
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = if (status == StepVisualStatus.RUNNING) 2.dp else 1.dp,
+                color = palette.border,
+                shape = RoundedCornerShape(16.dp),
+            ),
+        shape = RoundedCornerShape(16.dp),
+        elevation = 0.dp,
+        backgroundColor = palette.background,
     ) {
-        TimelineMarker(
-            isLast = isLast,
-            indicatorText = indicatorText,
-            indicatorColor = indicatorColor,
-        )
-
-        Card(
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .border(width = 1.dp, color = CardBorder, shape = MaterialTheme.shapes.medium),
-            elevation = 0.dp,
-            shape = MaterialTheme.shapes.medium,
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .size(32.dp)
+                    .background(color = palette.icon, shape = CircleShape),
+                contentAlignment = Alignment.Center,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.h6.copy(fontWeight = FontWeight.Medium),
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                Text(
+                    text = palette.symbol,
+                    color = Color.White,
+                    style = MaterialTheme.typography.body1.copy(fontWeight = FontWeight.Bold),
+                )
+            }
 
-                    if (duration != null) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = duration,
-                            style = MaterialTheme.typography.body2,
-                            color = DurationColor,
-                        )
-                    }
-                }
-
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = title,
+                    color = TitleColor,
+                    style = MaterialTheme.typography.h6.copy(fontWeight = FontWeight.Bold),
+                )
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.body1,
                     color = SubtitleColor,
+                    style = MaterialTheme.typography.body1,
                 )
             }
         }
     }
 }
 
-@Composable
-private fun TimelineMarker(
-    isLast: Boolean,
-    indicatorText: String,
-    indicatorColor: Color,
-) {
-    Column(
-        modifier = Modifier.height(92.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .background(color = Color.White, shape = CircleShape)
-                .border(width = 2.dp, color = indicatorColor, shape = CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = indicatorText,
-                color = indicatorColor,
-                style = MaterialTheme.typography.h6.copy(fontWeight = FontWeight.Bold),
-            )
-        }
+private data class StepVisualPalette(
+    val background: Color,
+    val border: Color,
+    val icon: Color,
+    val symbol: String,
+)
 
-        if (!isLast) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .width(2.dp)
-                    .fillMaxHeight()
-                    .background(TimelineLine),
-            )
-        }
-    }
+private fun statusPalette(status: StepVisualStatus): StepVisualPalette = when (status) {
+    StepVisualStatus.SUCCESS -> StepVisualPalette(
+        background = SuccessBackground,
+        border = SuccessBorder,
+        icon = SuccessIcon,
+        symbol = "✓",
+    )
+    StepVisualStatus.RUNNING -> StepVisualPalette(
+        background = RunningBackground,
+        border = RunningBorder,
+        icon = RunningIcon,
+        symbol = "↻",
+    )
+    StepVisualStatus.FAILED -> StepVisualPalette(
+        background = FailedBackground,
+        border = FailedBorder,
+        icon = FailedIcon,
+        symbol = "!",
+    )
+    StepVisualStatus.SKIPPED -> StepVisualPalette(
+        background = SkippedBackground,
+        border = SkippedBorder,
+        icon = SkippedIcon,
+        symbol = "-",
+    )
+    StepVisualStatus.PENDING -> StepVisualPalette(
+        background = PendingBackground,
+        border = PendingBorder,
+        icon = PendingIcon,
+        symbol = "·",
+    )
 }
 
 @Preview
 @Composable
 private fun WorkflowExecutionPathCardPreview() {
     MaterialTheme {
-        WorkflowExecutionPathCard(
-            title = "Validate Input Payload",
-            subtitle = "Schema validation successful for user_v2 object.",
-            duration = "0.4s",
-        )
+        Column(
+            modifier = Modifier
+                .background(Color.White)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            WorkflowExecutionPathCard(
+                title = "Check Git Status",
+                subtitle = "Finished in 2s",
+                status = StepVisualStatus.SUCCESS,
+            )
+            WorkflowExecutionPathCard(
+                title = "Build Docker Image",
+                subtitle = "Running...",
+                status = StepVisualStatus.RUNNING,
+            )
+            WorkflowExecutionPathCard(
+                title = "Run Linter Skipped",
+                subtitle = "Finished in 45s",
+                status = StepVisualStatus.SKIPPED,
+            )
+            WorkflowExecutionPathCard(
+                title = "Run Linter Skipped",
+                subtitle = "Finished in 45s",
+                status = StepVisualStatus.FAILED,
+            )
+            WorkflowExecutionPathCard(
+                title = "Run Linter Skipped",
+                subtitle = "Finished in 45s",
+                status = StepVisualStatus.PENDING,
+            )
+        }
     }
 }
