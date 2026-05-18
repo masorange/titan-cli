@@ -55,6 +55,7 @@ class PRService:
                 "baseRefName", "headRefName", "additions", "deletions",
                 "changedFiles", "mergeable", "isDraft", "createdAt",
                 "updatedAt", "mergedAt", "reviews", "labels",
+                "isCrossRepository", "headRepositoryOwner",
             ]
 
             # Fetch from network

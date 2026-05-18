@@ -57,6 +57,8 @@ class NetworkPullRequest:
     mergedAt: Optional[str] = None  # Keep camelCase from API
     reviews: List[NetworkReview] = field(default_factory=list)
     labels: List[Dict[str, Any]] = field(default_factory=list)  # Raw label objects
+    isCrossRepository: bool = False
+    headRepositoryOwnerLogin: Optional[str] = None
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> 'NetworkPullRequest':
@@ -100,7 +102,9 @@ class NetworkPullRequest:
             updatedAt=data.get("updatedAt"),
             mergedAt=data.get("mergedAt"),
             reviews=reviews,
-            labels=data.get("labels", [])  # Keep raw label objects
+            labels=data.get("labels", []),  # Keep raw label objects
+            isCrossRepository=data.get("isCrossRepository", False),
+            headRepositoryOwnerLogin=(data.get("headRepositoryOwner") or {}).get("login"),
         )
 
 

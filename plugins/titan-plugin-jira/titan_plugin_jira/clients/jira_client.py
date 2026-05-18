@@ -191,7 +191,9 @@ class JiraClient:
         self,
         issue_key: str,
         new_status: str,
-        comment: Optional[str] = None
+        comment: Optional[str] = None,
+        fields: Optional[dict] = None,
+        update: Optional[dict] = None,
     ) -> ClientResult[None]:
         """
         Transition issue to new status.
@@ -200,11 +202,19 @@ class JiraClient:
             issue_key: Issue key
             new_status: Target status name
             comment: Optional comment
+            fields: Optional Jira fields payload to send with the transition
+            update: Optional Jira update payload to merge into the transition
 
         Returns:
             ClientResult[None]
         """
-        return self._transition_service.transition_issue(issue_key, new_status, comment)
+        return self._transition_service.transition_issue(
+            issue_key,
+            new_status,
+            comment=comment,
+            fields=fields,
+            update=update,
+        )
 
     # ==================== CREATION OPERATIONS ====================
 

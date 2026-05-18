@@ -70,6 +70,8 @@ def transition_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     issue_key = ctx.get("jira_issue_key")
     target_status = ctx.get("target_status")
     comment = ctx.get("transition_comment")
+    fields = ctx.get("transition_fields", ctx.get("fields"))
+    update = ctx.get("transition_update", ctx.get("update"))
 
     if not issue_key:
         ctx.textual.error_text(msg.Steps.Transitions.ISSUE_KEY_REQUIRED)
@@ -81,7 +83,13 @@ def transition_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error(msg.Steps.Transitions.TARGET_STATUS_REQUIRED)
 
     with ctx.textual.loading(f"Transitioning {issue_key} to {target_status}..."):
-        result = ctx.jira.transition_issue(issue_key, target_status, comment)
+        result = ctx.jira.transition_issue(
+            issue_key,
+            target_status,
+            comment=comment,
+            fields=fields,
+            update=update,
+        )
 
     match result:
         case ClientSuccess():
