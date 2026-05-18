@@ -4,6 +4,8 @@ import io.github.masorange.titan.desktop.protocol.EngineEventEnvelope
 import io.github.masorange.titan.desktop.protocol.OutputPayload
 import io.github.masorange.titan.desktop.protocol.RunResult
 import io.github.masorange.titan.desktop.protocol.RunStepResult
+import io.github.masorange.titan.desktop.protocol.WorkflowDetail
+import io.github.masorange.titan.desktop.protocol.WorkflowStepSummary
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -44,6 +46,31 @@ class WorkflowScreenStateReducerTest {
         assertEquals("Headless V1 Demo", state.header.workflowTitle)
         assertEquals(3, state.header.totalSteps)
         assertTrue(state.isRunActive)
+    }
+
+    @Test
+    fun `initial state preloads pending steps from workflow detail`() {
+        val state = WorkflowScreenStateReducer.initialState(
+            projectPath = "/repo",
+            workflowName = "commit-ai",
+            workflowDetail = WorkflowDetail(
+                name = "Commit with AI, Linter and Tests",
+                description = "Create a commit with AI-generated message, with linting and testing.",
+                source = "project",
+                steps = listOf(
+                    WorkflowStepSummary(id = "git_status", name = "Check Git Status", plugin = "git", step = "get_status"),
+                    WorkflowStepSummary(id = "ruff-lint", name = "Run Ruff Linter", plugin = "project", step = "ruff_linter"),
+                    WorkflowStepSummary(id = "diff_summary", name = "Show Changes Summary", plugin = "git", step = "show_uncommitted_diff_summary"),
+                ),
+            ),
+        )
+
+        assertEquals("Commit with AI, Linter and Tests", state.header.workflowName)
+        assertEquals("Create a commit with AI-generated message, with linting and testing.", state.header.workflowTitle)
+        assertEquals(3, state.header.totalSteps)
+        assertEquals(3, state.steps.size)
+        assertEquals(listOf("git_status", "ruff-lint", "diff_summary"), state.steps.map { it.stepId })
+        assertTrue(state.steps.all { it.status == StepVisualStatus.PENDING })
     }
 
     @Test
