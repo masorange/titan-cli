@@ -170,8 +170,6 @@ fun App() {
 
         WorkflowScreen(
             screenState = screenState,
-            projectRoot = launchConfig.projectRoot.toString(),
-            commandPreview = launchConfig.command.joinToString(" "),
             onStart = {
                 if (processHandle != null || isStartingRun || isLoadingWorkflow) {
                     return@WorkflowScreen
@@ -193,20 +191,6 @@ fun App() {
                             isStartingRun = false
                             activeErrorMessage = error.message ?: error.toString()
                             appendLine(diagnostics, error.message ?: error.toString())
-                        }
-                }
-            },
-            onCancel = {
-                val activeProcess = processHandle ?: return@WorkflowScreen
-                if (isCancellingRun) {
-                    return@WorkflowScreen
-                }
-                isCancellingRun = true
-                scope.launch {
-                    runCatching { activeProcess.cancelRun() }
-                        .onFailure { error ->
-                            isCancellingRun = false
-                            activeErrorMessage = error.message ?: error.toString()
                         }
                 }
             },

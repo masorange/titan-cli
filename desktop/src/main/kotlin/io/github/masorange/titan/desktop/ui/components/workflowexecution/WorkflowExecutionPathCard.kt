@@ -1,4 +1,4 @@
-package io.github.masorange.titan.desktop.ui
+package io.github.masorange.titan.desktop.ui.components.workflowexecution
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

@@ -35,7 +35,9 @@ import io.github.masorange.titan.desktop.state.StepVisualStatus
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.state.RunHeaderState
 import io.github.masorange.titan.desktop.state.OutputTimelineItemState
-import io.github.masorange.titan.desktop.ui.components.WorkflowExecutionPath
+import io.github.masorange.titan.desktop.theme.spacings.Spacing
+import io.github.masorange.titan.desktop.ui.components.WorkflowHeader
+import io.github.masorange.titan.desktop.ui.components.workflowexecution.WorkflowExecutionPath
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonNull
@@ -44,10 +46,7 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 @Composable
 fun WorkflowScreen(
     screenState: WorkflowScreenState,
-    projectRoot: String,
-    commandPreview: String,
     onStart: () -> Unit,
-    onCancel: () -> Unit,
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
@@ -74,10 +73,7 @@ fun WorkflowScreen(
 
     WorkflowContent(
         screenState = screenState,
-        projectRoot = projectRoot,
-        commandPreview = commandPreview,
         onStart = onStart,
-        onCancel = onCancel,
         promptDraftText = promptDraftText,
         onPromptDraftTextChange = onPromptDraftTextChange,
         isSubmittingPrompt = isSubmittingPrompt,
@@ -92,10 +88,7 @@ fun WorkflowScreen(
 @Composable
 fun WorkflowContent(
     screenState: WorkflowScreenState,
-    projectRoot: String,
-    commandPreview: String,
     onStart: () -> Unit,
-    onCancel: () -> Unit,
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
@@ -106,82 +99,51 @@ fun WorkflowContent(
     onSubmitConfirm: (Boolean) -> Unit,
 ) {
 
-    Row(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    Column(
+        modifier = Modifier.fillMaxSize().padding(Spacing.s6)
     ) {
-        Column(
-            modifier = Modifier.weight(0.36f).fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            SectionCard(title = "Run Header") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Workflow: ${screenState.header.workflowTitle ?: screenState.header.workflowName ?: "Unknown"}",
-                        style = MaterialTheme.typography.h6,
+        WorkflowHeader(
+            modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.s6),
+            screenState = screenState,
+            runHeaderState = screenState.header,
+            onStart = onStart,
+            isSubmittingPrompt = isSubmittingPrompt,
+            isLoadingWorkflow = isLoadingWorkflow,
+            isStartingRun = isStartingRun,
+            isCancellingRun = isCancellingRun,
+            onSubmitText = onSubmitText,
+        )
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.weight(0.36f).fillMaxHeight().padding(end = Spacing.s6),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+
+                SectionCard(title = "Workflow Steps", modifier = Modifier.weight(1f)) {
+                    WorkflowExecutionPath(
+                        steps = screenState.steps,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    Text("Status: ${screenState.header.status.label()}")
-                    Text("Project path: ${screenState.header.projectPath ?: projectRoot}")
-                    Text("Run id: ${screenState.runId ?: "not started"}")
-                    Text("Total steps: ${screenState.header.totalSteps?.toString() ?: screenState.steps.size.toString()}")
-                    Text("Titan command: $commandPreview")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = onStart,
-                            enabled = !screenState.isRunActive && !isStartingRun && !isLoadingWorkflow
-                        ) {
-                            Text(
-                                when {
-                                    isLoadingWorkflow -> "Loading workflow..."
-                                    isStartingRun -> "Starting..."
-                                    else -> "Start"
-                                }
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = onCancel,
-                            enabled = screenState.isRunActive && !isCancellingRun
-                        ) {
-                            Text(if (isCancellingRun) "Cancelling..." else "Cancel")
-                        }
-                    }
                 }
             }
 
-            SectionCard(title = "Workflow Steps", modifier = Modifier.weight(1f)) {
-                StepListPanel(steps = screenState.steps)
-            }
-        }
-
-        Column(
-            modifier = Modifier.weight(0.64f).fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            SectionCard(title = "Execution Flow", modifier = Modifier.weight(1f)) {
-                ExecutionFlowPanel(
-                    state = screenState,
-                    promptDraftText = promptDraftText,
-                    onPromptDraftTextChange = onPromptDraftTextChange,
-                    isSubmittingPrompt = isSubmittingPrompt,
-                    onSubmitText = onSubmitText,
-                    onSubmitConfirm = onSubmitConfirm,
-                )
+            Column(
+                modifier = Modifier.weight(0.64f).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                SectionCard(title = "Execution Flow", modifier = Modifier.weight(1f)) {
+                    ExecutionFlowPanel(
+                        state = screenState,
+                        promptDraftText = promptDraftText,
+                        onPromptDraftTextChange = onPromptDraftTextChange,
+                        isSubmittingPrompt = isSubmittingPrompt,
+                        onSubmitText = onSubmitText,
+                        onSubmitConfirm = onSubmitConfirm,
+                    )
+                }
             }
         }
     }
-}
-
-@Composable
-private fun StepListPanel(steps: List<StepItemState>) {
-    if (steps.isEmpty()) {
-        PlaceholderBlock("No workflow steps available. Load workflow metadata before execution.")
-        return
-    }
-
-    WorkflowExecutionPath(
-        steps = steps,
-        modifier = Modifier.fillMaxSize(),
-    )
 }
 
 @Composable
@@ -222,7 +184,7 @@ private fun ExecutionFlowPanel(
         }
 
         if (state.timeline.isEmpty()) {
-            PlaceholderBlock("No execution output yet. Output produced by running steps will appear here.")
+            Text("No execution output yet. Output produced by running steps will appear here.")
         } else {
             TimelinePanel(state = state, modifier = Modifier.weight(1f))
         }
@@ -267,7 +229,7 @@ private fun PromptPanel(
     onSubmitConfirm: (Boolean) -> Unit,
 ) {
     if (prompt == null) {
-        PlaceholderBlock("No active prompt.")
+        Text("No active prompt.")
         return
     }
 
@@ -304,7 +266,7 @@ private fun PromptPanel(
             }
 
             else -> {
-                PlaceholderBlock("Prompt type `${prompt.promptType}` is not supported in the V1 desktop PoC.")
+                Text("Prompt type `${prompt.promptType}` is not supported in the V1 desktop PoC.")
             }
         }
     }
@@ -355,8 +317,6 @@ private fun SectionCard(
     }
 }
 
-private fun RunVisualStatus.label(): String = name.lowercase()
-
 private fun canSubmitPrompt(
     prompt: ActivePromptState?,
     promptDraftText: String,
@@ -376,17 +336,6 @@ private fun JsonElement?.renderPromptDefault(): String {
     return primitive.content
 }
 
-@Composable
-private fun PlaceholderBlock(message: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFFF4F4F4))
-            .padding(12.dp),
-    ) {
-        Text(message)
-    }
-}
 
 @Preview
 @Composable
@@ -475,10 +424,7 @@ private fun WorkflowScreenPreview() {
                 ),
                 isRunActive = true,
             ),
-            projectRoot = "/home/alex/git/titan-cli",
-            commandPreview = "poetry run titan",
             onStart = {},
-            onCancel = {},
             promptDraftText = "Focus on the failing tests only.",
             onPromptDraftTextChange = {},
             isSubmittingPrompt = false,
