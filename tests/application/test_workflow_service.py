@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from titan_cli.application.models.requests import StartWorkflowRequest
+from titan_cli.application.models.requests import SubmitInteractionResponseRequest
 from titan_cli.application.models.requests import SubmitPromptResponseRequest
 from titan_cli.application.runtime.status import RunSessionStatus
 from titan_cli.application.services.workflow_service import WorkflowService
@@ -220,6 +221,45 @@ def test_start_workflow_exposes_markdown_events_in_headless_runs(
 
 @patch("titan_cli.application.services.workflow_service.SecretManager")
 @patch("titan_cli.application.services.workflow_service.WorkflowExecutor")
+def test_start_workflow_exposes_interaction_events_in_headless_runs(
+    mock_executor_cls,
+    mock_secret_manager_cls,
+):
+    config = MagicMock()
+    workflow = MagicMock(name="workflow")
+    config.workflows.discover.return_value = []
+    config.workflows.get_workflow.return_value = workflow
+    config.project_root = MagicMock()
+    config.registry.list_installed.return_value = []
+    config.config.ai = None
+    mock_secret_manager_cls.return_value = MagicMock()
+
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
+        from titan_cli.ports.protocol import InteractionOption
+
+        ctx.interaction.option_list(
+            interaction_id="select-cli",
+            message="Choose CLI",
+            options=[InteractionOption(id="claude", label="Claude", value="claude")],
+        )
+        return Success("unreachable")
+
+    mock_executor = mock_executor_cls.return_value
+    mock_executor.execute.side_effect = _execute
+
+    service = WorkflowService(config=config)
+    response = service.start_workflow(StartWorkflowRequest(workflow_name="demo"))
+    run = service.get_run(response.run_id)
+
+    assert run is not None
+    assert response.status == RunSessionStatus.WAITING_FOR_INPUT
+    assert run.pending_interaction is not None
+    assert run.pending_interaction.interaction_type == "option_list"
+    assert run.events[-1].type == "interaction_requested"
+
+
+@patch("titan_cli.application.services.workflow_service.SecretManager")
+@patch("titan_cli.application.services.workflow_service.WorkflowExecutor")
 def test_submit_prompt_response_resumes_run(
     mock_executor_cls,
     mock_secret_manager_cls,
@@ -274,3 +314,62 @@ def test_submit_prompt_response_resumes_run(
     assert updated.events[-1].type == "run_completed"
     assert state["calls"] == 2
     assert seen_start_step_indexes == [0, 0]
+
+
+@patch("titan_cli.application.services.workflow_service.SecretManager")
+@patch("titan_cli.application.services.workflow_service.WorkflowExecutor")
+def test_submit_interaction_response_resumes_run(
+    mock_executor_cls,
+    mock_secret_manager_cls,
+):
+    config = MagicMock()
+    workflow = MagicMock(name="workflow")
+    config.workflows.discover.return_value = []
+    config.workflows.get_workflow.return_value = workflow
+    config.project_root = MagicMock()
+    config.registry.list_installed.return_value = []
+    config.config.ai = None
+    mock_secret_manager_cls.return_value = MagicMock()
+
+    state = {"calls": 0}
+
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
+        from titan_cli.ports.protocol import InteractionOption
+
+        state["calls"] += 1
+        choice = ctx.interaction.option_list(
+            interaction_id="select-cli",
+            message="Choose CLI",
+            options=[InteractionOption(id="claude", label="Claude", value="claude")],
+        )
+        if state["calls"] == 1:
+            return Success("unreachable")
+
+        assert choice == "claude"
+        return Success("workflow ok")
+
+    mock_executor = mock_executor_cls.return_value
+    mock_executor.execute.side_effect = _execute
+
+    service = WorkflowService(config=config)
+    response = service.start_workflow(StartWorkflowRequest(workflow_name="demo"))
+    waiting = service.get_run(response.run_id)
+
+    assert waiting is not None
+    assert waiting.status == RunSessionStatus.WAITING_FOR_INPUT
+    assert waiting.pending_interaction is not None
+
+    updated = service.submit_interaction_response(
+        SubmitInteractionResponseRequest(
+            run_id=response.run_id,
+            interaction_id=waiting.pending_interaction.interaction_id,
+            response_type="select",
+            value="claude",
+        )
+    )
+
+    assert updated is not None
+    assert updated.status == RunSessionStatus.COMPLETED
+    assert updated.pending_interaction is None
+    assert updated.events[-1].type == "run_completed"
+    assert state["calls"] == 2

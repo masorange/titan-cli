@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 
 from titan_cli.ports.protocol import EngineCommand
 from titan_cli.ports.protocol import EngineEvent
+from titan_cli.ports.protocol import InteractionOption
+from titan_cli.ports.protocol import InteractionRequest
 from titan_cli.ports.protocol import OutputPayload
 from titan_cli.ports.protocol import PromptOption
 from titan_cli.ports.protocol import PromptRequest
@@ -71,6 +73,45 @@ def test_engine_command_serializes_to_v1_command_envelope_shape():
             "prompt_id": "prompt-1",
             "value": True,
         },
+    }
+
+
+def test_interaction_request_serializes_with_first_slice_fields():
+    interaction = InteractionRequest(
+        interaction_id="select-cli:select-cli",
+        interaction_type="option_list",
+        message="Which AI CLI do you want to use for this PR review?",
+        state={
+            "options": [
+                InteractionOption(
+                    id="claude",
+                    label="Claude",
+                    value="claude",
+                    description="Anthropic's Claude AI",
+                )
+            ],
+            "allow_empty": False,
+        },
+    )
+
+    assert to_jsonable(interaction) == {
+        "interaction_id": "select-cli:select-cli",
+        "interaction_type": "option_list",
+        "message": "Which AI CLI do you want to use for this PR review?",
+        "state": {
+            "options": [
+                {
+                    "id": "claude",
+                    "label": "Claude",
+                    "value": "claude",
+                    "description": "Anthropic's Claude AI",
+                    "badges": [],
+                }
+            ],
+            "allow_empty": False,
+        },
+        "actions": [],
+        "metadata": {},
     }
 
 

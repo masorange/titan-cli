@@ -26,4 +26,24 @@ object PromptCommandEncoder {
             )
         )
     }
+
+    fun encodeSubmitInteractionResponse(
+        runId: String,
+        interactionId: String,
+        responseType: String,
+        value: JsonElement,
+    ): String {
+        val payload = buildJsonObject {
+            put("interaction_id", interactionId)
+            put("response_type", responseType)
+            put("value", value)
+        }
+        return json.encodeToString(
+            EngineCommandEnvelope(
+                type = "submit_interaction_response",
+                runId = runId,
+                payload = payload,
+            )
+        )
+    }
 }

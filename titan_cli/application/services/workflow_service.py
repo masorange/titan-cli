@@ -12,6 +12,7 @@ from typing import Any, Optional
 from titan_cli.application.models.prompts import PromptResponse
 from titan_cli.application.models.requests import (
     StartWorkflowRequest,
+    SubmitInteractionResponseRequest,
     SubmitPromptResponseRequest,
 )
 from titan_cli.application.models.responses import (
@@ -34,6 +35,9 @@ from titan_cli.engine.results import is_error
 from titan_cli.engine.workflow_executor import WorkflowExecutor
 from titan_cli.ports.protocol import EngineEvent
 from titan_cli.ports.protocol import EventType
+from titan_cli.ports.protocol import InteractionOption
+from titan_cli.ports.protocol import InteractionRequest
+from titan_cli.ports.protocol import InteractionType
 from titan_cli.ports.protocol import OutputFormat
 from titan_cli.ports.protocol import OutputPayload
 from titan_cli.ports.protocol import PromptRequest
@@ -60,6 +64,14 @@ class PromptRequestedError(BaseException):
         self.prompt = prompt
 
 
+class InteractionRequestedError(BaseException):
+    """Raised when workflow execution requires a structured interaction response."""
+
+    def __init__(self, interaction: InteractionRequest) -> None:
+        super().__init__(interaction.message or interaction.interaction_id)
+        self.interaction = interaction
+
+
 class RunInteractionPort(HeadlessInteractionPort):
     """Headless interaction port that mirrors workflow activity into V1 events."""
 
@@ -69,6 +81,7 @@ class RunInteractionPort(HeadlessInteractionPort):
         session: RunSession,
         ctx: WorkflowContext,
         queued_prompt_responses: Optional[list[object]] = None,
+        queued_interaction_responses: Optional[list[dict[str, object]]] = None,
         resume_step_id: Optional[str] = None,
     ) -> None:
         super().__init__()
@@ -76,8 +89,11 @@ class RunInteractionPort(HeadlessInteractionPort):
         self._session = session
         self._ctx = ctx
         self._queued_prompt_responses = queued_prompt_responses or []
+        self._queued_interaction_responses = queued_interaction_responses or []
         self._resume_step_id = resume_step_id
-        self._suppress_replayed_prefix = bool(resume_step_id and self._queued_prompt_responses)
+        self._suppress_replayed_prefix = bool(
+            resume_step_id and (self._queued_prompt_responses or self._queued_interaction_responses)
+        )
 
     def step_output(self, text: str) -> None:
         super().step_output(text)
@@ -227,6 +243,60 @@ class RunInteractionPort(HeadlessInteractionPort):
         )
         raise PromptRequestedError(prompt)
 
+    def option_list(
+        self,
+        interaction_id: str,
+        message: str,
+        options: list[InteractionOption],
+    ) -> object:
+        full_interaction_id = (
+            f"{self._ctx.current_step_id}:{interaction_id}"
+            if self._ctx.current_step_id
+            else interaction_id
+        )
+        interaction = InteractionRequest(
+            interaction_id=full_interaction_id,
+            interaction_type=InteractionType.OPTION_LIST,
+            message=message,
+            state={
+                "options": options,
+                "allow_empty": False,
+            },
+        )
+
+        if self._queued_interaction_responses:
+            response = self._queued_interaction_responses.pop(0)
+            self._service._record_interaction_answer(self._session, interaction, response)
+            if self._suppress_replayed_prefix and self._ctx.current_step_id == self._resume_step_id:
+                self._suppress_replayed_prefix = False
+            return self._resolve_interaction_value(interaction, response)
+
+        self._session.pending_interaction = interaction
+        self._service._append_event(
+            self._session,
+            EventType.INTERACTION_REQUESTED,
+            {
+                "step": self._step_ref(),
+                "interaction": interaction,
+            },
+        )
+        raise InteractionRequestedError(interaction)
+
+    def _resolve_interaction_value(
+        self,
+        interaction: InteractionRequest,
+        response: dict[str, object],
+    ) -> object:
+        """Resolve the semantic interaction response into the value a step expects."""
+        if interaction.interaction_type == InteractionType.OPTION_LIST:
+            selected_id = response.get("value")
+            options = interaction.state.get("options") or []
+            for option in options:
+                if isinstance(option, InteractionOption) and option.id == selected_id:
+                    return option.value if option.value is not None else option.id
+            return selected_id
+        return response.get("value")
+
     def _step_ref(self, step_name: Optional[str] = None) -> StepRef:
         return StepRef(
             step_id=self._ctx.current_step_id or "step",
@@ -290,6 +360,7 @@ class WorkflowService:
             status=session.status,
             events=list(session.events),
             pending_prompt=session.pending_prompt,
+            pending_interaction=session.pending_interaction,
             result=self._result_for_session(session),
         )
 
@@ -325,6 +396,7 @@ class WorkflowService:
             result_message=session.result_message,
             events=list(session.events),
             pending_prompt=session.pending_prompt,
+            pending_interaction=session.pending_interaction,
             prompt_history=list(session.prompt_history),
             metadata=dict(session.metadata),
             result=self._result_for_session(session),
@@ -395,6 +467,36 @@ class WorkflowService:
         self._run_store.save(session)
         return self.get_run(request.run_id)
 
+    def submit_interaction_response(
+        self,
+        request: SubmitInteractionResponseRequest,
+    ) -> WorkflowRunState | None:
+        """Store a response for a pending interaction and resume execution."""
+        session = self._run_store.get(request.run_id)
+        if not session or not session.pending_interaction:
+            return self.get_run(request.run_id)
+
+        if session.pending_interaction.interaction_id != request.interaction_id:
+            return self.get_run(request.run_id)
+
+        response = {
+            "response_type": request.response_type,
+            "value": request.value,
+        }
+        self._record_interaction_answer(session, session.pending_interaction, response)
+        session.status = RunSessionStatus.RUNNING
+        resume_step_index = int(session.metadata.get("resume_step_index") or 1)
+        self._execute_run(
+            session,
+            self._request_from_session(session),
+            start_step_index=max(resume_step_index - 1, 0),
+            emit_run_started=False,
+            queued_interaction_responses=[response],
+            resume_step_id=session.metadata.get("resume_step_id"),
+        )
+        self._run_store.save(session)
+        return self.get_run(request.run_id)
+
     def cancel_run(self, run_id: str, reason: str = "Run cancelled by user") -> WorkflowRunState | None:
         """Mark a run as cancelled and emit the terminal V1 event."""
         session = self._run_store.get(run_id)
@@ -407,6 +509,7 @@ class WorkflowService:
 
         if session.status == RunSessionStatus.WAITING_FOR_INPUT:
             session.pending_prompt = None
+            session.pending_interaction = None
             session.status = RunSessionStatus.CANCELLED
             session.result_message = reason
             self._append_event(
@@ -442,6 +545,7 @@ class WorkflowService:
         request: StartWorkflowRequest,
         config: TitanConfig,
         queued_prompt_responses: Optional[list[object]] = None,
+        queued_interaction_responses: Optional[list[dict[str, object]]] = None,
         resume_step_id: Optional[str] = None,
     ) -> WorkflowContext:
         """Build execution context mirroring the current TUI flow."""
@@ -483,6 +587,11 @@ class WorkflowService:
                 if queued_prompt_responses is not None
                 else list(request.prompt_responses)
             ),
+            queued_interaction_responses=(
+                list(queued_interaction_responses)
+                if queued_interaction_responses is not None
+                else []
+            ),
             resume_step_id=resume_step_id,
         )
         ctx.textual = ctx.interaction
@@ -510,6 +619,7 @@ class WorkflowService:
         start_step_index: int = 0,
         emit_run_started: bool = True,
         queued_prompt_responses: Optional[list[object]] = None,
+        queued_interaction_responses: Optional[list[dict[str, object]]] = None,
         resume_step_id: Optional[str] = None,
     ) -> None:
         """Execute a workflow synchronously and update run state."""
@@ -546,6 +656,7 @@ class WorkflowService:
                 request,
                 config,
                 queued_prompt_responses=queued_prompt_responses,
+                queued_interaction_responses=queued_interaction_responses,
                 resume_step_id=resume_step_id,
             )
             executor = WorkflowExecutor(
@@ -598,7 +709,19 @@ class WorkflowService:
         except PromptRequestedError as prompt_exc:
             session.status = RunSessionStatus.WAITING_FOR_INPUT
             session.pending_prompt = prompt_exc.prompt
+            session.pending_interaction = None
             session.result_message = prompt_exc.prompt.message
+            if ctx is not None:
+                session.metadata["ctx_data"] = dict(ctx.data)
+                session.metadata["resume_step_index"] = ctx.current_step
+                session.metadata["resume_step_id"] = ctx.current_step_id
+                session.metadata["resume_step_name"] = ctx.current_step_name
+            self._run_store.save(session)
+        except InteractionRequestedError as interaction_exc:
+            session.status = RunSessionStatus.WAITING_FOR_INPUT
+            session.pending_interaction = interaction_exc.interaction
+            session.pending_prompt = None
+            session.result_message = interaction_exc.interaction.message
             if ctx is not None:
                 session.metadata["ctx_data"] = dict(ctx.data)
                 session.metadata["resume_step_index"] = ctx.current_step
@@ -643,6 +766,21 @@ class WorkflowService:
         response = PromptResponse(prompt_id=prompt.prompt_id, value=value)
         session.prompt_history.append(response)
         session.pending_prompt = None
+
+    def _record_interaction_answer(
+        self,
+        session: RunSession,
+        interaction: InteractionRequest,
+        response: dict[str, object],
+    ) -> None:
+        """Persist interaction response metadata for resume flow."""
+        session.metadata.setdefault("interaction_history", []).append(
+            {
+                "interaction_id": interaction.interaction_id,
+                "response_type": response.get("response_type"),
+            }
+        )
+        session.pending_interaction = None
 
     def _result_for_session(self, session: RunSession) -> RunResult | None:
         """Return the terminal RunResult only for terminal session states."""
@@ -741,6 +879,11 @@ class WorkflowService:
                 "pending_prompt_id": (
                     session.pending_prompt.prompt_id
                     if session.pending_prompt is not None
+                    else None
+                ),
+                "pending_interaction_id": (
+                    session.pending_interaction.interaction_id
+                    if session.pending_interaction is not None
                     else None
                 ),
             },

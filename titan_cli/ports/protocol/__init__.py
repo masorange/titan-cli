@@ -4,6 +4,10 @@ from .models import CommandType
 from .models import EngineCommand
 from .models import EngineEvent
 from .models import EventType
+from .models import InteractionAction
+from .models import InteractionOption
+from .models import InteractionRequest
+from .models import InteractionType
 from .models import OutputFormat
 from .models import OutputPayload
 from .models import PromptOption
@@ -20,6 +24,10 @@ __all__ = [
     "EngineCommand",
     "EngineEvent",
     "EventType",
+    "InteractionAction",
+    "InteractionOption",
+    "InteractionRequest",
+    "InteractionType",
     "OutputFormat",
     "OutputPayload",
     "PromptOption",

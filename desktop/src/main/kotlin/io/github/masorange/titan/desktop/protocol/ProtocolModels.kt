@@ -57,6 +57,33 @@ data class PromptOption(
 )
 
 @Serializable
+data class InteractionAction(
+    val id: String,
+    val label: String,
+    val description: String? = null,
+    val variant: String = "default",
+)
+
+@Serializable
+data class InteractionOption(
+    val id: String,
+    val label: String,
+    val value: JsonElement? = null,
+    val description: String? = null,
+    val badges: List<String> = emptyList(),
+)
+
+@Serializable
+data class InteractionRequest(
+    @SerialName("interaction_id") val interactionId: String,
+    @SerialName("interaction_type") val interactionType: String,
+    val message: String? = null,
+    val state: JsonObject = JsonObject(emptyMap()),
+    val actions: List<InteractionAction> = emptyList(),
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
 data class RunStepResult(
     val id: String,
     val title: String,

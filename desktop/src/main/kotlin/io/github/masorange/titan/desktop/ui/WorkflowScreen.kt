@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.github.masorange.titan.desktop.state.ActiveInteractionState
 import io.github.masorange.titan.desktop.state.ActivePromptState
 import io.github.masorange.titan.desktop.state.RunVisualStatus
 import io.github.masorange.titan.desktop.state.StepItemState
@@ -37,6 +38,8 @@ import io.github.masorange.titan.desktop.state.RunHeaderState
 import io.github.masorange.titan.desktop.state.OutputTimelineItemState
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 import io.github.masorange.titan.desktop.ui.components.WorkflowHeader
+import io.github.masorange.titan.desktop.ui.components.interactions.OptionListInteractionPanel
+import io.github.masorange.titan.desktop.ui.components.steps.StepContainer
 import io.github.masorange.titan.desktop.ui.components.workflowexecution.WorkflowExecutionPath
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -50,6 +53,7 @@ fun WorkflowScreen(
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
+    isSubmittingInteraction: Boolean,
     isLoadingWorkflow: Boolean,
     isStartingRun: Boolean,
     isCancellingRun: Boolean,
@@ -57,6 +61,7 @@ fun WorkflowScreen(
     onDismissError: () -> Unit,
     onSubmitText: (() -> Unit)?,
     onSubmitConfirm: ((Boolean) -> Unit)?,
+    onSelectInteractionOption: ((String) -> Unit)?,
 ) {
     if (activeErrorMessage != null) {
         AlertDialog(
@@ -77,11 +82,13 @@ fun WorkflowScreen(
         promptDraftText = promptDraftText,
         onPromptDraftTextChange = onPromptDraftTextChange,
         isSubmittingPrompt = isSubmittingPrompt,
+        isSubmittingInteraction = isSubmittingInteraction,
         isLoadingWorkflow = isLoadingWorkflow,
         isStartingRun = isStartingRun,
         isCancellingRun = isCancellingRun,
         onSubmitText = { onSubmitText?.invoke() },
         onSubmitConfirm = { onSubmitConfirm?.invoke(it) },
+        onSelectInteractionOption = { onSelectInteractionOption?.invoke(it) },
     )
 }
 
@@ -92,11 +99,13 @@ fun WorkflowContent(
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
+    isSubmittingInteraction: Boolean,
     isLoadingWorkflow: Boolean,
     isStartingRun: Boolean,
     isCancellingRun: Boolean,
     onSubmitText: () -> Unit,
     onSubmitConfirm: (Boolean) -> Unit,
+    onSelectInteractionOption: (String) -> Unit,
 ) {
 
     Column(
@@ -134,8 +143,10 @@ fun WorkflowContent(
                         promptDraftText = promptDraftText,
                         onPromptDraftTextChange = onPromptDraftTextChange,
                         isSubmittingPrompt = isSubmittingPrompt,
+                        isSubmittingInteraction = isSubmittingInteraction,
                         onSubmitText = onSubmitText,
                         onSubmitConfirm = onSubmitConfirm,
+                        onSelectInteractionOption = onSelectInteractionOption,
                     )
                 }
             }
@@ -149,14 +160,31 @@ private fun ExecutionFlowPanel(
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
+    isSubmittingInteraction: Boolean,
     onSubmitText: () -> Unit,
     onSubmitConfirm: (Boolean) -> Unit,
+    onSelectInteractionOption: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         RunningStepSummary(state.steps)
+
+        state.activeInteraction?.let {
+            Card(elevation = 2.dp) {
+                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text("Active Interaction", style = MaterialTheme.typography.subtitle1)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    InteractionPanel(
+                        steps = state.steps,
+                        interaction = it,
+                        isSubmitting = isSubmittingInteraction,
+                        onSelectInteractionOption = onSelectInteractionOption,
+                    )
+                }
+            }
+        }
 
         state.activePrompt?.let {
             Card(elevation = 2.dp) {
@@ -191,11 +219,61 @@ private fun ExecutionFlowPanel(
                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                     Text("Terminal State", style = MaterialTheme.typography.subtitle1)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(it)
+                    SelectionContainer {
+                        Text(it)
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun InteractionPanel(
+    steps: List<StepItemState>,
+    interaction: ActiveInteractionState?,
+    isSubmitting: Boolean,
+    onSelectInteractionOption: (String) -> Unit,
+) {
+    if (interaction == null) {
+        Text("No active interaction.")
+        return
+    }
+
+    val step = interaction.stepId?.let { stepId ->
+        steps.firstOrNull { it.stepId == stepId }
+    }
+    StepContainer(
+        title = interaction.stepName ?: interaction.stepId ?: "Interaction",
+        stepBadge = step?.stepIndex?.let { "STEP-${it.toString().padStart(2, '0')}" },
+        status = step?.status,
+        startedAt = step?.startedAtLabel,
+//        subtitle = humanizeInteractionType(interaction.interactionType),
+//        message = interaction.message,
+    ) {
+        when (interaction.interactionType) {
+            "option_list" -> {
+                OptionListInteractionPanel(
+                    options = interaction.options,
+                    isSubmitting = isSubmitting,
+                    onSelect = onSelectInteractionOption,
+                )
+            }
+
+            else -> {
+                Text("Interaction type `${interaction.interactionType}` is not supported in the current desktop slice.")
+            }
+        }
+    }
+}
+
+private fun humanizeInteractionType(interactionType: String): String = when (interactionType) {
+    "option_list" -> "Option List"
+    "review_queue" -> "Review Queue"
+    "action_list" -> "Action List"
+    "editable_text" -> "Editable Text"
+    "batch_progress" -> "Batch Progress"
+    else -> interactionType.replace('_', ' ')
 }
 
 @Composable
@@ -425,11 +503,13 @@ private fun WorkflowScreenPreview() {
             promptDraftText = "Focus on the failing tests only.",
             onPromptDraftTextChange = {},
             isSubmittingPrompt = false,
+            isSubmittingInteraction = false,
             isLoadingWorkflow = false,
             isStartingRun = false,
             isCancellingRun = false,
             onSubmitText = {},
             onSubmitConfirm = {},
+            onSelectInteractionOption = {},
         )
     }
 }

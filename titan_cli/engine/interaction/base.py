@@ -144,3 +144,12 @@ class InteractionPort(ABC):
     ) -> str:
         """Request a single-choice selection from the current UI client."""
         raise NotImplementedError("select_one is not implemented for this interaction port")
+
+    def option_list(
+        self,
+        interaction_id: str,
+        message: str,
+        options: list[Any],
+    ) -> Any:
+        """Request a richer single selection from the current UI client."""
+        raise NotImplementedError("option_list is not implemented for this interaction port")

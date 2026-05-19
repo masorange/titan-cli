@@ -1,6 +1,7 @@
 package io.github.masorange.titan.desktop.state
 
 import io.github.masorange.titan.desktop.protocol.PromptOption
+import io.github.masorange.titan.desktop.protocol.InteractionAction
 import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import io.github.masorange.titan.desktop.protocol.WorkflowStepSummary
 import kotlinx.serialization.json.JsonElement
@@ -11,6 +12,7 @@ data class WorkflowScreenState(
     val steps: List<StepItemState> = emptyList(),
     val timeline: List<OutputTimelineItemState> = emptyList(),
     val activePrompt: ActivePromptState? = null,
+    val activeInteraction: ActiveInteractionState? = null,
     val terminalMessage: String? = null,
     val isRunActive: Boolean = false,
     val isTerminal: Boolean = false,
@@ -32,6 +34,7 @@ data class StepItemState(
     val plugin: String? = null,
     val status: StepVisualStatus = StepVisualStatus.PENDING,
     val message: String? = null,
+    val startedAtLabel: String? = null,
 )
 
 data class OutputTimelineItemState(
@@ -52,6 +55,23 @@ data class ActivePromptState(
     val defaultValue: JsonElement? = null,
     val required: Boolean = true,
     val options: List<PromptOption> = emptyList(),
+)
+
+data class ActiveInteractionState(
+    val interactionId: String,
+    val stepId: String? = null,
+    val stepName: String? = null,
+    val interactionType: String,
+    val message: String? = null,
+    val options: List<InteractionOptionState> = emptyList(),
+    val actions: List<InteractionAction> = emptyList(),
+)
+
+data class InteractionOptionState(
+    val id: String,
+    val label: String,
+    val description: String? = null,
+    val badges: List<String> = emptyList(),
 )
 
 enum class RunVisualStatus {

@@ -8,6 +8,7 @@ import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import io.github.masorange.titan.desktop.protocol.WorkflowStepSummary
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -88,6 +89,7 @@ class WorkflowScreenStateReducerTest {
 
         assertEquals(1, started.steps.size)
         assertEquals(StepVisualStatus.RUNNING, started.steps.first().status)
+        assertNotNull(started.steps.first().startedAtLabel)
         assertEquals(StepVisualStatus.SUCCESS, finished.steps.first().status)
         assertEquals("done", finished.steps.first().message)
     }
@@ -167,6 +169,83 @@ class WorkflowScreenStateReducerTest {
         val prompt = assertNotNull(state.activePrompt)
         assertEquals("confirm", prompt.promptType)
         assertEquals("confirm-continue:confirm", prompt.promptId)
+    }
+
+    @Test
+    fun `interaction_requested opens active option list interaction`() {
+        val state = WorkflowScreenStateReducer.reduce(
+            initialState,
+            event(
+                type = "interaction_requested",
+                sequence = 4,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "select_cli")
+                        put("step_name", "Select AI CLI")
+                        put("step_index", 2)
+                    }
+                    putJsonObject("interaction") {
+                        put("interaction_id", "select-cli:select-cli")
+                        put("interaction_type", "option_list")
+                        put("message", "Choose CLI")
+                        putJsonObject("state") {
+                            putJsonArray("options") {
+                                addJsonObject {
+                                    put("id", "claude")
+                                    put("label", "Claude")
+                                    put("description", "Anthropic's Claude AI")
+                                    putJsonArray("badges") {}
+                                }
+                            }
+                        }
+                        putJsonArray("actions") {}
+                        putJsonObject("metadata") {}
+                    }
+                },
+            ),
+        )
+
+        val interaction = assertNotNull(state.activeInteraction)
+        assertEquals("option_list", interaction.interactionType)
+        assertEquals("select-cli:select-cli", interaction.interactionId)
+        assertEquals(1, interaction.options.size)
+        assertEquals("claude", interaction.options.first().id)
+    }
+
+    @Test
+    fun `step_finished closes active interaction for same step`() {
+        val opened = WorkflowScreenStateReducer.reduce(
+            initialState,
+            event(
+                type = "interaction_requested",
+                sequence = 4,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "select_cli")
+                        put("step_name", "Select AI CLI")
+                        put("step_index", 2)
+                    }
+                    putJsonObject("interaction") {
+                        put("interaction_id", "select-cli:select-cli")
+                        put("interaction_type", "option_list")
+                        putJsonObject("state") {
+                            putJsonArray("options") {}
+                        }
+                        putJsonArray("actions") {}
+                        putJsonObject("metadata") {}
+                    }
+                },
+            ),
+        )
+
+        val finished = WorkflowScreenStateReducer.reduce(
+            opened,
+            stepEvent("step_finished", 5, "select_cli", "Select AI CLI", 2) {
+                put("message", "done")
+            },
+        )
+
+        assertNull(finished.activeInteraction)
     }
 
     @Test

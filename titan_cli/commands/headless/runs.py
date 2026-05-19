@@ -8,6 +8,7 @@ from typing import Any, Optional
 import typer
 
 from titan_cli.application.models.requests import StartWorkflowRequest
+from titan_cli.application.models.requests import SubmitInteractionResponseRequest
 from titan_cli.application.models.requests import SubmitPromptResponseRequest
 from titan_cli.application.runtime.status import RunSessionStatus
 from titan_cli.commands.headless.common import (
@@ -51,6 +52,10 @@ def _event_log_fields(event: EngineEvent) -> dict[str, Any]:
         fields["prompt_id"] = getattr(prompt, "prompt_id", None)
         fields["prompt_type"] = getattr(prompt, "prompt_type", None)
         fields["prompt_message_length"] = len(getattr(prompt, "message", "") or "")
+    interaction = payload.get("interaction")
+    if interaction is not None:
+        fields["interaction_id"] = getattr(interaction, "interaction_id", None)
+        fields["interaction_type"] = getattr(interaction, "interaction_type", None)
     return fields
 
 
@@ -63,6 +68,8 @@ def _command_log_fields(command: EngineCommand) -> dict[str, Any]:
         "run_id": command.run_id,
         "command_type": str(command.type),
         "prompt_id": payload.get("prompt_id"),
+        "interaction_id": payload.get("interaction_id"),
+        "response_type": payload.get("response_type"),
         "value_present": "value" in payload,
         "value_type": type(value).__name__ if value is not None else None,
         "value_length": len(value) if isinstance(value, str) else None,
@@ -221,6 +228,8 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
                     run_id=run_state.run_id,
                     prompt_id=(run_state.pending_prompt.prompt_id if run_state.pending_prompt else None),
                     prompt_type=(run_state.pending_prompt.prompt_type if run_state.pending_prompt else None),
+                    interaction_id=(run_state.pending_interaction.interaction_id if run_state.pending_interaction else None),
+                    interaction_type=(run_state.pending_interaction.interaction_type if run_state.pending_interaction else None),
                 )
                 command = _read_engine_command(run_state.run_id)
                 _log_inbound_command(command)
@@ -231,6 +240,21 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
                             SubmitPromptResponseRequest(
                                 run_id=command.run_id,
                                 prompt_id=prompt_id,
+                                value=command.payload.get("value"),
+                            )
+                        )
+                    )
+                    continue
+
+                if command.type == CommandType.SUBMIT_INTERACTION_RESPONSE:
+                    interaction_id = str(command.payload.get("interaction_id") or "")
+                    response_type = str(command.payload.get("response_type") or "")
+                    run_headless_operation(
+                        lambda: service.submit_interaction_response(
+                            SubmitInteractionResponseRequest(
+                                run_id=command.run_id,
+                                interaction_id=interaction_id,
+                                response_type=response_type,
                                 value=command.payload.get("value"),
                             )
                         )
@@ -283,13 +307,19 @@ def _read_engine_command(run_id: str) -> EngineCommand:
 
     command_run_id = str(payload.get("run_id") or run_id)
     command_type = payload.get("type")
-    if command_type not in {CommandType.SUBMIT_PROMPT_RESPONSE, CommandType.CANCEL_RUN}:
+    if command_type not in {
+        CommandType.SUBMIT_PROMPT_RESPONSE,
+        CommandType.SUBMIT_INTERACTION_RESPONSE,
+        CommandType.CANCEL_RUN,
+    }:
         _log_protocol_error(
             "headless_protocol_command_invalid_type",
             run_id=command_run_id,
             command_type=command_type,
         )
-        raise ValueError("stdin command type must be 'submit_prompt_response' or 'cancel_run'")
+        raise ValueError(
+            "stdin command type must be 'submit_prompt_response', 'submit_interaction_response' or 'cancel_run'"
+        )
 
     return EngineCommand(
         type=CommandType(command_type),

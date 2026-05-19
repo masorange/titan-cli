@@ -15,6 +15,7 @@ class EventType(StrEnum):
     STEP_STARTED = "step_started"
     OUTPUT_EMITTED = "output_emitted"
     PROMPT_REQUESTED = "prompt_requested"
+    INTERACTION_REQUESTED = "interaction_requested"
     STEP_FINISHED = "step_finished"
     STEP_FAILED = "step_failed"
     STEP_SKIPPED = "step_skipped"
@@ -28,6 +29,7 @@ class CommandType(StrEnum):
     """Supported inbound command names for the V1 protocol."""
 
     SUBMIT_PROMPT_RESPONSE = "submit_prompt_response"
+    SUBMIT_INTERACTION_RESPONSE = "submit_interaction_response"
     CANCEL_RUN = "cancel_run"
 
 
@@ -40,6 +42,16 @@ class PromptType(StrEnum):
     SELECT_ONE = "select_one"
     MULTI_SELECT = "multi_select"
     SECRET = "secret"
+
+
+class InteractionType(StrEnum):
+    """Interaction kinds defined by the first rich interaction slice."""
+
+    OPTION_LIST = "option_list"
+    REVIEW_QUEUE = "review_queue"
+    ACTION_LIST = "action_list"
+    EDITABLE_TEXT = "editable_text"
+    BATCH_PROGRESS = "batch_progress"
 
 
 class OutputFormat(StrEnum):
@@ -97,6 +109,39 @@ class PromptOption:
     label: str
     value: Any = None
     description: Optional[str] = None
+
+
+@dataclass(slots=True)
+class InteractionOption:
+    """Option used by richer interaction surfaces."""
+
+    id: str
+    label: str
+    value: Any = None
+    description: Optional[str] = None
+    badges: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class InteractionAction:
+    """Action available from an interaction surface."""
+
+    id: str
+    label: str
+    description: Optional[str] = None
+    variant: str = "default"
+
+
+@dataclass(slots=True)
+class InteractionRequest:
+    """Structured rich interaction request exposed through the protocol."""
+
+    interaction_id: str
+    interaction_type: InteractionType
+    message: Optional[str] = None
+    state: dict[str, Any] = field(default_factory=dict)
+    actions: list[InteractionAction] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

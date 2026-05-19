@@ -20,6 +20,8 @@ from titan_cli.commands.headless.runs import _event_log_fields
 from titan_cli.ports.protocol import EngineEvent
 from titan_cli.ports.protocol import EngineCommand
 from titan_cli.ports.protocol import EventType
+from titan_cli.ports.protocol import InteractionOption
+from titan_cli.ports.protocol import InteractionRequest
 from titan_cli.ports.protocol import OutputPayload
 from titan_cli.ports.protocol import PromptRequest
 from titan_cli.ports.protocol import RunResult
@@ -472,6 +474,127 @@ def test_headless_workflows_describe_outputs_resolved_steps(monkeypatch):
             }
         ],
     }
+
+
+def test_headless_runs_start_accepts_interaction_response_commands(monkeypatch):
+    submitted_request = None
+
+    class StubWorkflowService:
+        def __init__(self):
+            self.session = RunSession(
+                run_id="run-1",
+                workflow_name="demo",
+                status=RunSessionStatus.RUNNING,
+            )
+            self._cursor = 0
+
+        def create_run(self, request):
+            return self.session
+
+        def execute_run(self, session, request):
+            session.events.append(
+                EngineEvent(
+                    type=EventType.RUN_STARTED,
+                    run_id=session.run_id,
+                    sequence=1,
+                    payload={"workflow_name": request.workflow_name},
+                )
+            )
+            interaction = InteractionRequest(
+                interaction_id="select-cli:select-cli",
+                interaction_type="option_list",
+                message="Choose CLI",
+                state={
+                    "options": [
+                        InteractionOption(id="claude", label="Claude", value="claude"),
+                    ]
+                },
+            )
+            session.pending_interaction = interaction
+            session.events.append(
+                EngineEvent(
+                    type=EventType.INTERACTION_REQUESTED,
+                    run_id=session.run_id,
+                    sequence=2,
+                    payload={
+                        "step": StepRef(
+                            step_id="select_cli",
+                            step_name="Select AI CLI",
+                            step_index=1,
+                        ),
+                        "interaction": interaction,
+                    },
+                )
+            )
+            session.status = RunSessionStatus.WAITING_FOR_INPUT
+
+        def stream_events(self, run_id, replay=True, timeout_seconds=0.1):
+            while self._cursor < len(self.session.events):
+                event = self.session.events[self._cursor]
+                self._cursor += 1
+                yield event
+
+        def get_run(self, run_id):
+            return WorkflowRunState(
+                run_id=self.session.run_id,
+                workflow_name=self.session.workflow_name,
+                status=self.session.status,
+                pending_prompt=self.session.pending_prompt,
+                pending_interaction=self.session.pending_interaction,
+                result=(
+                    RunResult(
+                        run_id="run-1",
+                        workflow_name="demo",
+                        status="completed",
+                        result=OutputPayload(
+                            format="markdown",
+                            title="Summary",
+                            content="# Done",
+                        ),
+                    )
+                    if self.session.status == RunSessionStatus.COMPLETED
+                    else None
+                ),
+            )
+
+        def submit_interaction_response(self, request):
+            nonlocal submitted_request
+            submitted_request = request
+            self.session.pending_interaction = None
+            self.session.status = RunSessionStatus.COMPLETED
+            self.session.events.append(
+                EngineEvent(
+                    type=EventType.RUN_COMPLETED,
+                    run_id=self.session.run_id,
+                    sequence=3,
+                    payload={"message": "done"},
+                )
+            )
+            return self.get_run(request.run_id)
+
+    monkeypatch.setattr(
+        "titan_cli.cli._workflow_service",
+        lambda: StubWorkflowService(),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["headless", "runs", "start", "demo"],
+        input='{"type":"submit_interaction_response","run_id":"run-1","payload":{"interaction_id":"select-cli:select-cli","response_type":"select","value":"claude"}}\n',
+    )
+
+    assert result.exit_code == 0
+    assert submitted_request is not None
+    assert submitted_request.interaction_id == "select-cli:select-cli"
+    assert submitted_request.response_type == "select"
+    assert submitted_request.value == "claude"
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    assert [line["type"] for line in lines] == [
+        "run_started",
+        "interaction_requested",
+        "run_completed",
+        "run_result_emitted",
+    ]
 
 
 def test_headless_workflows_list_keeps_stdout_json_when_runtime_prints(monkeypatch):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from titan_cli.ports.protocol import InteractionOption
+
 from .base import InteractionPort
 
 
@@ -44,3 +46,21 @@ class TextualInteractionPort(InteractionPort):
         default: str | None = None,
     ) -> str:
         return self.legacy.ask_multiline(message, default=default or "")
+
+    def option_list(
+        self,
+        interaction_id: str,
+        message: str,
+        options: list[InteractionOption],
+    ):
+        from titan_cli.ui.tui.widgets.prompt_option_list import OptionItem
+
+        items = [
+            OptionItem(
+                value=option.value if option.value is not None else option.id,
+                title=option.label,
+                description=option.description or "",
+            )
+            for option in options
+        ]
+        return self.legacy.ask_option(message, items)

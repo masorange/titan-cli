@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from titan_cli.ports.protocol import InteractionOption
+
 from .base import InteractionPort
 
 
@@ -42,3 +44,20 @@ class CLIInteractionPort(InteractionPort):
         suffix = f" [{default}]" if default else ""
         raw = input(f"{message}{suffix} ")
         return raw if raw else (default or "")
+
+    def option_list(
+        self,
+        interaction_id: str,
+        message: str,
+        options: list[InteractionOption],
+    ):
+        print(message)
+        for index, option in enumerate(options, start=1):
+            description = f" - {option.description}" if option.description else ""
+            print(f"  {index}. {option.label}{description}")
+        raw = input("Select an option number: ").strip()
+        if not raw:
+            return None
+        selected_index = int(raw)
+        selected = options[selected_index - 1]
+        return selected.value if selected.value is not None else selected.id

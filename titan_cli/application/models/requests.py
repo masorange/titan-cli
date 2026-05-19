@@ -24,3 +24,13 @@ class SubmitPromptResponseRequest:
     run_id: str
     prompt_id: str
     value: Any
+
+
+@dataclass(slots=True)
+class SubmitInteractionResponseRequest:
+    """Request to answer a pending workflow interaction."""
+
+    run_id: str
+    interaction_id: str
+    response_type: str
+    value: Any = None

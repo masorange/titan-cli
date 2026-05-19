@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
+from titan_cli.ports.protocol import InteractionOption
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
@@ -543,30 +544,31 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     Returns:
         Success, Exit (no PRs or cancelled), or Error
     """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
+    ui = getattr(ctx, "interaction", None) or getattr(ctx, "textual", None)
+    if not ui:
+        return Error("Interaction context is not available for this step.")
 
-    ctx.textual.begin_step("Select PR to Review")
+    ui.begin_step("Select PR to Review")
 
     if not ctx.github:
-        ctx.textual.end_step("error")
+        ui.end_step("error")
         return Error("GitHub client not available")
 
-    with ctx.textual.loading("Fetching open PRs..."):
+    with ui.loading("Fetching open PRs..."):
         all_result = ctx.github.list_all_prs()
         assigned_result = ctx.github.list_pending_review_prs()
 
     match all_result:
         case ClientError(error_message=err):
-            ctx.textual.error_text(f"Failed to fetch PRs: {err}")
-            ctx.textual.end_step("error")
+            ui.error_text(f"Failed to fetch PRs: {err}")
+            ui.end_step("error")
             return Error(f"Failed to fetch PRs: {err}")
         case ClientSuccess(data=all_prs_list):
             pass
 
     if not all_prs_list:
-        ctx.textual.dim_text("No open PRs found in this repository.")
-        ctx.textual.end_step("skip")
+        ui.dim_text("No open PRs found in this repository.")
+        ui.end_step("skip")
         return Exit("No open PRs found")
 
     # Build set of assigned PR numbers (ignore errors — best effort)
@@ -582,9 +584,10 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
                  [pr for pr in all_prs_list if pr.number not in assigned_numbers]
 
     options = [
-        OptionItem(
+        InteractionOption(
+            id=str(pr.number),
             value=pr.number,
-            title=f"⭐ #{pr.number}: {pr.title}" if pr.number in assigned_numbers else f"#{pr.number}: {pr.title}",
+            label=f"⭐ #{pr.number}: {pr.title}" if pr.number in assigned_numbers else f"#{pr.number}: {pr.title}",
             description=f"by {pr.author_name} · {pr.branch_info}",
         )
         for pr in sorted_prs
@@ -594,23 +597,27 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     question = f"Select a PR to review ({len(all_prs_list)} total{f', {assigned_count} asignados ⭐' if assigned_count else ''}):"
 
     try:
-        selected = ctx.textual.ask_option(question, options)
+        selected = ui.option_list(
+            interaction_id="select-pr",
+            message=question,
+            options=options,
+        )
     except Exception as e:
-        ctx.textual.end_step("error")
+        ui.end_step("error")
         return Error(str(e))
 
     if not selected:
-        ctx.textual.warning_text("No PR selected")
-        ctx.textual.end_step("skip")
+        ui.warning_text("No PR selected")
+        ui.end_step("skip")
         return Exit("User cancelled PR selection")
 
     selected_pr = next((pr for pr in sorted_prs if pr.number == selected), None)
     if not selected_pr:
-        ctx.textual.end_step("error")
+        ui.end_step("error")
         return Error(f"PR #{selected} not found in list")
 
-    ctx.textual.success_text(f"Selected PR #{selected_pr.number}: {selected_pr.title}")
-    ctx.textual.end_step("success")
+    ui.success_text(f"Selected PR #{selected_pr.number}: {selected_pr.title}")
+    ui.end_step("success")
 
     return Success(
         f"Selected PR #{selected_pr.number}",

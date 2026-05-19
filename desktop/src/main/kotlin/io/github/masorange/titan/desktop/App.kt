@@ -43,6 +43,7 @@ fun App() {
         }
         var promptDraftText by remember { mutableStateOf("") }
         var isSubmittingPrompt by remember { mutableStateOf(false) }
+        var isSubmittingInteraction by remember { mutableStateOf(false) }
         var processHandle by remember { mutableStateOf<RunningTitanProcess?>(null) }
 
         fun appendLine(target: MutableList<String>, value: String) {
@@ -116,6 +117,38 @@ fun App() {
             }
         }
 
+        fun submitInteractionSelection(optionId: String) {
+            val interaction = screenState.activeInteraction ?: return
+            val activeProcess = processHandle ?: return
+            val runId = screenState.runId ?: return
+            if (isSubmittingInteraction) {
+                return
+            }
+
+            isSubmittingInteraction = true
+            scope.launch {
+                runCatching {
+                    PromptCommandEncoder.encodeSubmitInteractionResponse(
+                        runId = runId,
+                        interactionId = interaction.interactionId,
+                        responseType = "select",
+                        value = JsonPrimitive(optionId),
+                    )
+                }.onSuccess { commandJson ->
+                    runCatching { activeProcess.sendCommand(commandJson) }
+                        .onFailure { error ->
+                            isSubmittingInteraction = false
+                            activeErrorMessage = error.message ?: error.toString()
+                            appendLine(diagnostics, error.message ?: error.toString())
+                        }
+                }.onFailure { error ->
+                    isSubmittingInteraction = false
+                    activeErrorMessage = error.message ?: error.toString()
+                    appendLine(diagnostics, error.message ?: error.toString())
+                }
+            }
+        }
+
         LaunchedEffect(processHandle) {
             val activeProcess = processHandle ?: return@LaunchedEffect
             launch {
@@ -138,6 +171,7 @@ fun App() {
                         }
                         screenState = WorkflowScreenStateReducer.applyRunResult(screenState, runResult)
                         isSubmittingPrompt = false
+                        isSubmittingInteraction = false
                         isCancellingRun = false
                         return@collect
                     }
@@ -145,6 +179,9 @@ fun App() {
                     screenState = WorkflowScreenStateReducer.reduce(screenState, event)
                     if (screenState.activePrompt == null) {
                         isSubmittingPrompt = false
+                    }
+                    if (screenState.activeInteraction == null) {
+                        isSubmittingInteraction = false
                     }
                     if (!screenState.isRunActive) {
                         isCancellingRun = false
@@ -178,6 +215,7 @@ fun App() {
                 diagnostics.clear()
                 promptDraftText = ""
                 isSubmittingPrompt = false
+                isSubmittingInteraction = false
                 activeErrorMessage = null
                 isStartingRun = true
                 rebuildInitialScreenState()
@@ -197,6 +235,7 @@ fun App() {
             promptDraftText = promptDraftText,
             onPromptDraftTextChange = { promptDraftText = it },
             isSubmittingPrompt = isSubmittingPrompt,
+            isSubmittingInteraction = isSubmittingInteraction,
             isLoadingWorkflow = isLoadingWorkflow,
             isStartingRun = isStartingRun,
             isCancellingRun = isCancellingRun,
@@ -204,6 +243,7 @@ fun App() {
             onDismissError = { activeErrorMessage = null },
             onSubmitText = { submitPromptValue(JsonPrimitive(promptDraftText)) },
             onSubmitConfirm = { submitPromptValue(JsonPrimitive(it)) },
+            onSelectInteractionOption = ::submitInteractionSelection,
         )
     }
 }

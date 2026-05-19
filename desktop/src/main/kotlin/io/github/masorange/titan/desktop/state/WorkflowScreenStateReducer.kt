@@ -1,12 +1,16 @@
 package io.github.masorange.titan.desktop.state
 
 import io.github.masorange.titan.desktop.protocol.EngineEventEnvelope
+import io.github.masorange.titan.desktop.protocol.InteractionOption
+import io.github.masorange.titan.desktop.protocol.InteractionRequest
 import io.github.masorange.titan.desktop.protocol.OutputPayload
 import io.github.masorange.titan.desktop.protocol.PromptOption
 import io.github.masorange.titan.desktop.protocol.PromptRequest
 import io.github.masorange.titan.desktop.protocol.RunResult
 import io.github.masorange.titan.desktop.protocol.StepRef
 import io.github.masorange.titan.desktop.protocol.WorkflowDetail
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -18,6 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 object WorkflowScreenStateReducer {
     private val json = Json { ignoreUnknownKeys = true }
+    private val stepStartTimeFormatter = DateTimeFormatter.ofPattern("hh:mm:ss a")
 
     fun initialState(
         projectPath: String,
@@ -47,6 +52,7 @@ object WorkflowScreenStateReducer {
         "step_skipped" -> reduceStepSkipped(state, event)
         "output_emitted" -> reduceOutputEmitted(state, event)
         "prompt_requested" -> reducePromptRequested(state, event)
+        "interaction_requested" -> reduceInteractionRequested(state, event)
         "run_completed" -> reduceTerminalState(state, event, RunVisualStatus.COMPLETED)
         "run_failed" -> reduceTerminalState(state, event, RunVisualStatus.FAILED)
         "run_cancelled" -> reduceTerminalState(state, event, RunVisualStatus.CANCELLED)
@@ -102,6 +108,7 @@ object WorkflowScreenStateReducer {
             steps = stepItems,
             timeline = if (state.timeline.isEmpty()) timelineItems else state.timeline,
             activePrompt = null,
+            activeInteraction = null,
             terminalMessage = runResult.diagnostics["result_message"]?.asStringOrNull(),
             isRunActive = false,
             isTerminal = true,
@@ -136,9 +143,11 @@ object WorkflowScreenStateReducer {
                     plugin = event.payload["plugin"]?.asStringOrNull(),
                     status = StepVisualStatus.RUNNING,
                     message = null,
+                    startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
                 )
             },
             activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
+            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
             isRunActive = true,
         )
     }
@@ -156,6 +165,7 @@ object WorkflowScreenStateReducer {
                 )
             },
             activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
+            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
         )
     }
 
@@ -172,6 +182,7 @@ object WorkflowScreenStateReducer {
                 )
             },
             activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
+            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
         )
     }
 
@@ -188,6 +199,7 @@ object WorkflowScreenStateReducer {
                 )
             },
             activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
+            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
         )
     }
 
@@ -226,6 +238,29 @@ object WorkflowScreenStateReducer {
                 required = prompt.required,
                 options = prompt.options,
             ),
+            activeInteraction = null,
+            isRunActive = true,
+        )
+    }
+
+    private fun reduceInteractionRequested(
+        state: WorkflowScreenState,
+        event: EngineEventEnvelope,
+    ): WorkflowScreenState {
+        val interaction = event.payload.decodeInteractionRequest() ?: return state
+        val step = event.payload.decodeStepRef()
+        val options = interaction.state["options"]?.let(::decodeInteractionOptions) ?: emptyList()
+        return state.copy(
+            activeInteraction = ActiveInteractionState(
+                interactionId = interaction.interactionId,
+                stepId = step?.stepId,
+                stepName = step?.stepName,
+                interactionType = interaction.interactionType,
+                message = interaction.message,
+                options = options,
+                actions = interaction.actions,
+            ),
+            activePrompt = null,
             isRunActive = true,
         )
     }
@@ -237,6 +272,7 @@ object WorkflowScreenStateReducer {
     ): WorkflowScreenState = state.copy(
         header = state.header.copy(status = status),
         activePrompt = null,
+        activeInteraction = null,
         terminalMessage = event.payload["message"]?.asStringOrNull(),
         isRunActive = false,
         isTerminal = true,
@@ -250,6 +286,16 @@ object WorkflowScreenStateReducer {
             return null
         }
         return prompt
+    }
+
+    private fun closeInteractionIfStepMatches(
+        interaction: ActiveInteractionState?,
+        stepId: String,
+    ): ActiveInteractionState? {
+        if (interaction?.stepId == stepId) {
+            return null
+        }
+        return interaction
     }
 
     private fun List<StepItemState>.upsertStep(
@@ -282,6 +328,8 @@ object WorkflowScreenStateReducer {
 
     private fun JsonObject.decodePromptRequest(): PromptRequest? = decodeFromPayload("prompt")
 
+    private fun JsonObject.decodeInteractionRequest(): InteractionRequest? = decodeFromPayload("interaction")
+
     private inline fun <reified T> JsonObject.decodeFromPayload(key: String): T? {
         val element = get(key) ?: return null
         return runCatching { json.decodeFromJsonElement<T>(element) }.getOrNull()
@@ -290,4 +338,19 @@ object WorkflowScreenStateReducer {
     private fun JsonElement.asStringOrNull(): String? = (this as? JsonPrimitive)?.content
 
     private fun JsonElement.asIntOrNull(): Int? = (this as? JsonPrimitive)?.intOrNull
+
+    private fun currentStepStartLabel(): String = LocalTime.now().format(stepStartTimeFormatter)
+
+    private fun decodeInteractionOptions(element: JsonElement): List<InteractionOptionState> {
+        val options = runCatching { json.decodeFromJsonElement<List<InteractionOption>>(element) }.getOrNull()
+            ?: return emptyList()
+        return options.map {
+            InteractionOptionState(
+                id = it.id,
+                label = it.label,
+                description = it.description,
+                badges = it.badges,
+            )
+        }
+    }
 }

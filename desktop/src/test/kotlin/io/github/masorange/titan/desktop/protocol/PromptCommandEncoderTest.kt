@@ -42,4 +42,25 @@ class PromptCommandEncoderTest {
             command,
         )
     }
+
+    @Test
+    fun `encode submit interaction response supports option list selection`() {
+        val command = PromptCommandEncoder.encodeSubmitInteractionResponse(
+            runId = "run-123",
+            interactionId = "select-cli:select-cli",
+            responseType = "select",
+            value = JsonPrimitive("claude"),
+        )
+
+        assertEquals(
+            "{" +
+                "\"type\":\"submit_interaction_response\"," +
+                "\"run_id\":\"run-123\"," +
+                "\"payload\":{" +
+                "\"interaction_id\":\"select-cli:select-cli\"," +
+                "\"response_type\":\"select\"," +
+                "\"value\":\"claude\"}}",
+            command,
+        )
+    }
 }
