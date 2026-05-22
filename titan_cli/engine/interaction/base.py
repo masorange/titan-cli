@@ -81,6 +81,26 @@ class InteractionPort(ABC):
 
         self.step_output(diff_text)
 
+    def display_structured_summary(
+        self,
+        *,
+        title: str,
+        summary_lines: list[str],
+        sections: list[dict[str, Any]],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Render compact structured summary output in the current UI."""
+        self.step_output(title)
+        for line in summary_lines:
+            self.step_output(line)
+
+        for section in sections:
+            section_title = str(section.get("title") or "").strip()
+            if section_title:
+                self.step_output(section_title)
+            for line in section.get("lines", []) or []:
+                self.step_output(str(line))
+
     def begin_step(self, step_name: str) -> None:
         """Hook called when a step starts."""
 

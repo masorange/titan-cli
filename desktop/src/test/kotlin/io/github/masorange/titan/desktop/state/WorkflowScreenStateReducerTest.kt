@@ -142,7 +142,7 @@ class WorkflowScreenStateReducerTest {
 
         assertEquals(1, state.timeline.size)
         assertEquals("emit-text", state.timeline.first().stepId)
-        assertEquals("text", state.timeline.first().format)
+        assertEquals(OutputVisualFormat.TEXT, state.timeline.first().format)
         assertEquals("plain", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
     }
 
@@ -174,8 +174,55 @@ class WorkflowScreenStateReducerTest {
             ),
         )
 
-        assertEquals("diff", state.timeline.first().format)
+        assertEquals(OutputVisualFormat.DIFF, state.timeline.first().format)
         assertEquals("unified_patch", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `output_emitted preserves structured summary metadata for desktop rendering`() {
+        val state = WorkflowScreenStateReducer.reduce(
+            initialState,
+            event(
+                type = "output_emitted",
+                sequence = 3,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "classify_pr")
+                        put("step_name", "Classify PR")
+                        put("step_index", 1)
+                    }
+                    putJsonObject("output") {
+                        put("format", "structured_summary")
+                        put("content", "Size class: MEDIUM\nFiles changed: 12")
+                        put("title", "PR Classification")
+                        putJsonObject("metadata") {
+                            put("kind", "pr_classification")
+                            putJsonArray("summary_lines") {
+                                add(JsonPrimitive("Size class: MEDIUM"))
+                                add(JsonPrimitive("Files changed: 12"))
+                            }
+                            putJsonArray("sections") {
+                                addJsonObject {
+                                    put("title", "Scope")
+                                    putJsonArray("lines") {
+                                        add(JsonPrimitive("Lines changed: 184"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+
+        assertEquals(OutputVisualFormat.STRUCTURED_SUMMARY, state.timeline.first().format)
+        assertEquals("pr_classification", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
+        assertEquals(
+            "Scope",
+            state.timeline.first().metadata["sections"]
+                ?.toString()
+                ?.let { if (it.contains("Scope")) "Scope" else null }
+        )
     }
 
     @Test

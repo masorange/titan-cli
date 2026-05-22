@@ -152,6 +152,32 @@ class RunInteractionPort(HeadlessInteractionPort):
             },
         )
 
+    def display_structured_summary(
+        self,
+        *,
+        title: str,
+        summary_lines: list[str],
+        sections: list[dict[str, Any]],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        payload_metadata = dict(metadata or {})
+        payload_metadata.setdefault("summary_lines", list(summary_lines))
+        payload_metadata.setdefault("sections", list(sections))
+        self.messages.append(("structured_summary", title))
+        self._service._append_event(
+            self._session,
+            EventType.OUTPUT_EMITTED,
+            {
+                "step": self._step_ref(),
+                "output": OutputPayload(
+                    format=OutputFormat.STRUCTURED_SUMMARY,
+                    title=title,
+                    content="\n".join(summary_lines),
+                    metadata=payload_metadata,
+                ),
+            },
+        )
+
     def begin_step(self, step_name: str) -> None:
         super().begin_step(step_name)
         if self._suppress_replayed_prefix and self._ctx.current_step_id == self._resume_step_id:

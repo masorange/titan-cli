@@ -174,3 +174,60 @@ def test_workflow_service_projects_diff_output_metadata_into_terminal_result():
     assert result.steps[0].outputs[0].metadata["kind"] == "unified_patch"
     assert result.result is not None
     assert result.result.format == "diff"
+
+
+def test_workflow_service_projects_structured_summary_into_terminal_result():
+    service = WorkflowRunService(config=EmptyConfig())
+    session = RunSession(
+        run_id="run-4",
+        workflow_name="review-pr",
+        status=RunSessionStatus.COMPLETED,
+        result_message="done",
+    )
+
+    service._append_event(
+        session,
+        EventType.STEP_STARTED,
+        {
+            "step": StepRef(
+                step_id="classify_pr",
+                step_name="Classify PR",
+                step_index=1,
+            )
+        },
+    )
+    service._append_event(
+        session,
+        EventType.OUTPUT_EMITTED,
+        {
+            "step": StepRef(
+                step_id="classify_pr",
+                step_name="Classify PR",
+                step_index=1,
+            ),
+            "output": OutputPayload(
+                format="structured_summary",
+                title="PR Classification",
+                content="Size class: MEDIUM\nFiles changed: 12",
+                metadata={
+                    "kind": "pr_classification",
+                    "summary_lines": ["Size class: MEDIUM", "Files changed: 12"],
+                    "sections": [
+                        {
+                            "title": "Scope",
+                            "lines": ["Lines changed: 184"],
+                        }
+                    ],
+                },
+            ),
+        },
+    )
+    service._append_event(session, EventType.RUN_COMPLETED, {"message": "done"})
+
+    result = service._workflow_result_from_session(session)
+
+    assert result.steps[0].outputs[0].format == "structured_summary"
+    assert result.steps[0].outputs[0].metadata["kind"] == "pr_classification"
+    assert result.steps[0].outputs[0].metadata["sections"][0]["title"] == "Scope"
+    assert result.result is not None
+    assert result.result.format == "structured_summary"

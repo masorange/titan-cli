@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Optional
+
 from titan_cli.ports.protocol import InteractionOption
 
 from .base import InteractionPort
@@ -27,6 +29,15 @@ class TextualInteractionPort(InteractionPort):
 
     def step_output(self, text: str) -> None:
         self.legacy.text(text)
+
+    def display_diff(
+        self,
+        diff_text: str,
+        *,
+        title: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.legacy.display_diff(diff_text, title=title, metadata=metadata)
 
     def confirm(self, prompt_id: str, message: str, default: bool = False) -> bool:
         return self.legacy.ask_confirm(message, default=default)

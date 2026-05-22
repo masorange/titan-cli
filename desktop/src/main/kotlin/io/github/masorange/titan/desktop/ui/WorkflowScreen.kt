@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.ActiveInteractionState
 import io.github.masorange.titan.desktop.state.ActivePromptState
+import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.state.RunVisualStatus
 import io.github.masorange.titan.desktop.state.StepItemState
 import io.github.masorange.titan.desktop.state.StepVisualStatus
@@ -41,6 +42,7 @@ import io.github.masorange.titan.desktop.ui.components.WorkflowHeader
 import io.github.masorange.titan.desktop.ui.components.diff.DiffOutputView
 import io.github.masorange.titan.desktop.ui.components.interactions.OptionListInteractionPanel
 import io.github.masorange.titan.desktop.ui.components.steps.StepContainer
+import io.github.masorange.titan.desktop.ui.components.structuredsummary.StructuredSummaryOutputView
 import io.github.masorange.titan.desktop.ui.components.workflowexecution.WorkflowExecutionPath
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -364,14 +366,22 @@ private fun TimelinePanel(
                         item.title ?: item.stepName ?: item.stepId ?: "Output",
                         style = MaterialTheme.typography.subtitle1
                     )
-                    Text("Format: ${item.format}")
+                    Text("Format: ${item.format.wireValue}")
                     Text("Step: ${item.stepName ?: item.stepId ?: "run"}")
                     Spacer(modifier = Modifier.height(4.dp))
-                    if (item.format == "diff") {
-                        DiffOutputView(item = item)
-                    } else {
-                        SelectionContainer {
-                            Text(item.content, fontFamily = FontFamily.Monospace)
+                    when (item.format) {
+                        OutputVisualFormat.DIFF -> {
+                            DiffOutputView(item = item)
+                        }
+
+                        OutputVisualFormat.STRUCTURED_SUMMARY -> {
+                            StructuredSummaryOutputView(item = item)
+                        }
+
+                        else -> {
+                            SelectionContainer {
+                                Text(item.content, fontFamily = FontFamily.Monospace)
+                            }
                         }
                     }
                 }
@@ -481,7 +491,7 @@ private fun WorkflowScreenPreview() {
                         sequence = 1,
                         stepId = "ruff_lint",
                         stepName = "Run Ruff Linter",
-                        format = "text",
+                        format = OutputVisualFormat.TEXT,
                         title = "Lint summary",
                         content = "Auto-fixed 3 issue(s)",
                     ),
@@ -489,7 +499,7 @@ private fun WorkflowScreenPreview() {
                         sequence = 2,
                         stepId = "run_tests",
                         stepName = "Run Tests",
-                        format = "markdown",
+                        format = OutputVisualFormat.MARKDOWN,
                         title = "Pytest summary",
                         content = "## Failing tests\n\n- test_a\n- test_b",
                     ),

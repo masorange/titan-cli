@@ -653,22 +653,23 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     Returns:
         Success, Skip (empty diff), or Error
     """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
+    ui = getattr(ctx, "interaction", None) or getattr(ctx, "textual", None)
+    if not ui:
+        return Error("Interaction context is not available for this step.")
 
-    ctx.textual.begin_step("Fetch PR Review Bundle")
+    ui.begin_step("Fetch PR Review Bundle")
 
     pr_number = ctx.get("review_pr_number")
     if not pr_number:
-        ctx.textual.end_step("error")
+        ui.end_step("error")
         return Error("No PR number in context (run select_pr_for_code_review first)")
 
     if not ctx.github:
-        ctx.textual.end_step("error")
+        ui.end_step("error")
         return Error("GitHub client not available")
 
     # Fetch PR details, files with stats, and commit SHA
-    with ctx.textual.loading(f"Fetching PR #{pr_number} data..."):
+    with ui.loading(f"Fetching PR #{pr_number} data..."):
         pr_result = ctx.github.get_pull_request(pr_number)
         files_result = ctx.github.get_pr_files_with_stats(pr_number)
         sha_result = ctx.github.get_pr_commit_sha(pr_number)
@@ -678,8 +679,8 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
         case ClientSuccess(data=pr):
             pass
         case ClientError(error_message=err):
-            ctx.textual.error_text(f"Failed to fetch PR: {err}")
-            ctx.textual.end_step("error")
+            ui.error_text(f"Failed to fetch PR: {err}")
+            ui.end_step("error")
             return Error(f"Failed to fetch PR: {err}")
 
     # Validate files
@@ -687,13 +688,13 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
         case ClientSuccess(data=all_files_with_stats):
             changed_file_paths = [f.path for f in all_files_with_stats]
         case ClientError(error_message=err):
-            ctx.textual.error_text(f"Failed to fetch changed files: {err}")
-            ctx.textual.end_step("error")
+            ui.error_text(f"Failed to fetch changed files: {err}")
+            ui.end_step("error")
             return Error(f"Failed to fetch files: {err}")
 
     # Fetch diff. For fork PRs, gh pr diff is the source of truth because the
     # head branch usually does not exist under the local origin remote.
-    with ctx.textual.loading(f"Fetching PR #{pr_number} diff..."):
+    with ui.loading(f"Fetching PR #{pr_number} diff..."):
         diff_result = _get_review_diff(ctx, pr_number, pr, all_files_with_stats)
 
     # Validate diff — fallback to per-file patches if PR is too large
@@ -701,40 +702,40 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
         case ClientSuccess(data=diff):
             if not diff or not diff.strip():
                 if all_files_with_stats:
-                    ctx.textual.warning_text(
+                    ui.warning_text(
                         "Diff came back empty despite changed files in the PR."
                     )
-                    ctx.textual.end_step("error")
+                    ui.end_step("error")
                     return Error("Could not resolve PR diff despite changed files")
-                ctx.textual.dim_text("PR diff is empty — nothing to review.")
-                ctx.textual.end_step("success")
+                ui.dim_text("PR diff is empty — nothing to review.")
+                ui.end_step("success")
                 return Exit("Empty PR diff")
         case ClientError(error_message=err) if "too_large" in err or "too large" in err.lower():
-            ctx.textual.warning_text("PR diff is too large. Selecting files that matter...")
+            ui.warning_text("PR diff is too large. Selecting files that matter...")
 
             # AI selects which files to review from the already-fetched stats
             if ctx.ai:
-                with ctx.textual.loading(f"AI selecting from {len(all_files_with_stats)} files..."):
+                with ui.loading(f"AI selecting from {len(all_files_with_stats)} files..."):
                     selected_paths = select_files_for_review(all_files_with_stats, ctx.ai)
             else:
                 from ..operations.code_review_operations import MAX_FILES_FOR_REVIEW
                 selected_paths = [f.path for f in all_files_with_stats[:MAX_FILES_FOR_REVIEW]]
 
-            ctx.textual.dim_text(f"Reviewing {len(selected_paths)} of {len(all_files_with_stats)} files")
+            ui.dim_text(f"Reviewing {len(selected_paths)} of {len(all_files_with_stats)} files")
             changed_file_paths = selected_paths
 
-            with ctx.textual.loading("Fetching patches for selected files..."):
+            with ui.loading("Fetching patches for selected files..."):
                 patches_result = ctx.github.get_pr_file_patches(pr_number, selected_paths)
 
             match patches_result:
                 case ClientSuccess(data=patches_diff) if patches_diff:
                     diff = patches_diff
                 case _:
-                    ctx.textual.end_step("error")
+                    ui.end_step("error")
                     return Error("Could not fetch file patches for large PR")
         case ClientError(error_message=err):
-            ctx.textual.error_text(f"Failed to fetch diff: {err}")
-            ctx.textual.end_step("error")
+            ui.error_text(f"Failed to fetch diff: {err}")
+            ui.end_step("error")
             return Error(f"Failed to fetch diff: {err}")
 
     # Validate commit SHA
@@ -742,13 +743,13 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
         case ClientSuccess(data=commit_sha):
             pass
         case ClientError(error_message=err):
-            ctx.textual.warning_text(f"Could not get commit SHA: {err}")
+            ui.warning_text(f"Could not get commit SHA: {err}")
             commit_sha = ""
 
     # Display file changes summary
     diff_manager = get_or_create_diff_manager(diff, ctx.data)
     diff_metadata = build_diff_output_metadata(diff)
-    ctx.textual.display_diff(
+    ui.display_diff(
         diff,
         title="Files affected:",
         metadata=diff_metadata,
@@ -758,7 +759,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     # Fetch inline review threads and general comments separately
     review_threads = []
     general_comments = []
-    with ctx.textual.loading("Fetching existing review comments..."):
+    with ui.loading("Fetching existing review comments..."):
         threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=True)
         match threads_result:
             case ClientSuccess(data=threads):
@@ -773,12 +774,12 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             case ClientError():
                 pass
 
-    ctx.textual.dim_text(
+    ui.dim_text(
         f"{len(changed_file_paths)} files · {diff_summary_text} · "
         f"{len(review_threads)} review thread(s) · {len(general_comments)} general comment(s)"
     )
 
-    ctx.textual.end_step("success")
+    ui.end_step("success")
 
     pr_template = ctx.github.get_pr_template()
 
@@ -1037,10 +1038,11 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         Success: When PR classification is computed successfully.
         Error: When required context is missing or the step cannot run.
     """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
+    ui = getattr(ctx, "interaction", None) or getattr(ctx, "textual", None)
+    if not ui:
+        return Error("Interaction context is not available for this step.")
 
-    ctx.textual.begin_step("Classify PR")
+    ui.begin_step("Classify PR")
 
     manifest = ctx.get("change_manifest")
     comments_index = ctx.get("existing_comments_index", [])
@@ -1048,7 +1050,7 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
     review_profile = _get_review_profile(ctx)
 
     if not manifest:
-        ctx.textual.end_step("error")
+        ui.end_step("error")
         return Error("No change manifest in context")
 
     from ..operations.review_strategy_operations import classify_pr as classify_pr_operation
@@ -1067,8 +1069,8 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         total_lines_changed=classification.total_lines_changed,
         comment_entries=classification.comment_entries,
     )
-    _render_pr_classification(ctx, classification)
-    ctx.textual.end_step("success")
+    _render_pr_classification(ui, classification)
+    ui.end_step("success")
     return Success(
         "PR classified",
         metadata={
@@ -1514,38 +1516,65 @@ def _get_review_profile(ctx: WorkflowContext) -> ReviewProfile:
     return DEFAULT_REVIEW_PROFILE.model_copy(deep=True)
 
 
-def _render_pr_classification(ctx: WorkflowContext, classification: PRClassification) -> None:
+def _render_pr_classification(ui, classification: PRClassification) -> None:
     """Render deterministic PR classification in a compact, structured format."""
     roles_text = ", ".join(classification.roles) if classification.roles else "none"
     rationale = classification.rationale or "Classification derived from deterministic PR composition signals."
-
-    ctx.textual.success_text(f"✓ PR classified as {classification.size_class.value.upper()}")
-
-    ctx.textual.text(" ")
-    ctx.textual.text("Scope")
-    ctx.textual.dim_text(f"Files changed: {classification.files_changed}")
-    ctx.textual.dim_text(f"Lines changed: {classification.total_lines_changed}")
-    ctx.textual.dim_text(
-        f"Review activity: {classification.comment_threads} threads, {classification.comment_entries} comment entries"
+    ui.display_structured_summary(
+        title="PR Classification",
+        summary_lines=[
+            f"Size class: {classification.size_class.value.upper()}",
+            f"Files changed: {classification.files_changed}",
+            f"Lines changed: {classification.total_lines_changed}",
+        ],
+        sections=[
+            {
+                "title": "Scope",
+                "lines": [
+                    f"Files changed: {classification.files_changed}",
+                    f"Lines changed: {classification.total_lines_changed}",
+                    (
+                        "Review activity: "
+                        f"{classification.comment_threads} threads, "
+                        f"{classification.comment_entries} comment entries"
+                    ),
+                ],
+            },
+            {
+                "title": "Signals",
+                "lines": [
+                    f"High-signal files: {classification.high_signal_files}",
+                    f"Repeated call sites: {classification.repeated_callsite_files}",
+                    f"Roles: {roles_text}",
+                    f"Complexity score: {classification.complexity_score}/20",
+                ],
+            },
+            {
+                "title": "Flags",
+                "lines": [
+                    (
+                        "Repetitive migration: "
+                        f"{'yes' if classification.is_repetitive_migration else 'no'}"
+                    ),
+                    f"Active review: {'yes' if classification.active_review else 'no'}",
+                ],
+            },
+            {
+                "title": "Why",
+                "lines": [rationale],
+            },
+        ],
+        metadata={
+            "kind": "pr_classification",
+            "size_class": classification.size_class.value,
+            "complexity_score": classification.complexity_score,
+            "files_changed": classification.files_changed,
+            "total_lines_changed": classification.total_lines_changed,
+            "active_review": classification.active_review,
+            "is_repetitive_migration": classification.is_repetitive_migration,
+            "roles": list(classification.roles),
+        },
     )
-
-    ctx.textual.text(" ")
-    ctx.textual.text("Signals")
-    ctx.textual.dim_text(f"High-signal files: {classification.high_signal_files}")
-    ctx.textual.dim_text(f"Repeated call sites: {classification.repeated_callsite_files}")
-    ctx.textual.dim_text(f"Roles: {roles_text}")
-    ctx.textual.dim_text(f"Complexity score: {classification.complexity_score}/20")
-
-    ctx.textual.text(" ")
-    ctx.textual.text("Flags")
-    ctx.textual.dim_text(
-        f"Repetitive migration: {'yes' if classification.is_repetitive_migration else 'no'}"
-    )
-    ctx.textual.dim_text(f"Active review: {'yes' if classification.active_review else 'no'}")
-
-    ctx.textual.text(" ")
-    ctx.textual.text("Why")
-    ctx.textual.dim_text(rationale)
 
 
 def _build_review_checklist_preview(ctx: WorkflowContext, checklist: list) -> set[str]:

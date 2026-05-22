@@ -42,11 +42,37 @@ data class OutputTimelineItemState(
     val sequence: Int,
     val stepId: String? = null,
     val stepName: String? = null,
-    val format: String,
+    val format: OutputVisualFormat,
     val title: String? = null,
     val content: String,
     val metadata: JsonObject = JsonObject(emptyMap()),
 )
+
+enum class OutputVisualFormat(val wireValue: String) {
+    TEXT("text"),
+    MARKDOWN("markdown"),
+    TABLE("table"),
+    DIFF("diff"),
+    STRUCTURED_SUMMARY("structured_summary"),
+    WARNING("warning"),
+    ERROR("error"),
+    JSON("json"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromWireValue(value: String): OutputVisualFormat = when (value) {
+            TEXT.wireValue -> TEXT
+            MARKDOWN.wireValue -> MARKDOWN
+            TABLE.wireValue -> TABLE
+            DIFF.wireValue -> DIFF
+            STRUCTURED_SUMMARY.wireValue -> STRUCTURED_SUMMARY
+            WARNING.wireValue -> WARNING
+            ERROR.wireValue -> ERROR
+            JSON.wireValue -> JSON
+            else -> UNKNOWN
+        }
+    }
+}
 
 data class ActivePromptState(
     val promptId: String,

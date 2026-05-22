@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.OutputTimelineItemState
+import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -178,7 +179,7 @@ private fun DiffOutputViewPreview() {
                     sequence = 1,
                     stepId = "fetch_bundle",
                     stepName = "Fetch PR Review Bundle",
-                    format = "diff",
+                    format = OutputVisualFormat.DIFF,
                     title = "Files affected:",
                     content = "diff --git a/src/foo.py b/src/foo.py\n--- a/src/foo.py\n+++ b/src/foo.py\n@@ -1,2 +1,3 @@\n line\n-old\n+new\n+extra",
                     metadata = JsonObject(

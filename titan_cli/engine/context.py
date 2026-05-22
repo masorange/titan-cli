@@ -58,6 +58,19 @@ class WorkflowContext:
     # Internal state for workflow execution
     _workflow_stack: List[str] = field(default_factory=list)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Keep legacy `textual` and newer `interaction` bindings in sync."""
+        object.__setattr__(self, name, value)
+
+        if name == "textual" and value is not None:
+            interaction = getattr(self, "interaction", None)
+            if interaction is None or isinstance(interaction, HeadlessInteractionPort):
+                object.__setattr__(self, "interaction", TextualInteractionPort(value))
+        elif name == "interaction" and value is not None and getattr(self, "textual", None) is None:
+            legacy = getattr(value, "legacy", None)
+            if legacy is not None:
+                object.__setattr__(self, "textual", legacy)
+
     def __post_init__(self) -> None:
         """Normalize legacy and new interaction wiring."""
         if self.interaction is None:
