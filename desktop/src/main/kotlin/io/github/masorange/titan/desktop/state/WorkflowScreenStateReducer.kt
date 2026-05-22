@@ -95,6 +95,7 @@ object WorkflowScreenStateReducer {
                     format = output.format,
                     title = output.title,
                     content = output.content,
+                    metadata = output.metadata,
                 )
             }
         }
@@ -217,6 +218,7 @@ object WorkflowScreenStateReducer {
                 format = output.format,
                 title = output.title,
                 content = output.content,
+                metadata = output.metadata,
             )
         )
     }

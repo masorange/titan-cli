@@ -1,6 +1,6 @@
 from titan_cli.application.runtime.status import RunSessionStatus
 from titan_cli.application.runtime.run_session import RunSession
-from titan_cli.application.services.workflow_service import WorkflowService
+from titan_cli.application.services.workflow_run_service import WorkflowRunService
 from titan_cli.ports.protocol import EventType
 from titan_cli.ports.protocol import OutputPayload
 from titan_cli.ports.protocol import StepRef
@@ -11,7 +11,7 @@ class EmptyConfig:
 
 
 def test_workflow_service_projects_events_into_ui_result():
-    service = WorkflowService(config=EmptyConfig())
+    service = WorkflowRunService(config=EmptyConfig())
     session = RunSession(
         run_id="run-1",
         workflow_name="analyze-jira-issues",
@@ -99,7 +99,7 @@ def test_workflow_service_projects_events_into_ui_result():
 
 
 def test_workflow_service_marks_running_step_failed_from_workflow_failure():
-    service = WorkflowService(config=EmptyConfig())
+    service = WorkflowRunService(config=EmptyConfig())
     session = RunSession(
         run_id="run-2",
         workflow_name="demo",
@@ -124,3 +124,53 @@ def test_workflow_service_marks_running_step_failed_from_workflow_failure():
 
     assert result.steps[0].status == "failed"
     assert result.steps[0].error == "boom"
+
+
+def test_workflow_service_projects_diff_output_metadata_into_terminal_result():
+    service = WorkflowRunService(config=EmptyConfig())
+    session = RunSession(
+        run_id="run-3",
+        workflow_name="review-pr",
+        status=RunSessionStatus.COMPLETED,
+        result_message="done",
+    )
+
+    service._append_event(
+        session,
+        EventType.STEP_STARTED,
+        {
+            "step": StepRef(
+                step_id="fetch_bundle",
+                step_name="Fetch PR Review Bundle",
+                step_index=1,
+            )
+        },
+    )
+    service._append_event(
+        session,
+        EventType.OUTPUT_EMITTED,
+        {
+            "step": StepRef(
+                step_id="fetch_bundle",
+                step_name="Fetch PR Review Bundle",
+                step_index=1,
+            ),
+            "output": OutputPayload(
+                format="diff",
+                title="Files affected:",
+                content="diff --git a/foo.py b/foo.py",
+                metadata={
+                    "kind": "unified_patch",
+                    "summary_lines": ["1 file changed, 1 insertion(+), 0 deletions(-)"],
+                },
+            ),
+        },
+    )
+    service._append_event(session, EventType.RUN_COMPLETED, {"message": "done"})
+
+    result = service._workflow_result_from_session(session)
+
+    assert result.steps[0].outputs[0].format == "diff"
+    assert result.steps[0].outputs[0].metadata["kind"] == "unified_patch"
+    assert result.result is not None
+    assert result.result.format == "diff"

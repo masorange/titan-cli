@@ -29,7 +29,7 @@ from titan_cli.application.services.project_inspection_service import (
 )
 from titan_cli.application.services.ai_connection_service import AIConnectionService
 from titan_cli.application.services.plugin_service import PluginService
-from titan_cli.application.services.workflow_service import WorkflowService
+from titan_cli.application.services.workflow_run_service import WorkflowRunService
 
 
 app = typer.Typer(
@@ -47,13 +47,13 @@ def get_version() -> str:
     return __version__
 
 
-def _workflow_service() -> WorkflowService:
-    """Build the workflow service used by headless CLI commands.
+def _workflow_run_service() -> WorkflowRunService:
+    """Build the workflow run service used by headless CLI commands.
 
     Kept as a module-level function so existing tests and integrations can
     monkeypatch the service without reaching into the command modules.
     """
-    return WorkflowService(config=TitanConfig())
+    return WorkflowRunService(config=TitanConfig())
 
 
 def _project_inspection_service() -> ProjectInspectionService:
@@ -84,8 +84,8 @@ def _ensure_headless_logging(verbose: bool, debug: bool) -> None:
 class _CLIContainer(TitanRuntimeContainer):
     """Container adapter that preserves the historical cli.py patch points."""
 
-    def workflow_service(self) -> WorkflowService:
-        return _workflow_service()
+    def workflow_run_service(self) -> WorkflowRunService:
+        return _workflow_run_service()
 
     def project_inspection_service(self) -> ProjectInspectionService:
         return _project_inspection_service()

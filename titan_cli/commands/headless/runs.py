@@ -3,6 +3,7 @@
 import json
 import sys
 import threading
+from queue import Empty
 from typing import Any, Optional
 
 import typer
@@ -15,7 +16,6 @@ from titan_cli.commands.headless.common import (
     fail_headless_command,
     parse_json_array,
     parse_json_object,
-    run_headless_operation,
 )
 from titan_cli.core.logging import get_logger
 from titan_cli.ports.protocol import CommandType
@@ -161,8 +161,8 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
 
 def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkflowRequest) -> None:
     """Run a workflow and expose the official V1 event stream over stdio."""
-    service = run_headless_operation(lambda: container.workflow_service())
-    session = run_headless_operation(lambda: service.create_run(request))
+    service = container.workflow_run_service()
+    session = service.create_run(request)
     last_sequence = 0
     _log_protocol_state(
         "headless_event_stream_started",
@@ -170,29 +170,58 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
         workflow_name=request.workflow_name,
     )
 
-    worker = threading.Thread(
+    def _emit_event(event: EngineEvent) -> None:
+        nonlocal last_sequence
+        if event.sequence <= last_sequence:
+            return
+        _log_outbound_event(event)
+        typer.echo(json.dumps(to_jsonable(event)))
+        last_sequence = event.sequence
+
+    def _emit_snapshot() -> None:
+        for event in service.snapshot_events(session.run_id, after_sequence=last_sequence):
+            _emit_event(event)
+
+    event_queue = service.subscribe_events(session.run_id)
+
+    run_worker = threading.Thread(
         target=lambda: service.execute_run(session, request),
     )
-    worker.start()
+    resume_worker: Optional[threading.Thread] = None
+    _emit_snapshot()
+    run_worker.start()
+
+    def _start_resume_worker(operation, event_name: str) -> threading.Thread:
+        resumed_worker = threading.Thread(target=operation)
+        resumed_worker.start()
+        _log_protocol_state(
+            event_name,
+            run_id=session.run_id,
+            worker_ident=resumed_worker.ident,
+        )
+        return resumed_worker
+
+    def _emit_live_events(timeout_seconds: float = 0.0) -> None:
+        while True:
+            try:
+                event = event_queue.get(timeout=timeout_seconds)
+            except Empty:
+                break
+            _emit_event(event)
+            timeout_seconds = 0
 
     try:
         while True:
-            for event in run_headless_operation(
-                lambda: list(
-                    service.stream_events(
-                        session.run_id,
-                        replay=True,
-                        timeout_seconds=0.1,
-                    )
-                )
-            ):
-                if event.sequence <= last_sequence:
-                    continue
-                _log_outbound_event(event)
-                typer.echo(json.dumps(to_jsonable(event)))
-                last_sequence = event.sequence
+            if resume_worker is not None and resume_worker.is_alive():
+                _emit_live_events(timeout_seconds=0.1)
+                continue
 
-            run_state = run_headless_operation(lambda: service.get_run(session.run_id))
+            if run_worker.is_alive() or resume_worker is not None:
+                _emit_live_events(timeout_seconds=0.1)
+            else:
+                _emit_live_events()
+
+            run_state = service.get_run(session.run_id)
             if run_state is None:
                 _log_protocol_error(
                     "headless_event_stream_missing_run_state",
@@ -205,6 +234,11 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
                 RunSessionStatus.FAILED,
                 RunSessionStatus.CANCELLED,
             }:
+                if resume_worker is not None:
+                    resume_worker.join(timeout=0)
+                    resume_worker = None
+                run_worker.join(timeout=0)
+                _emit_live_events()
                 if run_state.result is not None:
                     result_event = EngineEvent(
                         type=EventType.RUN_RESULT_EMITTED,
@@ -222,7 +256,15 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
                 )
                 return
 
-            if run_state.status == RunSessionStatus.WAITING_FOR_INPUT:
+            if resume_worker is not None and not resume_worker.is_alive():
+                resume_worker.join(timeout=0)
+                resume_worker = None
+                continue
+
+            if run_state.status in {
+                RunSessionStatus.WAITING_FOR_PROMPT,
+                RunSessionStatus.WAITING_FOR_INTERACTION,
+            }:
                 _log_protocol_state(
                     "headless_event_stream_waiting_for_input",
                     run_id=run_state.run_id,
@@ -235,21 +277,22 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
                 _log_inbound_command(command)
                 if command.type == CommandType.SUBMIT_PROMPT_RESPONSE:
                     prompt_id = str(command.payload.get("prompt_id") or "")
-                    run_headless_operation(
+                    resume_worker = _start_resume_worker(
                         lambda: service.submit_prompt_response(
                             SubmitPromptResponseRequest(
                                 run_id=command.run_id,
                                 prompt_id=prompt_id,
                                 value=command.payload.get("value"),
                             )
-                        )
+                        ),
+                        "headless_event_stream_prompt_resume_started",
                     )
                     continue
 
                 if command.type == CommandType.SUBMIT_INTERACTION_RESPONSE:
                     interaction_id = str(command.payload.get("interaction_id") or "")
                     response_type = str(command.payload.get("response_type") or "")
-                    run_headless_operation(
+                    resume_worker = _start_resume_worker(
                         lambda: service.submit_interaction_response(
                             SubmitInteractionResponseRequest(
                                 run_id=command.run_id,
@@ -257,22 +300,25 @@ def _run_event_stream_mode(container: TitanRuntimeContainer, request: StartWorkf
                                 response_type=response_type,
                                 value=command.payload.get("value"),
                             )
-                        )
+                        ),
+                        "headless_event_stream_interaction_resume_started",
                     )
                     continue
 
                 if command.type == CommandType.CANCEL_RUN:
                     reason = str(command.payload.get("reason") or "Run cancelled by user")
-                    run_headless_operation(
-                        lambda: service.cancel_run(command.run_id, reason=reason)
-                    )
+                    service.cancel_run(command.run_id, reason=reason)
                     continue
     finally:
-        worker.join(timeout=1.0)
+        service.unsubscribe_events(session.run_id, event_queue)
+        if resume_worker is not None:
+            resume_worker.join(timeout=1.0)
+        run_worker.join(timeout=1.0)
         _log_protocol_state(
             "headless_event_stream_worker_joined",
             run_id=session.run_id,
-            worker_alive=worker.is_alive(),
+            worker_alive=run_worker.is_alive(),
+            resume_worker_alive=(resume_worker.is_alive() if resume_worker is not None else False),
         )
 
 

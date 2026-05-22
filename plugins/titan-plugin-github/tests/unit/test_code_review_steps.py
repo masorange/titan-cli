@@ -10,6 +10,9 @@ from titan_plugin_github.steps.code_review_steps import fetch_pr_review_bundle, 
 
 
 class _FakeTextual:
+    def __init__(self):
+        self.displayed_diff = None
+
     def begin_step(self, _name):
         pass
 
@@ -36,6 +39,13 @@ class _FakeTextual:
 
     def show_diff_stat(self, *_args, **_kwargs):
         pass
+
+    def display_diff(self, diff_text, *, title=None, metadata=None):
+        self.displayed_diff = {
+            "content": diff_text,
+            "title": title,
+            "metadata": metadata or {},
+        }
 
     class _Loading:
         def __enter__(self):
@@ -109,6 +119,9 @@ def test_fetch_pr_review_bundle_uses_github_diff_for_cross_repo_pr():
 
     assert isinstance(result, Success)
     assert result.metadata["review_diff"] == "diff --git a/foo b/foo"
+    assert ctx.textual.displayed_diff is not None
+    assert ctx.textual.displayed_diff["title"] == "Files affected:"
+    assert ctx.textual.displayed_diff["metadata"]["kind"] == "unified_patch"
     ctx.github.get_pr_diff.assert_called_once_with(223)
     ctx.git.get_branch_diff.assert_not_called()
 

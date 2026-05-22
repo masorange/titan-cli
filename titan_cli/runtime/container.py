@@ -5,7 +5,7 @@ from titan_cli.application.services.project_inspection_service import (
 )
 from titan_cli.application.services.ai_connection_service import AIConnectionService
 from titan_cli.application.services.plugin_service import PluginService
-from titan_cli.application.services.workflow_service import WorkflowService
+from titan_cli.application.services.workflow_run_service import WorkflowRunService
 from titan_cli.core.config import TitanConfig
 
 
@@ -16,9 +16,9 @@ class TitanRuntimeContainer:
         """Return a Titan configuration instance for the current execution context."""
         return TitanConfig(skip_plugin_init=skip_plugin_init)
 
-    def workflow_service(self) -> WorkflowService:
-        """Return the workflow orchestration service."""
-        return WorkflowService(config=self.config())
+    def workflow_run_service(self) -> WorkflowRunService:
+        """Return the workflow run service."""
+        return WorkflowRunService(config=self.config())
 
     def project_inspection_service(self) -> ProjectInspectionService:
         """Return the project inspection service."""

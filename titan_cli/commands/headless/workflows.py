@@ -32,7 +32,7 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
         """List workflows without launching the TUI or HTTP backend."""
         try:
             workflows = run_headless_operation(
-                lambda: container.workflow_service().list_workflows(
+                lambda: container.workflow_run_service().list_workflows(
                     project_path=project_path
                 )
             )
@@ -57,7 +57,7 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
         """Describe a resolved workflow, including inherited and hook steps."""
         try:
             workflow = run_headless_operation(
-                lambda: container.workflow_service().describe_workflow(
+                lambda: container.workflow_run_service().describe_workflow(
                     workflow_name=workflow_name,
                     project_path=project_path,
                 )
@@ -71,4 +71,3 @@ def build_app(container: TitanRuntimeContainer) -> typer.Typer:
             fail_headless_command(exc, as_json=output_json)
 
     return app
-

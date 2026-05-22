@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, Optional
 
 
 class InteractionPort(ABC):
@@ -61,6 +61,25 @@ class InteractionPort(ABC):
     def markdown(self, markdown_text: str) -> None:
         """Render markdown-capable output in the current UI."""
         self.step_output(markdown_text)
+
+    def display_diff(
+        self,
+        diff_text: str,
+        *,
+        title: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Render diff-oriented output in the current UI."""
+        if title:
+            self.step_output(title)
+
+        summary_lines = metadata.get("summary_lines", []) if metadata else []
+        if summary_lines:
+            for line in summary_lines:
+                self.step_output(str(line))
+            return
+
+        self.step_output(diff_text)
 
     def begin_step(self, step_name: str) -> None:
         """Hook called when a step starts."""

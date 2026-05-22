@@ -38,6 +38,7 @@ import io.github.masorange.titan.desktop.state.RunHeaderState
 import io.github.masorange.titan.desktop.state.OutputTimelineItemState
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 import io.github.masorange.titan.desktop.ui.components.WorkflowHeader
+import io.github.masorange.titan.desktop.ui.components.diff.DiffOutputView
 import io.github.masorange.titan.desktop.ui.components.interactions.OptionListInteractionPanel
 import io.github.masorange.titan.desktop.ui.components.steps.StepContainer
 import io.github.masorange.titan.desktop.ui.components.workflowexecution.WorkflowExecutionPath
@@ -366,8 +367,12 @@ private fun TimelinePanel(
                     Text("Format: ${item.format}")
                     Text("Step: ${item.stepName ?: item.stepId ?: "run"}")
                     Spacer(modifier = Modifier.height(4.dp))
-                    SelectionContainer {
-                        Text(item.content, fontFamily = FontFamily.Monospace)
+                    if (item.format == "diff") {
+                        DiffOutputView(item = item)
+                    } else {
+                        SelectionContainer {
+                            Text(item.content, fontFamily = FontFamily.Monospace)
+                        }
                     }
                 }
             }

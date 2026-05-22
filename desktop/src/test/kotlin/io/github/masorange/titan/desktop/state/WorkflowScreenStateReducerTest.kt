@@ -8,8 +8,10 @@ import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import io.github.masorange.titan.desktop.protocol.WorkflowStepSummary
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -130,7 +132,9 @@ class WorkflowScreenStateReducerTest {
                         put("format", "text")
                         put("content", "demo text output")
                         put("title", "Text output")
-                        putJsonObject("metadata") {}
+                        putJsonObject("metadata") {
+                            put("kind", "plain")
+                        }
                     }
                 },
             ),
@@ -139,6 +143,39 @@ class WorkflowScreenStateReducerTest {
         assertEquals(1, state.timeline.size)
         assertEquals("emit-text", state.timeline.first().stepId)
         assertEquals("text", state.timeline.first().format)
+        assertEquals("plain", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `output_emitted preserves diff metadata for desktop rendering`() {
+        val state = WorkflowScreenStateReducer.reduce(
+            initialState,
+            event(
+                type = "output_emitted",
+                sequence = 3,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "fetch_bundle")
+                        put("step_name", "Fetch PR Review Bundle")
+                        put("step_index", 1)
+                    }
+                    putJsonObject("output") {
+                        put("format", "diff")
+                        put("content", "diff --git a/foo.py b/foo.py")
+                        put("title", "Files affected:")
+                        putJsonObject("metadata") {
+                            put("kind", "unified_patch")
+                            putJsonArray("summary_lines") {
+                                add(JsonPrimitive("1 file changed, 1 insertion(+), 0 deletions(-)"))
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+
+        assertEquals("diff", state.timeline.first().format)
+        assertEquals("unified_patch", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
     }
 
     @Test

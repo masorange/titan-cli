@@ -430,6 +430,31 @@ class TextualComponents:
                 self.dim_text(f"  {line}")
             self.text("")
 
+    def display_diff(
+        self,
+        diff_text: str,
+        *,
+        title: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Render diff-oriented content using a compact summary fallback."""
+        summary_lines = []
+        if metadata:
+            summary_lines = [str(line) for line in metadata.get("summary_lines", [])]
+
+        self.text("")
+        self.bold_text(title or "Diff")
+        self.text("")
+
+        if summary_lines:
+            for line in summary_lines:
+                self.dim_text(f"  {line}")
+            self.text("")
+            return
+
+        self.text(diff_text)
+        self.text("")
+
     def ask_text(self, question: str, default: str = "") -> Optional[str]:
         """
         Ask user for text input (blocks until user responds).

@@ -53,6 +53,10 @@ fun App() {
             }
         }
 
+        fun debugLog(message: String) {
+            System.err.println("[desktop-debug] $message")
+        }
+
         fun rebuildInitialScreenState() {
             screenState = WorkflowScreenStateReducer.initialState(
                 projectPath = launchConfig.projectRoot.toString(),
@@ -121,7 +125,12 @@ fun App() {
             val interaction = screenState.activeInteraction ?: return
             val activeProcess = processHandle ?: return
             val runId = screenState.runId ?: return
+            debugLog(
+                "submitInteractionSelection requested interactionId=${interaction.interactionId} " +
+                    "optionId=$optionId isSubmittingInteraction=$isSubmittingInteraction"
+            )
             if (isSubmittingInteraction) {
+                debugLog("submitInteractionSelection ignored because interaction is already submitting")
                 return
             }
 
@@ -135,14 +144,23 @@ fun App() {
                         value = JsonPrimitive(optionId),
                     )
                 }.onSuccess { commandJson ->
+                    debugLog(
+                        "submitInteractionSelection encoded interactionId=${interaction.interactionId} " +
+                            "payloadLength=${commandJson.length}"
+                    )
                     runCatching { activeProcess.sendCommand(commandJson) }
+                        .onSuccess {
+                            debugLog("submitInteractionSelection sendCommand completed for interactionId=${interaction.interactionId}")
+                        }
                         .onFailure { error ->
                             isSubmittingInteraction = false
+                            debugLog("submitInteractionSelection sendCommand failed: ${error.message ?: error}")
                             activeErrorMessage = error.message ?: error.toString()
                             appendLine(diagnostics, error.message ?: error.toString())
                         }
                 }.onFailure { error ->
                     isSubmittingInteraction = false
+                    debugLog("submitInteractionSelection encoding failed: ${error.message ?: error}")
                     activeErrorMessage = error.message ?: error.toString()
                     appendLine(diagnostics, error.message ?: error.toString())
                 }
@@ -157,31 +175,63 @@ fun App() {
 
                     val event = EventStreamDecoder.decodeEventLine(line)
                     if (event == null) {
+                        debugLog("stdout invalid protocol line length=${line.length}")
                         appendLine(diagnostics, "Invalid protocol event line: $line")
                         activeErrorMessage = "Invalid protocol event line received"
                         return@collect
                     }
 
+                    debugLog(
+                        "stdout event sequence=${event.sequence} type=${event.type} " +
+                            "activeInteractionBefore=${screenState.activeInteraction?.interactionId}"
+                    )
+
                     if (event.type == "run_result_emitted") {
                         val runResult = EventStreamDecoder.decodeRunResultPayload(event)
                         if (runResult == null) {
+                            debugLog("stdout run_result_emitted payload decode failed")
                             appendLine(diagnostics, "Invalid run_result_emitted payload")
                             activeErrorMessage = "Invalid terminal run snapshot payload"
                             return@collect
                         }
                         screenState = WorkflowScreenStateReducer.applyRunResult(screenState, runResult)
+                        debugLog(
+                            "applyRunResult status=${screenState.header.status} " +
+                                "activeInteractionAfter=${screenState.activeInteraction?.interactionId}"
+                        )
                         isSubmittingPrompt = false
                         isSubmittingInteraction = false
                         isCancellingRun = false
                         return@collect
                     }
 
+                    val previousPromptId = screenState.activePrompt?.promptId
+                    val previousInteractionId = screenState.activeInteraction?.interactionId
                     screenState = WorkflowScreenStateReducer.reduce(screenState, event)
+                    val runningStepId = screenState.steps.firstOrNull {
+                        it.status.name == "RUNNING"
+                    }?.stepId
+                    debugLog(
+                        "state reduced sequence=${event.sequence} type=${event.type} " +
+                            "activeInteractionAfter=${screenState.activeInteraction?.interactionId} " +
+                            "runningStep=$runningStepId"
+                    )
                     if (screenState.activePrompt == null) {
+                        isSubmittingPrompt = false
+                    } else if (previousPromptId != null && previousPromptId != screenState.activePrompt?.promptId) {
                         isSubmittingPrompt = false
                     }
                     if (screenState.activeInteraction == null) {
                         isSubmittingInteraction = false
+                    } else if (
+                        previousInteractionId != null &&
+                        previousInteractionId != screenState.activeInteraction?.interactionId
+                    ) {
+                        isSubmittingInteraction = false
+                        debugLog(
+                            "interaction submit flag cleared due to interaction change " +
+                                "from=$previousInteractionId to=${screenState.activeInteraction?.interactionId}"
+                        )
                     }
                     if (!screenState.isRunActive) {
                         isCancellingRun = false
@@ -190,11 +240,13 @@ fun App() {
             }
             launch {
                 activeProcess.stderrLines.collect { line ->
+                    debugLog("process stderr: $line")
                     appendLine(diagnostics, line)
                 }
             }
             launch {
                 val exitCode = activeProcess.awaitExit()
+                debugLog("process exited with code=$exitCode isTerminal=${screenState.isTerminal}")
                 if (!screenState.isTerminal) {
                     diagnostics += "Process finished with exit code $exitCode"
                     activeErrorMessage = "Workflow process finished unexpectedly with exit code $exitCode"

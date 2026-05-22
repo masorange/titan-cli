@@ -1,8 +1,11 @@
 import json
+from queue import Queue
+import time
 from datetime import datetime, timezone
 
 from typer.testing import CliRunner
 
+from titan_cli.application.models.requests import StartWorkflowRequest
 from titan_cli.application.models.responses import WorkflowRunState
 from titan_cli.application.runtime.run_session import RunSession
 from titan_cli.application.runtime.status import RunSessionStatus
@@ -17,6 +20,8 @@ from titan_cli.application.models.responses import WorkflowSummary
 from titan_cli.cli import app
 from titan_cli.commands.headless.runs import _command_log_fields
 from titan_cli.commands.headless.runs import _event_log_fields
+from titan_cli.commands.headless.runs import _run_event_stream_mode
+from titan_cli.ports.protocol import CommandType
 from titan_cli.ports.protocol import EngineEvent
 from titan_cli.ports.protocol import EngineCommand
 from titan_cli.ports.protocol import EventType
@@ -41,7 +46,7 @@ def test_headless_workflows_list_outputs_json(monkeypatch):
             ]
 
     monkeypatch.setattr(
-        "titan_cli.cli._workflow_service",
+        "titan_cli.cli._workflow_run_service",
         lambda: StubWorkflowService(),
     )
 
@@ -130,6 +135,11 @@ def test_headless_runs_start_passes_headless_request_and_outputs_event_stream(mo
                 workflow_name="demo",
                 status=RunSessionStatus.RUNNING,
             )
+            self.queue = Queue()
+
+        def _publish(self, event):
+            self.session.events.append(event)
+            self.queue.put(event)
 
         def create_run(self, request):
             nonlocal captured_request
@@ -137,7 +147,7 @@ def test_headless_runs_start_passes_headless_request_and_outputs_event_stream(mo
             return self.session
 
         def execute_run(self, session, request):
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_STARTED,
                     run_id=session.run_id,
@@ -145,7 +155,7 @@ def test_headless_runs_start_passes_headless_request_and_outputs_event_stream(mo
                     payload={"workflow_name": request.workflow_name},
                 )
             )
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_COMPLETED,
                     run_id=session.run_id,
@@ -155,10 +165,14 @@ def test_headless_runs_start_passes_headless_request_and_outputs_event_stream(mo
             )
             session.status = RunSessionStatus.COMPLETED
 
-        def stream_events(self, run_id, replay=True, timeout_seconds=0.1):
-            if replay:
-                for event in self.session.events:
-                    yield event
+        def snapshot_events(self, run_id, after_sequence=0):
+            return [event for event in self.session.events if event.sequence > after_sequence]
+
+        def subscribe_events(self, run_id):
+            return self.queue
+
+        def unsubscribe_events(self, run_id, queue):
+            return None
 
         def get_run(self, run_id):
             return WorkflowRunState(
@@ -178,7 +192,7 @@ def test_headless_runs_start_passes_headless_request_and_outputs_event_stream(mo
             )
 
     monkeypatch.setattr(
-        "titan_cli.cli._workflow_service",
+        "titan_cli.cli._workflow_run_service",
         lambda: StubWorkflowService(),
     )
 
@@ -224,6 +238,11 @@ def test_headless_runs_start_event_stream_outputs_json_lines(monkeypatch):
                 workflow_name="demo",
                 status=RunSessionStatus.RUNNING,
             )
+            self.queue = Queue()
+
+        def _publish(self, event):
+            self.session.events.append(event)
+            self.queue.put(event)
 
         def create_run(self, request):
             nonlocal captured_request
@@ -231,7 +250,7 @@ def test_headless_runs_start_event_stream_outputs_json_lines(monkeypatch):
             return self.session
 
         def execute_run(self, session, request):
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_STARTED,
                     run_id=session.run_id,
@@ -239,7 +258,7 @@ def test_headless_runs_start_event_stream_outputs_json_lines(monkeypatch):
                     payload={"workflow_name": request.workflow_name},
                 )
             )
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_COMPLETED,
                     run_id=session.run_id,
@@ -249,10 +268,14 @@ def test_headless_runs_start_event_stream_outputs_json_lines(monkeypatch):
             )
             session.status = RunSessionStatus.COMPLETED
 
-        def stream_events(self, run_id, replay=True, timeout_seconds=0.1):
-            if replay:
-                for event in self.session.events:
-                    yield event
+        def snapshot_events(self, run_id, after_sequence=0):
+            return [event for event in self.session.events if event.sequence > after_sequence]
+
+        def subscribe_events(self, run_id):
+            return self.queue
+
+        def unsubscribe_events(self, run_id, queue):
+            return None
 
         def get_run(self, run_id):
             return WorkflowRunState(
@@ -276,7 +299,7 @@ def test_headless_runs_start_event_stream_outputs_json_lines(monkeypatch):
             )
 
     monkeypatch.setattr(
-        "titan_cli.cli._workflow_service",
+        "titan_cli.cli._workflow_run_service",
         lambda: StubWorkflowService(),
     )
 
@@ -307,12 +330,17 @@ def test_headless_runs_start_event_stream_reads_prompt_response_from_stdin(monke
                 status=RunSessionStatus.RUNNING,
             )
             self._cursor = 0
+            self.queue = Queue()
+
+        def _publish(self, event):
+            self.session.events.append(event)
+            self.queue.put(event)
 
         def create_run(self, request):
             return self.session
 
         def execute_run(self, session, request):
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_STARTED,
                     run_id=session.run_id,
@@ -326,7 +354,7 @@ def test_headless_runs_start_event_stream_reads_prompt_response_from_stdin(monke
                 message="Enter value",
             )
             session.pending_prompt = prompt
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.PROMPT_REQUESTED,
                     run_id=session.run_id,
@@ -341,13 +369,16 @@ def test_headless_runs_start_event_stream_reads_prompt_response_from_stdin(monke
                     },
                 )
             )
-            session.status = RunSessionStatus.WAITING_FOR_INPUT
+            session.status = RunSessionStatus.WAITING_FOR_PROMPT
 
-        def stream_events(self, run_id, replay=True, timeout_seconds=0.1):
-            while self._cursor < len(self.session.events):
-                event = self.session.events[self._cursor]
-                self._cursor += 1
-                yield event
+        def snapshot_events(self, run_id, after_sequence=0):
+            return [event for event in self.session.events if event.sequence > after_sequence]
+
+        def subscribe_events(self, run_id):
+            return self.queue
+
+        def unsubscribe_events(self, run_id, queue):
+            return None
 
         def get_run(self, run_id):
             return WorkflowRunState(
@@ -376,7 +407,7 @@ def test_headless_runs_start_event_stream_reads_prompt_response_from_stdin(monke
             submitted_request = request
             self.session.pending_prompt = None
             self.session.status = RunSessionStatus.COMPLETED
-            self.session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_COMPLETED,
                     run_id=self.session.run_id,
@@ -387,7 +418,7 @@ def test_headless_runs_start_event_stream_reads_prompt_response_from_stdin(monke
             return self.get_run(request.run_id)
 
     monkeypatch.setattr(
-        "titan_cli.cli._workflow_service",
+        "titan_cli.cli._workflow_run_service",
         lambda: StubWorkflowService(),
     )
 
@@ -436,7 +467,7 @@ def test_headless_workflows_describe_outputs_resolved_steps(monkeypatch):
             )
 
     monkeypatch.setattr(
-        "titan_cli.cli._workflow_service",
+        "titan_cli.cli._workflow_run_service",
         lambda: StubWorkflowService(),
     )
 
@@ -487,12 +518,17 @@ def test_headless_runs_start_accepts_interaction_response_commands(monkeypatch):
                 status=RunSessionStatus.RUNNING,
             )
             self._cursor = 0
+            self.queue = Queue()
+
+        def _publish(self, event):
+            self.session.events.append(event)
+            self.queue.put(event)
 
         def create_run(self, request):
             return self.session
 
         def execute_run(self, session, request):
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_STARTED,
                     run_id=session.run_id,
@@ -511,7 +547,7 @@ def test_headless_runs_start_accepts_interaction_response_commands(monkeypatch):
                 },
             )
             session.pending_interaction = interaction
-            session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.INTERACTION_REQUESTED,
                     run_id=session.run_id,
@@ -526,13 +562,16 @@ def test_headless_runs_start_accepts_interaction_response_commands(monkeypatch):
                     },
                 )
             )
-            session.status = RunSessionStatus.WAITING_FOR_INPUT
+            session.status = RunSessionStatus.WAITING_FOR_INTERACTION
 
-        def stream_events(self, run_id, replay=True, timeout_seconds=0.1):
-            while self._cursor < len(self.session.events):
-                event = self.session.events[self._cursor]
-                self._cursor += 1
-                yield event
+        def snapshot_events(self, run_id, after_sequence=0):
+            return [event for event in self.session.events if event.sequence > after_sequence]
+
+        def subscribe_events(self, run_id):
+            return self.queue
+
+        def unsubscribe_events(self, run_id, queue):
+            return None
 
         def get_run(self, run_id):
             return WorkflowRunState(
@@ -562,7 +601,7 @@ def test_headless_runs_start_accepts_interaction_response_commands(monkeypatch):
             submitted_request = request
             self.session.pending_interaction = None
             self.session.status = RunSessionStatus.COMPLETED
-            self.session.events.append(
+            self._publish(
                 EngineEvent(
                     type=EventType.RUN_COMPLETED,
                     run_id=self.session.run_id,
@@ -573,7 +612,7 @@ def test_headless_runs_start_accepts_interaction_response_commands(monkeypatch):
             return self.get_run(request.run_id)
 
     monkeypatch.setattr(
-        "titan_cli.cli._workflow_service",
+        "titan_cli.cli._workflow_run_service",
         lambda: StubWorkflowService(),
     )
 
@@ -597,6 +636,209 @@ def test_headless_runs_start_accepts_interaction_response_commands(monkeypatch):
     ]
 
 
+def test_headless_runs_start_streams_next_interaction_after_resume(monkeypatch):
+    class StubWorkflowService:
+        def __init__(self):
+            self.session = None
+            self._cursor = 0
+            self.queue = Queue()
+
+        def _publish(self, event):
+            self.session.events.append(event)
+            self.queue.put(event)
+
+        def create_run(self, request):
+            self.session = RunSession(
+                run_id="run-1",
+                workflow_name=request.workflow_name,
+                status=RunSessionStatus.RUNNING,
+            )
+            return self.session
+
+        def execute_run(self, session, request):
+            self._publish(
+                EngineEvent(
+                    type=EventType.RUN_STARTED,
+                    run_id=session.run_id,
+                    sequence=1,
+                    payload={"workflow_name": request.workflow_name},
+                )
+            )
+            interaction = InteractionRequest(
+                interaction_id="select_pr:select-pr",
+                interaction_type="option_list",
+                message="Choose PR",
+                state={
+                    "options": [
+                        InteractionOption(id="223", label="PR 223", value="223"),
+                    ]
+                },
+            )
+            session.pending_interaction = interaction
+            self._publish(
+                EngineEvent(
+                    type=EventType.INTERACTION_REQUESTED,
+                    run_id=session.run_id,
+                    sequence=2,
+                    payload={
+                        "step": StepRef(
+                            step_id="select_pr",
+                            step_name="Select PR",
+                            step_index=1,
+                        ),
+                        "interaction": interaction,
+                    },
+                )
+            )
+            session.status = RunSessionStatus.WAITING_FOR_INTERACTION
+
+        def snapshot_events(self, run_id, after_sequence=0):
+            return [event for event in self.session.events if event.sequence > after_sequence]
+
+        def subscribe_events(self, run_id):
+            return self.queue
+
+        def unsubscribe_events(self, run_id, queue):
+            return None
+
+        def get_run(self, run_id):
+            return WorkflowRunState(
+                run_id=self.session.run_id,
+                workflow_name=self.session.workflow_name,
+                status=self.session.status,
+                pending_prompt=self.session.pending_prompt,
+                pending_interaction=self.session.pending_interaction,
+                result=None,
+            )
+
+        def submit_interaction_response(self, request):
+            time.sleep(0.05)
+            self.session.pending_interaction = None
+            self._publish(
+                EngineEvent(
+                    type=EventType.STEP_FINISHED,
+                    run_id=self.session.run_id,
+                    sequence=3,
+                    payload={
+                        "step": StepRef(
+                            step_id="select_pr",
+                            step_name="Select PR",
+                            step_index=1,
+                        ),
+                        "status": "success",
+                        "message": "success",
+                        "metadata": {},
+                    },
+                )
+            )
+            interaction = InteractionRequest(
+                interaction_id="select_cli:select-cli",
+                interaction_type="option_list",
+                message="Choose CLI",
+                state={
+                    "options": [
+                        InteractionOption(id="claude", label="Claude", value="claude"),
+                    ]
+                },
+            )
+            self._publish(
+                EngineEvent(
+                    type=EventType.STEP_STARTED,
+                    run_id=self.session.run_id,
+                    sequence=4,
+                    payload={
+                        "step": StepRef(
+                            step_id="select_cli",
+                            step_name="Select CLI",
+                            step_index=2,
+                        ),
+                        "plugin": "github",
+                        "step_kind": "plugin",
+                    },
+                )
+            )
+            self.session.pending_interaction = interaction
+            self._publish(
+                EngineEvent(
+                    type=EventType.INTERACTION_REQUESTED,
+                    run_id=self.session.run_id,
+                    sequence=5,
+                    payload={
+                        "step": StepRef(
+                            step_id="select_cli",
+                            step_name="Select CLI",
+                            step_index=2,
+                        ),
+                        "interaction": interaction,
+                    },
+                )
+            )
+            self.session.status = RunSessionStatus.WAITING_FOR_INTERACTION
+            return self.get_run(request.run_id)
+
+        def cancel_run(self, run_id, reason="stop"):
+            self.session.pending_interaction = None
+            self.session.status = RunSessionStatus.CANCELLED
+            self._publish(
+                EngineEvent(
+                    type=EventType.RUN_CANCELLED,
+                    run_id=self.session.run_id,
+                    sequence=6,
+                    payload={"message": reason},
+                )
+            )
+            return self.get_run(run_id)
+
+    class StubContainer:
+        def __init__(self):
+            self._service = StubWorkflowService()
+
+        def workflow_run_service(self):
+            return self._service
+
+    command_iter = iter(
+        [
+            EngineCommand(
+                type=CommandType.SUBMIT_INTERACTION_RESPONSE,
+                run_id="run-1",
+                payload={
+                    "interaction_id": "select_pr:select-pr",
+                    "response_type": "select",
+                    "value": "223",
+                },
+            ),
+            EngineCommand(
+                type=CommandType.CANCEL_RUN,
+                run_id="run-1",
+                payload={"reason": "stop"},
+            ),
+        ]
+    )
+    emitted = []
+
+    monkeypatch.setattr(
+        "titan_cli.commands.headless.runs._read_engine_command",
+        lambda _run_id: next(command_iter),
+    )
+    monkeypatch.setattr(
+        "titan_cli.commands.headless.runs.typer.echo",
+        lambda line: emitted.append(json.loads(line)),
+    )
+
+    _run_event_stream_mode(
+        StubContainer(),
+        StartWorkflowRequest(workflow_name="demo"),
+    )
+
+    assert [line["type"] for line in emitted[:5]] == [
+        "run_started",
+        "interaction_requested",
+        "step_finished",
+        "step_started",
+        "interaction_requested",
+    ]
+
+
 def test_headless_workflows_list_keeps_stdout_json_when_runtime_prints(monkeypatch):
     class StubWorkflowService:
         def list_workflows(self, project_path=None):
@@ -604,7 +846,7 @@ def test_headless_workflows_list_keeps_stdout_json_when_runtime_prints(monkeypat
             return [WorkflowSummary(name="demo")]
 
     monkeypatch.setattr(
-        "titan_cli.cli._workflow_service",
+        "titan_cli.cli._workflow_run_service",
         lambda: StubWorkflowService(),
     )
 

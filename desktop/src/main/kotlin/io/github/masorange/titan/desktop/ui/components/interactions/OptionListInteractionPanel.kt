@@ -43,9 +43,7 @@ fun OptionListInteractionPanel(
     ) {
         options.forEach { option ->
             OptionListInteractionItem(
-                modifier = Modifier.fillMaxWidth().clickable(enabled = !isSubmitting) {
-
-                },
+                modifier = Modifier.fillMaxWidth(),
                 option = option,
                 isSubmitting = isSubmitting,
                 onSelect = onSelect,

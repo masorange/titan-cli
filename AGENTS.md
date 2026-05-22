@@ -44,6 +44,16 @@ For the Titan V1 harness initiative, shared planning and protocol memory lives i
 - `feature-list.json` - structured task backlog
 - `session-handoff.md` - optional session continuity guide
 
+If `docs/harness/README.md` exists, read it first at session start.
+
+When a harness is present, the minimum startup read order is:
+1. `docs/harness/README.md`
+2. `docs/harness/progress.md`
+3. `docs/harness/feature-list.json`
+4. `docs/harness/session-handoff.md` when continuity may matter
+
+Do not answer continuity or status questions from memory before reading the harness files.
+
 ---
 
 ## Agent Skills

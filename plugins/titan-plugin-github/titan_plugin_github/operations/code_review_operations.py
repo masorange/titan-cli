@@ -136,6 +136,56 @@ def compute_diff_stat(diff: str) -> Tuple[List[str], List[str]]:
     return formatted_files, [summary]
 
 
+def build_diff_output_metadata(diff: str) -> Dict[str, Any]:
+    """Build portable metadata for semantic diff output."""
+    file_stats: Dict[str, tuple[int, int]] = {}
+    current_file: Optional[str] = None
+
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            match = re.search(r" b/(.+)$", line)
+            if match:
+                current_file = match.group(1)
+                file_stats[current_file] = (0, 0)
+        elif line.startswith("+") and not line.startswith("+++"):
+            if current_file:
+                adds, dels = file_stats[current_file]
+                file_stats[current_file] = (adds + 1, dels)
+        elif line.startswith("-") and not line.startswith("---"):
+            if current_file:
+                adds, dels = file_stats[current_file]
+                file_stats[current_file] = (adds, dels + 1)
+
+    files = []
+    total_additions = 0
+    total_deletions = 0
+    for file_path, (additions, deletions) in sorted(file_stats.items()):
+        total_additions += additions
+        total_deletions += deletions
+        files.append(
+            {
+                "path": file_path,
+                "additions": additions,
+                "deletions": deletions,
+            }
+        )
+
+    file_count = len(files)
+    file_word = "file" if file_count == 1 else "files"
+    summary_lines = [
+        f"{file_count} {file_word} changed, {total_additions} insertions(+), {total_deletions} deletions(-)"
+    ]
+
+    return {
+        "kind": "unified_patch",
+        "file_count": file_count,
+        "total_additions": total_additions,
+        "total_deletions": total_deletions,
+        "files": files,
+        "summary_lines": summary_lines,
+    }
+
+
 MAX_FILES_FOR_REVIEW = 20
 
 

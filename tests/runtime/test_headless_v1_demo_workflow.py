@@ -109,3 +109,24 @@ def test_headless_v1_demo_event_stream_cancel_run() -> None:
         if line["type"] == "step_started"
         and line.get("payload", {}).get("step", {}).get("step_id") == "emit-text"
     ) == 1
+
+
+def test_headless_v1_demo_keeps_protocol_events_off_stderr() -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "headless",
+            "runs",
+            "start",
+            "headless-v1-demo",
+            "--project-path",
+            str(REPO_ROOT),
+            "--prompt-responses-json",
+            "[true]",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert '"type": "run_started"' not in result.stderr
+    assert '"type": "prompt_requested"' not in result.stderr
+    assert '"type": "run_result_emitted"' not in result.stderr

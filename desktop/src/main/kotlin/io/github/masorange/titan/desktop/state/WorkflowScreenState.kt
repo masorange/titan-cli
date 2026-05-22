@@ -5,6 +5,7 @@ import io.github.masorange.titan.desktop.protocol.InteractionAction
 import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import io.github.masorange.titan.desktop.protocol.WorkflowStepSummary
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 data class WorkflowScreenState(
     val runId: String? = null,
@@ -44,6 +45,7 @@ data class OutputTimelineItemState(
     val format: String,
     val title: String? = null,
     val content: String,
+    val metadata: JsonObject = JsonObject(emptyMap()),
 )
 
 data class ActivePromptState(

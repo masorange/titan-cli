@@ -6,7 +6,7 @@ import os
 import threading
 import uuid
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Queue
 from typing import Any, Optional
 
 from titan_cli.application.models.prompts import PromptResponse
@@ -22,7 +22,7 @@ from titan_cli.application.models.responses import (
     WorkflowStepSummary,
     WorkflowSummary,
 )
-from titan_cli.application.runtime.event_bus import EventBus
+from titan_cli.application.runtime.run_event_stream import RunEventStream
 from titan_cli.application.runtime.run_session import RunSession
 from titan_cli.application.runtime.run_store import RunStore
 from titan_cli.application.runtime.status import RunSessionStatus
@@ -77,7 +77,7 @@ class RunInteractionPort(HeadlessInteractionPort):
 
     def __init__(
         self,
-        service: "WorkflowService",
+        service: "WorkflowRunService",
         session: RunSession,
         ctx: WorkflowContext,
         queued_prompt_responses: Optional[list[object]] = None,
@@ -124,6 +124,30 @@ class RunInteractionPort(HeadlessInteractionPort):
                     format=OutputFormat.MARKDOWN,
                     title="Markdown output",
                     content=markdown_text,
+                ),
+            },
+        )
+
+    def display_diff(
+        self,
+        diff_text: str,
+        *,
+        title: str | None = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.messages.append(("diff", diff_text))
+        if self._suppress_replayed_prefix:
+            return
+        self._service._append_event(
+            self._session,
+            EventType.OUTPUT_EMITTED,
+            {
+                "step": self._step_ref(),
+                "output": OutputPayload(
+                    format=OutputFormat.DIFF,
+                    title=title,
+                    content=diff_text,
+                    metadata=metadata or {},
                 ),
             },
         )
@@ -305,18 +329,18 @@ class RunInteractionPort(HeadlessInteractionPort):
         )
 
 
-class WorkflowService:
-    """Facade for listing and starting workflows independently of any UI."""
+class WorkflowRunService:
+    """Owns workflow run lifecycle, state, and event emission."""
 
     def __init__(
         self,
         config: TitanConfig,
         run_store: Optional[RunStore] = None,
-        event_bus: Optional[EventBus] = None,
+        run_event_stream: Optional[RunEventStream] = None,
     ) -> None:
         self._config = config
         self._run_store = run_store or RunStore()
-        self._event_bus = event_bus or EventBus()
+        self._run_event_stream = run_event_stream or RunEventStream(self._run_store)
 
     def list_workflows(self, project_path: Optional[str] = None) -> list[WorkflowSummary]:
         """Return available workflows from the active registry."""
@@ -402,42 +426,17 @@ class WorkflowService:
             result=self._result_for_session(session),
         )
 
-    def stream_events(
-        self,
-        run_id: str,
-        replay: bool = True,
-        timeout_seconds: float = 30.0,
-    ):
-        """Yield run events, replaying known events first and then streaming new ones."""
-        session = self._run_store.get(run_id)
-        if session is None:
-            return
+    def snapshot_events(self, run_id: str, after_sequence: int = 0) -> list[EngineEvent]:
+        """Return persisted run events after the given sequence."""
+        return self._run_event_stream.snapshot(run_id, after_sequence=after_sequence)
 
-        if replay:
-            for event in session.events:
-                yield event
+    def subscribe_events(self, run_id: str):
+        """Subscribe to live events for the given run id."""
+        return self._run_event_stream.subscribe(run_id)
 
-        if session.status in _TERMINAL_SESSION_STATUSES:
-            return
-
-        queue: Queue[EngineEvent] = Queue()
-
-        def _on_event(event: EngineEvent) -> None:
-            queue.put(event)
-
-        self._event_bus.subscribe(run_id, _on_event)
-        try:
-            while True:
-                try:
-                    event = queue.get(timeout=timeout_seconds)
-                except Empty:
-                    break
-                yield event
-                current = self._run_store.get(run_id)
-                if current and current.status in _TERMINAL_SESSION_STATUSES:
-                    break
-        finally:
-            self._event_bus.unsubscribe(run_id, _on_event)
+    def unsubscribe_events(self, run_id: str, queue: Queue[EngineEvent]) -> None:
+        """Remove a live event subscription for the given run id."""
+        self._run_event_stream.unsubscribe(run_id, queue)
 
     def submit_prompt_response(
         self,
@@ -454,13 +453,16 @@ class WorkflowService:
         self._record_prompt_answer(session, session.pending_prompt, request.value)
         session.metadata.setdefault("prompt_responses", [])
         session.metadata["prompt_responses"].append(request.value)
-        session.status = RunSessionStatus.RUNNING
+        session.pending_interaction = None
+        session.status = RunSessionStatus.RESUMING
+        self._run_store.save(session)
         resume_step_index = int(session.metadata.get("resume_step_index") or 1)
         self._execute_run(
             session,
             self._request_from_session(session),
             start_step_index=max(resume_step_index - 1, 0),
             emit_run_started=False,
+            resuming=True,
             queued_prompt_responses=[request.value],
             resume_step_id=session.metadata.get("resume_step_id"),
         )
@@ -484,13 +486,16 @@ class WorkflowService:
             "value": request.value,
         }
         self._record_interaction_answer(session, session.pending_interaction, response)
-        session.status = RunSessionStatus.RUNNING
+        session.pending_prompt = None
+        session.status = RunSessionStatus.RESUMING
+        self._run_store.save(session)
         resume_step_index = int(session.metadata.get("resume_step_index") or 1)
         self._execute_run(
             session,
             self._request_from_session(session),
             start_step_index=max(resume_step_index - 1, 0),
             emit_run_started=False,
+            resuming=True,
             queued_interaction_responses=[response],
             resume_step_id=session.metadata.get("resume_step_id"),
         )
@@ -507,7 +512,10 @@ class WorkflowService:
 
         session.metadata["cancel_requested"] = reason
 
-        if session.status == RunSessionStatus.WAITING_FOR_INPUT:
+        if session.status in {
+            RunSessionStatus.WAITING_FOR_PROMPT,
+            RunSessionStatus.WAITING_FOR_INTERACTION,
+        }:
             session.pending_prompt = None
             session.pending_interaction = None
             session.status = RunSessionStatus.CANCELLED
@@ -536,7 +544,7 @@ class WorkflowService:
         )
         session.events.append(event)
         self._run_store.save(session)
-        self._event_bus.publish(event)
+        self._run_event_stream.publish(event)
         return event
 
     def _build_context(
@@ -618,15 +626,20 @@ class WorkflowService:
         *,
         start_step_index: int = 0,
         emit_run_started: bool = True,
+        resuming: bool = False,
         queued_prompt_responses: Optional[list[object]] = None,
         queued_interaction_responses: Optional[list[dict[str, object]]] = None,
         resume_step_id: Optional[str] = None,
     ) -> None:
         """Execute a workflow synchronously and update run state."""
+        session.pending_prompt = None
+        session.pending_interaction = None
         config = self._config_for_project_path(request.project_path)
         workflow = config.workflows.get_workflow(request.workflow_name)
 
-        session.status = RunSessionStatus.RUNNING
+        session.status = (
+            RunSessionStatus.RESUMING if resuming else RunSessionStatus.RUNNING
+        )
         if emit_run_started:
             self._append_event(
                 session,
@@ -707,7 +720,7 @@ class WorkflowService:
                 },
             )
         except PromptRequestedError as prompt_exc:
-            session.status = RunSessionStatus.WAITING_FOR_INPUT
+            session.status = RunSessionStatus.WAITING_FOR_PROMPT
             session.pending_prompt = prompt_exc.prompt
             session.pending_interaction = None
             session.result_message = prompt_exc.prompt.message
@@ -718,7 +731,7 @@ class WorkflowService:
                 session.metadata["resume_step_name"] = ctx.current_step_name
             self._run_store.save(session)
         except InteractionRequestedError as interaction_exc:
-            session.status = RunSessionStatus.WAITING_FOR_INPUT
+            session.status = RunSessionStatus.WAITING_FOR_INTERACTION
             session.pending_interaction = interaction_exc.interaction
             session.pending_prompt = None
             session.result_message = interaction_exc.interaction.message

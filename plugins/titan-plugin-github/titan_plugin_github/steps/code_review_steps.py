@@ -22,8 +22,8 @@ from ..models.review_models import PRClassification, ReviewActionProposal
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
 from ..operations.code_review_operations import (
+    build_diff_output_metadata,
     select_files_for_review,
-    compute_diff_stat,
 )
 from ..operations.review_action_operations import (
     build_new_comment_actions as build_new_comment_actions_operation,
@@ -746,9 +746,14 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             commit_sha = ""
 
     # Display file changes summary
-    formatted_files, formatted_summary = compute_diff_stat(diff)
     diff_manager = get_or_create_diff_manager(diff, ctx.data)
-    ctx.textual.show_diff_stat(formatted_files, formatted_summary, title="Files affected:")
+    diff_metadata = build_diff_output_metadata(diff)
+    ctx.textual.display_diff(
+        diff,
+        title="Files affected:",
+        metadata=diff_metadata,
+    )
+    diff_summary_text = "; ".join(diff_metadata.get("summary_lines", []))
 
     # Fetch inline review threads and general comments separately
     review_threads = []
@@ -769,7 +774,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
                 pass
 
     ctx.textual.dim_text(
-        f"{len(changed_file_paths)} files · {formatted_summary} · "
+        f"{len(changed_file_paths)} files · {diff_summary_text} · "
         f"{len(review_threads)} review thread(s) · {len(general_comments)} general comment(s)"
     )
 
@@ -783,6 +788,11 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             "review_pr": pr,
             "review_diff": diff,
             "review_diff_manager": diff_manager,
+            "review_diff_output": {
+                "title": "Files affected:",
+                "content": diff,
+                "metadata": diff_metadata,
+            },
             "review_changed_files": changed_file_paths,
             "review_changed_files_with_stats": all_files_with_stats,
             "review_commit_sha": commit_sha,
