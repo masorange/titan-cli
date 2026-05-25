@@ -8,14 +8,100 @@ import androidx.compose.ui.graphics.Color
  * @param palette The color palette used for the app, containing various color definitions.
  * @param components The colors used for various components in the app.
  */
-data class Colors(val palette: ColorPalette, val components: ComponentColors) {
+data class Colors(
+    val palette: ColorPalette,
+    val components: ComponentColors,
+    val ui: UiColors,
+) {
     companion object {
         internal val Default = Colors(
             palette = ColorPalette.Default,
-            components = ComponentColors.Default
+            components = ComponentColors.Default,
+            ui = UiColors.fromPalette(ColorPalette.Default),
         )
     }
 }
+
+data class UiColors(
+    val previewBackground: Color,
+    val screenBackground: Color,
+    val cardBackground: Color,
+    val mutedSurfaceBackground: Color,
+    val sectionHeaderBackground: Color,
+    val sectionBorder: Color,
+    val workflowStepSuccess: StateColors,
+    val workflowStepRunning: StateColors,
+    val workflowStepFailed: StateColors,
+    val workflowStepPending: StateColors,
+    val workflowStepSkipped: StateColors,
+    val workflowTitle: Color,
+    val workflowSubtitle: Color,
+    val workflowNeutralDot: Color,
+    val workflowCardBorder: Color,
+    val workflowHeaderBackground: Color,
+    val diffAdditions: Color,
+    val diffDeletions: Color,
+    val diffPreviewBackground: Color,
+    val diffPreviewNeutral: Color,
+    val diffPreviewHeader: Color,
+    val diffPreviewHunk: Color,
+) {
+    companion object {
+        fun fromPalette(palette: ColorPalette): UiColors = UiColors(
+            previewBackground = palette.background.default,
+            screenBackground = palette.grey.g100,
+            cardBackground = palette.background.default,
+            mutedSurfaceBackground = palette.grey.g50,
+            sectionHeaderBackground = palette.grey.g200,
+            sectionBorder = palette.grey.g200,
+            workflowStepSuccess = StateColors(
+                background = palette.background.success,
+                border = palette.success.light,
+                accent = palette.success.dark,
+            ),
+            workflowStepRunning = StateColors(
+                background = palette.background.info,
+                border = palette.grey.g900,
+                accent = palette.grey.g900,
+            ),
+            workflowStepFailed = StateColors(
+                background = palette.background.error,
+                border = palette.error.light,
+                accent = palette.error.main,
+            ),
+            workflowStepPending = StateColors(
+                background = palette.background.default,
+                border = palette.grey.g200,
+                accent = palette.grey.g400,
+            ),
+            workflowStepSkipped = StateColors(
+                background = palette.background.warning,
+                border = palette.warning.light,
+                accent = palette.warning.dark,
+            ),
+            workflowTitle = palette.text.primary,
+            workflowSubtitle = palette.text.secondary,
+            workflowNeutralDot = palette.grey.g400,
+            workflowCardBorder = palette.grey.g500,
+            workflowHeaderBackground = palette.grey.g200,
+            diffAdditions = palette.success.dark,
+            diffDeletions = palette.error.main,
+            diffPreviewBackground = palette.grey.g50,
+            diffPreviewNeutral = palette.text.primary,
+            diffPreviewHeader = palette.info.dark,
+            diffPreviewHunk = palette.secondary.main,
+        )
+
+        internal val Light = fromPalette(ColorPalette.Default)
+        internal val Default = Light
+    }
+}
+
+data class StateColors(
+    val background: Color,
+    val border: Color,
+    val accent: Color,
+)
 
 /**
  * Description of the color palette used in the apps.
@@ -165,7 +251,7 @@ abstract class ComponentColors(val palette: ColorPalette) {
                 hover = palette.link.main,
                 active = palette.link.dark
             )
-            override val circularProgressIndicator:  CircularProgressIndicator = CircularProgressIndicator(
+            override val circularProgressIndicator: CircularProgressIndicator = CircularProgressIndicator(
                 background = Color(0xFFe0e0e0),
                 shadow = Color(0x19000000),
                 normalStart = Color(0xFFb4ec51),
@@ -175,7 +261,7 @@ abstract class ComponentColors(val palette: ColorPalette) {
                 warningMiddle = Color(0xFFe6282f),
                 warningEnd = Color(0xFFd0021b)
             )
-            override val linearProgressIndicator:  LinearProgressIndicator = LinearProgressIndicator(
+            override val linearProgressIndicator: LinearProgressIndicator = LinearProgressIndicator(
                 background = Color(0xFFececec),
                 normal = Color(0xFF74d443),
                 warning = Color(0xFFd0021b),
@@ -320,11 +406,12 @@ abstract class ComponentColors(val palette: ColorPalette) {
         }
     }
 
-     /**
+    /**
      * The main color used for the Primary Link component.
      */
     abstract val primaryLink: PrimaryLink
-     /**
+
+    /**
      * The main color used for the Circular Progress Indicator component.
      */
     abstract val circularProgressIndicator: CircularProgressIndicator
@@ -333,6 +420,7 @@ abstract class ComponentColors(val palette: ColorPalette) {
      * The main color used for the Linear Progress Indicator component.
      */
     abstract val linearProgressIndicator: LinearProgressIndicator
+
     /**
      * The component colors palette [PrimaryButton] used for the Primary Button.
      */
@@ -439,6 +527,7 @@ abstract class ComponentColors(val palette: ColorPalette) {
         val warningMiddle: Color,
         val warningEnd: Color
     )
+
     /**
      * Linear Progress Indicator component color.
      */
@@ -448,6 +537,7 @@ abstract class ComponentColors(val palette: ColorPalette) {
         val warning: Color,
         val disabled: Color
     )
+
     /**
      * PrimaryButton component colors.
      */
@@ -530,8 +620,8 @@ abstract class ComponentColors(val palette: ColorPalette) {
     )
 
     /**
-    * TextField component colors.
-    */
+     * TextField component colors.
+     */
     data class TextField(
         val focused: Color,
         val unfocusedContainer: Color,
@@ -840,106 +930,3 @@ data class Background(
     val info: Color,
     val success: Color
 )
-
-//@OptIn(ExperimentalLayoutApi::class)
-//@UiPreview
-//@Composable
-//@FreyjaEntry(name = "Color palette: general colors", category = FreyjaCatalogConstants.Categories.COLORS)
-//fun ColorPalettePreview() {
-//    // Create a preview with all the colors in the color palette for the Local AppTheme, grouped by their type. Also add names.
-//    val colorPalette = LocalTheme.current.colors.palette
-//    val colorPaletteColors = getColorPaletteColors(colorPalette)
-//
-//    UiPreviewLayout {
-//        Column(
-//            verticalArrangement = Arrangement.spacedBy(24.dp)
-//        ) {
-//            PreviewColorPalette("Color Palette", colorPaletteColors)
-//        }
-//    }
-//}
-
-//@OptIn(ExperimentalLayoutApi::class)
-//@UiPreview
-//@Composable
-//@FreyjaEntry(name = "Color palette: component colors", category = FreyjaCatalogConstants.Categories.COLORS)
-//fun ComponentColorsPalettePreview() {
-//    // Create a preview with all the colors in the color palette for the Local AppTheme, grouped by their type. Also add names.
-//    val componentColorsPalette = LocalTheme.current.colors.components
-//    val componentColors = getColorPaletteColors(componentColorsPalette)
-//
-//    UiPreviewLayout {
-//        Column(
-//            verticalArrangement = Arrangement.spacedBy(24.dp)
-//        ) {
-//            PreviewColorPalette("Component colors", componentColors)
-//        }
-//    }
-//}
-//
-//@Composable
-//@OptIn(ExperimentalLayoutApi::class)
-//private fun PreviewColorPalette(name: String, colors: List<Pair<String, List<Pair<String, Color>>>>) {
-//    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-//        Text(
-//            text = name,
-//            fontSize = 20.sp,
-//            fontWeight = FontWeight.Bold
-//        )
-//
-//        colors.forEach { (colorGroupName, colorPairs) ->
-//            Column(modifier = Modifier.fillMaxWidth()) {
-//                Text(
-//                    text = colorGroupName
-//                )
-//
-//                Spacer(modifier = Modifier.height(12.dp))
-//
-//                FlowRow(
-//                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-//                    verticalArrangement = Arrangement.spacedBy(8.dp),
-//                    maxItemsInEachRow = 3
-//                ) {
-//                    colorPairs.forEach { (colorName, colorValue) ->
-//                        val cornerSizeDp = 4.dp
-//                        Box(
-//                            modifier = Modifier
-//                                .height(50.dp)
-//                                .fillMaxWidth(0.319f)
-//                                .background(color = colorValue, shape = RoundedCornerShape(cornerSizeDp))
-//                                .border(
-//                                    width = 1.dp,
-//                                    color = Color(0x7f7f7f7f),
-//                                    shape = RoundedCornerShape(cornerSizeDp)
-//                                )
-//                        ) {
-//                            Text(
-//                                modifier = Modifier.padding(8.dp),
-//                                color = colorValue.getContrastColor(),
-//                                text = colorName
-//                            )
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-//}
-//
-//@Composable
-//private fun <T> getColorPaletteColors(item: T): List<Pair<String, List<Pair<String, Color>>>> = item!!::class.declaredMemberProperties
-//    .map { colorGroupProperty ->
-//        val colorGroupName = colorGroupProperty.name
-//        val colorGroupClass = colorGroupProperty.returnType.jvmErasure
-//
-//        val colorPairs = colorGroupClass.declaredMemberProperties.map { colorProperty ->
-//            val colorName = colorProperty.name
-//
-//            @Suppress("UNCHECKED_CAST")
-//            val colorValue = (colorProperty.apply { javaField?.isAccessible = true } as KProperty1<Any, Color>)
-//                .get(colorGroupProperty.getter.call(item)!!)
-//            colorName to colorValue
-//        }
-//
-//        colorGroupName to colorPairs
-//    }

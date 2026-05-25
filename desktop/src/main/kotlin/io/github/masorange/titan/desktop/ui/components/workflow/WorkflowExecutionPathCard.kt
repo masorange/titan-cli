@@ -1,4 +1,4 @@
-package io.github.masorange.titan.desktop.ui.components.workflowexecution
+package io.github.masorange.titan.desktop.ui.components.workflow
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,30 +21,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.StepVisualStatus
+import io.github.masorange.titan.desktop.theme.colors.UiColors
+import io.github.masorange.titan.desktop.ui.LocalTheme
 import org.jetbrains.compose.ui.tooling.preview.Preview
-
-private val SuccessBackground = Color(0xFFEAF7EF)
-private val SuccessBorder = Color(0xFFC8F0D5)
-private val SuccessIcon = Color(0xFF16A34A)
-
-private val RunningBackground = Color(0xFFDCE7FF)
-private val RunningBorder = Color(0xFF111827)
-private val RunningIcon = Color(0xFF111827)
-
-private val FailedBackground = Color(0xFFFDE8E8)
-private val FailedBorder = Color(0xFFF5B5B5)
-private val FailedIcon = Color(0xFFDC2626)
-
-private val PendingBackground = Color(0xFFF8FAFC)
-private val PendingBorder = Color(0xFFE2E8F0)
-private val PendingIcon = Color(0xFF94A3B8)
-
-private val SkippedBackground = Color(0xFFFFF7E6)
-private val SkippedBorder = Color(0xFFF5D28C)
-private val SkippedIcon = Color(0xFFD97706)
-
-private val TitleColor = Color(0xFF0F172A)
-private val SubtitleColor = Color(0xFF475569)
 
 @Composable
 fun WorkflowExecutionPathCard(
@@ -53,7 +32,8 @@ fun WorkflowExecutionPathCard(
     status: StepVisualStatus,
     modifier: Modifier = Modifier,
 ) {
-    val palette = statusPalette(status)
+    val colors = LocalTheme.current.colors.ui
+    val palette = statusPalette(status, colors)
 
     Card(
         modifier = modifier
@@ -90,12 +70,12 @@ fun WorkflowExecutionPathCard(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = title,
-                    color = TitleColor,
+                    color = colors.workflowTitle,
                     style = MaterialTheme.typography.h6.copy(fontWeight = FontWeight.Bold),
                 )
                 Text(
                     text = subtitle,
-                    color = SubtitleColor,
+                    color = colors.workflowSubtitle,
                     style = MaterialTheme.typography.body1,
                 )
             }
@@ -110,35 +90,35 @@ private data class StepVisualPalette(
     val symbol: String,
 )
 
-private fun statusPalette(status: StepVisualStatus): StepVisualPalette = when (status) {
+private fun statusPalette(status: StepVisualStatus, colors: UiColors): StepVisualPalette = when (status) {
     StepVisualStatus.SUCCESS -> StepVisualPalette(
-        background = SuccessBackground,
-        border = SuccessBorder,
-        icon = SuccessIcon,
+        background = colors.workflowStepSuccess.background,
+        border = colors.workflowStepSuccess.border,
+        icon = colors.workflowStepSuccess.accent,
         symbol = "✓",
     )
     StepVisualStatus.RUNNING -> StepVisualPalette(
-        background = RunningBackground,
-        border = RunningBorder,
-        icon = RunningIcon,
+        background = colors.workflowStepRunning.background,
+        border = colors.workflowStepRunning.border,
+        icon = colors.workflowStepRunning.accent,
         symbol = "↻",
     )
     StepVisualStatus.FAILED -> StepVisualPalette(
-        background = FailedBackground,
-        border = FailedBorder,
-        icon = FailedIcon,
+        background = colors.workflowStepFailed.background,
+        border = colors.workflowStepFailed.border,
+        icon = colors.workflowStepFailed.accent,
         symbol = "!",
     )
     StepVisualStatus.SKIPPED -> StepVisualPalette(
-        background = SkippedBackground,
-        border = SkippedBorder,
-        icon = SkippedIcon,
+        background = colors.workflowStepSkipped.background,
+        border = colors.workflowStepSkipped.border,
+        icon = colors.workflowStepSkipped.accent,
         symbol = "-",
     )
     StepVisualStatus.PENDING -> StepVisualPalette(
-        background = PendingBackground,
-        border = PendingBorder,
-        icon = PendingIcon,
+        background = colors.workflowStepPending.background,
+        border = colors.workflowStepPending.border,
+        icon = colors.workflowStepPending.accent,
         symbol = "·",
     )
 }

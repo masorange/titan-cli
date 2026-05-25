@@ -14,9 +14,8 @@ import io.github.masorange.titan.desktop.adapter.RunningTitanProcess
 import io.github.masorange.titan.desktop.protocol.EventStreamDecoder
 import io.github.masorange.titan.desktop.protocol.PromptCommandEncoder
 import io.github.masorange.titan.desktop.protocol.WorkflowDetail
-import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.state.WorkflowScreenStateReducer
-import io.github.masorange.titan.desktop.ui.WorkflowScreen
+import io.github.masorange.titan.desktop.ui.screens.WorkflowScreen
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -290,7 +289,6 @@ fun App() {
             isSubmittingInteraction = isSubmittingInteraction,
             isLoadingWorkflow = isLoadingWorkflow,
             isStartingRun = isStartingRun,
-            isCancellingRun = isCancellingRun,
             activeErrorMessage = activeErrorMessage,
             onDismissError = { activeErrorMessage = null },
             onSubmitText = { submitPromptValue(JsonPrimitive(promptDraftText)) },

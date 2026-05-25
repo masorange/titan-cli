@@ -29,6 +29,7 @@ import io.github.masorange.titan.desktop.theme.Body2RegularText
 import io.github.masorange.titan.desktop.theme.Body2SecondaryText
 import io.github.masorange.titan.desktop.theme.CaptionRegularText
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
+import io.github.masorange.titan.desktop.ui.LocalTheme
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
@@ -42,12 +43,13 @@ fun StepContainer(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    val colors = LocalTheme.current.colors.ui
     Card(
         modifier = modifier
             .fillMaxWidth()
             .border(
                 width = 1.dp,
-                color = Color.Gray,
+                color = colors.workflowCardBorder,
                 shape = RoundedCornerShape(Spacing.s4)
             ),
         elevation = 4.dp,
@@ -61,7 +63,7 @@ fun StepContainer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.LightGray)
+                    .background(colors.workflowHeaderBackground)
                     .padding(Spacing.s6),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s4),
                 verticalAlignment = Alignment.CenterVertically,
@@ -109,12 +111,13 @@ fun StepContainer(
 
 @Composable
 private fun StatusDot(status: StepVisualStatus?) {
+    val colors = LocalTheme.current.colors.ui
     val color = when (status) {
-        StepVisualStatus.SUCCESS -> Color(0xFF2E7D32)
-        StepVisualStatus.FAILED -> Color(0xFFC62828)
-        StepVisualStatus.SKIPPED -> Color(0xFF6D6D6D)
-        StepVisualStatus.RUNNING -> Color(0xFF1565C0)
-        StepVisualStatus.PENDING, null -> Color(0xFF9E9E9E)
+        StepVisualStatus.SUCCESS -> colors.workflowStepSuccess.accent
+        StepVisualStatus.FAILED -> colors.workflowStepFailed.accent
+        StepVisualStatus.SKIPPED -> colors.workflowStepSkipped.accent
+        StepVisualStatus.RUNNING -> colors.workflowStepRunning.accent
+        StepVisualStatus.PENDING, null -> colors.workflowNeutralDot
     }
 
     androidx.compose.foundation.layout.Box(

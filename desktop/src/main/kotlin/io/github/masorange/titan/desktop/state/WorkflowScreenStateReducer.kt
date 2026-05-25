@@ -31,7 +31,7 @@ object WorkflowScreenStateReducer {
     ): WorkflowScreenState = WorkflowScreenState(
         header = RunHeaderState(
             workflowName = workflowDetail?.name ?: workflowName,
-            workflowTitle = workflowDetail?.description,
+            workflowTitle = workflowDetail?.description ?: "",
             projectPath = projectPath,
             totalSteps = workflowDetail?.steps?.size,
         ),
@@ -123,7 +123,7 @@ object WorkflowScreenStateReducer {
         runId = event.runId,
         header = state.header.copy(
             workflowName = event.payload["workflow_name"]?.asStringOrNull() ?: state.header.workflowName,
-            workflowTitle = event.payload["workflow_title"]?.asStringOrNull(),
+            workflowTitle = event.payload["workflow_title"]?.asStringOrNull() ?: "", //TODO Change this
             projectPath = event.payload["project_path"]?.asStringOrNull() ?: state.header.projectPath,
             totalSteps = event.payload["total_steps"]?.asIntOrNull(),
             status = RunVisualStatus.RUNNING,
@@ -211,6 +211,14 @@ object WorkflowScreenStateReducer {
         val output = event.payload.decodeOutputPayload() ?: return state
         val step = event.payload.decodeStepRef()
         return state.copy(
+            steps = step?.let { stepRef ->
+                state.steps.upsertStep(stepRef) {
+                    copy(
+                        status = if (status == StepVisualStatus.PENDING) StepVisualStatus.RUNNING else status,
+                        startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
+                    )
+                }
+            } ?: state.steps,
             timeline = state.timeline + OutputTimelineItemState(
                 sequence = event.sequence ?: state.timeline.size + 1,
                 stepId = step?.stepId,
@@ -230,6 +238,14 @@ object WorkflowScreenStateReducer {
         val prompt = event.payload.decodePromptRequest() ?: return state
         val step = event.payload.decodeStepRef()
         return state.copy(
+            steps = step?.let { stepRef ->
+                state.steps.upsertStep(stepRef) {
+                    copy(
+                        status = if (status == StepVisualStatus.PENDING) StepVisualStatus.RUNNING else status,
+                        startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
+                    )
+                }
+            } ?: state.steps,
             activePrompt = ActivePromptState(
                 promptId = prompt.promptId,
                 stepId = step?.stepId,
@@ -253,11 +269,19 @@ object WorkflowScreenStateReducer {
         val step = event.payload.decodeStepRef()
         val options = interaction.state["options"]?.let(::decodeInteractionOptions) ?: emptyList()
         return state.copy(
+            steps = step?.let { stepRef ->
+                state.steps.upsertStep(stepRef) {
+                    copy(
+                        status = if (status == StepVisualStatus.PENDING) StepVisualStatus.RUNNING else status,
+                        startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
+                    )
+                }
+            } ?: state.steps,
             activeInteraction = ActiveInteractionState(
                 interactionId = interaction.interactionId,
                 stepId = step?.stepId,
                 stepName = step?.stepName,
-                interactionType = interaction.interactionType,
+                interactionType = InteractionVisualType.fromWireValue(interaction.interactionType),
                 message = interaction.message,
                 options = options,
                 actions = interaction.actions,

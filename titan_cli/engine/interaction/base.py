@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from contextlib import nullcontext
 from typing import Any, Optional
 
+from titan_cli.ports.protocol import InteractionOption
+
 
 class InteractionPort(ABC):
     """Abstract interaction surface consumed by workflow steps."""
@@ -192,3 +194,26 @@ class InteractionPort(ABC):
     ) -> Any:
         """Request a richer single selection from the current UI client."""
         raise NotImplementedError("option_list is not implemented for this interaction port")
+
+    def ask_option(self, message: str, options: list[Any]) -> Any:
+        """Legacy-compatible rich single-selection API.
+
+        Older steps still pass `OptionItem`-style objects with `title`,
+        `description`, and `value`. Map them into the semantic option-list
+        capability so headless and future adapters do not need Textual-specific
+        methods.
+        """
+        semantic_options = [
+            InteractionOption(
+                id=str(index),
+                label=str(getattr(option, "title", getattr(option, "label", option))),
+                value=getattr(option, "value", option),
+                description=getattr(option, "description", None),
+            )
+            for index, option in enumerate(options, start=1)
+        ]
+        return self.option_list(
+            interaction_id="select-option",
+            message=message,
+            options=semantic_options,
+        )

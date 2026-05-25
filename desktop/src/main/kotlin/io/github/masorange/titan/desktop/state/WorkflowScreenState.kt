@@ -21,8 +21,8 @@ data class WorkflowScreenState(
 )
 
 data class RunHeaderState(
-    val workflowName: String? = null,
-    val workflowTitle: String? = null,
+    val workflowName: String,
+    val workflowTitle: String,
     val projectPath: String? = null,
     val status: RunVisualStatus = RunVisualStatus.IDLE,
     val totalSteps: Int? = null,
@@ -89,11 +89,31 @@ data class ActiveInteractionState(
     val interactionId: String,
     val stepId: String? = null,
     val stepName: String? = null,
-    val interactionType: String,
+    val interactionType: InteractionVisualType,
     val message: String? = null,
     val options: List<InteractionOptionState> = emptyList(),
     val actions: List<InteractionAction> = emptyList(),
 )
+
+enum class InteractionVisualType(val wireValue: String) {
+    OPTION_LIST("option_list"),
+    REVIEW_QUEUE("review_queue"),
+    ACTION_LIST("action_list"),
+    EDITABLE_TEXT("editable_text"),
+    BATCH_PROGRESS("batch_progress"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromWireValue(value: String): InteractionVisualType = when (value) {
+            OPTION_LIST.wireValue -> OPTION_LIST
+            REVIEW_QUEUE.wireValue -> REVIEW_QUEUE
+            ACTION_LIST.wireValue -> ACTION_LIST
+            EDITABLE_TEXT.wireValue -> EDITABLE_TEXT
+            BATCH_PROGRESS.wireValue -> BATCH_PROGRESS
+            else -> UNKNOWN
+        }
+    }
+}
 
 data class InteractionOptionState(
     val id: String,

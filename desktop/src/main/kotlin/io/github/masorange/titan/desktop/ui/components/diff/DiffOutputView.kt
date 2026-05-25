@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.OutputTimelineItemState
 import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
+import io.github.masorange.titan.desktop.ui.LocalTheme
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -28,10 +29,13 @@ fun DiffOutputView(
     item: OutputTimelineItemState,
     modifier: Modifier = Modifier,
 ) {
+    val colors = LocalTheme.current.colors.ui
     val summaryLines = item.metadata.summaryLines()
     val files = item.metadata.diffFiles()
     val neutralColor = MaterialTheme.colors.onSurface.copy(alpha = 0.85f)
-    val preview = remember(item.content) { buildDiffPreview(item.content) }
+    val preview = remember(item.content, colors) {
+        buildDiffPreview(item.content, colors)
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -57,12 +61,12 @@ fun DiffOutputView(
                         Text(
                             text = "+${file.additions}",
                             style = MaterialTheme.typography.caption,
-                            color = Color(0xFF2E7D32),
+                            color = colors.diffAdditions,
                         )
                         Text(
                             text = "-${file.deletions}",
                             style = MaterialTheme.typography.caption,
-                            color = Color(0xFFC62828),
+                            color = colors.diffDeletions,
                         )
                     }
                 }
@@ -73,7 +77,7 @@ fun DiffOutputView(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFF6F8FA))
+                    .background(colors.diffPreviewBackground)
                     .padding(Spacing.s4),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s1),
             ) {
@@ -117,7 +121,10 @@ private data class DiffPreview(
 private const val MAX_DIFF_PREVIEW_LINES = 120
 private const val MAX_DIFF_PREVIEW_CHARS = 12000
 
-private fun buildDiffPreview(diffText: String): DiffPreview {
+private fun buildDiffPreview(
+    diffText: String,
+    colors: io.github.masorange.titan.desktop.theme.colors.UiColors,
+): DiffPreview {
     val truncatedByChars = diffText.length > MAX_DIFF_PREVIEW_CHARS
     val limitedText = if (truncatedByChars) {
         diffText.take(MAX_DIFF_PREVIEW_CHARS)
@@ -132,20 +139,23 @@ private fun buildDiffPreview(diffText: String): DiffPreview {
         allLines
     }
     return DiffPreview(
-        lines = parseDiffLines(previewLines, Color(0xFF202124)),
+        lines = parseDiffLines(previewLines, colors),
         truncated = truncatedByChars || truncatedByLines,
     )
 }
 
-private fun parseDiffLines(lines: List<String>, neutralColor: Color): List<RenderDiffLine> = lines.map { line ->
+private fun parseDiffLines(
+    lines: List<String>,
+    colors: io.github.masorange.titan.desktop.theme.colors.UiColors,
+): List<RenderDiffLine> = lines.map { line ->
     when {
         line.startsWith("diff --git") || line.startsWith("--- ") || line.startsWith("+++ ") -> {
-            RenderDiffLine(line, Color(0xFF1565C0))
+            RenderDiffLine(line, colors.diffPreviewHeader)
         }
-        line.startsWith("@@") -> RenderDiffLine(line, Color(0xFF6A1B9A))
-        line.startsWith("+") && !line.startsWith("+++") -> RenderDiffLine(line, Color(0xFF2E7D32))
-        line.startsWith("-") && !line.startsWith("---") -> RenderDiffLine(line, Color(0xFFC62828))
-        else -> RenderDiffLine(line, neutralColor)
+        line.startsWith("@@") -> RenderDiffLine(line, colors.diffPreviewHunk)
+        line.startsWith("+") && !line.startsWith("+++") -> RenderDiffLine(line, colors.diffAdditions)
+        line.startsWith("-") && !line.startsWith("---") -> RenderDiffLine(line, colors.diffDeletions)
+        else -> RenderDiffLine(line, colors.diffPreviewNeutral)
     }
 }
 

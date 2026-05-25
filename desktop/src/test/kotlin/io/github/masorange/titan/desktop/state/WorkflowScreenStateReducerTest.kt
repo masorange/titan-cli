@@ -290,7 +290,7 @@ class WorkflowScreenStateReducerTest {
         )
 
         val interaction = assertNotNull(state.activeInteraction)
-        assertEquals("option_list", interaction.interactionType)
+        assertEquals(InteractionVisualType.OPTION_LIST, interaction.interactionType)
         assertEquals("select-cli:select-cli", interaction.interactionId)
         assertEquals(1, interaction.options.size)
         assertEquals("claude", interaction.options.first().id)
