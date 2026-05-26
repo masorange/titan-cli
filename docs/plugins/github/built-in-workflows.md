@@ -23,9 +23,10 @@ Set `params.draft` to control draft behavior:
 5. `before_pr_generation` hook
 6. `github.ai_suggest_pr_description`
 7. `github.prompt_for_pr_draft`
-8. `before_push` hook
-9. `github.create_pr`
-10. `after_pr` hook
+8. `github.prompt_for_labels` (configured to save into `pr_labels`)
+9. `before_push` hook
+10. `github.create_pr`
+11. `after_pr` hook
 
 ### Hooks
 

@@ -48,6 +48,14 @@ steps:
     plugin: github
     step: prompt_for_pr_draft
 
+  - id: select_pr_labels
+    name: "Select PR Labels"
+    plugin: github
+    step: prompt_for_labels
+    params:
+      output_key: pr_labels
+      prompt: "Select labels for this pull request:"
+
   - hook: before_push
 
   - id: create_pr

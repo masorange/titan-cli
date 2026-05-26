@@ -55,6 +55,7 @@ class PRService:
                 "baseRefName", "headRefName", "additions", "deletions",
                 "changedFiles", "mergeable", "isDraft", "createdAt",
                 "updatedAt", "mergedAt", "reviews", "labels",
+                "statusCheckRollup", "reviewDecision",
                 "isCrossRepository", "headRepositoryOwner",
             ]
 
@@ -114,7 +115,7 @@ class PRService:
                 "--search", f"review-requested:{current_user}",
                 "--state", "open",
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,reviewRequests",
+                "--json", "number,title,author,updatedAt,labels,isDraft,reviewRequests,statusCheckRollup,reviewDecision",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
@@ -171,7 +172,7 @@ class PRService:
                 "pr", "list",
                 "--state", state,
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName",
+                "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,statusCheckRollup,reviewDecision",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
@@ -220,7 +221,7 @@ class PRService:
                 "pr", "list",
                 "--state", state,
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,reviewRequests,headRefName,baseRefName",
+                "--json", "number,title,author,updatedAt,labels,isDraft,state,reviewRequests,headRefName,baseRefName,statusCheckRollup,reviewDecision",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)

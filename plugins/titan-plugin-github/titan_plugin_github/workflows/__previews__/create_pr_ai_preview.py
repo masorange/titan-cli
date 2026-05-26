@@ -38,6 +38,7 @@ def create_create_pr_ai_mock_context() -> WorkflowContext:
 
     # Override prompts to auto-confirm (non-interactive preview)
     views.prompts.ask_confirm = lambda question, default=True: True
+    views.prompts.ask_multiselect = lambda question, options: [option.value for option in options[:2]]
 
     # Create mock clients with workflow-specific data
     git = MockGitClient()
@@ -97,6 +98,7 @@ def preview_workflow():
     from titan_plugin_git.steps.push_step import create_git_push_step
     from titan_plugin_github.steps.ai_pr_step import ai_suggest_pr_description_step
     from titan_plugin_github.steps.github_prompt_steps import (
+        prompt_for_labels_step,
         prompt_for_pr_body_step,
         prompt_for_pr_draft_step,
         prompt_for_pr_title_step,
@@ -110,6 +112,7 @@ def preview_workflow():
         ("push", create_git_push_step),
         ("ai_pr_description", ai_suggest_pr_description_step),
         ("prompt_pr_draft", prompt_for_pr_draft_step),
+        ("prompt_pr_labels", prompt_for_labels_step),
         ("prompt_pr_title", prompt_for_pr_title_step),
         ("prompt_pr_body", prompt_for_pr_body_step),
     ]

@@ -433,11 +433,17 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
             # Create options from PRs
             options = []
             for pr in prs:
+                description_parts = [f"Branch: {pr.branch_info}"]
+                if pr.checks_summary:
+                    description_parts.append(f"Checks: {pr.checks_summary}")
+                if pr.review_status_summary:
+                    description_parts.append(f"Review: {pr.review_status_summary}")
+
                 options.append(
                     OptionItem(
                         value=pr.number,
                         title=f"#{pr.number}: {pr.title}",
-                        description=f"Branch: {pr.branch_info}"
+                        description=" · ".join(description_parts)
                     )
                 )
 

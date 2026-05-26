@@ -154,6 +154,8 @@ class UIPullRequest:
     labels: List[str]  # Just label names
     formatted_created_at: str  # "DD/MM/YYYY HH:MM:SS"
     formatted_updated_at: str  # "DD/MM/YYYY HH:MM:SS"
+    checks_summary: str = ""
+    review_status_summary: str = ""
     is_cross_repository: bool = False
     head_repository_owner: Optional[str] = None
 

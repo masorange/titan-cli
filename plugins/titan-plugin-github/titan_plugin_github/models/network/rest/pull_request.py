@@ -57,6 +57,8 @@ class NetworkPullRequest:
     mergedAt: Optional[str] = None  # Keep camelCase from API
     reviews: List[NetworkReview] = field(default_factory=list)
     labels: List[Dict[str, Any]] = field(default_factory=list)  # Raw label objects
+    statusCheckRollup: List[Dict[str, Any]] = field(default_factory=list)
+    reviewDecision: Optional[str] = None
     isCrossRepository: bool = False
     headRepositoryOwnerLogin: Optional[str] = None
 
@@ -103,6 +105,8 @@ class NetworkPullRequest:
             mergedAt=data.get("mergedAt"),
             reviews=reviews,
             labels=data.get("labels", []),  # Keep raw label objects
+            statusCheckRollup=data.get("statusCheckRollup", []),
+            reviewDecision=data.get("reviewDecision"),
             isCrossRepository=data.get("isCrossRepository", False),
             headRepositoryOwnerLogin=(data.get("headRepositoryOwner") or {}).get("login"),
         )

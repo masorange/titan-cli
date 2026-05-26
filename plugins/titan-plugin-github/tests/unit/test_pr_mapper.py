@@ -34,6 +34,8 @@ class TestFromRestPR:
             changedFiles=5,
             reviews=reviews,
             labels=[{"name": "feature"}, {"name": "enhancement"}],
+            statusCheckRollup=[{"status": "COMPLETED", "conclusion": "SUCCESS"}],
+            reviewDecision="APPROVED",
             createdAt="2025-01-15T10:00:00Z",
             updatedAt="2025-01-15T12:00:00Z",
         )
@@ -56,6 +58,8 @@ class TestFromRestPR:
         assert ui_pr.is_mergeable is True
         assert ui_pr.is_draft is False
         assert ui_pr.review_summary == "✅ 2 approved"
+        assert ui_pr.checks_summary == "1 passing"
+        assert ui_pr.review_status_summary == "approved"
         assert ui_pr.labels == ["feature", "enhancement"]
         assert ui_pr.formatted_created_at == "15/01/2025 10:00:00"
         assert ui_pr.formatted_updated_at == "15/01/2025 12:00:00"

@@ -410,7 +410,7 @@ Asks the user if they want to assign the issue to themselves.
 
 ### `prompt_for_labels`
 
-Prompts the user to select labels for the issue.
+Prompt the user to select repository labels and save them to context.
 
 **How to read this contract**
 
@@ -425,7 +425,7 @@ Prompts the user to select labels for the issue.
   step: prompt_for_labels
 ```
 
-**Available to later steps:** `labels`
+**Available to later steps:** `<output_key>`
 
 **Requires**
 
@@ -433,18 +433,26 @@ Prompts the user to select labels for the issue.
 |------|------|-------------|
 | `ctx.github` | - | An initialized GitHubClient. |
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `output_key` | str, optional | Context key where selected labels should be stored. Defaults to `labels`. |
+| `prompt` | str, optional | Prompt text shown to the user. Defaults to `Select labels:`. |
+| `default_selected_key` | str, optional | Context key used to preselect labels. Defaults to `output_key`. |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `labels` | list[str] | Labels selected by the user. |
+| `<output_key>` | list[str] | Labels selected by the user. |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `labels` | If label selection completes successfully. |
-| `Skip` | `labels` | If the repository has no labels. |
+| `Success` | `<output_key>` | If label selection completes successfully. |
+| `Skip` | - | If the repository has no labels. |
 | `Error` | - | If the GitHub client is unavailable or the prompt fails. |
 
 ### `select_cli`
