@@ -362,6 +362,93 @@ class IssueService:
                 error_code="CREATE_SUBTASK_ERROR"
             )
 
+    @log_client_operation()
+    def assign_fix_version(
+        self,
+        issue_key: str,
+        version_id: str,
+    ) -> ClientResult[None]:
+        """Assign a fixVersion to an issue using a Jira version ID."""
+        try:
+            payload = {
+                "update": {
+                    "fixVersions": [
+                        {
+                            "add": {"id": version_id}
+                        }
+                    ]
+                }
+            }
+
+            self.network.make_request("PUT", f"issue/{issue_key}", json=payload)
+
+            return ClientSuccess(
+                data=None,
+                message=f"Assigned fixVersion {version_id} to {issue_key}",
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to assign fixVersion {version_id} to {issue_key}: {e.message}",
+                error_code="ASSIGN_FIX_VERSION_ERROR",
+            )
+
+    @log_client_operation()
+    def assign_fix_version_by_name(
+        self,
+        issue_key: str,
+        project_key: str,
+        version_name: str,
+    ) -> ClientResult[None]:
+        """Assign a fixVersion to an issue by resolving a project version name."""
+        if not self.metadata_service:
+            return ClientError(
+                error_message="MetadataService not available",
+                error_code="SERVICE_NOT_AVAILABLE"
+            )
+
+        versions_result = self.metadata_service.list_project_versions(project_key)
+        match versions_result:
+            case ClientSuccess(data=versions):
+                matching_version = next(
+                    (version for version in versions if version.name == version_name),
+                    None,
+                )
+                if not matching_version:
+                    return ClientError(
+                        error_message=f"Version '{version_name}' not found in project {project_key}",
+                        error_code="VERSION_NOT_FOUND"
+                    )
+                return self.assign_fix_version(issue_key, matching_version.id)
+            case ClientError() as error:
+                return error
+
+    @log_client_operation()
+    def assign_fix_version_reference(
+        self,
+        issue_key: str,
+        project_key: str | None = None,
+        version_id: str | None = None,
+        version_name: str | None = None,
+    ) -> ClientResult[None]:
+        """Assign a fixVersion to an issue by version ID or version name."""
+        if version_id:
+            return self.assign_fix_version(issue_key, version_id)
+
+        if not version_name:
+            return ClientError(
+                error_message="Either version_id or version_name is required",
+                error_code="MISSING_VERSION_REFERENCE"
+            )
+
+        if not project_key:
+            return ClientError(
+                error_message="Project key not provided",
+                error_code="MISSING_PROJECT_KEY"
+            )
+
+        return self.assign_fix_version_by_name(issue_key, project_key, version_name)
+
     def _convert_text_to_adf(self, text: str) -> dict:
         """
         Convert plain text to Atlassian Document Format (ADF).

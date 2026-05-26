@@ -10,6 +10,20 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
     """
     Use AI to suggest a title and description for a GitHub issue.
     Auto-categorizes and selects the appropriate template.
+
+    Inputs (from ctx.data):
+        issue_body (str): Raw issue request entered by the user.
+
+    Outputs (saved to ctx.data):
+        issue_title (str): AI-generated or user-edited title.
+        issue_body (str): AI-generated or user-edited body.
+        issue_category (str): Detected issue category.
+        labels (list[str]): Suggested labels for the issue.
+
+    Returns:
+        Success: If issue content is generated and accepted.
+        Skip: If AI is unavailable or the user rejects the generated issue.
+        Error: If required context is missing or generation fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -98,6 +112,22 @@ def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult
 def create_issue_steps(ctx: WorkflowContext) -> WorkflowResult:
     """
     Create a new GitHub issue.
+
+    Requires:
+        ctx.github: An initialized GitHubClient.
+
+    Inputs (from ctx.data):
+        issue_title (str): Issue title.
+        issue_body (str): Issue body.
+        assignees (list, optional): Usernames to assign.
+        labels (list, optional): Labels to apply.
+
+    Outputs (saved to ctx.data):
+        issue (GitHubIssue): The created issue object.
+
+    Returns:
+        Success: If the issue is created successfully.
+        Error: If required context is missing or the GitHub call fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")

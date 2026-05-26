@@ -6,7 +6,7 @@ To add a new CLI:
 2. Add a new value to SupportedCLI in base.py.
 3. Register the adapter below.
 
-Analogous to PROVIDER_CLASSES in titan_cli/ai/client.py.
+Analogous to the AI source registries in titan_cli/ai/client.py.
 """
 
 from typing import Dict, Type, Union

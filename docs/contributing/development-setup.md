@@ -93,3 +93,25 @@ make docs-serve
 ```
 
 Opens a live-reloading preview at `http://localhost:8000`. Changes to any file in `docs/` are reflected instantly.
+
+### Public plugin step documentation
+
+Official plugins expose a public workflow-step API through `plugin.py -> get_steps()`.
+
+When you add or change a public plugin step, you must update both code and docs:
+
+1. Update the step docstring using the canonical sections:
+   - `Requires:`
+   - `Inputs (from ctx.data):`
+   - `Outputs (saved to ctx.data):`
+   - `Returns:`
+2. Update the relevant pages under `docs/plugins/`
+3. Update the grouping metadata under `docs/plugins/_meta/` if you add or rename a public step
+4. Regenerate and validate the machine-readable inventories under `docs/plugins/_generated/`
+
+This repository maintains the generated inventory through project workflows in `.titan/workflows/`:
+
+- `sync-plugin-docs`
+- `validate-plugin-docs`
+
+The generated inventories are not a replacement for the human-facing docs pages, but they are the source of truth for validation and consistency checks.

@@ -84,6 +84,9 @@ Complete architectural guide for official Titan CLI plugins (Jira, GitHub, Git).
 **Responsibility**: UI/UX and workflow execution
 **Signature**: `(WorkflowContext) → WorkflowResult`
 
+Public steps returned from `plugin.py -> get_steps()` are part of the plugin's public workflow API.
+That means they must have canonical docstrings and must stay in sync with the plugin docs under `docs/plugins/`.
+
 **Two patterns**:
 
 #### Pattern A: Simple (Client direct)
@@ -128,6 +131,29 @@ def list_my_issues_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error(str(e))
 ```
+
+### Public step documentation contract
+
+If a step is exposed through `get_steps()`, treat it as a public API surface.
+
+Required docstring headers:
+
+- `Requires:`
+- `Inputs (from ctx.data):`
+- `Outputs (saved to ctx.data):`
+- `Returns:`
+
+Rules:
+
+- `Returns:` is always required.
+- Use these exact header names.
+- If the step can return `Skip` or `Exit`, document that explicitly.
+- When the public step surface changes, update `docs/plugins/`, `docs/plugins/_meta/`, and regenerate `docs/plugins/_generated/`.
+
+For this repository, the machine-readable inventory is maintained through:
+
+- `.titan/workflows/sync-plugin-docs.yaml`
+- `.titan/workflows/validate-plugin-docs.yaml`
 
 ---
 

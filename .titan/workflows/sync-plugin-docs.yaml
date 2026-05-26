@@ -1,0 +1,8 @@
+name: "Sync Plugin Docs"
+description: "Generate machine-readable plugin step inventories from public plugin steps and docstrings"
+
+steps:
+  - id: sync_plugin_docs
+    name: "Sync Plugin Docs"
+    plugin: project
+    step: sync_plugin_docs

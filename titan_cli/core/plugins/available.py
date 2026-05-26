@@ -1,9 +1,4 @@
-"""
-This file contains a list of known, installable plugins for Titan CLI.
-
-This acts as a centralized registry for the `install` command, so the CLI
-knows what plugins are available to be installed via `pipx inject`.
-"""
+"""Registry of known official plugins available to Titan CLI."""
 from typing import TypedDict, List
 
 class KnownPlugin(TypedDict):

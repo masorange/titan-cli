@@ -224,6 +224,76 @@ class MetadataService:
                 error_code="LIST_VERSIONS_ERROR",
             )
 
+    @log_client_operation()
+    def create_version(
+        self,
+        project_key: str,
+        name: str,
+        description: str | None = None,
+        release_date: str | None = None,
+    ) -> ClientResult[UIJiraVersion]:
+        """Create a Jira version for a project."""
+        try:
+            payload = {
+                "project": project_key,
+                "name": name,
+            }
+
+            if description:
+                payload["description"] = description
+            if release_date:
+                payload["releaseDate"] = release_date
+
+            data = self.network.make_request("POST", "version", json=payload)
+
+            network_version = NetworkJiraVersion(
+                id=data.get("id", ""),
+                name=data.get("name", name),
+                description=data.get("description"),
+                released=data.get("released", False),
+                releaseDate=data.get("releaseDate"),
+            )
+
+            return ClientSuccess(
+                data=from_network_version(network_version),
+                message=f"Version {name} created",
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to create version {name} in {project_key}: {e.message}",
+                error_code="CREATE_VERSION_ERROR",
+            )
+
+    @log_client_operation()
+    def ensure_version_exists(
+        self,
+        project_key: str,
+        name: str,
+        description: str | None = None,
+        release_date: str | None = None,
+    ) -> ClientResult[UIJiraVersion]:
+        """Return an existing version by name or create it if missing."""
+        versions_result = self.list_project_versions(project_key)
+
+        match versions_result:
+            case ClientSuccess(data=versions):
+                existing_version = next((version for version in versions if version.name == name), None)
+                if existing_version:
+                    return ClientSuccess(
+                        data=existing_version,
+                        message=f"Version {name} already exists",
+                    )
+            case ClientError() as error:
+                return error
+
+        return self.create_version(
+            project_key=project_key,
+            name=name,
+            description=description,
+            release_date=release_date,
+        )
+
     def get_priorities(self) -> ClientResult[List[UIPriority]]:
         """
         Get all available priorities in Jira.

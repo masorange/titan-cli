@@ -8,7 +8,7 @@ from titan_cli.core.secrets import SecretManager
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from .clients.github_client import GitHubClient
 from .exceptions import GitHubError
-from .managers import ChecklistManager, GitHubManagers
+from .managers import ChecklistManager, GitHubManagers, ReviewProfileManager
 
 
 class GitHubPlugin(TitanPlugin):
@@ -125,6 +125,7 @@ class GitHubPlugin(TitanPlugin):
         """Return workflow-local managers for the GitHub plugin."""
         return GitHubManagers(
             checklist=ChecklistManager(project_root=project_root),
+            review_profile=ReviewProfileManager(project_root=project_root),
         )
 
     def get_steps(self) -> dict:
@@ -136,6 +137,11 @@ class GitHubPlugin(TitanPlugin):
         from .steps.ai_pr_step import ai_suggest_pr_description_step
         from .steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
         from .steps.preview_step import preview_and_confirm_issue_step
+        from .steps.pull_request_steps import (
+            get_pull_request_step,
+            merge_pull_request_step,
+            verify_pull_request_state_step,
+        )
         from .steps.pr_review_steps import (
             select_pr_for_review_step,
             fetch_pending_comments_step,
@@ -156,7 +162,10 @@ class GitHubPlugin(TitanPlugin):
             fetch_pr_review_bundle,
             build_change_manifest,
             build_existing_comments_index,
+            classify_pr,
+            score_review_candidates,
             build_review_checklist,
+            select_review_strategy,
             ai_review_plan,
             validate_review_plan,
             resolve_review_context,
@@ -184,6 +193,9 @@ class GitHubPlugin(TitanPlugin):
             "ai_suggest_issue_title_and_body": ai_suggest_issue_title_and_body_step,
             "create_issue": create_issue_steps,
             "preview_and_confirm_issue": preview_and_confirm_issue_step,
+            "get_pull_request": get_pull_request_step,
+            "merge_pull_request": merge_pull_request_step,
+            "verify_pull_request_state": verify_pull_request_state_step,
             "select_pr_for_review": select_pr_for_review_step,
             "fetch_pending_comments": fetch_pending_comments_step,
             "check_clean_state": check_clean_state_step,
@@ -203,7 +215,10 @@ class GitHubPlugin(TitanPlugin):
             # Phase 2: cheap context steps (pre-AI)
             "build_change_manifest": build_change_manifest,
             "build_existing_comments_index": build_existing_comments_index,
+            "classify_pr": classify_pr,
+            "score_review_candidates": score_review_candidates,
             "build_review_checklist": build_review_checklist,
+            "select_review_strategy": select_review_strategy,
             # Phase 3: directed AI analysis (first AI call)
             "ai_review_plan": ai_review_plan,
             "validate_review_plan": validate_review_plan,

@@ -13,7 +13,7 @@ from titan_cli.core.result import ClientSuccess, ClientError
 def setup_worktree(
     git_client,
     pr_number: int,
-    branch: str,
+    branch: str = "",
     base_path: str = ".titan/worktrees",
     remote: str = "origin"
 ) -> Tuple[str, bool]:
@@ -54,16 +54,20 @@ def setup_worktree(
         except Exception:
             pass
 
-        # Fetch the branch so the remote ref exists locally
-        git_client.fetch(remote, branch)
-
-        # Create new worktree from remote branch in detached mode
-        # This avoids "branch already checked out" errors and works even if branch doesn't exist locally
-        remote_ref = f"{remote}/{branch}"
+        # Fetch the PR ref into a stable local ref. This works for both same-repo
+        # and fork-based PRs where origin/<head_branch> does not exist locally.
+        review_ref = f"refs/titan/review/pr-{pr_number}"
+        pr_refspec = f"pull/{pr_number}/head:{review_ref}"
+        fetch_result = git_client.fetch_refspec(remote, pr_refspec)
+        match fetch_result:
+            case ClientSuccess():
+                pass
+            case ClientError():
+                return ("", False)
 
         result = git_client.create_worktree(
             path=worktree_path,
-            branch=remote_ref,
+            branch=review_ref,
             create_branch=False,
             detached=True
         )

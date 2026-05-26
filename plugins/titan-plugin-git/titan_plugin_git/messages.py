@@ -88,7 +88,7 @@ class Messages:
             PROMPT_FAILED: str = "Failed to prompt for commit message: {e}"
 
         class AICommitMessage:
-            AI_NOT_CONFIGURED: str = "AI not configured. Run 'titan ai configure' to enable AI features."
+            AI_NOT_CONFIGURED: str = "AI not configured. Open AI Configuration to enable AI features."
             NO_CHANGES_TO_COMMIT: str = "No changes to commit"
             ANALYZING_CHANGES: str = "Analyzing uncommitted changes..."
             NO_UNCOMMITTED_CHANGES: str = "No uncommitted changes to analyze"

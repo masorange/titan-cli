@@ -32,7 +32,7 @@ def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
     pr_number = ctx.get("selected_pr_number") or ctx.get("review_pr_number")
     head_branch = ctx.get("selected_pr_head_branch") or ctx.get("review_pr_head") or ""
 
-    if not pr_number or not head_branch:
+    if not pr_number:
         ctx.textual.end_step("error")
         return Error("Missing required data")
 
@@ -41,7 +41,6 @@ def create_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("Git client not available")
 
-    ctx.textual.text("")
     with ctx.textual.loading(f"Creating worktree for PR #{pr_number}..."):
         remote = getattr(ctx.git, 'default_remote', 'origin')
         worktree_path, worktree_created = setup_worktree(

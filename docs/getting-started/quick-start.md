@@ -68,14 +68,14 @@ enabled = false
 Edit `~/.titan/config.toml`:
 
 ```toml
-[ai.providers.default]
-name = "Claude"
-type = "individual"
-provider = "anthropic"
-model = "claude-sonnet-4-5"
-
 [ai]
-default = "default"
+default_connection = "default"
+
+[ai.connections.default]
+name = "My Anthropic"
+kind = "direct_provider"
+provider = "anthropic"
+default_model = "claude-sonnet-4-5"
 ```
 
 Titan will prompt for your API key on first use and store it securely in your OS keyring.

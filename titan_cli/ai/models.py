@@ -3,7 +3,7 @@ Data models for AI system
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 @dataclass
@@ -21,8 +21,8 @@ class AIMessage:
 class AIRequest:
     """Request to an AI provider"""
     messages: List[AIMessage]
-    max_tokens: int = 4096
-    temperature: float = 0.7
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
 
 
 @dataclass

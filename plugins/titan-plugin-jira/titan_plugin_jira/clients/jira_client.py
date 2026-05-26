@@ -191,7 +191,9 @@ class JiraClient:
         self,
         issue_key: str,
         new_status: str,
-        comment: Optional[str] = None
+        comment: Optional[str] = None,
+        fields: Optional[dict] = None,
+        update: Optional[dict] = None,
     ) -> ClientResult[None]:
         """
         Transition issue to new status.
@@ -200,11 +202,19 @@ class JiraClient:
             issue_key: Issue key
             new_status: Target status name
             comment: Optional comment
+            fields: Optional Jira fields payload to send with the transition
+            update: Optional Jira update payload to merge into the transition
 
         Returns:
             ClientResult[None]
         """
-        return self._transition_service.transition_issue(issue_key, new_status, comment)
+        return self._transition_service.transition_issue(
+            issue_key,
+            new_status,
+            comment=comment,
+            fields=fields,
+            update=update,
+        )
 
     # ==================== CREATION OPERATIONS ====================
 
@@ -359,6 +369,65 @@ class JiraClient:
             )
 
         return self._metadata_service.list_project_versions(key)
+
+    def create_version(
+        self,
+        name: str,
+        project_key: Optional[str] = None,
+        description: Optional[str] = None,
+        release_date: Optional[str] = None,
+    ) -> ClientResult[UIJiraVersion]:
+        """Create a version in the provided or default Jira project."""
+        key = project_key or self.project_key
+        if not key:
+            return ClientError(
+                error_message="Project key not provided",
+                error_code="MISSING_PROJECT_KEY"
+            )
+
+        return self._metadata_service.create_version(
+            project_key=key,
+            name=name,
+            description=description,
+            release_date=release_date,
+        )
+
+    def ensure_version_exists(
+        self,
+        name: str,
+        project_key: Optional[str] = None,
+        description: Optional[str] = None,
+        release_date: Optional[str] = None,
+    ) -> ClientResult[UIJiraVersion]:
+        """Return an existing version by name or create it if missing."""
+        key = project_key or self.project_key
+        if not key:
+            return ClientError(
+                error_message="Project key not provided",
+                error_code="MISSING_PROJECT_KEY"
+            )
+
+        return self._metadata_service.ensure_version_exists(
+            project_key=key,
+            name=name,
+            description=description,
+            release_date=release_date,
+        )
+
+    def assign_fix_version(
+        self,
+        issue_key: str,
+        version_id: Optional[str] = None,
+        version_name: Optional[str] = None,
+        project_key: Optional[str] = None,
+    ) -> ClientResult[None]:
+        """Assign a fixVersion to an issue by version ID or version name."""
+        return self._issue_service.assign_fix_version_reference(
+            issue_key=issue_key,
+            project_key=project_key or self.project_key,
+            version_id=version_id,
+            version_name=version_name,
+        )
 
     def get_priorities(self) -> ClientResult[List[UIPriority]]:
         """

@@ -18,6 +18,10 @@ def worktree_commit(ctx: WorkflowContext) -> WorkflowResult:
         message: Commit message (required)
         add_all: Stage all changes before committing (default: true)
 
+    Returns:
+        Success: If the commit is created in the worktree.
+        Error: If required context is missing or the git command fails.
+
     Example:
         ```yaml
         - name: "Commit in Worktree"
@@ -104,6 +108,10 @@ def worktree_push(ctx: WorkflowContext) -> WorkflowResult:
         remote: Remote to push to (default: origin)
         branch: Branch to push (optional, pushes current branch if not specified)
         set_upstream: Set upstream tracking (default: true)
+
+    Returns:
+        Success: If the branch is pushed from the worktree.
+        Error: If required context is missing or the git command fails.
 
     Example:
         ```yaml

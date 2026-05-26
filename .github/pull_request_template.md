@@ -33,3 +33,4 @@ Example:
 - [ ] Follows the project's [logging rules](.claude/docs/logging.md) (no secrets, no content in logs)
 - [ ] New and existing tests pass
 - [ ] Documentation updated if needed
+- [ ] Plugin documentation updated when plugin functions or parameters changed (`Plugins > Git Plugin`, `GitHub Plugin`, `Jira Plugin`)

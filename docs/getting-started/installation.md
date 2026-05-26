@@ -52,7 +52,7 @@ titan
 
 On first launch, two setup wizards run automatically:
 
-1. **Global setup** — Configure AI providers (Claude, Gemini). This is optional and can be skipped.
+1. **Global setup** — Configure AI connections. This is optional and can be skipped.
 2. **Project setup** — Choose a project name and enable the plugins you want (Git, GitHub, Jira).
 
 After setup, the main menu appears and you're ready to run workflows.
@@ -63,7 +63,7 @@ After setup, the main menu appears and you're ready to run workflows.
 
 | Path | Purpose |
 |------|---------|
-| `~/.titan/config.toml` | Global config: AI provider credentials |
+| `~/.titan/config.toml` | Global config: AI connections and credentials |
 | `.titan/config.toml` | Project config: enabled plugins and settings |
 
 The project config lives at the **git repository root**, so it works correctly in monorepos.

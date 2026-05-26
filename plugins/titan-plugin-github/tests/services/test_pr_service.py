@@ -42,7 +42,9 @@ def sample_pr_json():
         "updatedAt": "2025-01-15T11:00:00Z",
         "mergedAt": None,
         "reviews": [],
-        "labels": [{"name": "feature"}, {"name": "backend"}]
+        "labels": [{"name": "feature"}, {"name": "backend"}],
+        "isCrossRepository": False,
+        "headRepositoryOwner": {"login": "test-owner"},
     }
 
 
@@ -65,6 +67,8 @@ def test_get_pull_request_success(pr_service, mock_gh_network, sample_pr_json):
     assert result.data.stats == "+50 -10"
     assert result.data.is_mergeable is True
     assert result.data.is_draft is False
+    assert result.data.is_cross_repository is False
+    assert result.data.head_repository_owner == "test-owner"
     assert "feature" in result.data.labels
     assert "backend" in result.data.labels
 
@@ -100,6 +104,19 @@ def test_get_pull_request_merged(pr_service, mock_gh_network, sample_pr_json):
     assert isinstance(result, ClientSuccess)
     assert result.data.state == "MERGED"
     assert result.data.status_icon == "🟣"  # Merged icon
+
+
+def test_get_pull_request_cross_repository(pr_service, mock_gh_network, sample_pr_json):
+    """Test retrieving cross-repository PR metadata."""
+    sample_pr_json["isCrossRepository"] = True
+    sample_pr_json["headRepositoryOwner"] = {"login": "external-contributor"}
+    mock_gh_network.run_command.return_value = json.dumps(sample_pr_json)
+
+    result = pr_service.get_pull_request(123)
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.is_cross_repository is True
+    assert result.data.head_repository_owner == "external-contributor"
 
 
 def test_get_pull_request_not_found(pr_service, mock_gh_network):

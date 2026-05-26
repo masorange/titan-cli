@@ -94,6 +94,31 @@ class TagService:
             return ClientError(error_message=str(e), error_code="TAG_CHECK_ERROR")
 
     @log_client_operation()
+    def remote_tag_exists(self, tag_name: str, remote: str = "origin") -> ClientResult[bool]:
+        """
+        Check if a tag exists on a remote.
+
+        Args:
+            tag_name: Name of the tag to check
+            remote: Remote name
+
+        Returns:
+            ClientResult[bool] with True if tag exists on the remote
+        """
+        try:
+            output = self.git.run_command(
+                ["git", "ls-remote", "--tags", remote, f"refs/tags/{tag_name}"],
+                check=False,
+            )
+            exists = bool(output.strip())
+            return ClientSuccess(
+                data=exists,
+                message=f"Tag '{tag_name}' {'exists' if exists else 'does not exist'} on {remote}",
+            )
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="TAG_CHECK_ERROR")
+
+    @log_client_operation()
     def list_tags(self) -> ClientResult[List[UIGitTag]]:
         """
         List all tags in the repository.

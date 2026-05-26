@@ -267,6 +267,12 @@ class GitClient:
         """Get list of commits in head_branch that are not in base_branch."""
         return self.commit_service.get_branch_commits(base_branch, head_branch)
 
+    def get_commits_between_refs(
+        self, base_ref: str, head_ref: str = "HEAD"
+    ) -> ClientResult[List[str]]:
+        """Get list of commits reachable from head_ref but not base_ref."""
+        return self.commit_service.get_commits_between_refs(base_ref, head_ref)
+
     def count_commits_ahead(self, base_branch: str = "develop") -> ClientResult[int]:
         """Count how many commits current branch is ahead of base branch."""
         return self.commit_service.count_commits_ahead(base_branch)
@@ -353,6 +359,10 @@ class GitClient:
         """Push to remote."""
         return self.remote_service.push(remote, branch, set_upstream, tags)
 
+    def push_tag(self, tag_name: str, remote: str = "origin") -> ClientResult[None]:
+        """Push a specific tag to remote."""
+        return self.remote_service.push_tag(tag_name, remote)
+
     def pull(
         self, remote: str = "origin", branch: Optional[str] = None
     ) -> ClientResult[None]:
@@ -367,6 +377,10 @@ class GitClient:
     ) -> ClientResult[None]:
         """Fetch from remote."""
         return self.remote_service.fetch(remote, branch, all)
+
+    def fetch_refspec(self, remote: str, refspec: str) -> ClientResult[None]:
+        """Fetch an explicit refspec from remote."""
+        return self.remote_service.fetch_refspec(remote, refspec)
 
     def get_github_repo_info(self) -> ClientResult[Tuple[Optional[str], Optional[str]]]:
         """Extract GitHub repository owner and name from origin."""
@@ -405,6 +419,10 @@ class GitClient:
     def tag_exists(self, tag_name: str) -> ClientResult[bool]:
         """Check if a tag exists locally."""
         return self.tag_service.tag_exists(tag_name)
+
+    def remote_tag_exists(self, tag_name: str, remote: str = "origin") -> ClientResult[bool]:
+        """Check if a tag exists on a remote."""
+        return self.tag_service.remote_tag_exists(tag_name, remote)
 
     def list_tags(self) -> ClientResult[List[UIGitTag]]:
         """List all tags in the repository."""

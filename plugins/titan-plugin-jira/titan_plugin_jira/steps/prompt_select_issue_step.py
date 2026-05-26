@@ -16,6 +16,10 @@ def prompt_select_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     Outputs (saved to ctx.data):
         jira_issue_key (str): Selected issue key
         selected_issue (JiraTicket): Selected issue object
+
+    Returns:
+        Success: If the user selects a valid issue.
+        Error: If there are no issues, the selection is invalid, or the prompt is cancelled.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")

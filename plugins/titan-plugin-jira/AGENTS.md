@@ -13,7 +13,7 @@ Documentation for AI coding agents working on the `titan-plugin-jira`.
 **Requires:**
 - A JIRA Server/Data Center instance with API access
 - Personal Access Token (PAT) with appropriate permissions
-- AI provider configured in Titan CLI (for AI analysis features)
+- AI connection configured in Titan CLI (for AI analysis features)
 
 ---
 
@@ -192,7 +192,7 @@ def ai_analyze_issue_requirements(ctx: WorkflowContext) -> WorkflowResult:
   6. Missing Information
   7. Estimated Complexity
 - Displays analysis as formatted markdown
-- Requires AI provider to be configured
+- Requires an AI connection to be configured
 
 #### 5. `list_projects_step.py`
 

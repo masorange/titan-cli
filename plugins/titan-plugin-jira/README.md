@@ -273,10 +273,9 @@ Verify your credentials in `.titan/config.toml` and regenerate your API token:
 ```
 
 **Solution:**
-Configure AI provider:
+Configure AI in Titan:
 ```bash
-titan configure ai
-# Select Anthropic or Gemini and provide API key
+# Open AI Configuration and create a connection
 ```
 
 ## Related Documentation

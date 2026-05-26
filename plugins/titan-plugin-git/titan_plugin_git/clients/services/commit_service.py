@@ -226,6 +226,37 @@ class CommitService:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
 
     @log_client_operation()
+    def get_commits_between_refs(
+        self, base_ref: str, head_ref: str = "HEAD"
+    ) -> ClientResult[List[str]]:
+        """
+        Get list of commit subjects reachable from head_ref but not base_ref.
+
+        Args:
+            base_ref: Base git reference (tag, branch, or commit SHA)
+            head_ref: Head git reference (default: HEAD)
+
+        Returns:
+            ClientResult[List[str]] with commit messages
+        """
+        try:
+            output = self.git.run_command([
+                "git", "log", f"{base_ref}..{head_ref}", "--pretty=format:%s"
+            ])
+
+            if not output:
+                return ClientSuccess(data=[], message="No commits found")
+
+            commits = [line.strip() for line in output.split("\n") if line.strip()]
+            return ClientSuccess(
+                data=commits,
+                message=f"Found {len(commits)} commits between {base_ref} and {head_ref}",
+            )
+
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
+
+    @log_client_operation()
     def count_commits_ahead(self, base_branch: str = "develop") -> ClientResult[int]:
         """
         Count how many commits current branch is ahead of base branch.

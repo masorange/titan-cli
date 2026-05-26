@@ -9,7 +9,7 @@ Titan CLI is a powerful command-line orchestrator that automates Git, GitHub, JI
 - 🔧 **Project Configuration** - Centralized `.titan/config.toml` for project-specific settings
 - 🔌 **Plugin System** - Extend functionality with Git, GitHub, JIRA, and custom plugins
 - 🎨 **Modern TUI** - Beautiful terminal interface powered by Textual
-- 🤖 **AI Integration** - Optional AI assistance (Claude & Gemini) for commits, PRs, and analysis
+- 🤖 **AI Integration** - Optional AI assistance through direct providers and LLM gateways
 - ⚡ **Workflow Engine** - Compose atomic steps into powerful automated workflows
 - 🔐 **Secure Secrets** - OS keyring integration for API tokens and credentials
 
@@ -59,7 +59,7 @@ titan
 ```
 
 On first run, Titan will guide you through:
-1. **Global Setup** - Configure AI providers (optional)
+1. **Global Setup** - Configure AI connections (optional)
 2. **Project Setup** - Enable plugins and configure project settings
 
 ### Basic Usage
@@ -82,10 +82,10 @@ Titan CLI v1.0.0 includes three core plugins:
 
 ## 🤖 AI Integration
 
-Titan supports multiple AI providers:
+Titan supports multiple AI connections:
 
-- **Anthropic Claude** (Sonnet, Opus, Haiku)
-- **Google Gemini** (Pro, Flash)
+- **Direct Provider**: Anthropic, OpenAI, Gemini
+- **LLM Gateway**: OpenAI-compatible endpoints such as LiteLLM
 
 Configure during first setup or later via the TUI settings.
 

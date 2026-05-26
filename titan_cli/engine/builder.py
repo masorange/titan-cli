@@ -20,7 +20,17 @@ class WorkflowContextBuilder:
     Example:
         plugin_registry = PluginRegistry()
         secrets = SecretManager()
-        ai_config = AIConfig(provider="anthropic", model="claude-3-haiku-20240307")
+        ai_config = AIConfig(
+            default_connection="default",
+            connections={
+                "default": {
+                    "name": "Default OpenAI",
+                    "connection_type": "direct_provider",
+                    "provider": "openai",
+                    "default_model": "gpt-5",
+                }
+            },
+        )
         ctx = WorkflowContextBuilder(plugin_registry, secrets, ai_config) \\
             .with_ai() \\
             .build()

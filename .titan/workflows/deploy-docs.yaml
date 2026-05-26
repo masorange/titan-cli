@@ -1,0 +1,15 @@
+name: "Deploy Docs"
+description: "Validate plugin docs inventory and deploy MkDocs documentation to GitHub Pages"
+
+steps:
+  - id: validate_plugin_docs
+    name: "Validate Plugin Docs"
+    workflow: "validate-plugin-docs"
+
+  - id: install_docs_deps
+    name: "Install Docs Dependencies"
+    command: "poetry install --with docs"
+
+  - id: deploy_docs
+    name: "Deploy to GitHub Pages"
+    command: "poetry run mkdocs gh-deploy --force"

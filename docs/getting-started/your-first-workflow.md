@@ -112,3 +112,5 @@ You've seen the two core building blocks: a **step** (Python function) and a **w
 - Add AI calls using `ctx.ai` for generated content
 
 Read [Workflow Concepts](../concepts/workflows.md) for the full reference on step types, result types, parameters, and the `Skip` vs `Exit` distinction.
+
+If you want your custom steps to use Titan's TUI API directly, continue with [Your First Textual Step](your-first-textual-step.md).
