@@ -16,9 +16,10 @@ Creates a pull request after preparing branch state, pushing changes, and genera
 4. `git.show_branch_diff_summary`
 5. `before_pr_generation` hook
 6. `github.ai_suggest_pr_description`
-7. `before_push` hook
-8. `github.create_pr`
-9. `after_pr` hook
+7. `github.prompt_for_pr_draft`
+8. `before_push` hook
+9. `github.create_pr`
+10. `after_pr` hook
 
 ### Hooks
 

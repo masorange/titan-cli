@@ -43,6 +43,11 @@ steps:
     plugin: github
     step: ai_suggest_pr_description
 
+  - id: choose_pr_draft_mode
+    name: "Choose PR Draft Mode"
+    plugin: github
+    step: prompt_for_pr_draft
+
   - hook: before_push
 
   - id: create_pr

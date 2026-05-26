@@ -24,6 +24,7 @@ For full contract details for every public step, including documented inputs, ou
 | `ai_suggest_pr_description` | Pull Requests | `create-pr-ai` |
 | `prompt_for_pr_title` | Prompt and Selection | - |
 | `prompt_for_pr_body` | Prompt and Selection | - |
+| `prompt_for_pr_draft` | Prompt and Selection | `create-pr-ai` |
 | `prompt_for_issue_body_step` | Prompt and Selection | `create-issue-ai` |
 | `prompt_for_self_assign` | Prompt and Selection | `create-issue-ai` |
 | `prompt_for_labels` | Prompt and Selection | - |
@@ -78,6 +79,7 @@ Use these steps when a workflow needs interactive user input before creation or 
 
 - `prompt_for_pr_title`: capture a PR title interactively when one is not already available
 - `prompt_for_pr_body`: capture a PR body interactively when one is not already available
+- `prompt_for_pr_draft`: ask whether the PR should be created as draft
 - `prompt_for_issue_body_step`: capture the raw issue request before AI expansion
 - `prompt_for_self_assign`: ask whether the current user should be assigned to the issue
 - `prompt_for_labels`: prompt for labels to attach to an issue or PR
@@ -438,6 +440,48 @@ How to read these contracts:
     | `Success` | `pr_body` | If the body was captured successfully. |
     | `Error` | - | If the user cancels. |
     | `Skip` | `pr_body` | If pr_body already exists. |
+
+
+??? info "`prompt_for_pr_draft`"
+    Ask whether the pull request should be created as a draft.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: prompt_for_pr_draft
+    ```
+
+    **Used by built-in workflows:** `create-pr-ai`
+
+    **Available to later steps:** `pr_is_draft`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.textual` | - | Textual UI components. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `draft` | bool, optional | Default draft value from workflow params. |
+    | `pr_is_draft` | bool, optional | Existing PR draft selection. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_is_draft` | bool | Whether the PR should be created as a draft. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `pr_is_draft` | If the draft preference was captured successfully. |
+    | `Error` | - | If the user cancels or the prompt fails. |
+    | `Skip` | `pr_is_draft` | If pr_is_draft already exists. |
 
 
 ??? info "`prompt_for_issue_body_step`"

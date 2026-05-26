@@ -90,6 +90,59 @@ def prompt_for_pr_body_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error(f"Failed to prompt for PR body: {e}", exception=e)
 
 
+def prompt_for_pr_draft_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Ask whether the pull request should be created as a draft.
+
+    Requires:
+        ctx.textual: Textual UI components.
+
+    Inputs (from ctx.data):
+        draft (bool, optional): Default draft value from workflow params.
+        pr_is_draft (bool, optional): Existing PR draft selection.
+
+    Outputs (saved to ctx.data):
+        pr_is_draft (bool): Whether the PR should be created as a draft.
+
+    Returns:
+        Success: If the draft preference was captured successfully.
+        Error: If the user cancels or the prompt fails.
+        Skip: If pr_is_draft already exists.
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Choose PR Draft Mode")
+
+    if ctx.has("pr_is_draft"):
+        existing_value = bool(ctx.get("pr_is_draft"))
+        mode = "draft" if existing_value else "ready for review"
+        ctx.textual.dim_text(f"PR draft mode already provided ({mode}), skipping prompt.")
+        ctx.textual.end_step("skip")
+        return Skip(
+            "PR draft mode already provided, skipping prompt.",
+            metadata={"pr_is_draft": existing_value},
+        )
+
+    default_draft = bool(ctx.get("draft", False))
+
+    try:
+        is_draft = ctx.textual.ask_confirm(
+            msg.Prompts.CREATE_PR_AS_DRAFT,
+            default=default_draft,
+        )
+        mode = "draft" if is_draft else "ready for review"
+        ctx.textual.success_text(f"PR will be created as {mode}.")
+        ctx.textual.end_step("success")
+        return Success("PR draft preference captured", metadata={"pr_is_draft": is_draft})
+    except (KeyboardInterrupt, EOFError):
+        ctx.textual.end_step("error")
+        return Error("User cancelled.")
+    except Exception as e:
+        ctx.textual.end_step("error")
+        return Error(f"Failed to prompt for PR draft mode: {e}", exception=e)
+
+
 def prompt_for_issue_body_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Interactively prompts the user for a GitHub issue body.

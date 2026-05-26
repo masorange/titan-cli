@@ -1,10 +1,14 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.engine.results import Success, Error
+from titan_cli.engine.results import Success, Error, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.core.secrets import SecretManager
-from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step
+from titan_plugin_github.steps.github_prompt_steps import (
+    prompt_for_issue_body_step,
+    prompt_for_pr_draft_step,
+    prompt_for_self_assign_step,
+)
 from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
 from titan_plugin_github.steps.preview_step import preview_and_confirm_issue_step
 from titan_plugin_github.models.view import UIIssue
@@ -141,6 +145,40 @@ def test_prompt_for_self_assign_step(mock_secret_manager):
     # Assert
     assert isinstance(result, Success)
     assert ctx.get("assignees") == ["testuser"]
+
+
+def test_prompt_for_pr_draft_step_uses_workflow_default(mock_secret_manager):
+    # Arrange
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={"draft": True})
+    ctx.textual = MagicMock()
+    ctx.textual.ask_confirm.return_value = True
+
+    # Act
+    result = prompt_for_pr_draft_step(ctx)
+    if result.metadata:
+        ctx.data.update(result.metadata)
+
+    # Assert
+    assert isinstance(result, Success)
+    assert ctx.get("pr_is_draft") is True
+    ctx.textual.ask_confirm.assert_called_once_with(
+        "Create this pull request as draft?",
+        default=True,
+    )
+
+
+def test_prompt_for_pr_draft_step_skips_when_already_set(mock_secret_manager):
+    # Arrange
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={"pr_is_draft": False})
+    ctx.textual = MagicMock()
+
+    # Act
+    result = prompt_for_pr_draft_step(ctx)
+
+    # Assert
+    assert isinstance(result, Skip)
+    assert result.metadata == {"pr_is_draft": False}
+    ctx.textual.ask_confirm.assert_not_called()
 
 @patch("titan_plugin_github.clients.github_client.GitHubClient")
 def test_create_issue_step(MockGitHubClient, mock_secret_manager):
