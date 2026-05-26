@@ -22,7 +22,7 @@ fun InteractionPanel(
     modifier: Modifier = Modifier,
     interaction: ActiveInteractionState?,
     isSubmitting: Boolean,
-    onSelectInteractionOption: (String) -> Unit = {},
+    onSelectInteractionOption: (String, String) -> Unit = { _, _ -> },
 ) {
     Card(
         modifier = modifier
@@ -41,6 +41,7 @@ fun InteractionPanel(
             when (type) {
                 InteractionVisualType.OPTION_LIST -> {
                     OptionListInteractionPanel(
+                        interactionId = interaction.interactionId,
                         options = interaction.options,
                         isSubmitting = isSubmitting,
                         onSelect = onSelectInteractionOption,

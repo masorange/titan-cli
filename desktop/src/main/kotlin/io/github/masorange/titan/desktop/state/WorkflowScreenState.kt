@@ -11,14 +11,20 @@ data class WorkflowScreenState(
     val runId: String? = null,
     val header: RunHeaderState,
     val steps: List<StepItemState> = emptyList(),
-    val timeline: List<OutputTimelineItemState> = emptyList(),
-    val activePrompt: ActivePromptState? = null,
-    val activeInteraction: ActiveInteractionState? = null,
     val terminalMessage: String? = null,
     val isRunActive: Boolean = false,
     val isTerminal: Boolean = false,
     val workflowDetail: WorkflowDetail? = null,
-)
+) {
+    val activePrompt: ActivePromptState?
+        get() = steps.firstNotNullOfOrNull { it.activePrompt }
+
+    val activeInteraction: ActiveInteractionState?
+        get() = steps.firstNotNullOfOrNull { it.activeInteraction }
+
+    val outputItems: List<OutputItemState>
+        get() = steps.flatMap { it.outputItems }.sortedBy { it.sequence }
+}
 
 data class RunHeaderState(
     val workflowName: String,
@@ -36,9 +42,12 @@ data class StepItemState(
     val status: StepVisualStatus = StepVisualStatus.PENDING,
     val message: String? = null,
     val startedAtLabel: String? = null,
+    val activePrompt: ActivePromptState? = null,
+    val activeInteraction: ActiveInteractionState? = null,
+    val outputItems: List<OutputItemState> = emptyList(),
 )
 
-data class OutputTimelineItemState(
+data class OutputItemState(
     val sequence: Int,
     val stepId: String? = null,
     val stepName: String? = null,

@@ -7,7 +7,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import io.github.masorange.titan.desktop.ui.DesktopPreview
 import io.github.masorange.titan.desktop.ui.LocalTheme
+import org.jetbrains.compose.ui.tooling.preview.Preview
 
 /**
  * Custom typographies container to provide different text components.
@@ -456,34 +458,32 @@ fun OverlineText(
         upperCase = upperCase
     )
 }
-//
-//@Composable
-//@UiPreview
-//@FreyjaEntry(name = "Typography", category = FreyjaCatalogConstants.Categories.TYPOGRAPHY)
-//@Suppress("LongMethod")
-//fun AppTypographyComponentsPreview() {
-//    UiPreviewLayout {
-//        Column {
-//            H1Text(text = "h1")
-//            H2Text(text = "h2")
-//            H3Text(text = "h3")
-//            H4Text(text = "h4")
-//            H5Text(text = "h5")
-//            H6Text(text = "h6")
-//            Subtitle1RegularText(text = "subtitle1Regular")
-//            Subtitle1StrongText(text = "subtitle1Strong")
-//            Subtitle2RegularText(text = "subtitle2Regular")
-//            Subtitle2StrongText(text = "subtitle2Strong")
-//            Body1RegularText(text = "body1Regular")
-//            Body1SecondaryText(text = "body1SecondaryText")
-//            Body1StrongText(text = "body1Strong")
-//            Body2RegularText(text = "body2Regular")
-//            Body2SecondaryText(text = "body2SecondaryText")
-//            Body2StrongText(text = "body2Strong")
-//            ButtonText(text = "button")
-//            CaptionRegularText(text = "captionRegular")
-//            CaptionStrongText(text = "captionStrong")
-//            OverlineText(text = "overline")
-//        }
-//    }
-//}
+
+@Composable
+@Preview
+fun AppTypographyComponentsPreview() {
+    DesktopPreview {
+        Column {
+            H1Text(text = "h1")
+            H2Text(text = "h2")
+            H3Text(text = "h3")
+            H4Text(text = "h4")
+            H5Text(text = "h5")
+            H6Text(text = "h6")
+            Subtitle1RegularText(text = "subtitle1Regular")
+            Subtitle1StrongText(text = "subtitle1Strong")
+            Subtitle2RegularText(text = "subtitle2Regular")
+            Subtitle2StrongText(text = "subtitle2Strong")
+            Body1RegularText(text = "body1Regular")
+            Body1SecondaryText(text = "body1SecondaryText")
+            Body1StrongText(text = "body1Strong")
+            Body2RegularText(text = "body2Regular")
+            Body2SecondaryText(text = "body2SecondaryText")
+            Body2StrongText(text = "body2Strong")
+            ButtonText(text = "button")
+            CaptionRegularText(text = "captionRegular")
+            CaptionStrongText(text = "captionStrong")
+            OverlineText(text = "overline")
+        }
+    }
+}

@@ -1,17 +1,13 @@
 package io.github.masorange.titan.desktop.ui.components.interactions
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedButton
@@ -22,28 +18,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.InteractionOptionState
-import io.github.masorange.titan.desktop.state.StepVisualStatus
 import io.github.masorange.titan.desktop.theme.Body1StrongText
 import io.github.masorange.titan.desktop.theme.CaptionRegularText
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
-import io.github.masorange.titan.desktop.ui.components.steps.StepContainer
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
 fun OptionListInteractionPanel(
+    interactionId: String,
     options: List<InteractionOptionState>,
     isSubmitting: Boolean,
-    onSelect: (String) -> Unit,
+    onSelect: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.s5),
     ) {
         options.forEach { option ->
             OptionListInteractionItem(
                 modifier = Modifier.fillMaxWidth(),
+                interactionId = interactionId,
                 option = option,
                 isSubmitting = isSubmitting,
                 onSelect = onSelect,
@@ -55,15 +50,20 @@ fun OptionListInteractionPanel(
 @Composable
 private fun OptionListInteractionItem(
     modifier: Modifier = Modifier,
+    interactionId: String,
     option: InteractionOptionState,
     isSubmitting: Boolean,
-    onSelect: (String) -> Unit,
+    onSelect: (String, String) -> Unit,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth().clickable(enabled = !isSubmitting) {
-            onSelect(option.id)
-        },
-        elevation = 2.dp,
+    OutlinedButton(
+        modifier = modifier.fillMaxWidth(),
+        onClick = { onSelect(interactionId, option.id) },
+        enabled = !isSubmitting,
+        shape = RoundedCornerShape(Spacing.s4),
+        colors = ButtonDefaults.outlinedButtonColors(
+            backgroundColor = MaterialTheme.colors.surface,
+            contentColor = MaterialTheme.colors.onSurface,
+        ),
     ) {
         Column(
             modifier = Modifier
@@ -108,6 +108,7 @@ private fun OptionListInteractionPanelPreview() {
                 .padding(Spacing.s6)
         ) {
             OptionListInteractionPanel(
+                interactionId = "select-cli:select-cli",
                 options = listOf(
                     InteractionOptionState(
                         id = "option1",
@@ -121,7 +122,7 @@ private fun OptionListInteractionPanelPreview() {
                     )
                 ),
                 isSubmitting = false,
-                onSelect = {},
+                onSelect = { _, _ -> },
             )
         }
     }

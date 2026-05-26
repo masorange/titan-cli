@@ -22,7 +22,7 @@ import io.github.masorange.titan.desktop.state.StepItemState
 import io.github.masorange.titan.desktop.state.StepVisualStatus
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.state.RunHeaderState
-import io.github.masorange.titan.desktop.state.OutputTimelineItemState
+import io.github.masorange.titan.desktop.state.OutputItemState
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 import io.github.masorange.titan.desktop.ui.DesktopPreview
 import io.github.masorange.titan.desktop.ui.LocalTheme
@@ -40,14 +40,14 @@ fun WorkflowScreen(
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
-    isSubmittingInteraction: Boolean,
+    submittingInteractionId: String?,
     isLoadingWorkflow: Boolean,
     isStartingRun: Boolean,
     activeErrorMessage: String?,
     onDismissError: () -> Unit,
     onSubmitText: (() -> Unit)?,
     onSubmitConfirm: ((Boolean) -> Unit)?,
-    onSelectInteractionOption: ((String) -> Unit)?,
+    onSelectInteractionOption: ((String, String) -> Unit)?,
 ) {
     if (activeErrorMessage != null) {
         AlertDialog(
@@ -68,12 +68,14 @@ fun WorkflowScreen(
         promptDraftText = promptDraftText,
         onPromptDraftTextChange = onPromptDraftTextChange,
         isSubmittingPrompt = isSubmittingPrompt,
-        isSubmittingInteraction = isSubmittingInteraction,
+        submittingInteractionId = submittingInteractionId,
         isLoadingWorkflow = isLoadingWorkflow,
         isStartingRun = isStartingRun,
         onSubmitText = { onSubmitText?.invoke() },
         onSubmitConfirm = { onSubmitConfirm?.invoke(it) },
-        onSelectInteractionOption = { onSelectInteractionOption?.invoke(it) },
+        onSelectInteractionOption = { interactionId, optionId ->
+            onSelectInteractionOption?.invoke(interactionId, optionId)
+        },
     )
 }
 
@@ -84,12 +86,12 @@ fun WorkflowContent(
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
-    isSubmittingInteraction: Boolean,
+    submittingInteractionId: String?,
     isLoadingWorkflow: Boolean,
     isStartingRun: Boolean,
     onSubmitText: () -> Unit,
     onSubmitConfirm: (Boolean) -> Unit,
-    onSelectInteractionOption: (String) -> Unit,
+    onSelectInteractionOption: (String, String) -> Unit,
 ) {
 
     Column(
@@ -138,7 +140,7 @@ fun WorkflowContent(
                             promptDraftText = promptDraftText,
                             onPromptDraftTextChange = onPromptDraftTextChange,
                             isSubmittingPrompt = isSubmittingPrompt,
-                            isSubmittingInteraction = isSubmittingInteraction,
+                            submittingInteractionId = submittingInteractionId,
                             onSubmitText = onSubmitText,
                             onSubmitConfirm = onSubmitConfirm,
                             onSelectInteractionOption = onSelectInteractionOption,
@@ -176,7 +178,17 @@ private fun WorkflowScreenPreview() {
                         "Run Ruff Linter",
                         2,
                         "project",
-                        StepVisualStatus.SUCCESS
+                        StepVisualStatus.SUCCESS,
+                        outputItems = listOf(
+                            OutputItemState(
+                                sequence = 1,
+                                stepId = "ruff_lint",
+                                stepName = "Run Ruff Linter",
+                                format = OutputVisualFormat.TEXT,
+                                title = "Lint summary",
+                                content = "Auto-fixed 3 issue(s)",
+                            )
+                        )
                     ),
                     StepItemState(
                         "run_tests",
@@ -184,14 +196,32 @@ private fun WorkflowScreenPreview() {
                         3,
                         "project",
                         StepVisualStatus.FAILED,
-                        "4 test(s) failed"
+                        "4 test(s) failed",
+                        outputItems = listOf(
+                            OutputItemState(
+                                sequence = 2,
+                                stepId = "run_tests",
+                                stepName = "Run Tests",
+                                format = OutputVisualFormat.MARKDOWN,
+                                title = "Pytest summary",
+                                content = "## Failing tests\n\n- test_a\n- test_b",
+                            )
+                        )
                     ),
                     StepItemState(
                         "ai_help_tests",
                         "AI Help - Tests",
                         4,
                         "core",
-                        StepVisualStatus.RUNNING
+                        StepVisualStatus.RUNNING,
+                        activePrompt = ActivePromptState(
+                            promptId = "ai-help-tests:confirm",
+                            stepId = "ai_help_tests",
+                            stepName = "AI Help - Tests",
+                            promptType = "text",
+                            message = "Describe how you want the AI to help with the failing tests.",
+                            defaultValue = JsonNull,
+                        )
                     ),
                     StepItemState(
                         "create_commit",
@@ -208,44 +238,18 @@ private fun WorkflowScreenPreview() {
                         StepVisualStatus.PENDING
                     ),
                 ),
-                timeline = listOf(
-                    OutputTimelineItemState(
-                        sequence = 1,
-                        stepId = "ruff_lint",
-                        stepName = "Run Ruff Linter",
-                        format = OutputVisualFormat.TEXT,
-                        title = "Lint summary",
-                        content = "Auto-fixed 3 issue(s)",
-                    ),
-                    OutputTimelineItemState(
-                        sequence = 2,
-                        stepId = "run_tests",
-                        stepName = "Run Tests",
-                        format = OutputVisualFormat.MARKDOWN,
-                        title = "Pytest summary",
-                        content = "## Failing tests\n\n- test_a\n- test_b",
-                    ),
-                ),
-                activePrompt = ActivePromptState(
-                    promptId = "ai-help-tests:confirm",
-                    stepId = "ai_help_tests",
-                    stepName = "AI Help - Tests",
-                    promptType = "text",
-                    message = "Describe how you want the AI to help with the failing tests.",
-                    defaultValue = JsonNull,
-                ),
                 isRunActive = true,
             ),
             onStart = {},
             promptDraftText = "Focus on the failing tests only.",
             onPromptDraftTextChange = {},
             isSubmittingPrompt = false,
-            isSubmittingInteraction = false,
+            submittingInteractionId = null,
             isLoadingWorkflow = false,
             isStartingRun = false,
             onSubmitText = {},
             onSubmitConfirm = {},
-            onSelectInteractionOption = {},
+            onSelectInteractionOption = { _, _ -> },
         )
     }
 }

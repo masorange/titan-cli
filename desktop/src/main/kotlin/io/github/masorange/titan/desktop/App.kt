@@ -42,7 +42,7 @@ fun App() {
         }
         var promptDraftText by remember { mutableStateOf("") }
         var isSubmittingPrompt by remember { mutableStateOf(false) }
-        var isSubmittingInteraction by remember { mutableStateOf(false) }
+        var submittingInteractionId by remember { mutableStateOf<String?>(null) }
         var processHandle by remember { mutableStateOf<RunningTitanProcess?>(null) }
 
         fun appendLine(target: MutableList<String>, value: String) {
@@ -120,45 +120,44 @@ fun App() {
             }
         }
 
-        fun submitInteractionSelection(optionId: String) {
-            val interaction = screenState.activeInteraction ?: return
+        fun submitInteractionSelection(interactionId: String, optionId: String) {
             val activeProcess = processHandle ?: return
             val runId = screenState.runId ?: return
             debugLog(
-                "submitInteractionSelection requested interactionId=${interaction.interactionId} " +
-                    "optionId=$optionId isSubmittingInteraction=$isSubmittingInteraction"
+                "submitInteractionSelection requested interactionId=$interactionId " +
+                    "optionId=$optionId submittingInteractionId=$submittingInteractionId"
             )
-            if (isSubmittingInteraction) {
+            if (submittingInteractionId == interactionId) {
                 debugLog("submitInteractionSelection ignored because interaction is already submitting")
                 return
             }
 
-            isSubmittingInteraction = true
+            submittingInteractionId = interactionId
             scope.launch {
                 runCatching {
                     PromptCommandEncoder.encodeSubmitInteractionResponse(
                         runId = runId,
-                        interactionId = interaction.interactionId,
+                        interactionId = interactionId,
                         responseType = "select",
                         value = JsonPrimitive(optionId),
                     )
                 }.onSuccess { commandJson ->
                     debugLog(
-                        "submitInteractionSelection encoded interactionId=${interaction.interactionId} " +
+                        "submitInteractionSelection encoded interactionId=$interactionId " +
                             "payloadLength=${commandJson.length}"
                     )
                     runCatching { activeProcess.sendCommand(commandJson) }
                         .onSuccess {
-                            debugLog("submitInteractionSelection sendCommand completed for interactionId=${interaction.interactionId}")
+                            debugLog("submitInteractionSelection sendCommand completed for interactionId=$interactionId")
                         }
                         .onFailure { error ->
-                            isSubmittingInteraction = false
+                            submittingInteractionId = null
                             debugLog("submitInteractionSelection sendCommand failed: ${error.message ?: error}")
                             activeErrorMessage = error.message ?: error.toString()
                             appendLine(diagnostics, error.message ?: error.toString())
                         }
                 }.onFailure { error ->
-                    isSubmittingInteraction = false
+                    submittingInteractionId = null
                     debugLog("submitInteractionSelection encoding failed: ${error.message ?: error}")
                     activeErrorMessage = error.message ?: error.toString()
                     appendLine(diagnostics, error.message ?: error.toString())
@@ -199,7 +198,7 @@ fun App() {
                                 "activeInteractionAfter=${screenState.activeInteraction?.interactionId}"
                         )
                         isSubmittingPrompt = false
-                        isSubmittingInteraction = false
+                        submittingInteractionId = null
                         isCancellingRun = false
                         return@collect
                     }
@@ -221,12 +220,12 @@ fun App() {
                         isSubmittingPrompt = false
                     }
                     if (screenState.activeInteraction == null) {
-                        isSubmittingInteraction = false
+                        submittingInteractionId = null
                     } else if (
                         previousInteractionId != null &&
                         previousInteractionId != screenState.activeInteraction?.interactionId
                     ) {
-                        isSubmittingInteraction = false
+                        submittingInteractionId = null
                         debugLog(
                             "interaction submit flag cleared due to interaction change " +
                                 "from=$previousInteractionId to=${screenState.activeInteraction?.interactionId}"
@@ -266,7 +265,7 @@ fun App() {
                 diagnostics.clear()
                 promptDraftText = ""
                 isSubmittingPrompt = false
-                isSubmittingInteraction = false
+                submittingInteractionId = null
                 activeErrorMessage = null
                 isStartingRun = true
                 rebuildInitialScreenState()
@@ -286,7 +285,7 @@ fun App() {
             promptDraftText = promptDraftText,
             onPromptDraftTextChange = { promptDraftText = it },
             isSubmittingPrompt = isSubmittingPrompt,
-            isSubmittingInteraction = isSubmittingInteraction,
+            submittingInteractionId = submittingInteractionId,
             isLoadingWorkflow = isLoadingWorkflow,
             isStartingRun = isStartingRun,
             activeErrorMessage = activeErrorMessage,

@@ -66,8 +66,6 @@ private fun WorkflowExecutionPathCardPreview() {
                     totalSteps = 6,
                 ),
                 steps = emptyList(),
-                timeline = emptyList(),
-                activePrompt = null,
             ),
             runHeaderState = RunHeaderState(
                 workflowName = "Example Workflow",

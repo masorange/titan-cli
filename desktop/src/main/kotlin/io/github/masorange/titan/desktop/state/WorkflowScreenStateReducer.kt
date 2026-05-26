@@ -86,19 +86,6 @@ object WorkflowScreenStateReducer {
                 )
             }
             .sortedBy { it.stepIndex }
-        val timelineItems = runResult.steps.flatMapIndexed { index, step ->
-            step.outputs.map { output ->
-                OutputTimelineItemState(
-                    sequence = index + 1,
-                    stepId = step.id,
-                    stepName = step.title,
-                    format = OutputVisualFormat.fromWireValue(output.format),
-                    title = output.title,
-                    content = output.content,
-                    metadata = output.metadata,
-                )
-            }
-        }
         return state.copy(
             runId = runResult.runId,
             header = state.header.copy(
@@ -106,10 +93,25 @@ object WorkflowScreenStateReducer {
                 status = runStatus,
                 totalSteps = runResult.steps.size,
             ),
-            steps = stepItems,
-            timeline = if (state.timeline.isEmpty()) timelineItems else state.timeline,
-            activePrompt = null,
-            activeInteraction = null,
+            steps = stepItems.mapIndexed { index, stepItem ->
+                stepItem.copy(
+                    outputItems = runResult.steps
+                        .getOrNull(index)
+                        ?.outputs
+                        ?.map { output ->
+                            OutputItemState(
+                                sequence = index + 1,
+                                stepId = stepItem.stepId,
+                                stepName = stepItem.stepName,
+                                format = OutputVisualFormat.fromWireValue(output.format),
+                                title = output.title,
+                                content = output.content,
+                                metadata = output.metadata,
+                            )
+                        }
+                        ?: emptyList()
+                )
+            },
             terminalMessage = runResult.diagnostics["result_message"]?.asStringOrNull(),
             isRunActive = false,
             isTerminal = true,
@@ -145,10 +147,10 @@ object WorkflowScreenStateReducer {
                     status = StepVisualStatus.RUNNING,
                     message = null,
                     startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
+                    activePrompt = null,
+                    activeInteraction = null,
                 )
             },
-            activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
-            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
             isRunActive = true,
         )
     }
@@ -163,10 +165,10 @@ object WorkflowScreenStateReducer {
                 copy(
                     status = StepVisualStatus.SUCCESS,
                     message = event.payload["message"]?.asStringOrNull(),
+                    activePrompt = null,
+                    activeInteraction = null,
                 )
             },
-            activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
-            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
         )
     }
 
@@ -180,10 +182,10 @@ object WorkflowScreenStateReducer {
                 copy(
                     status = StepVisualStatus.FAILED,
                     message = event.payload["message"]?.asStringOrNull(),
+                    activePrompt = null,
+                    activeInteraction = null,
                 )
             },
-            activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
-            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
         )
     }
 
@@ -197,10 +199,10 @@ object WorkflowScreenStateReducer {
                 copy(
                     status = StepVisualStatus.SKIPPED,
                     message = event.payload["message"]?.asStringOrNull(),
+                    activePrompt = null,
+                    activeInteraction = null,
                 )
             },
-            activePrompt = closePromptIfStepMatches(state.activePrompt, step.stepId),
-            activeInteraction = closeInteractionIfStepMatches(state.activeInteraction, step.stepId),
         )
     }
 
@@ -216,18 +218,18 @@ object WorkflowScreenStateReducer {
                     copy(
                         status = if (status == StepVisualStatus.PENDING) StepVisualStatus.RUNNING else status,
                         startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
+                        outputItems = outputItems + OutputItemState(
+                            sequence = event.sequence ?: outputItems.size + 1,
+                            stepId = stepRef.stepId,
+                            stepName = stepRef.stepName,
+                            format = OutputVisualFormat.fromWireValue(output.format),
+                            title = output.title,
+                            content = output.content,
+                            metadata = output.metadata,
+                        ),
                     )
                 }
             } ?: state.steps,
-            timeline = state.timeline + OutputTimelineItemState(
-                sequence = event.sequence ?: state.timeline.size + 1,
-                stepId = step?.stepId,
-                stepName = step?.stepName,
-                format = OutputVisualFormat.fromWireValue(output.format),
-                title = output.title,
-                content = output.content,
-                metadata = output.metadata,
-            )
         )
     }
 
@@ -243,20 +245,20 @@ object WorkflowScreenStateReducer {
                     copy(
                         status = if (status == StepVisualStatus.PENDING) StepVisualStatus.RUNNING else status,
                         startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
+                        activePrompt = ActivePromptState(
+                            promptId = prompt.promptId,
+                            stepId = stepRef.stepId,
+                            stepName = stepRef.stepName,
+                            promptType = prompt.promptType,
+                            message = prompt.message,
+                            defaultValue = prompt.default,
+                            required = prompt.required,
+                            options = prompt.options,
+                        ),
+                        activeInteraction = null,
                     )
                 }
             } ?: state.steps,
-            activePrompt = ActivePromptState(
-                promptId = prompt.promptId,
-                stepId = step?.stepId,
-                stepName = step?.stepName,
-                promptType = prompt.promptType,
-                message = prompt.message,
-                defaultValue = prompt.default,
-                required = prompt.required,
-                options = prompt.options,
-            ),
-            activeInteraction = null,
             isRunActive = true,
         )
     }
@@ -274,19 +276,19 @@ object WorkflowScreenStateReducer {
                     copy(
                         status = if (status == StepVisualStatus.PENDING) StepVisualStatus.RUNNING else status,
                         startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
+                        activeInteraction = ActiveInteractionState(
+                            interactionId = interaction.interactionId,
+                            stepId = stepRef.stepId,
+                            stepName = stepRef.stepName,
+                            interactionType = InteractionVisualType.fromWireValue(interaction.interactionType),
+                            message = interaction.message,
+                            options = options,
+                            actions = interaction.actions,
+                        ),
+                        activePrompt = null,
                     )
                 }
             } ?: state.steps,
-            activeInteraction = ActiveInteractionState(
-                interactionId = interaction.interactionId,
-                stepId = step?.stepId,
-                stepName = step?.stepName,
-                interactionType = InteractionVisualType.fromWireValue(interaction.interactionType),
-                message = interaction.message,
-                options = options,
-                actions = interaction.actions,
-            ),
-            activePrompt = null,
             isRunActive = true,
         )
     }
@@ -297,32 +299,11 @@ object WorkflowScreenStateReducer {
         status: RunVisualStatus,
     ): WorkflowScreenState = state.copy(
         header = state.header.copy(status = status),
-        activePrompt = null,
-        activeInteraction = null,
+        steps = state.steps.map { it.copy(activePrompt = null, activeInteraction = null) },
         terminalMessage = event.payload["message"]?.asStringOrNull(),
         isRunActive = false,
         isTerminal = true,
     )
-
-    private fun closePromptIfStepMatches(
-        prompt: ActivePromptState?,
-        stepId: String,
-    ): ActivePromptState? {
-        if (prompt?.stepId == stepId) {
-            return null
-        }
-        return prompt
-    }
-
-    private fun closeInteractionIfStepMatches(
-        interaction: ActiveInteractionState?,
-        stepId: String,
-    ): ActiveInteractionState? {
-        if (interaction?.stepId == stepId) {
-            return null
-        }
-        return interaction
-    }
 
     private fun List<StepItemState>.upsertStep(
         step: StepRef,

@@ -116,7 +116,7 @@ class WorkflowScreenStateReducerTest {
     }
 
     @Test
-    fun `output_emitted appends visible timeline item`() {
+    fun `output_emitted appends visible output item`() {
         val state = WorkflowScreenStateReducer.reduce(
             initialState,
             event(
@@ -140,10 +140,10 @@ class WorkflowScreenStateReducerTest {
             ),
         )
 
-        assertEquals(1, state.timeline.size)
-        assertEquals("emit-text", state.timeline.first().stepId)
-        assertEquals(OutputVisualFormat.TEXT, state.timeline.first().format)
-        assertEquals("plain", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
+        assertEquals(1, state.outputItems.size)
+        assertEquals("emit-text", state.outputItems.first().stepId)
+        assertEquals(OutputVisualFormat.TEXT, state.outputItems.first().format)
+        assertEquals("plain", state.outputItems.first().metadata["kind"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -174,8 +174,8 @@ class WorkflowScreenStateReducerTest {
             ),
         )
 
-        assertEquals(OutputVisualFormat.DIFF, state.timeline.first().format)
-        assertEquals("unified_patch", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
+        assertEquals(OutputVisualFormat.DIFF, state.outputItems.first().format)
+        assertEquals("unified_patch", state.outputItems.first().metadata["kind"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -215,11 +215,11 @@ class WorkflowScreenStateReducerTest {
             ),
         )
 
-        assertEquals(OutputVisualFormat.STRUCTURED_SUMMARY, state.timeline.first().format)
-        assertEquals("pr_classification", state.timeline.first().metadata["kind"]?.jsonPrimitive?.content)
+        assertEquals(OutputVisualFormat.STRUCTURED_SUMMARY, state.outputItems.first().format)
+        assertEquals("pr_classification", state.outputItems.first().metadata["kind"]?.jsonPrimitive?.content)
         assertEquals(
             "Scope",
-            state.timeline.first().metadata["sections"]
+            state.outputItems.first().metadata["sections"]
                 ?.toString()
                 ?.let { if (it.contains("Scope")) "Scope" else null }
         )
@@ -409,7 +409,7 @@ class WorkflowScreenStateReducerTest {
 
         assertEquals(RunVisualStatus.COMPLETED, state.header.status)
         assertEquals(2, state.steps.size)
-        assertEquals(1, state.timeline.size)
+        assertEquals(1, state.outputItems.size)
         assertEquals("Workflow finished", state.terminalMessage)
         assertTrue(state.isTerminal)
     }

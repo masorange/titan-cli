@@ -11,13 +11,20 @@ import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import io.github.masorange.titan.desktop.state.OutputTimelineItemState
+import io.github.masorange.titan.desktop.state.OutputItemState
 import io.github.masorange.titan.desktop.state.OutputVisualFormat
+import io.github.masorange.titan.desktop.theme.Body2RegularText
+import io.github.masorange.titan.desktop.theme.Body2StrongText
+import io.github.masorange.titan.desktop.theme.CaptionRegularText
+import io.github.masorange.titan.desktop.theme.H1Text
+import io.github.masorange.titan.desktop.theme.Subtitle2StrongText
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
+import io.github.masorange.titan.desktop.ui.DesktopPreview
 import io.github.masorange.titan.desktop.ui.LocalTheme
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -26,7 +33,7 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
 fun DiffOutputView(
-    item: OutputTimelineItemState,
+    item: OutputItemState,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalTheme.current.colors.ui
@@ -38,67 +45,65 @@ fun DiffOutputView(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().padding(Spacing.s6),
         verticalArrangement = Arrangement.spacedBy(Spacing.s4),
     ) {
-        if (summaryLines.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
-                summaryLines.forEach { line ->
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.body2,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.8f),
-                    )
-                }
-            }
-        }
+
 
         if (files.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(LocalTheme.current.colors.ui.diffPreviewBackground)
+                    .padding(Spacing.s4),
+                verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
                 files.forEach { file ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s3)) {
-                        Text(file.path, style = MaterialTheme.typography.body2)
-                        Text(
-                            text = "+${file.additions}",
-                            style = MaterialTheme.typography.caption,
-                            color = colors.diffAdditions,
-                        )
-                        Text(
-                            text = "-${file.deletions}",
-                            style = MaterialTheme.typography.caption,
-                            color = colors.diffDeletions,
-                        )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.s3),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Body2RegularText(text = file.path)
+                        Body2StrongText(text = "+${file.additions}", color = colors.diffAdditions)
+                        Body2StrongText(text = "-${file.deletions}", color = colors.diffDeletions)
                     }
                 }
             }
         }
 
-        if (preview.lines.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.diffPreviewBackground)
-                    .padding(Spacing.s4),
-                verticalArrangement = Arrangement.spacedBy(Spacing.s1),
-            ) {
-                preview.lines.forEach { line ->
-                    Text(
-                        text = line.text,
-                        style = MaterialTheme.typography.caption,
-                        fontFamily = FontFamily.Monospace,
-                        color = line.color,
-                    )
-                }
-
-                if (preview.truncated) {
-                    Text(
-                        text = "Preview truncated for large diff output.",
-                        style = MaterialTheme.typography.caption,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f),
-                    )
+        if (summaryLines.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
+                summaryLines.forEach { line ->
+                    CaptionRegularText(text = line)
                 }
             }
         }
+
+//        if (preview.lines.isNotEmpty()) {
+//            Column(
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .background(colors.diffPreviewBackground)
+//                    .padding(Spacing.s4),
+//                verticalArrangement = Arrangement.spacedBy(Spacing.s1),
+//            ) {
+//                preview.lines.forEach { line ->
+//                    Text(
+//                        text = line.text,
+//                        style = MaterialTheme.typography.caption,
+//                        fontFamily = FontFamily.Monospace,
+//                        color = line.color,
+//                    )
+//                }
+//
+//                if (preview.truncated) {
+//                    Text(
+//                        text = "Preview truncated for large diff output.",
+//                        style = MaterialTheme.typography.caption,
+//                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f),
+//                    )
+//                }
+//            }
+//        }
     }
 }
 
@@ -152,6 +157,7 @@ private fun parseDiffLines(
         line.startsWith("diff --git") || line.startsWith("--- ") || line.startsWith("+++ ") -> {
             RenderDiffLine(line, colors.diffPreviewHeader)
         }
+
         line.startsWith("@@") -> RenderDiffLine(line, colors.diffPreviewHunk)
         line.startsWith("+") && !line.startsWith("+++") -> RenderDiffLine(line, colors.diffAdditions)
         line.startsWith("-") && !line.startsWith("---") -> RenderDiffLine(line, colors.diffDeletions)
@@ -182,10 +188,10 @@ private val JsonPrimitive.contentOrNull: String?
 @Preview
 @Composable
 private fun DiffOutputViewPreview() {
-    MaterialTheme {
+    DesktopPreview {
         Card(modifier = Modifier.fillMaxWidth(), elevation = 0.dp) {
             DiffOutputView(
-                item = OutputTimelineItemState(
+                item = OutputItemState(
                     sequence = 1,
                     stepId = "fetch_bundle",
                     stepName = "Fetch PR Review Bundle",

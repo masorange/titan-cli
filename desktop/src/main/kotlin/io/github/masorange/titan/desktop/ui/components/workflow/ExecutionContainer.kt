@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
@@ -22,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.ActivePromptState
-import io.github.masorange.titan.desktop.state.OutputTimelineItemState
+import io.github.masorange.titan.desktop.state.OutputItemState
 import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.state.RunHeaderState
 import io.github.masorange.titan.desktop.state.RunVisualStatus
@@ -44,18 +46,21 @@ fun ExecutionContainer(
     promptDraftText: String,
     onPromptDraftTextChange: (String) -> Unit,
     isSubmittingPrompt: Boolean,
-    isSubmittingInteraction: Boolean,
+    submittingInteractionId: String?,
     onSubmitText: () -> Unit,
     onSubmitConfirm: (Boolean) -> Unit,
-    onSelectInteractionOption: (String) -> Unit,
+    onSelectInteractionOption: (String, String) -> Unit,
 ) {
+
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         state.steps.forEachIndexed { index, step ->
-
             StepContainer(
+                stepId = step.stepId,
                 title = step.stepName,
                 stepBadge = step.stepIndex.let { "STEP-${it.toString().padStart(2, '0')}" },
                 status = step.status,
@@ -63,15 +68,15 @@ fun ExecutionContainer(
 //        subtitle = humanizeInteractionType(interaction.interactionType),
 //        message = interaction.message,
             ) {
-                state.activeInteraction?.let {
+                step.activeInteraction?.let {
                     InteractionPanel(
                         interaction = it,
-                        isSubmitting = isSubmittingInteraction,
+                        isSubmitting = it.interactionId == submittingInteractionId,
                         onSelectInteractionOption = onSelectInteractionOption,
                     )
                 }
 
-                state.activePrompt?.let {
+                step.activePrompt?.let {
                     Card(elevation = 2.dp) {
                         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                             Text("Active Prompt", style = MaterialTheme.typography.subtitle1)
@@ -93,10 +98,14 @@ fun ExecutionContainer(
                     }
                 }
 
-                if (state.timeline.isEmpty()) {
+                step.outputItems.forEachIndexed { index, item ->
+                    OutputContainer(item = item)
+                }
+
+                if (state.outputItems.isEmpty()) {
                     Text("No execution output yet. Output produced by running steps will appear here.")
                 } else {
-                    TimelinePanel(state = state, modifier = Modifier.weight(1f))
+
                 }
 
                 state.terminalMessage?.let {
@@ -170,46 +179,6 @@ private fun PromptPanel(
     }
 }
 
-@Composable
-private fun TimelinePanel(
-    state: WorkflowScreenState,
-    modifier: Modifier = Modifier,
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(state.timeline, key = { "${it.sequence}:${it.stepId}:${it.title}" }) { item ->
-            Card(elevation = 2.dp) {
-                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                    Text(
-                        item.title ?: item.stepName ?: item.stepId ?: "Output",
-                        style = MaterialTheme.typography.subtitle1
-                    )
-                    Text("Format: ${item.format.wireValue}")
-                    Text("Step: ${item.stepName ?: item.stepId ?: "run"}")
-                    Spacer(modifier = Modifier.height(4.dp))
-                    when (item.format) {
-                        OutputVisualFormat.DIFF -> {
-                            DiffOutputView(item = item)
-                        }
-
-                        OutputVisualFormat.STRUCTURED_SUMMARY -> {
-                            StructuredSummaryOutputView(item = item)
-                        }
-
-                        else -> {
-                            SelectionContainer {
-                                Text(item.content, fontFamily = FontFamily.Monospace)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 private fun canSubmitPrompt(
     prompt: ActivePromptState?,
     promptDraftText: String,
@@ -256,7 +225,17 @@ fun ExecutionContainerPreview() {
                         "Run Ruff Linter",
                         2,
                         "project",
-                        StepVisualStatus.SUCCESS
+                        StepVisualStatus.SUCCESS,
+                        outputItems = listOf(
+                            OutputItemState(
+                                sequence = 1,
+                                stepId = "ruff_lint",
+                                stepName = "Run Ruff Linter",
+                                format = OutputVisualFormat.TEXT,
+                                title = "Lint summary",
+                                content = "Auto-fixed 3 issue(s)",
+                            )
+                        )
                     ),
                     StepItemState(
                         "run_tests",
@@ -264,14 +243,32 @@ fun ExecutionContainerPreview() {
                         3,
                         "project",
                         StepVisualStatus.FAILED,
-                        "4 test(s) failed"
+                        "4 test(s) failed",
+                        outputItems = listOf(
+                            OutputItemState(
+                                sequence = 2,
+                                stepId = "run_tests",
+                                stepName = "Run Tests",
+                                format = OutputVisualFormat.MARKDOWN,
+                                title = "Pytest summary",
+                                content = "## Failing tests\n\n- test_a\n- test_b",
+                            )
+                        )
                     ),
                     StepItemState(
                         "ai_help_tests",
                         "AI Help - Tests",
                         4,
                         "core",
-                        StepVisualStatus.RUNNING
+                        StepVisualStatus.RUNNING,
+                        activePrompt = ActivePromptState(
+                            promptId = "ai-help-tests:confirm",
+                            stepId = "ai_help_tests",
+                            stepName = "AI Help - Tests",
+                            promptType = "text",
+                            message = "Describe how you want the AI to help with the failing tests.",
+                            defaultValue = JsonNull,
+                        )
                     ),
                     StepItemState(
                         "create_commit",
@@ -288,41 +285,15 @@ fun ExecutionContainerPreview() {
                         StepVisualStatus.PENDING
                     ),
                 ),
-                timeline = listOf(
-                    OutputTimelineItemState(
-                        sequence = 1,
-                        stepId = "ruff_lint",
-                        stepName = "Run Ruff Linter",
-                        format = OutputVisualFormat.TEXT,
-                        title = "Lint summary",
-                        content = "Auto-fixed 3 issue(s)",
-                    ),
-                    OutputTimelineItemState(
-                        sequence = 2,
-                        stepId = "run_tests",
-                        stepName = "Run Tests",
-                        format = OutputVisualFormat.MARKDOWN,
-                        title = "Pytest summary",
-                        content = "## Failing tests\n\n- test_a\n- test_b",
-                    ),
-                ),
-                activePrompt = ActivePromptState(
-                    promptId = "ai-help-tests:confirm",
-                    stepId = "ai_help_tests",
-                    stepName = "AI Help - Tests",
-                    promptType = "text",
-                    message = "Describe how you want the AI to help with the failing tests.",
-                    defaultValue = JsonNull,
-                ),
                 isRunActive = true,
             ),
             promptDraftText = "Focus on the failing tests only.",
             onPromptDraftTextChange = {},
             isSubmittingPrompt = false,
-            isSubmittingInteraction = false,
+            submittingInteractionId = null,
             onSubmitText = {},
             onSubmitConfirm = {},
-            onSelectInteractionOption = {},
+            onSelectInteractionOption = { _, _ -> },
         )
     }
 }

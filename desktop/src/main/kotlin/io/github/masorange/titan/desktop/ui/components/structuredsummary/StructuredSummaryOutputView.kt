@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.ui.graphics.Color
-import io.github.masorange.titan.desktop.state.OutputTimelineItemState
+import io.github.masorange.titan.desktop.state.OutputItemState
 import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.theme.H3Text
 import io.github.masorange.titan.desktop.theme.H4Text
@@ -32,7 +32,7 @@ import kotlinx.serialization.json.addJsonObject
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
-fun StructuredSummaryOutputView(item: OutputTimelineItemState) {
+fun StructuredSummaryOutputView(item: OutputItemState) {
     val summaryLines = item.metadata.summaryLines().ifEmpty {
         item.content.lines().filter { it.isNotBlank() }
     }
@@ -99,7 +99,7 @@ private fun WorkflowScreenPreview() {
     MaterialTheme {
         Card(modifier = Modifier.background(Color.White).padding(Spacing.s6), elevation = 0.dp) {
             StructuredSummaryOutputView(
-                item = OutputTimelineItemState(
+                item = OutputItemState(
                     sequence = 1,
                     stepId = "classify_pr",
                     stepName = "Classify PR",

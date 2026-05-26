@@ -447,11 +447,11 @@ def test_submit_interaction_response_supports_two_consecutive_option_lists(
             first = ctx.interaction.option_list(
                 interaction_id="select-pr",
                 message="Choose PR",
-                options=[InteractionOption(id="pr-1", label="PR 1", value="1")],
+                options=[InteractionOption(id="pr-1", label="PR 1", value="pr-1")],
             )
             if state["calls"] == 1:
                 return Success("unreachable")
-            assert first == "1"
+            assert first == "pr-1"
 
             ctx.current_step = 2
             ctx.current_step_id = "select_cli"
@@ -486,7 +486,7 @@ def test_submit_interaction_response_supports_two_consecutive_option_lists(
 
     assert waiting is not None
     assert waiting.pending_interaction is not None
-    assert waiting.pending_interaction.interaction_id == "select_pr:select-pr"
+    assert waiting.pending_interaction.interaction_id == "select_pr:select-option"
 
     second_wait = service.submit_interaction_response(
         SubmitInteractionResponseRequest(
@@ -500,7 +500,7 @@ def test_submit_interaction_response_supports_two_consecutive_option_lists(
     assert second_wait is not None
     assert second_wait.status == RunSessionStatus.WAITING_FOR_INTERACTION
     assert second_wait.pending_interaction is not None
-    assert second_wait.pending_interaction.interaction_id == "select_cli:select-cli"
+    assert second_wait.pending_interaction.interaction_id == "select_cli:select-option"
 
     completed = service.submit_interaction_response(
         SubmitInteractionResponseRequest(
