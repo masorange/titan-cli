@@ -6,6 +6,12 @@ The GitHub plugin ships reusable workflows for PR creation, issue creation, and 
 
 Creates a pull request after preparing branch state, pushing changes, and generating PR content with AI.
 
+Set `params.draft` to control draft behavior:
+
+- `true`: create as draft without prompting
+- `false`: create as ready for review without prompting
+- `null`: ask interactively before creating the PR
+
 **Source workflow:** `plugins/titan-plugin-github/titan_plugin_github/workflows/create-pr-ai.yaml`
 
 ### Default flow

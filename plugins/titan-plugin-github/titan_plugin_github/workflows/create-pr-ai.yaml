@@ -2,7 +2,7 @@ name: "Create Pull Request with AI"
 description: "AI-powered PR creation with intelligent analysis and suggestions"
 
 params:
-  draft: false
+  draft: null
 
 hooks:
   - before_pr_generation

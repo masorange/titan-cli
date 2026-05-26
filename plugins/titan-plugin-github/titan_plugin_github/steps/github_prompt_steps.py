@@ -98,38 +98,36 @@ def prompt_for_pr_draft_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual: Textual UI components.
 
     Inputs (from ctx.data):
-        draft (bool, optional): Default draft value from workflow params.
-        pr_is_draft (bool, optional): Existing PR draft selection.
+        draft (bool | None, optional): Draft mode from workflow params. Use True/False to skip the prompt, or None to ask interactively.
 
     Outputs (saved to ctx.data):
         pr_is_draft (bool): Whether the PR should be created as a draft.
 
     Returns:
-        Success: If the draft preference was captured successfully.
+        Success: If the draft preference was resolved successfully.
         Error: If the user cancels or the prompt fails.
-        Skip: If pr_is_draft already exists.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
     ctx.textual.begin_step("Choose PR Draft Mode")
 
-    if ctx.has("pr_is_draft"):
-        existing_value = bool(ctx.get("pr_is_draft"))
-        mode = "draft" if existing_value else "ready for review"
-        ctx.textual.dim_text(f"PR draft mode already provided ({mode}), skipping prompt.")
-        ctx.textual.end_step("skip")
-        return Skip(
-            "PR draft mode already provided, skipping prompt.",
-            metadata={"pr_is_draft": existing_value},
-        )
+    draft_mode = ctx.get("draft")
 
-    default_draft = bool(ctx.get("draft", False))
+    if draft_mode is True:
+        ctx.textual.dim_text("PR draft mode preset to draft, skipping prompt.")
+        ctx.textual.end_step("success")
+        return Success("PR draft preference preset", metadata={"pr_is_draft": True})
+
+    if draft_mode is False:
+        ctx.textual.dim_text("PR draft mode preset to ready for review, skipping prompt.")
+        ctx.textual.end_step("success")
+        return Success("PR draft preference preset", metadata={"pr_is_draft": False})
 
     try:
         is_draft = ctx.textual.ask_confirm(
             msg.Prompts.CREATE_PR_AS_DRAFT,
-            default=default_draft,
+            default=False,
         )
         mode = "draft" if is_draft else "ready for review"
         ctx.textual.success_text(f"PR will be created as {mode}.")

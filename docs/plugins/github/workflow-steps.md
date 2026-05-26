@@ -466,8 +466,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `draft` | bool, optional | Default draft value from workflow params. |
-    | `pr_is_draft` | bool, optional | Existing PR draft selection. |
+    | `draft` | bool or null, optional | Workflow draft mode. Use `true` or `false` to skip the prompt, or `null` to ask interactively. |
 
     **Outputs (saved to ctx.data)**
 
@@ -479,9 +478,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `pr_is_draft` | If the draft preference was captured successfully. |
+    | `Success` | `pr_is_draft` | If the draft preference was resolved successfully. |
     | `Error` | - | If the user cancels or the prompt fails. |
-    | `Skip` | `pr_is_draft` | If pr_is_draft already exists. |
 
 
 ??? info "`prompt_for_issue_body_step`"
