@@ -3,6 +3,11 @@
 from titan_plugin_github.models.view import UIPullRequest
 
 
+def escape_rich_markup(text: str) -> str:
+    """Escape square brackets in user-controlled text for Rich markup rendering."""
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
 def format_review_status_badge(review_status_summary: str) -> str:
     """Format a compact inline badge for PR review status."""
     badges = {
@@ -11,7 +16,7 @@ def format_review_status_badge(review_status_summary: str) -> str:
         "review required": "[blue]● review required[/blue]",
         "ready for review": "[cyan]● ready for review[/cyan]",
     }
-    return badges.get(review_status_summary, review_status_summary)
+    return badges.get(review_status_summary, escape_rich_markup(review_status_summary))
 
 
 def build_pr_selection_title(
@@ -21,7 +26,7 @@ def build_pr_selection_title(
 ) -> str:
     """Build the title for a PR selection option."""
     prefix = "⭐ " if highlight_assigned else ""
-    title = f"{prefix}#{pr.number}: {pr.title}"
+    title = f"{prefix}#{pr.number}: {escape_rich_markup(pr.title)}"
 
     if include_review_badge and pr.review_status_summary:
         return f"{title}  {format_review_status_badge(pr.review_status_summary)}"

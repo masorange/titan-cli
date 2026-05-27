@@ -333,6 +333,32 @@ class TestPRSelectionOperations:
             include_checks=True,
         ) == "by author · feat/test → main · Checks: 1 passing"
 
+    def test_build_pr_selection_title_escapes_rich_markup_in_pr_title(self):
+        pr = from_rest_pr(
+            NetworkPullRequest(
+                number=9,
+                title="[WIP] fix parser",
+                body="",
+                state="OPEN",
+                isDraft=False,
+                author=NetworkUser(login="author"),
+                headRefName="feat/test",
+                baseRefName="main",
+                mergeable="MERGEABLE",
+                additions=0,
+                deletions=0,
+                changedFiles=0,
+                reviews=[],
+                labels=[],
+                reviewDecision="APPROVED",
+            )
+        )
+
+        assert (
+            build_pr_selection_title(pr, include_review_badge=True)
+            == r"#9: \[WIP\] fix parser  [green]● approved[/green]"
+        )
+
     def test_format_review_status_badge(self):
         assert format_review_status_badge("approved") == "[green]● approved[/green]"
         assert format_review_status_badge("changes requested") == "[red]● changes requested[/red]"
