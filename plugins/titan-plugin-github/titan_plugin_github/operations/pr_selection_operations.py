@@ -13,6 +13,7 @@ def format_review_status_badge(review_status_summary: str) -> str:
     badges = {
         "approved": "[green]● approved[/green]",
         "changes requested": "[red]● changes requested[/red]",
+        "draft": "[yellow]● draft[/yellow]",
         "review required": "[blue]● review required[/blue]",
         "ready for review": "[cyan]● ready for review[/cyan]",
     }

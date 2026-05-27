@@ -359,8 +359,34 @@ class TestPRSelectionOperations:
             == r"#9: \[WIP\] fix parser  [green]● approved[/green]"
         )
 
+    def test_build_pr_selection_title_includes_draft_review_badge(self):
+        pr = from_rest_pr(
+            NetworkPullRequest(
+                number=10,
+                title="Draft PR",
+                body="",
+                state="OPEN",
+                isDraft=True,
+                author=NetworkUser(login="author"),
+                headRefName="feat/draft",
+                baseRefName="main",
+                mergeable="MERGEABLE",
+                additions=0,
+                deletions=0,
+                changedFiles=0,
+                reviews=[],
+                labels=[],
+            )
+        )
+
+        assert (
+            build_pr_selection_title(pr, include_review_badge=True)
+            == "#10: Draft PR  [yellow]● draft[/yellow]"
+        )
+
     def test_format_review_status_badge(self):
         assert format_review_status_badge("approved") == "[green]● approved[/green]"
         assert format_review_status_badge("changes requested") == "[red]● changes requested[/red]"
+        assert format_review_status_badge("draft") == "[yellow]● draft[/yellow]"
         assert format_review_status_badge("review required") == "[blue]● review required[/blue]"
         assert format_review_status_badge("ready for review") == "[cyan]● ready for review[/cyan]"
