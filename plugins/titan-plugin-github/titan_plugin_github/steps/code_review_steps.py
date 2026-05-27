@@ -588,12 +588,15 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     options = [
         OptionItem(
             value=pr.number,
-            title=build_pr_selection_title(pr, highlight_assigned=pr.number in assigned_numbers),
+            title=build_pr_selection_title(
+                pr,
+                highlight_assigned=pr.number in assigned_numbers,
+                include_review_badge=True,
+            ),
             description=build_pr_selection_description(
                 pr,
                 include_author=True,
                 include_checks=True,
-                include_review_status=True,
             ),
         )
         for pr in sorted_prs

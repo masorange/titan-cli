@@ -29,6 +29,7 @@ from .pr_operations import (
 from .pr_selection_operations import (
     build_pr_selection_description,
     build_pr_selection_title,
+    format_review_status_badge,
 )
 
 from .worktree_operations import (
@@ -73,6 +74,7 @@ __all__ = [
     "fetch_pr_general_comments",
     "build_pr_selection_description",
     "build_pr_selection_title",
+    "format_review_status_badge",
 
     # Worktree operations
     "setup_worktree",

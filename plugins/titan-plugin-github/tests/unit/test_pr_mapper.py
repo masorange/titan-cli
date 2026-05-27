@@ -8,6 +8,7 @@ from titan_plugin_github.models.mappers.pr_mapper import from_rest_pr
 from titan_plugin_github.operations.pr_selection_operations import (
     build_pr_selection_description,
     build_pr_selection_title,
+    format_review_status_badge,
 )
 
 
@@ -322,10 +323,18 @@ class TestPRSelectionOperations:
             )
         )
 
-        assert build_pr_selection_title(pr, highlight_assigned=True) == "⭐ #8: Test"
+        assert (
+            build_pr_selection_title(pr, highlight_assigned=True, include_review_badge=True)
+            == "⭐ #8: Test  [green]● approved[/green]"
+        )
         assert build_pr_selection_description(
             pr,
             include_author=True,
             include_checks=True,
-            include_review_status=True,
-        ) == "by author · feat/test → main · Checks: 1 passing · Review: approved"
+        ) == "by author · feat/test → main · Checks: 1 passing"
+
+    def test_format_review_status_badge(self):
+        assert format_review_status_badge("approved") == "[green]● approved[/green]"
+        assert format_review_status_badge("changes requested") == "[red]● changes requested[/red]"
+        assert format_review_status_badge("review required") == "[blue]● review required[/blue]"
+        assert format_review_status_badge("ready for review") == "[cyan]● ready for review[/cyan]"

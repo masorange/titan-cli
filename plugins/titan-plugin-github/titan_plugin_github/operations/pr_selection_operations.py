@@ -3,10 +3,30 @@
 from titan_plugin_github.models.view import UIPullRequest
 
 
-def build_pr_selection_title(pr: UIPullRequest, highlight_assigned: bool = False) -> str:
+def format_review_status_badge(review_status_summary: str) -> str:
+    """Format a compact inline badge for PR review status."""
+    badges = {
+        "approved": "[green]● approved[/green]",
+        "changes requested": "[red]● changes requested[/red]",
+        "review required": "[blue]● review required[/blue]",
+        "ready for review": "[cyan]● ready for review[/cyan]",
+    }
+    return badges.get(review_status_summary, review_status_summary)
+
+
+def build_pr_selection_title(
+    pr: UIPullRequest,
+    highlight_assigned: bool = False,
+    include_review_badge: bool = False,
+) -> str:
     """Build the title for a PR selection option."""
     prefix = "⭐ " if highlight_assigned else ""
-    return f"{prefix}#{pr.number}: {pr.title}"
+    title = f"{prefix}#{pr.number}: {pr.title}"
+
+    if include_review_badge and pr.review_status_summary:
+        return f"{title}  {format_review_status_badge(pr.review_status_summary)}"
+
+    return title
 
 
 def build_pr_selection_description(
