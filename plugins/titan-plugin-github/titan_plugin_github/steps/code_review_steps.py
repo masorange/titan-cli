@@ -37,6 +37,10 @@ from ..operations.thread_resolution_operations import (
     build_thread_resolution_prompt,
     build_thread_actions as build_thread_actions_operation,
 )
+from ..operations.pr_selection_operations import (
+    build_pr_selection_description,
+    build_pr_selection_title,
+)
 
 from ..operations.manifest_operations import (
     build_change_manifest as build_change_manifest_operation,
@@ -584,8 +588,16 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     options = [
         OptionItem(
             value=pr.number,
-            title=f"⭐ #{pr.number}: {pr.title}" if pr.number in assigned_numbers else f"#{pr.number}: {pr.title}",
-            description=f"by {pr.author_name} · {pr.branch_info}",
+            title=build_pr_selection_title(
+                pr,
+                highlight_assigned=pr.number in assigned_numbers,
+                include_review_badge=True,
+            ),
+            description=build_pr_selection_description(
+                pr,
+                include_author=True,
+                include_checks=True,
+            ),
         )
         for pr in sorted_prs
     ]

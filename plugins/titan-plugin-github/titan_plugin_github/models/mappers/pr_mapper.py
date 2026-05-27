@@ -14,6 +14,8 @@ from ..formatting import (
     format_pr_stats,
     format_branch_info,
     calculate_review_summary,
+    summarize_status_check_rollup,
+    summarize_review_status,
     format_short_sha,
 )
 
@@ -48,6 +50,8 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         is_mergeable=(rest_pr.mergeable == "MERGEABLE"),
         is_draft=rest_pr.isDraft,
         review_summary=calculate_review_summary(rest_pr.reviews),
+        checks_summary=summarize_status_check_rollup(rest_pr.statusCheckRollup),
+        review_status_summary=summarize_review_status(rest_pr.reviewDecision, rest_pr.isDraft),
         labels=label_names,
         formatted_created_at=format_date(rest_pr.createdAt) if rest_pr.createdAt else "",
         formatted_updated_at=format_date(rest_pr.updatedAt) if rest_pr.updatedAt else "",

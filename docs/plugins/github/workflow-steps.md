@@ -27,7 +27,7 @@ For full contract details for every public step, including documented inputs, ou
 | `prompt_for_pr_draft` | Prompt and Selection | `create-pr-ai` |
 | `prompt_for_issue_body_step` | Prompt and Selection | `create-issue-ai` |
 | `prompt_for_self_assign` | Prompt and Selection | `create-issue-ai` |
-| `prompt_for_labels` | Prompt and Selection | - |
+| `prompt_for_labels` | Prompt and Selection | `create-pr-ai` |
 | `select_cli` | Prompt and Selection | - |
 | `ai_suggest_issue_title_and_body` | Issue Creation | `create-issue-ai` |
 | `preview_and_confirm_issue` | Issue Creation | - |
@@ -82,7 +82,7 @@ Use these steps when a workflow needs interactive user input before creation or 
 - `prompt_for_pr_draft`: ask whether the PR should be created as draft
 - `prompt_for_issue_body_step`: capture the raw issue request before AI expansion
 - `prompt_for_self_assign`: ask whether the current user should be assigned to the issue
-- `prompt_for_labels`: prompt for labels to attach to an issue or PR
+- `prompt_for_labels`: prompt for repository labels and save the selection to a configurable context key
 - `select_cli`: choose which external CLI a workflow should use
 
 ## Issue Creation
@@ -560,7 +560,7 @@ How to read these contracts:
 
 
 ??? info "`prompt_for_labels`"
-    Prompts the user to select labels for the issue.
+    Prompt the user to select repository labels and save them to context.
 
     **Workflow usage**
 
@@ -569,7 +569,7 @@ How to read these contracts:
       step: prompt_for_labels
     ```
 
-    **Available to later steps:** `labels`
+    **Available to later steps:** `<output_key>`
 
     **Requires**
 
@@ -579,20 +579,24 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `output_key` | str, optional | Context key where selected labels should be stored. Defaults to `labels`. |
+    | `prompt` | str, optional | Prompt text shown to the user. Defaults to `Select labels:`. |
+    | `default_selected_key` | str, optional | Context key used to preselect labels. Defaults to `output_key`. |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `labels` | list[str] | Labels selected by the user. |
+    | `<output_key>` | list[str] | Labels selected by the user. |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `labels` | If label selection completes successfully. |
-    | `Skip` | `labels` | If the repository has no labels. |
+    | `Success` | `<output_key>` | If label selection completes successfully. |
+    | `Skip` | - | If the repository has no labels. |
     | `Error` | - | If the GitHub client is unavailable or the prompt fails. |
 
 

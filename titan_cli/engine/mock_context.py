@@ -10,6 +10,8 @@ Each preview should create its own mock context with customized data.
 from typing import Optional
 from dataclasses import dataclass
 
+from titan_cli.core.result import ClientSuccess
+
 
 @dataclass
 class MockGitStatus:
@@ -144,6 +146,10 @@ class MockGitHubClient:
             "base": base,
             "draft": draft
         }
+
+    def list_labels(self):
+        """Mock repository labels for workflow previews."""
+        return ClientSuccess(data=["bug", "feature", "documentation"], message="Labels retrieved")
 
 
 class MockSecretManager:
