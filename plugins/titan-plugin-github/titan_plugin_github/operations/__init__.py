@@ -26,6 +26,11 @@ from .pr_operations import (
     fetch_pr_general_comments,
 )
 
+from .pr_selection_operations import (
+    build_pr_selection_description,
+    build_pr_selection_title,
+)
+
 from .worktree_operations import (
     setup_worktree,
     cleanup_worktree,
@@ -66,6 +71,8 @@ __all__ = [
     # PR operations
     "fetch_pr_threads",
     "fetch_pr_general_comments",
+    "build_pr_selection_description",
+    "build_pr_selection_title",
 
     # Worktree operations
     "setup_worktree",

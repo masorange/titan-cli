@@ -5,6 +5,10 @@ Unit tests for PR mappers
 from unittest.mock import Mock
 from titan_plugin_github.models.network.rest import NetworkPullRequest, NetworkUser
 from titan_plugin_github.models.mappers.pr_mapper import from_rest_pr
+from titan_plugin_github.operations.pr_selection_operations import (
+    build_pr_selection_description,
+    build_pr_selection_title,
+)
 
 
 class TestFromRestPR:
@@ -34,7 +38,7 @@ class TestFromRestPR:
             changedFiles=5,
             reviews=reviews,
             labels=[{"name": "feature"}, {"name": "enhancement"}],
-            statusCheckRollup=[{"status": "COMPLETED", "conclusion": "SUCCESS"}],
+            statusCheckRollup=[{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"}],
             reviewDecision="APPROVED",
             createdAt="2025-01-15T10:00:00Z",
             updatedAt="2025-01-15T12:00:00Z",
@@ -270,3 +274,58 @@ class TestFromRestPR:
         # Assert
         assert ui_pr.formatted_created_at == ""
         assert ui_pr.formatted_updated_at == ""
+
+
+class TestPRSelectionOperations:
+    def test_build_pr_selection_description_base(self):
+        pr = from_rest_pr(
+            NetworkPullRequest(
+                number=7,
+                title="Test",
+                body="",
+                state="OPEN",
+                isDraft=False,
+                author=NetworkUser(login="author"),
+                headRefName="feat/test",
+                baseRefName="main",
+                mergeable="MERGEABLE",
+                additions=0,
+                deletions=0,
+                changedFiles=0,
+                reviews=[],
+                labels=[],
+            )
+        )
+
+        assert build_pr_selection_title(pr) == "#7: Test"
+        assert build_pr_selection_description(pr) == "feat/test → main"
+
+    def test_build_pr_selection_description_with_extras(self):
+        pr = from_rest_pr(
+            NetworkPullRequest(
+                number=8,
+                title="Test",
+                body="",
+                state="OPEN",
+                isDraft=False,
+                author=NetworkUser(login="author"),
+                headRefName="feat/test",
+                baseRefName="main",
+                mergeable="MERGEABLE",
+                additions=0,
+                deletions=0,
+                changedFiles=0,
+                reviews=[],
+                labels=[],
+                statusCheckRollup=[{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"}],
+                reviewDecision="APPROVED",
+            )
+        )
+
+        assert build_pr_selection_title(pr, highlight_assigned=True) == "⭐ #8: Test"
+        assert build_pr_selection_description(
+            pr,
+            include_author=True,
+            include_checks=True,
+            include_review_status=True,
+        ) == "by author · feat/test → main · Checks: 1 passing · Review: approved"

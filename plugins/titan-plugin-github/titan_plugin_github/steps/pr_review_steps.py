@@ -23,6 +23,8 @@ from ..operations import (
     create_commit_message,
     reply_to_comment_batch,
     prepare_replies_for_sending,
+    build_pr_selection_description,
+    build_pr_selection_title,
 )
 from titan_plugin_git.operations import format_diff_stat_display
 
@@ -433,17 +435,11 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
             # Create options from PRs
             options = []
             for pr in prs:
-                description_parts = [f"Branch: {pr.branch_info}"]
-                if pr.checks_summary:
-                    description_parts.append(f"Checks: {pr.checks_summary}")
-                if pr.review_status_summary:
-                    description_parts.append(f"Review: {pr.review_status_summary}")
-
                 options.append(
                     OptionItem(
                         value=pr.number,
-                        title=f"#{pr.number}: {pr.title}",
-                        description=" · ".join(description_parts)
+                        title=build_pr_selection_title(pr),
+                        description=f"Branch: {build_pr_selection_description(pr)}",
                     )
                 )
 

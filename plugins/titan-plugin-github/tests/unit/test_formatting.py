@@ -177,11 +177,19 @@ class TestSummarizeStatusCheckRollup:
 
     def test_success_and_pending_and_failure(self):
         rollup = [
-            {"status": "COMPLETED", "conclusion": "SUCCESS"},
-            {"status": "IN_PROGRESS", "conclusion": None},
-            {"status": "COMPLETED", "conclusion": "FAILURE"},
+            {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"},
+            {"__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": None},
+            {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "FAILURE"},
         ]
         assert summarize_status_check_rollup(rollup) == "1 failing, 1 pending, 1 passing"
+
+    def test_ignores_status_context_entries(self):
+        rollup = [
+            {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"},
+            {"__typename": "StatusContext", "state": "SUCCESS", "context": "danger/euskaltel"},
+            {"__typename": "StatusContext", "state": "SUCCESS", "context": "danger/yoigo"},
+        ]
+        assert summarize_status_check_rollup(rollup) == "1 passing"
 
 
 class TestSummarizeReviewStatus:

@@ -13,6 +13,7 @@ These models are GitHub-specific and live in the GitHub plugin, not in the core.
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from .pr_enums import PRState
 from .review_enums import FileChangeStatus, FindingSeverity
 
 
@@ -141,7 +142,7 @@ class UIPullRequest:
     title: str
     body: str
     status_icon: str  # "🟢" "🔴" "🟣" "📝" etc.
-    state: str  # "OPEN", "CLOSED", "MERGED"
+    state: PRState
     author_name: str  # Just the username
     head_ref: str  # Head branch name (for operations)
     base_ref: str  # Base branch name (for operations)
