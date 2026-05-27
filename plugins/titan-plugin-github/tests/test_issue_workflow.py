@@ -4,7 +4,12 @@ from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.core.secrets import SecretManager
-from titan_plugin_github.steps.github_prompt_steps import prompt_for_issue_body_step, prompt_for_self_assign_step
+from titan_plugin_github.steps.github_prompt_steps import (
+    prompt_for_issue_body_step,
+    prompt_for_labels_step,
+    prompt_for_pr_draft_step,
+    prompt_for_self_assign_step,
+)
 from titan_plugin_github.steps.issue_steps import ai_suggest_issue_title_and_body_step, create_issue_steps
 from titan_plugin_github.steps.preview_step import preview_and_confirm_issue_step
 from titan_plugin_github.models.view import UIIssue
@@ -141,6 +146,97 @@ def test_prompt_for_self_assign_step(mock_secret_manager):
     # Assert
     assert isinstance(result, Success)
     assert ctx.get("assignees") == ["testuser"]
+
+
+def test_prompt_for_pr_draft_step_uses_true_without_prompt(mock_secret_manager):
+    # Arrange
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={"draft": True})
+    ctx.textual = MagicMock()
+
+    # Act
+    result = prompt_for_pr_draft_step(ctx)
+    if result.metadata:
+        ctx.data.update(result.metadata)
+
+    # Assert
+    assert isinstance(result, Success)
+    assert ctx.get("pr_is_draft") is True
+    ctx.textual.ask_confirm.assert_not_called()
+
+
+def test_prompt_for_pr_draft_step_uses_false_without_prompt(mock_secret_manager):
+    # Arrange
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={"draft": False})
+    ctx.textual = MagicMock()
+
+    # Act
+    result = prompt_for_pr_draft_step(ctx)
+    if result.metadata:
+        ctx.data.update(result.metadata)
+
+    # Assert
+    assert isinstance(result, Success)
+    assert ctx.get("pr_is_draft") is False
+    ctx.textual.ask_confirm.assert_not_called()
+
+
+def test_prompt_for_pr_draft_step_asks_when_unset(mock_secret_manager):
+    # Arrange
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={"draft": None})
+    ctx.textual = MagicMock()
+    ctx.textual.ask_confirm.return_value = True
+
+    # Act
+    result = prompt_for_pr_draft_step(ctx)
+    if result.metadata:
+        ctx.data.update(result.metadata)
+
+    # Assert
+    assert isinstance(result, Success)
+    assert ctx.get("pr_is_draft") is True
+    ctx.textual.ask_confirm.assert_called_once_with(
+        "Create this pull request as draft?",
+        default=False,
+    )
+
+
+def test_prompt_for_labels_step_uses_multiselect_and_output_key(mock_secret_manager):
+    ctx = WorkflowContext(
+        secrets=mock_secret_manager,
+        data={
+            "output_key": "pr_labels",
+            "prompt": "Select labels for this pull request:",
+            "pr_labels": ["feature"],
+        },
+    )
+    ctx.github = MagicMock()
+    ctx.textual = MagicMock()
+    ctx.github.list_labels.return_value = ClientSuccess(
+        data=["bug", "feature", "docs"],
+        message="Labels retrieved",
+    )
+    ctx.textual.ask_multiselect.return_value = ["bug", "feature"]
+
+    result = prompt_for_labels_step(ctx)
+    if result.metadata:
+        ctx.data.update(result.metadata)
+
+    assert isinstance(result, Success)
+    assert ctx.get("pr_labels") == ["bug", "feature"]
+    ctx.textual.ask_multiselect.assert_called_once()
+
+
+def test_prompt_for_labels_step_skips_when_repo_has_no_labels(mock_secret_manager):
+    from titan_cli.engine.results import Skip
+
+    ctx = WorkflowContext(secrets=mock_secret_manager, data={})
+    ctx.github = MagicMock()
+    ctx.textual = MagicMock()
+    ctx.github.list_labels.return_value = ClientSuccess(data=[], message="No labels")
+
+    result = prompt_for_labels_step(ctx)
+
+    assert isinstance(result, Skip)
 
 @patch("titan_plugin_github.clients.github_client.GitHubClient")
 def test_create_issue_step(MockGitHubClient, mock_secret_manager):

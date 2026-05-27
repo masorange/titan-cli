@@ -43,6 +43,8 @@ def sample_pr_json():
         "mergedAt": None,
         "reviews": [],
         "labels": [{"name": "feature"}, {"name": "backend"}],
+        "statusCheckRollup": [],
+        "reviewDecision": "REVIEW_REQUIRED",
         "isCrossRepository": False,
         "headRepositoryOwner": {"login": "test-owner"},
     }
@@ -69,6 +71,8 @@ def test_get_pull_request_success(pr_service, mock_gh_network, sample_pr_json):
     assert result.data.is_draft is False
     assert result.data.is_cross_repository is False
     assert result.data.head_repository_owner == "test-owner"
+    assert result.data.checks_summary == "No checks"
+    assert result.data.review_status_summary == "review required"
     assert "feature" in result.data.labels
     assert "backend" in result.data.labels
 

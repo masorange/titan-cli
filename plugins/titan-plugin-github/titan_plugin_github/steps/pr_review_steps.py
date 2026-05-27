@@ -23,6 +23,8 @@ from ..operations import (
     create_commit_message,
     reply_to_comment_batch,
     prepare_replies_for_sending,
+    build_pr_selection_description,
+    build_pr_selection_title,
 )
 from titan_plugin_git.operations import format_diff_stat_display
 
@@ -436,8 +438,8 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
                 options.append(
                     OptionItem(
                         value=pr.number,
-                        title=f"#{pr.number}: {pr.title}",
-                        description=f"Branch: {pr.branch_info}"
+                        title=build_pr_selection_title(pr),
+                        description=f"Branch: {build_pr_selection_description(pr)}",
                     )
                 )
 
