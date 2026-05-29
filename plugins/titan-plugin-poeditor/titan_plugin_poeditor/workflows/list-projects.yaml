@@ -1,0 +1,8 @@
+name: "List PoEditor Projects"
+description: "Display all accessible PoEditor projects"
+
+steps:
+  - id: list_projects
+    name: "Fetch Projects"
+    plugin: poeditor
+    step: list_projects_step
