@@ -31,11 +31,16 @@ from titan_cli.core.secrets import SecretManager
 from titan_cli.engine.builder import WorkflowContextBuilder
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.interaction.headless import HeadlessInteractionPort
+from titan_cli.engine.interaction.base import ItemReviewResponse
 from titan_cli.engine.results import is_error
 from titan_cli.engine.workflow_executor import WorkflowExecutor
+from titan_cli.ports.protocol import ContentBlockVariant
+from titan_cli.ports.protocol import ItemReviewState
+from titan_cli.ports.protocol import ItemReviewDecision
 from titan_cli.ports.protocol import EngineEvent
 from titan_cli.ports.protocol import EventType
 from titan_cli.ports.protocol import InteractionOption
+from titan_cli.ports.protocol import InteractionAction
 from titan_cli.ports.protocol import InteractionRequest
 from titan_cli.ports.protocol import InteractionType
 from titan_cli.ports.protocol import OutputFormat
@@ -97,6 +102,29 @@ class RunInteractionPort(HeadlessInteractionPort):
 
     def step_output(self, text: str) -> None:
         super().step_output(text)
+        self._emit_text_output(text, variant=ContentBlockVariant.DEFAULT)
+
+    def info(self, message: str) -> None:
+        super().info(message)
+        self._emit_text_output(message, variant=ContentBlockVariant.DEFAULT)
+
+    def warning(self, message: str) -> None:
+        super().warning(message)
+        self._emit_text_output(message, variant=ContentBlockVariant.WARNING)
+
+    def error(self, message: str) -> None:
+        super().error(message)
+        self._emit_text_output(message, variant=ContentBlockVariant.ERROR)
+
+    def success_text(self, message: str) -> None:
+        HeadlessInteractionPort.info(self, message)
+        self._emit_text_output(message, variant=ContentBlockVariant.SUCCESS)
+
+    def dim_text(self, message: str) -> None:
+        HeadlessInteractionPort.info(self, message)
+        self._emit_text_output(message, variant=ContentBlockVariant.MUTED)
+
+    def _emit_text_output(self, text: str, *, variant: ContentBlockVariant) -> None:
         if self._suppress_replayed_prefix:
             return
         self._service._append_event(
@@ -107,6 +135,7 @@ class RunInteractionPort(HeadlessInteractionPort):
                 "output": OutputPayload(
                     format=OutputFormat.TEXT,
                     content=text,
+                    metadata={"variant": variant.value},
                 ),
             },
         )
@@ -299,13 +328,8 @@ class RunInteractionPort(HeadlessInteractionPort):
         message: str,
         options: list[InteractionOption],
     ) -> object:
-        full_interaction_id = (
-            f"{self._ctx.current_step_id}:{interaction_id}"
-            if self._ctx.current_step_id
-            else interaction_id
-        )
-        interaction = InteractionRequest(
-            interaction_id=full_interaction_id,
+        interaction = self._build_interaction_request(
+            interaction_id=interaction_id,
             interaction_type=InteractionType.OPTION_LIST,
             message=message,
             state={
@@ -313,13 +337,64 @@ class RunInteractionPort(HeadlessInteractionPort):
                 "allow_empty": False,
             },
         )
+        response = self._request_interaction(interaction)
+        return self._resolve_interaction_value(interaction, response)
 
+    def item_review(
+        self,
+        interaction_id: str,
+        message: str,
+        state: ItemReviewState,
+    ) -> ItemReviewResponse:
+        interaction = self._build_interaction_request(
+            interaction_id=interaction_id,
+            interaction_type=InteractionType.ITEM_REVIEW,
+            message=message,
+            state={
+                "review_id": state.review_id,
+                "items": list(state.items),
+                "initial_index": state.initial_index,
+                "allowed_actions": list(state.allowed_actions),
+                "edit": state.edit,
+                "metadata": dict(state.metadata),
+            },
+            actions=[
+                InteractionAction(id=action, label=action.replace("_", " ").title())
+                for action in state.allowed_actions
+            ],
+        )
+        response = self._request_interaction(interaction)
+        return self._resolve_interaction_value(interaction, response)
+
+    def _build_interaction_request(
+        self,
+        *,
+        interaction_id: str,
+        interaction_type: InteractionType,
+        message: str,
+        state: dict[str, Any],
+        actions: Optional[list[InteractionAction]] = None,
+    ) -> InteractionRequest:
+        full_interaction_id = (
+            f"{self._ctx.current_step_id}:{interaction_id}"
+            if self._ctx.current_step_id
+            else interaction_id
+        )
+        return InteractionRequest(
+            interaction_id=full_interaction_id,
+            interaction_type=interaction_type,
+            message=message,
+            state=state,
+            actions=actions or [],
+        )
+
+    def _request_interaction(self, interaction: InteractionRequest) -> dict[str, object]:
         if self._queued_interaction_responses:
             response = self._queued_interaction_responses.pop(0)
             self._service._record_interaction_answer(self._session, interaction, response)
             if self._suppress_replayed_prefix and self._ctx.current_step_id == self._resume_step_id:
                 self._suppress_replayed_prefix = False
-            return self._resolve_interaction_value(interaction, response)
+            return response
 
         self._session.pending_interaction = interaction
         self._service._append_event(
@@ -345,6 +420,35 @@ class RunInteractionPort(HeadlessInteractionPort):
                 if isinstance(option, InteractionOption) and option.id == selected_id:
                     return option.value if option.value is not None else option.id
             return selected_id
+        if interaction.interaction_type == InteractionType.ITEM_REVIEW:
+            response_type = str(response.get("response_type") or "")
+            if response_type != "complete":
+                raise ValueError(f"Unsupported item_review response_type: {response_type or 'empty'}")
+            value = response.get("value")
+            if not isinstance(value, dict):
+                return ItemReviewResponse(items=[])
+            raw_items = value.get("items")
+            decisions: list[ItemReviewDecision] = []
+            if isinstance(raw_items, list):
+                for item in raw_items:
+                    if not isinstance(item, dict):
+                        continue
+                    item_id = item.get("item_id")
+                    action = item.get("action")
+                    if item_id is None or action is None:
+                        continue
+                    decisions.append(
+                        ItemReviewDecision(
+                            item_id=str(item_id),
+                            action=str(action),
+                            content=None if item.get("content") is None else str(item.get("content")),
+                            metadata=dict(item.get("metadata") or {}),
+                        )
+                    )
+            return ItemReviewResponse(
+                items=decisions,
+                exit_requested=bool(value.get("exit_requested", False)),
+            )
         return response.get("value")
 
     def _step_ref(self, step_name: Optional[str] = None) -> StepRef:
@@ -612,7 +716,7 @@ class WorkflowRunService:
                 pass
 
         ctx = ctx_builder.build()
-        ctx.interaction = RunInteractionPort(
+        interaction_port = RunInteractionPort(
             self,
             session,
             ctx,
@@ -628,7 +732,8 @@ class WorkflowRunService:
             ),
             resume_step_id=resume_step_id,
         )
-        ctx.textual = ctx.interaction
+        object.__setattr__(ctx, "interaction", interaction_port)
+        object.__setattr__(ctx, "textual", interaction_port)
         ctx.data.update(request.params)
         ctx.data.update(dict(session.metadata.get("ctx_data", {})))
         ctx.data.setdefault("project_root", str(workspace_path))

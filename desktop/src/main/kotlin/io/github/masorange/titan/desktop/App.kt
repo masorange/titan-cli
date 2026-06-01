@@ -14,10 +14,15 @@ import io.github.masorange.titan.desktop.adapter.RunningTitanProcess
 import io.github.masorange.titan.desktop.protocol.EventStreamDecoder
 import io.github.masorange.titan.desktop.protocol.PromptCommandEncoder
 import io.github.masorange.titan.desktop.protocol.WorkflowDetail
+import io.github.masorange.titan.desktop.state.ItemReviewDecisionState
 import io.github.masorange.titan.desktop.state.WorkflowScreenStateReducer
 import io.github.masorange.titan.desktop.ui.screens.WorkflowScreen
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.put
 
 @Composable
 fun App() {
@@ -120,15 +125,19 @@ fun App() {
             }
         }
 
-        fun submitInteractionSelection(interactionId: String, optionId: String) {
+        fun submitInteractionResponse(
+            interactionId: String,
+            responseType: String,
+            value: kotlinx.serialization.json.JsonElement? = null,
+        ) {
             val activeProcess = processHandle ?: return
             val runId = screenState.runId ?: return
             debugLog(
-                "submitInteractionSelection requested interactionId=$interactionId " +
-                    "optionId=$optionId submittingInteractionId=$submittingInteractionId"
+                "submitInteractionResponse requested interactionId=$interactionId " +
+                    "responseType=$responseType submittingInteractionId=$submittingInteractionId"
             )
             if (submittingInteractionId == interactionId) {
-                debugLog("submitInteractionSelection ignored because interaction is already submitting")
+                debugLog("submitInteractionResponse ignored because interaction is already submitting")
                 return
             }
 
@@ -138,31 +147,58 @@ fun App() {
                     PromptCommandEncoder.encodeSubmitInteractionResponse(
                         runId = runId,
                         interactionId = interactionId,
-                        responseType = "select",
-                        value = JsonPrimitive(optionId),
+                        responseType = responseType,
+                        value = value,
                     )
                 }.onSuccess { commandJson ->
                     debugLog(
-                        "submitInteractionSelection encoded interactionId=$interactionId " +
+                        "submitInteractionResponse encoded interactionId=$interactionId " +
                             "payloadLength=${commandJson.length}"
                     )
                     runCatching { activeProcess.sendCommand(commandJson) }
                         .onSuccess {
-                            debugLog("submitInteractionSelection sendCommand completed for interactionId=$interactionId")
+                            debugLog("submitInteractionResponse sendCommand completed for interactionId=$interactionId")
                         }
                         .onFailure { error ->
                             submittingInteractionId = null
-                            debugLog("submitInteractionSelection sendCommand failed: ${error.message ?: error}")
+                            debugLog("submitInteractionResponse sendCommand failed: ${error.message ?: error}")
                             activeErrorMessage = error.message ?: error.toString()
                             appendLine(diagnostics, error.message ?: error.toString())
                         }
                 }.onFailure { error ->
                     submittingInteractionId = null
-                    debugLog("submitInteractionSelection encoding failed: ${error.message ?: error}")
+                    debugLog("submitInteractionResponse encoding failed: ${error.message ?: error}")
                     activeErrorMessage = error.message ?: error.toString()
                     appendLine(diagnostics, error.message ?: error.toString())
                 }
             }
+        }
+
+        fun submitInteractionSelection(interactionId: String, optionId: String) {
+            submitInteractionResponse(
+                interactionId = interactionId,
+                responseType = "select",
+                value = JsonPrimitive(optionId),
+            )
+        }
+
+        fun submitItemReview(interactionId: String, decisions: List<ItemReviewDecisionState>, exitRequested: Boolean) {
+            submitInteractionResponse(
+                interactionId = interactionId,
+                responseType = "complete",
+                value = buildJsonObject {
+                    put("exit_requested", exitRequested)
+                    put("items", buildJsonArray {
+                        decisions.forEach { decision ->
+                            add(buildJsonObject {
+                                put("item_id", decision.itemId)
+                                put("action", decision.action)
+                                decision.content?.let { put("content", it) }
+                            })
+                        }
+                    })
+                },
+            )
         }
 
         LaunchedEffect(processHandle) {
@@ -293,6 +329,7 @@ fun App() {
             onSubmitText = { submitPromptValue(JsonPrimitive(promptDraftText)) },
             onSubmitConfirm = { submitPromptValue(JsonPrimitive(it)) },
             onSelectInteractionOption = ::submitInteractionSelection,
+            onSubmitItemReview = ::submitItemReview,
         )
     }
 }

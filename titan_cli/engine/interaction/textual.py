@@ -75,3 +75,22 @@ class TextualInteractionPort(InteractionPort):
             for option in options
         ]
         return self.legacy.ask_option(message, items)
+
+    def select_one(
+        self,
+        prompt_id: str,
+        message: str,
+        options: list[dict[str, Any]],
+    ) -> str:
+        from titan_cli.ui.tui.widgets.prompt_option_list import OptionItem
+
+        items = [
+            OptionItem(
+                value=option.get("id"),
+                title=str(option.get("label") or option.get("id") or "Option"),
+                description=str(option.get("description") or ""),
+            )
+            for option in options
+        ]
+        selected = self.legacy.ask_option(message, items)
+        return "" if selected is None else str(selected)

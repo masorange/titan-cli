@@ -1,6 +1,7 @@
 package io.github.masorange.titan.desktop.state
 
 import io.github.masorange.titan.desktop.protocol.PromptOption
+import io.github.masorange.titan.desktop.protocol.ContentBlock
 import io.github.masorange.titan.desktop.protocol.InteractionAction
 import io.github.masorange.titan.desktop.protocol.WorkflowDetail
 import io.github.masorange.titan.desktop.protocol.WorkflowStepSummary
@@ -52,6 +53,7 @@ data class OutputItemState(
     val stepId: String? = null,
     val stepName: String? = null,
     val format: OutputVisualFormat,
+    val variant: OutputVisualVariant = OutputVisualVariant.DEFAULT,
     val title: String? = null,
     val content: String,
     val metadata: JsonObject = JsonObject(emptyMap()),
@@ -83,6 +85,26 @@ enum class OutputVisualFormat(val wireValue: String) {
     }
 }
 
+enum class OutputVisualVariant(val wireValue: String) {
+    DEFAULT("default"),
+    SUCCESS("success"),
+    MUTED("muted"),
+    WARNING("warning"),
+    ERROR("error"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromWireValue(value: String?): OutputVisualVariant = when (value) {
+            null, DEFAULT.wireValue -> DEFAULT
+            SUCCESS.wireValue -> SUCCESS
+            MUTED.wireValue -> MUTED
+            WARNING.wireValue -> WARNING
+            ERROR.wireValue -> ERROR
+            else -> UNKNOWN
+        }
+    }
+}
+
 data class ActivePromptState(
     val promptId: String,
     val stepId: String? = null,
@@ -102,11 +124,12 @@ data class ActiveInteractionState(
     val message: String? = null,
     val options: List<InteractionOptionState> = emptyList(),
     val actions: List<InteractionAction> = emptyList(),
+    val itemReview: ItemReviewInteractionState? = null,
 )
 
 enum class InteractionVisualType(val wireValue: String) {
     OPTION_LIST("option_list"),
-    REVIEW_QUEUE("review_queue"),
+    ITEM_REVIEW("item_review"),
     ACTION_LIST("action_list"),
     EDITABLE_TEXT("editable_text"),
     BATCH_PROGRESS("batch_progress"),
@@ -115,7 +138,7 @@ enum class InteractionVisualType(val wireValue: String) {
     companion object {
         fun fromWireValue(value: String): InteractionVisualType = when (value) {
             OPTION_LIST.wireValue -> OPTION_LIST
-            REVIEW_QUEUE.wireValue -> REVIEW_QUEUE
+            ITEM_REVIEW.wireValue -> ITEM_REVIEW
             ACTION_LIST.wireValue -> ACTION_LIST
             EDITABLE_TEXT.wireValue -> EDITABLE_TEXT
             BATCH_PROGRESS.wireValue -> BATCH_PROGRESS
@@ -130,6 +153,62 @@ data class InteractionOptionState(
     val description: String? = null,
     val badges: List<String> = emptyList(),
 )
+
+data class ItemReviewInteractionState(
+    val reviewId: String,
+    val items: List<ItemReviewItemState> = emptyList(),
+    val initialIndex: Int = 0,
+    val allowedActions: List<String> = emptyList(),
+    val edit: ItemReviewEditState? = null,
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+data class ItemReviewItemState(
+    val id: String,
+    val title: String,
+    val status: String? = null,
+    val contentBlocks: List<ContentBlockState> = emptyList(),
+    val editable: Boolean = false,
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+data class ItemReviewEditState(
+    val enabled: Boolean,
+    val label: String? = null,
+    val initialValue: String? = null,
+)
+
+data class ItemReviewDecisionState(
+    val itemId: String,
+    val action: String,
+    val content: String? = null,
+)
+
+data class ContentBlockState(
+    val type: ContentBlockVisualType,
+    val variant: OutputVisualVariant = OutputVisualVariant.DEFAULT,
+    val title: String? = null,
+    val content: String,
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+enum class ContentBlockVisualType(val wireValue: String) {
+    TEXT("text"),
+    MARKDOWN("markdown"),
+    DIFF("diff"),
+    STRUCTURED_SUMMARY("structured_summary"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromWireValue(value: String): ContentBlockVisualType = when (value) {
+            TEXT.wireValue -> TEXT
+            MARKDOWN.wireValue -> MARKDOWN
+            DIFF.wireValue -> DIFF
+            STRUCTURED_SUMMARY.wireValue -> STRUCTURED_SUMMARY
+            else -> UNKNOWN
+        }
+    }
+}
 
 enum class RunVisualStatus {
     IDLE,

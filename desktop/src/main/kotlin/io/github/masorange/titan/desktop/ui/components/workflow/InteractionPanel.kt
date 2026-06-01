@@ -12,9 +12,11 @@ import io.github.masorange.titan.desktop.state.ActiveInteractionState
 import io.github.masorange.titan.desktop.state.InteractionVisualType
 import io.github.masorange.titan.desktop.theme.H2Text
 import io.github.masorange.titan.desktop.ui.DesktopPreview
+import io.github.masorange.titan.desktop.ui.components.interactions.ItemReviewInteractionPanel
 import io.github.masorange.titan.desktop.ui.components.interactions.OptionListInteractionPanel
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import io.github.masorange.titan.desktop.state.InteractionOptionState
+import io.github.masorange.titan.desktop.state.ItemReviewDecisionState
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 
 @Composable
@@ -23,6 +25,7 @@ fun InteractionPanel(
     interaction: ActiveInteractionState?,
     isSubmitting: Boolean,
     onSelectInteractionOption: (String, String) -> Unit = { _, _ -> },
+    onSubmitItemReview: (String, List<ItemReviewDecisionState>, Boolean) -> Unit = { _, _, _ -> },
 ) {
     Card(
         modifier = modifier
@@ -46,6 +49,17 @@ fun InteractionPanel(
                         isSubmitting = isSubmitting,
                         onSelect = onSelectInteractionOption,
                     )
+                }
+
+                InteractionVisualType.ITEM_REVIEW -> {
+                    interaction.itemReview?.let {
+                        ItemReviewInteractionPanel(
+                            interactionId = interaction.interactionId,
+                            state = it,
+                            isSubmitting = isSubmitting,
+                            onSubmitReview = onSubmitItemReview,
+                        )
+                    }
                 }
 
                 else -> {

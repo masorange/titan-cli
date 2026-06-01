@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from titan_cli.ports.protocol import InteractionOption
 
 from .base import InteractionPort
@@ -61,3 +63,19 @@ class CLIInteractionPort(InteractionPort):
         selected_index = int(raw)
         selected = options[selected_index - 1]
         return selected.value if selected.value is not None else selected.id
+
+    def select_one(
+        self,
+        prompt_id: str,
+        message: str,
+        options: list[dict[str, Any]],
+    ) -> str:
+        print(message)
+        for index, option in enumerate(options, start=1):
+            description = f" - {option.get('description')}" if option.get("description") else ""
+            print(f"  {index}. {option.get('label', option.get('id', index))}{description}")
+        raw = input("Select an option number: ").strip()
+        if not raw:
+            return ""
+        selected = options[int(raw) - 1]
+        return str(selected.get("id") or "")

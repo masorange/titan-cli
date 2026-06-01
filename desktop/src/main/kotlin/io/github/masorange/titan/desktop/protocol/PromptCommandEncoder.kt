@@ -31,12 +31,14 @@ object PromptCommandEncoder {
         runId: String,
         interactionId: String,
         responseType: String,
-        value: JsonElement,
+        value: JsonElement? = null,
     ): String {
         val payload = buildJsonObject {
             put("interaction_id", interactionId)
             put("response_type", responseType)
-            put("value", value)
+            if (value != null) {
+                put("value", value)
+            }
         }
         return json.encodeToString(
             EngineCommandEnvelope(

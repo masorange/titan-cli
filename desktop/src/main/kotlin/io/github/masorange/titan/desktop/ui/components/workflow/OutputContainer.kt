@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.OutputItemState
 import io.github.masorange.titan.desktop.state.OutputVisualFormat
+import io.github.masorange.titan.desktop.state.OutputVisualVariant
 import io.github.masorange.titan.desktop.theme.H2Text
 import io.github.masorange.titan.desktop.theme.H3Text
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
@@ -24,21 +26,13 @@ fun OutputContainer(
     modifier: Modifier = Modifier,
     item: OutputItemState,
 ) {
-
-    fun debugLog(message: String) {
-        System.err.println("[desktop-debug] $message")
-    }
-
     Column(modifier = modifier.fillMaxWidth().padding(12.dp)) {
-        debugLog("ITEM " + item.toString())
-        
         when (item.format) {
             OutputVisualFormat.DIFF -> {
                 DiffOutputView(item = item)
             }
 
             OutputVisualFormat.STRUCTURED_SUMMARY -> {
-                debugLog("STRUCTURED_SUMMARY" + item.toString())
                 StructuredSummaryOutputView(item = item)
             }
 
@@ -48,8 +42,7 @@ fun OutputContainer(
                     item.title?.let {
                         H3Text(text = it)
                     }
-                    debugLog("TEXT" + item.toString())
-                    H3Text(text = item.content)
+                    H3Text(text = item.content, color = item.variant.toDisplayColor())
                 }
             }
 
@@ -60,7 +53,7 @@ fun OutputContainer(
                         .background(color = LocalTheme.current.colors.ui.previewBackground)
                         .padding(Spacing.s6),
                 ) {
-                    H3Text(text = item.content)
+                    H3Text(text = item.content, color = item.variant.toDisplayColor())
                 }
             }
 
@@ -71,7 +64,7 @@ fun OutputContainer(
                         .background(color = LocalTheme.current.colors.ui.previewBackground)
                         .padding(Spacing.s6),
                 ) {
-                    H3Text(text = item.content)
+                    H3Text(text = item.content, color = item.variant.toDisplayColor())
                 }
             }
             OutputVisualFormat.WARNING -> {
@@ -81,7 +74,7 @@ fun OutputContainer(
                         .background(color = LocalTheme.current.colors.ui.previewBackground)
                         .padding(Spacing.s6),
                 ) {
-                    H3Text(text = item.content)
+                    H3Text(text = item.content, color = item.variant.toDisplayColor())
                 }
             }
             OutputVisualFormat.ERROR -> {
@@ -91,7 +84,7 @@ fun OutputContainer(
                         .background(color = LocalTheme.current.colors.ui.previewBackground)
                         .padding(Spacing.s6),
                 ) {
-                    H3Text(text = item.content)
+                    H3Text(text = item.content, color = item.variant.toDisplayColor())
                 }
             }
             OutputVisualFormat.JSON -> {
@@ -101,7 +94,7 @@ fun OutputContainer(
                         .background(color = LocalTheme.current.colors.ui.previewBackground)
                         .padding(Spacing.s6),
                 ) {
-                    H3Text(text = item.content)
+                    H3Text(text = item.content, color = item.variant.toDisplayColor())
                 }
             }
             OutputVisualFormat.UNKNOWN -> {
@@ -111,11 +104,21 @@ fun OutputContainer(
                         .background(color = LocalTheme.current.colors.ui.previewBackground)
                         .padding(Spacing.s6),
                 ) {
-                    H3Text(text = item.content)
+                    H3Text(text = item.content, color = item.variant.toDisplayColor())
                 }
             }
         }
     }
+}
+
+@Composable
+private fun OutputVisualVariant.toDisplayColor(): Color = when (this) {
+    OutputVisualVariant.DEFAULT,
+    OutputVisualVariant.UNKNOWN -> Color.Unspecified
+    OutputVisualVariant.SUCCESS -> Color(0xFF1F7A1F)
+    OutputVisualVariant.MUTED -> LocalTheme.current.colors.palette.text.secondary.copy(alpha = 0.8f)
+    OutputVisualVariant.WARNING -> Color(0xFF9A6700)
+    OutputVisualVariant.ERROR -> Color(0xFFB42318)
 }
 
 @Preview

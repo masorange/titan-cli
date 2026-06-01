@@ -2,11 +2,22 @@ from unittest.mock import Mock
 
 from titan_cli.core.result import ClientSuccess
 from titan_cli.engine import WorkflowContext
-from titan_cli.engine.results import Exit, Success
+from titan_cli.engine.interaction.base import ItemReviewResponse
+from titan_cli.engine.results import Exit, Skip, Success
+from titan_cli.ports.protocol import ItemReviewDecision
 from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest
-from titan_plugin_github.models.review_enums import FileChangeStatus
+from titan_plugin_github.models.review_enums import (
+    FileChangeStatus,
+    FindingSeverity,
+    ReviewActionSource,
+    ReviewActionType,
+)
 from titan_plugin_github.models.view import UIFileChange, UIPullRequest
-from titan_plugin_github.steps.code_review_steps import fetch_pr_review_bundle, score_review_candidates
+from titan_plugin_github.steps.code_review_steps import (
+    fetch_pr_review_bundle,
+    score_review_candidates,
+    validate_review_actions,
+)
 
 
 class _FakeTextual:
@@ -210,3 +221,100 @@ def MockChangedFile(**kwargs):
     from titan_plugin_github.models.review_models import ChangedFileEntry
 
     return ChangedFileEntry(**kwargs)
+
+
+class _FakeInteraction(_FakeTextual):
+    def __init__(self, responses):
+        super().__init__()
+        self._responses = list(responses)
+
+    def item_review(self, interaction_id, message, state):
+        self.last_item_review = {
+            "interaction_id": interaction_id,
+            "message": message,
+            "state": state,
+        }
+        return self._responses.pop(0)
+
+
+def _make_review_action(body: str = "Original body"):
+    from titan_plugin_github.models.review_models import ReviewActionProposal
+
+    return ReviewActionProposal(
+        action_type=ReviewActionType.NEW_COMMENT,
+        source=ReviewActionSource.NEW_FINDING,
+        path="src/foo.py",
+        line=42,
+        title="Possible null handling issue",
+        body=body,
+        reasoning="The response may be empty here.",
+        severity=FindingSeverity.IMPORTANT,
+    )
+
+
+def test_validate_review_actions_skips_when_no_actions():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.interaction = _FakeInteraction([])
+    ctx.textual = ctx.interaction
+
+    result = validate_review_actions(ctx)
+
+    assert isinstance(result, Skip)
+    assert result.message == "No actions to validate"
+
+
+def test_validate_review_actions_approves_selected_actions():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.interaction = _FakeInteraction([ItemReviewResponse(items=[ItemReviewDecision(item_id="new_comment:0", action="approve")])])
+    ctx.textual = ctx.interaction
+    ctx.data["review_action_proposals"] = [_make_review_action()]
+    ctx.data["review_diff"] = "@@ -1 +1 @@\n-old\n+new"
+    ctx.data["review_threads"] = []
+
+    result = validate_review_actions(ctx)
+
+    assert isinstance(result, Success)
+    approved = result.metadata["approved_action_proposals"]
+    assert len(approved) == 1
+    assert approved[0].body == "Original body"
+
+
+def test_validate_review_actions_edits_body_when_requested():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.interaction = _FakeInteraction([
+        ItemReviewResponse(items=[ItemReviewDecision(item_id="new_comment:0", action="edit", content="Edited body")])
+    ])
+    ctx.textual = ctx.interaction
+    ctx.data["review_action_proposals"] = [_make_review_action()]
+    ctx.data["review_diff"] = ""
+    ctx.data["review_threads"] = []
+
+    result = validate_review_actions(ctx)
+
+    assert isinstance(result, Success)
+    approved = result.metadata["approved_action_proposals"]
+    assert len(approved) == 1
+    assert approved[0].body == "Edited body"
+
+
+def test_validate_review_actions_exits_after_partial_review():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.interaction = _FakeInteraction(
+            [
+                ItemReviewResponse(
+                    items=[ItemReviewDecision(item_id="new_comment:0", action="approve")],
+                    exit_requested=True,
+                ),
+            ]
+        )
+    ctx.textual = ctx.interaction
+    ctx.data["review_action_proposals"] = [_make_review_action("First"), _make_review_action("Second")]
+    ctx.data["review_diff"] = ""
+    ctx.data["review_threads"] = []
+
+    result = validate_review_actions(ctx)
+
+    assert isinstance(result, Success)
+    approved = result.metadata["approved_action_proposals"]
+    assert len(approved) == 1
+    assert approved[0].body == "First"

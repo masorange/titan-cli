@@ -4,9 +4,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Any, Optional
 
+from titan_cli.ports.protocol import ContentBlock
+from titan_cli.ports.protocol import ContentBlockType
+from titan_cli.ports.protocol import ItemReviewDecision
+from titan_cli.ports.protocol import ItemReviewState
 from titan_cli.ports.protocol import InteractionOption
+
+
+@dataclass(slots=True)
+class ItemReviewResponse:
+    """Resolved aggregated response returned by the semantic item-review interaction."""
+
+    items: list[ItemReviewDecision]
+    exit_requested: bool = False
 
 
 class InteractionPort(ABC):
@@ -103,6 +116,38 @@ class InteractionPort(ABC):
             for line in section.get("lines", []) or []:
                 self.step_output(str(line))
 
+    def display_content_block(self, block: ContentBlock) -> None:
+        """Render a reusable semantic content block in the current UI."""
+        if block.type == ContentBlockType.TEXT:
+            if block.title:
+                self.step_output(block.title)
+            self.step_output(block.content)
+            return
+
+        if block.type == ContentBlockType.MARKDOWN:
+            if block.title:
+                self.step_output(block.title)
+            self.markdown(block.content)
+            return
+
+        if block.type == ContentBlockType.DIFF:
+            self.display_diff(block.content, title=block.title, metadata=block.metadata)
+            return
+
+        if block.type == ContentBlockType.STRUCTURED_SUMMARY:
+            metadata = block.metadata or {}
+            self.display_structured_summary(
+                title=block.title or "Summary",
+                summary_lines=list(metadata.get("summary_lines") or [block.content]),
+                sections=list(metadata.get("sections") or []),
+                metadata=metadata,
+            )
+            return
+
+        if block.title:
+            self.step_output(block.title)
+        self.step_output(block.content)
+
     def begin_step(self, step_name: str) -> None:
         """Hook called when a step starts."""
 
@@ -194,6 +239,62 @@ class InteractionPort(ABC):
     ) -> Any:
         """Request a richer single selection from the current UI client."""
         raise NotImplementedError("option_list is not implemented for this interaction port")
+
+    def item_review(
+        self,
+        interaction_id: str,
+        message: str,
+        state: ItemReviewState,
+    ) -> ItemReviewResponse:
+        """Review a full item collection and return the aggregated final result."""
+        if message:
+            self.info(message)
+
+        decisions: list[ItemReviewDecision] = []
+        items = state.items
+        if not items:
+            return ItemReviewResponse(items=[])
+
+        start_index = max(0, min(state.initial_index, len(items) - 1))
+        for index, item in enumerate(items[start_index:], start=start_index):
+            self.step_output(f"{item.title} ({index + 1}/{len(items)})")
+            if item.status:
+                self.info(f"Status: {item.status}")
+            for block in item.content_blocks:
+                self.display_content_block(block)
+
+            options = [
+                {
+                    "id": action,
+                    "label": action.replace("_", " ").title(),
+                    "description": None,
+                }
+                for action in state.allowed_actions
+            ]
+            if not options:
+                raise NotImplementedError("item_review requires at least one allowed action")
+
+            selected = self.select_one(
+                prompt_id=f"{interaction_id}:{item.id}:action",
+                message="Choose an action:",
+                options=options,
+            )
+            action = str(selected or "skip")
+            if action == "edit" and state.edit and state.edit.enabled and item.editable:
+                edited = self.multiline_text(
+                    prompt_id=f"{interaction_id}:{item.id}:edit",
+                    message=state.edit.label or "Edit item content:",
+                    default=state.edit.initial_value or (item.content_blocks[0].content if item.content_blocks else ""),
+                )
+                decisions.append(ItemReviewDecision(item_id=item.id, action="edit", content=edited))
+                continue
+
+            if action == "exit":
+                return ItemReviewResponse(items=decisions, exit_requested=True)
+
+            decisions.append(ItemReviewDecision(item_id=item.id, action=action))
+
+        return ItemReviewResponse(items=decisions, exit_requested=False)
 
     def ask_option(self, message: str, options: list[Any]) -> Any:
         """Legacy-compatible rich single-selection API.

@@ -1,7 +1,11 @@
 from datetime import datetime, timezone
 
 from titan_cli.ports.protocol import EngineCommand
+from titan_cli.ports.protocol import ContentBlock
+from titan_cli.ports.protocol import ContentBlockType
 from titan_cli.ports.protocol import EngineEvent
+from titan_cli.ports.protocol import ItemReviewEditState
+from titan_cli.ports.protocol import ItemReviewItem
 from titan_cli.ports.protocol import InteractionOption
 from titan_cli.ports.protocol import InteractionRequest
 from titan_cli.ports.protocol import OutputPayload
@@ -145,6 +149,76 @@ def test_prompt_request_serializes_with_supported_v1_fields():
                 "description": "Default branch",
             }
         ],
+    }
+
+
+def test_item_review_interaction_serializes_with_content_blocks():
+    interaction = InteractionRequest(
+        interaction_id="validate_actions:review-item-0",
+        interaction_type="item_review",
+        message="Review the proposed action and choose what to do next.",
+        state={
+            "review_id": "validate-review-actions",
+            "items": [
+                ItemReviewItem(
+                    id="new_comment:0",
+                    title="Comment 1 of 2",
+                    status="important",
+                    content_blocks=[
+                        ContentBlock(
+                            type=ContentBlockType.TEXT,
+                            title="Proposed action",
+                            content="This may fail when the response is empty.",
+                        )
+                    ],
+                    editable=True,
+                )
+            ],
+            "initial_index": 0,
+            "allowed_actions": ["approve", "edit", "skip", "exit"],
+            "edit": ItemReviewEditState(
+                enabled=True,
+                label="Edit review comment",
+            ),
+            "metadata": {},
+        },
+    )
+
+    assert to_jsonable(interaction) == {
+        "interaction_id": "validate_actions:review-item-0",
+        "interaction_type": "item_review",
+        "message": "Review the proposed action and choose what to do next.",
+        "state": {
+            "review_id": "validate-review-actions",
+            "items": [
+                {
+                    "id": "new_comment:0",
+                    "title": "Comment 1 of 2",
+                    "status": "important",
+                    "content_blocks": [
+                    {
+                        "type": "text",
+                        "title": "Proposed action",
+                        "content": "This may fail when the response is empty.",
+                        "variant": "default",
+                        "metadata": {},
+                    }
+                ],
+                    "editable": True,
+                    "metadata": {},
+                }
+            ],
+            "initial_index": 0,
+            "allowed_actions": ["approve", "edit", "skip", "exit"],
+            "edit": {
+                "enabled": True,
+                "label": "Edit review comment",
+                "initial_value": None,
+            },
+            "metadata": {},
+        },
+        "actions": [],
+        "metadata": {},
     }
 
 

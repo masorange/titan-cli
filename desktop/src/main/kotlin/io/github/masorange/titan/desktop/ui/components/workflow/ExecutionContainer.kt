@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.ActivePromptState
+import io.github.masorange.titan.desktop.state.ItemReviewDecisionState
 import io.github.masorange.titan.desktop.state.OutputItemState
 import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.state.RunHeaderState
@@ -50,6 +51,7 @@ fun ExecutionContainer(
     onSubmitText: () -> Unit,
     onSubmitConfirm: (Boolean) -> Unit,
     onSelectInteractionOption: (String, String) -> Unit,
+    onSubmitItemReview: (String, List<ItemReviewDecisionState>, Boolean) -> Unit,
 ) {
 
     Column(
@@ -73,6 +75,7 @@ fun ExecutionContainer(
                         interaction = it,
                         isSubmitting = it.interactionId == submittingInteractionId,
                         onSelectInteractionOption = onSelectInteractionOption,
+                        onSubmitItemReview = onSubmitItemReview,
                     )
                 }
 
@@ -294,6 +297,7 @@ fun ExecutionContainerPreview() {
             onSubmitText = {},
             onSubmitConfirm = {},
             onSelectInteractionOption = { _, _ -> },
+            onSubmitItemReview = { _, _, _ -> },
         )
     }
 }

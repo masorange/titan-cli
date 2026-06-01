@@ -333,6 +333,106 @@ class WorkflowScreenStateReducerTest {
     }
 
     @Test
+    fun `interaction_requested decodes item review state with unknown block fallback`() {
+        val state = WorkflowScreenStateReducer.reduce(
+            initialState,
+            event(
+                type = "interaction_requested",
+                sequence = 4,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "validate_actions")
+                        put("step_name", "Validate Review Actions")
+                        put("step_index", 3)
+                    }
+                    putJsonObject("interaction") {
+                        put("interaction_id", "validate_actions:review-item-0")
+                        put("interaction_type", "item_review")
+                        put("message", "Review the proposed action and choose what to do next.")
+                        putJsonObject("state") {
+                            put("review_id", "validate-review-actions")
+                            putJsonArray("items") {
+                                addJsonObject {
+                                    put("id", "item-1")
+                                    put("title", "Comment 1 of 2")
+                                    put("status", "important")
+                                    put("editable", true)
+                                    putJsonArray("content_blocks") {
+                                        addJsonObject {
+                                            put("type", "text")
+                                            put("title", "Comment")
+                                            put("content", "This may fail when the response is empty.")
+                                            putJsonObject("metadata") {}
+                                        }
+                                        addJsonObject {
+                                            put("type", "future_block")
+                                            put("title", "Future")
+                                            put("content", "fallback me")
+                                            putJsonObject("metadata") {}
+                                        }
+                                    }
+                                    putJsonObject("metadata") {}
+                                }
+                            }
+                            put("initial_index", 0)
+                            putJsonArray("allowed_actions") {
+                                add("approve")
+                                add("edit")
+                                add("skip")
+                            }
+                            putJsonObject("edit") {
+                                put("enabled", true)
+                                put("label", "Edit review comment")
+                                put("initial_value", "This may fail when the response is empty.")
+                            }
+                            putJsonObject("metadata") {}
+                        }
+                        putJsonArray("actions") {}
+                        putJsonObject("metadata") {}
+                    }
+                },
+            ),
+        )
+
+        val interaction = assertNotNull(state.activeInteraction)
+        assertEquals(InteractionVisualType.ITEM_REVIEW, interaction.interactionType)
+        val itemReview = assertNotNull(interaction.itemReview)
+        assertEquals("validate-review-actions", itemReview.reviewId)
+        assertEquals(1, itemReview.items.size)
+        assertEquals(2, itemReview.items[0].contentBlocks.size)
+        assertEquals(ContentBlockVisualType.TEXT, itemReview.items[0].contentBlocks[0].type)
+        assertEquals(ContentBlockVisualType.UNKNOWN, itemReview.items[0].contentBlocks[1].type)
+    }
+
+    @Test
+    fun `output_emitted decodes visual variant from metadata`() {
+        val state = WorkflowScreenStateReducer.reduce(
+            initialState,
+            event(
+                type = "output_emitted",
+                sequence = 9,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "select_strategy")
+                        put("step_name", "Select Review Strategy")
+                        put("step_index", 4)
+                    }
+                    putJsonObject("output") {
+                        put("format", "text")
+                        put("content", "Plan validated")
+                        putJsonObject("metadata") {
+                            put("variant", "success")
+                        }
+                    }
+                },
+            ),
+        )
+
+        val step = state.steps.first { it.stepId == "select_strategy" }
+        assertEquals(OutputVisualVariant.SUCCESS, step.outputItems.first().variant)
+    }
+
+    @Test
     fun `terminal run closes active prompt`() {
         val prompted = WorkflowScreenStateReducer.reduce(
             initialState,

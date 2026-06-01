@@ -74,6 +74,42 @@ data class InteractionOption(
 )
 
 @Serializable
+data class ContentBlock(
+    val type: String,
+    val content: String,
+    val title: String? = null,
+    val variant: String = "default",
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class ItemReviewItem(
+    val id: String,
+    val title: String,
+    val status: String? = null,
+    @SerialName("content_blocks") val contentBlocks: List<ContentBlock> = emptyList(),
+    val editable: Boolean = false,
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class ItemReviewEditState(
+    val enabled: Boolean,
+    val label: String? = null,
+    @SerialName("initial_value") val initialValue: String? = null,
+)
+
+@Serializable
+data class ItemReviewState(
+    @SerialName("review_id") val reviewId: String,
+    val items: List<ItemReviewItem> = emptyList(),
+    @SerialName("initial_index") val initialIndex: Int = 0,
+    @SerialName("allowed_actions") val allowedActions: List<String> = emptyList(),
+    val edit: ItemReviewEditState? = null,
+    val metadata: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
 data class InteractionRequest(
     @SerialName("interaction_id") val interactionId: String,
     @SerialName("interaction_type") val interactionType: String,

@@ -1,8 +1,10 @@
 package io.github.masorange.titan.desktop.state
 
 import io.github.masorange.titan.desktop.protocol.EngineEventEnvelope
+import io.github.masorange.titan.desktop.protocol.ContentBlock
 import io.github.masorange.titan.desktop.protocol.InteractionOption
 import io.github.masorange.titan.desktop.protocol.InteractionRequest
+import io.github.masorange.titan.desktop.protocol.ItemReviewState
 import io.github.masorange.titan.desktop.protocol.OutputPayload
 import io.github.masorange.titan.desktop.protocol.PromptOption
 import io.github.masorange.titan.desktop.protocol.PromptRequest
@@ -104,6 +106,7 @@ object WorkflowScreenStateReducer {
                                 stepId = stepItem.stepId,
                                 stepName = stepItem.stepName,
                                 format = OutputVisualFormat.fromWireValue(output.format),
+                                variant = OutputVisualVariant.fromWireValue(output.metadata["variant"]?.asStringOrNull()),
                                 title = output.title,
                                 content = output.content,
                                 metadata = output.metadata,
@@ -223,6 +226,7 @@ object WorkflowScreenStateReducer {
                             stepId = stepRef.stepId,
                             stepName = stepRef.stepName,
                             format = OutputVisualFormat.fromWireValue(output.format),
+                            variant = OutputVisualVariant.fromWireValue(output.metadata["variant"]?.asStringOrNull()),
                             title = output.title,
                             content = output.content,
                             metadata = output.metadata,
@@ -270,6 +274,11 @@ object WorkflowScreenStateReducer {
         val interaction = event.payload.decodeInteractionRequest() ?: return state
         val step = event.payload.decodeStepRef()
         val options = interaction.state["options"]?.let(::decodeInteractionOptions) ?: emptyList()
+        val itemReview = if (interaction.interactionType == "item_review") {
+            decodeItemReviewState(interaction.state)
+        } else {
+            null
+        }
         return state.copy(
             steps = step?.let { stepRef ->
                 state.steps.upsertStep(stepRef) {
@@ -284,6 +293,7 @@ object WorkflowScreenStateReducer {
                             message = interaction.message,
                             options = options,
                             actions = interaction.actions,
+                            itemReview = itemReview,
                         ),
                         activePrompt = null,
                     )
@@ -360,4 +370,40 @@ object WorkflowScreenStateReducer {
             )
         }
     }
+
+    private fun decodeItemReviewState(element: JsonElement): ItemReviewInteractionState? {
+        val reviewState = runCatching { json.decodeFromJsonElement<ItemReviewState>(element) }.getOrNull()
+            ?: return null
+        return ItemReviewInteractionState(
+            reviewId = reviewState.reviewId,
+            items = reviewState.items.map { item ->
+                ItemReviewItemState(
+                    id = item.id,
+                    title = item.title,
+                    status = item.status,
+                    contentBlocks = item.contentBlocks.map(::toContentBlockState),
+                    editable = item.editable,
+                    metadata = item.metadata,
+                )
+            },
+            initialIndex = reviewState.initialIndex,
+            allowedActions = reviewState.allowedActions,
+            edit = reviewState.edit?.let {
+                ItemReviewEditState(
+                    enabled = it.enabled,
+                    label = it.label,
+                    initialValue = it.initialValue,
+                )
+            },
+            metadata = reviewState.metadata,
+        )
+    }
+
+    private fun toContentBlockState(block: ContentBlock): ContentBlockState = ContentBlockState(
+        type = ContentBlockVisualType.fromWireValue(block.type),
+        variant = OutputVisualVariant.fromWireValue(block.variant),
+        title = block.title,
+        content = block.content,
+        metadata = block.metadata,
+    )
 }

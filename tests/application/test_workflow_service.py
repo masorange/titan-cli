@@ -9,6 +9,11 @@ from titan_cli.application.runtime.status import RunSessionStatus
 from titan_cli.application.services.workflow_run_service import WorkflowRunService
 from titan_cli.core.workflows.workflow_sources import WorkflowInfo
 from titan_cli.engine.results import Error, Success
+from titan_cli.ports.protocol import ContentBlock
+from titan_cli.ports.protocol import ContentBlockType
+from titan_cli.ports.protocol import ItemReviewEditState
+from titan_cli.ports.protocol import ItemReviewItem
+from titan_cli.ports.protocol import ItemReviewState
 
 
 def test_list_workflows_maps_registry_discovery():
@@ -486,7 +491,7 @@ def test_submit_interaction_response_supports_two_consecutive_option_lists(
 
     assert waiting is not None
     assert waiting.pending_interaction is not None
-    assert waiting.pending_interaction.interaction_id == "select_pr:select-option"
+    assert waiting.pending_interaction.interaction_id == "select_pr:select-pr"
 
     second_wait = service.submit_interaction_response(
         SubmitInteractionResponseRequest(
@@ -500,7 +505,7 @@ def test_submit_interaction_response_supports_two_consecutive_option_lists(
     assert second_wait is not None
     assert second_wait.status == RunSessionStatus.WAITING_FOR_INTERACTION
     assert second_wait.pending_interaction is not None
-    assert second_wait.pending_interaction.interaction_id == "select_cli:select-option"
+    assert second_wait.pending_interaction.interaction_id == "select_cli:select-cli"
 
     completed = service.submit_interaction_response(
         SubmitInteractionResponseRequest(
@@ -514,6 +519,184 @@ def test_submit_interaction_response_supports_two_consecutive_option_lists(
     assert completed is not None
     assert completed.status == RunSessionStatus.COMPLETED
     assert completed.pending_interaction is None
+
+
+@patch("titan_cli.application.services.workflow_run_service.SecretManager")
+@patch("titan_cli.application.services.workflow_run_service.WorkflowExecutor")
+def test_start_workflow_exposes_item_review_interaction_events(
+    mock_executor_cls,
+    mock_secret_manager_cls,
+):
+    config = MagicMock()
+    workflow = MagicMock(name="workflow")
+    config.workflows.discover.return_value = []
+    config.workflows.get_workflow.return_value = workflow
+    config.project_root = MagicMock()
+    config.registry.list_installed.return_value = []
+    config.config.ai = None
+    mock_secret_manager_cls.return_value = MagicMock()
+
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
+        ctx.interaction.item_review(
+            interaction_id="review-item-0",
+            message="Review the proposed action and choose what to do next.",
+            state=ItemReviewState(
+                review_id="validate-review-actions",
+                items=[
+                    ItemReviewItem(
+                        id="item-1",
+                        title="Comment 1 of 1",
+                        status="important",
+                        content_blocks=[
+                            ContentBlock(
+                                type=ContentBlockType.TEXT,
+                                title="Proposed action",
+                                content="This may fail when the response is empty.",
+                            )
+                        ],
+                        editable=True,
+                    )
+                ],
+                allowed_actions=["approve", "edit", "skip"],
+                edit=ItemReviewEditState(
+                    enabled=True,
+                ),
+            ),
+        )
+        return Success("unreachable")
+
+    mock_executor = mock_executor_cls.return_value
+    mock_executor.execute.side_effect = _execute
+
+    service = WorkflowRunService(config=config)
+    response = service.start_workflow(StartWorkflowRequest(workflow_name="demo"))
+    run = service.get_run(response.run_id)
+
+    assert run is not None
+    assert response.status == RunSessionStatus.WAITING_FOR_INTERACTION
+    assert run.pending_interaction is not None
+    assert run.pending_interaction.interaction_type == "item_review"
+    assert run.events[-1].type == "interaction_requested"
+
+
+@patch("titan_cli.application.services.workflow_run_service.SecretManager")
+@patch("titan_cli.application.services.workflow_run_service.WorkflowExecutor")
+def test_submit_interaction_response_resumes_item_review_with_edit(
+    mock_executor_cls,
+    mock_secret_manager_cls,
+):
+    config = MagicMock()
+    workflow = MagicMock(name="workflow")
+    config.workflows.discover.return_value = []
+    config.workflows.get_workflow.return_value = workflow
+    config.project_root = MagicMock()
+    config.registry.list_installed.return_value = []
+    config.config.ai = None
+    mock_secret_manager_cls.return_value = MagicMock()
+
+    call_count = {"value": 0}
+
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
+        call_count["value"] += 1
+        response = ctx.interaction.item_review(
+            interaction_id="review-item-0",
+            message="Review the proposed action and choose what to do next.",
+            state=ItemReviewState(
+                review_id="validate-review-actions",
+                items=[
+                    ItemReviewItem(
+                        id="item-1",
+                        title="Comment 1 of 1",
+                        status="important",
+                        content_blocks=[
+                            ContentBlock(
+                                type=ContentBlockType.TEXT,
+                                title="Proposed action",
+                                content="This may fail when the response is empty.",
+                            )
+                        ],
+                        editable=True,
+                    )
+                ],
+                allowed_actions=["approve", "edit", "skip"],
+                edit=ItemReviewEditState(
+                    enabled=True,
+                ),
+            ),
+        )
+        if call_count["value"] == 1:
+            return Success("unreachable")
+
+        assert response.exit_requested is False
+        assert len(response.items) == 1
+        assert response.items[0].action == "edit"
+        assert response.items[0].content == "Edited body"
+        return Success("workflow ok")
+
+    mock_executor = mock_executor_cls.return_value
+    mock_executor.execute.side_effect = _execute
+
+    service = WorkflowRunService(config=config)
+    response = service.start_workflow(StartWorkflowRequest(workflow_name="demo"))
+    waiting = service.get_run(response.run_id)
+
+    assert waiting is not None
+    assert waiting.pending_interaction is not None
+
+    updated = service.submit_interaction_response(
+        SubmitInteractionResponseRequest(
+            run_id=response.run_id,
+            interaction_id=waiting.pending_interaction.interaction_id,
+            response_type="complete",
+            value={
+                "items": [{"item_id": "item-1", "action": "edit", "content": "Edited body"}],
+                "exit_requested": False,
+            },
+        )
+    )
+
+    assert updated is not None
+    assert updated.status == RunSessionStatus.COMPLETED
+    assert updated.pending_interaction is None
+    assert updated.events[-1].type == "run_completed"
+    assert call_count["value"] == 2
+
+
+@patch("titan_cli.application.services.workflow_run_service.SecretManager")
+@patch("titan_cli.application.services.workflow_run_service.WorkflowExecutor")
+def test_success_text_emits_visible_text_output_with_success_variant(
+    mock_executor_cls,
+    mock_secret_manager_cls,
+):
+    config = MagicMock()
+    workflow = MagicMock(name="workflow")
+    config.workflows.discover.return_value = []
+    config.workflows.get_workflow.return_value = workflow
+    config.project_root = MagicMock()
+    config.registry.list_installed.return_value = []
+    config.config.ai = None
+    mock_secret_manager_cls.return_value = MagicMock()
+
+    def _execute(_workflow, ctx, params_override=None, start_step_index=0):
+        ctx.current_step = 1
+        ctx.current_step_id = "select_strategy"
+        ctx.current_step_name = "Select Review Strategy"
+        ctx.interaction.success_text("Plan validated")
+        ctx.interaction.dim_text("up to 4 focus files per plan")
+        return Success("workflow ok")
+
+    mock_executor = mock_executor_cls.return_value
+    mock_executor.execute.side_effect = _execute
+
+    service = WorkflowRunService(config=config)
+    response = service.start_workflow(StartWorkflowRequest(workflow_name="demo"))
+    run = service.get_run(response.run_id)
+
+    assert run is not None
+    outputs = [event for event in run.events if event.type == "output_emitted"]
+    assert len(outputs) == 2
+    assert outputs[0].payload["output"].metadata["variant"] == "success"
+    assert outputs[1].payload["output"].metadata["variant"] == "muted"
 
 
 @patch("titan_cli.application.services.workflow_run_service.SecretManager")

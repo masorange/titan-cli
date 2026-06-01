@@ -48,7 +48,7 @@ class InteractionType(StrEnum):
     """Interaction kinds defined by the first rich interaction slice."""
 
     OPTION_LIST = "option_list"
-    REVIEW_QUEUE = "review_queue"
+    ITEM_REVIEW = "item_review"
     ACTION_LIST = "action_list"
     EDITABLE_TEXT = "editable_text"
     BATCH_PROGRESS = "batch_progress"
@@ -65,6 +65,25 @@ class OutputFormat(StrEnum):
     WARNING = "warning"
     ERROR = "error"
     JSON = "json"
+
+
+class ContentBlockType(StrEnum):
+    """Reusable semantic content block types shared by outputs and interactions."""
+
+    TEXT = "text"
+    MARKDOWN = "markdown"
+    DIFF = "diff"
+    STRUCTURED_SUMMARY = "structured_summary"
+
+
+class ContentBlockVariant(StrEnum):
+    """Visual-semantic variant shared by reusable content blocks."""
+
+    DEFAULT = "default"
+    SUCCESS = "success"
+    MUTED = "muted"
+    WARNING = "warning"
+    ERROR = "error"
 
 
 class RunStatus(StrEnum):
@@ -131,6 +150,69 @@ class InteractionAction:
     label: str
     description: Optional[str] = None
     variant: str = "default"
+
+
+@dataclass(slots=True)
+class ContentBlock:
+    """Reusable semantic content block renderable by any adapter."""
+
+    type: ContentBlockType
+    content: str
+    title: Optional[str] = None
+    variant: ContentBlockVariant = ContentBlockVariant.DEFAULT
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ItemReviewItem:
+    """Single reviewable item shown inside the item-review interaction."""
+
+    id: str
+    title: str
+    status: Optional[str] = None
+    content_blocks: list[ContentBlock] = field(default_factory=list)
+    editable: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ItemReviewEditState:
+    """Optional editing affordance shared by item-review items."""
+
+    enabled: bool
+    label: Optional[str] = None
+    initial_value: Optional[str] = None
+
+
+@dataclass(slots=True)
+class ItemReviewState:
+    """Structured state for the first portable item-review interaction slice."""
+
+    review_id: str
+    items: list[ItemReviewItem] = field(default_factory=list)
+    initial_index: int = 0
+    allowed_actions: list[str] = field(default_factory=list)
+    edit: Optional[ItemReviewEditState] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ItemReviewDecision:
+    """Decision made by the adapter for one reviewed item."""
+
+    item_id: str
+    action: str
+    content: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ItemReviewResponsePayload:
+    """Final aggregated response returned after an item-review session."""
+
+    items: list[ItemReviewDecision] = field(default_factory=list)
+    exit_requested: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

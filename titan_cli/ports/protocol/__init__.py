@@ -1,9 +1,17 @@
 """Titan protocol contracts shared by runtime and adapters."""
 
 from .models import CommandType
+from .models import ContentBlock
+from .models import ContentBlockType
+from .models import ContentBlockVariant
 from .models import EngineCommand
 from .models import EngineEvent
 from .models import EventType
+from .models import ItemReviewEditState
+from .models import ItemReviewDecision
+from .models import ItemReviewItem
+from .models import ItemReviewResponsePayload
+from .models import ItemReviewState
 from .models import InteractionAction
 from .models import InteractionOption
 from .models import InteractionRequest
@@ -21,9 +29,17 @@ from .models import StepRef
 
 __all__ = [
     "CommandType",
+    "ContentBlock",
+    "ContentBlockType",
+    "ContentBlockVariant",
     "EngineCommand",
     "EngineEvent",
     "EventType",
+    "ItemReviewEditState",
+    "ItemReviewDecision",
+    "ItemReviewItem",
+    "ItemReviewResponsePayload",
+    "ItemReviewState",
     "InteractionAction",
     "InteractionOption",
     "InteractionRequest",

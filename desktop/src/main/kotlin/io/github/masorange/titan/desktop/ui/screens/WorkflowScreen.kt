@@ -1,6 +1,7 @@
 package io.github.masorange.titan.desktop.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,9 +14,13 @@ import androidx.compose.material.Button
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.ActivePromptState
+import io.github.masorange.titan.desktop.state.ItemReviewDecisionState
 import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.state.RunVisualStatus
 import io.github.masorange.titan.desktop.state.StepItemState
@@ -48,6 +53,7 @@ fun WorkflowScreen(
     onSubmitText: (() -> Unit)?,
     onSubmitConfirm: ((Boolean) -> Unit)?,
     onSelectInteractionOption: ((String, String) -> Unit)?,
+    onSubmitItemReview: ((String, List<ItemReviewDecisionState>, Boolean) -> Unit)?,
 ) {
     if (activeErrorMessage != null) {
         AlertDialog(
@@ -76,6 +82,9 @@ fun WorkflowScreen(
         onSelectInteractionOption = { interactionId, optionId ->
             onSelectInteractionOption?.invoke(interactionId, optionId)
         },
+        onSubmitItemReview = { interactionId, decisions, exitRequested ->
+            onSubmitItemReview?.invoke(interactionId, decisions, exitRequested)
+        },
     )
 }
 
@@ -92,23 +101,57 @@ fun WorkflowContent(
     onSubmitText: () -> Unit,
     onSubmitConfirm: (Boolean) -> Unit,
     onSelectInteractionOption: (String, String) -> Unit,
+    onSubmitItemReview: (String, List<ItemReviewDecisionState>, Boolean) -> Unit,
 ) {
+    val themeColors = LocalTheme.current.colors
+    val atmosphericBackground = Brush.radialGradient(
+        colorStops = arrayOf(
+            0.0f to themeColors.palette.primary.main.copy(alpha = 0.24f),
+            0.45f to themeColors.palette.primary.light.copy(alpha = 0.12f),
+            1.0f to Color.Transparent,
+        ),
+        center = Offset(280f, 260f),
+        radius = 900f,
+    )
+    val atmosphericAccent = Brush.radialGradient(
+        colorStops = arrayOf(
+            0.0f to themeColors.palette.secondary.main.copy(alpha = 0.22f),
+            0.5f to themeColors.palette.secondary.light.copy(alpha = 0.10f),
+            1.0f to Color.Transparent,
+        ),
+        center = Offset(1450f, 520f),
+        radius = 1050f,
+    )
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LocalTheme.current.colors.ui.screenBackground)
-            .padding(Spacing.s6)
+            .background(themeColors.ui.screenBackground)
     ) {
-        WorkflowHeader(
-            modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.s6),
-            screenState = screenState,
-            runHeaderState = screenState.header,
-            onStart = onStart,
-            isLoadingWorkflow = isLoadingWorkflow,
-            isStartingRun = isStartingRun,
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(atmosphericBackground)
         )
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(atmosphericAccent)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Spacing.s6)
+    ) {
+            WorkflowHeader(
+                modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.s6),
+                screenState = screenState,
+                runHeaderState = screenState.header,
+                onStart = onStart,
+                isLoadingWorkflow = isLoadingWorkflow,
+                isStartingRun = isStartingRun,
+            )
+            Row(modifier = Modifier.fillMaxWidth()) {
 //            Column(
 //                modifier = Modifier.weight(0.36f).fillMaxHeight().padding(end = Spacing.s6),
 //                verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -127,25 +170,28 @@ fun WorkflowContent(
 //                )
 //            }
 
-            Column(
-                modifier = Modifier.weight(0.64f).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                WorkflowSectionCard(
-                    modifier = Modifier.weight(1f),
-                    section = "Execution Flow",
-                    content = {
-                        ExecutionContainer(
-                            state = screenState,
-                            promptDraftText = promptDraftText,
-                            onPromptDraftTextChange = onPromptDraftTextChange,
-                            isSubmittingPrompt = isSubmittingPrompt,
-                            submittingInteractionId = submittingInteractionId,
-                            onSubmitText = onSubmitText,
-                            onSubmitConfirm = onSubmitConfirm,
-                            onSelectInteractionOption = onSelectInteractionOption,
-                        )
-                    })
+                Column(
+                    modifier = Modifier.weight(0.64f).fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    WorkflowSectionCard(
+                        modifier = Modifier.weight(1f),
+                        section = "Execution Flow",
+                        content = {
+                            ExecutionContainer(
+                                state = screenState,
+                                promptDraftText = promptDraftText,
+                                onPromptDraftTextChange = onPromptDraftTextChange,
+                                isSubmittingPrompt = isSubmittingPrompt,
+                                submittingInteractionId = submittingInteractionId,
+                                onSubmitText = onSubmitText,
+                                onSubmitConfirm = onSubmitConfirm,
+                                onSelectInteractionOption = onSelectInteractionOption,
+                                onSubmitItemReview = onSubmitItemReview,
+                            )
+                        },
+                    )
+                }
             }
         }
     }
@@ -250,6 +296,7 @@ private fun WorkflowScreenPreview() {
             onSubmitText = {},
             onSubmitConfirm = {},
             onSelectInteractionOption = { _, _ -> },
+            onSubmitItemReview = { _, _, _ -> },
         )
     }
 }
