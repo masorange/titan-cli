@@ -3,6 +3,7 @@ package io.github.masorange.titan.desktop
 import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ fun App() {
         var isStartingRun by remember { mutableStateOf(false) }
         var isCancellingRun by remember { mutableStateOf(false) }
         var activeErrorMessage by remember { mutableStateOf<String?>(null) }
+        val fatalError by DesktopErrorReporter.currentError.collectAsState()
         var screenState by remember {
             mutableStateOf(
                 WorkflowScreenStateReducer.initialState(
@@ -326,6 +328,8 @@ fun App() {
             isStartingRun = isStartingRun,
             activeErrorMessage = activeErrorMessage,
             onDismissError = { activeErrorMessage = null },
+            fatalError = fatalError,
+            onDismissFatalError = { DesktopErrorReporter.dismiss() },
             onSubmitText = { submitPromptValue(JsonPrimitive(promptDraftText)) },
             onSubmitConfirm = { submitPromptValue(JsonPrimitive(it)) },
             onSelectInteractionOption = ::submitInteractionSelection,

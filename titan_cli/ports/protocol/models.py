@@ -66,6 +66,14 @@ class OutputFormat(StrEnum):
     JSON = "json"
 
 
+class DiffPresentationType(StrEnum):
+    """Diff presentation variants shared across adapters."""
+
+    SUMMARY = "summary"
+    FOCUSED_HUNK = "focused_hunk"
+    FULL_PATCH = "full_patch"
+
+
 class ContentBlockType(StrEnum):
     """Reusable semantic content block types shared by outputs and interactions."""
 

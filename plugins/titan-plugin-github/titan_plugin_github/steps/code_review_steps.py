@@ -13,6 +13,7 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Ex
 from titan_cli.ports.protocol import (
     ContentBlock,
     ContentBlockType,
+    DiffPresentationType,
     InteractionOption,
     ItemReviewEditState,
     ItemReviewItem,
@@ -28,10 +29,11 @@ from ..models.review_models import PRClassification, ReviewActionProposal
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
 from ..operations.code_review_operations import (
-    build_diff_output_metadata,
+    build_summary_diff_output_metadata,
     select_files_for_review,
 )
 from ..operations.review_action_operations import (
+    build_action_line_label,
     build_new_comment_actions as build_new_comment_actions_operation,
     build_review_action_payload,
     classify_github_review_rejection,
@@ -408,10 +410,11 @@ def _build_item_review_blocks(
 ) -> list[ContentBlock]:
     blocks = [
         ContentBlock(
-            type=ContentBlockType.TEXT,
+            type=ContentBlockType.MARKDOWN,
             title="Proposed action",
             content=action.body,
             metadata={
+                "role": "ai_comment",
                 "action_type": str(action.action_type),
                 "title": action.title,
                 "reasoning": action.reasoning,
@@ -421,39 +424,13 @@ def _build_item_review_blocks(
         )
     ]
 
-    detail_lines = [action.title]
-    if action.reasoning:
-        detail_lines.append(f"Reasoning: {action.reasoning}")
-    if action.path:
-        location = action.path
-        if action.line is not None:
-            location = f"{location}:{action.line}"
-        detail_lines.append(f"Location: {location}")
-    if action.severity:
-        detail_lines.append(f"Severity: {action.severity}")
-
-    blocks.append(
-        ContentBlock(
-            type=ContentBlockType.STRUCTURED_SUMMARY,
-            title="Action details",
-            content="\n".join(detail_lines),
-            metadata={
-                "summary_lines": detail_lines,
-                "sections": [],
-            },
-        )
-    )
-
     if diff_hunk:
         blocks.append(
             ContentBlock(
                 type=ContentBlockType.DIFF,
                 title="Relevant diff",
                 content=diff_hunk,
-                metadata={
-                    "path": action.path,
-                    "line": action.line,
-                },
+                metadata=_build_focused_hunk_diff_metadata(action),
             )
         )
 
@@ -469,6 +446,7 @@ def _build_item_review_blocks(
                 ),
                 content=_format_review_thread_markdown(review_thread),
                 metadata={
+                    "role": "thread_context",
                     "thread_id": review_thread.thread_id,
                     "is_resolved": review_thread.is_resolved,
                     "is_outdated": review_thread.is_outdated,
@@ -477,6 +455,21 @@ def _build_item_review_blocks(
         )
 
     return blocks
+
+
+def _build_focused_hunk_diff_metadata(action: ReviewActionProposal) -> dict[str, object]:
+    return {
+        "type": DiffPresentationType.FOCUSED_HUNK.value,
+        "path": action.path,
+        "line": action.line,
+        "original_line": action.original_line,
+        "resolved_line": action.resolved_line,
+        "resolution_source": action.resolution_source,
+        "line_label": build_action_line_label(action),
+        "anchor_confidence": action.anchor_confidence,
+        "inline_reason": action.inline_reason,
+        "is_outdated": False,
+    }
 
 
 def _build_item_review_state(
@@ -740,7 +733,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
 
     # Display file changes summary
     diff_manager = get_or_create_diff_manager(diff, ctx.data)
-    diff_metadata = build_diff_output_metadata(diff)
+    diff_metadata = build_summary_diff_output_metadata(diff)
     ui.display_diff(
         diff,
         title="Files affected:",

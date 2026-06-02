@@ -6,6 +6,10 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 
 fun main() = application {
+    Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+        DesktopErrorReporter.report(throwable)
+    }
+
     Window(
         onCloseRequest = ::exitApplication,
         title = "Titan Desktop",

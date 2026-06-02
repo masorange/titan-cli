@@ -1,6 +1,7 @@
 package io.github.masorange.titan.desktop.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,15 +10,20 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.Button
+import androidx.compose.material.OutlinedButton
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.github.masorange.titan.desktop.DesktopError
 import io.github.masorange.titan.desktop.state.ActivePromptState
 import io.github.masorange.titan.desktop.state.ItemReviewDecisionState
 import io.github.masorange.titan.desktop.state.SemanticContentType
@@ -48,6 +54,8 @@ fun WorkflowScreen(
     isStartingRun: Boolean,
     activeErrorMessage: String?,
     onDismissError: () -> Unit,
+    fatalError: DesktopError?,
+    onDismissFatalError: () -> Unit,
     onSubmitText: (() -> Unit)?,
     onSubmitConfirm: ((Boolean) -> Unit)?,
     onSelectInteractionOption: ((String, String) -> Unit)?,
@@ -61,6 +69,42 @@ fun WorkflowScreen(
             confirmButton = {
                 Button(onClick = onDismissError) {
                     Text("Close")
+                }
+            },
+        )
+    }
+
+    if (fatalError != null) {
+        AlertDialog(
+            onDismissRequest = onDismissFatalError,
+            title = { Text("Unexpected error") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.s4)) {
+                    Text(fatalError.message)
+                    Text(
+                        text = fatalError.title,
+                        color = LocalTheme.current.colors.palette.error.main,
+                    )
+                    Text(
+                        text = fatalError.details,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .verticalScroll(rememberScrollState())
+                            .background(LocalTheme.current.colors.ui.diffPreviewBackground)
+                            .padding(Spacing.s4),
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = onDismissFatalError) {
+                    Text("Close")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = onDismissFatalError) {
+                    Text("Dismiss")
                 }
             },
         )

@@ -17,6 +17,22 @@ from ..managers.diff_context_manager import DiffContextManager, get_or_create_di
 logger = get_logger(__name__)
 
 
+def build_action_line_label(action: ReviewActionProposal) -> Optional[str]:
+    """Build a user-facing line label for review action previews."""
+    resolved_line = action.resolved_line
+    original_line = action.original_line or action.line
+    resolution_source = action.resolution_source
+
+    if resolved_line and original_line and resolved_line != original_line:
+        suffix = f" via {resolution_source}" if resolution_source else ""
+        return f"Line {resolved_line} (AI {original_line}{suffix})"
+    if resolved_line:
+        return f"Line {resolved_line}"
+    if original_line:
+        return f"Line {original_line}"
+    return None
+
+
 def classify_github_review_rejection(error_message: str) -> str:
     """Classify GitHub inline review rejection into a stable bucket."""
     lower = error_message.lower()

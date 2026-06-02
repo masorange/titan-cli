@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from titan_cli.core.logging import get_logger
+from titan_cli.ports.protocol import DiffPresentationType
 from ..managers.diff_context_manager import DiffContextManager
 from ..models.view import UIFileChange
 
@@ -136,8 +137,8 @@ def compute_diff_stat(diff: str) -> Tuple[List[str], List[str]]:
     return formatted_files, [summary]
 
 
-def build_diff_output_metadata(diff: str) -> Dict[str, Any]:
-    """Build portable metadata for semantic diff output."""
+def build_summary_diff_output_metadata(diff: str) -> Dict[str, Any]:
+    """Build summary metadata for portable semantic diff output."""
     file_stats: Dict[str, tuple[int, int]] = {}
     current_file: Optional[str] = None
 
@@ -177,13 +178,18 @@ def build_diff_output_metadata(diff: str) -> Dict[str, Any]:
     ]
 
     return {
-        "kind": "unified_patch",
+        "type": DiffPresentationType.SUMMARY.value,
         "file_count": file_count,
         "total_additions": total_additions,
         "total_deletions": total_deletions,
         "files": files,
         "summary_lines": summary_lines,
     }
+
+
+def build_diff_output_metadata(diff: str) -> Dict[str, Any]:
+    """Backward-compatible wrapper for summary diff metadata."""
+    return build_summary_diff_output_metadata(diff)
 
 
 MAX_FILES_FOR_REVIEW = 20

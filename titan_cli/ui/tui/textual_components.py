@@ -437,14 +437,33 @@ class TextualComponents:
         title: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """Render diff-oriented content using a compact summary fallback."""
+        """Render diff-oriented content using its declared presentation type."""
         summary_lines = []
+        diff_type = None
         if metadata:
+            diff_type = metadata.get("type")
             summary_lines = [str(line) for line in metadata.get("summary_lines", [])]
 
         self.text("")
         self.bold_text(title or "Diff")
         self.text("")
+
+        if diff_type == "summary" and summary_lines:
+            for line in summary_lines:
+                self.dim_text(f"  {line}")
+            self.text("")
+            return
+
+        if diff_type == "focused_hunk":
+            path = metadata.get("path") if metadata else None
+            line_label = metadata.get("line_label") if metadata else None
+            if path:
+                path_suffix = f" {line_label}" if line_label else ""
+                self.dim_text(f"  {path}{path_suffix}")
+                self.text("")
+            self.text(diff_text)
+            self.text("")
+            return
 
         if summary_lines:
             for line in summary_lines:

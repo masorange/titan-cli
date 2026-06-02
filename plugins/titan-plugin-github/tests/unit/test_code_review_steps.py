@@ -132,7 +132,7 @@ def test_fetch_pr_review_bundle_uses_github_diff_for_cross_repo_pr():
     assert result.metadata["review_diff"] == "diff --git a/foo b/foo"
     assert ctx.textual.displayed_diff is not None
     assert ctx.textual.displayed_diff["title"] == "Files affected:"
-    assert ctx.textual.displayed_diff["metadata"]["kind"] == "unified_patch"
+    assert ctx.textual.displayed_diff["metadata"]["type"] == "summary"
     ctx.github.get_pr_diff.assert_called_once_with(223)
     ctx.git.get_branch_diff.assert_not_called()
 
@@ -268,7 +268,7 @@ def test_validate_review_actions_approves_selected_actions():
     ctx.interaction = _FakeInteraction([ItemReviewResponse(items=[ItemReviewDecision(item_id="new_comment:0", action="approve")])])
     ctx.textual = ctx.interaction
     ctx.data["review_action_proposals"] = [_make_review_action()]
-    ctx.data["review_diff"] = "@@ -1 +1 @@\n-old\n+new"
+    ctx.data["review_diff"] = "diff --git a/src/foo.py b/src/foo.py\n@@ -41,1 +41,2 @@\n-old\n+new\n+return value"
     ctx.data["review_threads"] = []
 
     result = validate_review_actions(ctx)
@@ -277,6 +277,11 @@ def test_validate_review_actions_approves_selected_actions():
     approved = result.metadata["approved_action_proposals"]
     assert len(approved) == 1
     assert approved[0].body == "Original body"
+    review_state = ctx.interaction.last_item_review["state"]
+    diff_block = next(block for block in review_state.items[0].content_blocks if block.type == "diff")
+    assert diff_block.metadata["type"] == "focused_hunk"
+    assert diff_block.metadata["path"] == "src/foo.py"
+    assert diff_block.metadata["line_label"] == "Line 42"
 
 
 def test_validate_review_actions_edits_body_when_requested():

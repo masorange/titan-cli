@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from titan_cli.ports.protocol import EngineCommand
 from titan_cli.ports.protocol import ContentBlock
 from titan_cli.ports.protocol import ContentBlockType
+from titan_cli.ports.protocol import DiffPresentationType
 from titan_cli.ports.protocol import EngineEvent
 from titan_cli.ports.protocol import ItemReviewEditState
 from titan_cli.ports.protocol import ItemReviewItem
@@ -55,6 +56,22 @@ def test_engine_event_serializes_to_v1_envelope_shape():
                 "metadata": {},
             },
         },
+    }
+
+
+def test_diff_presentation_type_serializes_as_string_value():
+    payload = OutputPayload(
+        format="diff",
+        title="Diff summary",
+        content="diff --git a/foo b/foo",
+        metadata={"type": DiffPresentationType.SUMMARY},
+    )
+
+    assert to_jsonable(payload) == {
+        "format": "diff",
+        "title": "Diff summary",
+        "content": "diff --git a/foo b/foo",
+        "metadata": {"type": "summary"},
     }
 
 

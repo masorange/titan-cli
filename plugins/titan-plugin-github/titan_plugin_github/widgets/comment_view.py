@@ -23,6 +23,7 @@ from ..models.diff_models import ResolvedCommentContext
 from ..models.review_enums import FindingSeverity, ThreadSeverity
 from .code_block import CodeBlock
 from .comment_utils import render_comment_elements
+from ..operations.review_action_operations import build_action_line_label
 
 
 class CommentView(Widget):
@@ -228,7 +229,7 @@ class CommentView(Widget):
             line=action.resolved_line or action.line,
             diff_hunk=diff_hunk,
             severity=action.severity,
-            line_label=_build_action_line_label(action),
+            line_label=build_action_line_label(action),
         )
 
     def compose(self) -> ComposeResult:
@@ -360,22 +361,4 @@ class CommentView(Widget):
             diff_hunk=self.diff_hunk,
             line=self.line,
         )
-
-
-def _build_action_line_label(action: Any) -> Optional[str]:
-    """Build a user-facing line label for review action preview."""
-    resolved_line = getattr(action, "resolved_line", None)
-    original_line = getattr(action, "original_line", None) or getattr(action, "line", None)
-    resolution_source = getattr(action, "resolution_source", None)
-
-    if resolved_line and original_line and resolved_line != original_line:
-        suffix = f" via {resolution_source}" if resolution_source else ""
-        return f"Line {resolved_line} (AI {original_line}{suffix})"
-    if resolved_line:
-        return f"Line {resolved_line}"
-    if original_line:
-        return f"Line {original_line}"
-    return None
-
-
 __all__ = ["CommentView"]

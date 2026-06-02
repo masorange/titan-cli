@@ -90,6 +90,22 @@ enum class SemanticContentType(val wireValue: String) {
     }
 }
 
+enum class DiffPresentationType(val wireValue: String) {
+    SUMMARY("summary"),
+    FOCUSED_HUNK("focused_hunk"),
+    FULL_PATCH("full_patch"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromWireValue(value: String?): DiffPresentationType = when (value) {
+            SUMMARY.wireValue -> SUMMARY
+            FOCUSED_HUNK.wireValue -> FOCUSED_HUNK
+            FULL_PATCH.wireValue -> FULL_PATCH
+            else -> UNKNOWN
+        }
+    }
+}
+
 data class ProgressItemState(
     val progressId: String,
     val message: String,

@@ -4,6 +4,7 @@ from .models import CommandType
 from .models import ContentBlock
 from .models import ContentBlockType
 from .models import ContentBlockVariant
+from .models import DiffPresentationType
 from .models import EngineCommand
 from .models import EngineEvent
 from .models import EventType
@@ -32,6 +33,7 @@ __all__ = [
     "ContentBlock",
     "ContentBlockType",
     "ContentBlockVariant",
+    "DiffPresentationType",
     "EngineCommand",
     "EngineEvent",
     "EventType",

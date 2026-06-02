@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
@@ -13,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import io.github.masorange.titan.desktop.state.DiffPresentationType
 import io.github.masorange.titan.desktop.state.SemanticContentType
 import io.github.masorange.titan.desktop.state.SemanticContentItemState
 import io.github.masorange.titan.desktop.theme.Body2RegularText
@@ -26,6 +29,7 @@ import io.github.masorange.titan.desktop.ui.LocalTheme
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
@@ -37,6 +41,7 @@ fun DiffOutputView(
     val summaryLines = item.metadata.summaryLines()
     val files = item.metadata.diffFiles()
     val neutralColor = MaterialTheme.colors.onSurface.copy(alpha = 0.85f)
+    val diffType = DiffPresentationType.fromWireValue(item.metadata.diffType())
     val preview = remember(item.content, colors) {
         buildDiffPreview(item.content, colors)
     }
@@ -47,60 +52,68 @@ fun DiffOutputView(
     ) {
 
 
-        if (files.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(LocalTheme.current.colors.ui.diffPreviewBackground)
-                    .padding(Spacing.s4),
-                verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
-                files.forEach { file ->
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.s3),
-                        verticalAlignment = Alignment.CenterVertically
+        when (diffType) {
+            DiffPresentationType.SUMMARY, DiffPresentationType.UNKNOWN -> {
+                if (files.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(LocalTheme.current.colors.ui.diffPreviewBackground)
+                            .padding(Spacing.s4),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s2),
                     ) {
-                        Body2RegularText(text = file.path)
-                        Body2StrongText(text = "+${file.additions}", color = colors.diffAdditions)
-                        Body2StrongText(text = "-${file.deletions}", color = colors.diffDeletions)
+                        files.forEach { file ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.s3),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Body2RegularText(text = file.path)
+                                Body2StrongText(text = "+${file.additions}", color = colors.diffAdditions)
+                                Body2StrongText(text = "-${file.deletions}", color = colors.diffDeletions)
+                            }
+                        }
+                    }
+                }
+
+                if (summaryLines.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
+                        summaryLines.forEach { line ->
+                            CaptionRegularText(text = line)
+                        }
+                    }
+                }
+            }
+
+            DiffPresentationType.FOCUSED_HUNK,
+            DiffPresentationType.FULL_PATCH -> {
+                if (preview.lines.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(colors.diffPreviewBackground, RoundedCornerShape(Spacing.s2))
+                            .padding(Spacing.s4),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s1),
+                    ) {
+                        preview.lines.forEach { line ->
+                            Text(
+                                text = line.text,
+                                style = MaterialTheme.typography.caption,
+                                fontFamily = FontFamily.Monospace,
+                                color = line.color,
+                            )
+                        }
+
+                        if (preview.truncated) {
+                            Text(
+                                text = "Preview truncated for large diff output.",
+                                style = MaterialTheme.typography.caption,
+                                color = neutralColor.copy(alpha = 0.75f),
+                            )
+                        }
                     }
                 }
             }
         }
-
-        if (summaryLines.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
-                summaryLines.forEach { line ->
-                    CaptionRegularText(text = line)
-                }
-            }
-        }
-
-//        if (preview.lines.isNotEmpty()) {
-//            Column(
-//                modifier = Modifier
-//                    .fillMaxWidth()
-//                    .background(colors.diffPreviewBackground)
-//                    .padding(Spacing.s4),
-//                verticalArrangement = Arrangement.spacedBy(Spacing.s1),
-//            ) {
-//                preview.lines.forEach { line ->
-//                    Text(
-//                        text = line.text,
-//                        style = MaterialTheme.typography.caption,
-//                        fontFamily = FontFamily.Monospace,
-//                        color = line.color,
-//                    )
-//                }
-//
-//                if (preview.truncated) {
-//                    Text(
-//                        text = "Preview truncated for large diff output.",
-//                        style = MaterialTheme.typography.caption,
-//                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f),
-//                    )
-//                }
-//            }
-//        }
     }
 }
 
@@ -166,6 +179,8 @@ private fun JsonObject.summaryLines(): List<String> {
     val lines = this["summary_lines"] as? JsonArray ?: return emptyList()
     return lines.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 }
+
+private fun JsonObject.diffType(): String? = (this["type"] as? JsonPrimitive)?.contentOrNull
 
 private fun JsonObject.diffFiles(): List<DiffFileStat> {
     val files = this["files"] as? JsonArray ?: return emptyList()
