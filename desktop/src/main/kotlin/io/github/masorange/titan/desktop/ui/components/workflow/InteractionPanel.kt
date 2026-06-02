@@ -12,7 +12,7 @@ import io.github.masorange.titan.desktop.state.ActiveInteractionState
 import io.github.masorange.titan.desktop.state.InteractionVisualType
 import io.github.masorange.titan.desktop.theme.H2Text
 import io.github.masorange.titan.desktop.ui.DesktopPreview
-import io.github.masorange.titan.desktop.ui.components.interactions.ItemReviewInteractionPanel
+import io.github.masorange.titan.desktop.ui.components.interactions.ItemReviewInteractionContainer
 import io.github.masorange.titan.desktop.ui.components.interactions.OptionListInteractionPanel
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import io.github.masorange.titan.desktop.state.InteractionOptionState
@@ -29,7 +29,8 @@ fun InteractionPanel(
 ) {
     Card(
         modifier = modifier
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .padding(Spacing.s6),
         elevation = 2.dp
     ) {
 
@@ -53,7 +54,7 @@ fun InteractionPanel(
 
                 InteractionVisualType.ITEM_REVIEW -> {
                     interaction.itemReview?.let {
-                        ItemReviewInteractionPanel(
+                        ItemReviewInteractionContainer(
                             interactionId = interaction.interactionId,
                             state = it,
                             isSubmitting = isSubmitting,

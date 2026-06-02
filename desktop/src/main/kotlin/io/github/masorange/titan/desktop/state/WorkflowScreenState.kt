@@ -23,8 +23,8 @@ data class WorkflowScreenState(
     val activeInteraction: ActiveInteractionState?
         get() = steps.firstNotNullOfOrNull { it.activeInteraction }
 
-    val outputItems: List<OutputItemState>
-        get() = steps.flatMap { it.outputItems }.sortedBy { it.sequence }
+    val outputItems: List<SemanticContentItemState>
+        get() = steps.flatMap { it.contentItems }.sortedBy { it.sequence }
 }
 
 data class RunHeaderState(
@@ -43,49 +43,80 @@ data class StepItemState(
     val status: StepVisualStatus = StepVisualStatus.PENDING,
     val message: String? = null,
     val startedAtLabel: String? = null,
+    val activeProgress: ProgressItemState? = null,
     val activePrompt: ActivePromptState? = null,
     val activeInteraction: ActiveInteractionState? = null,
-    val outputItems: List<OutputItemState> = emptyList(),
+    val contentItems: List<SemanticContentItemState> = emptyList(),
 )
 
-data class OutputItemState(
+data class SemanticContentItemState(
     val sequence: Int,
+    val source: SemanticContentSource = SemanticContentSource.OUTPUT,
     val stepId: String? = null,
     val stepName: String? = null,
-    val format: OutputVisualFormat,
-    val variant: OutputVisualVariant = OutputVisualVariant.DEFAULT,
+    val type: SemanticContentType,
+    val variant: SemanticContentVariant = SemanticContentVariant.DEFAULT,
     val title: String? = null,
     val content: String,
     val metadata: JsonObject = JsonObject(emptyMap()),
 )
 
-enum class OutputVisualFormat(val wireValue: String) {
+enum class SemanticContentSource {
+    OUTPUT,
+    INTERACTION_CONTENT,
+}
+
+enum class SemanticContentType(val wireValue: String) {
     TEXT("text"),
     MARKDOWN("markdown"),
     TABLE("table"),
     DIFF("diff"),
+    PROGRESS("progress"),
     STRUCTURED_SUMMARY("structured_summary"),
-    WARNING("warning"),
-    ERROR("error"),
     JSON("json"),
     UNKNOWN("unknown");
 
     companion object {
-        fun fromWireValue(value: String): OutputVisualFormat = when (value) {
+        fun fromWireValue(value: String): SemanticContentType = when (value) {
             TEXT.wireValue -> TEXT
             MARKDOWN.wireValue -> MARKDOWN
             TABLE.wireValue -> TABLE
             DIFF.wireValue -> DIFF
+            PROGRESS.wireValue -> PROGRESS
             STRUCTURED_SUMMARY.wireValue -> STRUCTURED_SUMMARY
-            WARNING.wireValue -> WARNING
-            ERROR.wireValue -> ERROR
             JSON.wireValue -> JSON
             else -> UNKNOWN
         }
     }
 }
 
-enum class OutputVisualVariant(val wireValue: String) {
+data class ProgressItemState(
+    val progressId: String,
+    val message: String,
+    val state: ProgressLifecycleState,
+    val variant: SemanticContentVariant = SemanticContentVariant.DEFAULT,
+    val indeterminate: Boolean = true,
+)
+
+enum class ProgressLifecycleState(val wireValue: String) {
+    STARTED("started"),
+    UPDATED("updated"),
+    FINISHED("finished"),
+    FAILED("failed"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromWireValue(value: String?): ProgressLifecycleState = when (value) {
+            STARTED.wireValue -> STARTED
+            UPDATED.wireValue -> UPDATED
+            FINISHED.wireValue -> FINISHED
+            FAILED.wireValue -> FAILED
+            else -> UNKNOWN
+        }
+    }
+}
+
+enum class SemanticContentVariant(val wireValue: String) {
     DEFAULT("default"),
     SUCCESS("success"),
     MUTED("muted"),
@@ -94,7 +125,7 @@ enum class OutputVisualVariant(val wireValue: String) {
     UNKNOWN("unknown");
 
     companion object {
-        fun fromWireValue(value: String?): OutputVisualVariant = when (value) {
+        fun fromWireValue(value: String?): SemanticContentVariant = when (value) {
             null, DEFAULT.wireValue -> DEFAULT
             SUCCESS.wireValue -> SUCCESS
             MUTED.wireValue -> MUTED
@@ -167,10 +198,17 @@ data class ItemReviewItemState(
     val id: String,
     val title: String,
     val status: String? = null,
-    val contentBlocks: List<ContentBlockState> = emptyList(),
+    val contentItems: List<SemanticContentItemState> = emptyList(),
     val editable: Boolean = false,
+    val visualState: ItemReviewItemVisualState = ItemReviewItemVisualState.IDLE,
     val metadata: JsonObject = JsonObject(emptyMap()),
 )
+
+enum class ItemReviewItemVisualState {
+    IDLE,
+    ACTIVE,
+    COMPLETED,
+}
 
 data class ItemReviewEditState(
     val enabled: Boolean,
@@ -183,32 +221,6 @@ data class ItemReviewDecisionState(
     val action: String,
     val content: String? = null,
 )
-
-data class ContentBlockState(
-    val type: ContentBlockVisualType,
-    val variant: OutputVisualVariant = OutputVisualVariant.DEFAULT,
-    val title: String? = null,
-    val content: String,
-    val metadata: JsonObject = JsonObject(emptyMap()),
-)
-
-enum class ContentBlockVisualType(val wireValue: String) {
-    TEXT("text"),
-    MARKDOWN("markdown"),
-    DIFF("diff"),
-    STRUCTURED_SUMMARY("structured_summary"),
-    UNKNOWN("unknown");
-
-    companion object {
-        fun fromWireValue(value: String): ContentBlockVisualType = when (value) {
-            TEXT.wireValue -> TEXT
-            MARKDOWN.wireValue -> MARKDOWN
-            DIFF.wireValue -> DIFF
-            STRUCTURED_SUMMARY.wireValue -> STRUCTURED_SUMMARY
-            else -> UNKNOWN
-        }
-    }
-}
 
 enum class RunVisualStatus {
     IDLE,

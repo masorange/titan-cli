@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -21,21 +19,20 @@ import androidx.compose.material.Text
 import androidx.compose.material.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.ActivePromptState
 import io.github.masorange.titan.desktop.state.ItemReviewDecisionState
-import io.github.masorange.titan.desktop.state.OutputItemState
-import io.github.masorange.titan.desktop.state.OutputVisualFormat
 import io.github.masorange.titan.desktop.state.RunHeaderState
 import io.github.masorange.titan.desktop.state.RunVisualStatus
+import io.github.masorange.titan.desktop.state.SemanticContentItemState
+import io.github.masorange.titan.desktop.state.SemanticContentType
 import io.github.masorange.titan.desktop.state.StepItemState
 import io.github.masorange.titan.desktop.state.StepVisualStatus
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
+import io.github.masorange.titan.desktop.theme.H3Text
 import io.github.masorange.titan.desktop.ui.DesktopPreview
-import io.github.masorange.titan.desktop.ui.components.diff.DiffOutputView
+import io.github.masorange.titan.desktop.ui.components.progress.ProgressStatusView
 import io.github.masorange.titan.desktop.ui.components.steps.StepContainer
-import io.github.masorange.titan.desktop.ui.components.structuredsummary.StructuredSummaryOutputView
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -70,54 +67,63 @@ fun ExecutionContainer(
 //        subtitle = humanizeInteractionType(interaction.interactionType),
 //        message = interaction.message,
             ) {
-                step.activeInteraction?.let {
-                    InteractionPanel(
-                        interaction = it,
-                        isSubmitting = it.interactionId == submittingInteractionId,
-                        onSelectInteractionOption = onSelectInteractionOption,
-                        onSubmitItemReview = onSubmitItemReview,
-                    )
-                }
-
-                step.activePrompt?.let {
-                    Card(elevation = 2.dp) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                            Text("Active Prompt", style = MaterialTheme.typography.subtitle1)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            PromptPanel(
-                                prompt = it,
-                                promptDraftText = promptDraftText,
-                                onPromptDraftTextChange = onPromptDraftTextChange,
-                                canSubmit = canSubmitPrompt(
-                                    prompt = it,
-                                    promptDraftText = promptDraftText,
-                                    isSubmitting = isSubmittingPrompt,
-                                ),
-                                isSubmitting = isSubmittingPrompt,
-                                onSubmitText = onSubmitText,
-                                onSubmitConfirm = onSubmitConfirm,
+                when (step.status) {
+                    StepVisualStatus.PENDING -> {
+                        H3Text(text = "No execution output yet. Output produced by running steps will appear here.")
+                    }
+                    else -> {
+                        step.activeInteraction?.let {
+                            InteractionPanel(
+                                interaction = it,
+                                isSubmitting = it.interactionId == submittingInteractionId,
+                                onSelectInteractionOption = onSelectInteractionOption,
+                                onSubmitItemReview = onSubmitItemReview,
                             )
                         }
-                    }
-                }
 
-                step.outputItems.forEachIndexed { index, item ->
-                    OutputContainer(item = item)
-                }
+                        step.activeProgress?.let {
+                            ProgressStatusView(
+                                modifier = Modifier.padding(12.dp),
+                                message = it.message,
+                                lifecycle = it.state,
+                            )
+                        }
 
-                if (state.outputItems.isEmpty()) {
-                    Text("No execution output yet. Output produced by running steps will appear here.")
-                } else {
+                        step.activePrompt?.let {
+                            Card(elevation = 2.dp) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Text("Active Prompt", style = MaterialTheme.typography.subtitle1)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    PromptPanel(
+                                        prompt = it,
+                                        promptDraftText = promptDraftText,
+                                        onPromptDraftTextChange = onPromptDraftTextChange,
+                                        canSubmit = canSubmitPrompt(
+                                            prompt = it,
+                                            promptDraftText = promptDraftText,
+                                            isSubmitting = isSubmittingPrompt,
+                                        ),
+                                        isSubmitting = isSubmittingPrompt,
+                                        onSubmitText = onSubmitText,
+                                        onSubmitConfirm = onSubmitConfirm,
+                                    )
+                                }
+                            }
+                        }
 
-                }
+                        step.contentItems.forEach { item ->
+                            SemanticContentView(item = item)
+                        }
 
-                state.terminalMessage?.let {
-                    Card(elevation = 2.dp) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                            Text("Terminal State", style = MaterialTheme.typography.subtitle1)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            SelectionContainer {
-                                Text(it)
+                        state.terminalMessage?.let {
+                            Card(elevation = 2.dp) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Text("Terminal State", style = MaterialTheme.typography.subtitle1)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    SelectionContainer {
+                                        Text(it)
+                                    }
+                                }
                             }
                         }
                     }
@@ -229,12 +235,12 @@ fun ExecutionContainerPreview() {
                         2,
                         "project",
                         StepVisualStatus.SUCCESS,
-                        outputItems = listOf(
-                            OutputItemState(
+                        contentItems = listOf(
+                            SemanticContentItemState(
                                 sequence = 1,
                                 stepId = "ruff_lint",
                                 stepName = "Run Ruff Linter",
-                                format = OutputVisualFormat.TEXT,
+                                type = SemanticContentType.TEXT,
                                 title = "Lint summary",
                                 content = "Auto-fixed 3 issue(s)",
                             )
@@ -247,12 +253,12 @@ fun ExecutionContainerPreview() {
                         "project",
                         StepVisualStatus.FAILED,
                         "4 test(s) failed",
-                        outputItems = listOf(
-                            OutputItemState(
+                        contentItems = listOf(
+                            SemanticContentItemState(
                                 sequence = 2,
                                 stepId = "run_tests",
                                 stepName = "Run Tests",
-                                format = OutputVisualFormat.MARKDOWN,
+                                type = SemanticContentType.MARKDOWN,
                                 title = "Pytest summary",
                                 content = "## Failing tests\n\n- test_a\n- test_b",
                             )

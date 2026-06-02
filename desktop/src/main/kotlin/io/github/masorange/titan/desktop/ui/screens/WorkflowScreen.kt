@@ -13,7 +13,6 @@ import androidx.compose.material.AlertDialog
 import androidx.compose.material.Button
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -21,20 +20,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.ActivePromptState
 import io.github.masorange.titan.desktop.state.ItemReviewDecisionState
-import io.github.masorange.titan.desktop.state.OutputVisualFormat
+import io.github.masorange.titan.desktop.state.SemanticContentType
 import io.github.masorange.titan.desktop.state.RunVisualStatus
+import io.github.masorange.titan.desktop.state.SemanticContentItemState
 import io.github.masorange.titan.desktop.state.StepItemState
 import io.github.masorange.titan.desktop.state.StepVisualStatus
 import io.github.masorange.titan.desktop.state.WorkflowScreenState
 import io.github.masorange.titan.desktop.state.RunHeaderState
-import io.github.masorange.titan.desktop.state.OutputItemState
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 import io.github.masorange.titan.desktop.ui.DesktopPreview
 import io.github.masorange.titan.desktop.ui.LocalTheme
 import io.github.masorange.titan.desktop.ui.components.workflow.WorkflowHeader
 import io.github.masorange.titan.desktop.ui.components.workflow.ExecutionContainer
 import io.github.masorange.titan.desktop.ui.components.workflow.WorkflowSectionCard
-import io.github.masorange.titan.desktop.ui.components.workflow.WorkflowStepsContainer
 import kotlinx.serialization.json.JsonNull
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
@@ -225,12 +223,12 @@ private fun WorkflowScreenPreview() {
                         2,
                         "project",
                         StepVisualStatus.SUCCESS,
-                        outputItems = listOf(
-                            OutputItemState(
+                        contentItems = listOf(
+                            SemanticContentItemState(
                                 sequence = 1,
                                 stepId = "ruff_lint",
                                 stepName = "Run Ruff Linter",
-                                format = OutputVisualFormat.TEXT,
+                                type = SemanticContentType.TEXT,
                                 title = "Lint summary",
                                 content = "Auto-fixed 3 issue(s)",
                             )
@@ -243,12 +241,12 @@ private fun WorkflowScreenPreview() {
                         "project",
                         StepVisualStatus.FAILED,
                         "4 test(s) failed",
-                        outputItems = listOf(
-                            OutputItemState(
+                        contentItems = listOf(
+                            SemanticContentItemState(
                                 sequence = 2,
                                 stepId = "run_tests",
                                 stepName = "Run Tests",
-                                format = OutputVisualFormat.MARKDOWN,
+                                type = SemanticContentType.MARKDOWN,
                                 title = "Pytest summary",
                                 content = "## Failing tests\n\n- test_a\n- test_b",
                             )

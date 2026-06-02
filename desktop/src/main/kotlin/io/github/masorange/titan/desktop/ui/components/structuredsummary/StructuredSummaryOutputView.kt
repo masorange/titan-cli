@@ -13,8 +13,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.ui.graphics.Color
-import io.github.masorange.titan.desktop.state.OutputItemState
-import io.github.masorange.titan.desktop.state.OutputVisualFormat
+import io.github.masorange.titan.desktop.state.SemanticContentType
+import io.github.masorange.titan.desktop.state.SemanticContentItemState
+import io.github.masorange.titan.desktop.theme.Body2RegularText
+import io.github.masorange.titan.desktop.theme.H2Text
 import io.github.masorange.titan.desktop.theme.H3Text
 import io.github.masorange.titan.desktop.theme.H4Text
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
@@ -32,7 +34,7 @@ import kotlinx.serialization.json.addJsonObject
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
-fun StructuredSummaryOutputView(item: OutputItemState) {
+fun StructuredSummaryOutputView(item: SemanticContentItemState) {
     val summaryLines = item.metadata.summaryLines().ifEmpty {
         item.content.lines().filter { it.isNotBlank() }
     }
@@ -45,7 +47,7 @@ fun StructuredSummaryOutputView(item: OutputItemState) {
     ) {
 
         title?.let {
-            H3Text(text = title)
+            H2Text(text = title)
         }
 
         summaryLines.forEach { line ->
@@ -53,9 +55,9 @@ fun StructuredSummaryOutputView(item: OutputItemState) {
         }
 
         sections.forEach { section ->
-            Text(section.title, style = MaterialTheme.typography.subtitle1)
+            H4Text(text = section.title)
             section.lines.forEach { line ->
-                Text(line, style = MaterialTheme.typography.body2)
+                Body2RegularText(text = line)
             }
         }
     }
@@ -99,11 +101,9 @@ private fun WorkflowScreenPreview() {
     MaterialTheme {
         Card(modifier = Modifier.background(Color.White).padding(Spacing.s6), elevation = 0.dp) {
             StructuredSummaryOutputView(
-                item = OutputItemState(
+                item = SemanticContentItemState(
                     sequence = 1,
-                    stepId = "classify_pr",
-                    stepName = "Classify PR",
-                    format = OutputVisualFormat.STRUCTURED_SUMMARY,
+                    type = SemanticContentType.STRUCTURED_SUMMARY,
                     title = "PR Classification",
                     content = "Size class: MEDIUM\nFiles changed: 12",
                     metadata = buildJsonObject {

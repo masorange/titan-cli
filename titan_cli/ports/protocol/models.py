@@ -61,9 +61,8 @@ class OutputFormat(StrEnum):
     MARKDOWN = "markdown"
     TABLE = "table"
     DIFF = "diff"
+    PROGRESS = "progress"
     STRUCTURED_SUMMARY = "structured_summary"
-    WARNING = "warning"
-    ERROR = "error"
     JSON = "json"
 
 

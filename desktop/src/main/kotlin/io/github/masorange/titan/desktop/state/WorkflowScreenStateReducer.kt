@@ -97,19 +97,15 @@ object WorkflowScreenStateReducer {
             ),
             steps = stepItems.mapIndexed { index, stepItem ->
                 stepItem.copy(
-                    outputItems = runResult.steps
+                    contentItems = runResult.steps
                         .getOrNull(index)
                         ?.outputs
-                        ?.map { output ->
-                            OutputItemState(
-                                sequence = index + 1,
+                        ?.mapIndexedNotNull { outputIndex, output ->
+                            toSemanticOutputItem(
+                                sequence = outputIndex + 1,
                                 stepId = stepItem.stepId,
                                 stepName = stepItem.stepName,
-                                format = OutputVisualFormat.fromWireValue(output.format),
-                                variant = OutputVisualVariant.fromWireValue(output.metadata["variant"]?.asStringOrNull()),
-                                title = output.title,
-                                content = output.content,
-                                metadata = output.metadata,
+                                output = output,
                             )
                         }
                         ?: emptyList()
@@ -215,22 +211,43 @@ object WorkflowScreenStateReducer {
     ): WorkflowScreenState {
         val output = event.payload.decodeOutputPayload() ?: return state
         val step = event.payload.decodeStepRef()
+        val format = normalizedOutputFormat(output.format)
+        val variant = SemanticContentVariant.fromWireValue(
+            output.metadata["variant"]?.asStringOrNull()
+        )
+        val progressState = if (format == SemanticContentType.PROGRESS) {
+            decodeProgressItemState(output, variant)
+        } else {
+            null
+        }
         return state.copy(
             steps = step?.let { stepRef ->
                 state.steps.upsertStep(stepRef) {
                     copy(
                         status = if (status == StepVisualStatus.PENDING) StepVisualStatus.RUNNING else status,
                         startedAtLabel = startedAtLabel ?: currentStepStartLabel(),
-                        outputItems = outputItems + OutputItemState(
-                            sequence = event.sequence ?: outputItems.size + 1,
-                            stepId = stepRef.stepId,
-                            stepName = stepRef.stepName,
-                            format = OutputVisualFormat.fromWireValue(output.format),
-                            variant = OutputVisualVariant.fromWireValue(output.metadata["variant"]?.asStringOrNull()),
-                            title = output.title,
-                            content = output.content,
-                            metadata = output.metadata,
-                        ),
+                        activeProgress = when (progressState?.state) {
+                            ProgressLifecycleState.STARTED,
+                            ProgressLifecycleState.UPDATED -> progressState
+                            ProgressLifecycleState.FINISHED,
+                            ProgressLifecycleState.FAILED -> {
+                                if (activeProgress?.progressId == progressState.progressId) null else activeProgress
+                            }
+
+                            else -> activeProgress
+                        },
+                        contentItems = if (format == SemanticContentType.PROGRESS) {
+                            contentItems
+                        } else {
+                            contentItems + listOfNotNull(
+                                toSemanticOutputItem(
+                                    sequence = event.sequence ?: contentItems.size + 1,
+                                    stepId = stepRef.stepId,
+                                    stepName = stepRef.stepName,
+                                    output = output,
+                                )
+                            )
+                        },
                     )
                 }
             } ?: state.steps,
@@ -356,7 +373,50 @@ object WorkflowScreenStateReducer {
 
     private fun JsonElement.asIntOrNull(): Int? = (this as? JsonPrimitive)?.intOrNull
 
+    private fun JsonElement.asBooleanOrNull(): Boolean? = (this as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+
     private fun currentStepStartLabel(): String = LocalTime.now().format(stepStartTimeFormatter)
+
+    private fun normalizedOutputFormat(format: String): SemanticContentType = when (format) {
+        else -> SemanticContentType.fromWireValue(format)
+    }
+
+    private fun decodeProgressItemState(
+        output: OutputPayload,
+        variant: SemanticContentVariant,
+    ): ProgressItemState? {
+        val progressId = output.metadata["progress_id"]?.asStringOrNull() ?: return null
+        return ProgressItemState(
+            progressId = progressId,
+            message = output.content,
+            state = ProgressLifecycleState.fromWireValue(output.metadata["state"]?.asStringOrNull()),
+            variant = variant,
+            indeterminate = output.metadata["indeterminate"]?.asBooleanOrNull() ?: true,
+        )
+    }
+
+    private fun toSemanticOutputItem(
+        sequence: Int,
+        stepId: String?,
+        stepName: String?,
+        output: OutputPayload,
+    ): SemanticContentItemState? {
+        val format = normalizedOutputFormat(output.format)
+        if (format == SemanticContentType.PROGRESS) {
+            return null
+        }
+        return SemanticContentItemState(
+            sequence = sequence,
+            source = SemanticContentSource.OUTPUT,
+            stepId = stepId,
+            stepName = stepName,
+            type = format,
+            variant = SemanticContentVariant.fromWireValue(output.metadata["variant"]?.asStringOrNull()),
+            title = output.title,
+            content = output.content,
+            metadata = output.metadata,
+        )
+    }
 
     private fun decodeInteractionOptions(element: JsonElement): List<InteractionOptionState> {
         val options = runCatching { json.decodeFromJsonElement<List<InteractionOption>>(element) }.getOrNull()
@@ -381,8 +441,19 @@ object WorkflowScreenStateReducer {
                     id = item.id,
                     title = item.title,
                     status = item.status,
-                    contentBlocks = item.contentBlocks.map(::toContentBlockState),
+                    contentItems = item.contentBlocks.mapIndexed { index, block ->
+                        toSemanticContentItem(
+                            sequence = index,
+                            title = block.title,
+                            content = block.content,
+                            type = SemanticContentType.fromWireValue(block.type),
+                            variant = SemanticContentVariant.fromWireValue(block.variant),
+                            metadata = block.metadata,
+                            source = SemanticContentSource.INTERACTION_CONTENT,
+                        )
+                    },
                     editable = item.editable,
+                    visualState = ItemReviewItemVisualState.IDLE,
                     metadata = item.metadata,
                 )
             },
@@ -399,11 +470,21 @@ object WorkflowScreenStateReducer {
         )
     }
 
-    private fun toContentBlockState(block: ContentBlock): ContentBlockState = ContentBlockState(
-        type = ContentBlockVisualType.fromWireValue(block.type),
-        variant = OutputVisualVariant.fromWireValue(block.variant),
-        title = block.title,
-        content = block.content,
-        metadata = block.metadata,
+    private fun toSemanticContentItem(
+        sequence: Int,
+        title: String?,
+        content: String,
+        type: SemanticContentType,
+        variant: SemanticContentVariant,
+        metadata: JsonObject,
+        source: SemanticContentSource,
+    ): SemanticContentItemState = SemanticContentItemState(
+        sequence = sequence,
+        source = source,
+        type = type,
+        variant = variant,
+        title = title,
+        content = content,
+        metadata = metadata,
     )
 }

@@ -142,7 +142,7 @@ class WorkflowScreenStateReducerTest {
 
         assertEquals(1, state.outputItems.size)
         assertEquals("emit-text", state.outputItems.first().stepId)
-        assertEquals(OutputVisualFormat.TEXT, state.outputItems.first().format)
+        assertEquals(SemanticContentType.TEXT, state.outputItems.first().type)
         assertEquals("plain", state.outputItems.first().metadata["kind"]?.jsonPrimitive?.content)
     }
 
@@ -174,7 +174,7 @@ class WorkflowScreenStateReducerTest {
             ),
         )
 
-        assertEquals(OutputVisualFormat.DIFF, state.outputItems.first().format)
+        assertEquals(SemanticContentType.DIFF, state.outputItems.first().type)
         assertEquals("unified_patch", state.outputItems.first().metadata["kind"]?.jsonPrimitive?.content)
     }
 
@@ -215,7 +215,7 @@ class WorkflowScreenStateReducerTest {
             ),
         )
 
-        assertEquals(OutputVisualFormat.STRUCTURED_SUMMARY, state.outputItems.first().format)
+        assertEquals(SemanticContentType.STRUCTURED_SUMMARY, state.outputItems.first().type)
         assertEquals("pr_classification", state.outputItems.first().metadata["kind"]?.jsonPrimitive?.content)
         assertEquals(
             "Scope",
@@ -399,9 +399,10 @@ class WorkflowScreenStateReducerTest {
         val itemReview = assertNotNull(interaction.itemReview)
         assertEquals("validate-review-actions", itemReview.reviewId)
         assertEquals(1, itemReview.items.size)
-        assertEquals(2, itemReview.items[0].contentBlocks.size)
-        assertEquals(ContentBlockVisualType.TEXT, itemReview.items[0].contentBlocks[0].type)
-        assertEquals(ContentBlockVisualType.UNKNOWN, itemReview.items[0].contentBlocks[1].type)
+        assertEquals(2, itemReview.items[0].contentItems.size)
+        assertEquals(ItemReviewItemVisualState.IDLE, itemReview.items[0].visualState)
+        assertEquals(SemanticContentType.TEXT, itemReview.items[0].contentItems[0].type)
+        assertEquals(SemanticContentType.UNKNOWN, itemReview.items[0].contentItems[1].type)
     }
 
     @Test
@@ -429,7 +430,68 @@ class WorkflowScreenStateReducerTest {
         )
 
         val step = state.steps.first { it.stepId == "select_strategy" }
-        assertEquals(OutputVisualVariant.SUCCESS, step.outputItems.first().variant)
+        assertEquals(SemanticContentVariant.SUCCESS, step.contentItems.first().variant)
+    }
+
+    @Test
+    fun `progress output opens and closes active progress for step`() {
+        val started = WorkflowScreenStateReducer.reduce(
+            initialState,
+            event(
+                type = "output_emitted",
+                sequence = 10,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "ai_plan")
+                        put("step_name", "AI Review Plan")
+                        put("step_index", 5)
+                    }
+                    putJsonObject("output") {
+                        put("format", "progress")
+                        put("content", "Asking Claude to plan the review...")
+                        putJsonObject("metadata") {
+                            put("progress_id", "ai_plan:progress:1")
+                            put("state", "started")
+                            put("indeterminate", true)
+                            put("variant", "default")
+                        }
+                    }
+                },
+            ),
+        )
+
+        val startedStep = started.steps.first { it.stepId == "ai_plan" }
+        assertNotNull(startedStep.activeProgress)
+        assertTrue(startedStep.contentItems.isEmpty())
+
+        val finished = WorkflowScreenStateReducer.reduce(
+            started,
+            event(
+                type = "output_emitted",
+                sequence = 11,
+                payload = buildJsonObject {
+                    putJsonObject("step") {
+                        put("step_id", "ai_plan")
+                        put("step_name", "AI Review Plan")
+                        put("step_index", 5)
+                    }
+                    putJsonObject("output") {
+                        put("format", "progress")
+                        put("content", "Asking Claude to plan the review...")
+                        putJsonObject("metadata") {
+                            put("progress_id", "ai_plan:progress:1")
+                            put("state", "finished")
+                            put("indeterminate", true)
+                            put("variant", "success")
+                        }
+                    }
+                },
+            ),
+        )
+
+        val finishedStep = finished.steps.first { it.stepId == "ai_plan" }
+        assertNull(finishedStep.activeProgress)
+        assertTrue(finishedStep.contentItems.isEmpty())
     }
 
     @Test

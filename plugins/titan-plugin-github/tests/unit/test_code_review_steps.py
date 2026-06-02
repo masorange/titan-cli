@@ -3,7 +3,7 @@ from unittest.mock import Mock
 from titan_cli.core.result import ClientSuccess
 from titan_cli.engine import WorkflowContext
 from titan_cli.engine.interaction.base import ItemReviewResponse
-from titan_cli.engine.results import Exit, Skip, Success
+from titan_cli.engine.results import Error, Exit, Skip, Success
 from titan_cli.ports.protocol import ItemReviewDecision
 from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest
 from titan_plugin_github.models.review_enums import (
@@ -318,3 +318,51 @@ def test_validate_review_actions_exits_after_partial_review():
     approved = result.metadata["approved_action_proposals"]
     assert len(approved) == 1
     assert approved[0].body == "First"
+
+
+def test_validate_review_actions_errors_on_empty_edit_body():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.interaction = _FakeInteraction([
+        ItemReviewResponse(items=[ItemReviewDecision(item_id="new_comment:0", action="edit", content="   ")])
+    ])
+    ctx.textual = ctx.interaction
+    ctx.data["review_action_proposals"] = [_make_review_action()]
+    ctx.data["review_diff"] = ""
+    ctx.data["review_threads"] = []
+
+    result = validate_review_actions(ctx)
+
+    assert isinstance(result, Error)
+    assert "requires non-empty content" in result.message
+
+
+def test_validate_review_actions_errors_on_incomplete_non_exit_review():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.interaction = _FakeInteraction(
+        [ItemReviewResponse(items=[ItemReviewDecision(item_id="new_comment:0", action="approve")])]
+    )
+    ctx.textual = ctx.interaction
+    ctx.data["review_action_proposals"] = [_make_review_action("First"), _make_review_action("Second")]
+    ctx.data["review_diff"] = ""
+    ctx.data["review_threads"] = []
+
+    result = validate_review_actions(ctx)
+
+    assert isinstance(result, Error)
+    assert "must include one decision for every item" in result.message
+
+
+def test_validate_review_actions_errors_on_exit_action_inside_decisions():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.interaction = _FakeInteraction(
+        [ItemReviewResponse(items=[ItemReviewDecision(item_id="new_comment:0", action="exit")])]
+    )
+    ctx.textual = ctx.interaction
+    ctx.data["review_action_proposals"] = [_make_review_action()]
+    ctx.data["review_diff"] = ""
+    ctx.data["review_threads"] = []
+
+    result = validate_review_actions(ctx)
+
+    assert isinstance(result, Error)
+    assert "exit must be expressed with exit_requested" in result.message

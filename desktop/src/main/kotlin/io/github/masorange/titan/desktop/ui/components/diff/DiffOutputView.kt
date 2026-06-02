@@ -14,15 +14,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import io.github.masorange.titan.desktop.state.OutputItemState
-import io.github.masorange.titan.desktop.state.OutputVisualFormat
+import io.github.masorange.titan.desktop.state.SemanticContentType
+import io.github.masorange.titan.desktop.state.SemanticContentItemState
 import io.github.masorange.titan.desktop.theme.Body2RegularText
 import io.github.masorange.titan.desktop.theme.Body2StrongText
 import io.github.masorange.titan.desktop.theme.CaptionRegularText
-import io.github.masorange.titan.desktop.theme.H1Text
-import io.github.masorange.titan.desktop.theme.Subtitle2StrongText
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 import io.github.masorange.titan.desktop.ui.DesktopPreview
 import io.github.masorange.titan.desktop.ui.LocalTheme
@@ -33,7 +30,7 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
 fun DiffOutputView(
-    item: OutputItemState,
+    item: SemanticContentItemState,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalTheme.current.colors.ui
@@ -191,11 +188,9 @@ private fun DiffOutputViewPreview() {
     DesktopPreview {
         Card(modifier = Modifier.fillMaxWidth(), elevation = 0.dp) {
             DiffOutputView(
-                item = OutputItemState(
+                item = SemanticContentItemState(
                     sequence = 1,
-                    stepId = "fetch_bundle",
-                    stepName = "Fetch PR Review Bundle",
-                    format = OutputVisualFormat.DIFF,
+                    type = SemanticContentType.DIFF,
                     title = "Files affected:",
                     content = "diff --git a/src/foo.py b/src/foo.py\n--- a/src/foo.py\n+++ b/src/foo.py\n@@ -1,2 +1,3 @@\n line\n-old\n+new\n+extra",
                     metadata = JsonObject(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 import threading
 import uuid
@@ -99,6 +100,7 @@ class RunInteractionPort(HeadlessInteractionPort):
         self._suppress_replayed_prefix = bool(
             resume_step_id and (self._queued_prompt_responses or self._queued_interaction_responses)
         )
+        self._progress_counter = 0
 
     def step_output(self, text: str) -> None:
         super().step_output(text)
@@ -153,6 +155,63 @@ class RunInteractionPort(HeadlessInteractionPort):
                     format=OutputFormat.MARKDOWN,
                     title="Markdown output",
                     content=markdown_text,
+                ),
+            },
+        )
+
+    @contextmanager
+    def loading(self, message: str):
+        """Emit a transient progress lifecycle for long-running operations."""
+        self._progress_counter += 1
+        progress_id = f"{self._ctx.current_step_id or 'step'}:progress:{self._progress_counter}"
+        self._emit_progress_output(
+            progress_id=progress_id,
+            state="started",
+            message=message,
+            variant=ContentBlockVariant.DEFAULT,
+        )
+        try:
+            yield
+        except Exception:
+            self._emit_progress_output(
+                progress_id=progress_id,
+                state="failed",
+                message=message,
+                variant=ContentBlockVariant.ERROR,
+            )
+            raise
+        else:
+            self._emit_progress_output(
+                progress_id=progress_id,
+                state="finished",
+                message=message,
+                variant=ContentBlockVariant.SUCCESS,
+            )
+
+    def _emit_progress_output(
+        self,
+        *,
+        progress_id: str,
+        state: str,
+        message: str,
+        variant: ContentBlockVariant,
+    ) -> None:
+        if self._suppress_replayed_prefix:
+            return
+        self._service._append_event(
+            self._session,
+            EventType.OUTPUT_EMITTED,
+            {
+                "step": self._step_ref(),
+                "output": OutputPayload(
+                    format=OutputFormat.PROGRESS,
+                    content=message,
+                    metadata={
+                        "progress_id": progress_id,
+                        "state": state,
+                        "indeterminate": True,
+                        "variant": variant.value,
+                    },
                 ),
             },
         )
@@ -611,10 +670,28 @@ class WorkflowRunService:
         if session.pending_interaction.interaction_id != request.interaction_id:
             return self.get_run(request.run_id)
 
-        response = {
-            "response_type": request.response_type,
-            "value": request.value,
-        }
+        try:
+            response = self._validate_interaction_response(
+                session.pending_interaction,
+                request.response_type,
+                request.value,
+            )
+        except ValueError as exc:
+            session.pending_prompt = None
+            session.pending_interaction = None
+            session.status = RunSessionStatus.FAILED
+            session.result_message = str(exc)
+            self._append_event(
+                session,
+                EventType.RUN_FAILED,
+                {
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            self._run_store.save(session)
+            return self.get_run(request.run_id)
+
         self._record_interaction_answer(session, session.pending_interaction, response)
         session.pending_prompt = None
         session.status = RunSessionStatus.RESUMING
@@ -631,6 +708,104 @@ class WorkflowRunService:
         )
         self._run_store.save(session)
         return self.get_run(request.run_id)
+
+    def _validate_interaction_response(
+        self,
+        interaction: InteractionRequest,
+        response_type: str,
+        value: Any,
+    ) -> dict[str, object]:
+        if interaction.interaction_type == InteractionType.ITEM_REVIEW:
+            return self._validate_item_review_response(interaction, response_type, value)
+
+        return {
+            "response_type": response_type,
+            "value": value,
+        }
+
+    def _validate_item_review_response(
+        self,
+        interaction: InteractionRequest,
+        response_type: str,
+        value: Any,
+    ) -> dict[str, object]:
+        if response_type != "complete":
+            raise ValueError(
+                f"Unsupported item_review response_type: {response_type or 'empty'}"
+            )
+
+        if not isinstance(value, dict):
+            raise ValueError("item_review response value must be an object")
+
+        raw_items = value.get("items")
+        if not isinstance(raw_items, list):
+            raise ValueError("item_review response items must be a list")
+
+        raw_interaction_items = interaction.state.get("items") or []
+        item_index: dict[str, dict[str, Any]] = {}
+        for raw_item in raw_interaction_items:
+            if isinstance(raw_item, dict):
+                item_id = raw_item.get("id")
+                editable = bool(raw_item.get("editable", False))
+            else:
+                item_id = getattr(raw_item, "id", None)
+                editable = bool(getattr(raw_item, "editable", False))
+            if item_id is None:
+                continue
+            item_index[str(item_id)] = {"editable": editable}
+
+        allowed_actions = {str(action) for action in interaction.state.get("allowed_actions") or []}
+        edit_state = interaction.state.get("edit")
+        edit_enabled = bool(
+            edit_state.get("enabled", False)
+            if isinstance(edit_state, dict)
+            else getattr(edit_state, "enabled", False)
+        )
+        exit_requested = bool(value.get("exit_requested", False))
+        seen_item_ids: set[str] = set()
+
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                raise ValueError("item_review decision entries must be objects")
+
+            item_id = raw_item.get("item_id")
+            action = raw_item.get("action")
+            if item_id is None or action is None:
+                raise ValueError("item_review decisions require item_id and action")
+
+            item_id = str(item_id)
+            action = str(action)
+
+            if item_id not in item_index:
+                raise ValueError(f"item_review response references unknown item_id '{item_id}'")
+            if item_id in seen_item_ids:
+                raise ValueError(f"item_review response contains duplicate decision for '{item_id}'")
+            if action == "exit":
+                raise ValueError("item_review exit must be expressed with exit_requested")
+            if action not in allowed_actions:
+                raise ValueError(f"item_review response uses unsupported action '{action}'")
+
+            if action == "edit":
+                if not edit_enabled:
+                    raise ValueError("item_review edit action is disabled for this session")
+                if not item_index[item_id]["editable"]:
+                    raise ValueError(f"item_review item '{item_id}' is not editable")
+                if not isinstance(raw_item.get("content"), str):
+                    raise ValueError(
+                        f"item_review edit decision for '{item_id}' requires string content"
+                    )
+
+            seen_item_ids.add(item_id)
+
+        if not exit_requested and len(seen_item_ids) != len(item_index):
+            raise ValueError(
+                "item_review complete response must include one decision for every item"
+            )
+
+        return {
+            "response_type": response_type,
+            "value": value,
+        }
 
     def cancel_run(self, run_id: str, reason: str = "Run cancelled by user") -> WorkflowRunState | None:
         """Mark a run as cancelled and emit the terminal V1 event."""

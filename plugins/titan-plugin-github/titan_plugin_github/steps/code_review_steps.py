@@ -2204,22 +2204,48 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     action_by_item_id = {item.id: action for item, action in zip(review_state.items, sorted_actions)}
+    item_by_item_id = {item.id: item for item in review_state.items}
+    allowed_actions = {"approve", "edit", "skip"}
+    seen_item_ids: set[str] = set()
+
+    if not response.exit_requested and len(response.items) != len(review_state.items):
+        ui.end_step("error")
+        return Error("Item review response must include one decision for every item")
+
     for decision in response.items:
+        if decision.item_id in seen_item_ids:
+            ui.end_step("error")
+            return Error(f"Duplicate item review decision for '{decision.item_id}'")
+        seen_item_ids.add(decision.item_id)
+
         current = action_by_item_id.get(decision.item_id)
         if current is None:
-            continue
+            ui.end_step("error")
+            return Error(f"Unknown item review decision '{decision.item_id}'")
+
+        current_item = item_by_item_id[decision.item_id]
+
+        if decision.action == "exit":
+            ui.end_step("error")
+            return Error("Item review exit must be expressed with exit_requested")
+
+        if decision.action not in allowed_actions:
+            ui.end_step("error")
+            return Error(f"Unsupported item review action '{decision.action}'")
 
         if decision.action == "approve":
             approved.append(current)
             continue
 
         if decision.action == "edit":
+            if not current_item.editable:
+                ui.end_step("error")
+                return Error(f"Item '{decision.item_id}' is not editable")
             new_body = (decision.content or "").strip()
-            if new_body:
-                approved.append(current.model_copy(update={"body": new_body}))
-            else:
-                ui.warning_text("Empty body, comment skipped")
-                skipped += 1
+            if not new_body:
+                ui.end_step("error")
+                return Error(f"Edited item '{decision.item_id}' requires non-empty content")
+            approved.append(current.model_copy(update={"body": new_body}))
             continue
 
         skipped += 1

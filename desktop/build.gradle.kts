@@ -17,6 +17,8 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("com.halilibo.compose-richtext:richtext-ui-material:0.20.0")
+    implementation("com.halilibo.compose-richtext:richtext-commonmark:0.20.0")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.components.uiToolingPreview)

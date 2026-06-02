@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,109 +36,120 @@ import io.github.masorange.titan.desktop.state.StepVisualStatus
 import io.github.masorange.titan.desktop.theme.Body2SecondaryText
 import io.github.masorange.titan.desktop.theme.CaptionRegularText
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
+import io.github.masorange.titan.desktop.ui.DesktopPreview
 import io.github.masorange.titan.desktop.ui.LocalTheme
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
 fun StepContainer(
-    stepId: String? = null,
+    modifier: Modifier = Modifier,
+    stepId: String,
     title: String,
     stepBadge: String? = null,
-    status: StepVisualStatus? = null,
+    status: StepVisualStatus,
     startedAt: String? = null,
     subtitle: String? = null,
     message: String? = null,
-    modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val colors = LocalTheme.current.colors.ui
-    var isExpanded by remember(stepId, title) {
+    val isExpanded = remember(stepId, title) {
         mutableStateOf(status == StepVisualStatus.RUNNING)
     }
 
     LaunchedEffect(status) {
         if (status == StepVisualStatus.RUNNING) {
-            isExpanded = true
+            isExpanded.value = true
         }
     }
 
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .border(
-                width = 1.dp,
-                color = colors.workflowCardBorder,
-                shape = RoundedCornerShape(Spacing.s4)
-            ),
-        elevation = 4.dp,
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(Spacing.s4)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s5),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.workflowHeaderBackground)
-                    .clickable { isExpanded = !isExpanded }
-                    .padding(Spacing.s6),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.s4),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                StatusDot(status = status)
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.subtitle1,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                stepBadge?.let {
-                    StepBadge(label = it)
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                startedAt?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.caption,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
-                    )
-                }
-                Icon(
-                    imageVector = if (isExpanded) {
-                        Icons.Filled.KeyboardArrowUp
-                    } else {
-                        Icons.Filled.KeyboardArrowDown
-                    },
-                    contentDescription = if (isExpanded) "Collapse step" else "Expand step",
-                    tint = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
-                )
-            }
-            if (isExpanded) {
-
-                if (subtitle != null || message != null) {
-                    Column(modifier = Modifier.padding(Spacing.s6)) {
-                        subtitle?.let {
-                            CaptionRegularText(
-                                text = it,
-                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.76f),
-                            )
-                        }
-
-                        message?.let {
-                            Body2SecondaryText(text = it)
-                        }
-                    }
-                }
-
-
+            StepHeader(
+                status = status,
+                title = title,
+                badge = stepBadge,
+                startedAt = startedAt,
+                isExpanded = isExpanded
+            )
+            if (isExpanded.value) {
                 Column(
-                    modifier = Modifier.padding(Spacing.s6)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LocalTheme.current.colors.ui.diffPreviewBackground)
+                        .padding(Spacing.s6)
                 ) {
+                    subtitle?.let {
+                        CaptionRegularText(
+                            text = it,
+                            color = MaterialTheme.colors.onSurface.copy(alpha = 0.76f),
+                        )
+                    }
+                    message?.let {
+                        Body2SecondaryText(text = it)
+                    }
                     content()
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StepHeader(
+    modifier: Modifier = Modifier,
+    title: String,
+    badge: String? = null,
+    startedAt: String? = null,
+    status: StepVisualStatus,
+    isExpanded: MutableState<Boolean>
+) {
+    val backgroundColor = when (status) {
+        StepVisualStatus.PENDING -> LocalTheme.current.colors.ui.workflowHeaderBackground
+        StepVisualStatus.RUNNING -> LocalTheme.current.colors.palette.primary.light
+        StepVisualStatus.SUCCESS -> LocalTheme.current.colors.palette.success.light
+        StepVisualStatus.FAILED -> LocalTheme.current.colors.palette.error.light
+        StepVisualStatus.SKIPPED -> LocalTheme.current.colors.palette.warning.light
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(backgroundColor)
+            .clickable { isExpanded.value = !isExpanded.value }
+            .padding(Spacing.s6),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s4),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusDot(status = status)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.subtitle1,
+            fontWeight = FontWeight.SemiBold,
+        )
+        badge?.let {
+            StepBadge(label = it)
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        startedAt?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.caption,
+                color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
+            )
+        }
+        Icon(
+            imageVector = if (isExpanded.value) {
+                Icons.Filled.KeyboardArrowUp
+            } else {
+                Icons.Filled.KeyboardArrowDown
+            },
+            contentDescription = if (isExpanded.value) "Collapse step" else "Expand step",
+            tint = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
+        )
     }
 }
 
@@ -148,7 +160,7 @@ private fun StatusDot(status: StepVisualStatus?) {
         StepVisualStatus.SUCCESS -> colors.workflowStepSuccess.accent
         StepVisualStatus.FAILED -> colors.workflowStepFailed.accent
         StepVisualStatus.SKIPPED -> colors.workflowStepSkipped.accent
-        StepVisualStatus.RUNNING -> colors.workflowStepRunning.accent
+        StepVisualStatus.RUNNING -> LocalTheme.current.colors.palette.primary.dark
         StepVisualStatus.PENDING, null -> colors.workflowNeutralDot
     }
 
@@ -175,13 +187,34 @@ private fun StepBadge(label: String) {
 @Preview
 @Composable
 private fun StepContainerPreview() {
-    MaterialTheme {
+    DesktopPreview {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White)
-                .padding(Spacing.s6)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s5)
         ) {
+
+            StepContainer(
+                stepId = "step-1",
+                title = "Step 1",
+                subtitle = "Subtitle",
+                message = "This is a message",
+                startedAt = "2023-01-01 12:00:00",
+                status = StepVisualStatus.PENDING,
+            ) {
+                Text(text = "This is a step")
+            }
+
+            StepContainer(
+                stepId = "step-1",
+                title = "Step 1",
+                subtitle = "Subtitle",
+                message = "This is a message",
+                startedAt = "2023-01-01 12:00:00",
+                status = StepVisualStatus.RUNNING,
+            ) {
+                Text(text = "This is a step")
+            }
+
             StepContainer(
                 stepId = "step-1",
                 title = "Step 1",
@@ -189,6 +222,28 @@ private fun StepContainerPreview() {
                 message = "This is a message",
                 startedAt = "2023-01-01 12:00:00",
                 status = StepVisualStatus.SUCCESS,
+            ) {
+                Text(text = "This is a step")
+            }
+
+            StepContainer(
+                stepId = "step-1",
+                title = "Step 1",
+                subtitle = "Subtitle",
+                message = "This is a message",
+                startedAt = "2023-01-01 12:00:00",
+                status = StepVisualStatus.FAILED,
+            ) {
+                Text(text = "This is a step")
+            }
+
+            StepContainer(
+                stepId = "step-1",
+                title = "Step 1",
+                subtitle = "Subtitle",
+                message = "This is a message",
+                startedAt = "2023-01-01 12:00:00",
+                status = StepVisualStatus.SKIPPED,
             ) {
                 Text(text = "This is a step")
             }
