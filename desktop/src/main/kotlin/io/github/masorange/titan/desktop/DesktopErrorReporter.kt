@@ -16,7 +16,7 @@ object DesktopErrorReporter {
 
     fun report(throwable: Throwable) {
         _currentError.value = DesktopError(
-            title = throwable::class.simpleName ?: "Unexpected error",
+            title = throwable::class.qualifiedName ?: throwable::class.simpleName ?: "Unexpected error",
             message = throwable.message ?: throwable.toString(),
             details = throwable.stackTraceToString(),
         )

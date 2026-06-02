@@ -87,30 +87,7 @@ fun DiffOutputView(
             DiffPresentationType.FOCUSED_HUNK,
             DiffPresentationType.FULL_PATCH -> {
                 if (preview.lines.isNotEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(colors.diffPreviewBackground, RoundedCornerShape(Spacing.s2))
-                            .padding(Spacing.s4),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.s1),
-                    ) {
-                        preview.lines.forEach { line ->
-                            Text(
-                                text = line.text,
-                                style = MaterialTheme.typography.caption,
-                                fontFamily = FontFamily.Monospace,
-                                color = line.color,
-                            )
-                        }
-
-                        if (preview.truncated) {
-                            Text(
-                                text = "Preview truncated for large diff output.",
-                                style = MaterialTheme.typography.caption,
-                                color = neutralColor.copy(alpha = 0.75f),
-                            )
-                        }
-                    }
+                    FocusedDiffView(item = item)
                 }
             }
         }

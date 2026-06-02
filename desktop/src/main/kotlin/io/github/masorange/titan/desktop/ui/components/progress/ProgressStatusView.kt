@@ -28,9 +28,7 @@ fun ProgressStatusView(
 ) {
     Column(
         modifier = modifier
-            .fillMaxWidth()
-            .background(color = LocalTheme.current.colors.ui.previewBackground)
-            .padding(Spacing.s6),
+            .fillMaxWidth(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

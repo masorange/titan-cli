@@ -1,5 +1,4 @@
 package io.github.masorange.titan.desktop.ui.components.interactions
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
