@@ -1,5 +1,6 @@
 package io.github.masorange.titan.desktop.ui.components.steps
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,8 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,23 +46,30 @@ fun StepContainer(
     title: String,
     stepBadge: String? = null,
     status: StepVisualStatus,
+    expanded: Boolean? = null,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
     startedAt: String? = null,
     subtitle: String? = null,
     message: String? = null,
     content: @Composable () -> Unit,
 ) {
-    val isExpanded = remember(stepId, title) {
+    var internalExpanded by remember(stepId, title) {
         mutableStateOf(status == StepVisualStatus.RUNNING)
     }
-
-    LaunchedEffect(status) {
-        if (status == StepVisualStatus.RUNNING) {
-            isExpanded.value = true
+    val isExpanded = expanded ?: internalExpanded
+    val setExpanded: (Boolean) -> Unit = { nextExpanded ->
+        if (expanded != null) {
+            onExpandedChange?.invoke(nextExpanded)
+        } else {
+            internalExpanded = nextExpanded
+            onExpandedChange?.invoke(nextExpanded)
         }
     }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(),
         shape = RoundedCornerShape(Spacing.s4)
     ) {
         Column(
@@ -74,9 +80,10 @@ fun StepContainer(
                 title = title,
                 badge = stepBadge,
                 startedAt = startedAt,
-                isExpanded = isExpanded
+                isExpanded = isExpanded,
+                onExpandedChange = setExpanded,
             )
-            if (isExpanded.value) {
+            if (isExpanded) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -106,7 +113,8 @@ private fun StepHeader(
     badge: String? = null,
     startedAt: String? = null,
     status: StepVisualStatus,
-    isExpanded: MutableState<Boolean>
+    isExpanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
 ) {
     val backgroundColor = when (status) {
         StepVisualStatus.PENDING -> LocalTheme.current.colors.ui.workflowHeaderBackground
@@ -119,7 +127,7 @@ private fun StepHeader(
         modifier = modifier
             .fillMaxWidth()
             .background(backgroundColor)
-            .clickable { isExpanded.value = !isExpanded.value }
+            .clickable { onExpandedChange(!isExpanded) }
             .padding(Spacing.s6),
         horizontalArrangement = Arrangement.spacedBy(Spacing.s4),
         verticalAlignment = Alignment.CenterVertically,
@@ -142,12 +150,12 @@ private fun StepHeader(
             )
         }
         Icon(
-            imageVector = if (isExpanded.value) {
+            imageVector = if (isExpanded) {
                 Icons.Filled.KeyboardArrowUp
             } else {
                 Icons.Filled.KeyboardArrowDown
             },
-            contentDescription = if (isExpanded.value) "Collapse step" else "Expand step",
+            contentDescription = if (isExpanded) "Collapse step" else "Expand step",
             tint = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
         )
     }

@@ -8,9 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.MaterialTheme
@@ -18,6 +19,10 @@ import androidx.compose.material.OutlinedButton
 import androidx.compose.material.Text
 import androidx.compose.material.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.masorange.titan.desktop.state.ActivePromptState
@@ -50,19 +55,38 @@ fun ExecutionContainer(
     onSelectInteractionOption: (String, String) -> Unit,
     onSubmitItemReview: (String, List<ItemReviewDecisionState>, Boolean) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
+    val runningStepId = state.steps.firstOrNull { it.status == StepVisualStatus.RUNNING }?.stepId
+    val activeStepId = runningStepId
+        ?: state.steps.firstOrNull { it.activePrompt != null }?.stepId
+        ?: state.steps.firstOrNull { it.activeInteraction != null }?.stepId
+    val activeStepIndex = state.steps.indexOfFirst { it.stepId == activeStepId }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+    LaunchedEffect(activeStepId, activeStepIndex) {
+        if (activeStepId != null && activeStepIndex >= 0) {
+            listState.animateScrollToItem(activeStepIndex)
+            withFrameNanos { }
+            expandedStates[activeStepId] = true
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = listState,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        state.steps.forEachIndexed { index, step ->
+        itemsIndexed(
+            items = state.steps,
+            key = { _, step -> step.stepId },
+        ) { _, step ->
             StepContainer(
                 stepId = step.stepId,
                 title = step.stepName,
                 stepBadge = step.stepIndex.let { "STEP-${it.toString().padStart(2, '0')}" },
                 status = step.status,
+                expanded = expandedStates[step.stepId] ?: false,
+                onExpandedChange = { isExpanded -> expandedStates[step.stepId] = isExpanded },
                 startedAt = step.startedAtLabel,
 //        subtitle = humanizeInteractionType(interaction.interactionType),
 //        message = interaction.message,
