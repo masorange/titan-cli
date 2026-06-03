@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -39,6 +37,8 @@ import io.github.masorange.titan.desktop.ui.LocalTheme
 import io.github.masorange.titan.desktop.ui.components.workflow.WorkflowHeader
 import io.github.masorange.titan.desktop.ui.components.workflow.ExecutionContainer
 import io.github.masorange.titan.desktop.ui.components.workflow.WorkflowSectionCard
+import io.github.masorange.titan.desktop.ui.layout.ContainerSize
+import io.github.masorange.titan.desktop.ui.layout.ResponsiveScreen
 import kotlinx.serialization.json.JsonNull
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
@@ -180,61 +180,34 @@ fun WorkflowContent(
                 .fillMaxSize()
                 .background(atmosphericAccent)
         )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(Spacing.s6)
-    ) {
+        ResponsiveScreen(containerSize = ContainerSize.Default) {
             WorkflowHeader(
-                modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.s6),
+                modifier = Modifier.fillMaxWidth(),
                 screenState = screenState,
                 runHeaderState = screenState.header,
                 onStart = onStart,
                 isLoadingWorkflow = isLoadingWorkflow,
                 isStartingRun = isStartingRun,
             )
-            Row(modifier = Modifier.fillMaxWidth()) {
-//            Column(
-//                modifier = Modifier.weight(0.36f).fillMaxHeight().padding(end = Spacing.s6),
-//                verticalArrangement = Arrangement.spacedBy(16.dp),
-//            ) {
-//                WorkflowSectionCard(
-//                    modifier = Modifier.weight(1f),
-//                    section = "Workflow Steps",
-//                    content = {
-//                        key(screenState.steps) {
-//                            WorkflowStepsContainer(
-//                                steps = screenState.steps,
-//                                modifier = Modifier.fillMaxSize(),
-//                            )
-//                        }
-//                    }
-//                )
-//            }
 
-                Column(
-                    modifier = Modifier.weight(0.64f).fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    WorkflowSectionCard(
-                        modifier = Modifier.weight(1f),
-                        section = "Execution Flow",
-                        content = {
-                            ExecutionContainer(
-                                state = screenState,
-                                promptDraftText = promptDraftText,
-                                onPromptDraftTextChange = onPromptDraftTextChange,
-                                isSubmittingPrompt = isSubmittingPrompt,
-                                submittingInteractionId = submittingInteractionId,
-                                onSubmitText = onSubmitText,
-                                onSubmitConfirm = onSubmitConfirm,
-                                onSelectInteractionOption = onSelectInteractionOption,
-                                onSubmitItemReview = onSubmitItemReview,
-                            )
-                        },
+            WorkflowSectionCard(
+                modifier = Modifier
+                    .fillMaxSize(),
+                section = "Execution Flow",
+                content = {
+                    ExecutionContainer(
+                        state = screenState,
+                        promptDraftText = promptDraftText,
+                        onPromptDraftTextChange = onPromptDraftTextChange,
+                        isSubmittingPrompt = isSubmittingPrompt,
+                        submittingInteractionId = submittingInteractionId,
+                        onSubmitText = onSubmitText,
+                        onSubmitConfirm = onSubmitConfirm,
+                        onSelectInteractionOption = onSelectInteractionOption,
+                        onSubmitItemReview = onSubmitItemReview,
                     )
-                }
-            }
+                },
+            )
         }
     }
 }

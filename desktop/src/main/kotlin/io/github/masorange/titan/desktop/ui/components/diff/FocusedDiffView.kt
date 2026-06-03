@@ -19,6 +19,8 @@ import io.github.masorange.titan.desktop.state.SemanticContentItemState
 import io.github.masorange.titan.desktop.state.SemanticContentType
 import io.github.masorange.titan.desktop.state.SemanticContentSource
 import io.github.masorange.titan.desktop.state.SemanticContentVariant
+import io.github.masorange.titan.desktop.theme.Body2RegularText
+import io.github.masorange.titan.desktop.theme.CaptionRegularText
 import io.github.masorange.titan.desktop.theme.spacings.Spacing
 import io.github.masorange.titan.desktop.ui.DesktopPreview
 import io.github.masorange.titan.desktop.ui.LocalTheme
@@ -76,28 +78,22 @@ fun FocusedDiffView(
                     .padding(horizontal = Spacing.s4, vertical = 1.dp),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.s3),
             ) {
-                Text(
+                Body2RegularText(
                     text = line.lineNumber?.toString() ?: "",
                     modifier = Modifier.padding(top = 1.dp),
-                    style = MaterialTheme.typography.caption,
-                    fontFamily = FontFamily.Monospace,
                     color = lineNumberColor,
                     textAlign = TextAlign.End,
                     maxLines = 1,
                 )
-                Text(
+                Body2RegularText(
                     text = line.marker,
                     modifier = Modifier.padding(top = 1.dp),
-                    style = MaterialTheme.typography.caption,
-                    fontFamily = FontFamily.Monospace,
                     color = lineColor,
                     maxLines = 1,
                 )
-                Text(
+                Body2RegularText(
                     text = line.content,
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.caption,
-                    fontFamily = FontFamily.Monospace,
                     color = lineColor,
                 )
             }
