@@ -12,6 +12,7 @@ import typer
 
 from titan_cli import __version__
 from titan_cli.commands.headless.app import build_app as build_headless_app
+from titan_cli.commands.ui import build_app as build_ui_app
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.logging import get_logger, setup_logging
 from titan_cli.messages import msg
@@ -101,6 +102,7 @@ class _CLIContainer(TitanRuntimeContainer):
 
 
 app.add_typer(build_headless_app(_CLIContainer()), name="headless")
+app.add_typer(build_ui_app(_CLIContainer()), name="ui")
 
 
 @app.callback()
