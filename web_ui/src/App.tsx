@@ -14,6 +14,50 @@ type PromptRequest = {
   required: boolean
 }
 
+type InteractionOption = {
+  id: string
+  label: string
+  description?: string | null
+}
+
+type InteractionRequest = {
+  interaction_id: string
+  interaction_type: string
+  message?: string | null
+  state?: {
+    options?: InteractionOption[]
+    items?: ItemReviewItem[]
+    initial_index?: number
+    allowed_actions?: string[]
+    edit?: {
+      enabled: boolean
+      label?: string | null
+      initial_value?: string | null
+    }
+  }
+}
+
+type ItemReviewContentBlock = {
+  type: string
+  title?: string | null
+  content: string
+  metadata?: Record<string, unknown>
+}
+
+type ItemReviewItem = {
+  id: string
+  title: string
+  status?: string | null
+  content_blocks: ItemReviewContentBlock[]
+  editable: boolean
+}
+
+type ItemReviewDecision = {
+  item_id: string
+  action: string
+  content?: string
+}
+
 type OutputPayload = {
   format: string
   title?: string | null
@@ -48,6 +92,8 @@ type RunState = {
   steps: StepState[]
   activePrompt: PromptRequest | null
   activePromptStepId: string | null
+  activeInteraction: InteractionRequest | null
+  activeInteractionStepId: string | null
   resultSummary: string | null
 }
 
@@ -145,6 +191,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       steps: [],
       activePrompt: null,
       activePromptStepId: null,
+      activeInteraction: null,
+      activeInteractionStepId: null,
       resultSummary: null,
     }
     return nextState
@@ -162,6 +210,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     steps: [],
     activePrompt: null,
     activePromptStepId: null,
+    activeInteraction: null,
+    activeInteractionStepId: null,
     resultSummary: null,
   }
 
@@ -186,6 +236,8 @@ function reducer(state: AppState, action: AppAction): AppState {
         workflowName: payload.workflow_name ?? currentRun.workflowName,
         status: 'running',
         steps,
+        activeInteraction: null,
+        activeInteractionStepId: null,
       }
       return nextState
     }
@@ -222,6 +274,25 @@ function reducer(state: AppState, action: AppAction): AppState {
         steps,
         activePrompt: prompt ?? null,
         activePromptStepId: stepRef?.step_id ?? null,
+        activeInteraction: null,
+        activeInteractionStepId: null,
+      }
+      return nextState
+    }
+
+    case 'interaction_requested': {
+      const interaction = event.payload.interaction as InteractionRequest | undefined
+      if (stepRef) {
+        steps = updateStep(steps, stepRef.step_id, (step) => ({ ...step, status: 'running' }))
+      }
+      nextState.run = {
+        ...currentRun,
+        status: 'waiting_for_interaction',
+        steps,
+        activePrompt: null,
+        activePromptStepId: null,
+        activeInteraction: interaction ?? null,
+        activeInteractionStepId: stepRef?.step_id ?? null,
       }
       return nextState
     }
@@ -244,6 +315,8 @@ function reducer(state: AppState, action: AppAction): AppState {
         steps,
         activePrompt: null,
         activePromptStepId: null,
+        activeInteraction: null,
+        activeInteractionStepId: null,
       }
       return nextState
     }
@@ -257,6 +330,8 @@ function reducer(state: AppState, action: AppAction): AppState {
         steps,
         activePrompt: null,
         activePromptStepId: null,
+        activeInteraction: null,
+        activeInteractionStepId: null,
       }
       return nextState
     }
@@ -269,6 +344,8 @@ function reducer(state: AppState, action: AppAction): AppState {
         steps,
         activePrompt: null,
         activePromptStepId: null,
+        activeInteraction: null,
+        activeInteractionStepId: null,
         resultSummary: runResult?.status ?? 'completed',
       }
       return nextState
@@ -293,6 +370,10 @@ export default function App() {
   const [workflowName, setWorkflowName] = useState('commit-ai')
   const [projectPath, setProjectPath] = useState('')
   const [promptDraft, setPromptDraft] = useState('')
+  const [reviewIndex, setReviewIndex] = useState(0)
+  const [reviewDecisions, setReviewDecisions] = useState<ItemReviewDecision[]>([])
+  const [reviewEditMode, setReviewEditMode] = useState(false)
+  const [reviewEditDraft, setReviewEditDraft] = useState('')
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -327,6 +408,49 @@ export default function App() {
 
   const activePrompt = state.run?.activePrompt ?? null
   const activePromptStepId = state.run?.activePromptStepId ?? null
+  const activeInteraction = state.run?.activeInteraction ?? null
+  const activeInteractionStepId = state.run?.activeInteractionStepId ?? null
+  const reviewItems = activeInteraction?.interaction_type === 'item_review' ? activeInteraction.state?.items ?? [] : []
+  const reviewAllowedActions =
+    activeInteraction?.interaction_type === 'item_review'
+      ? activeInteraction.state?.allowed_actions ?? []
+      : []
+  const reviewEditEnabled =
+    activeInteraction?.interaction_type === 'item_review'
+      ? activeInteraction.state?.edit?.enabled === true
+      : false
+  const reviewEditLabel =
+    activeInteraction?.interaction_type === 'item_review'
+      ? activeInteraction.state?.edit?.label ?? 'Edit review comment'
+      : 'Edit review comment'
+  const activeReviewItem = reviewItems[reviewIndex]
+
+  useEffect(() => {
+    if (activeInteraction?.interaction_type !== 'item_review') {
+      setReviewIndex(0)
+      setReviewDecisions([])
+      setReviewEditMode(false)
+      setReviewEditDraft('')
+      return
+    }
+
+    const initialIndex = activeInteraction.state?.initial_index ?? 0
+    setReviewIndex(initialIndex)
+    setReviewDecisions([])
+    setReviewEditMode(false)
+    const initialItem = activeInteraction.state?.items?.[initialIndex]
+    const initialDraft = activeInteraction.state?.edit?.initial_value ?? initialItem?.content_blocks?.[0]?.content ?? ''
+    setReviewEditDraft(initialDraft)
+  }, [activeInteraction?.interaction_id, activeInteraction?.interaction_type])
+
+  useEffect(() => {
+    if (!activeReviewItem) {
+      return
+    }
+    const initialDraft = activeInteraction?.state?.edit?.initial_value ?? activeReviewItem.content_blocks?.[0]?.content ?? ''
+    setReviewEditDraft(initialDraft)
+    setReviewEditMode(false)
+  }, [activeInteraction?.interaction_id, activeReviewItem?.id])
 
   function sendMessage(message: Record<string, unknown>) {
     socketRef.current?.send(JSON.stringify(message))
@@ -362,12 +486,95 @@ export default function App() {
     setPromptDraft('')
   }
 
+  function submitInteractionSelection(optionId: string) {
+    if (!state.run || !activeInteraction) {
+      return
+    }
+    sendMessage({
+      type: 'runtime_command',
+      command: {
+        type: 'submit_interaction_response',
+        run_id: state.run.runId,
+        payload: {
+          interaction_id: activeInteraction.interaction_id,
+          response_type: 'select',
+          value: optionId,
+        },
+      },
+    })
+  }
+
+  function submitItemReview(decisions: ItemReviewDecision[], exitRequested: boolean) {
+    if (!state.run || !activeInteraction) {
+      return
+    }
+    sendMessage({
+      type: 'runtime_command',
+      command: {
+        type: 'submit_interaction_response',
+        run_id: state.run.runId,
+        payload: {
+          interaction_id: activeInteraction.interaction_id,
+          response_type: 'complete',
+          value: {
+            items: decisions,
+            exit_requested: exitRequested,
+          },
+        },
+      },
+    })
+  }
+
+  function handleItemReviewDecision(action: string, content?: string) {
+    if (!activeReviewItem) {
+      return
+    }
+
+    const nextDecision: ItemReviewDecision = {
+      item_id: activeReviewItem.id,
+      action,
+      ...(content ? { content } : {}),
+    }
+
+    const existingIndex = reviewDecisions.findIndex((decision) => decision.item_id === nextDecision.item_id)
+    const nextDecisions =
+      existingIndex < 0
+        ? [...reviewDecisions, nextDecision]
+        : reviewDecisions.map((decision, index) => (index === existingIndex ? nextDecision : decision))
+
+    setReviewDecisions(nextDecisions)
+
+    if (action === 'exit') {
+      submitItemReview(nextDecisions, true)
+      return
+    }
+
+    if (reviewIndex >= reviewItems.length - 1) {
+      submitItemReview(nextDecisions, false)
+      return
+    }
+
+    setReviewIndex((current) => current + 1)
+  }
+
   function handlePromptSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!activePrompt) {
       return
     }
     submitPromptResponse(promptValueFromInput(activePrompt.prompt_type, promptDraft))
+  }
+
+  function renderContentBlock(block: ItemReviewContentBlock) {
+    return (
+      <div key={`${block.type}-${block.title ?? block.content.slice(0, 16)}`} className="rounded-lg bg-slate-950 p-3 text-sm text-slate-100">
+        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{block.type}</p>
+        {block.title ? <p className="mt-2 font-semibold text-slate-50">{block.title}</p> : null}
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-200">
+          {block.content}
+        </pre>
+      </div>
+    )
   }
 
   return (
@@ -522,6 +729,142 @@ export default function App() {
                                   Submit response
                                 </button>
                               </form>
+                            )}
+                          </div>
+                        ) : null}
+
+                        {activeInteraction && activeInteractionStepId === step.stepId ? (
+                          <div className="mt-4 space-y-4 rounded-xl border border-titan-border bg-slate-50 p-5">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                                Interaction · {activeInteraction.interaction_type}
+                              </p>
+                              <p className="mt-2 text-sm text-slate-700">
+                                {activeInteraction.message ?? 'Choose an option to continue.'}
+                              </p>
+                            </div>
+
+                            {activeInteraction.interaction_type === 'option_list' &&
+                            activeInteraction.state?.options?.length ? (
+                              <div className="space-y-3">
+                                {activeInteraction.state.options.map((option) => (
+                                  <button
+                                    key={option.id}
+                                    type="button"
+                                    className="block w-full rounded-xl border border-titan-border bg-white px-4 py-4 text-left transition hover:border-titan-accent hover:bg-blue-50"
+                                    onClick={() => submitInteractionSelection(option.id)}
+                                  >
+                                    <div className="text-sm font-semibold text-slate-900">{option.label}</div>
+                                    {option.description ? (
+                                      <div className="mt-1 text-sm text-slate-500">{option.description}</div>
+                                    ) : null}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {activeInteraction.interaction_type === 'item_review' && activeReviewItem ? (
+                              <div className="space-y-4">
+                                <div className="rounded-xl border border-titan-border bg-white p-4">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                                        Item {reviewIndex + 1} of {reviewItems.length}
+                                      </p>
+                                      <h4 className="mt-1 text-sm font-semibold text-slate-900">{activeReviewItem.title}</h4>
+                                    </div>
+                                    {activeReviewItem.status ? (
+                                      <span className="rounded-full bg-titan-soft px-3 py-1 text-xs font-medium text-titan-accent">
+                                        {activeReviewItem.status}
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  <div className="mt-4 space-y-3">
+                                    {activeReviewItem.content_blocks.map((block) => renderContentBlock(block))}
+                                  </div>
+                                </div>
+
+                                {reviewEditMode && activeReviewItem.editable && reviewEditEnabled ? (
+                                  <form
+                                    className="space-y-3"
+                                    onSubmit={(event) => {
+                                      event.preventDefault()
+                                      handleItemReviewDecision('edit', reviewEditDraft)
+                                    }}
+                                  >
+                                    <label className="block">
+                                      <span className="mb-2 block text-sm font-medium text-slate-700">{reviewEditLabel}</span>
+                                      <textarea
+                                        className="min-h-40 w-full rounded-xl border border-titan-border bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 transition focus:border-titan-accent"
+                                        value={reviewEditDraft}
+                                        onChange={(event) => setReviewEditDraft(event.target.value)}
+                                      />
+                                    </label>
+                                    <div className="flex gap-3">
+                                      <button
+                                        type="submit"
+                                        className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+                                      >
+                                        Save and continue
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-titan-border bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                                        onClick={() => setReviewEditMode(false)}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </form>
+                                ) : (
+                                  <div className="flex flex-wrap gap-3">
+                                    {reviewAllowedActions.includes('approve') ? (
+                                      <button
+                                        type="button"
+                                        className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+                                        onClick={() => handleItemReviewDecision('approve')}
+                                      >
+                                        Approve
+                                      </button>
+                                    ) : null}
+
+                                    {reviewAllowedActions.includes('skip') ? (
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-titan-border bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                                        onClick={() => handleItemReviewDecision('skip')}
+                                      >
+                                        Skip
+                                      </button>
+                                    ) : null}
+
+                                    {reviewAllowedActions.includes('edit') && activeReviewItem.editable && reviewEditEnabled ? (
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-titan-border bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                                        onClick={() => setReviewEditMode(true)}
+                                      >
+                                        Edit
+                                      </button>
+                                    ) : null}
+
+                                    {reviewAllowedActions.includes('exit') ? (
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700"
+                                        onClick={() => handleItemReviewDecision('exit')}
+                                      >
+                                        Exit
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="rounded-xl border border-dashed border-titan-border bg-white p-4 text-sm text-slate-500">
+                                This interaction type is not rendered yet in the local web adapter.
+                              </div>
                             )}
                           </div>
                         ) : null}
