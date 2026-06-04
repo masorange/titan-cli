@@ -146,3 +146,11 @@ desktop/.kotlin/
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Local web UI
+web_ui/node_modules/
+web_ui/.pnpm-store/
+web_ui/.vite/
+
+# Python local caches in shipped web adapter
+titan_cli/ui_web/__pycache__/

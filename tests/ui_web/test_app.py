@@ -11,7 +11,7 @@ def test_ui_shell_served() -> None:
 
     assert response.status_code == 200
     assert "Titan UI" in response.text
-    assert "Local web adapter shell ready." in response.text
+    assert '<div id="root"></div>' in response.text
 
 
 def test_open_session_websocket() -> None:
