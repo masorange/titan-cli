@@ -31,3 +31,11 @@ class BrowserSessionManager:
     def get_session(self, session_id: str) -> BrowserSession | None:
         """Return a previously opened session if it exists."""
         return self._sessions.get(session_id)
+
+    def set_active_run(self, session_id: str, run_id: str | None) -> BrowserSession | None:
+        """Update the active run associated with a browser session."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        session.active_run_id = run_id
+        return session
