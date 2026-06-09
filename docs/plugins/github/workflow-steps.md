@@ -388,7 +388,11 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | review_threads (List[UICommentThread]) | - | - |
+    | review_pr (UIPullRequest) | - | - |
+    | review_current_user (str) | - | Authenticated GitHub login running Titan |
 
     **Outputs (saved to ctx.data)**
 

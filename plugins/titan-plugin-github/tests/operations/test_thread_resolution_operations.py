@@ -1,5 +1,61 @@
 from titan_plugin_github.models.review_models import ReferencedCommitContext, ThreadReviewContext
-from titan_plugin_github.operations.thread_resolution_operations import build_thread_resolution_prompt
+from titan_plugin_github.models.view import UIComment, UICommentThread
+from titan_plugin_github.operations.thread_resolution_operations import (
+    build_thread_resolution_prompt,
+    build_thread_review_candidates,
+)
+
+
+def _make_thread(*, main_author: str, reply_author: str) -> UICommentThread:
+    return UICommentThread(
+        thread_id=f"thread_{main_author}_{reply_author}",
+        main_comment=UIComment(
+            id=10,
+            body="Please fix this",
+            author_login=main_author,
+            author_name=main_author,
+            formatted_date="",
+            path="src/main.py",
+            line=42,
+        ),
+        replies=[
+            UIComment(
+                id=11,
+                body="Fixed",
+                author_login=reply_author,
+                author_name=reply_author,
+                formatted_date="",
+                path="src/main.py",
+                line=42,
+            )
+        ],
+        is_resolved=False,
+        is_outdated=False,
+    )
+
+
+def test_build_thread_review_candidates_only_includes_current_users_threads():
+    candidates = build_thread_review_candidates(
+        [
+            _make_thread(main_author="current-reviewer", reply_author="pr-author"),
+            _make_thread(main_author="other-reviewer", reply_author="pr-author"),
+        ],
+        pr_author="pr-author",
+        reviewer_login="current-reviewer",
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].main_comment_author == "current-reviewer"
+
+
+def test_build_thread_review_candidates_excludes_threads_without_pr_author_last_reply():
+    candidates = build_thread_review_candidates(
+        [_make_thread(main_author="current-reviewer", reply_author="other-reviewer")],
+        pr_author="pr-author",
+        reviewer_login="current-reviewer",
+    )
+
+    assert candidates == []
 
 
 def test_build_thread_resolution_prompt_includes_referenced_commit_context():

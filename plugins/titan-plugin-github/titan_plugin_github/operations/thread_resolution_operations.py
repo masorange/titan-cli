@@ -28,6 +28,7 @@ from ..models.view import UICommentThread
 def build_thread_review_candidates(
     threads: list[UICommentThread],
     pr_author: str,
+    reviewer_login: str,
 ) -> list[ThreadReviewCandidate]:
     """
     Filter threads worth AI analysis from the full list of open PR threads.
@@ -40,6 +41,7 @@ def build_thread_review_candidates(
     Args:
         threads: All unresolved inline review threads from fetch_pr_review_bundle
         pr_author: GitHub login of the PR author
+        reviewer_login: GitHub login of the reviewer running Titan
 
     Returns:
         ThreadReviewCandidate list ready for context enrichment
@@ -49,6 +51,8 @@ def build_thread_review_candidates(
         if thread.is_general_comment:
             continue
         if thread.is_resolved:
+            continue
+        if thread.main_comment.author_login != reviewer_login:
             continue
 
         # Skip if no replies — reviewer is waiting for author response

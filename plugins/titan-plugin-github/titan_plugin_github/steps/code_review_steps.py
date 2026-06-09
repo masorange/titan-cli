@@ -829,6 +829,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     # Fetch inline review threads and general comments separately
     review_threads = []
     general_comments = []
+    review_current_user = None
     with ctx.textual.loading("Fetching existing review comments..."):
         threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=True)
         match threads_result:
@@ -843,6 +844,15 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
                 general_comments = general
             case ClientError():
                 pass
+
+        current_user_result = ctx.github.get_current_user()
+        match current_user_result:
+            case ClientSuccess(data=current_user):
+                review_current_user = current_user
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"Failed to get current user: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to get current user: {err}")
 
     ctx.textual.dim_text(
         f"{len(changed_file_paths)} files · {formatted_summary} · "
@@ -864,6 +874,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             "review_commit_sha": commit_sha,
             "review_threads": review_threads,
             "review_general_comments": general_comments,
+            "review_current_user": review_current_user,
             "pr_template": pr_template,
         },
     )
@@ -2552,6 +2563,7 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     Requires (from ctx.data):
         review_threads (List[UICommentThread]): Unresolved inline review threads
         review_pr (UIPullRequest): PR object with author info
+        review_current_user (str): GitHub login running Titan
 
     Outputs (saved to ctx.data):
         thread_review_candidates (List[ThreadReviewCandidate])
@@ -2566,24 +2578,38 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
 
     threads = ctx.get("review_threads", [])
     pr = ctx.get("review_pr")
+    review_current_user = ctx.get("review_current_user")
 
     if not pr:
         ctx.textual.dim_text("No PR info available")
         ctx.textual.end_step("skip")
         return Skip("No PR data in context")
 
-    candidates = build_thread_review_candidates_operation(threads, pr.author_name)
+    if not review_current_user:
+        ctx.textual.error_text("Current GitHub user not available")
+        ctx.textual.end_step("error")
+        return Error("Current GitHub user not available")
+
+    candidates = build_thread_review_candidates_operation(
+        threads,
+        pr.author_name,
+        review_current_user,
+    )
 
     if not candidates:
         if not threads:
             ctx.textual.dim_text("No open inline threads on this PR")
         else:
-            ctx.textual.dim_text("Author has not replied to review threads yet (waiting for responses)")
+            ctx.textual.dim_text(
+                f"No open threads created by @{review_current_user} with author replies yet"
+            )
         ctx.textual.end_step("skip")
         return Skip("No threads to review")
 
     ctx.data["thread_review_candidates"] = candidates
-    ctx.textual.success_text(f"✓ {len(candidates)} thread(s) with author replies selected")
+    ctx.textual.success_text(
+        f"✓ {len(candidates)} thread(s) created by @{review_current_user} with author replies selected"
+    )
     ctx.textual.end_step("success")
     return Success("Thread candidates built", metadata={"thread_review_candidates_count": len(candidates)})
 
