@@ -14,6 +14,7 @@ from titan_cli.core.logging import log_client_operation
 
 from ..network import GHNetwork
 from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
+from ...models.review_models import ReferencedCommitContext
 from ...models.view import UIPullRequest, UIPRMergeResult, UIFileChange, UIPRCreated
 from ...models.mappers import from_rest_pr, from_network_pr_merge_result, from_network_pr_file, from_network_pr_created
 from ...exceptions import GitHubAPIError
@@ -683,3 +684,75 @@ class PRService:
             )
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @log_client_operation()
+    def get_commit_review_context(
+        self,
+        commit_ref: str,
+        *,
+        max_files: int = 3,
+        max_patch_chars: int = 4000,
+    ) -> ClientResult[ReferencedCommitContext]:
+        """Get a compact review context for a referenced commit."""
+        try:
+            output = self.gh.run_command(
+                ["api", f"repos/{self.gh.get_repo_string()}/commits/{commit_ref}"]
+            )
+            data = json.loads(output)
+
+            sha = str(data["sha"])
+            commit_message = self._truncate_text(
+                str(data.get("commit", {}).get("message", "")).strip(),
+                600,
+            )
+            files = data.get("files", [])
+            changed_files: list[str] = []
+            patch_sections: list[str] = []
+
+            for file_data in files[:max_files]:
+                filename = str(file_data.get("filename", "")).strip()
+                if not filename:
+                    continue
+
+                changed_files.append(filename)
+
+                patch = file_data.get("patch")
+                if not patch:
+                    continue
+
+                status = str(file_data.get("status", "modified")).strip()
+                patch_sections.append(
+                    f"diff --git a/{filename} b/{filename}\n"
+                    f"# status: {status}\n"
+                    f"{patch.strip()}"
+                )
+
+            patch_excerpt = "\n\n".join(patch_sections).strip() or None
+            if patch_excerpt:
+                patch_excerpt = self._truncate_text(patch_excerpt, max_patch_chars)
+
+            return ClientSuccess(
+                data=ReferencedCommitContext(
+                    sha=sha,
+                    abbreviated_sha=sha[:7],
+                    message=commit_message,
+                    changed_files=changed_files,
+                    patch_excerpt=patch_excerpt,
+                ),
+                message=f"Commit context retrieved for {sha[:7]}",
+            )
+
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            return ClientError(
+                error_message=f"Failed to parse commit context: {e}",
+                error_code="PARSE_ERROR",
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @staticmethod
+    def _truncate_text(text: str, max_chars: int) -> str:
+        """Trim large gh payload sections without hiding that they were truncated."""
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 15].rstrip() + "\n... [truncated]"

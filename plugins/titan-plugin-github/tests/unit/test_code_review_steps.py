@@ -1,12 +1,16 @@
 from unittest.mock import Mock
 
-from titan_cli.core.result import ClientSuccess
+from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Exit, Success
-from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest
+from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest, ReferencedCommitContext, ThreadReviewCandidate
 from titan_plugin_github.models.review_enums import FileChangeStatus
-from titan_plugin_github.models.view import UIFileChange, UIPullRequest
-from titan_plugin_github.steps.code_review_steps import fetch_pr_review_bundle, score_review_candidates
+from titan_plugin_github.models.view import UIComment, UICommentThread, UIFileChange, UIPullRequest
+from titan_plugin_github.steps.code_review_steps import (
+    build_thread_review_contexts,
+    fetch_pr_review_bundle,
+    score_review_candidates,
+)
 
 
 class _FakeTextual:
@@ -197,3 +201,124 @@ def MockChangedFile(**kwargs):
     from titan_plugin_github.models.review_models import ChangedFileEntry
 
     return ChangedFileEntry(**kwargs)
+
+
+def _make_thread(*, reply_body: str, path: str, line: int, body: str) -> UICommentThread:
+    return UICommentThread(
+        thread_id="thread_123",
+        main_comment=UIComment(
+            id=10,
+            body=body,
+            author_login="reviewer",
+            author_name="Reviewer",
+            formatted_date="",
+            path=path,
+            line=line,
+            diff_hunk="@@ -541,3 +541,3 @@\n-fun ButtonDialog(dialogState: DialogState = rememberDialogState(false))\n+fun ButtonDialog(dialogState: DialogState)\n",
+        ),
+        replies=[
+            UIComment(
+                id=11,
+                body=reply_body,
+                author_login="author",
+                author_name="Author",
+                formatted_date="",
+                path=path,
+                line=line,
+            )
+        ],
+        is_resolved=False,
+        is_outdated=False,
+    )
+
+
+def test_build_thread_review_contexts_includes_referenced_commit_contexts():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.github = Mock()
+    ctx.data["thread_review_candidates"] = [
+        ThreadReviewCandidate(
+            thread_id="thread_123",
+            path="freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt",
+            line=543,
+            main_comment_body="Please fix the dialog state wiring",
+            main_comment_author="reviewer",
+            replies_count=1,
+            last_reply_author="author",
+            last_reply_body="Fixed in 343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+        )
+    ]
+    ctx.data["review_threads"] = [
+        _make_thread(
+            reply_body="Fixed in 343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+            path="freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt",
+            line=543,
+            body="Please fix the dialog state wiring",
+        )
+    ]
+    ctx.data["review_diff"] = (
+        "diff --git a/freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt "
+        "b/freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt\n"
+        "@@ -541,3 +541,3 @@\n"
+        "-fun ButtonDialog(dialogState: DialogState = rememberDialogState(false))\n"
+        "+fun ButtonDialog(dialogState: DialogState)\n"
+    )
+    ctx.github.get_commit_review_context.return_value = ClientSuccess(
+        data=ReferencedCommitContext(
+            sha="343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+            abbreviated_sha="343e2e9",
+            message="remove default state value",
+            changed_files=["freyja-core/src/main/kotlin/.../BaseDialog.kt"],
+            patch_excerpt="diff --git a/freyja-core/src/main/kotlin/.../BaseDialog.kt b/freyja-core/src/main/kotlin/.../BaseDialog.kt",
+        ),
+        message="ok",
+    )
+
+    result = build_thread_review_contexts(ctx)
+
+    assert isinstance(result, Success)
+    contexts = ctx.data["thread_review_contexts"]
+    assert len(contexts) == 1
+    assert contexts[0].referenced_commits[0].abbreviated_sha == "343e2e9"
+    ctx.github.get_commit_review_context.assert_called_once_with(
+        "343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+        max_files=3,
+        max_patch_chars=4000,
+    )
+
+
+def test_build_thread_review_contexts_ignores_unavailable_referenced_commits():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.github = Mock()
+    ctx.data["thread_review_candidates"] = [
+        ThreadReviewCandidate(
+            thread_id="thread_123",
+            path="src/main.py",
+            line=42,
+            main_comment_body="Please fix this",
+            main_comment_author="reviewer",
+            replies_count=1,
+            last_reply_author="author",
+            last_reply_body="Addressed in deadbee",
+        )
+    ]
+    ctx.data["review_threads"] = [
+        _make_thread(
+            reply_body="Addressed in deadbee",
+            path="src/main.py",
+            line=42,
+            body="Please fix this",
+        )
+    ]
+    ctx.data["review_diff"] = "diff --git a/src/main.py b/src/main.py\n@@ -40,1 +40,1 @@\n-old\n+new\n"
+    ctx.github.get_commit_review_context.return_value = ClientError(
+        error_message="commit not found",
+        error_code="API_ERROR",
+    )
+
+    result = build_thread_review_contexts(ctx)
+
+    assert isinstance(result, Success)
+    contexts = ctx.data["thread_review_contexts"]
+    assert contexts[0].referenced_commits == []

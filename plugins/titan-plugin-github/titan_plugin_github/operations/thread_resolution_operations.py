@@ -244,6 +244,21 @@ def _threads_to_text(contexts: list[ThreadReviewContext]) -> str:
         else:
             parts.append("\n*(code context not available — file may be deleted or line not in diff)*")
 
+        if ctx.referenced_commits:
+            parts.append("\n**Referenced commits from replies:**")
+            for commit in ctx.referenced_commits:
+                parts.append(f"- Commit `{commit.abbreviated_sha}`")
+                if commit.message:
+                    parts.append(f"  Message: {commit.message}")
+                if commit.changed_files:
+                    parts.append("  Files: " + ", ".join(commit.changed_files))
+                if commit.patch_excerpt:
+                    parts.append("  Patch excerpt:")
+                    parts.append("  ```diff")
+                    for line in commit.patch_excerpt.splitlines():
+                        parts.append(f"  {line}")
+                    parts.append("  ```")
+
         parts.append("")
 
     return "\n".join(parts)

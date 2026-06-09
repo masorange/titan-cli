@@ -218,3 +218,29 @@ def test_resolve_review_thread_delegates_to_service(github_client):
 
     assert isinstance(result, ClientSuccess)
     github_client._review_service.resolve_review_thread.assert_called_once_with("thread_123")
+
+
+def test_get_commit_review_context_delegates_to_service(github_client):
+    """Test that commit review context delegates to PRService."""
+    from titan_plugin_github.models.review_models import ReferencedCommitContext
+
+    commit_context = ReferencedCommitContext(
+        sha="343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+        abbreviated_sha="343e2e9",
+        message="remove default state value",
+        changed_files=["src/BaseDialog.kt"],
+        patch_excerpt="diff --git a/src/BaseDialog.kt b/src/BaseDialog.kt",
+    )
+    github_client._pr_service.get_commit_review_context = Mock(
+        return_value=ClientSuccess(data=commit_context, message="Commit context retrieved")
+    )
+
+    result = github_client.get_commit_review_context("343e2e9", max_files=2, max_patch_chars=1200)
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.abbreviated_sha == "343e2e9"
+    github_client._pr_service.get_commit_review_context.assert_called_once_with(
+        "343e2e9",
+        max_files=2,
+        max_patch_chars=1200,
+    )

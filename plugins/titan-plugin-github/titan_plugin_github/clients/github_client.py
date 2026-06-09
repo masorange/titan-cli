@@ -15,6 +15,7 @@ from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
 from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService
+from ..models.review_models import ReferencedCommitContext
 from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated, UIRelease
 
 
@@ -190,6 +191,20 @@ class GitHubClient:
     def get_pr_commit_sha(self, pr_number: int) -> ClientResult[str]:
         """Get the latest commit SHA for a PR."""
         return self._pr_service.get_pr_commit_sha(pr_number)
+
+    def get_commit_review_context(
+        self,
+        commit_ref: str,
+        *,
+        max_files: int = 3,
+        max_patch_chars: int = 4000,
+    ) -> ClientResult[ReferencedCommitContext]:
+        """Get a compact remote context for a referenced commit."""
+        return self._pr_service.get_commit_review_context(
+            commit_ref,
+            max_files=max_files,
+            max_patch_chars=max_patch_chars,
+        )
 
     # ============================================================================
     # Review Operations
