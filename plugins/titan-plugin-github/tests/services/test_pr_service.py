@@ -190,3 +190,39 @@ def test_merge_pr_failure(pr_service, mock_gh_network):
     assert result.data.merged is False
     assert result.data.status_icon == "❌"
     assert "not mergeable" in result.data.message.lower()
+
+
+def test_get_commit_review_context_success(pr_service, mock_gh_network):
+    """Test commit context retrieval for a referenced SHA."""
+    mock_gh_network.run_command.return_value = json.dumps(
+        {
+            "sha": "343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+            "commit": {"message": "remove default state value"},
+            "files": [
+                {
+                    "filename": "freyja-core/src/main/kotlin/.../BaseDialog.kt",
+                    "status": "modified",
+                    "patch": "@@ -36,7 +35,7 @@\n-fun BaseDialog(dialogState: DialogState = remember { DialogState() })\n+fun BaseDialog(dialogState: DialogState)\n",
+                }
+            ],
+        }
+    )
+
+    result = pr_service.get_commit_review_context("343e2e9")
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.abbreviated_sha == "343e2e9"
+    assert result.data.changed_files == ["freyja-core/src/main/kotlin/.../BaseDialog.kt"]
+    assert "remove default state value" == result.data.message
+    assert "diff --git a/freyja-core/src/main/kotlin/.../BaseDialog.kt" in result.data.patch_excerpt
+    assert "repos/test-owner/test-repo/commits/343e2e9" in mock_gh_network.run_command.call_args[0][0][1]
+
+
+def test_get_commit_review_context_returns_parse_error_on_invalid_json(pr_service, mock_gh_network):
+    """Test invalid commit payload handling."""
+    mock_gh_network.run_command.return_value = "not json"
+
+    result = pr_service.get_commit_review_context("343e2e9")
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "PARSE_ERROR"

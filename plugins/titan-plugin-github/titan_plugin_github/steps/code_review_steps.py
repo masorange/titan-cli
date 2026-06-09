@@ -17,7 +17,11 @@ from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
 from ..models.review_enums import FileReadMode, ReviewActionType, ReviewStrategyType, ThreadDecisionType
-from ..models.review_models import PRClassification, ReviewActionProposal
+from ..models.review_models import (
+    PRClassification,
+    ReferencedCommitContext,
+    ReviewActionProposal,
+)
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
 from ..operations.code_review_operations import (
@@ -55,11 +59,15 @@ logger = get_logger(__name__)
 
 _PROMPT_PREVIEW_CHARS = 2000
 _RESPONSE_PREVIEW_CHARS = 1500
+_COMMIT_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 _STRONG_API_CLAIM_RE = re.compile(
     r"(does not accept|does not provide|does not compile|overload|signature|parameter(?:s)? .* not)",
     re.IGNORECASE,
 )
 _CENTRAL_PATH_HINTS = ("/utils/", "/configuration/", "/interceptors/", "/base/", "Utils.kt", "Configuration.kt")
+_MAX_REFERENCED_COMMITS_PER_THREAD = 3
+_MAX_REFERENCED_COMMIT_FILES = 3
+_MAX_REFERENCED_COMMIT_PATCH_CHARS = 4000
 
 
 def _preview_edges(text: str, limit: int) -> tuple[str, str]:
@@ -116,6 +124,69 @@ def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, ex
         stderr=stderr,
         **extra,
     )
+
+
+def _extract_referenced_commit_shas(reply_bodies: list[str]) -> list[str]:
+    """Collect distinct SHA-like tokens mentioned in reply bodies."""
+    seen: set[str] = set()
+    shas: list[str] = []
+
+    for body in reply_bodies:
+        for match in _COMMIT_SHA_RE.findall(body or ""):
+            sha = match.lower()
+            if sha in seen:
+                continue
+            seen.add(sha)
+            shas.append(sha)
+
+    return shas
+
+
+def _load_referenced_commit_contexts(
+    ctx: WorkflowContext,
+    threads: list[UICommentThread],
+) -> dict[str, list[ReferencedCommitContext]]:
+    """Fetch compact remote commit context for SHA references in review-thread replies."""
+    if not ctx.github:
+        return {}
+
+    commit_cache: dict[str, ReferencedCommitContext | None] = {}
+    contexts_by_thread: dict[str, list[ReferencedCommitContext]] = {}
+
+    for thread in threads:
+        reply_bodies = [reply.body for reply in thread.replies]
+        referenced_shas = _extract_referenced_commit_shas(reply_bodies)
+        if not referenced_shas:
+            continue
+
+        referenced_contexts: list[ReferencedCommitContext] = []
+        for sha in referenced_shas[:_MAX_REFERENCED_COMMITS_PER_THREAD]:
+            if sha not in commit_cache:
+                result = ctx.github.get_commit_review_context(
+                    sha,
+                    max_files=_MAX_REFERENCED_COMMIT_FILES,
+                    max_patch_chars=_MAX_REFERENCED_COMMIT_PATCH_CHARS,
+                )
+                match result:
+                    case ClientSuccess(data=commit_context):
+                        commit_cache[sha] = commit_context
+                    case ClientError(error_message=err):
+                        logger.debug(
+                            "referenced_commit_context_unavailable",
+                            thread_id=thread.thread_id,
+                            sha=sha,
+                            error=err,
+                        )
+                        commit_cache[sha] = None
+
+            commit_context = commit_cache.get(sha)
+            if commit_context is not None:
+                referenced_contexts.append(commit_context)
+
+        if referenced_contexts:
+            contexts_by_thread[thread.thread_id] = referenced_contexts
+
+    return contexts_by_thread
 
 
 def _build_visible_file_context_map(batches: list) -> dict[str, str]:
@@ -758,6 +829,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     # Fetch inline review threads and general comments separately
     review_threads = []
     general_comments = []
+    review_current_user = None
     with ctx.textual.loading("Fetching existing review comments..."):
         threads_result = ctx.github.get_pr_review_threads(pr_number, include_resolved=True)
         match threads_result:
@@ -772,6 +844,15 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
                 general_comments = general
             case ClientError():
                 pass
+
+        current_user_result = ctx.github.get_current_user()
+        match current_user_result:
+            case ClientSuccess(data=current_user):
+                review_current_user = current_user
+            case ClientError(error_message=err):
+                ctx.textual.error_text(f"Failed to get current user: {err}")
+                ctx.textual.end_step("error")
+                return Error(f"Failed to get current user: {err}")
 
     ctx.textual.dim_text(
         f"{len(changed_file_paths)} files · {formatted_summary} · "
@@ -793,6 +874,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             "review_commit_sha": commit_sha,
             "review_threads": review_threads,
             "review_general_comments": general_comments,
+            "review_current_user": review_current_user,
             "pr_template": pr_template,
         },
     )
@@ -2481,6 +2563,7 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     Requires (from ctx.data):
         review_threads (List[UICommentThread]): Unresolved inline review threads
         review_pr (UIPullRequest): PR object with author info
+        review_current_user (str): GitHub login running Titan
 
     Outputs (saved to ctx.data):
         thread_review_candidates (List[ThreadReviewCandidate])
@@ -2495,24 +2578,38 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
 
     threads = ctx.get("review_threads", [])
     pr = ctx.get("review_pr")
+    review_current_user = ctx.get("review_current_user")
 
     if not pr:
         ctx.textual.dim_text("No PR info available")
         ctx.textual.end_step("skip")
         return Skip("No PR data in context")
 
-    candidates = build_thread_review_candidates_operation(threads, pr.author_name)
+    if not review_current_user:
+        ctx.textual.error_text("Current GitHub user not available")
+        ctx.textual.end_step("error")
+        return Error("Current GitHub user not available")
+
+    candidates = build_thread_review_candidates_operation(
+        threads,
+        pr.author_name,
+        review_current_user,
+    )
 
     if not candidates:
         if not threads:
             ctx.textual.dim_text("No open inline threads on this PR")
         else:
-            ctx.textual.dim_text("Author has not replied to review threads yet (waiting for responses)")
+            ctx.textual.dim_text(
+                f"No open threads created by @{review_current_user} with author replies yet"
+            )
         ctx.textual.end_step("skip")
         return Skip("No threads to review")
 
     ctx.data["thread_review_candidates"] = candidates
-    ctx.textual.success_text(f"✓ {len(candidates)} thread(s) with author replies selected")
+    ctx.textual.success_text(
+        f"✓ {len(candidates)} thread(s) created by @{review_current_user} with author replies selected"
+    )
     ctx.textual.end_step("success")
     return Success("Thread candidates built", metadata={"thread_review_candidates_count": len(candidates)})
 
@@ -2521,13 +2618,17 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
     """
     Enrich thread candidates with diff hunk context and full reply history.
 
-    For each candidate, extracts the diff hunk near the commented line and
-    collects all replies from the full UICommentThread object.
+    For each candidate, extracts the diff hunk near the commented line,
+    collects all replies from the full UICommentThread object, and attaches
+    remote context for commit SHAs referenced in those replies.
 
     Requires (from ctx.data):
         thread_review_candidates (List[ThreadReviewCandidate])
         review_threads (List[UICommentThread]): For extracting reply history
         review_diff (str): Full PR unified diff
+
+    Requires:
+        ctx.github: Optional GitHub client used to inspect referenced commits.
 
     Outputs (saved to ctx.data):
         thread_review_contexts (List[ThreadReviewContext])
@@ -2550,9 +2651,26 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No thread_review_candidates in context")
 
     contexts = build_thread_review_contexts_operation(candidates, threads, diff)
+    commit_contexts_by_thread = _load_referenced_commit_contexts(ctx, threads)
+    if commit_contexts_by_thread:
+        contexts = [
+            context.model_copy(
+                update={
+                    "referenced_commits": commit_contexts_by_thread.get(
+                        context.thread_id,
+                        [],
+                    )
+                }
+            )
+            for context in contexts
+        ]
 
     ctx.data["thread_review_contexts"] = contexts
-    ctx.textual.success_text(f"✓ {len(contexts)} thread context(s) built")
+    referenced_commit_count = sum(len(context.referenced_commits) for context in contexts)
+    summary = f"✓ {len(contexts)} thread context(s) built"
+    if referenced_commit_count:
+        summary += f" ({referenced_commit_count} referenced commit context(s))"
+    ctx.textual.success_text(summary)
     ctx.textual.end_step("success")
     return Success("Thread contexts built", metadata={"thread_review_contexts_count": len(contexts)})
 
