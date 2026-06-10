@@ -8,6 +8,7 @@ from titan_cli.core.secrets import SecretManager
 
 from .clients.slack_client import SlackClient
 from .exceptions import SlackClientError, SlackConfigurationError
+from .screens.slack_config_screen import SlackConfigScreen
 
 
 class SlackPlugin(TitanPlugin):
@@ -36,6 +37,14 @@ class SlackPlugin(TitanPlugin):
     def get_config_schema(self) -> dict:
         """Return JSON schema for Slack plugin configuration."""
         return SlackPluginConfig.model_json_schema()
+
+    def has_custom_config_screen(self) -> bool:
+        """Slack uses a dedicated configuration screen."""
+        return True
+
+    def create_config_screen(self, config: TitanConfig) -> SlackConfigScreen:
+        """Create the Slack-specific configuration screen."""
+        return SlackConfigScreen(config)
 
     def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
         """Initialize the Slack client using the current user's personal token."""
