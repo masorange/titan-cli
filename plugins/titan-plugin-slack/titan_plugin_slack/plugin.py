@@ -2,12 +2,12 @@ from pathlib import Path
 from typing import Optional
 
 from titan_cli.core.config import TitanConfig
+from titan_cli.core.plugins.models import SlackPluginConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.secrets import SecretManager
 
 from .clients.slack_client import SlackClient
-from .exceptions import SlackClientError
-from .messages import msg
+from .exceptions import SlackClientError, SlackConfigurationError
 
 
 class SlackPlugin(TitanPlugin):
@@ -25,9 +25,34 @@ class SlackPlugin(TitanPlugin):
     def dependencies(self) -> list[str]:
         return []
 
+    def _get_plugin_config(self, config: TitanConfig) -> dict:
+        """Extract Slack plugin configuration."""
+        if "slack" not in config.config.plugins:
+            return {}
+
+        plugin_entry = config.config.plugins["slack"]
+        return plugin_entry.config if hasattr(plugin_entry, "config") else {}
+
+    def get_config_schema(self) -> dict:
+        """Return JSON schema for Slack plugin configuration."""
+        return SlackPluginConfig.model_json_schema()
+
     def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
-        """Initialize the Slack client baseline for later configuration work."""
-        self._client = SlackClient(bot_token="placeholder-token")
+        """Initialize the Slack client using the current user's personal token."""
+        plugin_config_data = self._get_plugin_config(config)
+        validated_config = SlackPluginConfig(**plugin_config_data)
+
+        user_token = secrets.get("slack_user_token")
+        if not user_token:
+            raise SlackConfigurationError(
+                "Slack user token not found. Configure Slack and store a personal token in keyring, or set SLACK_USER_TOKEN."
+            )
+
+        self._client = SlackClient(
+            user_token=user_token,
+            team_id=validated_config.default_team_id,
+            timeout=validated_config.timeout,
+        )
 
     def is_available(self) -> bool:
         """Return whether the plugin has an initialized client."""
@@ -36,7 +61,9 @@ class SlackPlugin(TitanPlugin):
     def get_client(self) -> SlackClient:
         """Return the initialized Slack client instance."""
         if not hasattr(self, "_client") or self._client is None:
-            raise SlackClientError(msg.Plugin.SLACK_CLIENT_NOT_AVAILABLE)
+            raise SlackClientError(
+                "SlackPlugin not initialized. Slack client may not be available."
+            )
         return self._client
 
     def get_steps(self) -> dict:

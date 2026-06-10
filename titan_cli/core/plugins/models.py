@@ -1,5 +1,5 @@
 # titan_cli/core/plugins/models.py
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -121,3 +121,46 @@ class JiraPluginConfig(BaseModel):
         if '@' not in v:
             raise ValueError("email must be a valid email address")
         return v.lower()  # Normalize email to lowercase
+
+
+class SlackPluginConfig(BaseModel):
+    """Configuration for personal Slack integration."""
+
+    user_token: Optional[str] = Field(
+        None,
+        description="Personal Slack user token stored in keyring.",
+        json_schema_extra={"format": "password", "required_in_schema": True},
+    )
+    default_team_id: Optional[str] = Field(
+        None,
+        description="Preferred Slack workspace/team ID for the current user.",
+        json_schema_extra={"config_scope": "global"},
+    )
+    default_team_name: Optional[str] = Field(
+        None,
+        description="Preferred Slack workspace/team name for the current user.",
+        json_schema_extra={"config_scope": "global"},
+    )
+    granted_scopes: List[str] = Field(
+        default_factory=list,
+        description="Scopes granted to the current user's Slack token.",
+        json_schema_extra={"config_scope": "global"},
+    )
+    auth_mode: str = Field(
+        "user_token",
+        description="Slack authentication mode for this user.",
+        json_schema_extra={"config_scope": "global"},
+    )
+    timeout: int = Field(
+        30,
+        description="Request timeout in seconds.",
+        json_schema_extra={"config_scope": "global"},
+    )
+
+    @field_validator("auth_mode")
+    @classmethod
+    def validate_auth_mode(cls, v: str) -> str:
+        """Validate the supported auth mode for Slack."""
+        if v != "user_token":
+            raise ValueError("Slack auth_mode must be 'user_token'")
+        return v

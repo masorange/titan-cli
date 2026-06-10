@@ -11,8 +11,8 @@ Documentation for AI coding agents working on the `titan-plugin-slack`.
 Current first-phase scope:
 
 - Official Titan plugin package and discovery entry point
-- Bot-oriented Slack client baseline
-- Shared project bot policy
+- Personal user-token Slack client baseline
+- Keyring-first secret policy
 - No workflow steps yet
 - No built-in workflows yet
 
