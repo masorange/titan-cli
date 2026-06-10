@@ -33,3 +33,15 @@ class SlackMessageRef:
     ts: str
     thread_ts: Optional[str] = None
     permalink: Optional[str] = None
+
+
+@dataclass
+class NetworkSlackMessage:
+    """Raw Slack message data normalized from the Web API."""
+
+    ts: str
+    text: str
+    user: Optional[str] = None
+    thread_ts: Optional[str] = None
+    reply_count: int = 0
+    subtype: Optional[str] = None
