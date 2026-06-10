@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
+import hashlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Event, Thread
 from typing import Callable
@@ -12,10 +14,14 @@ import webbrowser
 
 import requests
 
+from titan_cli.core.logging import get_logger
+
 
 AUTHORIZE_URL = "https://slack.com/oauth/v2_user/authorize"
 TOKEN_URL = "https://slack.com/api/oauth.v2.user.access"
 DEFAULT_SCOPES = ["users:read", "channels:read", "channels:history"]
+
+logger = get_logger(__name__)
 
 
 class SlackOAuthError(Exception):
@@ -33,13 +39,20 @@ class SlackOAuthResult:
     authed_user_id: str | None
 
 
+@dataclass
+class SlackOAuthSession:
+    """In-memory OAuth session state for a single PKCE flow."""
+
+    state: str
+    code_verifier: str
+
+
 class SlackOAuthFlow:
     """Backend flow for Slack OAuth-based personal connections."""
 
     def __init__(
         self,
         client_id: str,
-        client_secret: str,
         redirect_port: int = 8765,
         scopes: list[str] | None = None,
         timeout: int = 180,
@@ -47,7 +60,6 @@ class SlackOAuthFlow:
         requests_module=requests,
     ):
         self.client_id = client_id
-        self.client_secret = client_secret
         self.redirect_port = redirect_port
         self.scopes = scopes or list(DEFAULT_SCOPES)
         self.timeout = timeout
@@ -59,27 +71,53 @@ class SlackOAuthFlow:
         """Return the localhost redirect URI used for callback handling."""
         return f"http://127.0.0.1:{self.redirect_port}/slack/callback"
 
-    def build_authorize_url(self, state: str) -> str:
+    @staticmethod
+    def _build_code_challenge(code_verifier: str) -> str:
+        """Build a PKCE code challenge from a verifier."""
+        digest = hashlib.sha256(code_verifier.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+
+    def create_session(self) -> SlackOAuthSession:
+        """Create a new OAuth session with state and PKCE verifier."""
+        return SlackOAuthSession(
+            state=secrets_module.token_urlsafe(24),
+            code_verifier=secrets_module.token_urlsafe(48),
+        )
+
+    def build_authorize_url(self, session: SlackOAuthSession) -> str:
         """Build the Slack OAuth authorize URL."""
         query = urlencode(
             {
                 "client_id": self.client_id,
                 "scope": ",".join(self.scopes),
                 "redirect_uri": self.redirect_uri,
-                "state": state,
+                "state": session.state,
+                "code_challenge": self._build_code_challenge(session.code_verifier),
+                "code_challenge_method": "S256",
             }
         )
-        return f"{AUTHORIZE_URL}?{query}"
+        authorize_url = f"{AUTHORIZE_URL}?{query}"
+        logger.info(
+            "slack_oauth_authorize_url_built",
+            redirect_uri=self.redirect_uri,
+            scopes=self.scopes,
+        )
+        return authorize_url
 
-    def exchange_code(self, code: str) -> SlackOAuthResult:
+    def exchange_code(self, code: str, code_verifier: str) -> SlackOAuthResult:
         """Exchange a Slack OAuth code for a user access token."""
+        logger.info(
+            "slack_oauth_exchange_started",
+            redirect_uri=self.redirect_uri,
+        )
         response = self.requests.post(
             TOKEN_URL,
             data={
                 "code": code,
                 "client_id": self.client_id,
-                "client_secret": self.client_secret,
                 "redirect_uri": self.redirect_uri,
+                "grant_type": "authorization_code",
+                "code_verifier": code_verifier,
             },
             timeout=30,
         )
@@ -87,6 +125,11 @@ class SlackOAuthFlow:
         payload = response.json()
 
         if not payload.get("ok", False):
+            logger.error(
+                "slack_oauth_exchange_failed",
+                error=payload.get("error", "unknown_error"),
+                payload=payload,
+            )
             raise SlackOAuthError(
                 f"Slack OAuth token exchange failed: {payload.get('error', 'unknown_error')}"
             )
@@ -100,6 +143,13 @@ class SlackOAuthFlow:
 
         team = payload.get("team") or {}
         authed_user = payload.get("authed_user") or {}
+        logger.info(
+            "slack_oauth_exchange_succeeded",
+            team_id=team.get("id"),
+            team_name=team.get("name"),
+            authed_user_id=authed_user.get("id"),
+            granted_scopes=granted_scopes,
+        )
         return SlackOAuthResult(
             access_token=access_token,
             granted_scopes=granted_scopes,
@@ -110,6 +160,11 @@ class SlackOAuthFlow:
 
     def _wait_for_callback(self, expected_state: str) -> str:
         """Wait for the local OAuth callback and return the authorization code."""
+        logger.info(
+            "slack_oauth_callback_wait_started",
+            redirect_uri=self.redirect_uri,
+            timeout=self.timeout,
+        )
         callback_event = Event()
         callback_data: dict[str, str] = {}
 
@@ -126,6 +181,11 @@ class SlackOAuthFlow:
                 callback_data["code"] = query.get("code", [""])[0]
                 callback_data["state"] = query.get("state", [""])[0]
                 callback_data["error"] = query.get("error", [""])[0]
+                logger.info(
+                    "slack_oauth_callback_received",
+                    has_code=bool(callback_data["code"]),
+                    has_error=bool(callback_data["error"]),
+                )
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
@@ -153,28 +213,36 @@ class SlackOAuthFlow:
         thread.join(timeout=1)
 
         if not callback_event.is_set():
+            logger.error("slack_oauth_callback_timeout", redirect_uri=self.redirect_uri)
             raise SlackOAuthError("Slack OAuth callback timed out.")
 
         if callback_data.get("error"):
+            logger.error(
+                "slack_oauth_callback_error",
+                error=callback_data["error"],
+            )
             raise SlackOAuthError(f"Slack OAuth authorization failed: {callback_data['error']}")
 
         if callback_data.get("state") != expected_state:
+            logger.error("slack_oauth_state_mismatch")
             raise SlackOAuthError("Slack OAuth state mismatch.")
 
         code = callback_data.get("code")
         if not code:
+            logger.error("slack_oauth_callback_missing_code")
             raise SlackOAuthError("Slack OAuth callback did not include an authorization code.")
 
         return code
 
     def run(self) -> SlackOAuthResult:
         """Run the complete OAuth flow and return the resulting token data."""
-        state = secrets_module.token_urlsafe(24)
-        authorize_url = self.build_authorize_url(state)
+        session = self.create_session()
+        authorize_url = self.build_authorize_url(session)
 
         browser_started = self.browser_opener(authorize_url)
         if browser_started is False:
+            logger.error("slack_oauth_browser_open_failed")
             raise SlackOAuthError("Failed to open a browser for Slack OAuth.")
 
-        code = self._wait_for_callback(state)
-        return self.exchange_code(code)
+        code = self._wait_for_callback(session.state)
+        return self.exchange_code(code, session.code_verifier)

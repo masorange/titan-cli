@@ -13,6 +13,7 @@ Current first-phase scope:
 - Official Titan plugin package and discovery entry point
 - Personal user-token Slack client baseline
 - Keyring-first secret policy
+- BYO Slack App + PKCE connection flow
 - No workflow steps yet
 - No built-in workflows yet
 
@@ -26,9 +27,11 @@ titan_plugin_slack/
 ├── plugin.py
 ├── clients/
 │   └── slack_client.py
+├── screens/
+│   └── slack_config_screen.py
 ├── models.py
 ├── exceptions.py
-├── messages.py
+├── oauth.py
 ├── steps/
 └── workflows/
 ```
@@ -42,3 +45,4 @@ titan_plugin_slack/
 - Do not add built-in workflows in this phase.
 - Prefer small, testable public surfaces.
 - Keep raw Slack API entities clearly separated from domain return models.
+- Keep the configuration UX aligned with BYO Slack App + PKCE.

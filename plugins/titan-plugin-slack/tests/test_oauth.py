@@ -19,9 +19,10 @@ class _FakeResponse:
 
 
 def test_build_authorize_url_contains_expected_oauth_values() -> None:
-    flow = SlackOAuthFlow(client_id="123", client_secret="secret", redirect_port=8765)
+    flow = SlackOAuthFlow(client_id="123", redirect_port=8765)
+    session = flow.create_session()
 
-    url = flow.build_authorize_url("state-abc")
+    url = flow.build_authorize_url(session)
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
 
@@ -29,9 +30,11 @@ def test_build_authorize_url_contains_expected_oauth_values() -> None:
     assert parsed.netloc == "slack.com"
     assert parsed.path == "/oauth/v2_user/authorize"
     assert query["client_id"] == ["123"]
-    assert query["state"] == ["state-abc"]
+    assert query["state"] == [session.state]
     assert query["redirect_uri"] == ["http://127.0.0.1:8765/slack/callback"]
     assert query["scope"] == ["users:read,channels:read,channels:history"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert "code_challenge" in query
 
 
 def test_exchange_code_returns_token_and_metadata() -> None:
@@ -48,14 +51,9 @@ def test_exchange_code_returns_token_and_metadata() -> None:
                 }
             )
 
-    flow = SlackOAuthFlow(
-        client_id="123",
-        client_secret="secret",
-        redirect_port=8765,
-        requests_module=FakeRequests,
-    )
+    flow = SlackOAuthFlow(client_id="123", redirect_port=8765, requests_module=FakeRequests)
 
-    result = flow.exchange_code("code-123")
+    result = flow.exchange_code("code-123", "verifier-123")
 
     assert result.access_token == "xoxp-token"
     assert result.team_id == "T123"
@@ -70,14 +68,10 @@ def test_exchange_code_raises_on_slack_error() -> None:
         def post(url, data, timeout):
             return _FakeResponse({"ok": False, "error": "invalid_code"})
 
-    flow = SlackOAuthFlow(
-        client_id="123",
-        client_secret="secret",
-        requests_module=FakeRequests,
-    )
+    flow = SlackOAuthFlow(client_id="123", requests_module=FakeRequests)
 
     try:
-        flow.exchange_code("bad-code")
+        flow.exchange_code("bad-code", "verifier-123")
     except SlackOAuthError as exc:
         assert "invalid_code" in str(exc)
     else:

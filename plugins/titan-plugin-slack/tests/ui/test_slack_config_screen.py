@@ -11,6 +11,7 @@ from titan_plugin_slack.screens.slack_config_screen import SlackConfigScreen
 def _build_config(tmp_path: Path, token: str | None = None, plugin_config: dict | None = None):
     config = MagicMock()
     config._global_config_path = tmp_path / "config.toml"
+    config.project_config_path = tmp_path / "project-config.toml"
     config.config = MagicMock()
     config.config.config_version = "1.0"
     config.config.plugins = {}
@@ -48,7 +49,6 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
     )
     config.secrets.get.side_effect = lambda key: {
         "slack_user_token": "xoxp-token",
-        "slack_oauth_client_secret": "secret",
     }.get(key)
     screen = SlackConfigScreen(config)
 
@@ -56,7 +56,6 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
 
     assert state.has_token is True
     assert state.oauth_client_id == "123"
-    assert state.has_oauth_client_secret is True
     assert state.oauth_redirect_port == 9999
     assert state.default_team_id == "T123"
     assert state.default_team_name == "Acme"
@@ -102,7 +101,7 @@ def test_slack_config_screen_start_oauth_flow_runs_worker(tmp_path: Path) -> Non
     type(screen).app = PropertyMock(return_value=app)
 
     screen.run_worker = MagicMock()
-    screen._read_oauth_form_values = MagicMock(return_value=("123", "secret", 8765))
+    screen._read_oauth_form_values = MagicMock(return_value=("123", 8765))
     screen._save_oauth_app_config = MagicMock()
 
     screen._start_oauth_flow()
@@ -129,9 +128,8 @@ def test_slack_config_screen_perform_oauth_connect_uses_backend(monkeypatch, tmp
     )
 
     class FakeFlow:
-        def __init__(self, client_id, client_secret, redirect_port):
+        def __init__(self, client_id, redirect_port):
             self.client_id = client_id
-            self.client_secret = client_secret
             self.redirect_port = redirect_port
 
         def run(self):
@@ -142,7 +140,7 @@ def test_slack_config_screen_perform_oauth_connect_uses_backend(monkeypatch, tmp
         FakeFlow,
     )
 
-    result = screen._perform_oauth_connect("123", "secret", 8765)
+    result = screen._perform_oauth_connect("123", 8765)
 
     assert result == expected
 
@@ -151,12 +149,23 @@ def test_slack_config_screen_saves_oauth_app_config(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     screen = SlackConfigScreen(config)
 
-    screen._save_oauth_app_config("123", "secret", 9999)
+    screen._save_oauth_app_config("123", 9999)
 
-    config.secrets.set.assert_called_once_with("slack_oauth_client_secret", "secret", scope="user")
     with open(config._global_config_path, "rb") as f:
         data = tomli.load(f)
 
     slack_cfg = data["plugins"]["slack"]["config"]
     assert slack_cfg["oauth_client_id"] == "123"
     assert slack_cfg["oauth_redirect_port"] == 9999
+
+
+def test_slack_config_screen_enable_plugin_for_current_project(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    screen = SlackConfigScreen(config)
+
+    screen._enable_plugin_for_current_project()
+
+    with open(config.project_config_path, "rb") as f:
+        data = tomli.load(f)
+
+    assert data["plugins"]["slack"]["enabled"] is True

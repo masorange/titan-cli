@@ -174,3 +174,11 @@ class SlackPluginConfig(BaseModel):
         if v != "user_token":
             raise ValueError("Slack auth_mode must be 'user_token'")
         return v
+
+    @field_validator("oauth_redirect_port")
+    @classmethod
+    def validate_oauth_redirect_port(cls, v: int) -> int:
+        """Validate Slack OAuth redirect port."""
+        if v <= 0:
+            raise ValueError("Slack oauth_redirect_port must be greater than zero")
+        return v
