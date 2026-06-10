@@ -28,7 +28,6 @@ from titan_cli.ui.tui.widgets import (
     DevSourcePathModal,
 )
 from .base import BaseScreen
-from .plugin_config_wizard import PluginConfigWizardScreen
 from .install_plugin_screen import InstallPluginScreen
 from titan_cli.core.plugins.local_sources import get_local_plugin_validation_error
 from titan_cli.core.plugins.community_sources import (
@@ -41,6 +40,8 @@ from titan_cli.core.logging import get_logger
 import asyncio
 import tomli
 import tomli_w
+
+from .plugin_config_resolver import plugin_has_config_ui, resolve_plugin_config_screen
 
 logger = get_logger(__name__)
 
@@ -646,9 +647,7 @@ class PluginManagementScreen(BaseScreen):
             self.app.notify("Please select a plugin", severity="warning")
             return
 
-        # Check if plugin has config schema
-        plugin = self.config.registry._plugins.get(self.selected_plugin)
-        if not plugin or not hasattr(plugin, 'get_config_schema'):
+        if not plugin_has_config_ui(self.config, self.selected_plugin):
             self.app.notify("This plugin has no configuration options", severity="warning")
             return
 
@@ -663,8 +662,10 @@ class PluginManagementScreen(BaseScreen):
             else:
                 logger.info("plugin_configure_cancelled", plugin=self.selected_plugin)
 
-        wizard = PluginConfigWizardScreen(self.config, self.selected_plugin)
-        self.app.push_screen(wizard, on_wizard_close)
+        self.app.push_screen(
+            resolve_plugin_config_screen(self.config, self.selected_plugin),
+            on_wizard_close,
+        )
 
     def action_install_plugin(self) -> None:
         """Open the community plugin install wizard."""
