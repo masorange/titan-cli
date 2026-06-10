@@ -23,7 +23,8 @@ packages = [
     {include = "titan_cli"},
     {include = "titan_plugin_git", from = "plugins/titan-plugin-git"},
     {include = "titan_plugin_github", from = "plugins/titan-plugin-github"},
-    {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"}
+    {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"},
+    {include = "titan_plugin_slack", from = "plugins/titan-plugin-slack"}
 ]
 
 [tool.poetry.dependencies]
@@ -45,6 +46,7 @@ requests = ">=2.31.0,<3.0.0"
 packaging = ">=23.0,<25.0"
 structlog = ">=25.5.0,<26.0.0"
 h2 = ">=4.1.0,<5.0.0"
+slack-sdk = ">=3.27.0,<4.0.0"
 
 [tool.poetry.group.docs]
 optional = true
@@ -64,6 +66,7 @@ textual-dev = "^1.0.0"
 titan-plugin-git = {path = "plugins/titan-plugin-git", develop = true}
 titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}
 titan-plugin-jira = {path = "plugins/titan-plugin-jira", develop = true}
+titan-plugin-slack = {path = "plugins/titan-plugin-slack", develop = true}
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -76,13 +79,15 @@ titan = "titan_cli.cli:app"
 git = "titan_plugin_git.plugin:GitPlugin"
 github = "titan_plugin_github.plugin:GitHubPlugin"
 jira = "titan_plugin_jira.plugin:JiraPlugin"
+slack = "titan_plugin_slack.plugin:SlackPlugin"
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
     "plugins/titan-plugin-git/tests",
     "plugins/titan-plugin-github/tests",
-    "plugins/titan-plugin-jira/tests"
+    "plugins/titan-plugin-jira/tests",
+    "plugins/titan-plugin-slack/tests"
 ]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
