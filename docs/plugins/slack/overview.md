@@ -1,10 +1,10 @@
 # Slack Plugin
 
-The Slack plugin provides Titan's Slack integration for personal user authentication, workspace validation, and read-only discovery of users and public channels. It exposes:
+The Slack plugin provides Titan's Slack integration for personal user authentication, workspace validation, and read-only discovery. It exposes:
 
 - a high-level `SlackClient` for direct use from Titan code
 - reusable workflow `steps` for connection validation and discovery
-- one built-in discovery workflow for validating and inspecting the current Slack workspace surface
+- one built-in workflow for validating and inspecting the current Slack workspace surface
 
 ## Requirements
 
@@ -13,7 +13,7 @@ To use the Slack plugin in a project:
 - Enable the `slack` plugin in `.titan/config.toml`
 - Configure Slack through Titan's Slack-specific configuration screen
 - Complete the BYO Slack App + PKCE connection flow
-- Store the resulting personal Slack token in Titan secrets/keyring
+- Store the resulting personal Slack token in Titan secrets
 
 Example project configuration:
 
@@ -22,7 +22,7 @@ Example project configuration:
 enabled = true
 ```
 
-Slack stores the personal token in secrets, not in the config file.
+Slack stores the personal token in Titan secrets/keyring, not in the config file.
 
 ## Public surfaces
 
@@ -38,6 +38,8 @@ In Titan code, the public entry point is the Slack plugin client:
 slack_plugin = config.registry.get_plugin("slack")
 client = slack_plugin.get_client()
 ```
+
+The client returns direct values and raises plugin-level exceptions when Slack operations fail.
 
 ## Public workflow steps
 

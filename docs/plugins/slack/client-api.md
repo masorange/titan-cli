@@ -1,6 +1,6 @@
 # Slack Client API
 
-The Slack plugin adds read-oriented Slack operations to Titan through `SlackClient`.
+The Slack plugin adds read-oriented Slack operations to Titan through `SlackClient`. This page documents the plugin from a functional point of view and shows how each capability is called and which parameters it needs.
 
 ## Requirements
 
@@ -9,12 +9,16 @@ To use the Slack client in Titan code:
 - enable the `slack` plugin
 - complete Slack OAuth configuration so a personal token is available
 
+---
+
 ## Accessing the client
 
 ```python
 slack_plugin = config.registry.get_plugin("slack")
 client = slack_plugin.get_client()
 ```
+
+---
 
 ## Connection validation
 
@@ -31,6 +35,8 @@ client.auth_test()
 **Parameters:**
 
 - No parameters.
+
+---
 
 ## Discovery operations
 
@@ -65,6 +71,8 @@ Read message history from a Slack public channel.
 - `oldest`: Optional oldest timestamp bound.
 - `latest`: Optional latest timestamp bound.
 - `inclusive`: Optional boundary inclusion flag.
+
+---
 
 ## Usage constraints
 
