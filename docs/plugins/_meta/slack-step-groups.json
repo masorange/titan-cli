@@ -1,0 +1,13 @@
+{
+  "plugin": "slack",
+  "groups": [
+    {
+      "name": "Validation and Discovery",
+      "steps": [
+        {"name": "validate_connection", "summary": "Validate the configured Slack token and expose identity metadata."},
+        {"name": "list_public_channels", "summary": "List public channels visible to the current Slack token."},
+        {"name": "list_users", "summary": "List users visible to the current Slack token."}
+      ]
+    }
+  ]
+}

@@ -59,6 +59,7 @@ class WorkflowContextBuilder:
         self._git = None
         self._github = None
         self._jira = None
+        self._slack = None
 
         # Plugin managers (keyed by plugin name)
         self._plugin_managers: dict = {}
@@ -170,6 +171,33 @@ class WorkflowContextBuilder:
                 self._jira = None
         return self
 
+    def with_slack(self, slack_client: Optional[Any] = None) -> WorkflowContextBuilder:
+        """
+        Add Slack client to workflow context.
+
+        The Slack client is optional and only used by Slack plugin steps.
+        Other plugin steps will have ctx.slack = None and should ignore it.
+
+        Args:
+            slack_client: Optional SlackClient instance (auto-loaded if None).
+                         If plugin is not available or fails to load, sets ctx.slack = None.
+
+        Returns:
+            Self for method chaining
+        """
+        if slack_client:
+            self._slack = slack_client
+        else:
+            slack_plugin = self._plugin_registry.get_plugin("slack")
+            if slack_plugin and slack_plugin.is_available():
+                try:
+                    self._slack = slack_plugin.get_client()
+                except Exception:
+                    self._slack = None
+            else:
+                self._slack = None
+        return self
+
 
     def build(self) -> WorkflowContext:
         """Build the WorkflowContext."""
@@ -181,4 +209,5 @@ class WorkflowContextBuilder:
             github=self._github,
             github_managers=self._plugin_managers.get("github"),
             jira=self._jira,
+            slack=self._slack,
         )

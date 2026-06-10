@@ -1,0 +1,105 @@
+{
+  "plugin": "slack",
+  "groups": [
+    {
+      "name": "Validation and Discovery",
+      "steps": [
+        {
+          "name": "validate_connection",
+          "summary": "Validate the configured Slack token and expose identity metadata."
+        },
+        {
+          "name": "list_public_channels",
+          "summary": "List public channels visible to the current Slack token."
+        },
+        {
+          "name": "list_users",
+          "summary": "List users visible to the current Slack token."
+        }
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "name": "validate_connection",
+      "group": "Validation and Discovery",
+      "module": "titan_plugin_slack.steps.discovery_steps",
+      "function": "validate_connection_step",
+      "summary": "Validate the configured Slack connection and expose identity metadata.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [],
+        "Outputs (saved to ctx.data)": [
+          "    slack_auth (dict): Slack auth identity details from `auth_test()`.",
+          "    slack_team_id (str | None): Team identifier reported by Slack.",
+          "    slack_team_name (str | None): Team name reported by Slack.",
+          "    slack_user_id (str | None): User identifier reported by Slack."
+        ],
+        "Returns": [
+          "    Success: If the Slack connection validates successfully.",
+          "    Error: If the Slack client is not available or the auth request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "discover-slack-workspace"
+      ]
+    },
+    {
+      "name": "list_public_channels",
+      "group": "Validation and Discovery",
+      "module": "titan_plugin_slack.steps.discovery_steps",
+      "function": "list_public_channels_step",
+      "summary": "List public Slack channels visible to the current token.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_limit (int, optional): Maximum number of channels to request. Defaults to 100.",
+          "    slack_cursor (str, optional): Pagination cursor for the next page.",
+          "    slack_exclude_archived (bool, optional): Whether to exclude archived channels. Defaults to True."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_channels (list[NetworkSlackChannel]): Public channels returned by Slack.",
+          "    slack_channels_next_cursor (str | None): Pagination cursor for a later request."
+        ],
+        "Returns": [
+          "    Success: If the channel list is retrieved successfully.",
+          "    Error: If the Slack client is not available or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "discover-slack-workspace"
+      ]
+    },
+    {
+      "name": "list_users",
+      "group": "Validation and Discovery",
+      "module": "titan_plugin_slack.steps.discovery_steps",
+      "function": "list_users_step",
+      "summary": "List Slack users visible to the current token.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_limit (int, optional): Maximum number of users to request. Defaults to 100.",
+          "    slack_cursor (str, optional): Pagination cursor for the next page."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_users (list[NetworkSlackUser]): Users returned by Slack.",
+          "    slack_users_next_cursor (str | None): Pagination cursor for a later request."
+        ],
+        "Returns": [
+          "    Success: If the user list is retrieved successfully.",
+          "    Error: If the Slack client is not available or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "discover-slack-workspace"
+      ]
+    }
+  ]
+}

@@ -14,10 +14,16 @@ def test_slack_plugin_basic_properties() -> None:
     assert plugin.dependencies == []
 
 
-def test_slack_plugin_has_no_steps_in_phase_one() -> None:
+def test_slack_plugin_exposes_public_steps() -> None:
     plugin = SlackPlugin()
 
-    assert plugin.get_steps() == {}
+    steps = plugin.get_steps()
+
+    assert set(steps) == {
+        "validate_connection",
+        "list_public_channels",
+        "list_users",
+    }
 
 
 def test_slack_plugin_exposes_workflows_path() -> None:

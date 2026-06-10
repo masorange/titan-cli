@@ -41,6 +41,7 @@ class WorkflowContext:
     github: Optional[Any] = None
     github_managers: Optional[Any] = None
     jira: Optional[Any] = None
+    slack: Optional[Any] = None
 
     # Workflow metadata (set by executor)
     workflow_name: Optional[str] = None

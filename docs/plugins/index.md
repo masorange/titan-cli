@@ -11,13 +11,14 @@ plugin clients directly and compose workflows from reusable public steps.
 
 ## Official plugins
 
-Titan ships with three official plugins:
+Titan ships with four official plugins:
 
 | Plugin | Description |
 |--------|-------------|
 | **git** | Smart commits, branch management, AI-powered commit messages |
 | **github** | Create PRs with AI descriptions, manage issues, code reviews |
 | **jira** | Search issues, AI-powered analysis, workflow automation |
+| **slack** | Personal Slack auth, workspace validation, and read-only discovery |
 
 Enable them per project in `.titan/config.toml`:
 
@@ -29,6 +30,9 @@ enabled = true
 enabled = true
 
 [plugins.jira]
+enabled = true
+
+[plugins.slack]
 enabled = true
 ```
 

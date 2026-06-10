@@ -77,7 +77,17 @@ class SlackPlugin(TitanPlugin):
 
     def get_steps(self) -> dict:
         """Return public workflow steps for the plugin."""
-        return {}
+        from .steps import (
+            list_public_channels_step,
+            list_users_step,
+            validate_connection_step,
+        )
+
+        return {
+            "validate_connection": validate_connection_step,
+            "list_public_channels": list_public_channels_step,
+            "list_users": list_users_step,
+        }
 
     @property
     def workflows_path(self) -> Optional[Path]:
