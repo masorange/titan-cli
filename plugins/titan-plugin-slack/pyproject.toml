@@ -9,6 +9,7 @@ packages = [{include = "titan_plugin_slack"}]
 python = ">=3.10"
 titan-cli = ">=0.6.0"
 slack-sdk = ">=3.27.0"
+requests = ">=2.31.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"

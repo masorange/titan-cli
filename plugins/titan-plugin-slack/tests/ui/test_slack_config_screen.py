@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, PropertyMock
 import tomli
 
 from titan_plugin_slack.plugin import SlackPlugin
+from titan_plugin_slack.oauth import SlackOAuthResult
 from titan_plugin_slack.screens.slack_config_screen import SlackConfigScreen
 
 
@@ -36,6 +37,8 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
         tmp_path,
         token="xoxp-token",
         plugin_config={
+            "oauth_client_id": "123",
+            "oauth_redirect_port": 9999,
             "default_team_id": "T123",
             "default_team_name": "Acme",
             "granted_scopes": ["users:read", "channels:read"],
@@ -43,11 +46,18 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
             "timeout": 45,
         },
     )
+    config.secrets.get.side_effect = lambda key: {
+        "slack_user_token": "xoxp-token",
+        "slack_oauth_client_secret": "secret",
+    }.get(key)
     screen = SlackConfigScreen(config)
 
     state = screen._get_connection_state()
 
     assert state.has_token is True
+    assert state.oauth_client_id == "123"
+    assert state.has_oauth_client_secret is True
+    assert state.oauth_redirect_port == 9999
     assert state.default_team_id == "T123"
     assert state.default_team_name == "Acme"
     assert state.granted_scopes == ["users:read", "channels:read"]
@@ -84,16 +94,69 @@ def test_slack_config_screen_disconnect_clears_token_and_metadata(tmp_path: Path
     assert slack_cfg["timeout"] == 30
 
 
-def test_slack_config_screen_connect_shows_oauth_placeholder(tmp_path: Path) -> None:
+def test_slack_config_screen_start_oauth_flow_runs_worker(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     screen = SlackConfigScreen(config)
 
     app = MagicMock()
     type(screen).app = PropertyMock(return_value=app)
 
+    screen.run_worker = MagicMock()
+    screen._read_oauth_form_values = MagicMock(return_value=("123", "secret", 8765))
+    screen._save_oauth_app_config = MagicMock()
+
     screen._start_oauth_flow()
 
     app.notify.assert_called_once_with(
-        "Slack OAuth flow will be implemented in the next step.",
+        "Opening browser for Slack authorization...",
         severity="information",
     )
+    screen.run_worker.assert_called_once()
+    worker_coro = screen.run_worker.call_args.args[0]
+    worker_coro.close()
+
+
+def test_slack_config_screen_perform_oauth_connect_uses_backend(monkeypatch, tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    screen = SlackConfigScreen(config)
+
+    expected = SlackOAuthResult(
+        access_token="xoxp-token",
+        granted_scopes=["users:read"],
+        team_id="T123",
+        team_name="Acme",
+        authed_user_id="U123",
+    )
+
+    class FakeFlow:
+        def __init__(self, client_id, client_secret, redirect_port):
+            self.client_id = client_id
+            self.client_secret = client_secret
+            self.redirect_port = redirect_port
+
+        def run(self):
+            return expected
+
+    monkeypatch.setattr(
+        "titan_plugin_slack.screens.slack_config_screen.SlackOAuthFlow",
+        FakeFlow,
+    )
+
+    result = screen._perform_oauth_connect("123", "secret", 8765)
+
+    assert result == expected
+
+
+def test_slack_config_screen_saves_oauth_app_config(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    screen = SlackConfigScreen(config)
+
+    screen._save_oauth_app_config("123", "secret", 9999)
+
+    config.secrets.set.assert_called_once_with("slack_oauth_client_secret", "secret", scope="user")
+    with open(config._global_config_path, "rb") as f:
+        data = tomli.load(f)
+
+    slack_cfg = data["plugins"]["slack"]["config"]
+    assert slack_cfg["oauth_client_id"] == "123"
+    assert slack_cfg["oauth_redirect_port"] == 9999

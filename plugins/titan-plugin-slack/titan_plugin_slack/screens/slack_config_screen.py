@@ -1,16 +1,19 @@
 from dataclasses import dataclass
+import asyncio
 
 import tomli
 import tomli_w
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.css.query import NoMatches
+from textual.widgets import Input
 
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import BoldPrimaryText, BoldText, Button, DimText, Text
 from titan_cli.ui.tui.screens.base import BaseScreen
 
 from ..clients.slack_client import SlackClient
+from ..oauth import DEFAULT_SCOPES, SlackOAuthFlow, SlackOAuthResult
 
 
 @dataclass
@@ -18,6 +21,9 @@ class SlackConnectionState:
     """Current Slack connection state for the active user."""
 
     has_token: bool
+    oauth_client_id: str | None
+    has_oauth_client_secret: bool
+    oauth_redirect_port: int
     default_team_id: str | None
     default_team_name: str | None
     granted_scopes: list[str]
@@ -70,6 +76,17 @@ class SlackConfigScreen(BaseScreen):
     #slack-config-buttons Button {
         margin-left: 1;
     }
+
+    Input {
+        width: 100%;
+        margin-top: 1;
+        margin-bottom: 1;
+        border: solid $accent;
+    }
+
+    Input:focus {
+        border: solid $primary;
+    }
     """
 
     def __init__(self, config):
@@ -110,6 +127,9 @@ class SlackConfigScreen(BaseScreen):
         plugin_config = self._load_plugin_config()
         return SlackConnectionState(
             has_token=self._has_user_token(),
+            oauth_client_id=plugin_config.get("oauth_client_id"),
+            has_oauth_client_secret=bool(self.config.secrets.get("slack_oauth_client_secret")),
+            oauth_redirect_port=plugin_config.get("oauth_redirect_port", 8765),
             default_team_id=plugin_config.get("default_team_id"),
             default_team_name=plugin_config.get("default_team_name"),
             granted_scopes=plugin_config.get("granted_scopes", []),
@@ -151,7 +171,7 @@ class SlackConfigScreen(BaseScreen):
         body.mount(BoldPrimaryText("Connect your personal Slack account"))
         body.mount(Text(""))
         body.mount(DimText("Slack uses a personal user token stored securely in your keyring."))
-        body.mount(DimText("The primary configuration path for Slack will be OAuth-based."))
+        body.mount(DimText("The primary configuration path for Slack uses a browser-based OAuth flow."))
         body.mount(Text(""))
 
         status_label = "Connected" if state.has_token else "Not connected"
@@ -159,27 +179,117 @@ class SlackConfigScreen(BaseScreen):
         body.mount(DimText(f"  Status: {status_label}"))
         body.mount(DimText(f"  Auth Mode: {state.auth_mode}"))
         body.mount(DimText(f"  Timeout: {state.timeout}s"))
+        body.mount(DimText(f"  OAuth Client ID: {state.oauth_client_id or 'Not set'}"))
+        body.mount(DimText(f"  OAuth Client Secret: {'Stored' if state.has_oauth_client_secret else 'Not set'}"))
+        body.mount(DimText(f"  OAuth Redirect Port: {state.oauth_redirect_port}"))
         body.mount(DimText(f"  Team ID: {state.default_team_id or 'Not set'}"))
         body.mount(DimText(f"  Team Name: {state.default_team_name or 'Not set'}"))
         scopes = ", ".join(state.granted_scopes) if state.granted_scopes else "Not recorded"
         body.mount(DimText(f"  Granted Scopes: {scopes}"))
         body.mount(Text(""))
 
-        body.mount(BoldText("Slack MVP0 Scopes"))
-        body.mount(DimText("  users:read"))
-        body.mount(DimText("  channels:read"))
-        body.mount(DimText("  channels:history"))
+        body.mount(BoldText("OAuth App Configuration"))
+        body.mount(DimText("Client ID"))
+        body.mount(Input(value=state.oauth_client_id or "", id="oauth-client-id-input"))
+        body.mount(DimText("Client Secret"))
+        body.mount(Input(value="", id="oauth-client-secret-input", password=True))
+        body.mount(DimText("Redirect Port"))
+        body.mount(Input(value=str(state.oauth_redirect_port), id="oauth-redirect-port-input"))
         body.mount(Text(""))
-        body.mount(DimText("Use Connect Slack to start the Slack-specific connection flow."))
+
+        body.mount(BoldText("Slack MVP0 Scopes"))
+        for scope in DEFAULT_SCOPES:
+            body.mount(DimText(f"  {scope}"))
+        body.mount(Text(""))
+        body.mount(DimText("Use Connect Slack to open the browser-based Slack OAuth flow."))
 
         self.query_one("#validate-button", Button).disabled = not state.has_token
         self.query_one("#disconnect-button", Button).disabled = not state.has_token
 
-    def _start_oauth_flow(self) -> None:
-        self.app.notify(
-            "Slack OAuth flow will be implemented in the next step.",
-            severity="information",
+    def _read_oauth_form_values(self) -> tuple[str, str, int]:
+        """Read and validate the OAuth app form values from the screen."""
+        client_id = self.query_one("#oauth-client-id-input", Input).value.strip()
+        client_secret_input = self.query_one("#oauth-client-secret-input", Input).value.strip()
+        redirect_port_raw = self.query_one("#oauth-redirect-port-input", Input).value.strip() or "8765"
+
+        if not client_id:
+            raise ValueError("Slack OAuth client ID is required.")
+
+        try:
+            redirect_port = int(redirect_port_raw)
+        except ValueError as exc:
+            raise ValueError("Slack OAuth redirect port must be a number.") from exc
+
+        if redirect_port <= 0:
+            raise ValueError("Slack OAuth redirect port must be greater than zero.")
+
+        client_secret = client_secret_input or self.config.secrets.get("slack_oauth_client_secret")
+        if not client_secret:
+            raise ValueError("Slack OAuth client secret is required.")
+
+        return client_id, client_secret, redirect_port
+
+    def _save_oauth_app_config(self, client_id: str, client_secret: str, redirect_port: int) -> None:
+        """Persist OAuth app settings for Slack."""
+        timeout = self._load_plugin_config().get("timeout", 30)
+        self.config.secrets.set("slack_oauth_client_secret", client_secret, scope="user")
+        self._save_global_slack_config(
+            {
+                "oauth_client_id": client_id,
+                "oauth_redirect_port": redirect_port,
+                "timeout": timeout,
+                "auth_mode": "user_token",
+            }
         )
+
+    def _perform_oauth_connect(self, client_id: str, client_secret: str, redirect_port: int) -> SlackOAuthResult:
+        """Run the synchronous Slack OAuth backend flow."""
+        flow = SlackOAuthFlow(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_port=redirect_port,
+        )
+        return flow.run()
+
+    def _start_oauth_flow(self) -> None:
+        """Start the Slack OAuth flow in a background worker."""
+        try:
+            client_id, client_secret, redirect_port = self._read_oauth_form_values()
+            self._save_oauth_app_config(client_id, client_secret, redirect_port)
+        except Exception as exc:
+            self.app.notify(f"Slack OAuth setup failed: {exc}", severity="error")
+            return
+
+        self.app.notify("Opening browser for Slack authorization...", severity="information")
+        self.run_worker(
+            self._run_oauth_connect(client_id, client_secret, redirect_port),
+            exclusive=True,
+        )
+
+    async def _run_oauth_connect(self, client_id: str, client_secret: str, redirect_port: int) -> None:
+        """Run the Slack OAuth flow without blocking the UI thread."""
+        try:
+            result = await asyncio.to_thread(
+                self._perform_oauth_connect,
+                client_id,
+                client_secret,
+                redirect_port,
+            )
+            self.config.secrets.set("slack_user_token", result.access_token, scope="user")
+            self._save_global_slack_config(
+                {
+                    "oauth_client_id": client_id,
+                    "oauth_redirect_port": redirect_port,
+                    "default_team_id": result.team_id,
+                    "default_team_name": result.team_name,
+                    "granted_scopes": result.granted_scopes,
+                    "auth_mode": "user_token",
+                }
+            )
+            self.app.notify("Slack connected successfully.", severity="information")
+            self._refresh_view()
+        except Exception as exc:
+            self.app.notify(f"Slack OAuth failed: {exc}", severity="error")
 
     def _validate_connection(self) -> None:
         plugin_config = self._load_plugin_config()

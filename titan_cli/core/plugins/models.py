@@ -136,6 +136,16 @@ class SlackPluginConfig(BaseModel):
         description="Preferred Slack workspace/team ID for the current user.",
         json_schema_extra={"config_scope": "global"},
     )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        description="Slack OAuth client ID used for personal connection setup.",
+        json_schema_extra={"config_scope": "global"},
+    )
+    oauth_redirect_port: int = Field(
+        8765,
+        description="Localhost port used for Slack OAuth callback handling.",
+        json_schema_extra={"config_scope": "global"},
+    )
     default_team_name: Optional[str] = Field(
         None,
         description="Preferred Slack workspace/team name for the current user.",

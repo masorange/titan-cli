@@ -1,0 +1,84 @@
+from urllib.parse import parse_qs, urlparse
+
+import requests
+
+from titan_plugin_slack.oauth import SlackOAuthError, SlackOAuthFlow
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict, status_code: int = 200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"status={self.status_code}")
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def test_build_authorize_url_contains_expected_oauth_values() -> None:
+    flow = SlackOAuthFlow(client_id="123", client_secret="secret", redirect_port=8765)
+
+    url = flow.build_authorize_url("state-abc")
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "slack.com"
+    assert parsed.path == "/oauth/v2_user/authorize"
+    assert query["client_id"] == ["123"]
+    assert query["state"] == ["state-abc"]
+    assert query["redirect_uri"] == ["http://127.0.0.1:8765/slack/callback"]
+    assert query["scope"] == ["users:read,channels:read,channels:history"]
+
+
+def test_exchange_code_returns_token_and_metadata() -> None:
+    class FakeRequests:
+        @staticmethod
+        def post(url, data, timeout):
+            return _FakeResponse(
+                {
+                    "ok": True,
+                    "access_token": "xoxp-token",
+                    "scope": "users:read,channels:read",
+                    "team": {"id": "T123", "name": "Acme"},
+                    "authed_user": {"id": "U123"},
+                }
+            )
+
+    flow = SlackOAuthFlow(
+        client_id="123",
+        client_secret="secret",
+        redirect_port=8765,
+        requests_module=FakeRequests,
+    )
+
+    result = flow.exchange_code("code-123")
+
+    assert result.access_token == "xoxp-token"
+    assert result.team_id == "T123"
+    assert result.team_name == "Acme"
+    assert result.authed_user_id == "U123"
+    assert result.granted_scopes == ["users:read", "channels:read"]
+
+
+def test_exchange_code_raises_on_slack_error() -> None:
+    class FakeRequests:
+        @staticmethod
+        def post(url, data, timeout):
+            return _FakeResponse({"ok": False, "error": "invalid_code"})
+
+    flow = SlackOAuthFlow(
+        client_id="123",
+        client_secret="secret",
+        requests_module=FakeRequests,
+    )
+
+    try:
+        flow.exchange_code("bad-code")
+    except SlackOAuthError as exc:
+        assert "invalid_code" in str(exc)
+    else:
+        raise AssertionError("Expected SlackOAuthError")
