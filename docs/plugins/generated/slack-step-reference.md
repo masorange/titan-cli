@@ -143,3 +143,103 @@ List Slack users visible to the current token.
 |--------|-----------------------|-------------|
 | `Success` | `slack_users`, `slack_users_next_cursor` | If the user list is retrieved successfully. |
 | `Error` | - | If the Slack client is not available or the Slack request fails. |
+
+## Selection and Target Resolution
+
+### `select_user_target`
+
+Filter visible Slack users by query and select one canonical user target.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: select_user_target
+```
+
+**Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_users` | list[UISlackUser] | Users visible to the current Slack token. |
+| `slack_target_query` | str, optional | Pre-filled query used to filter Slack users. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_target` | UISlackTarget | Canonical selected Slack target. |
+| `slack_target_type` | str | Selected target type (`user`). |
+| `slack_target_id` | str | Slack user ID. |
+| `slack_target_name` | str | User-facing target name. |
+| `slack_target_query` | str | Query used to resolve the selection. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the user target is selected successfully. |
+| `Error` | - | If Slack is unavailable, no users are available, the query is invalid, or no match is selected. |
+
+### `select_channel_target`
+
+Filter visible Slack channels by query and select one canonical channel target.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: select_channel_target
+```
+
+**Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_channels` | list[UISlackChannel] | Public channels visible to the current Slack token. |
+| `slack_target_query` | str, optional | Pre-filled query used to filter Slack channels. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_target` | UISlackTarget | Canonical selected Slack target. |
+| `slack_target_type` | str | Selected target type (`channel`). |
+| `slack_target_id` | str | Slack channel ID. |
+| `slack_target_name` | str | User-facing target name. |
+| `slack_target_query` | str | Query used to resolve the selection. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the channel target is selected successfully. |
+| `Error` | - | If Slack is unavailable, no channels are available, the query is invalid, or no match is selected. |

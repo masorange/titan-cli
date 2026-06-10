@@ -48,5 +48,6 @@ The Slack plugin currently exposes public reusable steps for:
 - validating the current Slack connection
 - listing public channels visible to the current token
 - listing users visible to the current token
+- selecting a reusable Slack target from users or channels for later workflows
 
 The grouped reference lives in [Workflow Steps](./workflow-steps.md).

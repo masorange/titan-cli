@@ -80,6 +80,8 @@ class SlackPlugin(TitanPlugin):
         from .steps import (
             list_public_channels_step,
             list_users_step,
+            select_channel_target_step,
+            select_user_target_step,
             validate_connection_step,
         )
 
@@ -87,6 +89,8 @@ class SlackPlugin(TitanPlugin):
             "validate_connection": validate_connection_step,
             "list_public_channels": list_public_channels_step,
             "list_users": list_users_step,
+            "select_user_target": select_user_target_step,
+            "select_channel_target": select_channel_target_step,
         }
 
     @property

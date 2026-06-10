@@ -2,9 +2,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_slack.clients import slack_client as slack_client_module
 from titan_plugin_slack.clients.slack_client import SlackClient
-from titan_plugin_slack.exceptions import SlackAPIError, SlackClientError
+from titan_plugin_slack.exceptions import SlackClientError
+from titan_plugin_slack.models import UISlackAuth
 
 
 def test_slack_client_requires_user_token() -> None:
@@ -24,80 +26,71 @@ def test_slack_client_stores_user_token() -> None:
 def test_slack_client_auth_test_returns_identity_fields() -> None:
     client = SlackClient(user_token="xoxp-test-token")
     client.web_client = MagicMock()
-    client.web_client.auth_test.return_value = {
-        "ok": True,
-        "user_id": "U123",
-        "team_id": "T123",
-        "team": "Acme",
-        "url": "https://acme.slack.com",
-        "bot_id": None,
-    }
+    client.auth_service = MagicMock()
+    client.auth_service.auth_test.return_value = ClientSuccess(
+        data=UISlackAuth(
+            user_id="U123",
+            team_id="T123",
+            team="Acme",
+            url="https://acme.slack.com",
+            bot_id=None,
+        )
+    )
 
     result = client.auth_test()
 
-    assert result == {
-        "user_id": "U123",
-        "team_id": "T123",
-        "team": "Acme",
-        "url": "https://acme.slack.com",
-        "bot_id": None,
-    }
+    assert isinstance(result, ClientSuccess)
+    assert result.data.user_id == "U123"
+    assert result.data.team_id == "T123"
 
 
-def test_slack_client_auth_test_raises_api_error_for_invalid_token(monkeypatch) -> None:
-    class FakeSlackApiError(Exception):
-        def __init__(self, message: str, response=None):
-            super().__init__(message)
-            self.response = response
-
-    monkeypatch.setattr(slack_client_module, "SlackApiError", FakeSlackApiError)
-
+def test_slack_client_auth_test_returns_client_error_for_invalid_token() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.auth_test.side_effect = FakeSlackApiError(
-        "invalid auth",
-        response={"error": "invalid_auth"},
+    client.auth_service = MagicMock()
+    client.auth_service.auth_test.return_value = ClientError(
+        error_message="Slack auth failed: invalid_auth",
+        error_code="AUTH_ERROR",
     )
 
-    with pytest.raises(SlackAPIError, match="Slack auth failed: invalid_auth"):
-        client.auth_test()
+    result = client.auth_test()
+
+    assert isinstance(result, ClientError)
+    assert result.error_message == "Slack auth failed: invalid_auth"
 
 
-def test_slack_client_auth_test_raises_client_error_for_transport_failure() -> None:
+def test_slack_client_auth_test_returns_client_error_for_transport_failure() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.auth_test.side_effect = RuntimeError("network down")
+    client.auth_service = MagicMock()
+    client.auth_service.auth_test.return_value = ClientError(
+        error_message="Slack auth request failed: network down",
+        error_code="AUTH_REQUEST_ERROR",
+    )
 
-    with pytest.raises(SlackClientError, match="Slack auth request failed: network down"):
-        client.auth_test()
+    result = client.auth_test()
+
+    assert isinstance(result, ClientError)
+    assert result.error_message == "Slack auth request failed: network down"
 
 
 def test_list_users_maps_members_and_cursor() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.users_list.return_value = {
-        "ok": True,
-        "members": [
-            {
-                "id": "U123",
-                "name": "alex",
-                "real_name": "Alex",
-                "is_bot": False,
-                "deleted": False,
-            },
-            {
-                "id": "U456",
-                "name": "bot-user",
-                "profile": {"real_name": "Bot User"},
-                "is_bot": True,
-                "deleted": True,
-            },
-        ],
-        "response_metadata": {"next_cursor": "cursor-123"},
-    }
+    client.directory_service = MagicMock()
+    client.directory_service.list_users.return_value = ClientSuccess(
+        data=(
+            [
+                slack_client_module.UISlackUser(id="U123", name="alex", real_name="Alex"),
+                slack_client_module.UISlackUser(
+                    id="U456", name="bot-user", real_name="Bot User", is_bot=True, is_active=False
+                ),
+            ],
+            "cursor-123",
+        )
+    )
 
-    users, next_cursor = client.list_users(limit=50)
+    result = client.list_users(limit=50)
 
+    assert isinstance(result, ClientSuccess)
+    users, next_cursor = result.data
     assert next_cursor == "cursor-123"
     assert len(users) == 2
     assert users[0].id == "U123"
@@ -108,29 +101,37 @@ def test_list_users_maps_members_and_cursor() -> None:
     assert users[1].is_active is False
 
 
-def test_list_users_raises_api_error() -> None:
+def test_list_users_returns_client_error() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.users_list.return_value = {"ok": False, "error": "missing_scope"}
+    client.directory_service = MagicMock()
+    client.directory_service.list_users.return_value = ClientError(
+        error_message="Slack list_users failed: missing_scope",
+        error_code="LIST_USERS_ERROR",
+    )
 
-    with pytest.raises(SlackAPIError, match="Slack list_users failed: missing_scope"):
-        client.list_users()
+    result = client.list_users()
+
+    assert isinstance(result, ClientError)
+    assert result.error_message == "Slack list_users failed: missing_scope"
 
 
 def test_list_public_channels_maps_channels_and_cursor() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.conversations_list.return_value = {
-        "ok": True,
-        "channels": [
-            {"id": "C123", "name": "general", "is_channel": True, "is_private": False},
-            {"id": "C456", "name": "announcements", "is_channel": True, "is_private": False},
-        ],
-        "response_metadata": {"next_cursor": "cursor-456"},
-    }
+    client.directory_service = MagicMock()
+    client.directory_service.list_public_channels.return_value = ClientSuccess(
+        data=(
+            [
+                slack_client_module.UISlackChannel(id="C123", name="general"),
+                slack_client_module.UISlackChannel(id="C456", name="announcements"),
+            ],
+            "cursor-456",
+        )
+    )
 
-    channels, next_cursor = client.list_public_channels(limit=25)
+    result = client.list_public_channels(limit=25)
 
+    assert isinstance(result, ClientSuccess)
+    channels, next_cursor = result.data
     assert next_cursor == "cursor-456"
     assert len(channels) == 2
     assert channels[0].id == "C123"
@@ -138,47 +139,49 @@ def test_list_public_channels_maps_channels_and_cursor() -> None:
     assert channels[1].is_private is False
 
 
-def test_list_public_channels_raises_api_error() -> None:
+def test_list_public_channels_returns_client_error() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.conversations_list.return_value = {
-        "ok": False,
-        "error": "missing_scope",
-    }
+    client.directory_service = MagicMock()
+    client.directory_service.list_public_channels.return_value = ClientError(
+        error_message="Slack list_public_channels failed: missing_scope",
+        error_code="LIST_PUBLIC_CHANNELS_ERROR",
+    )
 
-    with pytest.raises(
-        SlackAPIError, match="Slack list_public_channels failed: missing_scope"
-    ):
-        client.list_public_channels()
+    result = client.list_public_channels()
+
+    assert isinstance(result, ClientError)
+    assert result.error_message == "Slack list_public_channels failed: missing_scope"
 
 
 def test_read_channel_maps_messages_and_pagination() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.conversations_history.return_value = {
-        "ok": True,
-        "messages": [
-            {
-                "ts": "123.456",
-                "text": "Hello",
-                "user": "U123",
-                "thread_ts": "123.456",
-                "reply_count": 2,
-                "subtype": None,
-            },
-            {
-                "ts": "123.789",
-                "text": "World",
-                "user": "U456",
-                "reply_count": 0,
-            },
-        ],
-        "has_more": True,
-        "response_metadata": {"next_cursor": "cursor-789"},
-    }
+    client.conversation_service = MagicMock()
+    client.conversation_service.read_conversation.return_value = ClientSuccess(
+        data=(
+            [
+                slack_client_module.UISlackMessage(
+                    ts="123.456",
+                    text="Hello",
+                    user="U123",
+                    thread_ts="123.456",
+                    reply_count=2,
+                ),
+                slack_client_module.UISlackMessage(
+                    ts="123.789",
+                    text="World",
+                    user="U456",
+                    reply_count=0,
+                ),
+            ],
+            "cursor-789",
+            True,
+        )
+    )
 
-    messages, next_cursor, has_more = client.read_channel("C123", limit=10)
+    result = client.read_channel("C123", limit=10)
 
+    assert isinstance(result, ClientSuccess)
+    messages, next_cursor, has_more = result.data
     assert next_cursor == "cursor-789"
     assert has_more is True
     assert len(messages) == 2
@@ -188,13 +191,54 @@ def test_read_channel_maps_messages_and_pagination() -> None:
     assert messages[1].text == "World"
 
 
-def test_read_channel_raises_api_error() -> None:
+def test_read_channel_returns_client_error() -> None:
     client = SlackClient(user_token="xoxp-test-token")
-    client.web_client = MagicMock()
-    client.web_client.conversations_history.return_value = {
-        "ok": False,
-        "error": "channel_not_found",
-    }
+    client.conversation_service = MagicMock()
+    client.conversation_service.read_conversation.return_value = ClientError(
+        error_message="Slack read_channel failed: channel_not_found",
+        error_code="READ_CHANNEL_ERROR",
+    )
 
-    with pytest.raises(SlackAPIError, match="Slack read_channel failed: channel_not_found"):
-        client.read_channel("C404")
+    result = client.read_channel("C404")
+
+    assert isinstance(result, ClientError)
+    assert result.error_message == "Slack read_channel failed: channel_not_found"
+
+
+def test_search_users_delegates_to_directory_service() -> None:
+    client = SlackClient(user_token="xoxp-test-token")
+    client.directory_service = MagicMock()
+    client.directory_service.search_users.return_value = ClientSuccess(data=[])
+
+    result = client.search_users("alex", max_matches=5, page_size=50, max_pages=3)
+
+    assert isinstance(result, ClientSuccess)
+    client.directory_service.search_users.assert_called_once_with(
+        "alex",
+        max_matches=5,
+        page_size=50,
+        max_pages=3,
+    )
+
+
+def test_search_public_channels_delegates_to_directory_service() -> None:
+    client = SlackClient(user_token="xoxp-test-token")
+    client.directory_service = MagicMock()
+    client.directory_service.search_public_channels.return_value = ClientSuccess(data=[])
+
+    result = client.search_public_channels(
+        "eng",
+        max_matches=5,
+        page_size=50,
+        max_pages=3,
+        exclude_archived=False,
+    )
+
+    assert isinstance(result, ClientSuccess)
+    client.directory_service.search_public_channels.assert_called_once_with(
+        "eng",
+        max_matches=5,
+        page_size=50,
+        max_pages=3,
+        exclude_archived=False,
+    )

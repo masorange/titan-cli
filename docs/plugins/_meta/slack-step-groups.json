@@ -8,6 +8,13 @@
         {"name": "list_public_channels", "summary": "List public channels visible to the current Slack token."},
         {"name": "list_users", "summary": "List users visible to the current Slack token."}
       ]
+    },
+    {
+      "name": "Selection and Target Resolution",
+      "steps": [
+        {"name": "select_user_target", "summary": "Filter visible Slack users by query and select one canonical user target."},
+        {"name": "select_channel_target", "summary": "Filter visible Slack channels by query and select one canonical channel target."}
+      ]
     }
   ]
 }

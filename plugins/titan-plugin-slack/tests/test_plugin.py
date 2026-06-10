@@ -23,6 +23,8 @@ def test_slack_plugin_exposes_public_steps() -> None:
         "validate_connection",
         "list_public_channels",
         "list_users",
+        "select_user_target",
+        "select_channel_target",
     }
 
 

@@ -1,5 +1,6 @@
 """Public Slack workflow steps for validation and read-only discovery."""
 
+from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
 
 
@@ -14,7 +15,7 @@ def validate_connection_step(ctx: WorkflowContext) -> WorkflowResult:
         None documented.
 
     Outputs (saved to ctx.data):
-        slack_auth (dict): Slack auth identity details from `auth_test()`.
+        slack_auth (UISlackAuth): Slack auth identity details from `auth_test()`.
         slack_team_id (str | None): Team identifier reported by Slack.
         slack_team_name (str | None): Team name reported by Slack.
         slack_user_id (str | None): User identifier reported by Slack.
@@ -34,21 +35,27 @@ def validate_connection_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Slack client not available")
 
     with ctx.textual.loading("Validating Slack connection..."):
-        auth = ctx.slack.auth_test()
+        result = ctx.slack.auth_test()
 
-    ctx.textual.success_text(
-        f"Connected to Slack team {auth.get('team') or 'Unknown'} as {auth.get('user_id') or 'Unknown'}"
-    )
-    ctx.textual.end_step("success")
-    return Success(
-        "Slack connection validated",
-        metadata={
-            "slack_auth": auth,
-            "slack_team_id": auth.get("team_id"),
-            "slack_team_name": auth.get("team"),
-            "slack_user_id": auth.get("user_id"),
-        },
-    )
+    match result:
+        case ClientSuccess(data=auth):
+            ctx.textual.success_text(
+                f"Connected to Slack team {auth.team or 'Unknown'} as {auth.user_id or 'Unknown'}"
+            )
+            ctx.textual.end_step("success")
+            return Success(
+                "Slack connection validated",
+                metadata={
+                    "slack_auth": auth,
+                    "slack_team_id": auth.team_id,
+                    "slack_team_name": auth.team,
+                    "slack_user_id": auth.user_id,
+                },
+            )
+        case ClientError(error_message=err):
+            ctx.textual.error_text(err)
+            ctx.textual.end_step("error")
+            return Error(err)
 
 
 def list_public_channels_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -64,7 +71,7 @@ def list_public_channels_step(ctx: WorkflowContext) -> WorkflowResult:
         slack_exclude_archived (bool, optional): Whether to exclude archived channels. Defaults to True.
 
     Outputs (saved to ctx.data):
-        slack_channels (list[NetworkSlackChannel]): Public channels returned by Slack.
+        slack_channels (list[UISlackChannel]): Public channels returned by Slack.
         slack_channels_next_cursor (str | None): Pagination cursor for a later request.
 
     Returns:
@@ -86,29 +93,35 @@ def list_public_channels_step(ctx: WorkflowContext) -> WorkflowResult:
     exclude_archived = ctx.get("slack_exclude_archived", True)
 
     with ctx.textual.loading("Loading Slack public channels..."):
-        channels, next_cursor = ctx.slack.list_public_channels(
+        result = ctx.slack.list_public_channels(
             limit=limit,
             cursor=cursor,
             exclude_archived=exclude_archived,
         )
 
-    if not channels:
-        ctx.textual.dim_text("No public Slack channels were returned.")
-    else:
-        ctx.textual.success_text(f"Found {len(channels)} public Slack channels")
-        for channel in channels[:10]:
-            ctx.textual.text(f"- #{channel.name} ({channel.id})")
-        if len(channels) > 10:
-            ctx.textual.dim_text(f"... and {len(channels) - 10} more")
+    match result:
+        case ClientSuccess(data=(channels, next_cursor)):
+            if not channels:
+                ctx.textual.dim_text("No public Slack channels were returned.")
+            else:
+                ctx.textual.success_text(f"Found {len(channels)} public Slack channels")
+                for channel in channels[:10]:
+                    ctx.textual.text(f"- #{channel.name} ({channel.id})")
+                if len(channels) > 10:
+                    ctx.textual.dim_text(f"... and {len(channels) - 10} more")
 
-    ctx.textual.end_step("success")
-    return Success(
-        f"Retrieved {len(channels)} public Slack channels",
-        metadata={
-            "slack_channels": channels,
-            "slack_channels_next_cursor": next_cursor,
-        },
-    )
+            ctx.textual.end_step("success")
+            return Success(
+                f"Retrieved {len(channels)} public Slack channels",
+                metadata={
+                    "slack_channels": channels,
+                    "slack_channels_next_cursor": next_cursor,
+                },
+            )
+        case ClientError(error_message=err):
+            ctx.textual.error_text(err)
+            ctx.textual.end_step("error")
+            return Error(err)
 
 
 def list_users_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -123,7 +136,7 @@ def list_users_step(ctx: WorkflowContext) -> WorkflowResult:
         slack_cursor (str, optional): Pagination cursor for the next page.
 
     Outputs (saved to ctx.data):
-        slack_users (list[NetworkSlackUser]): Users returned by Slack.
+        slack_users (list[UISlackUser]): Users returned by Slack.
         slack_users_next_cursor (str | None): Pagination cursor for a later request.
 
     Returns:
@@ -144,26 +157,32 @@ def list_users_step(ctx: WorkflowContext) -> WorkflowResult:
     cursor = ctx.get("slack_cursor")
 
     with ctx.textual.loading("Loading Slack users..."):
-        users, next_cursor = ctx.slack.list_users(limit=limit, cursor=cursor)
+        result = ctx.slack.list_users(limit=limit, cursor=cursor)
 
-    if not users:
-        ctx.textual.dim_text("No Slack users were returned.")
-    else:
-        ctx.textual.success_text(f"Found {len(users)} Slack users")
-        for user in users[:10]:
-            label = user.real_name or user.name or user.id
-            ctx.textual.text(f"- {label} ({user.id})")
-        if len(users) > 10:
-            ctx.textual.dim_text(f"... and {len(users) - 10} more")
+    match result:
+        case ClientSuccess(data=(users, next_cursor)):
+            if not users:
+                ctx.textual.dim_text("No Slack users were returned.")
+            else:
+                ctx.textual.success_text(f"Found {len(users)} Slack users")
+                for user in users[:10]:
+                    label = user.real_name or user.name or user.id
+                    ctx.textual.text(f"- {label} ({user.id})")
+                if len(users) > 10:
+                    ctx.textual.dim_text(f"... and {len(users) - 10} more")
 
-    ctx.textual.end_step("success")
-    return Success(
-        f"Retrieved {len(users)} Slack users",
-        metadata={
-            "slack_users": users,
-            "slack_users_next_cursor": next_cursor,
-        },
-    )
+            ctx.textual.end_step("success")
+            return Success(
+                f"Retrieved {len(users)} Slack users",
+                metadata={
+                    "slack_users": users,
+                    "slack_users_next_cursor": next_cursor,
+                },
+            )
+        case ClientError(error_message=err):
+            ctx.textual.error_text(err)
+            ctx.textual.end_step("error")
+            return Error(err)
 
 
 __all__ = [

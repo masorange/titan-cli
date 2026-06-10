@@ -1,29 +1,18 @@
-"""Minimal Slack client baseline for the first plugin phase."""
+"""Slack client facade backed by internal services."""
 
-try:
-    from slack_sdk import WebClient
-    from slack_sdk.errors import SlackApiError
-except ImportError:  # pragma: no cover - exercised implicitly in repo-level tests
-    class WebClient:  # type: ignore[override]
-        """Small fallback used until the plugin dependency is installed."""
+from . import sdk as slack_sdk_module
+from .services import AuthService, ConversationService, DirectoryService
+from titan_cli.core.result import ClientResult
 
-        def __init__(self, token: str, timeout: int | None = None):
-            self.token = token
-            self.timeout = timeout
+from ..exceptions import SlackClientError
+from ..models import UISlackAuth, UISlackChannel, UISlackMessage, UISlackUser
 
-    class SlackApiError(Exception):
-        """Fallback Slack API error used when slack-sdk is unavailable."""
-
-        def __init__(self, message: str, response=None):
-            super().__init__(message)
-            self.response = response
-
-from ..exceptions import SlackAPIError, SlackClientError
-from ..models import NetworkSlackChannel, NetworkSlackMessage, NetworkSlackUser
+SlackApiError = slack_sdk_module.SlackApiError
+WebClient = slack_sdk_module.WebClient
 
 
 class SlackClient:
-    """Small Slack client wrapper used by the Slack plugin."""
+    """Slack client facade used by the Slack plugin."""
 
     def __init__(self, user_token: str, team_id: str | None = None, timeout: int = 30):
         if not user_token:
@@ -32,116 +21,81 @@ class SlackClient:
         self.user_token = user_token
         self.team_id = team_id
         self.timeout = timeout
-        self.web_client = WebClient(token=user_token, timeout=timeout)
+        self._web_client = WebClient(token=user_token, timeout=timeout)
 
-    def _handle_api_error(self, exc: SlackApiError, operation: str) -> None:
-        """Convert Slack SDK API errors into plugin-level exceptions."""
-        error_code = "unknown_error"
-        response = getattr(exc, "response", None)
-        if isinstance(response, dict):
-            error_code = response.get("error", error_code)
-        raise SlackAPIError(f"Slack {operation} failed: {error_code}") from exc
+        self.auth_service = AuthService(self._web_client)
+        self.directory_service = DirectoryService(self._web_client)
+        self.conversation_service = ConversationService(self._web_client)
 
-    def _map_user(self, member: dict) -> NetworkSlackUser:
-        """Normalize a Slack user payload into the plugin model."""
-        return NetworkSlackUser(
-            id=member.get("id", ""),
-            name=member.get("name", ""),
-            real_name=member.get("real_name") or member.get("profile", {}).get("real_name"),
-            is_bot=member.get("is_bot", False),
-            is_active=not member.get("deleted", False),
-        )
+    @property
+    def web_client(self):
+        """Expose the underlying Slack WebClient for compatibility and testing."""
+        return self._web_client
 
-    def _map_channel(self, channel: dict) -> NetworkSlackChannel:
-        """Normalize a Slack conversation payload into the plugin model."""
-        return NetworkSlackChannel(
-            id=channel.get("id", ""),
-            name=channel.get("name", ""),
-            is_channel=channel.get("is_channel", True),
-            is_private=channel.get("is_private", False),
-        )
+    @web_client.setter
+    def web_client(self, value) -> None:
+        """Keep internal services aligned when tests or callers replace the WebClient."""
+        self._web_client = value
+        self.auth_service.web_client = value
+        self.directory_service.web_client = value
+        self.conversation_service.web_client = value
 
-    def _map_message(self, message: dict) -> NetworkSlackMessage:
-        """Normalize a Slack message payload into the plugin model."""
-        return NetworkSlackMessage(
-            ts=message.get("ts", ""),
-            text=message.get("text", ""),
-            user=message.get("user"),
-            thread_ts=message.get("thread_ts"),
-            reply_count=message.get("reply_count", 0),
-            subtype=message.get("subtype"),
-        )
-
-    def auth_test(self) -> dict:
+    def auth_test(self) -> ClientResult[UISlackAuth]:
         """Validate the configured user token with Slack auth.test."""
-        try:
-            response = self.web_client.auth_test()
-        except SlackApiError as exc:
-            self._handle_api_error(exc, "auth")
-        except Exception as exc:
-            raise SlackClientError(f"Slack auth request failed: {exc}") from exc
-
-        if not response.get("ok", False):
-            raise SlackAPIError(
-                f"Slack auth failed: {response.get('error', 'unknown_error')}"
-            )
-
-        return {
-            "user_id": response.get("user_id"),
-            "team_id": response.get("team_id"),
-            "team": response.get("team"),
-            "url": response.get("url"),
-            "bot_id": response.get("bot_id"),
-        }
+        return self.auth_service.auth_test()
 
     def list_users(
         self, limit: int = 100, cursor: str | None = None
-    ) -> tuple[list[NetworkSlackUser], str | None]:
+    ) -> ClientResult[tuple[list[UISlackUser], str | None]]:
         """List Slack users visible to the current token."""
-        try:
-            response = self.web_client.users_list(limit=limit, cursor=cursor)
-        except SlackApiError as exc:
-            self._handle_api_error(exc, "list_users")
-        except Exception as exc:
-            raise SlackClientError(f"Slack users request failed: {exc}") from exc
-
-        if not response.get("ok", False):
-            raise SlackAPIError(
-                f"Slack list_users failed: {response.get('error', 'unknown_error')}"
-            )
-
-        members = [self._map_user(member) for member in response.get("members", [])]
-        next_cursor = response.get("response_metadata", {}).get("next_cursor") or None
-        return members, next_cursor
+        return self.directory_service.list_users(limit=limit, cursor=cursor)
 
     def list_public_channels(
         self,
         limit: int = 100,
         cursor: str | None = None,
         exclude_archived: bool = True,
-    ) -> tuple[list[NetworkSlackChannel], str | None]:
+    ) -> ClientResult[tuple[list[UISlackChannel], str | None]]:
         """List public Slack channels visible to the current token."""
-        try:
-            response = self.web_client.conversations_list(
-                limit=limit,
-                cursor=cursor,
-                exclude_archived=exclude_archived,
-                types="public_channel",
-            )
-        except SlackApiError as exc:
-            self._handle_api_error(exc, "list_public_channels")
-        except Exception as exc:
-            raise SlackClientError(f"Slack conversations request failed: {exc}") from exc
+        return self.directory_service.list_public_channels(
+            limit=limit,
+            cursor=cursor,
+            exclude_archived=exclude_archived,
+        )
 
-        if not response.get("ok", False):
-            raise SlackAPIError(
-                "Slack list_public_channels failed: "
-                f"{response.get('error', 'unknown_error')}"
-            )
+    def search_users(
+        self,
+        query: str,
+        *,
+        max_matches: int = 20,
+        page_size: int = 200,
+        max_pages: int = 10,
+    ) -> ClientResult[list[UISlackUser]]:
+        """Search Slack users across multiple pages of visible users."""
+        return self.directory_service.search_users(
+            query,
+            max_matches=max_matches,
+            page_size=page_size,
+            max_pages=max_pages,
+        )
 
-        channels = [self._map_channel(channel) for channel in response.get("channels", [])]
-        next_cursor = response.get("response_metadata", {}).get("next_cursor") or None
-        return channels, next_cursor
+    def search_public_channels(
+        self,
+        query: str,
+        *,
+        max_matches: int = 20,
+        page_size: int = 200,
+        max_pages: int = 10,
+        exclude_archived: bool = True,
+    ) -> ClientResult[list[UISlackChannel]]:
+        """Search public Slack channels across multiple pages of visible channels."""
+        return self.directory_service.search_public_channels(
+            query,
+            max_matches=max_matches,
+            page_size=page_size,
+            max_pages=max_pages,
+            exclude_archived=exclude_archived,
+        )
 
     def read_channel(
         self,
@@ -151,28 +105,13 @@ class SlackClient:
         oldest: str | None = None,
         latest: str | None = None,
         inclusive: bool = False,
-    ) -> tuple[list[NetworkSlackMessage], str | None, bool]:
+    ) -> ClientResult[tuple[list[UISlackMessage], str | None, bool]]:
         """Read message history from a Slack public channel."""
-        try:
-            response = self.web_client.conversations_history(
-                channel=channel_id,
-                limit=limit,
-                cursor=cursor,
-                oldest=oldest,
-                latest=latest,
-                inclusive=inclusive,
-            )
-        except SlackApiError as exc:
-            self._handle_api_error(exc, "read_channel")
-        except Exception as exc:
-            raise SlackClientError(f"Slack channel history request failed: {exc}") from exc
-
-        if not response.get("ok", False):
-            raise SlackAPIError(
-                f"Slack read_channel failed: {response.get('error', 'unknown_error')}"
-            )
-
-        messages = [self._map_message(message) for message in response.get("messages", [])]
-        next_cursor = response.get("response_metadata", {}).get("next_cursor") or None
-        has_more = response.get("has_more", False)
-        return messages, next_cursor, has_more
+        return self.conversation_service.read_conversation(
+            conversation_id=channel_id,
+            limit=limit,
+            cursor=cursor,
+            oldest=oldest,
+            latest=latest,
+            inclusive=inclusive,
+        )

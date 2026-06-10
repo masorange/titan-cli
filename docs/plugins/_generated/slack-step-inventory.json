@@ -17,6 +17,19 @@
           "summary": "List users visible to the current Slack token."
         }
       ]
+    },
+    {
+      "name": "Selection and Target Resolution",
+      "steps": [
+        {
+          "name": "select_user_target",
+          "summary": "Filter visible Slack users by query and select one canonical user target."
+        },
+        {
+          "name": "select_channel_target",
+          "summary": "Filter visible Slack channels by query and select one canonical channel target."
+        }
+      ]
     }
   ],
   "steps": [
@@ -100,6 +113,62 @@
       "used_by_workflows": [
         "discover-slack-workspace"
       ]
+    },
+    {
+      "name": "select_user_target",
+      "group": "Selection and Target Resolution",
+      "module": "titan_plugin_slack.steps.target_steps",
+      "function": "select_user_target_step",
+      "summary": "Filter visible Slack users by query and select one canonical user target.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_users (list[UISlackUser]): Users visible to the current Slack token.",
+          "    slack_target_query (str, optional): Pre-filled query used to filter Slack users."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_target (UISlackTarget): Canonical selected Slack target.",
+          "    slack_target_type (str): Selected target type (`user`).",
+          "    slack_target_id (str): Slack user ID.",
+          "    slack_target_name (str): User-facing target name.",
+          "    slack_target_query (str): Query used to resolve the selection."
+        ],
+        "Returns": [
+          "    Success: If the user target is selected successfully.",
+          "    Error: If Slack is unavailable, no users are available, the query is invalid, or no match is selected."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "select_channel_target",
+      "group": "Selection and Target Resolution",
+      "module": "titan_plugin_slack.steps.target_steps",
+      "function": "select_channel_target_step",
+      "summary": "Filter visible Slack channels by query and select one canonical channel target.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_channels (list[UISlackChannel]): Public channels visible to the current Slack token.",
+          "    slack_target_query (str, optional): Pre-filled query used to filter Slack channels."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_target (UISlackTarget): Canonical selected Slack target.",
+          "    slack_target_type (str): Selected target type (`channel`).",
+          "    slack_target_id (str): Slack channel ID.",
+          "    slack_target_name (str): User-facing target name.",
+          "    slack_target_query (str): Query used to resolve the selection."
+        ],
+        "Returns": [
+          "    Success: If the channel target is selected successfully.",
+          "    Error: If Slack is unavailable, no channels are available, the query is invalid, or no match is selected."
+        ]
+      },
+      "used_by_workflows": []
     }
   ]
 }

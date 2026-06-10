@@ -13,6 +13,8 @@ from titan_cli.ui.tui.widgets import BoldPrimaryText, BoldText, Button, DimText,
 from titan_cli.ui.tui.screens.base import BaseScreen
 from titan_cli.core.logging import get_logger
 
+from titan_cli.core.result import ClientError, ClientSuccess
+
 from ..clients.slack_client import SlackClient
 from ..oauth import DEFAULT_SCOPES, SlackOAuthFlow, SlackOAuthResult
 
@@ -351,17 +353,23 @@ class SlackConfigScreen(BaseScreen):
         )
         result = client.auth_test()
 
-        self._save_global_slack_config(
-            {
-                "default_team_id": result.get("team_id"),
-                "default_team_name": result.get("team"),
-                "auth_mode": "user_token",
-                "timeout": plugin_config.get("timeout", 30),
-            }
-        )
-        self._enable_plugin_for_current_project()
-        self.app.notify("Slack connection validated successfully.", severity="information")
-        self.dismiss(result=True)
+        match result:
+            case ClientSuccess(data=auth):
+                self._save_global_slack_config(
+                    {
+                        "default_team_id": auth.team_id,
+                        "default_team_name": auth.team,
+                        "auth_mode": "user_token",
+                        "timeout": plugin_config.get("timeout", 30),
+                    }
+                )
+                self._enable_plugin_for_current_project()
+                self.app.notify(
+                    "Slack connection validated successfully.", severity="information"
+                )
+                self.dismiss(result=True)
+            case ClientError(error_message=err):
+                raise RuntimeError(err)
 
     def _disconnect(self) -> None:
         self.config.secrets.delete("slack_user_token", scope="user")

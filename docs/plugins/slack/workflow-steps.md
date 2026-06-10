@@ -7,6 +7,7 @@ For full contract details for every public step, including documented inputs, ou
 ## Functional groups
 
 - [Validation and Discovery](#validation-and-discovery)
+- [Selection and Target Resolution](#selection-and-target-resolution)
 
 ## Summary
 
@@ -15,6 +16,8 @@ For full contract details for every public step, including documented inputs, ou
 | `validate_connection` | Validation and Discovery | `discover-slack-workspace` |
 | `list_public_channels` | Validation and Discovery | `discover-slack-workspace` |
 | `list_users` | Validation and Discovery | `discover-slack-workspace` |
+| `select_user_target` | Selection and Target Resolution | - |
+| `select_channel_target` | Selection and Target Resolution | - |
 
 ## Validation and Discovery
 
@@ -23,3 +26,10 @@ Use these steps to validate the current Slack connection and inspect the accessi
 - `validate_connection`: validate the configured Slack token and expose identity metadata
 - `list_public_channels`: list public channels visible to the current token
 - `list_users`: list users visible to the current token
+
+## Selection and Target Resolution
+
+Use these steps to resolve a reusable Slack target object for later workflows.
+
+- `select_user_target`: filter visible Slack users by query and select one canonical user target
+- `select_channel_target`: filter visible Slack channels by query and select one canonical channel target
