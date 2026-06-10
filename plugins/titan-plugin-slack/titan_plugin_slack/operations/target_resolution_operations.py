@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import unicodedata
+
 from ..models import UISlackChannel, UISlackTarget, UISlackUser
 
 
 def normalize_search_query(query: str) -> str:
     """Normalize a free-text query for user or channel filtering."""
-    return " ".join(query.strip().lower().split())
+    collapsed = " ".join(query.strip().lower().split())
+    return "".join(
+        char for char in unicodedata.normalize("NFKD", collapsed) if not unicodedata.combining(char)
+    )
 
 
 def _score_match(query: str, *candidates: str) -> int | None:

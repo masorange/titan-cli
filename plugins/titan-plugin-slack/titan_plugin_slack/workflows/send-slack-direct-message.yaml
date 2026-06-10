@@ -1,0 +1,28 @@
+name: "Send Slack Direct Message"
+description: "Select a person, open or reuse a direct message conversation, and send a Slack message"
+
+steps:
+  - id: validate_connection
+    name: "Validate Slack Connection"
+    plugin: slack
+    step: validate_connection
+
+  - id: select_user_target
+    name: "Select Slack User Target"
+    plugin: slack
+    step: select_user_target
+
+  - id: open_direct_message
+    name: "Open Direct Message"
+    plugin: slack
+    step: open_direct_message
+
+  - id: prompt_message_body
+    name: "Compose Message"
+    plugin: slack
+    step: prompt_message_body
+
+  - id: post_message
+    name: "Send Message"
+    plugin: slack
+    step: post_message

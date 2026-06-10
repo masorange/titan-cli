@@ -56,3 +56,37 @@ def test_read_conversation_raises_api_error() -> None:
 
     assert isinstance(result, ClientError)
     assert result.error_message == "Slack read_channel failed: channel_not_found"
+
+
+def test_open_direct_message_returns_conversation() -> None:
+    web_client = MagicMock()
+    web_client.conversations_open.return_value = {
+        "ok": True,
+        "channel": {
+            "id": "D123",
+            "is_im": True,
+            "user": "U123",
+            "context_team_id": "T123",
+        },
+    }
+
+    service = ConversationService(web_client)
+
+    result = service.open_direct_message("U123")
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.id == "D123"
+    assert result.data.user_id == "U123"
+    assert result.data.team_id == "T123"
+
+
+def test_open_direct_message_returns_client_error() -> None:
+    web_client = MagicMock()
+    web_client.conversations_open.return_value = {"ok": False, "error": "missing_scope"}
+
+    service = ConversationService(web_client)
+
+    result = service.open_direct_message("U123")
+
+    assert isinstance(result, ClientError)
+    assert result.error_message == "Slack open_direct_message failed: missing_scope"

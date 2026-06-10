@@ -1,11 +1,18 @@
 """Slack client facade backed by internal services."""
 
 from . import sdk as slack_sdk_module
-from .services import AuthService, ConversationService, DirectoryService
+from .services import AuthService, ConversationService, DirectoryService, MessageService
 from titan_cli.core.result import ClientResult
 
 from ..exceptions import SlackClientError
-from ..models import UISlackAuth, UISlackChannel, UISlackMessage, UISlackUser
+from ..models import (
+    UISlackAuth,
+    UISlackChannel,
+    UISlackConversation,
+    UISlackMessage,
+    UISlackPostedMessage,
+    UISlackUser,
+)
 
 SlackApiError = slack_sdk_module.SlackApiError
 WebClient = slack_sdk_module.WebClient
@@ -26,6 +33,7 @@ class SlackClient:
         self.auth_service = AuthService(self._web_client)
         self.directory_service = DirectoryService(self._web_client)
         self.conversation_service = ConversationService(self._web_client)
+        self.message_service = MessageService(self._web_client)
 
     @property
     def web_client(self):
@@ -39,6 +47,7 @@ class SlackClient:
         self.auth_service.web_client = value
         self.directory_service.web_client = value
         self.conversation_service.web_client = value
+        self.message_service.web_client = value
 
     def auth_test(self) -> ClientResult[UISlackAuth]:
         """Validate the configured user token with Slack auth.test."""
@@ -69,7 +78,7 @@ class SlackClient:
         *,
         max_matches: int = 20,
         page_size: int = 200,
-        max_pages: int = 10,
+        max_pages: int = 50,
     ) -> ClientResult[list[UISlackUser]]:
         """Search Slack users across multiple pages of visible users."""
         return self.directory_service.search_users(
@@ -85,7 +94,7 @@ class SlackClient:
         *,
         max_matches: int = 20,
         page_size: int = 200,
-        max_pages: int = 10,
+        max_pages: int = 50,
         exclude_archived: bool = True,
     ) -> ClientResult[list[UISlackChannel]]:
         """Search public Slack channels across multiple pages of visible channels."""
@@ -115,3 +124,17 @@ class SlackClient:
             latest=latest,
             inclusive=inclusive,
         )
+
+    def open_direct_message(self, user_id: str) -> ClientResult[UISlackConversation]:
+        """Open or reuse a direct message conversation with a Slack user."""
+        return self.conversation_service.open_direct_message(user_id)
+
+    def post_message(
+        self,
+        channel_id: str,
+        text: str,
+        *,
+        thread_ts: str | None = None,
+    ) -> ClientResult[UISlackPostedMessage]:
+        """Post a plain-text message to a Slack conversation."""
+        return self.message_service.post_message(channel_id, text, thread_ts=thread_ts)

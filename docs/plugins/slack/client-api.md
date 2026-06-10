@@ -72,6 +72,24 @@ Read message history from a Slack public channel.
 - `latest`: Optional latest timestamp bound.
 - `inclusive`: Optional boundary inclusion flag.
 
+### `open_direct_message(user_id)`
+
+Open or reuse a direct message conversation with a Slack user.
+
+**Parameters:**
+
+- `user_id`: Required Slack user ID.
+
+### `post_message(channel_id, text, thread_ts=None)`
+
+Post a plain-text message to a Slack conversation.
+
+**Parameters:**
+
+- `channel_id`: Required conversation ID.
+- `text`: Required message text.
+- `thread_ts`: Optional thread timestamp for replies.
+
 ---
 
 ## Usage constraints

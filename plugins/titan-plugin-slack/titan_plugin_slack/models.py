@@ -100,3 +100,23 @@ class UISlackTarget:
     target_name: str
     team_id: Optional[str] = None
     connection_id: Optional[str] = None
+
+
+@dataclass
+class UISlackConversation:
+    """Conversation model returned when Slack opens or resolves a DM."""
+
+    id: str
+    is_im: bool = False
+    user_id: Optional[str] = None
+    team_id: Optional[str] = None
+
+
+@dataclass
+class UISlackPostedMessage:
+    """Posted Slack message metadata returned by message sending operations."""
+
+    channel: str
+    ts: str
+    text: Optional[str] = None
+    thread_ts: Optional[str] = None

@@ -34,10 +34,15 @@ class DirectoryService:
 
     @staticmethod
     def _map_user(member: dict) -> NetworkSlackUser:
+        profile = member.get("profile", {})
         return NetworkSlackUser(
             id=member.get("id", ""),
             name=member.get("name", ""),
-            real_name=member.get("real_name") or member.get("profile", {}).get("real_name"),
+            real_name=(
+                member.get("real_name")
+                or profile.get("real_name")
+                or profile.get("display_name")
+            ),
             is_bot=member.get("is_bot", False),
             is_active=not member.get("deleted", False),
         )
@@ -155,7 +160,7 @@ class DirectoryService:
         *,
         max_matches: int = 20,
         page_size: int = 200,
-        max_pages: int = 10,
+        max_pages: int = 50,
     ) -> ClientResult[list[UISlackUser]]:
         """Search Slack users by paging through visible users and filtering locally."""
         cursor: str | None = None
@@ -196,7 +201,7 @@ class DirectoryService:
         *,
         max_matches: int = 20,
         page_size: int = 200,
-        max_pages: int = 10,
+        max_pages: int = 50,
         exclude_archived: bool = True,
     ) -> ClientResult[list[UISlackChannel]]:
         """Search Slack public channels by paging through visible channels and filtering locally."""

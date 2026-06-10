@@ -15,6 +15,14 @@
         {"name": "select_user_target", "summary": "Filter visible Slack users by query and select one canonical user target."},
         {"name": "select_channel_target", "summary": "Filter visible Slack channels by query and select one canonical channel target."}
       ]
+    },
+    {
+      "name": "Messaging",
+      "steps": [
+        {"name": "open_direct_message", "summary": "Open or reuse a direct message conversation for the selected user target."},
+        {"name": "prompt_message_body", "summary": "Capture a multiline Slack message body for later posting."},
+        {"name": "post_message", "summary": "Post the prepared message to the selected Slack conversation."}
+      ]
     }
   ]
 }

@@ -19,7 +19,16 @@ from titan_cli.core.logging import get_logger
 
 AUTHORIZE_URL = "https://slack.com/oauth/v2_user/authorize"
 TOKEN_URL = "https://slack.com/api/oauth.v2.user.access"
-DEFAULT_SCOPES = ["users:read", "channels:read", "channels:history"]
+DEFAULT_SCOPES = [
+    "users:read",
+    "channels:read",
+    "channels:history",
+    "chat:write",
+    "im:write",
+    "mpim:write",
+    "channels:write",
+    "groups:write",
+]
 
 logger = get_logger(__name__)
 

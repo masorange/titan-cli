@@ -243,3 +243,143 @@ Filter visible Slack channels by query and select one canonical channel target.
 |--------|-----------------------|-------------|
 | `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the channel target is selected successfully. |
 | `Error` | - | If Slack is unavailable, no channels are available, the query is invalid, or no match is selected. |
+
+## Messaging
+
+### `open_direct_message`
+
+Open or reuse a direct message conversation for the selected user target.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: open_direct_message
+```
+
+**Used by built-in workflows:** `send-slack-direct-message`
+
+**Available to later steps:** `slack_conversation`, `slack_conversation_id`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_target` | UISlackTarget | Selected Slack target. Must be a `user` target. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_conversation` | UISlackConversation | Opened or reused Slack conversation. |
+| `slack_conversation_id` | str | Conversation ID used for later message operations. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_conversation`, `slack_conversation_id` | If the direct message conversation is ready. |
+| `Error` | - | If Slack is unavailable, the target is missing or invalid, or the Slack request fails. |
+
+### `prompt_message_body`
+
+Capture a multiline Slack message body for later posting.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: prompt_message_body
+```
+
+**Used by built-in workflows:** `send-slack-direct-message`
+
+**Available to later steps:** `slack_message_text`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_message_text` | str, optional | Pre-filled message text. If already present, the prompt is skipped. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_message_text` | str | Message text to post later. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_message_text` | If the message body is captured successfully. |
+| `Skip` | `slack_message_text` | If the message body already exists in context. |
+| `Error` | - | If the user cancels or the message body is empty. |
+
+### `post_message`
+
+Post the prepared message to the selected Slack conversation.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: post_message
+```
+
+**Used by built-in workflows:** `send-slack-direct-message`
+
+**Available to later steps:** `slack_message`, `slack_message_ts`, `slack_message_channel`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_conversation_id` | str | Slack conversation ID to post into. |
+| `slack_message_text` | str | Message body to post. |
+| `slack_thread_ts` | str, optional | Thread timestamp for replies. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_message` | UISlackPostedMessage | Posted Slack message metadata. |
+| `slack_message_ts` | str | Timestamp of the posted message. |
+| `slack_message_channel` | str | Channel or conversation ID where the message was posted. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_message`, `slack_message_ts`, `slack_message_channel` | If the Slack message is posted successfully. |
+| `Error` | - | If Slack is unavailable, required context is missing, or the Slack request fails. |

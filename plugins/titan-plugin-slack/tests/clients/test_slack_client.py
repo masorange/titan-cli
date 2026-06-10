@@ -242,3 +242,27 @@ def test_search_public_channels_delegates_to_directory_service() -> None:
         max_pages=3,
         exclude_archived=False,
     )
+
+
+def test_open_direct_message_delegates_to_conversation_service() -> None:
+    client = SlackClient(user_token="xoxp-test-token")
+    client.conversation_service = MagicMock()
+    client.conversation_service.open_direct_message.return_value = ClientSuccess(data=MagicMock())
+
+    result = client.open_direct_message("U123")
+
+    assert isinstance(result, ClientSuccess)
+    client.conversation_service.open_direct_message.assert_called_once_with("U123")
+
+
+def test_post_message_delegates_to_message_service() -> None:
+    client = SlackClient(user_token="xoxp-test-token")
+    client.message_service = MagicMock()
+    client.message_service.post_message.return_value = ClientSuccess(data=MagicMock())
+
+    result = client.post_message("D123", "Hello", thread_ts="123.456")
+
+    assert isinstance(result, ClientSuccess)
+    client.message_service.post_message.assert_called_once_with(
+        "D123", "Hello", thread_ts="123.456"
+    )

@@ -26,7 +26,7 @@ def select_user_target_step(ctx: WorkflowContext) -> WorkflowResult:
         slack_target_query (str, optional): Pre-filled query used to filter Slack users.
         slack_search_limit (int, optional): Maximum number of matches to return. Defaults to 20.
         slack_search_page_size (int, optional): Page size used while scanning Slack users. Defaults to 200.
-        slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 10.
+        slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.
 
     Outputs (saved to ctx.data):
         slack_target (UISlackTarget): Canonical selected Slack target.
@@ -73,7 +73,7 @@ def select_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
         slack_target_query (str, optional): Pre-filled query used to filter Slack channels.
         slack_search_limit (int, optional): Maximum number of matches to return. Defaults to 20.
         slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 200.
-        slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 10.
+        slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.
         slack_exclude_archived (bool, optional): Whether to exclude archived channels while searching. Defaults to True.
 
     Outputs (saved to ctx.data):
@@ -151,7 +151,7 @@ def _select_target_step(
 
     search_limit = ctx.get("slack_search_limit", MAX_TARGET_OPTIONS)
     page_size = ctx.get("slack_search_page_size", 200)
-    max_pages = ctx.get("slack_search_max_pages", 10)
+    max_pages = ctx.get("slack_search_max_pages", 50)
     exclude_archived = ctx.get("slack_exclude_archived", True)
 
     with ctx.textual.loading("Searching Slack targets..."):

@@ -25,6 +25,9 @@ def test_slack_plugin_exposes_public_steps() -> None:
         "list_users",
         "select_user_target",
         "select_channel_target",
+        "open_direct_message",
+        "prompt_message_body",
+        "post_message",
     }
 
 

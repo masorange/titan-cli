@@ -24,6 +24,17 @@ def test_filter_users_for_query_prioritizes_exact_then_prefix() -> None:
     assert [user.id for user in matches] == ["U1", "U2", "U3"]
 
 
+def test_filter_users_for_query_matches_without_accents() -> None:
+    users = [
+        UISlackUser(id="U1", name="gabriel", real_name="Gabriel Garcia Lopez"),
+        UISlackUser(id="U2", name="gabriel-2", real_name="Gabriel García López"),
+    ]
+
+    matches = filter_users_for_query(users, "garcia")
+
+    assert [user.id for user in matches] == ["U1", "U2"]
+
+
 def test_filter_channels_for_query_strips_hash_and_limits_results() -> None:
     channels = [
         UISlackChannel(id="C1", name="engineering"),

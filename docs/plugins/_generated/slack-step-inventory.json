@@ -30,6 +30,23 @@
           "summary": "Filter visible Slack channels by query and select one canonical channel target."
         }
       ]
+    },
+    {
+      "name": "Messaging",
+      "steps": [
+        {
+          "name": "open_direct_message",
+          "summary": "Open or reuse a direct message conversation for the selected user target."
+        },
+        {
+          "name": "prompt_message_body",
+          "summary": "Capture a multiline Slack message body for later posting."
+        },
+        {
+          "name": "post_message",
+          "summary": "Post the prepared message to the selected Slack conversation."
+        }
+      ]
     }
   ],
   "steps": [
@@ -169,6 +186,85 @@
         ]
       },
       "used_by_workflows": []
+    },
+    {
+      "name": "open_direct_message",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "open_direct_message_step",
+      "summary": "Open or reuse a direct message conversation for the selected user target.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_target (UISlackTarget): Selected Slack target. Must be a `user` target."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_conversation (UISlackConversation): Opened or reused Slack conversation.",
+          "    slack_conversation_id (str): Conversation ID used for later message operations."
+        ],
+        "Returns": [
+          "    Success: If the direct message conversation is ready.",
+          "    Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "send-slack-direct-message"
+      ]
+    },
+    {
+      "name": "prompt_message_body",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "prompt_message_body_step",
+      "summary": "Capture a multiline Slack message body for later posting.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    slack_message_text (str, optional): Pre-filled message text. If already present, the prompt is skipped."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_message_text (str): Message text to post later."
+        ],
+        "Returns": [
+          "    Success: If the message body is captured successfully.",
+          "    Skip: If the message body already exists in context.",
+          "    Error: If the user cancels or the message body is empty."
+        ]
+      },
+      "used_by_workflows": [
+        "send-slack-direct-message"
+      ]
+    },
+    {
+      "name": "post_message",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "post_message_step",
+      "summary": "Post the prepared message to the selected Slack conversation.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_conversation_id (str): Slack conversation ID to post into.",
+          "    slack_message_text (str): Message body to post.",
+          "    slack_thread_ts (str, optional): Thread timestamp for replies."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_message (UISlackPostedMessage): Posted Slack message metadata.",
+          "    slack_message_ts (str): Timestamp of the posted message.",
+          "    slack_message_channel (str): Channel or conversation ID where the message was posted."
+        ],
+        "Returns": [
+          "    Success: If the Slack message is posted successfully.",
+          "    Error: If Slack is unavailable, required context is missing, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "send-slack-direct-message"
+      ]
     }
   ]
 }
