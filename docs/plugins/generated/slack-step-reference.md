@@ -383,3 +383,200 @@ Post the prepared message to the selected Slack conversation.
 |--------|-----------------------|-------------|
 | `Success` | `slack_message`, `slack_message_ts`, `slack_message_channel` | If the Slack message is posted successfully. |
 | `Error` | - | If Slack is unavailable, required context is missing, or the Slack request fails. |
+
+## Conversation Summaries
+
+### `select_target`
+
+Search both users and channels for a single unified target selection.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: select_target
+```
+
+**Used by built-in workflows:** `summarize-slack-target`
+
+**Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_target_query` | str, optional | Query used to search both users and channels. |
+| `slack_search_limit` | int, optional | Maximum number of matches to keep from each search. Defaults to 10. |
+| `slack_search_page_size` | int, optional | Page size used while scanning Slack. Defaults to 200. |
+| `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
+| `slack_exclude_archived` | bool, optional | Whether to exclude archived channels. Defaults to True. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_target` | UISlackTarget | Canonical selected Slack target. |
+| `slack_target_type` | str | Selected target type (`user` or `channel`). |
+| `slack_target_id` | str | Slack target identifier. |
+| `slack_target_name` | str | User-facing target name. |
+| `slack_target_query` | str | Query used to resolve the selection. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the unified target is selected successfully. |
+| `Error` | - | If Slack is unavailable, the query is invalid, the search fails, or no match is selected. |
+
+### `ensure_target_conversation`
+
+Resolve a Slack conversation from the selected target.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: ensure_target_conversation
+```
+
+**Used by built-in workflows:** `summarize-slack-target`
+
+**Available to later steps:** `slack_conversation`, `slack_conversation_id`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_target` | UISlackTarget | Selected Slack target. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_conversation` | UISlackConversation | Resolved Slack conversation. |
+| `slack_conversation_id` | str | Conversation ID used for later operations. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_conversation`, `slack_conversation_id` | If the target conversation is resolved successfully. |
+| `Error` | - | If Slack is unavailable, the target is missing, or the Slack request fails. |
+
+### `read_recent_messages`
+
+Read the most recent messages from the resolved Slack conversation.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: read_recent_messages
+```
+
+**Used by built-in workflows:** `summarize-slack-target`
+
+**Available to later steps:** `slack_messages`, `slack_messages_next_cursor`, `slack_messages_has_more`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_conversation_id` | str | Slack conversation ID to read. |
+| `slack_history_limit` | int, optional | Number of recent messages to fetch. Defaults to 50. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_messages` | list[UISlackMessage] | Retrieved Slack messages. |
+| `slack_messages_next_cursor` | str \| None | Pagination cursor for later reads. |
+| `slack_messages_has_more` | bool | Whether more messages are available. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_messages`, `slack_messages_next_cursor`, `slack_messages_has_more` | If recent messages are retrieved successfully. |
+| `Error` | - | If Slack is unavailable, required context is missing, or the Slack request fails. |
+
+### `ai_summarize_messages`
+
+Summarize recent Slack messages with AI.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: ai_summarize_messages
+```
+
+**Used by built-in workflows:** `summarize-slack-target`
+
+**Available to later steps:** `slack_summary`, `slack_summary_source_count`, `slack_summary_transcript_chars`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_messages` | list[UISlackMessage] | Messages to summarize. |
+| `slack_target_name` | str, optional | Human-facing target label for the summary. |
+| `slack_summary_max_chars` | int, optional | Maximum transcript size passed to AI. Defaults to 12000. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_summary` | str | AI-generated Slack summary. |
+| `slack_summary_source_count` | int | Number of source messages summarized. |
+| `slack_summary_transcript_chars` | int | Transcript size sent to AI after truncation. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_summary`, `slack_summary_source_count`, `slack_summary_transcript_chars` | If the summary is generated successfully. |
+| `Skip` | - | If AI is not configured or not available. |
+| `Error` | - | If messages are missing or the AI request fails. |

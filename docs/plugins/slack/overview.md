@@ -50,5 +50,6 @@ The Slack plugin currently exposes public reusable steps for:
 - listing users visible to the current token
 - selecting a reusable Slack target from users or channels for later workflows
 - opening a direct message and posting a Slack message through reusable messaging steps
+- resolving a target conversation, reading recent messages, and summarizing them with AI
 
 The grouped reference lives in [Workflow Steps](./workflow-steps.md).

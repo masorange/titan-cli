@@ -7,6 +7,11 @@ from .target_resolution_operations import (
     filter_users_for_query,
     normalize_search_query,
 )
+from .message_summary_operations import (
+    build_summary_prompt,
+    format_messages_as_transcript,
+    truncate_transcript_for_summary,
+)
 
 __all__ = [
     "normalize_search_query",
@@ -14,4 +19,7 @@ __all__ = [
     "filter_channels_for_query",
     "build_user_target",
     "build_channel_target",
+    "format_messages_as_transcript",
+    "truncate_transcript_for_summary",
+    "build_summary_prompt",
 ]

@@ -68,7 +68,7 @@ def test_select_channel_target_returns_target_metadata() -> None:
     ctx.slack = MagicMock()
     ctx.textual.ask_text.return_value = "eng"
     channel = UISlackChannel(id="C2", name="eng-backend")
-    ctx.slack.search_public_channels.return_value = ClientSuccess(data=[channel])
+    ctx.slack.search_channels.return_value = ClientSuccess(data=[channel])
     ctx.textual.ask_option.return_value = channel
 
     result = select_channel_target_step(ctx)

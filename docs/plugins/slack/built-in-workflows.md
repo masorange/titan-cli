@@ -49,3 +49,27 @@ Select a person, open or reuse a direct message conversation, compose a message,
 
 - this workflow depends on DM-related Slack scopes beyond the original discovery-only baseline
 - it still assumes one active personal Slack connection per user
+
+## `summarize-slack-target`
+
+Search for a person or channel, resolve the backing conversation, read recent Slack messages, and summarize them with AI.
+
+**Source workflow:** `plugins/titan-plugin-slack/titan_plugin_slack/workflows/summarize-slack-target.yaml`
+
+### Default flow
+
+1. `slack.validate_connection`
+2. `slack.select_target`
+3. `slack.ensure_target_conversation`
+4. `slack.read_recent_messages`
+5. `slack.ai_summarize_messages`
+
+### Typical usage
+
+- summarize a recent conversation without manually browsing the Slack UI
+- inspect recent channel or DM context from Titan before taking action
+
+### Scope constraints
+
+- this workflow depends on conversation-history scopes and AI configuration
+- it assumes one active personal Slack connection per user

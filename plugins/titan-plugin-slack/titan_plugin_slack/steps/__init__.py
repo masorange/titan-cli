@@ -10,6 +10,12 @@ from .message_steps import (
     post_message_step,
     prompt_message_body_step,
 )
+from .summary_steps import (
+    ai_summarize_messages_step,
+    ensure_target_conversation_step,
+    read_recent_messages_step,
+    select_target_step,
+)
 from .target_steps import select_channel_target_step, select_user_target_step
 
 __all__ = [
@@ -19,6 +25,10 @@ __all__ = [
     "open_direct_message_step",
     "prompt_message_body_step",
     "post_message_step",
+    "select_target_step",
+    "ensure_target_conversation_step",
+    "read_recent_messages_step",
+    "ai_summarize_messages_step",
     "select_user_target_step",
     "select_channel_target_step",
 ]

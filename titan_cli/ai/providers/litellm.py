@@ -126,7 +126,7 @@ class LiteLLMProvider(AIProvider):
             response = self._client.chat.completions.create(**request_kwargs)
             choice = response.choices[0]
             usage = response.usage
-            content = choice.message.content or ""
+            content = self._extract_choice_content(choice)
             response_model = response.model or self._model
             finish_reason = choice.finish_reason or "stop"
 
@@ -161,6 +161,66 @@ class LiteLLMProvider(AIProvider):
             raise AIProviderAPIError(
                 f"LiteLLM provider error: {str(e)}"
             )
+
+    @classmethod
+    def _extract_choice_content(cls, choice) -> str:
+        """Extract text content robustly from OpenAI-compatible response choices."""
+        message = getattr(choice, "message", None)
+        direct_content = getattr(message, "content", None)
+        text = cls._coerce_content_to_text(direct_content)
+        if text:
+            return text
+
+        if message is not None and hasattr(message, "model_dump"):
+            text = cls._extract_text_from_mapping(message.model_dump())
+            if text:
+                return text
+
+        if hasattr(choice, "model_dump"):
+            text = cls._extract_text_from_mapping(choice.model_dump())
+            if text:
+                return text
+
+        return ""
+
+    @classmethod
+    def _extract_text_from_mapping(cls, data) -> str:
+        if not isinstance(data, dict):
+            return ""
+
+        for key in ("content", "text", "output_text", "reasoning_content"):
+            text = cls._coerce_content_to_text(data.get(key))
+            if text:
+                return text
+
+        message = data.get("message")
+        if isinstance(message, dict):
+            text = cls._extract_text_from_mapping(message)
+            if text:
+                return text
+
+        return ""
+
+    @classmethod
+    def _coerce_content_to_text(cls, content) -> str:
+        if content is None:
+            return ""
+
+        if isinstance(content, str):
+            return content.strip()
+
+        if isinstance(content, dict):
+            if "text" in content and isinstance(content["text"], str):
+                return content["text"].strip()
+            if "content" in content:
+                return cls._coerce_content_to_text(content["content"])
+            return ""
+
+        if isinstance(content, (list, tuple)):
+            parts = [cls._coerce_content_to_text(item) for item in content]
+            return "\n".join(part for part in parts if part).strip()
+
+        return ""
 
     def validate_api_key(self, api_key: Optional[str] = None) -> bool:
         """

@@ -9,6 +9,7 @@ For full contract details for every public step, including documented inputs, ou
 - [Validation and Discovery](#validation-and-discovery)
 - [Selection and Target Resolution](#selection-and-target-resolution)
 - [Messaging](#messaging)
+- [Conversation Summaries](#conversation-summaries)
 
 ## Summary
 
@@ -22,6 +23,10 @@ For full contract details for every public step, including documented inputs, ou
 | `open_direct_message` | Messaging | `send-slack-direct-message` |
 | `prompt_message_body` | Messaging | `send-slack-direct-message` |
 | `post_message` | Messaging | `send-slack-direct-message` |
+| `select_target` | Conversation Summaries | `summarize-slack-target` |
+| `ensure_target_conversation` | Conversation Summaries | `summarize-slack-target` |
+| `read_recent_messages` | Conversation Summaries | `summarize-slack-target` |
+| `ai_summarize_messages` | Conversation Summaries | `summarize-slack-target` |
 
 ## Validation and Discovery
 
@@ -45,3 +50,12 @@ Use these steps to open a direct message conversation and post a plain-text Slac
 - `open_direct_message`: open or reuse a direct message conversation for the selected user target
 - `prompt_message_body`: capture a multiline Slack message body for later posting
 - `post_message`: post the prepared message to the selected conversation
+
+## Conversation Summaries
+
+Use these steps to resolve a target conversation, read its recent messages, and summarize them with AI.
+
+- `select_target`: search both users and channels and select one unified Slack target
+- `ensure_target_conversation`: resolve a Slack conversation from the selected target
+- `read_recent_messages`: read the latest messages from the resolved conversation
+- `ai_summarize_messages`: summarize the retrieved messages with AI

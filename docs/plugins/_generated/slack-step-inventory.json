@@ -47,6 +47,27 @@
           "summary": "Post the prepared message to the selected Slack conversation."
         }
       ]
+    },
+    {
+      "name": "Conversation Summaries",
+      "steps": [
+        {
+          "name": "select_target",
+          "summary": "Search both users and channels and select one unified Slack target."
+        },
+        {
+          "name": "ensure_target_conversation",
+          "summary": "Resolve a Slack conversation from the selected target."
+        },
+        {
+          "name": "read_recent_messages",
+          "summary": "Read the most recent messages from the resolved Slack conversation."
+        },
+        {
+          "name": "ai_summarize_messages",
+          "summary": "Summarize the retrieved Slack messages with AI."
+        }
+      ]
     }
   ],
   "steps": [
@@ -264,6 +285,123 @@
       },
       "used_by_workflows": [
         "send-slack-direct-message"
+      ]
+    },
+    {
+      "name": "select_target",
+      "group": "Conversation Summaries",
+      "module": "titan_plugin_slack.steps.summary_steps",
+      "function": "select_target_step",
+      "summary": "Search both users and channels for a single unified target selection.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_target_query (str, optional): Query used to search both users and channels.",
+          "    slack_search_limit (int, optional): Maximum number of matches to keep from each search. Defaults to 10.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack. Defaults to 200.",
+          "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.",
+          "    slack_exclude_archived (bool, optional): Whether to exclude archived channels. Defaults to True."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_target (UISlackTarget): Canonical selected Slack target.",
+          "    slack_target_type (str): Selected target type (`user` or `channel`).",
+          "    slack_target_id (str): Slack target identifier.",
+          "    slack_target_name (str): User-facing target name.",
+          "    slack_target_query (str): Query used to resolve the selection."
+        ],
+        "Returns": [
+          "    Success: If the unified target is selected successfully.",
+          "    Error: If Slack is unavailable, the query is invalid, the search fails, or no match is selected."
+        ]
+      },
+      "used_by_workflows": [
+        "summarize-slack-target"
+      ]
+    },
+    {
+      "name": "ensure_target_conversation",
+      "group": "Conversation Summaries",
+      "module": "titan_plugin_slack.steps.summary_steps",
+      "function": "ensure_target_conversation_step",
+      "summary": "Resolve a Slack conversation from the selected target.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_target (UISlackTarget): Selected Slack target."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_conversation (UISlackConversation): Resolved Slack conversation.",
+          "    slack_conversation_id (str): Conversation ID used for later operations."
+        ],
+        "Returns": [
+          "    Success: If the target conversation is resolved successfully.",
+          "    Error: If Slack is unavailable, the target is missing, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "summarize-slack-target"
+      ]
+    },
+    {
+      "name": "read_recent_messages",
+      "group": "Conversation Summaries",
+      "module": "titan_plugin_slack.steps.summary_steps",
+      "function": "read_recent_messages_step",
+      "summary": "Read the most recent messages from the resolved Slack conversation.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_conversation_id (str): Slack conversation ID to read.",
+          "    slack_history_limit (int, optional): Number of recent messages to fetch. Defaults to 50."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_messages (list[UISlackMessage]): Retrieved Slack messages.",
+          "    slack_messages_next_cursor (str | None): Pagination cursor for later reads.",
+          "    slack_messages_has_more (bool): Whether more messages are available."
+        ],
+        "Returns": [
+          "    Success: If recent messages are retrieved successfully.",
+          "    Error: If Slack is unavailable, required context is missing, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "summarize-slack-target"
+      ]
+    },
+    {
+      "name": "ai_summarize_messages",
+      "group": "Conversation Summaries",
+      "module": "titan_plugin_slack.steps.summary_steps",
+      "function": "ai_summarize_messages_step",
+      "summary": "Summarize the retrieved Slack messages with AI.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.textual: Textual UI context."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_messages (list[UISlackMessage]): Messages to summarize.",
+          "    slack_target_name (str, optional): Human-facing target label for the summary.",
+          "    slack_summary_max_chars (int, optional): Maximum transcript size passed to AI. Defaults to 12000."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_summary (str): AI-generated Slack summary.",
+          "    slack_summary_source_count (int): Number of source messages summarized.",
+          "    slack_summary_transcript_chars (int): Transcript size sent to AI after truncation."
+        ],
+        "Returns": [
+          "    Success: If the summary is generated successfully.",
+          "    Skip: If AI is not configured or not available.",
+          "    Error: If messages are missing or the AI request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "summarize-slack-target"
       ]
     }
   ]

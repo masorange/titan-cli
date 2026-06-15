@@ -106,6 +106,24 @@ class SlackClient:
             exclude_archived=exclude_archived,
         )
 
+    def search_channels(
+        self,
+        query: str,
+        *,
+        max_matches: int = 20,
+        page_size: int = 200,
+        max_pages: int = 50,
+        exclude_archived: bool = True,
+    ) -> ClientResult[list[UISlackChannel]]:
+        """Search accessible public and private Slack channels."""
+        return self.directory_service.search_channels(
+            query,
+            max_matches=max_matches,
+            page_size=page_size,
+            max_pages=max_pages,
+            exclude_archived=exclude_archived,
+        )
+
     def read_channel(
         self,
         channel_id: str,
@@ -118,6 +136,25 @@ class SlackClient:
         """Read message history from a Slack public channel."""
         return self.conversation_service.read_conversation(
             conversation_id=channel_id,
+            limit=limit,
+            cursor=cursor,
+            oldest=oldest,
+            latest=latest,
+            inclusive=inclusive,
+        )
+
+    def read_conversation(
+        self,
+        conversation_id: str,
+        limit: int = 20,
+        cursor: str | None = None,
+        oldest: str | None = None,
+        latest: str | None = None,
+        inclusive: bool = False,
+    ) -> ClientResult[tuple[list[UISlackMessage], str | None, bool]]:
+        """Read message history from any Slack conversation ID."""
+        return self.conversation_service.read_conversation(
+            conversation_id=conversation_id,
             limit=limit,
             cursor=cursor,
             oldest=oldest,

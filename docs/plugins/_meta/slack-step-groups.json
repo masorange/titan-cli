@@ -23,6 +23,15 @@
         {"name": "prompt_message_body", "summary": "Capture a multiline Slack message body for later posting."},
         {"name": "post_message", "summary": "Post the prepared message to the selected Slack conversation."}
       ]
+    },
+    {
+      "name": "Conversation Summaries",
+      "steps": [
+        {"name": "select_target", "summary": "Search both users and channels and select one unified Slack target."},
+        {"name": "ensure_target_conversation", "summary": "Resolve a Slack conversation from the selected target."},
+        {"name": "read_recent_messages", "summary": "Read the most recent messages from the resolved Slack conversation."},
+        {"name": "ai_summarize_messages", "summary": "Summarize the retrieved Slack messages with AI."}
+      ]
     }
   ]
 }

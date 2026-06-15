@@ -240,3 +240,77 @@ class DirectoryService:
             data=matches,
             message=f"Found {len(matches)} Slack channels for query",
         )
+
+    def search_channels(
+        self,
+        query: str,
+        *,
+        max_matches: int = 20,
+        page_size: int = 200,
+        max_pages: int = 50,
+        exclude_archived: bool = True,
+    ) -> ClientResult[list[UISlackChannel]]:
+        """Search accessible public and private Slack channels by paging and filtering locally."""
+        cursor: str | None = None
+        scanned_pages = 0
+        collected: list[UISlackChannel] = []
+        seen_ids: set[str] = set()
+
+        while scanned_pages < max_pages:
+            try:
+                response = self.web_client.conversations_list(
+                    limit=page_size,
+                    cursor=cursor,
+                    exclude_archived=exclude_archived,
+                    types="public_channel,private_channel",
+                )
+            except SlackApiError as exc:
+                return self._build_api_error(
+                    exc,
+                    "search_channels",
+                    "SEARCH_CHANNELS_ERROR",
+                )
+            except Exception as exc:
+                if hasattr(exc, "response"):
+                    return self._build_api_error(
+                        exc,
+                        "search_channels",
+                        "SEARCH_CHANNELS_ERROR",
+                    )
+                return ClientError(
+                    error_message=f"Slack channel search request failed: {exc}",
+                    error_code="SEARCH_CHANNELS_REQUEST_ERROR",
+                )
+
+            if not response.get("ok", False):
+                return ClientError(
+                    error_message=(
+                        f"Slack search_channels failed: {response.get('error', 'unknown_error')}"
+                    ),
+                    error_code="SEARCH_CHANNELS_ERROR",
+                )
+
+            channels = [self._map_channel(channel) for channel in response.get("channels", [])]
+            ui_channels = [self._to_ui_channel(channel) for channel in channels]
+
+            for channel in ui_channels:
+                if channel.id not in seen_ids:
+                    seen_ids.add(channel.id)
+                    collected.append(channel)
+
+            matches = filter_channels_for_query(collected, query, limit=max_matches)
+            next_cursor = response.get("response_metadata", {}).get("next_cursor") or None
+            if len(matches) >= max_matches or not next_cursor:
+                return ClientSuccess(
+                    data=matches,
+                    message=f"Found {len(matches)} Slack channels for query",
+                )
+
+            cursor = next_cursor
+            scanned_pages += 1
+
+        matches = filter_channels_for_query(collected, query, limit=max_matches)
+        return ClientSuccess(
+            data=matches,
+            message=f"Found {len(matches)} Slack channels for query",
+        )

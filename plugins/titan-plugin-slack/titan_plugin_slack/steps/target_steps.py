@@ -95,7 +95,7 @@ def select_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
         short_query_error=f"Enter at least {MIN_QUERY_LENGTH} characters to search Slack channels.",
         no_match_error="No Slack channels matched that query.",
         options_prompt="Select the Slack channel target:",
-        search_func=lambda query, limit, page_size, max_pages, exclude_archived: ctx.slack.search_public_channels(
+        search_func=lambda query, limit, page_size, max_pages, exclude_archived: ctx.slack.search_channels(
             query,
             max_matches=limit,
             page_size=page_size,

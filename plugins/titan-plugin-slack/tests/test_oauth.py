@@ -33,7 +33,7 @@ def test_build_authorize_url_contains_expected_oauth_values() -> None:
     assert query["state"] == [session.state]
     assert query["redirect_uri"] == ["http://127.0.0.1:8765/slack/callback"]
     assert query["scope"] == [
-        "users:read,channels:read,channels:history,chat:write,im:write,mpim:write,channels:write,groups:write"
+        "users:read,channels:read,channels:history,groups:read,groups:history,im:history,mpim:history,chat:write,im:write,mpim:write,channels:write,groups:write"
     ]
     assert query["code_challenge_method"] == ["S256"]
     assert "code_challenge" in query
