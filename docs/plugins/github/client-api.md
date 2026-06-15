@@ -604,6 +604,116 @@ The GitHub plugin ships with workflows that use these capabilities directly:
 
 - `create-pr-ai`: Creates a pull request after committing and pushing changes, with AI-generated PR content.
 - `create-issue-ai`: Creates a GitHub issue from an AI-suggested title and description.
+- `review-pr`: Runs a focused AI review over the changed files most likely to contain actionable problems.
 - `respond-pr-comments`: Helps review pending comments, reply to them, and request another review.
 
 These workflows can be used as-is or extended from `.titan/workflows/`.
+
+## Review profile configuration
+
+The `review-pr` workflow can be tailored per project with files under `.titan/review/`.
+If these files do not exist, the plugin uses built-in defaults automatically.
+
+### Review profile
+
+File: `.titan/review/profile.yaml`
+
+Controls path heuristics used to:
+
+- classify the PR shape
+- score candidate files for deep review
+- select applicable review axes
+
+Supported fields:
+
+- `version`: Required format version. Current value: `1`.
+- `change_patterns`: Optional. Map of pattern groups such as `central_behavior`, `entrypoint`, or `repeated_callsite` to glob lists.
+- `file_roles`: Optional. Ordered map from functional role name to glob lists. First match wins.
+- `candidate_scoring`: Optional. List of rules with:
+  - `name`: Required rule identifier.
+  - `patterns`: Required glob list.
+  - `score_delta`: Required integer score adjustment.
+  - `reason`: Required explanation attached to the candidate.
+- `candidate_exclusions`: Optional thresholds with:
+  - `low_signal_test_max_changes`: Optional integer.
+  - `low_signal_config_max_changes`: Optional integer.
+- `review_axes`: Optional map keyed by checklist category ID with:
+  - `always_include`: Optional boolean.
+  - `patterns`: Optional glob list.
+
+Example:
+
+```yaml
+version: 1
+
+change_patterns:
+  central_behavior:
+    - "src/**/services/**"
+    - "src/**/domain/**"
+  repeated_callsite:
+    - "src/**/screens/**"
+
+file_roles:
+  business_logic:
+    - "src/**/services/**"
+  entrypoints_or_ui:
+    - "src/**/screens/**"
+
+candidate_scoring:
+  - name: security_sensitive
+    patterns:
+      - "**/auth/**"
+    score_delta: 5
+    reason: "security or access-sensitive area"
+
+candidate_exclusions:
+  low_signal_test_max_changes: 15
+  low_signal_config_max_changes: 8
+
+review_axes:
+  functional_correctness:
+    always_include: true
+  security:
+    patterns:
+      - "**/auth/**"
+```
+
+### Review checklist
+
+File: `.titan/review/checklist.yaml`
+
+Controls which checklist categories are offered to the AI planner and findings prompts.
+
+Supported fields:
+
+- `version`: Required format version. Current value: `1`.
+- `items`: Required ordered list of checklist items.
+  - `id`: Required checklist category ID. Must be one of the built-in category IDs such as `functional_correctness`, `error_handling`, `security`, or `api_contract`.
+  - `name`: Required display name.
+  - `description`: Required prompt description.
+  - `relevant_file_patterns`: Optional glob list.
+
+Example:
+
+```yaml
+version: 1
+
+items:
+  - id: functional_correctness
+    name: Functional Correctness
+    description: Logic bugs, incorrect behavior, and missing edge cases.
+
+  - id: security
+    name: Security
+    description: Missing auth checks, exposed secrets, or unsafe trust boundaries.
+    relevant_file_patterns:
+      - "**/auth/**"
+      - "**/permissions/**"
+```
+
+### Resolution rules
+
+- Missing `.titan/review/profile.yaml`: built-in review profile is used.
+- Missing `.titan/review/checklist.yaml`: built-in checklist is used.
+- Invalid YAML or invalid category IDs: the workflow fails fast with a clear configuration error.
+- Profile overrides are block replacements, not deep merges.

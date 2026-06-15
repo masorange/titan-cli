@@ -93,6 +93,8 @@ To create new workflow steps using the Textual TUI framework:
 
 **📖 [Textual Workflow Steps Development Guide](.claude/docs/textual.md)**
 
+**📖 [Workflow Step Rules](.claude/docs/workflow-step-rules.md)**
+
 This guide includes:
 - Basic step structure
 - Complete `ctx.textual` API reference
@@ -100,6 +102,8 @@ This guide includes:
 - Complete usage examples
 - Code file references
 - Scroll behavior guidelines
+
+The step rules cover required conventions such as publishing step outputs via `Success(metadata={...})` instead of directly mutating `ctx.data` at return time.
 
 ### Common Pitfalls ⚠️
 

@@ -66,6 +66,23 @@ class TestGitNetworkRunCommand:
     @patch('titan_plugin_git.clients.network.git_network.shutil.which')
     @patch('titan_plugin_git.clients.network.git_network.subprocess.run')
     @patch.object(GitNetwork, '_check_repository')
+    def test_run_command_preserves_leading_status_space(
+        self, mock_check_repo, mock_subprocess, mock_which
+    ):
+        """Test git status output keeps semantic leading spaces."""
+        mock_which.return_value = '/usr/bin/git'
+        mock_result = Mock()
+        mock_result.stdout = ' M app/file.py\n'
+        mock_subprocess.return_value = mock_result
+
+        network = GitNetwork(repo_path="/tmp/repo")
+        output = network.run_command(["git", "status", "--short"])
+
+        assert output == " M app/file.py"
+
+    @patch('titan_plugin_git.clients.network.git_network.shutil.which')
+    @patch('titan_plugin_git.clients.network.git_network.subprocess.run')
+    @patch.object(GitNetwork, '_check_repository')
     def test_run_command_with_custom_cwd(self, mock_check_repo, mock_subprocess, mock_which):
         """Test command execution with custom working directory"""
         mock_which.return_value = '/usr/bin/git'

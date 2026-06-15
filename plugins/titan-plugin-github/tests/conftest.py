@@ -56,7 +56,11 @@ def sample_network_pr(sample_network_user):
         updatedAt="2025-01-15T11:00:00Z",
         mergedAt=None,
         reviews=[],
-        labels=[{"name": "feature"}, {"name": "backend"}]
+        labels=[{"name": "feature"}, {"name": "backend"}],
+        statusCheckRollup=[],
+        reviewDecision="REVIEW_REQUIRED",
+        isCrossRepository=False,
+        headRepositoryOwnerLogin="test-owner",
     )
 
 
@@ -80,9 +84,13 @@ def sample_ui_pr():
         is_mergeable=True,
         is_draft=False,
         review_summary="No reviews",
+        checks_summary="No checks",
+        review_status_summary="review required",
         labels=["feature", "backend"],
         formatted_created_at="15/01/2025 10:00:00",
-        formatted_updated_at="15/01/2025 11:00:00"
+        formatted_updated_at="15/01/2025 11:00:00",
+        is_cross_repository=False,
+        head_repository_owner="test-owner",
     )
 
 

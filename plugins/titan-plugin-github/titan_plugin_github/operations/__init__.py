@@ -26,6 +26,12 @@ from .pr_operations import (
     fetch_pr_general_comments,
 )
 
+from .pr_selection_operations import (
+    build_pr_selection_description,
+    build_pr_selection_title,
+    format_review_status_badge,
+)
+
 from .worktree_operations import (
     setup_worktree,
     cleanup_worktree,
@@ -46,16 +52,11 @@ from .issue_operations import (
 from .code_review_operations import (
     ProjectInstructionFile,
     load_project_instructions,
-    load_all_project_skills,
-    load_project_docs,
-    select_relevant_skills,
     select_files_for_review,
-    extract_doc_summary,
     extract_diff_for_file,
     extract_hunk_for_line,
     extract_valid_diff_lines,
     find_line_by_snippet,
-    build_review_payload,
     compute_diff_stat,
 )
 
@@ -71,6 +72,9 @@ __all__ = [
     # PR operations
     "fetch_pr_threads",
     "fetch_pr_general_comments",
+    "build_pr_selection_description",
+    "build_pr_selection_title",
+    "format_review_status_badge",
 
     # Worktree operations
     "setup_worktree",
@@ -89,15 +93,10 @@ __all__ = [
     # Code review operations
     "ProjectInstructionFile",
     "load_project_instructions",
-    "load_all_project_skills",
-    "load_project_docs",
-    "select_relevant_skills",
     "select_files_for_review",
-    "extract_doc_summary",
     "extract_diff_for_file",
     "extract_hunk_for_line",
     "extract_valid_diff_lines",
     "find_line_by_snippet",
-    "build_review_payload",
     "compute_diff_stat",
 ]
