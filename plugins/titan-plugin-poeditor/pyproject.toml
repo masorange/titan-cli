@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "titan-plugin-poeditor"
+version = "0.1.0"
+description = "PoEditor integration plugin for Titan CLI with translation management"
+authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
+packages = [{include = "titan_plugin_poeditor"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0.0"
+titan-cli = ">=0.4.5"
+requests = ">=2.31.0"
+pydantic = ">=2.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0.0"
+pytest-mock = ">=3.10.0"
+pytest-cov = ">=4.0.0"
+responses = ">=0.23.0"
+pyyaml = ">=6.0.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.plugins."titan.plugins"]
+poeditor = "titan_plugin_poeditor.plugin:PoEditorPlugin"

@@ -1,0 +1,17 @@
+name: "Upload Terms to PoEditor"
+description: "Upload terms and translations to a PoEditor project"
+
+steps:
+  # Step 1: List all available projects
+  - plugin: poeditor
+    step: list_projects_step
+
+  # Step 2: Select a project
+  - plugin: poeditor
+    step: select_project_step
+
+  # Step 3: Upload terms and translations
+  # Note: terms_map and translations_by_language must be set in context
+  # before running this workflow or via parameters
+  - plugin: poeditor
+    step: upload_terms_step
