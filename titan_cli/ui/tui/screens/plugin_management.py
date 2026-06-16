@@ -416,8 +416,30 @@ class PluginManagementScreen(BaseScreen):
                     # Don't show secrets
                     if any(secret in key.lower() for secret in ['token', 'password', 'secret', 'api_key']):
                         details.mount(DimText(f"  {key}: ••••••••"))
+                    elif isinstance(value, list):
+                        label = key.replace("_", " ").title()
+                        if not value:
+                            details.mount(DimText(f"  {label}: Not set"))
+                        else:
+                            details.mount(DimText(f"  {label}:"))
+                            for item in value:
+                                details.mount(DimText(f"    - {item}"))
+                    elif isinstance(value, dict):
+                        label = key.replace("_", " ").title()
+                        if not value:
+                            details.mount(DimText(f"  {label}: Not set"))
+                        else:
+                            details.mount(DimText(f"  {label}:"))
+                            for nested_key, nested_value in value.items():
+                                details.mount(
+                                    DimText(
+                                        f"    {nested_key.replace('_', ' ').title()}: {nested_value}"
+                                    )
+                                )
                     else:
-                        details.mount(DimText(f"  {key}: {value}"))
+                        label = key.replace("_", " ").title()
+                        rendered = value if value not in (None, "") else "Not set"
+                        details.mount(DimText(f"  {label}: {rendered}"))
 
         active_rec = self._build_stable_record(plugin_name)
         is_community_plugin = self._is_community_plugin(plugin_name)

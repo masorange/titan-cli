@@ -17,14 +17,14 @@ Validate the current Slack connection, list public channels, and list visible us
 ### Typical usage
 
 - verify that Slack OAuth configuration is working end to end
-- inspect what the current personal token can read before building richer workflows
+- inspect what the current project's Slack token can read before building richer workflows
 - confirm the first public Slack step surface behaves coherently inside Titan
 
 ### Scope constraints
 
 - the workflow stays read-only
 - it does not read channel history yet
-- it assumes one active personal Slack connection per user
+- it assumes one active Slack workspace binding for the current repository
 
 ## `send-slack-direct-message`
 
@@ -48,7 +48,7 @@ Select a person, open or reuse a direct message conversation, compose a message,
 ### Scope constraints
 
 - this workflow depends on DM-related Slack scopes beyond the original discovery-only baseline
-- it still assumes one active personal Slack connection per user
+- it assumes one active Slack workspace binding for the current repository
 
 ## `send-slack-channel-message`
 
@@ -72,7 +72,7 @@ Select a channel, prepare the destination from the selected target, compose a me
 ### Scope constraints
 
 - this workflow depends on channel-posting Slack scopes beyond the earlier DM and discovery slices
-- it still assumes one active personal Slack connection per user
+- it assumes one active Slack workspace binding for the current repository
 
 ## `summarize-slack-target`
 
@@ -96,4 +96,4 @@ Search for a person or channel, resolve the backing conversation, read recent Sl
 ### Scope constraints
 
 - this workflow depends on conversation-history scopes and AI configuration
-- it assumes one active personal Slack connection per user
+- it assumes one active Slack workspace binding for the current repository

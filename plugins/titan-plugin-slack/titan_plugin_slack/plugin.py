@@ -7,6 +7,7 @@ from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.secrets import SecretManager
 
 from .clients.slack_client import SlackClient
+from .config import build_project_slack_token_key
 from .exceptions import SlackClientError, SlackConfigurationError
 from .screens.slack_config_screen import SlackConfigScreen
 
@@ -49,18 +50,25 @@ class SlackPlugin(TitanPlugin):
     def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
         """Initialize the Slack client using the current user's personal token."""
         plugin_config_data = self._get_plugin_config(config)
+        if not plugin_config_data:
+            raise SlackConfigurationError(
+                "Slack is enabled for this project but no Slack project configuration was found. Configure Slack in this repository first."
+            )
+
         validated_config = SlackPluginConfig(**plugin_config_data)
 
-        user_token = secrets.get("slack_user_token")
+        project_name = config.get_project_name()
+        token_key = build_project_slack_token_key(project_name)
+
+        user_token = secrets.get(token_key)
         if not user_token:
             raise SlackConfigurationError(
-                "Slack user token not found. Configure Slack and store a personal token in keyring, or set SLACK_USER_TOKEN."
+                f"Slack user token not found for project '{project_name}'. Configure Slack for this repository first."
             )
 
         self._client = SlackClient(
             user_token=user_token,
             team_id=validated_config.default_team_id,
-            timeout=validated_config.timeout,
         )
 
     def is_available(self) -> bool:

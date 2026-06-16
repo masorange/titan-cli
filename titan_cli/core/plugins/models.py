@@ -133,52 +133,53 @@ class SlackPluginConfig(BaseModel):
     )
     default_team_id: Optional[str] = Field(
         None,
-        description="Preferred Slack workspace/team ID for the current user.",
-        json_schema_extra={"config_scope": "global"},
+        description="Slack workspace/team ID bound to the current project.",
+        json_schema_extra={"config_scope": "project"},
     )
     oauth_client_id: Optional[str] = Field(
         None,
-        description="Slack OAuth client ID used for personal connection setup.",
-        json_schema_extra={"config_scope": "global"},
-    )
-    oauth_redirect_port: int = Field(
-        8765,
-        description="Localhost port used for Slack OAuth callback handling.",
-        json_schema_extra={"config_scope": "global"},
+        description="Slack OAuth client ID used by the current project's Slack App.",
+        json_schema_extra={"config_scope": "project"},
     )
     default_team_name: Optional[str] = Field(
         None,
-        description="Preferred Slack workspace/team name for the current user.",
-        json_schema_extra={"config_scope": "global"},
+        description="Slack workspace/team name bound to the current project.",
+        json_schema_extra={"config_scope": "project"},
     )
     granted_scopes: List[str] = Field(
         default_factory=list,
-        description="Scopes granted to the current user's Slack token.",
-        json_schema_extra={"config_scope": "global"},
+        description="Scopes granted to the current project's Slack integration.",
+        json_schema_extra={"config_scope": "project"},
     )
-    auth_mode: str = Field(
-        "user_token",
-        description="Slack authentication mode for this user.",
-        json_schema_extra={"config_scope": "global"},
-    )
-    timeout: int = Field(
-        30,
-        description="Request timeout in seconds.",
-        json_schema_extra={"config_scope": "global"},
+    default_channels: List[str] = Field(
+        default_factory=list,
+        description="Default Slack channel names for this project. Names may include or omit '#'.",
+        json_schema_extra={"config_scope": "project"},
     )
 
-    @field_validator("auth_mode")
+    @field_validator("oauth_client_id")
     @classmethod
-    def validate_auth_mode(cls, v: str) -> str:
-        """Validate the supported auth mode for Slack."""
-        if v != "user_token":
-            raise ValueError("Slack auth_mode must be 'user_token'")
-        return v
+    def normalize_oauth_client_id(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize optional OAuth client ID values."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
 
-    @field_validator("oauth_redirect_port")
+    @field_validator("default_channels")
     @classmethod
-    def validate_oauth_redirect_port(cls, v: int) -> int:
-        """Validate Slack OAuth redirect port."""
-        if v <= 0:
-            raise ValueError("Slack oauth_redirect_port must be greater than zero")
-        return v
+    def normalize_default_channels(cls, values: List[str]) -> List[str]:
+        """Normalize default channel names while preserving user-friendly config."""
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            channel = value.strip()
+            if not channel:
+                continue
+            normalized_name = channel.lstrip("#")
+            key = normalized_name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(normalized_name)
+        return normalized

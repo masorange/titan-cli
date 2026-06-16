@@ -7,7 +7,7 @@ The Slack plugin adds read-oriented Slack operations to Titan through `SlackClie
 To use the Slack client in Titan code:
 
 - enable the `slack` plugin
-- complete Slack OAuth configuration so a personal token is available
+- complete project-scoped Slack OAuth configuration so a personal token is available in keyring for the active repository
 
 ---
 
@@ -107,6 +107,6 @@ Post a plain-text message to a Slack conversation.
 
 ## Usage constraints
 
-- The current public workflow surface only exposes validation and discovery steps.
+- The current client surface backs discovery, messaging, and summary workflows.
 - `read_channel()` exists in the client API but is not yet exposed as a public workflow step.
-- The first public Slack surface assumes one active personal connection per user.
+- The current Slack integration assumes one active Slack workspace binding per repository.

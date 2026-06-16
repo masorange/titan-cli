@@ -48,14 +48,15 @@ def test_slack_plugin_exposes_config_schema() -> None:
     schema = plugin.get_config_schema()
 
     assert "user_token" in schema["properties"]
-    assert schema["properties"]["default_team_id"]["config_scope"] == "global"
-    assert schema["properties"]["auth_mode"]["default"] == "user_token"
+    assert schema["properties"]["default_team_id"]["config_scope"] == "project"
+    assert schema["properties"]["default_channels"]["config_scope"] == "project"
 
 
 def test_slack_plugin_initialize_requires_user_token() -> None:
     plugin = SlackPlugin()
     config = MagicMock()
-    config.config.plugins = {}
+    config.config.plugins = {"slack": MagicMock(config={"oauth_client_id": "123"})}
+    config.get_project_name.return_value = "demo-project"
     secrets = MagicMock()
     secrets.get.return_value = None
 
@@ -67,8 +68,9 @@ def test_slack_plugin_initialize_uses_personal_token() -> None:
     plugin = SlackPlugin()
     config = MagicMock()
     config.config.plugins = {
-        "slack": MagicMock(config={"default_team_id": "T123", "timeout": 45})
+        "slack": MagicMock(config={"default_team_id": "T123"})
     }
+    config.get_project_name.return_value = "demo-project"
     secrets = MagicMock()
     secrets.get.return_value = "xoxp-user-token"
 
@@ -77,4 +79,5 @@ def test_slack_plugin_initialize_uses_personal_token() -> None:
     client = plugin.get_client()
     assert client.user_token == "xoxp-user-token"
     assert client.team_id == "T123"
-    assert client.timeout == 45
+    assert client.timeout == 30
+    secrets.get.assert_called_once_with("demo-project_slack_user_token")

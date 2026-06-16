@@ -12,6 +12,7 @@ def _build_config(tmp_path: Path, token: str | None = None, plugin_config: dict 
     config = MagicMock()
     config._global_config_path = tmp_path / "config.toml"
     config.project_config_path = tmp_path / "project-config.toml"
+    config.get_project_name.return_value = "demo-project"
     config.config = MagicMock()
     config.config.config_version = "1.0"
     config.config.plugins = {}
@@ -39,16 +40,14 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
         token="xoxp-token",
         plugin_config={
             "oauth_client_id": "123",
-            "oauth_redirect_port": 9999,
             "default_team_id": "T123",
             "default_team_name": "Acme",
             "granted_scopes": ["users:read", "channels:read"],
-            "auth_mode": "user_token",
-            "timeout": 45,
+            "default_channels": ["general", "release-notes"],
         },
     )
     config.secrets.get.side_effect = lambda key: {
-        "slack_user_token": "xoxp-token",
+        "demo-project_slack_user_token": "xoxp-token",
     }.get(key)
     screen = SlackConfigScreen(config)
 
@@ -56,41 +55,35 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
 
     assert state.has_token is True
     assert state.oauth_client_id == "123"
-    assert state.oauth_redirect_port == 9999
     assert state.default_team_id == "T123"
     assert state.default_team_name == "Acme"
     assert state.granted_scopes == ["users:read", "channels:read"]
-    assert state.timeout == 45
+    assert state.default_channels == ["general", "release-notes"]
 
 
-def test_slack_config_screen_disconnect_clears_token_and_metadata(tmp_path: Path) -> None:
+def test_slack_config_screen_disconnect_disables_plugin_and_deletes_project_token(tmp_path: Path) -> None:
     config = _build_config(tmp_path, token="xoxp-token")
     screen = SlackConfigScreen(config)
 
     app = MagicMock()
     type(screen).app = PropertyMock(return_value=app)
 
-    screen._save_global_slack_config(
+    screen._save_project_slack_config(
         {
+            "oauth_client_id": "123",
             "default_team_id": "T123",
             "default_team_name": "Acme",
             "granted_scopes": ["users:read"],
-            "auth_mode": "user_token",
-            "timeout": 30,
+            "default_channels": ["general"],
         }
     )
     screen._disconnect()
 
-    config.secrets.delete.assert_called_once_with("slack_user_token", scope="user")
-    with open(config._global_config_path, "rb") as f:
+    config.secrets.delete.assert_called_once_with("demo-project_slack_user_token", scope="user")
+    with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
-    slack_cfg = data["plugins"]["slack"]["config"]
-    assert "default_team_id" not in slack_cfg
-    assert "default_team_name" not in slack_cfg
-    assert "granted_scopes" not in slack_cfg
-    assert slack_cfg["auth_mode"] == "user_token"
-    assert slack_cfg["timeout"] == 30
+    assert data.get("plugins", {}) == {}
 
 
 def test_slack_config_screen_start_oauth_flow_runs_worker(tmp_path: Path) -> None:
@@ -101,7 +94,7 @@ def test_slack_config_screen_start_oauth_flow_runs_worker(tmp_path: Path) -> Non
     type(screen).app = PropertyMock(return_value=app)
 
     screen.run_worker = MagicMock()
-    screen._read_oauth_form_values = MagicMock(return_value=("123", 8765))
+    screen._read_oauth_form_values = MagicMock(return_value="123")
     screen._save_oauth_app_config = MagicMock()
 
     screen._start_oauth_flow()
@@ -140,7 +133,7 @@ def test_slack_config_screen_perform_oauth_connect_uses_backend(monkeypatch, tmp
         FakeFlow,
     )
 
-    result = screen._perform_oauth_connect("123", 8765)
+    result = screen._perform_oauth_connect("123")
 
     assert result == expected
 
@@ -149,21 +142,21 @@ def test_slack_config_screen_saves_oauth_app_config(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     screen = SlackConfigScreen(config)
 
-    screen._save_oauth_app_config("123", 9999)
+    screen._save_oauth_app_config("123")
 
-    with open(config._global_config_path, "rb") as f:
+    with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
     slack_cfg = data["plugins"]["slack"]["config"]
     assert slack_cfg["oauth_client_id"] == "123"
-    assert slack_cfg["oauth_redirect_port"] == 9999
+    assert data["plugins"]["slack"]["enabled"] is True
 
 
-def test_slack_config_screen_enable_plugin_for_current_project(tmp_path: Path) -> None:
+def test_slack_config_screen_save_project_config_enables_plugin(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     screen = SlackConfigScreen(config)
 
-    screen._enable_plugin_for_current_project()
+    screen._save_project_slack_config({"oauth_client_id": "123"})
 
     with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
