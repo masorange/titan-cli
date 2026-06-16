@@ -1,144 +1,66 @@
-"""
-Operations for resolving review context from the AI plan.
+"""Operations for resolving bounded review context from a focused review plan."""
 
-Pure functions that extract exact code from a diff or filesystem
-according to FileReviewPlan decisions (hunks_only, expanded_hunks, full_file).
-No UI, no side effects.
-
-Diff parsing delegated to DiffContextManager.
-"""
-
-import re
 from pathlib import Path
 from typing import Optional
 
 from titan_cli.core.logging import get_logger
-from ..managers.diff_context_manager import DiffContextManager
+
+from ..managers.diff_context_manager import DiffContextManager, get_or_create_diff_manager
 from ..models.review_enums import ContextRequestType, FileReadMode
 from ..models.review_models import (
     ChangeManifest,
+    CommentContextEntry,
     ContextRequest,
-    ExistingCommentIndexEntry,
+    ExcludedFileEntry,
     FileContextEntry,
     FileReviewPlan,
+    FocusContextBatch,
     ReviewChecklistItem,
     ReviewContextPackage,
     ReviewPlan,
+    ReviewStrategy,
 )
 
 logger = get_logger(__name__)
 
-def extract_hunks_only(diff: str, path: str) -> list[str]:
-    """
-    Extract the diff hunks for a file (hunks_only mode).
 
-    The diff already has extended context (20 lines) from the fetch step,
-    so hunks_only provides meaningful surrounding code without extra reads.
-
-    Args:
-        diff: Full unified diff
-        path: File path
-
-    Returns:
-        List of hunk strings (each starts with @@)
-    """
-    return [h.content for h in DiffContextManager.from_diff(diff).get_hunks(path)]
+def extract_hunks_only(
+    diff: str,
+    path: str,
+    diff_manager: Optional[DiffContextManager] = None,
+) -> list[str]:
+    manager = diff_manager or DiffContextManager.from_diff(diff)
+    return manager.get_hunk_texts(path)
 
 
-def extract_expanded_hunks(diff: str, path: str, cwd: Optional[str] = None) -> list[str]:
-    """
-    Extract hunks plus additional surrounding lines from the actual file.
-
-    For each hunk, reads the current file from disk and prepends extra lines
-    of context beyond what the diff already provides.
-
-    Args:
-        diff: Full unified diff
-        path: File path
-        cwd: Working directory (project root) to read the file from
-
-    Returns:
-        List of expanded hunk strings; falls back to plain hunks if file unreadable
-    """
-    base_hunks = extract_hunks_only(diff, path)
-    if not base_hunks:
-        return []
-
+def extract_expanded_hunks(
+    diff: str,
+    path: str,
+    cwd: Optional[str] = None,
+    diff_manager: Optional[DiffContextManager] = None,
+) -> list[str]:
     file_content = read_file_content(path, cwd)
     if not file_content:
-        return base_hunks
+        return extract_hunks_only(diff, path, diff_manager=diff_manager)
 
-    file_lines = file_content.split("\n")
-    extra_lines = 10
-    expanded: list[str] = []
+    manager = diff_manager or DiffContextManager.from_diff(diff)
+    return manager.build_expanded_hunks(path, file_content, extra_lines=10)
 
-    for hunk in base_hunks:
-        hunk_lines = hunk.split("\n")
-        header = hunk_lines[0]
-
-        m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", header)
-        if not m:
-            expanded.append(hunk)
-            continue
-
-        start_line = int(m.group(1))
-        line_count = int(m.group(2)) if m.group(2) else 1
-
-        expand_start = max(0, start_line - extra_lines - 1)
-        expand_end = min(len(file_lines), start_line + line_count + extra_lines)
-
-        surrounding = "\n".join(file_lines[expand_start:expand_end])
-        expanded_block = (
-            f"{header}\n"
-            f"# --- surrounding context (lines {expand_start + 1}–{expand_end}) ---\n"
-            f"{surrounding}\n"
-            f"# --- diff hunk ---\n"
-            + "\n".join(hunk_lines[1:])
-        )
-        expanded.append(expanded_block)
-
-    return expanded
 
 def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
-    """
-    Read a file from the working directory.
-
-    Args:
-        path: Relative file path
-        cwd: Working directory (project root); defaults to process cwd if None
-
-    Returns:
-        File content as string, or None if not readable
-    """
     try:
         base = Path(cwd) if cwd else Path.cwd()
         file_path = base / path
         if file_path.exists() and file_path.is_file():
             return file_path.read_text(encoding="utf-8", errors="replace")
     except (OSError, ValueError) as e:
-        logger.debug(f"Could not read {path}: {e}")
+        logger.debug("Could not read %s: %s", path, e)
     return None
 
+
 def _find_related_tests(path: str, cwd: Optional[str] = None) -> Optional[str]:
-    """
-    Find and read the test file corresponding to a source file.
-
-    Tries common test file naming conventions in order:
-    - tests/test_<stem>.<ext> (alongside the file)
-    - test_<stem>.<ext> (same directory)
-    - <stem>_test.<ext> (same directory)
-    - tests/test_<stem>.<ext> (from project root)
-
-    Args:
-        path: Source file path
-        cwd: Working directory
-
-    Returns:
-        Content of the test file if found, or None
-    """
     p = Path(path)
     stem = p.stem
-
     candidates = [
         p.parent / "tests" / f"test_{stem}{p.suffix}",
         p.parent / f"test_{stem}{p.suffix}",
@@ -150,28 +72,12 @@ def _find_related_tests(path: str, cwd: Optional[str] = None) -> Optional[str]:
     for candidate in candidates:
         content = read_file_content(str(candidate), cwd)
         if content:
-            logger.debug(f"Found related test for {path}: {candidate}")
             return content
-
     return None
 
 
 def _find_related_context(path: str, cwd: Optional[str] = None) -> Optional[str]:
-    """
-    Find and read a related context file (parent module, interface, etc).
-
-    Tries in order: __init__.py, protocols.py, interfaces.py, base_<stem>.py.
-    Truncates to 3000 chars to avoid bloating context.
-
-    Args:
-        path: Source file path
-        cwd: Working directory
-
-    Returns:
-        Content of the related context file (truncated) if found, or None
-    """
     p = Path(path)
-
     candidates = [
         p.parent / "__init__.py",
         p.parent / "protocols.py",
@@ -185,76 +91,21 @@ def _find_related_context(path: str, cwd: Optional[str] = None) -> Optional[str]
             continue
         content = read_file_content(str(candidate), cwd)
         if content:
-            logger.debug(f"Found related context for {path}: {candidate}")
             return content[:3000]
-
     return None
 
 
-def resolve_context_requests(
-    requests: list[ContextRequest],
-    cwd: Optional[str] = None,
-) -> dict[str, str]:
-    """
-    Resolve extra context requests from the ReviewPlan.
-
-    Args:
-        requests: List of ContextRequest from the AI plan
-        cwd: Working directory (project root)
-
-    Returns:
-        Dict mapping "{type}:{for_path}" → file content
-    """
+def resolve_context_requests(requests: list[ContextRequest], cwd: Optional[str] = None) -> dict[str, str]:
     result: dict[str, str] = {}
-
     for req in requests:
         key = f"{req.type}:{req.for_path}"
-
         if req.type == ContextRequestType.RELATED_TESTS:
             content = _find_related_tests(req.for_path, cwd)
-            if content:
-                result[key] = content
-            else:
-                logger.debug(f"No related tests found for {req.for_path}")
-
-        elif req.type == ContextRequestType.RELATED_CONTEXT:
+        else:
             content = _find_related_context(req.for_path, cwd)
-            if content:
-                result[key] = content
-            else:
-                logger.debug(f"No related context found for {req.for_path}")
-
+        if content:
+            result[key] = content
     return result
-
-def _resolve_file_context(
-    file_plan: FileReviewPlan,
-    diff: str,
-    cwd: Optional[str] = None,
-) -> FileContextEntry:
-    """
-    Extract file content according to the read_mode in the plan.
-
-    Args:
-        file_plan: Plan for this specific file
-        diff: Full unified diff
-        cwd: Working directory
-
-    Returns:
-        FileContextEntry with the appropriate content populated
-    """
-    path = file_plan.path
-
-    if file_plan.read_mode == FileReadMode.FULL_FILE:
-        content = read_file_content(path, cwd)
-        return FileContextEntry(path=path, full_content=content)
-
-    if file_plan.read_mode == FileReadMode.EXPANDED_HUNKS:
-        hunks = extract_expanded_hunks(diff, path, cwd)
-        return FileContextEntry(path=path, expanded_hunks=hunks)
-
-    # hunks_only (default)
-    hunks = extract_hunks_only(diff, path)
-    return FileContextEntry(path=path, hunks=hunks)
 
 
 def build_review_context_package(
@@ -262,39 +113,228 @@ def build_review_context_package(
     diff: str,
     manifest: ChangeManifest,
     checklist: list[ReviewChecklistItem],
-    comments_index: list[ExistingCommentIndexEntry],
+    comment_context: list[CommentContextEntry],
+    strategy: ReviewStrategy,
     cwd: Optional[str] = None,
+    diff_manager: Optional[DiffContextManager] = None,
 ) -> ReviewContextPackage:
-    """
-    Build the complete context package for the second AI call.
+    manager = diff_manager or get_or_create_diff_manager(diff)
+    applicable_ids = set(plan.review_axes)
+    checklist_applicable = [item for item in checklist if item.id in applicable_ids] or checklist[:2]
+    related_files = resolve_context_requests(plan.extra_context_requests[:1], cwd)
+    comment_context = comment_context[: strategy.max_comment_entries]
+    content_budget = _content_budget(strategy)
 
-    Extracts exact file content according to each FileReviewPlan decision
-    and resolves any extra context requests from the plan.
+    batches: list[FocusContextBatch] = []
+    current_files: dict[str, FileContextEntry] = {}
+    current_chars = _estimate_related_chars(related_files) + _estimate_comment_chars(comment_context)
+    batch_index = 1
+    carry_excluded: list[ExcludedFileEntry] = []
 
-    Args:
-        plan: Validated ReviewPlan from the first AI call
-        diff: Full unified diff of the PR
-        manifest: PR change manifest (for pr_manifest field)
-        checklist: Full review checklist (filtered to applicable items)
-        comments_index: Existing comments for deduplication context
-        cwd: Working directory (project root)
+    for file_plan in plan.focus_files:
+        entry = _resolve_file_context(file_plan, diff, strategy, cwd, manager)
+        entry_chars = entry.approximate_chars or _estimate_entry_chars(entry)
 
-    Returns:
-        ReviewContextPackage ready for the second AI call
-    """
-    files_context: dict[str, FileContextEntry] = {}
-    for file_plan in plan.file_plan:
-        files_context[file_plan.path] = _resolve_file_context(file_plan, diff, cwd)
+        if current_files and strategy.batching_enabled and current_chars + entry_chars > content_budget:
+            batches.append(
+                FocusContextBatch(
+                    batch_id=f"batch_{batch_index}",
+                    files_context=current_files,
+                    comment_context=comment_context,
+                    checklist_applicable=checklist_applicable,
+                    related_files=related_files,
+                    excluded_files=carry_excluded,
+                    pr_manifest=manifest.pr,
+                    approximate_chars=current_chars,
+                    prompt_budget_target_chars=strategy.max_prompt_chars,
+                )
+            )
+            batch_index += 1
+            current_files = {}
+            current_chars = _estimate_related_chars(related_files) + _estimate_comment_chars(comment_context)
+            carry_excluded = []
 
-    applicable_ids = set(plan.applicable_checklist)
-    checklist_applicable = [item for item in checklist if item.id in applicable_ids]
+        if not strategy.batching_enabled and current_files and current_chars + entry_chars > content_budget:
+            carry_excluded.append(
+                ExcludedFileEntry(
+                    path=file_plan.path,
+                    reason="budget_trimmed",
+                    detail="did not fit in direct context budget",
+                )
+            )
+            continue
 
-    related_files = resolve_context_requests(plan.extra_context_requests, cwd)
+        current_files[file_plan.path] = entry
+        current_chars += entry_chars
 
-    return ReviewContextPackage(
-        files_context=files_context,
-        checklist_applicable=checklist_applicable,
-        existing_comments_compact=comments_index,
-        pr_manifest=manifest.pr,
-        related_files=related_files,
+    if current_files:
+        batches.append(
+            FocusContextBatch(
+                batch_id=f"batch_{batch_index}",
+                files_context=current_files,
+                comment_context=comment_context,
+                checklist_applicable=checklist_applicable,
+                related_files=related_files,
+                excluded_files=carry_excluded,
+                pr_manifest=manifest.pr,
+                approximate_chars=current_chars,
+                prompt_budget_target_chars=strategy.max_prompt_chars,
+            )
+        )
+
+    return ReviewContextPackage(batches=batches)
+
+
+def _resolve_file_context(
+    file_plan: FileReviewPlan,
+    diff: str,
+    strategy: ReviewStrategy,
+    cwd: Optional[str] = None,
+    diff_manager: Optional[DiffContextManager] = None,
+) -> FileContextEntry:
+    manager = diff_manager or DiffContextManager.from_diff(diff)
+    desired_mode = file_plan.read_mode
+    hunk_headers = [hunk.header for hunk in manager.get_hunks(file_plan.path)[:5]]
+    file_limits = _file_limits(strategy, file_plan.path)
+    resolved_entry: FileContextEntry | None = None
+
+    if desired_mode == FileReadMode.FULL_FILE:
+        content = read_file_content(file_plan.path, cwd)
+        if content and len(content) <= file_limits["max_file_chars"] and len(content.splitlines()) <= file_limits["max_file_lines"]:
+            resolved_entry = FileContextEntry(
+                path=file_plan.path,
+                read_mode=FileReadMode.FULL_FILE,
+                full_content=content,
+                changed_hunk_headers=hunk_headers,
+                approximate_chars=len(content),
+            )
+            return _log_file_context(resolved_entry, file_plan.path)
+        desired_mode = FileReadMode.EXPANDED_HUNKS
+
+    if desired_mode == FileReadMode.EXPANDED_HUNKS:
+        file_content = read_file_content(file_plan.path, cwd)
+        expanded = (
+            manager.build_expanded_hunks(
+                file_plan.path,
+                file_content,
+                extra_lines=file_limits["extra_lines"],
+            )
+            if file_content
+            else manager.get_hunk_texts(file_plan.path)
+        )
+        expanded_chars = sum(len(hunk) for hunk in expanded)
+        if expanded and expanded_chars <= file_limits["max_file_chars"]:
+            resolved_entry = FileContextEntry(
+                path=file_plan.path,
+                read_mode=FileReadMode.EXPANDED_HUNKS,
+                expanded_hunks=expanded,
+                changed_hunk_headers=hunk_headers,
+                approximate_chars=expanded_chars,
+            )
+            return _log_file_context(resolved_entry, file_plan.path)
+        desired_mode = FileReadMode.HUNKS_ONLY
+
+    if desired_mode == FileReadMode.HUNKS_ONLY:
+        hunks = manager.get_hunk_texts(file_plan.path)
+        hunks_chars = sum(len(hunk) for hunk in hunks)
+        if hunks and hunks_chars <= file_limits["max_file_chars"]:
+            resolved_entry = FileContextEntry(
+                path=file_plan.path,
+                read_mode=FileReadMode.HUNKS_ONLY,
+                hunks=hunks,
+                changed_hunk_headers=hunk_headers,
+                approximate_chars=hunks_chars,
+            )
+            return _log_file_context(resolved_entry, file_plan.path)
+
+    resolved_entry = FileContextEntry(
+        path=file_plan.path,
+        read_mode=FileReadMode.WORKTREE_REFERENCE,
+        worktree_reference=True,
+        review_hint=_build_worktree_hint(file_plan),
+        changed_hunk_headers=hunk_headers,
+        approximate_chars=min(800, 80 + sum(len(header) for header in hunk_headers)),
     )
+    return _log_file_context(resolved_entry, file_plan.path)
+
+
+def _estimate_entry_chars(entry: FileContextEntry) -> int:
+    if entry.full_content:
+        return len(entry.full_content)
+    if entry.expanded_hunks:
+        return sum(len(hunk) for hunk in entry.expanded_hunks)
+    if entry.hunks:
+        return sum(len(hunk) for hunk in entry.hunks)
+    if entry.worktree_reference:
+        return 80 + len(entry.review_hint) + sum(len(header) for header in entry.changed_hunk_headers)
+    return 0
+
+
+def _content_budget(strategy: ReviewStrategy) -> int:
+    reserve = 5000 if strategy.size_class.value in {"large", "huge"} else 3500
+    return max(2500, strategy.max_prompt_chars - reserve)
+
+
+def _file_limits(strategy: ReviewStrategy, path: str) -> dict[str, int]:
+    is_large = strategy.size_class.value in {"large", "huge"}
+    is_central = _looks_like_central_file(path)
+    is_test = _is_test_file(path)
+    return {
+        "max_file_chars": 9000 if is_test and is_large else 12000 if is_central and is_large else 7000 if is_large else 14000,
+        "max_file_lines": 140 if is_test and is_large else 220 if is_central and is_large else 120 if is_large else 260,
+        "extra_lines": 4 if is_test and is_large else 8 if is_central else 4 if is_large else 8,
+    }
+
+
+def _looks_like_central_file(path: str) -> bool:
+    path_lower = path.lower()
+    return any(
+        token in path_lower
+        for token in (
+            "viewmodel",
+            "manager",
+            "service",
+            "utils",
+            "mapper",
+            "serializer",
+            "adapter",
+            "converter",
+            "parser",
+            "model",
+        )
+    )
+
+
+def _is_test_file(path: str) -> bool:
+    path_lower = path.lower()
+    return any(token in path_lower for token in ("/test/", "/tests/", "test.kt", "test.py", "spec."))
+
+
+def _build_worktree_hint(file_plan: FileReviewPlan) -> str:
+    reasons = "; ".join(file_plan.reasons[:2]) if file_plan.reasons else "central changed file"
+    return (
+        "Read this file from the worktree. Prioritize the changed regions first and validate: "
+        f"{reasons}. Check especially for semantic mismatches, missing guarantees, state inconsistencies, "
+        "and behavior changes that remain executable but no longer mean the same thing. Cross-check nearby helpers, types, and tests if the changed region depends on them."
+    )
+
+
+def _estimate_related_chars(related_files: dict[str, str]) -> int:
+    return sum(len(label) + len(content[:2000]) for label, content in related_files.items())
+
+
+def _estimate_comment_chars(comment_context: list[CommentContextEntry]) -> int:
+    return sum(len(entry.title) + len(entry.summary) for entry in comment_context)
+
+
+def _log_file_context(entry: FileContextEntry, path: str) -> FileContextEntry:
+    logger.debug(
+        "file_context_resolved",
+        path=path,
+        read_mode=entry.read_mode,
+        chars=entry.approximate_chars,
+        changed_hunks=len(entry.changed_hunk_headers),
+        worktree_reference=entry.worktree_reference,
+        trimmed=entry.read_mode == FileReadMode.WORKTREE_REFERENCE,
+    )
+    return entry

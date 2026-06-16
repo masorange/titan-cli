@@ -378,6 +378,10 @@ class GitClient:
         """Fetch from remote."""
         return self.remote_service.fetch(remote, branch, all)
 
+    def fetch_refspec(self, remote: str, refspec: str) -> ClientResult[None]:
+        """Fetch an explicit refspec from remote."""
+        return self.remote_service.fetch_refspec(remote, refspec)
+
     def get_github_repo_info(self) -> ClientResult[Tuple[Optional[str], Optional[str]]]:
         """Extract GitHub repository owner and name from origin."""
         return self.remote_service.get_github_repo_info()

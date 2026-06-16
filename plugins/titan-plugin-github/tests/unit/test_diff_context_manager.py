@@ -7,6 +7,7 @@ líneas válidas para inline comment, y fallbacks.
 """
 
 from titan_plugin_github.managers.diff_context_manager import DiffContextManager
+from titan_plugin_github.managers.diff_context_manager import _extract_best_anchor_from_text
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +137,12 @@ class TestMultiHunkParsing:
         assert hunk is not None
         assert hunk.new_line_start == 1
 
+    def test_get_hunk_for_line_strict_returns_none(self):
+        """Strict mode should not fall back to another hunk."""
+        mgr = DiffContextManager.from_diff(MULTI_HUNK_DIFF)
+        hunk = mgr.get_hunk_for_line("src/bar.py", 999, allow_fallback=False)
+        assert hunk is None
+
 
 # ---------------------------------------------------------------------------
 # Valid review lines — añadidas vs borradas
@@ -210,6 +217,12 @@ class TestFindLineBySnippet:
         """Should return None when the file is not in the diff."""
         mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
         assert mgr.find_line_by_snippet("unknown.py", "hello") is None
+
+    def test_resolve_line_anchor_prefers_snippet(self):
+        """resolve_line_anchor should use snippet before trusting the AI line."""
+        mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
+        line = mgr.resolve_line_anchor("src/foo.py", line=999, snippet='print("world")')
+        assert line == 12
 
 
 # ---------------------------------------------------------------------------
@@ -293,3 +306,66 @@ class TestMultiFileDiff:
         bar_hunks = mgr.get_hunks("src/bar.py")
         assert len(foo_hunks) == 1
         assert len(bar_hunks) == 2
+
+
+class TestFocusedReviewHelpers:
+    def test_get_hunk_texts_returns_raw_hunks(self):
+        mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
+
+        hunks = mgr.get_hunk_texts("src/foo.py")
+
+        assert len(hunks) == 1
+        assert hunks[0].startswith("@@")
+
+    def test_build_expanded_hunks_includes_surrounding_context(self):
+        mgr = DiffContextManager.from_diff(SIMPLE_DIFF)
+        file_content = "\n".join(
+            [
+                "line 1",
+                "line 2",
+                "line 3",
+                "line 4",
+                "line 5",
+                "line 6",
+                "line 7",
+                "line 8",
+                "line 9",
+                "def hello():",
+                '    print("hello")',
+                '    print("world")',
+                "    return True",
+                "",
+                "def bye():",
+            ]
+        )
+
+        expanded = mgr.build_expanded_hunks("src/foo.py", file_content, extra_lines=2)
+
+        assert len(expanded) == 1
+        assert "surrounding context" in expanded[0]
+        assert 'print("world")' in expanded[0]
+
+
+class TestExtractBestAnchorFromText:
+    def test_skips_python_and_shell_comment_lines(self):
+        text = """
+# temporary workaround
+# another note
+actual_value = serviceId
+"""
+
+        result = _extract_best_anchor_from_text(text)
+
+        assert result == "actual_value = serviceId"
+
+    def test_skips_block_comment_lines(self):
+        text = """
+/*
+ * transitional note
+ */
+return route.toPath()
+"""
+
+        result = _extract_best_anchor_from_text(text)
+
+        assert result == "return route.toPath()"

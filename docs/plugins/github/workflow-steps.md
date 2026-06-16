@@ -24,9 +24,10 @@ For full contract details for every public step, including documented inputs, ou
 | `ai_suggest_pr_description` | Pull Requests | `create-pr-ai` |
 | `prompt_for_pr_title` | Prompt and Selection | - |
 | `prompt_for_pr_body` | Prompt and Selection | - |
+| `prompt_for_pr_draft` | Prompt and Selection | `create-pr-ai` |
 | `prompt_for_issue_body_step` | Prompt and Selection | `create-issue-ai` |
 | `prompt_for_self_assign` | Prompt and Selection | `create-issue-ai` |
-| `prompt_for_labels` | Prompt and Selection | - |
+| `prompt_for_labels` | Prompt and Selection | `create-pr-ai` |
 | `select_cli` | Prompt and Selection | - |
 | `ai_suggest_issue_title_and_body` | Issue Creation | `create-issue-ai` |
 | `preview_and_confirm_issue` | Issue Creation | - |
@@ -78,9 +79,10 @@ Use these steps when a workflow needs interactive user input before creation or 
 
 - `prompt_for_pr_title`: capture a PR title interactively when one is not already available
 - `prompt_for_pr_body`: capture a PR body interactively when one is not already available
+- `prompt_for_pr_draft`: ask whether the PR should be created as draft
 - `prompt_for_issue_body_step`: capture the raw issue request before AI expansion
 - `prompt_for_self_assign`: ask whether the current user should be assigned to the issue
-- `prompt_for_labels`: prompt for labels to attach to an issue or PR
+- `prompt_for_labels`: prompt for repository labels and save the selection to a configurable context key
 - `select_cli`: choose which external CLI a workflow should use
 
 ## Issue Creation
@@ -440,6 +442,46 @@ How to read these contracts:
     | `Skip` | `pr_body` | If pr_body already exists. |
 
 
+??? info "`prompt_for_pr_draft`"
+    Ask whether the pull request should be created as a draft.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: prompt_for_pr_draft
+    ```
+
+    **Used by built-in workflows:** `create-pr-ai`
+
+    **Available to later steps:** `pr_is_draft`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.textual` | - | Textual UI components. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `draft` | bool or null, optional | Workflow draft mode. Use `true` or `false` to skip the prompt, or `null` to ask interactively. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_is_draft` | bool | Whether the PR should be created as a draft. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `pr_is_draft` | If the draft preference was resolved successfully. |
+    | `Error` | - | If the user cancels or the prompt fails. |
+
+
 ??? info "`prompt_for_issue_body_step`"
     Interactively prompts the user for a GitHub issue body.
 
@@ -518,7 +560,7 @@ How to read these contracts:
 
 
 ??? info "`prompt_for_labels`"
-    Prompts the user to select labels for the issue.
+    Prompt the user to select repository labels and save them to context.
 
     **Workflow usage**
 
@@ -527,7 +569,7 @@ How to read these contracts:
       step: prompt_for_labels
     ```
 
-    **Available to later steps:** `labels`
+    **Available to later steps:** `<output_key>`
 
     **Requires**
 
@@ -537,20 +579,24 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `output_key` | str, optional | Context key where selected labels should be stored. Defaults to `labels`. |
+    | `prompt` | str, optional | Prompt text shown to the user. Defaults to `Select labels:`. |
+    | `default_selected_key` | str, optional | Context key used to preselect labels. Defaults to `output_key`. |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `labels` | list[str] | Labels selected by the user. |
+    | `<output_key>` | list[str] | Labels selected by the user. |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `labels` | If label selection completes successfully. |
-    | `Skip` | `labels` | If the repository has no labels. |
+    | `Success` | `<output_key>` | If label selection completes successfully. |
+    | `Skip` | - | If the repository has no labels. |
     | `Error` | - | If the GitHub client is unavailable or the prompt fails. |
 
 
@@ -563,6 +609,8 @@ How to read these contracts:
     - plugin: github
       step: select_cli
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Inputs (from ctx.data)**
 
@@ -980,6 +1028,8 @@ How to read these contracts:
       step: select_pr_for_code_review
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `review_pr_number`, `review_pr_title`, `review_pr_head`, `review_pr_base`
 
     **Inputs (from ctx.data)**
@@ -1011,6 +1061,8 @@ How to read these contracts:
     - plugin: github
       step: fetch_pr_review_bundle
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Available to later steps:** `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template`
 
@@ -1048,6 +1100,8 @@ How to read these contracts:
       step: build_change_manifest
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `change_manifest`
 
     **Inputs (from ctx.data)**
@@ -1077,6 +1131,8 @@ How to read these contracts:
       step: build_existing_comments_index
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `existing_comments_index (List[ExistingCommentIndexEntry])`
 
     **Inputs (from ctx.data)**
@@ -1096,6 +1152,92 @@ How to read these contracts:
     | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | - |
 
 
+??? info "`classify_pr`"
+    Classify PR size and composition before planning.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: classify_pr
+    ```
+
+    **Used by built-in workflows:** `review-pr`
+
+    **Available to later steps:** `pr_classification`, `review_profile`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.textual` | - | Textual UI context. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `change_manifest` | ChangeManifest | Structured PR change summary. |
+    | `existing_comments_index` | List[ExistingCommentIndexEntry], optional | Existing comments used to estimate review activity. |
+    | `review_threads` | List[UICommentThread], optional | Current review threads. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_classification` | PRClassification | Deterministic PR classification. |
+    | `review_profile` | ReviewProfile | Resolved review profile used during classification. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `pr_classification`, `review_profile` | When PR classification is computed successfully. |
+    | `Error` | - | When required context is missing or the step cannot run. |
+
+
+??? info "`score_review_candidates`"
+    Rank changed files and precompute excluded files.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: score_review_candidates
+    ```
+
+    **Used by built-in workflows:** `review-pr`
+
+    **Available to later steps:** `review_profile`, `review_candidates`, `excluded_review_files`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.textual` | - | Textual UI context. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `change_manifest` | ChangeManifest | Structured PR change summary. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_profile` | ReviewProfile | Resolved review profile used during scoring. |
+    | `review_candidates` | List[ScoredReviewCandidate] | Ranked review candidates. |
+    | `excluded_review_files` | List[ExcludedFileEntry] | Files excluded from deep review. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `review_profile`, `review_candidates`, `excluded_review_files` | When review candidates are scored successfully. |
+    | `Exit` | - | When no reviewable candidates remain after exclusions. |
+    | `Error` | - | When required context is missing or the step cannot run. |
+
+
 ??? info "`build_review_checklist`"
     Assemble the review checklist for this PR.
 
@@ -1105,6 +1247,8 @@ How to read these contracts:
     - plugin: github
       step: build_review_checklist
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Available to later steps:** `review_checklist (List[ReviewChecklistItem])`
 
@@ -1125,6 +1269,46 @@ How to read these contracts:
     | `Success` | `review_checklist (List[ReviewChecklistItem])` | - |
 
 
+??? info "`select_review_strategy`"
+    Choose review strategy based on deterministic PR classification.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: select_review_strategy
+    ```
+
+    **Used by built-in workflows:** `review-pr`
+
+    **Available to later steps:** `review_strategy`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.textual` | - | Textual UI context. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_classification` | PRClassification | Deterministic PR classification. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_strategy` | ReviewStrategy | Execution strategy for planning and findings. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `review_strategy` | When a review strategy is selected successfully. |
+    | `Error` | - | When required context is missing or the step cannot run. |
+
+
 ??? info "`ai_review_plan`"
     First AI call: decide which files to read and which checklist items apply.
 
@@ -1134,6 +1318,8 @@ How to read these contracts:
     - plugin: github
       step: ai_review_plan
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Available to later steps:** `review_plan (ReviewPlan)`
 
@@ -1164,6 +1350,8 @@ How to read these contracts:
       step: validate_review_plan
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `validated_review_plan`
 
     **Inputs (from ctx.data)**
@@ -1192,6 +1380,8 @@ How to read these contracts:
     - plugin: github
       step: resolve_review_context
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Available to later steps:** `review_context_package (ReviewContextPackage)`
 
@@ -1222,6 +1412,8 @@ How to read these contracts:
       step: ai_review_findings
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `raw_findings`
 
     **Inputs (from ctx.data)**
@@ -1250,6 +1442,8 @@ How to read these contracts:
     - plugin: github
       step: normalize_findings
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Available to later steps:** `normalized_findings`
 
@@ -1280,6 +1474,8 @@ How to read these contracts:
       step: dedupe_findings
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `deduped_findings`
 
     **Inputs (from ctx.data)**
@@ -1308,6 +1504,8 @@ How to read these contracts:
     - plugin: github
       step: build_new_comment_actions
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Available to later steps:** `review_action_proposals (List[ReviewActionProposal])`
 
@@ -1338,6 +1536,8 @@ How to read these contracts:
       step: validate_review_actions
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `approved_action_proposals (List[ReviewActionProposal])`
 
     **Inputs (from ctx.data)**
@@ -1366,6 +1566,8 @@ How to read these contracts:
     - plugin: github
       step: submit_review_actions
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Inputs (from ctx.data)**
 
@@ -1539,6 +1741,8 @@ How to read these contracts:
       step: create_worktree
     ```
 
+    **Used by built-in workflows:** `review-pr`
+
     **Available to later steps:** `worktree_path`, `worktree_created`
 
     **Inputs (from ctx.data)**
@@ -1569,6 +1773,8 @@ How to read these contracts:
     - plugin: github
       step: cleanup_worktree
     ```
+
+    **Used by built-in workflows:** `review-pr`
 
     **Inputs (from ctx.data)**
 

@@ -99,15 +99,31 @@ class GHNetwork:
             )
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
+            stderr = e.stderr.strip() if e.stderr else ""
+            stdout = e.stdout.strip() if e.stdout else ""
             self._logger.error(
                 "gh_command_failed",
                 subcommand=subcommand,
                 action=action,
                 duration=round(time.time() - start, 3),
                 exit_code=e.returncode,
+                stderr_preview=stderr[:500],
+                stdout_preview=stdout[:500],
             )
-            error_msg = e.stderr.strip() if e.stderr else str(e)
-            raise GitHubAPIError(msg.GitHub.API_ERROR.format(error_msg=error_msg)) from e
+            error_parts = []
+            if stderr:
+                error_parts.append(stderr)
+            if stdout:
+                error_parts.append(stdout)
+            if not error_parts:
+                error_parts.append(str(e))
+            error_msg = " | ".join(error_parts)
+            raise GitHubAPIError(
+                msg.GitHub.API_ERROR.format(error_msg=error_msg),
+                stderr=stderr or None,
+                stdout=stdout or None,
+                exit_code=e.returncode,
+            ) from e
         except FileNotFoundError:
             raise GitHubError(msg.GitHub.CLI_NOT_FOUND)
         except Exception as e:

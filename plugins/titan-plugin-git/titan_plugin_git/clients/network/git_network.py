@@ -119,7 +119,7 @@ class GitNetwork:
                 subcommand=subcommand,
                 duration=round(time.time() - start, 3),
             )
-            return result.stdout.strip()
+            return result.stdout.rstrip()
         except subprocess.CalledProcessError as e:
             self._logger.debug(
                 "git_command_failed",
