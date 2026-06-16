@@ -69,6 +69,7 @@ class SlackPlugin(TitanPlugin):
         self._client = SlackClient(
             user_token=user_token,
             team_id=validated_config.default_team_id,
+            default_channels=validated_config.default_channels,
         )
 
     def is_available(self) -> bool:
@@ -97,6 +98,7 @@ class SlackPlugin(TitanPlugin):
             read_recent_messages_step,
             select_target_step,
             select_channel_target_step,
+            select_default_or_search_channel_target_step,
             select_user_target_step,
             validate_connection_step,
         )
@@ -107,6 +109,7 @@ class SlackPlugin(TitanPlugin):
             "list_users": list_users_step,
             "select_user_target": select_user_target_step,
             "select_channel_target": select_channel_target_step,
+            "select_default_or_search_channel_target": select_default_or_search_channel_target_step,
             "select_target": select_target_step,
             "prepare_message_destination": prepare_message_destination_step,
             "ensure_target_conversation": ensure_target_conversation_step,

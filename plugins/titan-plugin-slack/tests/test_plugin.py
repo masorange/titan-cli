@@ -25,6 +25,7 @@ def test_slack_plugin_exposes_public_steps() -> None:
         "list_users",
         "select_user_target",
         "select_channel_target",
+        "select_default_or_search_channel_target",
         "select_target",
         "prepare_message_destination",
         "ensure_target_conversation",

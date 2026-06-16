@@ -76,22 +76,22 @@ Select a channel, prepare the destination from the selected target, compose a me
 
 ## `summarize-slack-target`
 
-Search for a person or channel, resolve the backing conversation, read recent Slack messages, and summarize them with AI.
+Choose one configured default channel or search for another one, read recent Slack messages, and summarize them with AI.
 
 **Source workflow:** `plugins/titan-plugin-slack/titan_plugin_slack/workflows/summarize-slack-target.yaml`
 
 ### Default flow
 
 1. `slack.validate_connection`
-2. `slack.select_target`
+2. `slack.select_default_or_search_channel_target`
 3. `slack.ensure_target_conversation`
 4. `slack.read_recent_messages`
 5. `slack.ai_summarize_messages`
 
 ### Typical usage
 
-- summarize a recent conversation without manually browsing the Slack UI
-- inspect recent channel or DM context from Titan before taking action
+- summarize a recent channel without manually browsing the Slack UI
+- reuse repository-level default channels for common summary workflows while still allowing manual search when needed
 
 ### Scope constraints
 

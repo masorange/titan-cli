@@ -28,6 +28,10 @@
         {
           "name": "select_channel_target",
           "summary": "Filter visible Slack channels by query and select one canonical channel target."
+        },
+        {
+          "name": "select_default_or_search_channel_target",
+          "summary": "Choose one configured default channel or fall back to manual Slack channel search."
         }
       ]
     },
@@ -217,6 +221,39 @@
       ]
     },
     {
+      "name": "select_default_or_search_channel_target",
+      "group": "Selection and Target Resolution",
+      "module": "titan_plugin_slack.steps.target_steps",
+      "function": "select_default_or_search_channel_target_step",
+      "summary": "Select a Slack channel from the configured defaults or search for another one.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_target_query (str, optional): Pre-filled query used if the user chooses to search manually.",
+          "    slack_search_limit (int, optional): Maximum number of matches to return during manual search. Defaults to 20.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 200.",
+          "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.",
+          "    slack_exclude_archived (bool, optional): Whether to exclude archived channels while searching. Defaults to True."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_target (UISlackTarget): Canonical selected Slack target.",
+          "    slack_target_type (str): Selected target type (`channel`).",
+          "    slack_target_id (str): Slack channel ID.",
+          "    slack_target_name (str): User-facing target name.",
+          "    slack_target_query (str): Query used to resolve the selection, when manual search was used."
+        ],
+        "Returns": [
+          "    Success: If the channel target is selected successfully.",
+          "    Error: If Slack is unavailable, the configured channel cannot be resolved, or no match is selected."
+        ]
+      },
+      "used_by_workflows": [
+        "summarize-slack-target"
+      ]
+    },
+    {
       "name": "prepare_message_destination",
       "group": "Messaging",
       "module": "titan_plugin_slack.steps.message_steps",
@@ -351,9 +388,7 @@
           "    Error: If Slack is unavailable, the query is invalid, the search fails, or no match is selected."
         ]
       },
-      "used_by_workflows": [
-        "summarize-slack-target"
-      ]
+      "used_by_workflows": []
     },
     {
       "name": "ensure_target_conversation",

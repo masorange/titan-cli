@@ -17,7 +17,11 @@ from .summary_steps import (
     read_recent_messages_step,
     select_target_step,
 )
-from .target_steps import select_channel_target_step, select_user_target_step
+from .target_steps import (
+    select_channel_target_step,
+    select_default_or_search_channel_target_step,
+    select_user_target_step,
+)
 
 __all__ = [
     "validate_connection_step",
@@ -33,4 +37,5 @@ __all__ = [
     "ai_summarize_messages_step",
     "select_user_target_step",
     "select_channel_target_step",
+    "select_default_or_search_channel_target_step",
 ]

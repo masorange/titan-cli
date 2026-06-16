@@ -20,6 +20,7 @@ For full contract details for every public step, including documented inputs, ou
 | `list_users` | Validation and Discovery | `discover-slack-workspace` |
 | `select_user_target` | Selection and Target Resolution | `send-slack-direct-message` |
 | `select_channel_target` | Selection and Target Resolution | `send-slack-channel-message` |
+| `select_default_or_search_channel_target` | Selection and Target Resolution | `summarize-slack-target` |
 | `prepare_message_destination` | Messaging | `send-slack-direct-message`, `send-slack-channel-message` |
 | `open_direct_message` | Messaging | - |
 | `prompt_message_body` | Messaging | `send-slack-direct-message`, `send-slack-channel-message` |
@@ -43,6 +44,7 @@ Use these steps to resolve a reusable Slack target object for later workflows.
 
 - `select_user_target`: filter visible Slack users by query and select one canonical user target
 - `select_channel_target`: filter visible Slack channels by query and select one canonical channel target
+- `select_default_or_search_channel_target`: choose one configured default channel or fall back to manual Slack channel search
 
 ## Messaging
 

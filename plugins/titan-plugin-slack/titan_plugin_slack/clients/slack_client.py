@@ -27,13 +27,20 @@ WebClient = slack_sdk_module.WebClient
 class SlackClient:
     """Slack client facade used by the Slack plugin."""
 
-    def __init__(self, user_token: str, team_id: str | None = None, timeout: int = 30):
+    def __init__(
+        self,
+        user_token: str,
+        team_id: str | None = None,
+        timeout: int = 30,
+        default_channels: list[str] | None = None,
+    ):
         if not user_token:
             raise SlackClientError("Slack client requires a user token.")
 
         self.user_token = user_token
         self.team_id = team_id
         self.timeout = timeout
+        self.default_channels = default_channels or []
         self._web_client = WebClient(token=user_token, timeout=timeout)
 
         self.auth_service = AuthService(self._web_client)

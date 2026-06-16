@@ -6,6 +6,7 @@ from titan_cli.engine.context import WorkflowContext
 from titan_plugin_slack.models import UISlackChannel, UISlackTarget, UISlackUser
 from titan_plugin_slack.steps.target_steps import (
     select_channel_target_step,
+    select_default_or_search_channel_target_step,
     select_user_target_step,
 )
 
@@ -84,3 +85,32 @@ def test_select_channel_target_returns_target_metadata() -> None:
     assert result.metadata["slack_target_type"] == "channel"
     assert result.metadata["slack_target_id"] == "C2"
     assert result.metadata["slack_target_name"] == "eng-backend"
+
+
+def test_select_default_or_search_channel_target_uses_configured_default() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = ["eng-backend"]
+    channel = UISlackChannel(id="C2", name="eng-backend")
+    ctx.textual.ask_option.return_value = "eng-backend"
+    ctx.slack.search_channels.return_value = ClientSuccess(data=[channel])
+
+    result = select_default_or_search_channel_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_target_id"] == "C2"
+
+
+def test_select_default_or_search_channel_target_falls_back_to_search_when_no_defaults() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = []
+    ctx.textual.ask_text.return_value = "eng"
+    channel = UISlackChannel(id="C2", name="eng-backend")
+    ctx.slack.search_channels.return_value = ClientSuccess(data=[channel])
+    ctx.textual.ask_option.return_value = channel
+
+    result = select_default_or_search_channel_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_target_id"] == "C2"
