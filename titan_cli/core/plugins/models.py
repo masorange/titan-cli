@@ -131,17 +131,3 @@ class PoEditorPluginConfig(BaseModel):
         description="PoEditor API token",
         json_schema_extra={"format": "password", "required_in_schema": True},
     )
-
-    default_project_id: Optional[str] = Field(
-        None,
-        description="Default PoEditor project ID",
-        json_schema_extra={"config_scope": "project"},
-    )
-
-    timeout: int = Field(
-        30,
-        description="Request timeout in seconds",
-        ge=1,
-        le=300,
-        json_schema_extra={"config_scope": "global"},
-    )

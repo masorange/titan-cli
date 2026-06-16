@@ -33,13 +33,3 @@ class NetworkPoEditorProject:
     fallback_language: str = ""
 
 
-@dataclass
-class NetworkUploadStats:
-    """PoEditor upload statistics response - faithful to API structure.
-
-    Fields match PoEditor API upload response.
-    """
-
-    added: int
-    updated: int
-    deleted: int

@@ -4,7 +4,7 @@ from titan_cli.core.logging import log_client_operation
 from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 
 from ...exceptions import PoEditorAPIError
-from ...models.view import TermsAddResult, TermsWithTranslationsResult
+from ...models.view import TermsWithTranslationsResult
 from ..network import PoEditorNetwork
 
 
@@ -22,39 +22,6 @@ class TermService:
             network: PoEditorNetwork instance
         """
         self.network = network
-
-    @log_client_operation()
-    def get_project_languages(self, project_id: str) -> ClientResult[list[str]]:
-        """Get all language codes for a project.
-
-        Args:
-            project_id: PoEditor project ID
-
-        Returns:
-            ClientResult with list of language codes (e.g., ["en", "es", "fr"]) or error
-        """
-        try:
-            data = self.network.make_request("languages/list", id=project_id)
-
-            languages_data = data.get("languages", [])
-            language_codes = [lang.get("code") for lang in languages_data if lang.get("code")]
-
-            return ClientSuccess(
-                data=language_codes,
-                message=f"Retrieved {len(language_codes)} languages"
-            )
-
-        except PoEditorAPIError as e:
-            return ClientError(
-                error_message=f"Failed to fetch languages: {e.message}",
-                error_code="API_ERROR",
-                details={"status_code": e.status_code},
-            )
-        except Exception as e:
-            return ClientError(
-                error_message=f"Unexpected error fetching languages: {e}",
-                error_code="INTERNAL_ERROR",
-            )
 
     @log_client_operation()
     def create_terms_with_translations(
@@ -111,6 +78,10 @@ class TermService:
 
             # Then add translations for each language
             for language_code, translations in translations_by_language.items():
+                # Skip source language if already in translations_by_language
+                if language_code == source_language:
+                    continue
+
                 translations_payload = [
                     {
                         "term": term_key,
@@ -154,73 +125,92 @@ class TermService:
             )
 
     @log_client_operation()
-    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult["TermsAddResult"]:
-        """Add terms to project following POEditor API v2 specification.
-
-        Adds new terms to a localization project.
-        Follows https://poeditor.com/docs/api#terms_add
+    def delete_term(self, project_id: str, term_key: str) -> ClientResult[dict]:
+        """Delete a term from a PoEditor project.
 
         Args:
             project_id: PoEditor project ID
-            terms: List of term objects. Each object can contain:
-                - term (str): The text string - REQUIRED
-                - context (str, optional): Contextual information
-                - reference (str, optional): Location reference
-                - plural (str, optional): Plural form
-                - comment (str, optional): Translator notes
-                - tags (list|str, optional): Array or string of tag names
+            term_key: The term key to delete
 
         Returns:
-            ClientResult[TermsAddResult] with add statistics:
-                - parsed (int): Number of terms parsed
-                - added (int): Number of terms successfully added
-
-        Example:
-            >>> result = service.add_terms(
-            ...     project_id="7717",
-            ...     terms=[
-            ...         {"term": "Add new list"},
-            ...         {"term": "Home", "context": "navigation", "tags": ["menu"]}
-            ...     ]
-            ... )
+            ClientResult with deletion info or error
         """
         try:
             import json
 
-            # Validate terms list
+            if not term_key or not term_key.strip():
+                return ClientError(
+                    error_message="term_key cannot be empty",
+                    error_code="INVALID_PARAMETER"
+                )
+
+            # PoEditor API expects a list of terms to delete
+            terms_payload = [{"term": term_key}]
+
+            data = self.network.make_request(
+                "terms/delete",
+                id=project_id,
+                data=json.dumps(terms_payload)
+            )
+
+            # Extract deletion statistics
+            terms_result = data.get("terms", {})
+            deleted = terms_result.get("deleted", 0)
+
+            if deleted == 0:
+                return ClientError(
+                    error_message=f"Term '{term_key}' not found in project",
+                    error_code="TERM_NOT_FOUND"
+                )
+
+            return ClientSuccess(
+                data={"deleted": deleted, "term_key": term_key},
+                message=f"Successfully deleted term '{term_key}'"
+            )
+
+        except PoEditorAPIError as e:
+            return ClientError(
+                error_message=f"Failed to delete term: {e.message}",
+                error_code="API_ERROR",
+                details={"status_code": e.status_code},
+            )
+        except Exception as e:
+            return ClientError(
+                error_message=f"Unexpected error deleting term: {e}",
+                error_code="INTERNAL_ERROR",
+            )
+
+    def _add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[dict]:
+        """Add terms to project (PRIVATE).
+
+        Args:
+            project_id: PoEditor project ID
+            terms: List of term dicts with "term" key
+
+        Returns:
+            ClientResult with add statistics or error
+        """
+        try:
+            import json
+
             if not terms:
                 return ClientError(
                     error_message="terms list cannot be empty",
                     error_code="INVALID_PARAMETER"
                 )
 
-            # Validate each term has required 'term' field
-            for idx, term_obj in enumerate(terms):
-                if not isinstance(term_obj, dict):
-                    return ClientError(
-                        error_message=f"Term at index {idx} must be a dictionary",
-                        error_code="INVALID_PARAMETER"
-                    )
-                if "term" not in term_obj:
-                    return ClientError(
-                        error_message=f"Term at index {idx} missing required 'term' field",
-                        error_code="INVALID_PARAMETER"
-                    )
-
-            # Make API request
             data = self.network.make_request(
                 "terms/add",
                 id=project_id,
                 data=json.dumps(terms)
             )
 
-            # Extract statistics from response
             terms_result = data.get("terms", {})
             parsed = terms_result.get("parsed", 0)
             added = terms_result.get("added", 0)
 
             return ClientSuccess(
-                data=TermsAddResult(parsed=parsed, added=added),
+                data={"parsed": parsed, "added": added},
                 message=f"Parsed {parsed} terms, added {added}"
             )
 
@@ -242,7 +232,7 @@ class TermService:
         language: str,
         translations: list[dict]
     ) -> ClientResult[dict]:
-        """Add/update translations for a specific language.
+        """Add/update translations for a specific language (PRIVATE).
 
         Args:
             project_id: PoEditor project ID

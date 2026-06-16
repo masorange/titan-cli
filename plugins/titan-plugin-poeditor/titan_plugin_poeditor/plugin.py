@@ -34,12 +34,8 @@ class PoEditorPlugin(TitanPlugin):
     def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
         """Initialize plugin with configuration and secrets.
 
-        Configuration cascade (project overrides global):
-            1. Global config (~/.titan/config.toml): api_token, timeout
-            2. Project settings (.titan/config.toml): default_project_id (optional)
-
         Reads API token from secrets:
-            POEDITOR_API_TOKEN or poeditor_api_token
+            {project_name}_poeditor_api_token, poeditor_api_token, or POEDITOR_API_TOKEN
 
         Args:
             config: Titan configuration
@@ -57,9 +53,16 @@ class PoEditorPlugin(TitanPlugin):
         except ValidationError as e:
             raise PoEditorConfigurationError(str(e)) from e
 
-        # Get API token from secrets (try multiple keys for compatibility)
-        api_token = secrets.get("poeditor_api_token") or secrets.get(
-            "POEDITOR_API_TOKEN"
+        # Get API token from secrets using the same pattern as the wizard saves it
+        # Try project-scoped key first, then fall back to generic key
+        project_name = config.get_project_name()
+        secret_key = "poeditor_api_token"
+        keychain_key = f"{project_name}_{secret_key}" if project_name else secret_key
+
+        api_token = (
+            secrets.get(keychain_key) or
+            secrets.get(secret_key) or
+            secrets.get("POEDITOR_API_TOKEN")
         )
 
         if not api_token:
@@ -68,8 +71,8 @@ class PoEditorPlugin(TitanPlugin):
                 "Please configure with: titan configure --plugin poeditor"
             )
 
-        # Initialize client
-        self._client = PoEditorClient(api_token=api_token, timeout=validated_config.timeout)
+        # Initialize client (using default timeout of 30 seconds)
+        self._client = PoEditorClient(api_token=api_token, timeout=30)
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:
         """Extract plugin-specific configuration.
@@ -122,15 +125,17 @@ class PoEditorPlugin(TitanPlugin):
             Dictionary mapping step names to step functions
         """
         from .steps import (
-            import_translations_step,
+            delete_term_step,
             list_projects_step,
             select_project_step,
+            upload_terms_step,
         )
 
         return {
             "list_projects_step": list_projects_step,
             "select_project_step": select_project_step,
-            "import_translations_step": import_translations_step,
+            "upload_terms_step": upload_terms_step,
+            "delete_term_step": delete_term_step,
         }
 
     @property

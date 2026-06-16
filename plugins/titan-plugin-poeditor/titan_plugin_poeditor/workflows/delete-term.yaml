@@ -1,0 +1,16 @@
+name: "Delete Term from PoEditor"
+description: "Delete a term from a PoEditor project"
+
+steps:
+  # Step 1: List all available projects
+  - plugin: poeditor
+    step: list_projects_step
+
+  # Step 2: Select a project
+  - plugin: poeditor
+    step: select_project_step
+
+  # Step 3: Delete the term
+  # Note: term_key must be set in context before running this workflow
+  - plugin: poeditor
+    step: delete_term_step

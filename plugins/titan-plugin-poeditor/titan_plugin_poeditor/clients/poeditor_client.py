@@ -3,10 +3,9 @@
 from titan_cli.core.result import ClientResult
 
 from ..models import UIPoEditorProject
-from ..models.network.rest import NetworkUploadStats
-from ..models.view import TermsAddResult
+from ..models.view import TermsWithTranslationsResult
 from .network import PoEditorNetwork
-from .services import ProjectService, TermService, UploadService
+from .services import ProjectService, TermService
 
 
 class PoEditorClient:
@@ -40,7 +39,6 @@ class PoEditorClient:
         self._network = PoEditorNetwork(api_token, timeout)
         self._project_service = ProjectService(self._network)
         self._term_service = TermService(self._network)
-        self._upload_service = UploadService(self._network)
 
     def list_projects(self) -> ClientResult[list[UIPoEditorProject]]:
         """List all projects accessible to the user.
@@ -61,85 +59,25 @@ class PoEditorClient:
         """
         return self._project_service.get_project(project_id)
 
-    def upload_file(
-        self,
-        project_id: str,
-        file_path: str,
-        language_code: str,
-        updating: str = "terms_translations",
-    ) -> ClientResult[NetworkUploadStats]:
-        """Upload translation file to project.
-
-        Args:
-            project_id: PoEditor project ID
-            file_path: Path to translation file
-            language_code: Language code (e.g., "en", "es", "fr")
-            updating: What to update - "terms", "terms_translations", or "translations"
-
-        Returns:
-            ClientResult[NetworkUploadStats] with upload statistics
-        """
-        return self._upload_service.upload_file(
-            project_id, file_path, language_code, updating
-        )
-
-    def get_project_languages(self, project_id: str) -> ClientResult[list[str]]:
-        """Get all language codes for a project.
-
-        Args:
-            project_id: PoEditor project ID
-
-        Returns:
-            ClientResult with list of language codes or error
-        """
-        return self._term_service.get_project_languages(project_id)
-
-    def add_terms(self, project_id: str, terms: list[dict]) -> ClientResult[TermsAddResult]:
-        """Add new terms to a project.
-
-        Adds terms to a localization project following POEditor API v2 spec:
-        https://poeditor.com/docs/api#terms_add
-
-        Args:
-            project_id: PoEditor project ID
-            terms: List of term objects. Each can contain:
-                - term (str): The text string - REQUIRED
-                - context (str, optional): Contextual information
-                - reference (str, optional): Location reference
-                - plural (str, optional): Plural form
-                - comment (str, optional): Translator notes
-                - tags (list|str, optional): Tag names
-
-        Returns:
-            ClientResult[TermsAddResult] with statistics:
-                - parsed (int): Number of terms parsed
-                - added (int): Number of terms added
-
-        Example:
-            >>> result = client.add_terms(
-            ...     project_id="7717",
-            ...     terms=[{"term": "Add new list"}]
-            ... )
-        """
-        return self._term_service.add_terms(project_id, terms)
-
     def create_terms_with_translations(
         self,
         project_id: str,
         terms_map: dict[str, str],
         translations_by_language: dict[str, dict[str, str]],
         source_language: str = "en"
-    ) -> ClientResult[dict]:
+    ) -> ClientResult[TermsWithTranslationsResult]:
         """Create terms in PoEditor and add translations for all languages.
 
         Args:
             project_id: PoEditor project ID
             terms_map: Dict mapping term keys to source language values
+                      Example: {"home_title": "Home", "settings_title": "Settings"}
             translations_by_language: Dict mapping language codes to term translations
+                      Example: {"es": {"home_title": "Inicio"}, "fr": {"home_title": "Accueil"}}
             source_language: Source language code for terms_map values (default: "en")
 
         Returns:
-            ClientResult with success statistics or error
+            ClientResult[TermsWithTranslationsResult] with success statistics or error
         """
         return self._term_service.create_terms_with_translations(
             project_id,
@@ -147,3 +85,21 @@ class PoEditorClient:
             translations_by_language,
             source_language
         )
+
+    def delete_term(self, project_id: str, term_key: str) -> ClientResult[dict]:
+        """Delete a term from a PoEditor project.
+
+        Args:
+            project_id: PoEditor project ID
+            term_key: The term key to delete
+
+        Returns:
+            ClientResult with deletion info or error
+
+        Example:
+            >>> result = client.delete_term(
+            ...     project_id="123456",
+            ...     term_key="home_title"
+            ... )
+        """
+        return self._term_service.delete_term(project_id, term_key)

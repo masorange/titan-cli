@@ -41,17 +41,6 @@ class UIPoEditorProject:
 
 
 @dataclass
-class TermsAddResult:
-    """Result of adding terms to a project.
-
-    Contains statistics about the terms operation.
-    """
-
-    parsed: int
-    added: int
-
-
-@dataclass
 class TermsWithTranslationsResult:
     """Result of creating terms with translations.
 

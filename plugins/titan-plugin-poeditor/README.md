@@ -5,7 +5,6 @@ PoEditor integration plugin for Titan CLI with translation management capabiliti
 ## Features
 
 - **List Projects**: Display all accessible PoEditor projects
-- **Import Translations**: Upload translation files to PoEditor projects
 - **Type-Safe API**: All client methods return `ClientResult[T]` for explicit error handling
 - **5-Layer Architecture**: Clean separation between network, services, client, operations, and steps
 
@@ -28,28 +27,13 @@ make dev-install
 
 ## Configuration
 
-### Global Configuration
-
-Add to `~/.titan/config.toml`:
-
-```toml
-[plugins.poeditor]
-enabled = true
-
-[plugins.poeditor.config]
-timeout = 30
-```
-
-### Project Configuration
+### Configuration
 
 Add to `.titan/config.toml` in your project:
 
 ```toml
 [plugins.poeditor]
 enabled = true
-
-[plugins.poeditor.config]
-default_project_id = "123456"  # Optional: default project to use
 ```
 
 ### API Token
@@ -76,19 +60,25 @@ Display all accessible PoEditor projects:
 titan workflow run poeditor:list-projects
 ```
 
-### Import Translations
+### Upload Terms
 
-Upload translation file to a project:
+Upload terms and translations to a PoEditor project:
 
 ```bash
-titan workflow run poeditor:import-translations --param project_id=123456 --param file_path=./translations/en.json --param language_code=en
+titan workflow run poeditor:upload-terms
 ```
 
-Parameters:
-- `project_id`: PoEditor project ID (optional - will prompt if not provided)
-- `file_path`: Path to translation file (required)
-- `language_code`: Language code (default: "en")
-- `updating`: What to update - "terms", "terms_translations", or "translations" (default: "terms_translations")
+**Note**: This workflow requires `terms_map` and `translations_by_language` to be set in the workflow context before running. These are typically set by previous steps in a custom workflow.
+
+### Delete Term
+
+Delete a term from a PoEditor project (with confirmation):
+
+```bash
+titan workflow run poeditor:delete-term
+```
+
+**Note**: This workflow requires `term_key` to be set in the workflow context before running. The step will ask for confirmation (type 'DELETE') before proceeding.
 
 ## Workflow Steps
 
@@ -110,18 +100,32 @@ Prompts user to select a project from a list.
 - `selected_project_id` (str): Selected project ID
 - `selected_project` (UIPoEditorProject): Selected project object
 
-### `import_translations_step`
+### `upload_terms_step`
 
-Uploads a translation file to a PoEditor project.
+Uploads terms and translations to a PoEditor project.
 
-**Parameters**:
-- `project_id` (str): PoEditor project ID
-- `file_path` (str): Path to translation file
-- `language_code` (str): Language code
-- `updating` (str): What to update (default: "terms_translations")
+**Inputs**:
+- `selected_project_id` (str): PoEditor project ID
+- `terms_map` (dict[str, str]): Dict mapping term keys to source language values
+- `translations_by_language` (dict[str, dict[str, str]]): Dict mapping language codes to translations
+- `source_language` (str, optional): Source language code (default: "en")
 
 **Outputs**:
-- `upload_stats` (dict): Upload statistics (added, updated, deleted)
+- `terms_added` (int): Number of terms added
+- `languages_updated` (int): Number of languages updated
+- `uploaded_keys` (list[str]): List of uploaded term keys
+
+### `delete_term_step`
+
+Deletes a term from a PoEditor project (requires confirmation).
+
+**Inputs**:
+- `selected_project_id` (str): PoEditor project ID
+- `term_key` (str): The term key to delete
+
+**Outputs**:
+- `deleted_term_key` (str): The term key that was deleted
+- `deleted_count` (int): Number of terms deleted (should be 1)
 
 ## Using the Client in Custom Steps
 
@@ -167,18 +171,32 @@ result = client.get_project(project_id="123456")
 
 Returns: `ClientResult[UIPoEditorProject]`
 
-### Upload File
+### Create Terms with Translations
 
 ```python
-result = client.upload_file(
+result = client.create_terms_with_translations(
     project_id="123456",
-    file_path="./translations/en.json",
-    language_code="en",
-    updating="terms_translations"
+    terms_map={"home_title": "Home", "settings_title": "Settings"},
+    translations_by_language={
+        "es": {"home_title": "Inicio", "settings_title": "Ajustes"},
+        "fr": {"home_title": "Accueil", "settings_title": "Paramètres"}
+    },
+    source_language="en"
 )
 ```
 
-Returns: `ClientResult[dict]` with upload statistics
+Returns: `ClientResult[TermsWithTranslationsResult]`
+
+### Delete Term
+
+```python
+result = client.delete_term(
+    project_id="123456",
+    term_key="home_title"
+)
+```
+
+Returns: `ClientResult[dict]` with deletion info
 
 ## Architecture
 

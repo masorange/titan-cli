@@ -14,6 +14,7 @@ def msg(key: str, **kwargs) -> str:
     messages = {
         "no_client": "PoEditor client not available. Please configure the plugin.",
         "no_projects": "No PoEditor projects found.",
+        "no_project_selected": "No project selected",
         "invalid_project_id": "Invalid project ID: {project_id}",
         "upload_success": "Successfully uploaded {added} new terms, updated {updated}, deleted {deleted}",
         "upload_failed": "Failed to upload translations: {error}",

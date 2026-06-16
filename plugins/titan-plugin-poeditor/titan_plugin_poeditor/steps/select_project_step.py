@@ -37,7 +37,16 @@ def select_project_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error(msg("no_projects"))
 
-    # Prompt user to select project
+    # Display available projects for selection
+    ctx.textual.text("Available projects:")
+    ctx.textual.text("")
+    for i, project in enumerate(projects, 1):
+        ctx.textual.primary_text(
+            f"{i}. {project.progress_icon} {project.name} (ID: {project.id})"
+        )
+        ctx.textual.dim_text(f"   {project.description}")
+        ctx.textual.dim_text(f"   Terms: {project.terms_count} | Language: {project.reference_language}")
+
     ctx.textual.text("")
 
     try:
