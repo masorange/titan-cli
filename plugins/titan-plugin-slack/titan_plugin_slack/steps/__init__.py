@@ -7,6 +7,7 @@ from .discovery_steps import (
 )
 from .message_steps import (
     open_direct_message_step,
+    prepare_message_destination_step,
     post_message_step,
     prompt_message_body_step,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "validate_connection_step",
     "list_public_channels_step",
     "list_users_step",
+    "prepare_message_destination_step",
     "open_direct_message_step",
     "prompt_message_body_step",
     "post_message_step",

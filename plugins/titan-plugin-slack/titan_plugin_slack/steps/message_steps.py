@@ -2,6 +2,86 @@
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Skip, Success, WorkflowContext, WorkflowResult
+from ..models import UISlackConversation
+
+
+def prepare_message_destination_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Prepare a Slack message destination from the selected target.
+
+    Requires:
+        ctx.slack: An initialized SlackClient.
+
+    Inputs (from ctx.data):
+        slack_target (UISlackTarget): Selected Slack target. Must be a `user` or `channel` target.
+
+    Outputs (saved to ctx.data):
+        slack_conversation (UISlackConversation): Resolved Slack destination conversation.
+        slack_conversation_id (str): Conversation or channel ID used for later message operations.
+
+    Returns:
+        Success: If the Slack message destination is ready.
+        Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails.
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Prepare Slack Message Destination")
+
+    if not ctx.slack:
+        ctx.textual.error_text("Slack client not available")
+        ctx.textual.end_step("error")
+        return Error("Slack client not available")
+
+    target = ctx.get("slack_target")
+    if not target:
+        ctx.textual.error_text("Slack target not found in context")
+        ctx.textual.end_step("error")
+        return Error("Slack target not found in context")
+
+    if target.target_type == "user":
+        with ctx.textual.loading("Opening Slack direct message..."):
+            result = ctx.slack.open_direct_message(target.target_id)
+
+        match result:
+            case ClientSuccess(data=conversation):
+                ctx.textual.success_text(
+                    f"Slack direct message ready: {conversation.id} for {target.target_name}"
+                )
+                ctx.textual.end_step("success")
+                return Success(
+                    "Slack direct message ready",
+                    metadata={
+                        "slack_conversation": conversation,
+                        "slack_conversation_id": conversation.id,
+                    },
+                )
+            case ClientError(error_message=err):
+                ctx.textual.error_text(err)
+                ctx.textual.end_step("error")
+                return Error(err)
+
+    if target.target_type == "channel":
+        conversation = UISlackConversation(
+            id=target.target_id,
+            is_im=False,
+            team_id=target.team_id,
+        )
+        ctx.textual.success_text(
+            f"Slack channel destination ready: {target.target_name} ({conversation.id})"
+        )
+        ctx.textual.end_step("success")
+        return Success(
+            "Slack channel destination ready",
+            metadata={
+                "slack_conversation": conversation,
+                "slack_conversation_id": conversation.id,
+            },
+        )
+
+    ctx.textual.error_text("Slack message destinations require a user or channel target")
+    ctx.textual.end_step("error")
+    return Error("Slack message destinations require a user or channel target")
 
 
 def open_direct_message_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -22,47 +102,15 @@ def open_direct_message_step(ctx: WorkflowContext) -> WorkflowResult:
         Success: If the direct message conversation is ready.
         Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails.
     """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Open Slack Direct Message")
-
-    if not ctx.slack:
-        ctx.textual.error_text("Slack client not available")
-        ctx.textual.end_step("error")
-        return Error("Slack client not available")
-
     target = ctx.get("slack_target")
-    if not target:
-        ctx.textual.error_text("Slack target not found in context")
-        ctx.textual.end_step("error")
-        return Error("Slack target not found in context")
-
-    if target.target_type != "user":
-        ctx.textual.error_text("Direct messages require a Slack user target")
-        ctx.textual.end_step("error")
+    if target and target.target_type != "user":
+        if ctx.textual:
+            ctx.textual.begin_step("Open Slack Direct Message")
+            ctx.textual.error_text("Direct messages require a Slack user target")
+            ctx.textual.end_step("error")
         return Error("Direct messages require a Slack user target")
 
-    with ctx.textual.loading("Opening Slack direct message..."):
-        result = ctx.slack.open_direct_message(target.target_id)
-
-    match result:
-        case ClientSuccess(data=conversation):
-            ctx.textual.success_text(
-                f"Slack direct message ready: {conversation.id} for {target.target_name}"
-            )
-            ctx.textual.end_step("success")
-            return Success(
-                "Slack direct message ready",
-                metadata={
-                    "slack_conversation": conversation,
-                    "slack_conversation_id": conversation.id,
-                },
-            )
-        case ClientError(error_message=err):
-            ctx.textual.error_text(err)
-            ctx.textual.end_step("error")
-            return Error(err)
+    return prepare_message_destination_step(ctx)
 
 
 def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -187,6 +235,7 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
 
 
 __all__ = [
+    "prepare_message_destination_step",
     "open_direct_message_step",
     "prompt_message_body_step",
     "post_message_step",

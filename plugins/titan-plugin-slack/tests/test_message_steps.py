@@ -6,6 +6,7 @@ from titan_cli.engine.context import WorkflowContext
 from titan_plugin_slack.models import UISlackConversation, UISlackPostedMessage, UISlackTarget
 from titan_plugin_slack.steps.message_steps import (
     open_direct_message_step,
+    prepare_message_destination_step,
     post_message_step,
     prompt_message_body_step,
 )
@@ -53,6 +54,24 @@ def test_open_direct_message_step_returns_conversation_metadata() -> None:
     assert isinstance(result, Success)
     assert result.metadata["slack_conversation"] == conversation
     assert result.metadata["slack_conversation_id"] == "D123"
+
+
+def test_prepare_message_destination_step_uses_channel_target_directly() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_target"] = UISlackTarget(
+        target_type="channel",
+        target_id="C123",
+        target_name="general",
+        team_id="T1",
+    )
+
+    result = prepare_message_destination_step(ctx)
+
+    assert isinstance(result, Success)
+    conversation = result.metadata["slack_conversation"]
+    assert conversation.id == "C123"
+    assert conversation.is_im is False
 
 
 def test_prompt_message_body_step_skips_when_preset_exists() -> None:

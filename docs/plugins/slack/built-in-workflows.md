@@ -1,6 +1,6 @@
 # Slack Built-in Workflows
 
-The Slack plugin currently ships one small built-in workflow for connection validation and read-only discovery.
+The Slack plugin currently ships a small set of built-in workflows for workspace discovery, direct messaging, channel messaging, and conversation summaries.
 
 ## `discover-slack-workspace`
 
@@ -36,7 +36,7 @@ Select a person, open or reuse a direct message conversation, compose a message,
 
 1. `slack.validate_connection`
 2. `slack.select_user_target`
-3. `slack.open_direct_message`
+3. `slack.prepare_message_destination`
 4. `slack.prompt_message_body`
 5. `slack.post_message`
 
@@ -48,6 +48,30 @@ Select a person, open or reuse a direct message conversation, compose a message,
 ### Scope constraints
 
 - this workflow depends on DM-related Slack scopes beyond the original discovery-only baseline
+- it still assumes one active personal Slack connection per user
+
+## `send-slack-channel-message`
+
+Select a channel, prepare the destination from the selected target, compose a message, and send it.
+
+**Source workflow:** `plugins/titan-plugin-slack/titan_plugin_slack/workflows/send-slack-channel-message.yaml`
+
+### Default flow
+
+1. `slack.validate_connection`
+2. `slack.select_channel_target`
+3. `slack.prepare_message_destination`
+4. `slack.prompt_message_body`
+5. `slack.post_message`
+
+### Typical usage
+
+- send a message to one selected Slack channel from Titan
+- validate that channel-posting scopes and the shared messaging path are working end to end
+
+### Scope constraints
+
+- this workflow depends on channel-posting Slack scopes beyond the earlier DM and discovery slices
 - it still assumes one active personal Slack connection per user
 
 ## `summarize-slack-target`

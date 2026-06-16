@@ -1,5 +1,5 @@
-name: "Send Slack Direct Message"
-description: "Select a person, open or reuse a direct message conversation, and send a Slack message"
+name: "Send Slack Channel Message"
+description: "Select a channel, prepare the channel destination, compose a message, and send it"
 
 steps:
   - id: validate_connection
@@ -7,10 +7,10 @@ steps:
     plugin: slack
     step: validate_connection
 
-  - id: select_user_target
-    name: "Select Slack User Target"
+  - id: select_channel_target
+    name: "Select Slack Channel Target"
     plugin: slack
-    step: select_user_target
+    step: select_channel_target
 
   - id: prepare_message_destination
     name: "Prepare Message Destination"

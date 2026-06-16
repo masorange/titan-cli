@@ -1,6 +1,6 @@
 # Slack Workflow Steps
 
-The Slack plugin exposes public reusable workflow steps through `SlackPlugin.get_steps()`. The first Slack step surface is intentionally small and focused on connection validation plus read-only discovery.
+The Slack plugin exposes public reusable workflow steps through `SlackPlugin.get_steps()`. The current step surface stays intentionally small, but now covers connection validation, target selection, messaging, and conversation summaries.
 
 For full contract details for every public step, including documented inputs, outputs, and return behavior, see the [detailed step reference](../generated/slack-step-reference.md).
 
@@ -18,11 +18,12 @@ For full contract details for every public step, including documented inputs, ou
 | `validate_connection` | Validation and Discovery | `discover-slack-workspace` |
 | `list_public_channels` | Validation and Discovery | `discover-slack-workspace` |
 | `list_users` | Validation and Discovery | `discover-slack-workspace` |
-| `select_user_target` | Selection and Target Resolution | - |
-| `select_channel_target` | Selection and Target Resolution | - |
-| `open_direct_message` | Messaging | `send-slack-direct-message` |
-| `prompt_message_body` | Messaging | `send-slack-direct-message` |
-| `post_message` | Messaging | `send-slack-direct-message` |
+| `select_user_target` | Selection and Target Resolution | `send-slack-direct-message` |
+| `select_channel_target` | Selection and Target Resolution | `send-slack-channel-message` |
+| `prepare_message_destination` | Messaging | `send-slack-direct-message`, `send-slack-channel-message` |
+| `open_direct_message` | Messaging | - |
+| `prompt_message_body` | Messaging | `send-slack-direct-message`, `send-slack-channel-message` |
+| `post_message` | Messaging | `send-slack-direct-message`, `send-slack-channel-message` |
 | `select_target` | Conversation Summaries | `summarize-slack-target` |
 | `ensure_target_conversation` | Conversation Summaries | `summarize-slack-target` |
 | `read_recent_messages` | Conversation Summaries | `summarize-slack-target` |
@@ -45,8 +46,9 @@ Use these steps to resolve a reusable Slack target object for later workflows.
 
 ## Messaging
 
-Use these steps to open a direct message conversation and post a plain-text Slack message.
+Use these steps to resolve a message destination and post a plain-text Slack message.
 
+- `prepare_message_destination`: resolve the selected user or channel target into the destination conversation used for posting
 - `open_direct_message`: open or reuse a direct message conversation for the selected user target
 - `prompt_message_body`: capture a multiline Slack message body for later posting
 - `post_message`: post the prepared message to the selected conversation

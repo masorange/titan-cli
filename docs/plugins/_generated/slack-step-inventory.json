@@ -35,6 +35,10 @@
       "name": "Messaging",
       "steps": [
         {
+          "name": "prepare_message_destination",
+          "summary": "Resolve the selected Slack user or channel target into the destination conversation used for posting."
+        },
+        {
           "name": "open_direct_message",
           "summary": "Open or reuse a direct message conversation for the selected user target."
         },
@@ -178,7 +182,9 @@
           "    Error: If Slack is unavailable, no users are available, the query is invalid, or no match is selected."
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "send-slack-direct-message"
+      ]
     },
     {
       "name": "select_channel_target",
@@ -206,7 +212,36 @@
           "    Error: If Slack is unavailable, no channels are available, the query is invalid, or no match is selected."
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "send-slack-channel-message"
+      ]
+    },
+    {
+      "name": "prepare_message_destination",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "prepare_message_destination_step",
+      "summary": "Prepare a Slack message destination from the selected target.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_target (UISlackTarget): Selected Slack target. Must be a `user` or `channel` target."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_conversation (UISlackConversation): Resolved Slack destination conversation.",
+          "    slack_conversation_id (str): Conversation or channel ID used for later message operations."
+        ],
+        "Returns": [
+          "    Success: If the Slack message destination is ready.",
+          "    Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "send-slack-direct-message",
+        "send-slack-channel-message"
+      ]
     },
     {
       "name": "open_direct_message",
@@ -230,9 +265,7 @@
           "    Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails."
         ]
       },
-      "used_by_workflows": [
-        "send-slack-direct-message"
-      ]
+      "used_by_workflows": []
     },
     {
       "name": "prompt_message_body",
@@ -255,7 +288,8 @@
         ]
       },
       "used_by_workflows": [
-        "send-slack-direct-message"
+        "send-slack-direct-message",
+        "send-slack-channel-message"
       ]
     },
     {
@@ -284,7 +318,8 @@
         ]
       },
       "used_by_workflows": [
-        "send-slack-direct-message"
+        "send-slack-direct-message",
+        "send-slack-channel-message"
       ]
     },
     {

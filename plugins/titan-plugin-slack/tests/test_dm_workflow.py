@@ -16,7 +16,7 @@ def test_send_slack_direct_message_workflow_structure() -> None:
     assert step_ids == [
         "validate_connection",
         "select_user_target",
-        "open_direct_message",
+        "prepare_message_destination",
         "prompt_message_body",
         "post_message",
     ]
