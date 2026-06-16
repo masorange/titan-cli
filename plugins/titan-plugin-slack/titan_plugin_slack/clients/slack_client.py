@@ -1,7 +1,13 @@
 """Slack client facade backed by internal services."""
 
 from . import sdk as slack_sdk_module
-from .services import AuthService, ConversationService, DirectoryService, MessageService
+from .services import (
+    AuthService,
+    ConversationService,
+    DirectoryService,
+    IdentityResolver,
+    MessageService,
+)
 from titan_cli.core.result import ClientResult
 
 from ..exceptions import SlackClientError
@@ -33,6 +39,7 @@ class SlackClient:
         self.auth_service = AuthService(self._web_client)
         self.directory_service = DirectoryService(self._web_client)
         self.conversation_service = ConversationService(self._web_client)
+        self.identity_resolver = IdentityResolver(self._web_client)
         self.message_service = MessageService(self._web_client)
 
     @property
@@ -47,6 +54,7 @@ class SlackClient:
         self.auth_service.web_client = value
         self.directory_service.web_client = value
         self.conversation_service.web_client = value
+        self.identity_resolver.web_client = value
         self.message_service.web_client = value
 
     def auth_test(self) -> ClientResult[UISlackAuth]:
@@ -165,6 +173,14 @@ class SlackClient:
     def open_direct_message(self, user_id: str) -> ClientResult[UISlackConversation]:
         """Open or reuse a direct message conversation with a Slack user."""
         return self.conversation_service.open_direct_message(user_id)
+
+    def get_user(self, user_id: str) -> ClientResult[UISlackUser]:
+        """Resolve a Slack user by ID."""
+        return self.identity_resolver.get_user(user_id)
+
+    def get_channel(self, channel_id: str) -> ClientResult[UISlackChannel]:
+        """Resolve a Slack channel by ID."""
+        return self.identity_resolver.get_channel(channel_id)
 
     def post_message(
         self,

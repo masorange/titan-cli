@@ -5,12 +5,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from ..models import UISlackMessage
+from .identity_resolution_operations import (
+    build_user_display_label,
+    replace_slack_mentions,
+)
 
 
 def format_messages_as_transcript(
     messages: list[UISlackMessage],
     *,
     target_name: str | None = None,
+    user_display_names: dict[str, str] | None = None,
+    channel_display_names: dict[str, str] | None = None,
 ) -> str:
     """Format Slack messages as a compact transcript for downstream AI steps."""
     lines: list[str] = []
@@ -19,8 +25,14 @@ def format_messages_as_transcript(
         lines.append("")
 
     for message in messages:
+        author = build_user_display_label(user_display_names or {}, message.user)
+        text = replace_slack_mentions(
+            message.text.strip(),
+            user_display_names=user_display_names,
+            channel_display_names=channel_display_names,
+        )
         lines.append(
-            f"[{_format_slack_timestamp(message.ts)}] {message.user or 'Unknown'}: {message.text.strip()}"
+            f"[{_format_slack_timestamp(message.ts)}] {author}: {text}"
         )
     return "\n".join(lines).strip()
 

@@ -9,6 +9,7 @@ from titan_cli.engine import Error, Skip, Success, WorkflowContext, WorkflowResu
 from ..models import UISlackConversation, UISlackTarget
 from ..operations import (
     build_summary_prompt,
+    extract_identity_ids_from_messages,
     format_messages_as_transcript,
     truncate_transcript_for_summary,
 )
@@ -240,6 +241,8 @@ def read_recent_messages_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Outputs (saved to ctx.data):
         slack_messages (list[UISlackMessage]): Retrieved Slack messages.
+        slack_user_display_names (dict[str, str]): Resolved Slack user display names keyed by user ID.
+        slack_channel_display_names (dict[str, str]): Resolved Slack channel names keyed by channel ID.
         slack_messages_next_cursor (str | None): Pagination cursor for later reads.
         slack_messages_has_more (bool): Whether more messages are available.
 
@@ -270,12 +273,34 @@ def read_recent_messages_step(ctx: WorkflowContext) -> WorkflowResult:
 
     match result:
         case ClientSuccess(data=(messages, next_cursor, has_more)):
+            user_display_names: dict[str, str] = {}
+            channel_display_names: dict[str, str] = {}
+            user_ids, channel_ids = extract_identity_ids_from_messages(messages)
+
+            for user_id in sorted(user_ids):
+                resolved_user = ctx.slack.get_user(user_id)
+                match resolved_user:
+                    case ClientSuccess(data=user):
+                        user_display_names[user_id] = user.real_name or user.name or user.id
+                    case ClientError():
+                        pass
+
+            for channel_id in sorted(channel_ids):
+                resolved_channel = ctx.slack.get_channel(channel_id)
+                match resolved_channel:
+                    case ClientSuccess(data=channel):
+                        channel_display_names[channel_id] = channel.name or channel.id
+                    case ClientError():
+                        pass
+
             ctx.textual.success_text(f"Retrieved {len(messages)} Slack messages")
             ctx.textual.end_step("success")
             return Success(
                 f"Retrieved {len(messages)} Slack messages",
                 metadata={
                     "slack_messages": messages,
+                    "slack_user_display_names": user_display_names,
+                    "slack_channel_display_names": channel_display_names,
                     "slack_messages_next_cursor": next_cursor,
                     "slack_messages_has_more": has_more,
                 },
@@ -326,7 +351,14 @@ def ai_summarize_messages_step(ctx: WorkflowContext) -> WorkflowResult:
 
     target_name = ctx.get("slack_target_name")
     max_chars = ctx.get("slack_summary_max_chars", 12000)
-    transcript = format_messages_as_transcript(messages, target_name=target_name)
+    user_display_names = ctx.get("slack_user_display_names", {})
+    channel_display_names = ctx.get("slack_channel_display_names", {})
+    transcript = format_messages_as_transcript(
+        messages,
+        target_name=target_name,
+        user_display_names=user_display_names,
+        channel_display_names=channel_display_names,
+    )
     transcript = truncate_transcript_for_summary(transcript, max_chars=max_chars)
     prompt = build_summary_prompt(target_name, transcript)
 

@@ -7,6 +7,11 @@ from .target_resolution_operations import (
     filter_users_for_query,
     normalize_search_query,
 )
+from .identity_resolution_operations import (
+    extract_identity_ids_from_messages,
+    replace_slack_mentions,
+    build_user_display_label,
+)
 from .message_summary_operations import (
     build_summary_prompt,
     format_messages_as_transcript,
@@ -19,6 +24,9 @@ __all__ = [
     "filter_channels_for_query",
     "build_user_target",
     "build_channel_target",
+    "extract_identity_ids_from_messages",
+    "replace_slack_mentions",
+    "build_user_display_label",
     "format_messages_as_transcript",
     "truncate_transcript_for_summary",
     "build_summary_prompt",
