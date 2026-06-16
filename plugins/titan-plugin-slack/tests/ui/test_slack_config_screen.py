@@ -53,6 +53,7 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
 
     state = screen._get_connection_state()
 
+    assert state.has_project_config is True
     assert state.has_token is True
     assert state.oauth_client_id == "123"
     assert state.default_team_id == "T123"
@@ -61,7 +62,7 @@ def test_slack_config_screen_reports_connection_state(tmp_path: Path) -> None:
     assert state.default_channels == ["general", "release-notes"]
 
 
-def test_slack_config_screen_disconnect_disables_plugin_and_deletes_project_token(tmp_path: Path) -> None:
+def test_slack_config_screen_disconnect_only_deletes_project_token(tmp_path: Path) -> None:
     config = _build_config(tmp_path, token="xoxp-token")
     screen = SlackConfigScreen(config)
 
@@ -83,6 +84,33 @@ def test_slack_config_screen_disconnect_disables_plugin_and_deletes_project_toke
     with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
+    assert data["plugins"]["slack"]["enabled"] is True
+    assert data["plugins"]["slack"]["config"]["oauth_client_id"] == "123"
+
+
+def test_slack_config_screen_remove_project_config_clears_plugin_entry_and_token(tmp_path: Path) -> None:
+    config = _build_config(tmp_path, token="xoxp-token")
+    screen = SlackConfigScreen(config)
+
+    app = MagicMock()
+    type(screen).app = PropertyMock(return_value=app)
+
+    screen._save_project_slack_config(
+        {
+            "oauth_client_id": "123",
+            "default_team_id": "T123",
+            "default_team_name": "Acme",
+            "granted_scopes": ["users:read"],
+            "default_channels": ["general"],
+        }
+    )
+
+    screen._remove_project_config()
+
+    config.secrets.delete.assert_called_once_with("demo-project_slack_user_token", scope="user")
+    with open(config.project_config_path, "rb") as f:
+        data = tomli.load(f)
+
     assert data.get("plugins", {}) == {}
 
 
@@ -94,7 +122,7 @@ def test_slack_config_screen_start_oauth_flow_runs_worker(tmp_path: Path) -> Non
     type(screen).app = PropertyMock(return_value=app)
 
     screen.run_worker = MagicMock()
-    screen._read_oauth_form_values = MagicMock(return_value="123")
+    screen._read_oauth_form_values = MagicMock(return_value=("123", ["general"]))
     screen._save_oauth_app_config = MagicMock()
 
     screen._start_oauth_flow()
@@ -142,13 +170,14 @@ def test_slack_config_screen_saves_oauth_app_config(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     screen = SlackConfigScreen(config)
 
-    screen._save_oauth_app_config("123")
+    screen._save_oauth_app_config("123", ["general", "release-notes"])
 
     with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
     slack_cfg = data["plugins"]["slack"]["config"]
     assert slack_cfg["oauth_client_id"] == "123"
+    assert slack_cfg["default_channels"] == ["general", "release-notes"]
     assert data["plugins"]["slack"]["enabled"] is True
 
 
@@ -162,3 +191,11 @@ def test_slack_config_screen_save_project_config_enables_plugin(tmp_path: Path) 
         data = tomli.load(f)
 
     assert data["plugins"]["slack"]["enabled"] is True
+
+
+def test_parse_default_channels_normalizes_and_deduplicates() -> None:
+    result = SlackConfigScreen._parse_default_channels(
+        "#general, release-notes, general,  ,\n#alerts"
+    )
+
+    assert result == ["general", "release-notes", "alerts"]

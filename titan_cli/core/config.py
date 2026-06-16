@@ -385,11 +385,17 @@ class TitanConfig:
             return False
 
         # Slack is repo-scoped: it is only considered enabled when the current
-        # project explicitly contains a non-empty Slack config block.
+        # project explicitly contains a complete Slack config block.
         if plugin_name == "slack":
             project_plugin_cfg = project_plugins.get(plugin_name, {})
             project_plugin_config = project_plugin_cfg.get("config", {})
-            if not project_plugin_config:
+            required_keys = {
+                "oauth_client_id",
+                "default_team_id",
+                "default_team_name",
+                "granted_scopes",
+            }
+            if not project_plugin_config or not required_keys.issubset(project_plugin_config):
                 return False
 
         plugin_cfg = self.config.plugins.get(plugin_name)

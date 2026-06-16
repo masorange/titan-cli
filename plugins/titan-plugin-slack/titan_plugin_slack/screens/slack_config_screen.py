@@ -28,6 +28,7 @@ DEFAULT_OAUTH_REDIRECT_PORT = 8765
 class SlackConnectionState:
     """Current Slack connection state for the active user."""
 
+    has_project_config: bool
     has_token: bool
     oauth_client_id: str | None
     default_team_id: str | None
@@ -110,6 +111,8 @@ class SlackConfigScreen(BaseScreen):
             show_back=True,
             show_status_bar=False,
         )
+        self._reconfigure_project_mode = False
+        self._has_changes = False
 
     def compose_content(self) -> ComposeResult:
         with Container(id="slack-config-container"):
@@ -130,6 +133,9 @@ class SlackConfigScreen(BaseScreen):
                         yield Static(id="slack-oauth-help", classes="slack-section-body")
                         yield DimText("Client ID")
                         yield Input(id="oauth-client-id-input")
+                        yield DimText("Default Channels")
+                        yield Input(placeholder="general, release-notes", id="default-channels-input")
+                        yield DimText("Enter channel names separated by commas, for example: general, release-notes")
                         yield Text("")
 
                         yield BoldText("Required Capabilities", classes="slack-section-title")
@@ -137,9 +143,11 @@ class SlackConfigScreen(BaseScreen):
                         yield Static(id="slack-connect-help", classes="slack-section-body")
 
                 with Horizontal(id="slack-config-buttons"):
-                    yield Button("Connect Slack", variant="primary", id="connect-button")
+                    yield Button("Configure Slack", variant="primary", id="connect-button")
                     yield Button("Validate Connection", variant="default", id="validate-button")
-                    yield Button("Disconnect", variant="error", id="disconnect-button")
+                    yield Button("Reconfigure Project", variant="warning", id="reconfigure-project-button")
+                    yield Button("Disconnect Account", variant="default", id="disconnect-button")
+                    yield Button("Remove Project Config", variant="error", id="remove-project-config-button")
                     yield Button("Close", variant="default", id="close-button")
 
     def on_mount(self) -> None:
@@ -166,6 +174,7 @@ class SlackConfigScreen(BaseScreen):
     def _get_connection_state(self) -> SlackConnectionState:
         plugin_config = self._load_plugin_config()
         return SlackConnectionState(
+            has_project_config=bool(plugin_config),
             has_token=self._has_user_token(),
             oauth_client_id=plugin_config.get("oauth_client_id"),
             default_team_id=plugin_config.get("default_team_id"),
@@ -201,29 +210,7 @@ class SlackConfigScreen(BaseScreen):
             tomli_w.dump(config_data, f)
 
         self.config.load()
-
-    def _disable_plugin_for_current_project(self) -> None:
-        """Remove Slack from the current project's config so it is no longer enabled."""
-        project_cfg_path = self.config.project_config_path
-        if not project_cfg_path:
-            return
-
-        project_cfg_path.parent.mkdir(parents=True, exist_ok=True)
-        project_data = {}
-        if project_cfg_path.exists():
-            with open(project_cfg_path, "rb") as f:
-                project_data = tomli.load(f)
-
-        plugins = project_data.get("plugins", {})
-        if "slack" in plugins:
-            del plugins["slack"]
-        if not plugins and "plugins" in project_data:
-            del project_data["plugins"]
-
-        with open(project_cfg_path, "wb") as f:
-            tomli_w.dump(project_data, f)
-
-        self.config.load()
+        self._has_changes = True
 
     def _refresh_view(self) -> None:
         state = self._get_connection_state()
@@ -234,18 +221,44 @@ class SlackConfigScreen(BaseScreen):
             scopes_block = self.query_one("#slack-scopes-block", Static)
             connect_help = self.query_one("#slack-connect-help", Static)
             client_id_input = self.query_one("#oauth-client-id-input", Input)
+            default_channels_input = self.query_one("#default-channels-input", Input)
+            connect_button = self.query_one("#connect-button", Button)
+            validate_button = self.query_one("#validate-button", Button)
+            reconfigure_button = self.query_one("#reconfigure-project-button", Button)
+            disconnect_button = self.query_one("#disconnect-button", Button)
+            remove_project_button = self.query_one("#remove-project-config-button", Button)
         except NoMatches:
             return
 
-        status_label = "Connected" if state.has_token else "Not connected"
+        if state.has_project_config and state.has_token:
+            repo_status = "Configured"
+            account_status = "Connected"
+        elif state.has_project_config:
+            repo_status = "Configured"
+            account_status = "Not connected"
+        else:
+            repo_status = "Not configured"
+            account_status = "Not connected"
         scopes = ", ".join(state.granted_scopes) if state.granted_scopes else "Not recorded"
 
-        intro.update(
-            "Slack stores a personal user token for this project in your keyring.\n"
-            "The Slack App, workspace binding, scopes, and default channels are configured per repository."
-        )
+        if state.has_project_config and self._reconfigure_project_mode:
+            intro.update(
+                "You are editing this repository's shared Slack configuration.\n"
+                "Saving and connecting will update the project Slack App settings, default channels, and then sign in with your account."
+            )
+        elif state.has_project_config:
+            intro.update(
+                "This repository has its own Slack configuration.\n"
+                "Each user only needs to sign in with their own Slack account for this project."
+            )
+        else:
+            intro.update(
+                "Slack is not configured for this repository yet.\n"
+                "Configure the repository's Slack App and default channels first, then sign in with your personal Slack account."
+            )
         status_block.update(
-            f"  Status: {status_label}\n"
+            f"  Repository Config: {repo_status}\n"
+            f"  Personal Account: {account_status}\n"
             f"  OAuth Client ID: {state.oauth_client_id or 'Not set'}\n"
             f"  OAuth Redirect Port: {DEFAULT_OAUTH_REDIRECT_PORT}\n"
             f"  Team ID: {state.default_team_id or 'Not set'}\n"
@@ -267,32 +280,81 @@ class SlackConfigScreen(BaseScreen):
             "  - posting messages to direct messages and channels\n\n"
             "After you connect, Titan records the granted scopes above in Current Status."
         )
-        connect_help.update("Use Connect Slack to open the browser-based Slack OAuth flow for this repository.")
+        if state.has_project_config and self._reconfigure_project_mode:
+            connect_help.update(
+                "Use Save Config and Connect to replace this repository's Slack App configuration and then sign in with Slack."
+            )
+        elif state.has_project_config and not state.has_token:
+            connect_help.update(
+                "Use Sign In to Slack to connect your own account using this repository's existing Slack configuration."
+            )
+        elif state.has_project_config:
+            connect_help.update(
+                "Use Reconnect Slack if you need to refresh your personal Slack account for this repository."
+            )
+        else:
+            connect_help.update(
+                "Use Configure Slack to save this repository's Slack App configuration and sign in with Slack."
+            )
 
         client_id_input.value = state.oauth_client_id or ""
+        default_channels_input.value = ", ".join(state.default_channels)
+        client_id_input.disabled = state.has_project_config and not self._reconfigure_project_mode
+        default_channels_input.disabled = (
+            state.has_project_config and not self._reconfigure_project_mode
+        )
 
-        self.query_one("#validate-button", Button).disabled = not state.has_token
-        self.query_one("#disconnect-button", Button).disabled = not state.has_token
+        if state.has_project_config and self._reconfigure_project_mode:
+            connect_button.label = "Save Config and Connect"
+        elif state.has_project_config and state.has_token:
+            connect_button.label = "Reconnect Slack"
+        elif state.has_project_config:
+            connect_button.label = "Sign In to Slack"
+        else:
+            connect_button.label = "Configure Slack"
+
+        validate_button.disabled = not state.has_token
+        reconfigure_button.disabled = not state.has_project_config
+        disconnect_button.disabled = not state.has_token
+        remove_project_button.disabled = not state.has_project_config
 
     @staticmethod
     def _build_redirect_uri() -> str:
         """Build the localhost redirect URI shown to the user."""
         return f"http://127.0.0.1:{DEFAULT_OAUTH_REDIRECT_PORT}/slack/callback"
 
-    def _read_oauth_form_values(self) -> str:
+    @staticmethod
+    def _parse_default_channels(raw_value: str) -> list[str]:
+        """Parse a comma-separated list of default channel names."""
+        channels: list[str] = []
+        seen: set[str] = set()
+        for item in raw_value.replace("\n", ",").split(","):
+            channel = item.strip().lstrip("#")
+            if not channel:
+                continue
+            key = channel.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            channels.append(channel)
+        return channels
+
+    def _read_oauth_form_values(self) -> tuple[str, list[str]]:
         """Read and validate the OAuth app form values from the screen."""
         client_id = self.query_one("#oauth-client-id-input", Input).value.strip()
+        default_channels_raw = self.query_one("#default-channels-input", Input).value.strip()
 
         if not client_id:
             raise ValueError("Slack OAuth client ID is required.")
 
-        return client_id
+        return client_id, self._parse_default_channels(default_channels_raw)
 
-    def _save_oauth_app_config(self, client_id: str) -> None:
+    def _save_oauth_app_config(self, client_id: str, default_channels: list[str]) -> None:
         """Persist OAuth app settings for Slack."""
         self._save_project_slack_config(
             {
                 "oauth_client_id": client_id,
+                "default_channels": default_channels,
             }
         )
 
@@ -307,8 +369,16 @@ class SlackConfigScreen(BaseScreen):
     def _start_oauth_flow(self) -> None:
         """Start the Slack OAuth flow in a background worker."""
         try:
-            client_id = self._read_oauth_form_values()
-            self._save_oauth_app_config(client_id)
+            plugin_config = self._load_plugin_config()
+            if plugin_config and not self._reconfigure_project_mode:
+                client_id = plugin_config.get("oauth_client_id")
+                default_channels = plugin_config.get("default_channels", [])
+                if not client_id:
+                    raise ValueError(
+                        "This repository is marked as configured for Slack but has no OAuth client ID. Reconfigure the project to continue."
+                    )
+            else:
+                client_id, default_channels = self._read_oauth_form_values()
         except Exception as exc:
             logger.exception("slack_oauth_setup_failed")
             self.app.notify(f"Slack OAuth setup failed: {exc}", severity="error")
@@ -316,19 +386,18 @@ class SlackConfigScreen(BaseScreen):
 
         self.app.notify("Opening browser for Slack authorization...", severity="information")
         self.run_worker(
-            self._run_oauth_connect(client_id),
+            self._run_oauth_connect(client_id, default_channels),
             exclusive=True,
         )
 
-    async def _run_oauth_connect(self, client_id: str) -> None:
+    async def _run_oauth_connect(self, client_id: str, default_channels: list[str]) -> None:
         """Run the Slack OAuth flow without blocking the UI thread."""
+        config_written = False
+        token_written = False
         try:
             result = await asyncio.to_thread(
                 self._perform_oauth_connect,
                 client_id,
-            )
-            self.config.secrets.set(
-                self._get_project_token_key(), result.access_token, scope="user"
             )
             self._save_project_slack_config(
                 {
@@ -336,12 +405,31 @@ class SlackConfigScreen(BaseScreen):
                     "default_team_id": result.team_id,
                     "default_team_name": result.team_name,
                     "granted_scopes": result.granted_scopes,
-                    "default_channels": self._load_plugin_config().get("default_channels", []),
+                    "default_channels": default_channels,
                 }
             )
+            config_written = True
+            self.config.secrets.set(
+                self._get_project_token_key(), result.access_token, scope="user"
+            )
+            token_written = True
+            self._reconfigure_project_mode = False
+            self._has_changes = True
             self.app.notify("Slack connected successfully.", severity="information")
             self.dismiss(result=True)
         except Exception as exc:
+            if token_written:
+                try:
+                    self.config.secrets.delete(self._get_project_token_key(), scope="user")
+                except Exception:
+                    pass
+
+            if config_written:
+                try:
+                    self._remove_project_config()
+                except Exception:
+                    pass
+
             logger.exception("slack_oauth_run_failed")
             self.app.notify(f"Slack OAuth failed: {exc}", severity="error")
 
@@ -363,6 +451,7 @@ class SlackConfigScreen(BaseScreen):
                         "default_channels": plugin_config.get("default_channels", []),
                     }
                 )
+                self._has_changes = True
                 self.app.notify(
                     "Slack connection validated successfully.", severity="information"
                 )
@@ -372,9 +461,39 @@ class SlackConfigScreen(BaseScreen):
 
     def _disconnect(self) -> None:
         self.config.secrets.delete(self._get_project_token_key(), scope="user")
-        self._disable_plugin_for_current_project()
-        self.app.notify("Slack connection removed.", severity="information")
+        self._reconfigure_project_mode = False
+        self._has_changes = True
+        self.app.notify("Slack account disconnected for this project.", severity="information")
         self._refresh_view()
+
+    def _remove_project_config(self) -> None:
+        self.config.secrets.delete(self._get_project_token_key(), scope="user")
+        project_cfg_path = self.config.project_config_path
+        if project_cfg_path and project_cfg_path.exists():
+            with open(project_cfg_path, "rb") as f:
+                project_data = tomli.load(f)
+
+            plugins = project_data.get("plugins", {})
+            if "slack" in plugins:
+                del plugins["slack"]
+            if not plugins and "plugins" in project_data:
+                del project_data["plugins"]
+
+            with open(project_cfg_path, "wb") as f:
+                tomli_w.dump(project_data, f)
+
+        self.config.load()
+        self._reconfigure_project_mode = False
+        self._has_changes = True
+        self.app.notify("Slack project configuration removed.", severity="information")
+        self._refresh_view()
+
+    def _enable_reconfigure_project_mode(self) -> None:
+        self._reconfigure_project_mode = True
+        self._refresh_view()
+
+    def action_go_back(self) -> None:
+        self.dismiss(result=self._has_changes)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "connect-button":
@@ -384,10 +503,17 @@ class SlackConfigScreen(BaseScreen):
                 self._validate_connection()
             except Exception as exc:
                 self.app.notify(f"Slack validation failed: {exc}", severity="error")
+        elif event.button.id == "reconfigure-project-button":
+            self._enable_reconfigure_project_mode()
         elif event.button.id == "disconnect-button":
             try:
                 self._disconnect()
             except Exception as exc:
-                self.app.notify(f"Failed to remove Slack connection: {exc}", severity="error")
+                self.app.notify(f"Failed to disconnect Slack account: {exc}", severity="error")
+        elif event.button.id == "remove-project-config-button":
+            try:
+                self._remove_project_config()
+            except Exception as exc:
+                self.app.notify(f"Failed to remove Slack project config: {exc}", severity="error")
         elif event.button.id == "close-button":
-            self.dismiss(result=False)
+            self.dismiss(result=self._has_changes)
