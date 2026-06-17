@@ -1,12 +1,15 @@
 from unittest.mock import Mock
 
+from titan_cli.external_cli.adapters.base import HeadlessResponse, SupportedCLI
 from titan_cli.core.result import ClientSuccess
 from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Exit, Success
-from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest
-from titan_plugin_github.models.review_enums import FileChangeStatus
+from titan_plugin_github.managers.prompt_budget_manager import FitResult
+from titan_plugin_github.models.review_models import ChangeManifest, FileContextEntry, FocusContextBatch, PullRequestManifest, ReviewStrategy
+from titan_plugin_github.models.review_enums import FileChangeStatus, PRSizeClass, ReviewStrategyType
 from titan_plugin_github.models.view import UIFileChange, UIPullRequest
-from titan_plugin_github.steps.code_review_steps import fetch_pr_review_bundle, score_review_candidates
+from titan_plugin_github.steps import code_review_steps
+from titan_plugin_github.steps.code_review_steps import ai_review_findings, fetch_pr_review_bundle, score_review_candidates
 
 
 class _FakeTextual:
@@ -197,3 +200,58 @@ def MockChangedFile(**kwargs):
     from titan_plugin_github.models.review_models import ChangedFileEntry
 
     return ChangedFileEntry(**kwargs)
+
+
+def test_ai_review_findings_uses_prompt_budget_manager(monkeypatch):
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [
+        FocusContextBatch(
+            batch_id="batch_1",
+            files_context={"src/foo.py": FileContextEntry(path="src/foo.py")},
+        )
+    ]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.DIRECT_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=4,
+        max_prompt_chars=22000,
+        max_comment_entries=8,
+    )
+    ctx.data["cli_preference"] = "claude"
+    ctx.data["project_root"] = "/tmp/repo"
+
+    called = {"fit": 0}
+
+    def fake_fit(self, batch, prompt_parts, budget_chars):
+        called["fit"] += 1
+        assert batch.batch_id == "batch_1"
+        assert prompt_parts["prompt"] == "[]"
+        assert budget_chars == 22000
+        fitted = batch.model_copy(update={"prompt_actual_chars": 2})
+        return FitResult(batches=[fitted], changed=False)
+
+    class _FakeAdapter:
+        cli_name = SupportedCLI.CLAUDE
+
+        def execute(self, prompt, cwd=None, timeout=60):
+            assert prompt == "[]"
+            assert cwd == "/tmp/repo"
+            return HeadlessResponse(stdout="[]", stderr="", exit_code=0)
+
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _cli: _FakeAdapter())
+    monkeypatch.setattr(
+        "titan_plugin_github.operations.findings_operations.build_findings_prompt_parts",
+        lambda _batch: {"prompt": "[]", "pr_context": "", "comments": "", "review_axes": "", "files_context": "", "related_context": "", "instructions": "", "schema": ""},
+    )
+    monkeypatch.setattr(
+        "titan_plugin_github.operations.findings_operations.summarize_findings_prompt_parts",
+        lambda _parts: {},
+    )
+    monkeypatch.setattr("titan_plugin_github.managers.prompt_budget_manager.PromptBudgetManager.fit_findings_batch_to_budget", fake_fit)
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert called["fit"] == 1
+    assert ctx.data["raw_findings"] == []
