@@ -1,6 +1,6 @@
 # Slack Client API
 
-The Slack plugin adds read-oriented Slack operations to Titan through `SlackClient`. This page documents the plugin from a functional point of view and shows how each capability is called and which parameters it needs.
+The Slack plugin exposes Slack operations through `SlackClient`. This page documents the current public client surface and the parameters each method accepts.
 
 ## Requirements
 
@@ -110,3 +110,4 @@ Post a plain-text message to a Slack conversation.
 - The current client surface backs discovery, messaging, and summary workflows.
 - `read_channel()` exists in the client API but is not yet exposed as a public workflow step.
 - The current Slack integration assumes one active Slack workspace binding per repository.
+- `granted_scopes` is recorded during OAuth connection setup; `auth_test()` validates the token but does not refresh that stored scope snapshot.

@@ -25,6 +25,7 @@ Validate the current Slack connection, list public channels, and list visible us
 - the workflow stays read-only
 - it does not read channel history yet
 - it assumes one active Slack workspace binding for the current repository
+- it uses the scopes granted in the last successful Slack OAuth connection for this project
 
 ## `send-slack-direct-message`
 
@@ -49,6 +50,7 @@ Select a person, open or reuse a direct message conversation, compose a message,
 
 - this workflow depends on DM-related Slack scopes beyond the original discovery-only baseline
 - it assumes one active Slack workspace binding for the current repository
+- it does not use repo-configured `default_channels`
 
 ## `send-slack-channel-message`
 
@@ -73,6 +75,7 @@ Select a channel, prepare the destination from the selected target, compose a me
 
 - this workflow depends on channel-posting Slack scopes beyond the earlier DM and discovery slices
 - it assumes one active Slack workspace binding for the current repository
+- it selects channels through manual search
 
 ## `summarize-slack-target`
 
@@ -97,3 +100,4 @@ Choose one configured default channel or search for another one, read recent Sla
 
 - this workflow depends on conversation-history scopes and AI configuration
 - it assumes one active Slack workspace binding for the current repository
+- it currently follows a channel-oriented path through `select_default_or_search_channel_target`

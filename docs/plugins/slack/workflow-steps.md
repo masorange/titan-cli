@@ -1,6 +1,6 @@
 # Slack Workflow Steps
 
-The Slack plugin exposes public reusable workflow steps through `SlackPlugin.get_steps()`. The current step surface stays intentionally small, but now covers connection validation, target selection, messaging, and conversation summaries.
+The Slack plugin exposes public reusable workflow steps through `SlackPlugin.get_steps()`. The current surface covers connection validation, target selection, messaging, and conversation summaries.
 
 For full contract details for every public step, including documented inputs, outputs, and return behavior, see the [detailed step reference](../generated/slack-step-reference.md).
 
@@ -63,3 +63,9 @@ Use these steps to resolve a target conversation, read its recent messages, and 
 - `ensure_target_conversation`: resolve a Slack conversation from the selected target
 - `read_recent_messages`: read the latest messages from the resolved conversation
 - `ai_summarize_messages`: summarize the retrieved messages with AI
+
+## Notes
+
+- Built-in workflows may use only a subset of these steps.
+- `select_default_or_search_channel_target` is the step that uses repo-configured `default_channels`.
+- The built-in summary workflow currently uses the channel-oriented default/search step, not the unified `select_target` step.

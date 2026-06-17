@@ -263,7 +263,7 @@ class SlackConfigScreen(BaseScreen):
             f"  OAuth Redirect Port: {DEFAULT_OAUTH_REDIRECT_PORT}\n"
             f"  Team ID: {state.default_team_id or 'Not set'}\n"
             f"  Team Name: {state.default_team_name or 'Not set'}\n"
-            f"  Granted Scopes: {scopes}\n"
+            f"  Recorded Granted Scopes: {scopes}\n"
             f"  Default Channels: {', '.join('#' + channel for channel in state.default_channels) if state.default_channels else 'Not set'}"
         )
         oauth_help.update(
@@ -274,11 +274,15 @@ class SlackConfigScreen(BaseScreen):
             "For example, `127.0.0.1` and `localhost` are different values for Slack."
         )
         scopes_block.update(
-            "Slack needs scopes that cover:\n"
-            "  - user and channel discovery\n"
-            "  - conversation history for summaries\n"
-            "  - posting messages to direct messages and channels\n\n"
-            "After you connect, Titan records the granted scopes above in Current Status."
+            "Slack currently requests these scopes during OAuth:\n"
+            "  - users:read\n"
+            "  - channels:read, channels:history, channels:write\n"
+            "  - groups:read, groups:history, groups:write\n"
+            "  - im:history, im:write\n"
+            "  - mpim:history, mpim:write\n"
+            "  - chat:write\n\n"
+            "Current Status shows the scopes recorded from the last successful OAuth connection. "
+            "Use Reconnect Slack after changing scopes in your Slack App."
         )
         if state.has_project_config and self._reconfigure_project_mode:
             connect_help.update(
