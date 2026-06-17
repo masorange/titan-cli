@@ -6,8 +6,13 @@ import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 
-from titan_cli.external_cli.adapters.base import HeadlessResponse, SupportedCLI
+from titan_cli.external_cli.adapters.base import (
+    HEADLESS_ADAPTER_MAX_PROMPT_CHARS,
+    HeadlessResponse,
+    SupportedCLI,
+)
 from titan_cli.external_cli.adapters.claude import ClaudeHeadlessAdapter
+from titan_cli.external_cli.adapters.codex import CodexHeadlessAdapter
 from titan_cli.external_cli.adapters.gemini import GeminiHeadlessAdapter
 from titan_cli.external_cli.adapters.registry import (
     HEADLESS_ADAPTER_REGISTRY,
@@ -25,6 +30,9 @@ class TestSupportedCLI(unittest.TestCase):
 
     def test_is_str_compatible(self):
         self.assertIsInstance(SupportedCLI.CLAUDE, str)
+
+    def test_includes_codex(self):
+        self.assertEqual(SupportedCLI.CODEX, "codex")
 
 
 # ── HeadlessResponse ─────────────────────────────────────────────────────────
@@ -107,6 +115,17 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.stdout, "Green text")
 
+    @patch("subprocess.run")
+    def test_execute_rejects_oversized_prompt_without_subprocess(self, mock_run):
+        prompt = "x" * (HEADLESS_ADAPTER_MAX_PROMPT_CHARS + 1)
+
+        response = self.adapter.execute(prompt)
+
+        mock_run.assert_not_called()
+        self.assertEqual(response.exit_code, 2)
+        self.assertIn("Prompt too large for headless AI adapter", response.stderr)
+        self.assertIn("cli=claude", response.stderr)
+
 
 # ── GeminiHeadlessAdapter ─────────────────────────────────────────────────────
 
@@ -149,14 +168,99 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.exit_code, 127)
 
+    @patch("subprocess.run")
+    def test_execute_rejects_oversized_prompt_without_subprocess(self, mock_run):
+        prompt = "x" * (HEADLESS_ADAPTER_MAX_PROMPT_CHARS + 1)
+
+        response = self.adapter.execute(prompt)
+
+        mock_run.assert_not_called()
+        self.assertEqual(response.exit_code, 2)
+        self.assertIn("Prompt too large for headless AI adapter", response.stderr)
+        self.assertIn("cli=gemini", response.stderr)
+
+
+# ── CodexHeadlessAdapter ──────────────────────────────────────────────────────
+
+class TestCodexHeadlessAdapter(unittest.TestCase):
+
+    def setUp(self):
+        self.adapter = CodexHeadlessAdapter()
+
+    def test_cli_name(self):
+        self.assertEqual(self.adapter.cli_name, SupportedCLI.CODEX)
+
+    @patch("shutil.which", return_value="/usr/bin/codex")
+    def test_is_available_true(self, _):
+        self.assertTrue(self.adapter.is_available())
+
+    @patch("shutil.which", return_value=None)
+    def test_is_available_false(self, _):
+        self.assertFalse(self.adapter.is_available())
+
+    @patch("subprocess.run")
+    def test_execute_uses_stdin_with_dash_prompt(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+
+        self.adapter.execute("review this", cwd="/tmp", timeout=30)
+
+        mock_run.assert_called_once_with(
+            ["codex", "exec", "--json", "--ephemeral", "-"],
+            capture_output=True,
+            input="review this",
+            text=True,
+            cwd="/tmp",
+            timeout=30,
+        )
+
+    @patch("subprocess.run")
+    def test_execute_parses_jsonl_agent_messages(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=(
+                '{"type":"item.completed","item":{"type":"agent_message","text":"First"}}\n'
+                '{"type":"item.completed","item":{"type":"agent_message","text":"Second"}}\n'
+            ),
+            stderr="",
+            returncode=0,
+        )
+
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "First\nSecond")
+        self.assertEqual(response.exit_code, 0)
+
+    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="codex", timeout=60))
+    def test_execute_timeout(self, _):
+        response = self.adapter.execute("prompt", timeout=60)
+        self.assertEqual(response.exit_code, 124)
+        self.assertIn("timed out", response.stderr)
+
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_execute_cli_not_found(self, _):
+        response = self.adapter.execute("prompt")
+        self.assertEqual(response.exit_code, 127)
+        self.assertIn("not found", response.stderr)
+
+    @patch("subprocess.run")
+    def test_execute_rejects_oversized_prompt_without_subprocess(self, mock_run):
+        prompt = "x" * (HEADLESS_ADAPTER_MAX_PROMPT_CHARS + 1)
+
+        response = self.adapter.execute(prompt)
+
+        mock_run.assert_not_called()
+        self.assertEqual(response.exit_code, 2)
+        self.assertIn("Prompt too large for headless AI adapter", response.stderr)
+        self.assertIn("cli=codex", response.stderr)
+
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 class TestHeadlessAdapterRegistry(unittest.TestCase):
 
-    def test_registry_has_claude_and_gemini(self):
+    def test_registry_has_claude_gemini_and_codex(self):
         self.assertIn(SupportedCLI.CLAUDE, HEADLESS_ADAPTER_REGISTRY)
         self.assertIn(SupportedCLI.GEMINI, HEADLESS_ADAPTER_REGISTRY)
+        self.assertIn(SupportedCLI.CODEX, HEADLESS_ADAPTER_REGISTRY)
 
     def test_get_headless_adapter_claude(self):
         adapter = get_headless_adapter(SupportedCLI.CLAUDE)
@@ -165,6 +269,10 @@ class TestHeadlessAdapterRegistry(unittest.TestCase):
     def test_get_headless_adapter_gemini(self):
         adapter = get_headless_adapter(SupportedCLI.GEMINI)
         self.assertIsInstance(adapter, GeminiHeadlessAdapter)
+
+    def test_get_headless_adapter_codex(self):
+        adapter = get_headless_adapter(SupportedCLI.CODEX)
+        self.assertIsInstance(adapter, CodexHeadlessAdapter)
 
     def test_get_headless_adapter_plain_string(self):
         # StrEnum compatibility: "claude" == SupportedCLI.CLAUDE

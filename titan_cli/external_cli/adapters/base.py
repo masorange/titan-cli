@@ -12,6 +12,10 @@ from typing import Optional
 from typing import Protocol, runtime_checkable
 
 
+HEADLESS_ADAPTER_MAX_PROMPT_CHARS = 40000
+HEADLESS_ADAPTER_PROMPT_TOO_LARGE_EXIT_CODE = 2
+
+
 class SupportedCLI(StrEnum):
     """
     Enum of CLIs with a registered headless adapter.
@@ -34,6 +38,24 @@ class HeadlessResponse:
     @property
     def succeeded(self) -> bool:
         return self.exit_code == 0
+
+
+def validate_headless_prompt_size(cli_name: SupportedCLI, prompt: str) -> Optional[HeadlessResponse]:
+    """Return an error response when a headless prompt exceeds the defensive size ceiling."""
+    prompt_size = len(prompt)
+    if prompt_size <= HEADLESS_ADAPTER_MAX_PROMPT_CHARS:
+        return None
+
+    return HeadlessResponse(
+        stdout="",
+        stderr=(
+            "Prompt too large for headless AI adapter "
+            f"(cli={cli_name.value}, size={prompt_size} chars, "
+            f"limit={HEADLESS_ADAPTER_MAX_PROMPT_CHARS} chars). "
+            "Reduce the prompt or split it into batches in the calling workflow."
+        ),
+        exit_code=HEADLESS_ADAPTER_PROMPT_TOO_LARGE_EXIT_CODE,
+    )
 
 
 @runtime_checkable

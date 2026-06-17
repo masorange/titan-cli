@@ -9,7 +9,7 @@ import shutil
 import subprocess
 from typing import Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import HeadlessResponse, SupportedCLI, validate_headless_prompt_size
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -35,6 +35,10 @@ class ClaudeHeadlessAdapter:
         cwd: Optional[str] = None,
         timeout: int = 60,
     ) -> HeadlessResponse:
+        prompt_size_error = validate_headless_prompt_size(self.cli_name, prompt)
+        if prompt_size_error:
+            return prompt_size_error
+
         cmd = ["claude", "--print", prompt]
         try:
             result = subprocess.run(

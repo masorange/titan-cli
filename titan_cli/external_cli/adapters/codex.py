@@ -1,7 +1,7 @@
 """
 Headless adapter for Codex CLI.
 
-Uses `codex exec --json -` with stdin for non-interactive execution.
+Uses `codex exec --json --ephemeral -` with stdin for non-interactive execution.
 Parses JSONL output to extract the agent's response.
 """
 
@@ -11,14 +11,14 @@ import shutil
 import subprocess
 from typing import Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import HeadlessResponse, SupportedCLI, validate_headless_prompt_size
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 class CodexHeadlessAdapter:
     """
-    Runs Codex CLI in headless mode via `codex exec --json --ephemeral <prompt>`.
+    Runs Codex CLI in headless mode via `codex exec --json --ephemeral -`.
 
     Uses flags for non-interactive execution:
     - --json: machine-readable JSONL output
@@ -38,14 +38,20 @@ class CodexHeadlessAdapter:
         cwd: Optional[str] = None,
         timeout: int = 60,
     ) -> HeadlessResponse:
+        prompt_size_error = validate_headless_prompt_size(self.cli_name, prompt)
+        if prompt_size_error:
+            return prompt_size_error
+
         # Use flags for non-interactive headless execution:
         # - --json: machine-readable JSONL output
         # - --ephemeral: don't save session to disk
-        cmd = ["codex", "exec", "--json", "--ephemeral", prompt]
+        # - -: read prompt from stdin instead of argv
+        cmd = ["codex", "exec", "--json", "--ephemeral", "-"]
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
+                input=prompt,
                 text=True,
                 cwd=cwd,
                 timeout=timeout,

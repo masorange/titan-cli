@@ -135,6 +135,7 @@ venv.bak/
 .idea/
 .vscode/
 .codex
+harness/
 .titan/worktrees/
 *.swp
 *.swo
