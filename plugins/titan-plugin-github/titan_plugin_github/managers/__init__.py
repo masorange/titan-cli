@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .checklist_manager import ChecklistManager
+from .prompt_budget_manager import FitResult, PromptBudgetManager
 from .review_profile_manager import ReviewProfileManager
 
 
@@ -14,4 +15,10 @@ class GitHubManagers:
     review_profile: ReviewProfileManager
 
 
-__all__ = ["ChecklistManager", "GitHubManagers", "ReviewProfileManager"]
+__all__ = [
+    "ChecklistManager",
+    "FitResult",
+    "GitHubManagers",
+    "PromptBudgetManager",
+    "ReviewProfileManager",
+]
