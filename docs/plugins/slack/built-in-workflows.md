@@ -1,81 +1,6 @@
 # Slack Built-in Workflows
 
-The Slack plugin currently ships a small set of built-in workflows for workspace discovery, direct messaging, channel messaging, and conversation summaries.
-
-## `discover-slack-workspace`
-
-Validate the current Slack connection, list public channels, and list visible users.
-
-**Source workflow:** `plugins/titan-plugin-slack/titan_plugin_slack/workflows/discover-slack-workspace.yaml`
-
-### Default flow
-
-1. `slack.validate_connection`
-2. `slack.list_public_channels`
-3. `slack.list_users`
-
-### Typical usage
-
-- verify that Slack OAuth configuration is working end to end
-- inspect what the current project's Slack token can read before building richer workflows
-- confirm the first public Slack step surface behaves coherently inside Titan
-
-### Scope constraints
-
-- the workflow stays read-only
-- it does not read channel history yet
-- it assumes one active Slack workspace binding for the current repository
-- it uses the scopes granted in the last successful Slack OAuth connection for this project
-
-## `send-slack-direct-message`
-
-Select a person, open or reuse a direct message conversation, compose a message, and send it.
-
-**Source workflow:** `plugins/titan-plugin-slack/titan_plugin_slack/workflows/send-slack-direct-message.yaml`
-
-### Default flow
-
-1. `slack.validate_connection`
-2. `slack.select_user_target`
-3. `slack.prepare_message_destination`
-4. `slack.prompt_message_body`
-5. `slack.post_message`
-
-### Typical usage
-
-- send a personal message to one selected Slack user from Titan
-- validate that DM-specific Slack scopes and the direct-message path are working end to end
-
-### Scope constraints
-
-- this workflow depends on DM-related Slack scopes beyond the original discovery-only baseline
-- it assumes one active Slack workspace binding for the current repository
-- it does not use repo-configured `default_channels`
-
-## `send-slack-channel-message`
-
-Select a channel, prepare the destination from the selected target, compose a message, and send it.
-
-**Source workflow:** `plugins/titan-plugin-slack/titan_plugin_slack/workflows/send-slack-channel-message.yaml`
-
-### Default flow
-
-1. `slack.validate_connection`
-2. `slack.select_channel_target`
-3. `slack.prepare_message_destination`
-4. `slack.prompt_message_body`
-5. `slack.post_message`
-
-### Typical usage
-
-- send a message to one selected Slack channel from Titan
-- validate that channel-posting scopes and the shared messaging path are working end to end
-
-### Scope constraints
-
-- this workflow depends on channel-posting Slack scopes beyond the earlier DM and discovery slices
-- it assumes one active Slack workspace binding for the current repository
-- it selects channels through manual search
+The Slack plugin currently ships one built-in workflow for channel summaries.
 
 ## `summarize-slack-target`
 
@@ -101,3 +26,11 @@ Choose one configured default channel or search for another one, read recent Sla
 - this workflow depends on conversation-history scopes and AI configuration
 - it assumes one active Slack workspace binding for the current repository
 - it currently follows a channel-oriented path through `select_default_or_search_channel_target`
+
+### Related public steps
+
+- `validate_connection`
+- `select_default_or_search_channel_target`
+- `ensure_target_conversation`
+- `read_recent_messages`
+- `ai_summarize_messages`

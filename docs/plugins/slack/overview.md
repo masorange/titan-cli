@@ -6,7 +6,7 @@ It exposes:
 
 - a public `SlackClient`
 - reusable workflow steps
-- built-in workflows for discovery, direct messages, channel messages, and channel summaries
+- one built-in workflow for channel summaries
 
 ## Requirements
 
@@ -98,3 +98,11 @@ The Slack plugin currently exposes public reusable steps for:
 - selecting Slack users or channels as workflow targets
 - preparing a message destination and posting messages
 - resolving a conversation, reading recent messages, and summarizing them with AI
+
+## Built-in Workflows
+
+The Slack plugin currently ships one built-in workflow:
+
+- `summarize-slack-target`
+
+Other Slack capabilities remain available as public reusable steps for composition from project workflows or other plugin workflows.

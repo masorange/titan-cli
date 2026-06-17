@@ -18,7 +18,7 @@ Titan ships with four official plugins:
 | **git** | Smart commits, branch management, AI-powered commit messages |
 | **github** | Create PRs with AI descriptions, manage issues, code reviews |
 | **jira** | Search issues, AI-powered analysis, workflow automation |
-| **slack** | Personal Slack auth, workspace validation, and read-only discovery |
+| **slack** | Personal Slack auth, workspace summaries, and reusable Slack workflow steps |
 
 Enable them per project in `.titan/config.toml`:
 

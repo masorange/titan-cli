@@ -80,29 +80,59 @@
   ],
   "steps": [
     {
-      "name": "validate_connection",
-      "group": "Validation and Discovery",
-      "module": "titan_plugin_slack.steps.discovery_steps",
-      "function": "validate_connection_step",
-      "summary": "Validate the configured Slack connection and expose identity metadata.",
+      "name": "ai_summarize_messages",
+      "group": "Conversation Summaries",
+      "module": "titan_plugin_slack.steps.summary_steps",
+      "function": "ai_summarize_messages_step",
+      "summary": "Summarize recent Slack messages with AI.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.textual: Textual UI context."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_messages (list[UISlackMessage]): Messages to summarize.",
+          "    slack_target_name (str, optional): Human-facing target label for the summary.",
+          "    slack_summary_max_chars (int, optional): Maximum transcript size passed to AI. Defaults to 12000."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_summary (str): AI-generated Slack summary.",
+          "    slack_summary_source_count (int): Number of source messages summarized.",
+          "    slack_summary_transcript_chars (int): Transcript size sent to AI after truncation."
+        ],
+        "Returns": [
+          "    Success: If the summary is generated successfully.",
+          "    Skip: If AI is not configured or not available.",
+          "    Error: If messages are missing or the AI request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "summarize-slack-target"
+      ]
+    },
+    {
+      "name": "ensure_target_conversation",
+      "group": "Conversation Summaries",
+      "module": "titan_plugin_slack.steps.summary_steps",
+      "function": "ensure_target_conversation_step",
+      "summary": "Resolve a Slack conversation from the selected target.",
       "docstring_sections": {
         "Requires": [
           "    ctx.slack: An initialized SlackClient."
         ],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    slack_target (UISlackTarget): Selected Slack target."
+        ],
         "Outputs (saved to ctx.data)": [
-          "    slack_auth (dict): Slack auth identity details from `auth_test()`.",
-          "    slack_team_id (str | None): Team identifier reported by Slack.",
-          "    slack_team_name (str | None): Team name reported by Slack.",
-          "    slack_user_id (str | None): User identifier reported by Slack."
+          "    slack_conversation (UISlackConversation): Resolved Slack conversation.",
+          "    slack_conversation_id (str): Conversation ID used for later operations."
         ],
         "Returns": [
-          "    Success: If the Slack connection validates successfully.",
-          "    Error: If the Slack client is not available or the auth request fails."
+          "    Success: If the target conversation is resolved successfully.",
+          "    Error: If Slack is unavailable, the target is missing, or the Slack request fails."
         ]
       },
       "used_by_workflows": [
-        "discover-slack-workspace"
+        "summarize-slack-target"
       ]
     },
     {
@@ -121,7 +151,7 @@
           "    slack_exclude_archived (bool, optional): Whether to exclude archived channels. Defaults to True."
         ],
         "Outputs (saved to ctx.data)": [
-          "    slack_channels (list[NetworkSlackChannel]): Public channels returned by Slack.",
+          "    slack_channels (list[UISlackChannel]): Public channels returned by Slack.",
           "    slack_channels_next_cursor (str | None): Pagination cursor for a later request."
         ],
         "Returns": [
@@ -129,9 +159,7 @@
           "    Error: If the Slack client is not available or the Slack request fails."
         ]
       },
-      "used_by_workflows": [
-        "discover-slack-workspace"
-      ]
+      "used_by_workflows": []
     },
     {
       "name": "list_users",
@@ -148,7 +176,7 @@
           "    slack_cursor (str, optional): Pagination cursor for the next page."
         ],
         "Outputs (saved to ctx.data)": [
-          "    slack_users (list[NetworkSlackUser]): Users returned by Slack.",
+          "    slack_users (list[UISlackUser]): Users returned by Slack.",
           "    slack_users_next_cursor (str | None): Pagination cursor for a later request."
         ],
         "Returns": [
@@ -156,38 +184,133 @@
           "    Error: If the Slack client is not available or the Slack request fails."
         ]
       },
-      "used_by_workflows": [
-        "discover-slack-workspace"
-      ]
+      "used_by_workflows": []
     },
     {
-      "name": "select_user_target",
-      "group": "Selection and Target Resolution",
-      "module": "titan_plugin_slack.steps.target_steps",
-      "function": "select_user_target_step",
-      "summary": "Filter visible Slack users by query and select one canonical user target.",
+      "name": "open_direct_message",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "open_direct_message_step",
+      "summary": "Open or reuse a direct message conversation for the selected Slack user target.",
       "docstring_sections": {
         "Requires": [
           "    ctx.slack: An initialized SlackClient."
         ],
         "Inputs (from ctx.data)": [
-          "    slack_users (list[UISlackUser]): Users visible to the current Slack token.",
-          "    slack_target_query (str, optional): Pre-filled query used to filter Slack users."
+          "    slack_target (UISlackTarget): Selected Slack target. Must be a `user` target."
         ],
         "Outputs (saved to ctx.data)": [
-          "    slack_target (UISlackTarget): Canonical selected Slack target.",
-          "    slack_target_type (str): Selected target type (`user`).",
-          "    slack_target_id (str): Slack user ID.",
-          "    slack_target_name (str): User-facing target name.",
-          "    slack_target_query (str): Query used to resolve the selection."
+          "    slack_conversation (UISlackConversation): Opened or reused Slack conversation.",
+          "    slack_conversation_id (str): Conversation ID used for later message operations."
         ],
         "Returns": [
-          "    Success: If the user target is selected successfully.",
-          "    Error: If Slack is unavailable, no users are available, the query is invalid, or no match is selected."
+          "    Success: If the direct message conversation is ready.",
+          "    Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "post_message",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "post_message_step",
+      "summary": "Post a plain-text Slack message to the prepared conversation.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_conversation_id (str): Slack conversation ID to post into.",
+          "    slack_message_text (str): Message body to post.",
+          "    slack_thread_ts (str, optional): Thread timestamp for replies."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_message (UISlackPostedMessage): Posted Slack message metadata.",
+          "    slack_message_ts (str): Timestamp of the posted message.",
+          "    slack_message_channel (str): Channel or conversation ID where the message was posted."
+        ],
+        "Returns": [
+          "    Success: If the Slack message is posted successfully.",
+          "    Error: If Slack is unavailable, required context is missing, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "prepare_message_destination",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "prepare_message_destination_step",
+      "summary": "Prepare a Slack message destination from the selected target.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_target (UISlackTarget): Selected Slack target. Must be a `user` or `channel` target."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_conversation (UISlackConversation): Resolved Slack destination conversation.",
+          "    slack_conversation_id (str): Conversation or channel ID used for later message operations."
+        ],
+        "Returns": [
+          "    Success: If the Slack message destination is ready.",
+          "    Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "prompt_message_body",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "prompt_message_body_step",
+      "summary": "Capture a multiline Slack message body for later posting.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    slack_message_text (str, optional): Pre-filled message text. If already present, the prompt is skipped."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_message_text (str): Message text to post later."
+        ],
+        "Returns": [
+          "    Success: If the message body is captured successfully.",
+          "    Skip: If the message body already exists in context.",
+          "    Error: If the user cancels or the message body is empty."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "read_recent_messages",
+      "group": "Conversation Summaries",
+      "module": "titan_plugin_slack.steps.summary_steps",
+      "function": "read_recent_messages_step",
+      "summary": "Read the most recent messages from the resolved Slack conversation.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_conversation_id (str): Slack conversation ID to read.",
+          "    slack_history_limit (int, optional): Number of recent messages to fetch. Defaults to 50."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_messages (list[UISlackMessage]): Retrieved Slack messages.",
+          "    slack_user_display_names (dict[str, str]): Resolved Slack user display names keyed by user ID.",
+          "    slack_channel_display_names (dict[str, str]): Resolved Slack channel names keyed by channel ID.",
+          "    slack_messages_next_cursor (str | None): Pagination cursor for later reads.",
+          "    slack_messages_has_more (bool): Whether more messages are available."
+        ],
+        "Returns": [
+          "    Success: If recent messages are retrieved successfully.",
+          "    Error: If Slack is unavailable, required context is missing, or the Slack request fails."
         ]
       },
       "used_by_workflows": [
-        "send-slack-direct-message"
+        "summarize-slack-target"
       ]
     },
     {
@@ -195,14 +318,17 @@
       "group": "Selection and Target Resolution",
       "module": "titan_plugin_slack.steps.target_steps",
       "function": "select_channel_target_step",
-      "summary": "Filter visible Slack channels by query and select one canonical channel target.",
+      "summary": "Select a Slack channel target through query filtering and final confirmation.",
       "docstring_sections": {
         "Requires": [
           "    ctx.slack: An initialized SlackClient."
         ],
         "Inputs (from ctx.data)": [
-          "    slack_channels (list[UISlackChannel]): Public channels visible to the current Slack token.",
-          "    slack_target_query (str, optional): Pre-filled query used to filter Slack channels."
+          "    slack_target_query (str, optional): Pre-filled query used to filter Slack channels.",
+          "    slack_search_limit (int, optional): Maximum number of matches to return. Defaults to 20.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 200.",
+          "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.",
+          "    slack_exclude_archived (bool, optional): Whether to exclude archived channels while searching. Defaults to True."
         ],
         "Outputs (saved to ctx.data)": [
           "    slack_target (UISlackTarget): Canonical selected Slack target.",
@@ -213,12 +339,10 @@
         ],
         "Returns": [
           "    Success: If the channel target is selected successfully.",
-          "    Error: If Slack is unavailable, no channels are available, the query is invalid, or no match is selected."
+          "    Error: If Slack is unavailable, the query is invalid, the search fails, or no match is selected."
         ]
       },
-      "used_by_workflows": [
-        "send-slack-channel-message"
-      ]
+      "used_by_workflows": []
     },
     {
       "name": "select_default_or_search_channel_target",
@@ -254,117 +378,11 @@
       ]
     },
     {
-      "name": "prepare_message_destination",
-      "group": "Messaging",
-      "module": "titan_plugin_slack.steps.message_steps",
-      "function": "prepare_message_destination_step",
-      "summary": "Prepare a Slack message destination from the selected target.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.slack: An initialized SlackClient."
-        ],
-        "Inputs (from ctx.data)": [
-          "    slack_target (UISlackTarget): Selected Slack target. Must be a `user` or `channel` target."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    slack_conversation (UISlackConversation): Resolved Slack destination conversation.",
-          "    slack_conversation_id (str): Conversation or channel ID used for later message operations."
-        ],
-        "Returns": [
-          "    Success: If the Slack message destination is ready.",
-          "    Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails."
-        ]
-      },
-      "used_by_workflows": [
-        "send-slack-direct-message",
-        "send-slack-channel-message"
-      ]
-    },
-    {
-      "name": "open_direct_message",
-      "group": "Messaging",
-      "module": "titan_plugin_slack.steps.message_steps",
-      "function": "open_direct_message_step",
-      "summary": "Open or reuse a direct message conversation for the selected user target.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.slack: An initialized SlackClient."
-        ],
-        "Inputs (from ctx.data)": [
-          "    slack_target (UISlackTarget): Selected Slack target. Must be a `user` target."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    slack_conversation (UISlackConversation): Opened or reused Slack conversation.",
-          "    slack_conversation_id (str): Conversation ID used for later message operations."
-        ],
-        "Returns": [
-          "    Success: If the direct message conversation is ready.",
-          "    Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails."
-        ]
-      },
-      "used_by_workflows": []
-    },
-    {
-      "name": "prompt_message_body",
-      "group": "Messaging",
-      "module": "titan_plugin_slack.steps.message_steps",
-      "function": "prompt_message_body_step",
-      "summary": "Capture a multiline Slack message body for later posting.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [
-          "    slack_message_text (str, optional): Pre-filled message text. If already present, the prompt is skipped."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    slack_message_text (str): Message text to post later."
-        ],
-        "Returns": [
-          "    Success: If the message body is captured successfully.",
-          "    Skip: If the message body already exists in context.",
-          "    Error: If the user cancels or the message body is empty."
-        ]
-      },
-      "used_by_workflows": [
-        "send-slack-direct-message",
-        "send-slack-channel-message"
-      ]
-    },
-    {
-      "name": "post_message",
-      "group": "Messaging",
-      "module": "titan_plugin_slack.steps.message_steps",
-      "function": "post_message_step",
-      "summary": "Post the prepared message to the selected Slack conversation.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.slack: An initialized SlackClient."
-        ],
-        "Inputs (from ctx.data)": [
-          "    slack_conversation_id (str): Slack conversation ID to post into.",
-          "    slack_message_text (str): Message body to post.",
-          "    slack_thread_ts (str, optional): Thread timestamp for replies."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    slack_message (UISlackPostedMessage): Posted Slack message metadata.",
-          "    slack_message_ts (str): Timestamp of the posted message.",
-          "    slack_message_channel (str): Channel or conversation ID where the message was posted."
-        ],
-        "Returns": [
-          "    Success: If the Slack message is posted successfully.",
-          "    Error: If Slack is unavailable, required context is missing, or the Slack request fails."
-        ]
-      },
-      "used_by_workflows": [
-        "send-slack-direct-message",
-        "send-slack-channel-message"
-      ]
-    },
-    {
       "name": "select_target",
       "group": "Conversation Summaries",
       "module": "titan_plugin_slack.steps.summary_steps",
       "function": "select_target_step",
-      "summary": "Search both users and channels for a single unified target selection.",
+      "summary": "Search both Slack users and channels for a single unified target selection.",
       "docstring_sections": {
         "Requires": [
           "    ctx.slack: An initialized SlackClient."
@@ -391,83 +409,57 @@
       "used_by_workflows": []
     },
     {
-      "name": "ensure_target_conversation",
-      "group": "Conversation Summaries",
-      "module": "titan_plugin_slack.steps.summary_steps",
-      "function": "ensure_target_conversation_step",
-      "summary": "Resolve a Slack conversation from the selected target.",
+      "name": "select_user_target",
+      "group": "Selection and Target Resolution",
+      "module": "titan_plugin_slack.steps.target_steps",
+      "function": "select_user_target_step",
+      "summary": "Select a Slack user target through query filtering and final confirmation.",
       "docstring_sections": {
         "Requires": [
           "    ctx.slack: An initialized SlackClient."
         ],
         "Inputs (from ctx.data)": [
-          "    slack_target (UISlackTarget): Selected Slack target."
+          "    slack_target_query (str, optional): Pre-filled query used to filter Slack users.",
+          "    slack_search_limit (int, optional): Maximum number of matches to return. Defaults to 20.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack users. Defaults to 200.",
+          "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50."
         ],
         "Outputs (saved to ctx.data)": [
-          "    slack_conversation (UISlackConversation): Resolved Slack conversation.",
-          "    slack_conversation_id (str): Conversation ID used for later operations."
+          "    slack_target (UISlackTarget): Canonical selected Slack target.",
+          "    slack_target_type (str): Selected target type (`user`).",
+          "    slack_target_id (str): Slack user ID.",
+          "    slack_target_name (str): User-facing target name.",
+          "    slack_target_query (str): Query used to resolve the selection."
         ],
         "Returns": [
-          "    Success: If the target conversation is resolved successfully.",
-          "    Error: If Slack is unavailable, the target is missing, or the Slack request fails."
+          "    Success: If the user target is selected successfully.",
+          "    Error: If Slack is unavailable, the query is invalid, the search fails, or no match is selected."
         ]
       },
-      "used_by_workflows": [
-        "summarize-slack-target"
-      ]
+      "used_by_workflows": []
     },
     {
-      "name": "read_recent_messages",
-      "group": "Conversation Summaries",
-      "module": "titan_plugin_slack.steps.summary_steps",
-      "function": "read_recent_messages_step",
-      "summary": "Read the most recent messages from the resolved Slack conversation.",
+      "name": "validate_connection",
+      "group": "Validation and Discovery",
+      "module": "titan_plugin_slack.steps.discovery_steps",
+      "function": "validate_connection_step",
+      "summary": "Validate the configured Slack connection and expose identity metadata.",
       "docstring_sections": {
         "Requires": [
           "    ctx.slack: An initialized SlackClient."
         ],
         "Inputs (from ctx.data)": [
-          "    slack_conversation_id (str): Slack conversation ID to read.",
-          "    slack_history_limit (int, optional): Number of recent messages to fetch. Defaults to 50."
+          "    None documented."
         ],
         "Outputs (saved to ctx.data)": [
-          "    slack_messages (list[UISlackMessage]): Retrieved Slack messages.",
-          "    slack_messages_next_cursor (str | None): Pagination cursor for later reads.",
-          "    slack_messages_has_more (bool): Whether more messages are available."
+          "    slack_auth (UISlackAuth): Slack auth identity details from `auth_test()`.",
+          "    slack_team_id (str | None): Team identifier reported by Slack.",
+          "    slack_team_name (str | None): Team name reported by Slack.",
+          "    slack_user_id (str | None): User identifier reported by Slack."
         ],
         "Returns": [
-          "    Success: If recent messages are retrieved successfully.",
-          "    Error: If Slack is unavailable, required context is missing, or the Slack request fails."
-        ]
-      },
-      "used_by_workflows": [
-        "summarize-slack-target"
-      ]
-    },
-    {
-      "name": "ai_summarize_messages",
-      "group": "Conversation Summaries",
-      "module": "titan_plugin_slack.steps.summary_steps",
-      "function": "ai_summarize_messages_step",
-      "summary": "Summarize the retrieved Slack messages with AI.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.textual: Textual UI context."
-        ],
-        "Inputs (from ctx.data)": [
-          "    slack_messages (list[UISlackMessage]): Messages to summarize.",
-          "    slack_target_name (str, optional): Human-facing target label for the summary.",
-          "    slack_summary_max_chars (int, optional): Maximum transcript size passed to AI. Defaults to 12000."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    slack_summary (str): AI-generated Slack summary.",
-          "    slack_summary_source_count (int): Number of source messages summarized.",
-          "    slack_summary_transcript_chars (int): Transcript size sent to AI after truncation."
-        ],
-        "Returns": [
-          "    Success: If the summary is generated successfully.",
-          "    Skip: If AI is not configured or not available.",
-          "    Error: If messages are missing or the AI request fails."
+          "    Success: If the Slack connection validates successfully.",
+          "    Error: If the Slack client is not available or the auth request fails."
         ]
       },
       "used_by_workflows": [
