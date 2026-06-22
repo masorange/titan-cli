@@ -1,4 +1,5 @@
 from pathlib import Path
+import asyncio
 from unittest.mock import MagicMock, PropertyMock
 
 import tomli
@@ -179,6 +180,33 @@ def test_slack_config_screen_saves_oauth_app_config(tmp_path: Path) -> None:
     assert slack_cfg["oauth_client_id"] == "123"
     assert slack_cfg["default_channels"] == ["general", "release-notes"]
     assert data["plugins"]["slack"]["enabled"] is True
+
+
+def test_slack_config_screen_oauth_connect_fails_when_keyring_write_fails(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    screen = SlackConfigScreen(config)
+
+    app = MagicMock()
+    type(screen).app = PropertyMock(return_value=app)
+
+    expected = SlackOAuthResult(
+        access_token="xoxp-token",
+        granted_scopes=["users:read"],
+        team_id="T123",
+        team_name="Acme",
+        authed_user_id="U123",
+    )
+    screen._perform_oauth_connect = MagicMock(return_value=expected)
+    config.secrets.set.side_effect = RuntimeError("keyring unavailable")
+    screen._remove_project_config = MagicMock()
+
+    asyncio.run(screen._run_oauth_connect("123", ["general"]))
+
+    app.notify.assert_called_once_with(
+        "Slack OAuth failed: keyring unavailable",
+        severity="error",
+    )
+    screen._remove_project_config.assert_called_once()
 
 
 def test_slack_config_screen_save_project_config_enables_plugin(tmp_path: Path) -> None:

@@ -77,6 +77,16 @@ def test_set_user_scope(mock_keyring):
     sm.set("my_user_secret", "user_value", scope="user")
     mock_keyring[1].assert_called_once_with("titan", "my_user_secret", "user_value")
 
+
+def test_set_user_scope_raises_when_keyring_write_fails(mock_keyring, tmp_project_path):
+    mock_keyring[1].side_effect = RuntimeError("keyring unavailable")
+    sm = SecretManager(project_path=tmp_project_path)
+
+    with pytest.raises(RuntimeError, match="keyring unavailable"):
+        sm.set("my_user_secret", "user_value", scope="user")
+
+    assert not (tmp_project_path / ".titan" / "secrets.env").exists()
+
 def test_set_project_scope_new_secret(tmp_project_path):
     sm = SecretManager(project_path=tmp_project_path)
     sm.set("my_project_secret", "project_value", scope="project")
@@ -140,4 +150,3 @@ def test_delete_project_scope_secret_not_found(tmp_project_path):
     with open(secrets_file, "r") as f:
         content = f.read()
     assert "OTHER_KEY='other_value'" in content # Content should be unchanged
-

@@ -237,15 +237,22 @@ class SlackOAuthFlow:
                 f"Slack OAuth token exchange failed: {payload.get('error', 'unknown_error')}"
             )
 
-        access_token = payload.get("access_token") or payload.get("authed_user", {}).get("access_token")
-        if not access_token:
-            raise SlackOAuthError("Slack OAuth token exchange succeeded without an access token.")
+        authed_user = payload.get("authed_user")
+        if not isinstance(authed_user, dict):
+            raise SlackOAuthError(
+                "Slack OAuth token exchange succeeded without an authed_user payload."
+            )
 
-        scope_string = payload.get("scope") or payload.get("authed_user", {}).get("scope") or ""
+        access_token = authed_user.get("access_token")
+        if not access_token:
+            raise SlackOAuthError(
+                "Slack OAuth token exchange succeeded without authed_user.access_token."
+            )
+
+        scope_string = payload.get("scope") or authed_user.get("scope") or ""
         granted_scopes = [scope.strip() for scope in scope_string.split(",") if scope.strip()]
 
         team = payload.get("team") or {}
-        authed_user = payload.get("authed_user") or {}
         logger.info(
             "slack_oauth_exchange_succeeded",
             team_id=team.get("id"),

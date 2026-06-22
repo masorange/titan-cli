@@ -1,5 +1,6 @@
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 import requests
 
 from titan_plugin_slack.oauth import SlackOAuthError, SlackOAuthFlow
@@ -46,10 +47,9 @@ def test_exchange_code_returns_token_and_metadata() -> None:
             return _FakeResponse(
                 {
                     "ok": True,
-                    "access_token": "xoxp-token",
                     "scope": "users:read,channels:read",
                     "team": {"id": "T123", "name": "Acme"},
-                    "authed_user": {"id": "U123"},
+                    "authed_user": {"id": "U123", "access_token": "xoxp-token"},
                 }
             )
 
@@ -62,6 +62,45 @@ def test_exchange_code_returns_token_and_metadata() -> None:
     assert result.team_name == "Acme"
     assert result.authed_user_id == "U123"
     assert result.granted_scopes == ["users:read", "channels:read"]
+
+
+def test_exchange_code_raises_when_authed_user_payload_is_missing() -> None:
+    class FakeRequests:
+        @staticmethod
+        def post(url, data, timeout):
+            return _FakeResponse(
+                {
+                    "ok": True,
+                    "access_token": "xoxp-top-level-token",
+                    "scope": "users:read,channels:read",
+                    "team": {"id": "T123", "name": "Acme"},
+                }
+            )
+
+    flow = SlackOAuthFlow(client_id="123", redirect_port=8765, requests_module=FakeRequests)
+
+    with pytest.raises(SlackOAuthError, match="authed_user payload"):
+        flow.exchange_code("code-123", "verifier-123")
+
+
+def test_exchange_code_raises_when_authed_user_access_token_is_missing() -> None:
+    class FakeRequests:
+        @staticmethod
+        def post(url, data, timeout):
+            return _FakeResponse(
+                {
+                    "ok": True,
+                    "access_token": "xoxp-top-level-token",
+                    "scope": "users:read,channels:read",
+                    "team": {"id": "T123", "name": "Acme"},
+                    "authed_user": {"id": "U123"},
+                }
+            )
+
+    flow = SlackOAuthFlow(client_id="123", redirect_port=8765, requests_module=FakeRequests)
+
+    with pytest.raises(SlackOAuthError, match="authed_user.access_token"):
+        flow.exchange_code("code-123", "verifier-123")
 
 
 def test_exchange_code_raises_on_slack_error() -> None:
