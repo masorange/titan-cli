@@ -87,6 +87,7 @@ def test_read_recent_messages_returns_messages() -> None:
 
     assert isinstance(result, Success)
     assert len(result.metadata["slack_messages"]) == 1
+    ctx.slack.read_conversation.assert_called_once_with("C123", limit=30)
 
 
 def test_ai_summarize_messages_skips_without_ai() -> None:
@@ -123,3 +124,21 @@ def test_ai_summarize_messages_returns_error_for_empty_summary() -> None:
 
     assert isinstance(result, Error)
     assert result.message == "AI returned an empty Slack summary."
+
+
+def test_ai_summarize_messages_returns_visual_error_for_rate_limit() -> None:
+    ctx = _build_context()
+    ctx.ai = MagicMock()
+    ctx.ai.is_available.return_value = True
+    ctx.ai.generate.side_effect = RuntimeError("Rate limit exceeded: 429 RESOURCE_EXHAUSTED")
+    ctx.data["slack_messages"] = [UISlackMessage(ts="1", text="Hello", user="U123")]
+
+    result = ai_summarize_messages_step(ctx)
+
+    assert isinstance(result, Error)
+    assert result.message == (
+        "AI summary is temporarily rate limited by the configured AI provider. "
+        "Please wait and try again."
+    )
+    ctx.textual.error_text.assert_called_once_with(result.message)
+    ctx.textual.end_step.assert_called_with("error")

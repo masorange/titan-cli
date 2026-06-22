@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import asyncio
+import time
 
 import tomli
 import tomli_w
@@ -16,7 +17,11 @@ from titan_cli.core.logging import get_logger
 from titan_cli.core.result import ClientError, ClientSuccess
 
 from ..clients.slack_client import SlackClient
-from ..config import build_project_slack_token_key
+from ..config import (
+    build_project_slack_refresh_token_key,
+    build_project_slack_token_expires_at_key,
+    build_project_slack_token_key,
+)
 from ..oauth import SlackOAuthFlow, SlackOAuthResult
 
 
@@ -170,6 +175,12 @@ class SlackConfigScreen(BaseScreen):
 
     def _get_project_token_key(self) -> str:
         return build_project_slack_token_key(self._get_project_name())
+
+    def _get_project_refresh_token_key(self) -> str:
+        return build_project_slack_refresh_token_key(self._get_project_name())
+
+    def _get_project_token_expires_at_key(self) -> str:
+        return build_project_slack_token_expires_at_key(self._get_project_name())
 
     def _get_connection_state(self) -> SlackConnectionState:
         plugin_config = self._load_plugin_config()
@@ -408,6 +419,8 @@ class SlackConfigScreen(BaseScreen):
                     "oauth_client_id": client_id,
                     "default_team_id": result.team_id,
                     "default_team_name": result.team_name,
+                    "token_type": None,
+                    "token_expires_at": None,
                     "granted_scopes": result.granted_scopes,
                     "default_channels": default_channels,
                 }
@@ -416,6 +429,16 @@ class SlackConfigScreen(BaseScreen):
             self.config.secrets.set(
                 self._get_project_token_key(), result.access_token, scope="user"
             )
+            if result.refresh_token:
+                self.config.secrets.set(
+                    self._get_project_refresh_token_key(), result.refresh_token, scope="user"
+                )
+            if result.expires_in:
+                self.config.secrets.set(
+                    self._get_project_token_expires_at_key(),
+                    str(int(time.time()) + result.expires_in),
+                    scope="user",
+                )
             token_written = True
             self._reconfigure_project_mode = False
             self._has_changes = True
@@ -425,6 +448,12 @@ class SlackConfigScreen(BaseScreen):
             if token_written:
                 try:
                     self.config.secrets.delete(self._get_project_token_key(), scope="user")
+                    self.config.secrets.delete(
+                        self._get_project_refresh_token_key(), scope="user"
+                    )
+                    self.config.secrets.delete(
+                        self._get_project_token_expires_at_key(), scope="user"
+                    )
                 except Exception:
                     pass
 
@@ -465,6 +494,8 @@ class SlackConfigScreen(BaseScreen):
 
     def _disconnect(self) -> None:
         self.config.secrets.delete(self._get_project_token_key(), scope="user")
+        self.config.secrets.delete(self._get_project_refresh_token_key(), scope="user")
+        self.config.secrets.delete(self._get_project_token_expires_at_key(), scope="user")
         self._reconfigure_project_mode = False
         self._has_changes = True
         self.app.notify("Slack account disconnected for this project.", severity="information")
@@ -472,6 +503,8 @@ class SlackConfigScreen(BaseScreen):
 
     def _remove_project_config(self) -> None:
         self.config.secrets.delete(self._get_project_token_key(), scope="user")
+        self.config.secrets.delete(self._get_project_refresh_token_key(), scope="user")
+        self.config.secrets.delete(self._get_project_token_expires_at_key(), scope="user")
         project_cfg_path = self.config.project_config_path
         if project_cfg_path and project_cfg_path.exists():
             with open(project_cfg_path, "rb") as f:

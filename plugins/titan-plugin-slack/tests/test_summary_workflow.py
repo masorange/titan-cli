@@ -12,7 +12,7 @@ def test_summarize_slack_target_workflow_structure() -> None:
         workflow = yaml.safe_load(handle)
 
     assert workflow["name"] == "Summarize Slack Target"
-    assert workflow["params"]["slack_history_limit"] == 50
+    assert workflow["params"]["slack_history_limit"] == 30
     assert [step["id"] for step in workflow["steps"]] == [
         "validate_connection",
         "select_target",

@@ -44,7 +44,8 @@ granted_scopes = [
 default_channels = ["chapter-apps-android", "release-notes"]
 ```
 
-Slack stores the personal token in keyring, not in the config file.
+Slack stores the personal access token, refresh token, and token-expiry metadata in keyring, not in the config file.
+Project config stores shared non-secret Slack metadata such as workspace binding and granted scopes.
 
 ## Slack App Setup
 
@@ -56,6 +57,8 @@ Current setup expectations:
   `http://127.0.0.1:8765/slack/callback`
 - The redirect URI must match exactly, including host, port, and path
 - `127.0.0.1` and `localhost` are different values for Slack OAuth
+
+With PKCE enabled for localhost redirects, Slack may issue expiring user tokens together with refresh tokens. Titan refreshes these tokens automatically for the active project and persists the rotated secrets in keyring.
 
 ## Scope Snapshot
 

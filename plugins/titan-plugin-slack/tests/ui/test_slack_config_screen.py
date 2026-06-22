@@ -81,7 +81,9 @@ def test_slack_config_screen_disconnect_only_deletes_project_token(tmp_path: Pat
     )
     screen._disconnect()
 
-    config.secrets.delete.assert_called_once_with("demo-project_slack_user_token", scope="user")
+    config.secrets.delete.assert_any_call("demo-project_slack_user_token", scope="user")
+    config.secrets.delete.assert_any_call("demo-project_slack_refresh_token", scope="user")
+    config.secrets.delete.assert_any_call("demo-project_slack_token_expires_at", scope="user")
     with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
@@ -108,7 +110,9 @@ def test_slack_config_screen_remove_project_config_clears_plugin_entry_and_token
 
     screen._remove_project_config()
 
-    config.secrets.delete.assert_called_once_with("demo-project_slack_user_token", scope="user")
+    config.secrets.delete.assert_any_call("demo-project_slack_user_token", scope="user")
+    config.secrets.delete.assert_any_call("demo-project_slack_refresh_token", scope="user")
+    config.secrets.delete.assert_any_call("demo-project_slack_token_expires_at", scope="user")
     with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
@@ -143,6 +147,9 @@ def test_slack_config_screen_perform_oauth_connect_uses_backend(monkeypatch, tmp
 
     expected = SlackOAuthResult(
         access_token="xoxp-token",
+        refresh_token="xoxe-refresh-token",
+        expires_in=43200,
+        token_type="Bearer",
         granted_scopes=["users:read"],
         team_id="T123",
         team_name="Acme",
@@ -191,6 +198,9 @@ def test_slack_config_screen_oauth_connect_fails_when_keyring_write_fails(tmp_pa
 
     expected = SlackOAuthResult(
         access_token="xoxp-token",
+        refresh_token="xoxe-refresh-token",
+        expires_in=43200,
+        token_type="Bearer",
         granted_scopes=["users:read"],
         team_id="T123",
         team_name="Acme",

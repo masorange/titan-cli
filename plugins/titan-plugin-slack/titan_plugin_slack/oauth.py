@@ -136,6 +136,9 @@ class SlackOAuthResult:
     """Successful OAuth exchange result."""
 
     access_token: str
+    refresh_token: str | None
+    expires_in: int | None
+    token_type: str | None
     granted_scopes: list[str]
     team_id: str | None
     team_name: str | None
@@ -237,19 +240,61 @@ class SlackOAuthFlow:
                 f"Slack OAuth token exchange failed: {payload.get('error', 'unknown_error')}"
             )
 
-        authed_user = payload.get("authed_user")
-        if not isinstance(authed_user, dict):
+        return self._build_oauth_result(payload)
+
+    def refresh_access_token(self, refresh_token: str) -> SlackOAuthResult:
+        """Refresh a Slack PKCE access token."""
+        logger.info("slack_oauth_refresh_started", redirect_uri=self.redirect_uri)
+        response = self.requests.post(
+            TOKEN_URL,
+            data={
+                "client_id": self.client_id,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        if not payload.get("ok", False):
+            logger.error(
+                "slack_oauth_refresh_failed",
+                error=payload.get("error", "unknown_error"),
+                payload=payload,
+            )
             raise SlackOAuthError(
-                "Slack OAuth token exchange succeeded without an authed_user payload."
+                f"Slack OAuth refresh failed: {payload.get('error', 'unknown_error')}"
             )
 
-        access_token = authed_user.get("access_token")
+        return self._build_oauth_result(payload)
+
+    @staticmethod
+    def _build_oauth_result(payload: dict) -> SlackOAuthResult:
+        authed_user = payload.get("authed_user")
+        authed_user_data = authed_user if isinstance(authed_user, dict) else None
+
+        access_token = payload.get("access_token") or (
+            authed_user_data.get("access_token") if authed_user_data else None
+        )
         if not access_token:
             raise SlackOAuthError(
-                "Slack OAuth token exchange succeeded without authed_user.access_token."
+                "Slack OAuth response did not include an access token."
             )
 
-        scope_string = payload.get("scope") or authed_user.get("scope") or ""
+        refresh_token = payload.get("refresh_token") or (
+            authed_user_data.get("refresh_token") if authed_user_data else None
+        )
+        expires_in = payload.get("expires_in")
+        if expires_in is None and authed_user_data:
+            expires_in = authed_user_data.get("expires_in")
+        token_type = payload.get("token_type") or (
+            authed_user_data.get("token_type") if authed_user_data else None
+        )
+
+        scope_string = payload.get("scope") or (
+            authed_user_data.get("scope") if authed_user_data else ""
+        )
         granted_scopes = [scope.strip() for scope in scope_string.split(",") if scope.strip()]
 
         team = payload.get("team") or {}
@@ -257,15 +302,20 @@ class SlackOAuthFlow:
             "slack_oauth_exchange_succeeded",
             team_id=team.get("id"),
             team_name=team.get("name"),
-            authed_user_id=authed_user.get("id"),
+            authed_user_id=(authed_user_data.get("id") if authed_user_data else payload.get("user_id")),
             granted_scopes=granted_scopes,
+            has_refresh_token=bool(refresh_token),
+            expires_in=expires_in,
         )
         return SlackOAuthResult(
             access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=expires_in,
+            token_type=token_type,
             granted_scopes=granted_scopes,
             team_id=team.get("id"),
             team_name=team.get("name"),
-            authed_user_id=authed_user.get("id"),
+            authed_user_id=(authed_user_data.get("id") if authed_user_data else payload.get("user_id")),
         )
 
     def _wait_for_callback(self, expected_state: str) -> str:

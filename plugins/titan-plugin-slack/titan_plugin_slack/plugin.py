@@ -1,5 +1,9 @@
+import time
 from pathlib import Path
 from typing import Optional
+
+import tomli
+import tomli_w
 
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.plugins.models import SlackPluginConfig
@@ -7,13 +11,20 @@ from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.secrets import SecretManager
 
 from .clients.slack_client import SlackClient
-from .config import build_project_slack_token_key
+from .config import (
+    build_project_slack_refresh_token_key,
+    build_project_slack_token_expires_at_key,
+    build_project_slack_token_key,
+)
 from .exceptions import SlackClientError, SlackConfigurationError
+from .oauth import SlackOAuthFlow, SlackOAuthResult
 from .screens.slack_config_screen import SlackConfigScreen
 
 
 class SlackPlugin(TitanPlugin):
     """Titan CLI plugin for Slack operations."""
+
+    TOKEN_REFRESH_MARGIN_SECONDS = 300
 
     @property
     def name(self) -> str:
@@ -47,6 +58,76 @@ class SlackPlugin(TitanPlugin):
         """Create the Slack-specific configuration screen."""
         return SlackConfigScreen(config)
 
+    def _save_project_slack_config(self, config: TitanConfig, updates: dict[str, object | None]) -> None:
+        """Persist Slack project config updates."""
+        project_cfg_path = config.project_config_path
+        if not project_cfg_path:
+            raise SlackConfigurationError("Slack configuration requires a project config path.")
+
+        config_data = {}
+        if project_cfg_path.exists():
+            with open(project_cfg_path, "rb") as f:
+                config_data = tomli.load(f)
+
+        config_data.setdefault("config_version", getattr(config.config, "config_version", "1.0"))
+        project_cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        plugins = config_data.setdefault("plugins", {})
+        plugin_table = plugins.setdefault("slack", {})
+        plugin_table["enabled"] = True
+        plugin_config = plugin_table.setdefault("config", {})
+
+        for key, value in updates.items():
+            if value is None:
+                plugin_config.pop(key, None)
+            else:
+                plugin_config[key] = value
+
+        with open(project_cfg_path, "wb") as f:
+            tomli_w.dump(config_data, f)
+
+        config.load()
+
+    def _should_refresh_token(self, token_expires_at: int | None, refresh_token: str | None) -> bool:
+        """Return whether the current token should be refreshed before use."""
+        if not refresh_token:
+            return False
+        if token_expires_at is None:
+            return True
+        return token_expires_at <= int(time.time()) + self.TOKEN_REFRESH_MARGIN_SECONDS
+
+    def _persist_refreshed_tokens(
+        self,
+        config: TitanConfig,
+        secrets: SecretManager,
+        project_name: str,
+        result: SlackOAuthResult,
+        validated_config: SlackPluginConfig,
+    ) -> None:
+        """Persist refreshed Slack OAuth credentials and metadata."""
+        token_key = build_project_slack_token_key(project_name)
+        refresh_token_key = build_project_slack_refresh_token_key(project_name)
+        token_expires_at_key = build_project_slack_token_expires_at_key(project_name)
+        secrets.set(token_key, result.access_token, scope="user")
+        if result.refresh_token:
+            secrets.set(refresh_token_key, result.refresh_token, scope="user")
+        if result.expires_in:
+            secrets.set(
+                token_expires_at_key,
+                str(int(time.time()) + result.expires_in),
+                scope="user",
+            )
+
+        self._save_project_slack_config(
+            config,
+            {
+                "default_team_id": result.team_id or validated_config.default_team_id,
+                "default_team_name": result.team_name or validated_config.default_team_name,
+                "token_type": None,
+                "token_expires_at": None,
+                "granted_scopes": result.granted_scopes or validated_config.granted_scopes,
+            },
+        )
+
     def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
         """Initialize the Slack client using the current user's personal token."""
         plugin_config_data = self._get_plugin_config(config)
@@ -59,12 +140,40 @@ class SlackPlugin(TitanPlugin):
 
         project_name = config.get_project_name()
         token_key = build_project_slack_token_key(project_name)
+        refresh_token_key = build_project_slack_refresh_token_key(project_name)
+        token_expires_at_key = build_project_slack_token_expires_at_key(project_name)
 
         user_token = secrets.get(token_key)
         if not user_token:
             raise SlackConfigurationError(
                 f"Slack user token not found for project '{project_name}'. Configure Slack for this repository first."
             )
+
+        refresh_token = secrets.get(refresh_token_key)
+        token_expires_at_raw = secrets.get(token_expires_at_key)
+        try:
+            token_expires_at = int(token_expires_at_raw) if token_expires_at_raw else None
+        except ValueError:
+            token_expires_at = None
+
+        if self._should_refresh_token(token_expires_at, refresh_token):
+            if not validated_config.oauth_client_id:
+                raise SlackConfigurationError(
+                    "Slack token refresh requires an OAuth client ID in project configuration."
+                )
+            flow = SlackOAuthFlow(client_id=validated_config.oauth_client_id)
+            refreshed = flow.refresh_access_token(refresh_token)
+            self._persist_refreshed_tokens(
+                config,
+                secrets,
+                project_name,
+                refreshed,
+                validated_config,
+            )
+            user_token = refreshed.access_token
+            refresh_token = refreshed.refresh_token or refresh_token
+            refreshed_config_data = self._get_plugin_config(config)
+            validated_config = SlackPluginConfig(**refreshed_config_data)
 
         self._client = SlackClient(
             user_token=user_token,

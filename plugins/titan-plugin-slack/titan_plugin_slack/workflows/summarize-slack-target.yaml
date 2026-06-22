@@ -2,7 +2,7 @@ name: "Summarize Slack Target"
 description: "Search for a person or channel, read recent Slack messages, and summarize them with AI"
 
 params:
-  slack_history_limit: 50
+  slack_history_limit: 30
 
 steps:
   - id: validate_connection

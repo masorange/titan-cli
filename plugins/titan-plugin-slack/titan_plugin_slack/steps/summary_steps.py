@@ -19,6 +19,24 @@ logger = get_logger(__name__)
 
 
 MAX_COMBINED_TARGET_OPTIONS = 20
+DEFAULT_SLACK_HISTORY_LIMIT = 30
+
+
+def _summarization_error_message(exc: Exception) -> str:
+    """Convert AI summary errors into a concise user-facing message."""
+    error_text = str(exc)
+    normalized = error_text.lower()
+    if (
+        "429" in normalized
+        or "rate limit" in normalized
+        or "resource_exhausted" in normalized
+        or "throttling_error" in normalized
+    ):
+        return (
+            "AI summary is temporarily rate limited by the configured AI provider. "
+            "Please wait and try again."
+        )
+    return f"AI summary failed: {error_text}"
 
 
 def select_target_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -237,7 +255,7 @@ def read_recent_messages_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Inputs (from ctx.data):
         slack_conversation_id (str): Slack conversation ID to read.
-        slack_history_limit (int, optional): Number of recent messages to fetch. Defaults to 50.
+        slack_history_limit (int, optional): Number of recent messages to fetch. Defaults to 30.
 
     Outputs (saved to ctx.data):
         slack_messages (list[UISlackMessage]): Retrieved Slack messages.
@@ -266,7 +284,7 @@ def read_recent_messages_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("Slack conversation ID not found in context")
 
-    limit = ctx.get("slack_history_limit", 50)
+    limit = ctx.get("slack_history_limit", DEFAULT_SLACK_HISTORY_LIMIT)
 
     with ctx.textual.loading("Reading recent Slack messages..."):
         result = ctx.slack.read_conversation(conversation_id, limit=limit)
@@ -362,12 +380,25 @@ def ai_summarize_messages_step(ctx: WorkflowContext) -> WorkflowResult:
     transcript = truncate_transcript_for_summary(transcript, max_chars=max_chars)
     prompt = build_summary_prompt(target_name, transcript)
 
-    with ctx.textual.loading("Summarizing Slack messages with AI..."):
-        response = ctx.ai.generate(
-            [AIMessage(role="user", content=prompt)],
-            max_tokens=1024,
-            temperature=0.3,
+    try:
+        with ctx.textual.loading("Summarizing Slack messages with AI..."):
+            response = ctx.ai.generate(
+                [AIMessage(role="user", content=prompt)],
+                max_tokens=1024,
+                temperature=0.3,
+            )
+    except Exception as exc:
+        message = _summarization_error_message(exc)
+        logger.warning(
+            "slack_summary_ai_request_failed",
+            target_name=target_name,
+            source_count=len(messages),
+            transcript_chars=len(transcript),
+            error=str(exc),
         )
+        ctx.textual.error_text(message)
+        ctx.textual.end_step("error")
+        return Error(message, exc)
 
     summary = response.content.strip()
     logger.info(

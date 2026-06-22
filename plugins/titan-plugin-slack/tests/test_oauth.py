@@ -47,9 +47,46 @@ def test_exchange_code_returns_token_and_metadata() -> None:
             return _FakeResponse(
                 {
                     "ok": True,
+                    "access_token": "xoxe.xoxp-token",
+                    "refresh_token": "xoxe-refresh-token",
+                    "expires_in": 43200,
+                    "token_type": "Bearer",
                     "scope": "users:read,channels:read",
                     "team": {"id": "T123", "name": "Acme"},
-                    "authed_user": {"id": "U123", "access_token": "xoxp-token"},
+                    "user_id": "U123",
+                }
+            )
+
+    flow = SlackOAuthFlow(client_id="123", redirect_port=8765, requests_module=FakeRequests)
+
+    result = flow.exchange_code("code-123", "verifier-123")
+
+    assert result.access_token == "xoxe.xoxp-token"
+    assert result.refresh_token == "xoxe-refresh-token"
+    assert result.expires_in == 43200
+    assert result.token_type == "Bearer"
+    assert result.team_id == "T123"
+    assert result.team_name == "Acme"
+    assert result.authed_user_id == "U123"
+    assert result.granted_scopes == ["users:read", "channels:read"]
+
+
+def test_exchange_code_falls_back_to_authed_user_access_token() -> None:
+    class FakeRequests:
+        @staticmethod
+        def post(url, data, timeout):
+            return _FakeResponse(
+                {
+                    "ok": True,
+                    "scope": "users:read,channels:read",
+                    "team": {"id": "T123", "name": "Acme"},
+                    "authed_user": {
+                        "id": "U123",
+                        "access_token": "xoxp-token",
+                        "refresh_token": "xoxe-refresh-token",
+                        "expires_in": 43200,
+                        "token_type": "user",
+                    },
                 }
             )
 
@@ -58,39 +95,19 @@ def test_exchange_code_returns_token_and_metadata() -> None:
     result = flow.exchange_code("code-123", "verifier-123")
 
     assert result.access_token == "xoxp-token"
-    assert result.team_id == "T123"
-    assert result.team_name == "Acme"
+    assert result.refresh_token == "xoxe-refresh-token"
+    assert result.expires_in == 43200
+    assert result.token_type == "user"
     assert result.authed_user_id == "U123"
-    assert result.granted_scopes == ["users:read", "channels:read"]
 
 
-def test_exchange_code_raises_when_authed_user_payload_is_missing() -> None:
+def test_exchange_code_raises_when_access_token_is_missing() -> None:
     class FakeRequests:
         @staticmethod
         def post(url, data, timeout):
             return _FakeResponse(
                 {
                     "ok": True,
-                    "access_token": "xoxp-top-level-token",
-                    "scope": "users:read,channels:read",
-                    "team": {"id": "T123", "name": "Acme"},
-                }
-            )
-
-    flow = SlackOAuthFlow(client_id="123", redirect_port=8765, requests_module=FakeRequests)
-
-    with pytest.raises(SlackOAuthError, match="authed_user payload"):
-        flow.exchange_code("code-123", "verifier-123")
-
-
-def test_exchange_code_raises_when_authed_user_access_token_is_missing() -> None:
-    class FakeRequests:
-        @staticmethod
-        def post(url, data, timeout):
-            return _FakeResponse(
-                {
-                    "ok": True,
-                    "access_token": "xoxp-top-level-token",
                     "scope": "users:read,channels:read",
                     "team": {"id": "T123", "name": "Acme"},
                     "authed_user": {"id": "U123"},
@@ -99,8 +116,35 @@ def test_exchange_code_raises_when_authed_user_access_token_is_missing() -> None
 
     flow = SlackOAuthFlow(client_id="123", redirect_port=8765, requests_module=FakeRequests)
 
-    with pytest.raises(SlackOAuthError, match="authed_user.access_token"):
+    with pytest.raises(SlackOAuthError, match="did not include an access token"):
         flow.exchange_code("code-123", "verifier-123")
+
+
+def test_refresh_access_token_returns_rotated_credentials() -> None:
+    class FakeRequests:
+        @staticmethod
+        def post(url, data, timeout):
+            assert data["grant_type"] == "refresh_token"
+            assert data["refresh_token"] == "xoxe-refresh-token"
+            return _FakeResponse(
+                {
+                    "ok": True,
+                    "access_token": "xoxe.xoxp-new-token",
+                    "refresh_token": "xoxe-new-refresh-token",
+                    "expires_in": 43200,
+                    "token_type": "Bearer",
+                    "scope": "users:read,channels:read",
+                    "team": {"id": "T123", "name": "Acme"},
+                }
+            )
+
+    flow = SlackOAuthFlow(client_id="123", redirect_port=8765, requests_module=FakeRequests)
+
+    result = flow.refresh_access_token("xoxe-refresh-token")
+
+    assert result.access_token == "xoxe.xoxp-new-token"
+    assert result.refresh_token == "xoxe-new-refresh-token"
+    assert result.expires_in == 43200
 
 
 def test_exchange_code_raises_on_slack_error() -> None:
