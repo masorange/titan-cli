@@ -2651,7 +2651,9 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No thread_review_candidates in context")
 
     contexts = build_thread_review_contexts_operation(candidates, threads, diff)
-    commit_contexts_by_thread = _load_referenced_commit_contexts(ctx, threads)
+    candidate_ids = {candidate.thread_id for candidate in candidates}
+    candidate_threads = [thread for thread in threads if thread.thread_id in candidate_ids]
+    commit_contexts_by_thread = _load_referenced_commit_contexts(ctx, candidate_threads)
     if commit_contexts_by_thread:
         contexts = [
             context.model_copy(
