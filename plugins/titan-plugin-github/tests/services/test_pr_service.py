@@ -226,3 +226,13 @@ def test_get_commit_review_context_returns_parse_error_on_invalid_json(pr_servic
 
     assert isinstance(result, ClientError)
     assert result.error_code == "PARSE_ERROR"
+
+
+def test_get_commit_review_context_returns_api_error_on_network_failure(pr_service, mock_gh_network):
+    """Test GitHub API failure handling."""
+    mock_gh_network.run_command.side_effect = GitHubAPIError("Not Found")
+
+    result = pr_service.get_commit_review_context("343e2e9")
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "API_ERROR"
