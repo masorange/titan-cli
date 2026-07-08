@@ -147,7 +147,11 @@ def _load_referenced_commit_contexts(
     threads: list[UICommentThread],
     pr: Optional[UIPullRequest] = None,
 ) -> dict[str, list[ReferencedCommitContext]]:
-    """Fetch compact remote commit context for SHA references in review-thread replies.
+    """Fetch compact remote commit context for SHA references in the PR author's replies.
+
+    Only replies authored by the PR author are scanned for SHAs, since the AI
+    is deciding whether the author's response resolved the review comment; SHAs
+    mentioned by other reviewers or bots aren't claims made by the author.
 
     For cross-repo (fork) PRs, referenced SHAs may only exist on the fork's
     head repository, so lookups are resolved against it instead of the base repo.
@@ -161,11 +165,16 @@ def _load_referenced_commit_contexts(
         repo_owner = pr.head_repository_owner
         repo_name = pr.head_repository_name
 
+    pr_author = pr.author_name if pr else None
+
     commit_cache: dict[str, ReferencedCommitContext | None] = {}
     contexts_by_thread: dict[str, list[ReferencedCommitContext]] = {}
 
     for thread in threads:
-        reply_bodies = [reply.body for reply in thread.replies]
+        reply_bodies = [
+            reply.body for reply in thread.replies
+            if pr_author is None or reply.author_login == pr_author
+        ]
         referenced_shas = _extract_referenced_commit_shas(reply_bodies)
         if not referenced_shas:
             continue
