@@ -863,9 +863,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
             case ClientSuccess(data=current_user):
                 review_current_user = current_user
             case ClientError(error_message=err):
-                ctx.textual.error_text(f"Failed to get current user: {err}")
-                ctx.textual.end_step("error")
-                return Error(f"Failed to get current user: {err}")
+                ctx.textual.warning_text(f"Could not get current user: {err}")
 
     ctx.textual.dim_text(
         f"{len(changed_file_paths)} files · {formatted_summary} · "
