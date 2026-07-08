@@ -196,12 +196,16 @@ class GitHubClient:
         self,
         commit_ref: str,
         *,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
         max_files: int = 3,
         max_patch_chars: int = 4000,
     ) -> ClientResult[ReferencedCommitContext]:
         """Get a compact remote context for a referenced commit."""
         return self._pr_service.get_commit_review_context(
             commit_ref,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
             max_files=max_files,
             max_patch_chars=max_patch_chars,
         )

@@ -241,6 +241,8 @@ def test_get_commit_review_context_delegates_to_service(github_client):
     assert result.data.abbreviated_sha == "343e2e9"
     github_client._pr_service.get_commit_review_context.assert_called_once_with(
         "343e2e9",
+        repo_owner=None,
+        repo_name=None,
         max_files=2,
         max_patch_chars=1200,
     )

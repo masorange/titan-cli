@@ -145,10 +145,21 @@ def _extract_referenced_commit_shas(reply_bodies: list[str]) -> list[str]:
 def _load_referenced_commit_contexts(
     ctx: WorkflowContext,
     threads: list[UICommentThread],
+    pr: Optional[UIPullRequest] = None,
 ) -> dict[str, list[ReferencedCommitContext]]:
-    """Fetch compact remote commit context for SHA references in review-thread replies."""
+    """Fetch compact remote commit context for SHA references in review-thread replies.
+
+    For cross-repo (fork) PRs, referenced SHAs may only exist on the fork's
+    head repository, so lookups are resolved against it instead of the base repo.
+    """
     if not ctx.github:
         return {}
+
+    repo_owner: Optional[str] = None
+    repo_name: Optional[str] = None
+    if pr and pr.is_cross_repository and pr.head_repository_owner and pr.head_repository_name:
+        repo_owner = pr.head_repository_owner
+        repo_name = pr.head_repository_name
 
     commit_cache: dict[str, ReferencedCommitContext | None] = {}
     contexts_by_thread: dict[str, list[ReferencedCommitContext]] = {}
@@ -164,6 +175,8 @@ def _load_referenced_commit_contexts(
             if sha not in commit_cache:
                 result = ctx.github.get_commit_review_context(
                     sha,
+                    repo_owner=repo_owner,
+                    repo_name=repo_name,
                     max_files=_MAX_REFERENCED_COMMIT_FILES,
                     max_patch_chars=_MAX_REFERENCED_COMMIT_PATCH_CHARS,
                 )
@@ -2653,7 +2666,8 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
     contexts = build_thread_review_contexts_operation(candidates, threads, diff)
     candidate_ids = {candidate.thread_id for candidate in candidates}
     candidate_threads = [thread for thread in threads if thread.thread_id in candidate_ids]
-    commit_contexts_by_thread = _load_referenced_commit_contexts(ctx, candidate_threads)
+    review_pr = ctx.get("review_pr")
+    commit_contexts_by_thread = _load_referenced_commit_contexts(ctx, candidate_threads, review_pr)
     if commit_contexts_by_thread:
         contexts = [
             context.model_copy(

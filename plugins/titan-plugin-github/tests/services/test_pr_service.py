@@ -218,6 +218,24 @@ def test_get_commit_review_context_success(pr_service, mock_gh_network):
     assert "repos/test-owner/test-repo/commits/343e2e9" in mock_gh_network.run_command.call_args[0][0][1]
 
 
+def test_get_commit_review_context_uses_head_repo_when_provided(pr_service, mock_gh_network):
+    """Test that repo_owner/repo_name override the configured base repo (fork PRs)."""
+    mock_gh_network.run_command.return_value = json.dumps(
+        {
+            "sha": "343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+            "commit": {"message": "remove default state value"},
+            "files": [],
+        }
+    )
+
+    result = pr_service.get_commit_review_context(
+        "343e2e9", repo_owner="fork-owner", repo_name="fork-repo"
+    )
+
+    assert isinstance(result, ClientSuccess)
+    assert "repos/fork-owner/fork-repo/commits/343e2e9" in mock_gh_network.run_command.call_args[0][0][1]
+
+
 def test_get_commit_review_context_returns_parse_error_on_invalid_json(pr_service, mock_gh_network):
     """Test invalid commit payload handling."""
     mock_gh_network.run_command.return_value = "not json"

@@ -53,7 +53,9 @@ class _FakeTextual:
         return self._Loading()
 
 
-def _make_pr(*, is_cross_repository: bool, author_name: str = "gabrielglbh") -> UIPullRequest:
+def _make_pr(
+    *, is_cross_repository: bool, author_name: str = "forkuser", head_repository_name: str = "some-repo"
+) -> UIPullRequest:
     return UIPullRequest(
         number=223,
         title="Poeditor plugin implementation",
@@ -73,7 +75,8 @@ def _make_pr(*, is_cross_repository: bool, author_name: str = "gabrielglbh") -> 
         formatted_created_at="",
         formatted_updated_at="",
         is_cross_repository=is_cross_repository,
-        head_repository_owner="gabrielglbh" if is_cross_repository else "masorange",
+        head_repository_owner="forkuser" if is_cross_repository else "base-org",
+        head_repository_name=head_repository_name if is_cross_repository else None,
     )
 
 
@@ -350,6 +353,63 @@ def test_build_thread_review_contexts_includes_referenced_commit_contexts():
     assert contexts[0].referenced_commits[0].abbreviated_sha == "343e2e9"
     ctx.github.get_commit_review_context.assert_called_once_with(
         "343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+        repo_owner=None,
+        repo_name=None,
+        max_files=3,
+        max_patch_chars=4000,
+    )
+
+
+def test_build_thread_review_contexts_resolves_referenced_commits_against_fork_head_repo():
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.github = Mock()
+    ctx.data["review_pr"] = _make_pr(is_cross_repository=True, head_repository_name="fork-repo")
+    ctx.data["thread_review_candidates"] = [
+        ThreadReviewCandidate(
+            thread_id="thread_123",
+            path="freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt",
+            line=543,
+            main_comment_body="Please fix the dialog state wiring",
+            main_comment_author="reviewer",
+            replies_count=1,
+            last_reply_author="author",
+            last_reply_body="Fixed in 343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+        )
+    ]
+    ctx.data["review_threads"] = [
+        _make_thread(
+            reply_body="Fixed in 343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+            path="freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt",
+            line=543,
+            body="Please fix the dialog state wiring",
+        )
+    ]
+    ctx.data["review_diff"] = (
+        "diff --git a/freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt "
+        "b/freyja-core/src/main/kotlin/es/masorange/freyja/core/components/buttons/Buttons.kt\n"
+        "@@ -541,3 +541,3 @@\n"
+        "-fun ButtonDialog(dialogState: DialogState = rememberDialogState(false))\n"
+        "+fun ButtonDialog(dialogState: DialogState)\n"
+    )
+    ctx.github.get_commit_review_context.return_value = ClientSuccess(
+        data=ReferencedCommitContext(
+            sha="343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+            abbreviated_sha="343e2e9",
+            message="remove default state value",
+            changed_files=["freyja-core/src/main/kotlin/.../BaseDialog.kt"],
+            patch_excerpt="diff --git a/freyja-core/src/main/kotlin/.../BaseDialog.kt b/freyja-core/src/main/kotlin/.../BaseDialog.kt",
+        ),
+        message="ok",
+    )
+
+    result = build_thread_review_contexts(ctx)
+
+    assert isinstance(result, Success)
+    ctx.github.get_commit_review_context.assert_called_once_with(
+        "343e2e9d7402d0afccfd35a9ecc8e6ea341031c6",
+        repo_owner="forkuser",
+        repo_name="fork-repo",
         max_files=3,
         max_patch_chars=4000,
     )

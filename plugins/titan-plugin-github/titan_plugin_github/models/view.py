@@ -159,6 +159,7 @@ class UIPullRequest:
     review_status_summary: str = ""
     is_cross_repository: bool = False
     head_repository_owner: Optional[str] = None
+    head_repository_name: Optional[str] = None
 
 
 @dataclass

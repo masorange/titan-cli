@@ -57,7 +57,7 @@ class PRService:
                 "changedFiles", "mergeable", "isDraft", "createdAt",
                 "updatedAt", "mergedAt", "reviews", "labels",
                 "statusCheckRollup", "reviewDecision",
-                "isCrossRepository", "headRepositoryOwner",
+                "isCrossRepository", "headRepositoryOwner", "headRepository",
             ]
 
             # Fetch from network
@@ -690,13 +690,25 @@ class PRService:
         self,
         commit_ref: str,
         *,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
         max_files: int = 3,
         max_patch_chars: int = 4000,
     ) -> ClientResult[ReferencedCommitContext]:
-        """Get a compact review context for a referenced commit."""
+        """Get a compact review context for a referenced commit.
+
+        Defaults to the configured base repo. Pass `repo_owner`/`repo_name`
+        (e.g. a PR's head repository) to resolve commits that only exist on
+        a fork, such as SHAs mentioned in review replies on cross-repo PRs.
+        """
+        repo_string = (
+            f"{repo_owner}/{repo_name}"
+            if repo_owner and repo_name
+            else self.gh.get_repo_string()
+        )
         try:
             output = self.gh.run_command(
-                ["api", f"repos/{self.gh.get_repo_string()}/commits/{commit_ref}"]
+                ["api", f"repos/{repo_string}/commits/{commit_ref}"]
             )
             data = json.loads(output)
 
