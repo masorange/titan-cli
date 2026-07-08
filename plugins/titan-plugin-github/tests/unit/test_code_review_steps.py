@@ -448,5 +448,12 @@ def test_build_thread_review_contexts_ignores_unavailable_referenced_commits():
     result = build_thread_review_contexts(ctx)
 
     assert isinstance(result, Success)
+    ctx.github.get_commit_review_context.assert_called_once_with(
+        "deadbee",
+        repo_owner=None,
+        repo_name=None,
+        max_files=3,
+        max_patch_chars=4000,
+    )
     contexts = ctx.data["thread_review_contexts"]
     assert contexts[0].referenced_commits == []
