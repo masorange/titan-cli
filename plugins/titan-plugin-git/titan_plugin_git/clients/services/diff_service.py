@@ -73,6 +73,30 @@ class DiffService:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
     @log_client_operation()
+    def get_uncommitted_diff_for_files(self, files: list[str]) -> ClientResult[str]:
+        """
+        Get diff of uncommitted changes limited to the provided file paths.
+
+        Uses git add --intent-to-add on the selected paths so untracked files are
+        visible in the diff without fully staging their content.
+
+        Args:
+            files: File paths to include in the diff
+
+        Returns:
+            ClientResult[str] with diff output
+        """
+        try:
+            if not files:
+                return self.get_uncommitted_diff()
+
+            self.git.run_command(["git", "add", "--intent-to-add", "--"] + files, check=False)
+            diff = self.git.run_command(["git", "diff", "HEAD", "--"] + files, check=False)
+            return ClientSuccess(data=diff, message="Filtered uncommitted diff retrieved")
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+    @log_client_operation()
     def get_staged_diff(self) -> ClientResult[str]:
         """
         Get diff of staged changes only (index vs HEAD).

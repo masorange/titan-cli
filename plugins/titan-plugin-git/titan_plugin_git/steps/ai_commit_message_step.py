@@ -59,8 +59,12 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         # Get diff of uncommitted changes
         ctx.textual.dim_text(msg.Steps.AICommitMessage.ANALYZING_CHANGES)
 
-        # Get diff of all uncommitted changes using ClientResult pattern
-        diff_result = ctx.git.get_uncommitted_diff()
+        files_for_commit = ctx.get("selected_files") or (
+            git_status.modified_files + git_status.untracked_files + git_status.staged_files
+        )
+
+        # Keep AI context aligned with the exact files that will be committed.
+        diff_result = ctx.git.get_uncommitted_diff_for_files(files_for_commit)
 
         match diff_result:
             case ClientSuccess(data=diff_text):
@@ -72,8 +76,7 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
                 return Error(f"Failed to get diff: {err}")
 
         # Build AI prompt using operations
-        all_files = git_status.modified_files + git_status.untracked_files + git_status.staged_files
-        prompt = build_ai_commit_prompt(diff_text, all_files, max_diff_chars=8000)
+        prompt = build_ai_commit_prompt(diff_text, files_for_commit, max_diff_chars=8000)
 
         # Call AI with loading indicator
         from titan_cli.ai.models import AIMessage

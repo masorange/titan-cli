@@ -90,6 +90,42 @@ class TestDiffServiceGetUncommittedDiff:
 
 
 @pytest.mark.unit
+class TestDiffServiceGetUncommittedDiffForFiles:
+    """Test DiffService.get_uncommitted_diff_for_files()"""
+
+    def test_runs_intent_to_add_and_diff_for_selected_files(self, service, mock_git_network):
+        """Test selected files are passed through both git commands"""
+        mock_git_network.run_command.side_effect = ["", "filtered diff"]
+
+        result = service.get_uncommitted_diff_for_files(["src/main.py", "README.md"])
+
+        assert isinstance(result, ClientSuccess)
+        calls = [c.args[0] for c in mock_git_network.run_command.call_args_list]
+        assert ["git", "add", "--intent-to-add", "--", "src/main.py", "README.md"] in calls
+        assert ["git", "diff", "HEAD", "--", "src/main.py", "README.md"] in calls
+
+    def test_falls_back_to_full_uncommitted_diff_when_file_list_empty(self, service, mock_git_network):
+        """Test empty file list reuses the existing full diff behavior"""
+        mock_git_network.run_command.side_effect = ["", "full diff"]
+
+        result = service.get_uncommitted_diff_for_files([])
+
+        assert isinstance(result, ClientSuccess)
+        calls = [c.args[0] for c in mock_git_network.run_command.call_args_list]
+        assert ["git", "add", "--intent-to-add", "."] in calls
+        assert ["git", "diff", "HEAD"] in calls
+
+    def test_error_returns_client_error(self, service, mock_git_network):
+        """Test git error returns ClientError"""
+        mock_git_network.run_command.side_effect = GitCommandError("not a repo")
+
+        result = service.get_uncommitted_diff_for_files(["src/main.py"])
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "DIFF_ERROR"
+
+
+@pytest.mark.unit
 class TestDiffServiceGetStagedDiff:
     """Test DiffService.get_staged_diff()"""
 
