@@ -258,10 +258,9 @@ def _threads_to_text(contexts: list[ThreadReviewContext]) -> str:
                     parts.append("  Files: " + ", ".join(commit.changed_files))
                 if commit.patch_excerpt:
                     parts.append("  Patch excerpt:")
-                    parts.append("  ```diff")
-                    for line in commit.patch_excerpt.splitlines():
-                        parts.append(f"  {line}")
-                    parts.append("  ```")
+                    parts.append("```diff")
+                    parts.extend(commit.patch_excerpt.splitlines())
+                    parts.append("```")
 
         parts.append("")
 
