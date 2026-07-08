@@ -733,8 +733,19 @@ class PRService:
                     continue
 
                 status = str(file_data.get("status", "modified")).strip()
+                previous_filename = str(file_data.get("previous_filename") or "").strip()
+
+                if status == "added":
+                    old_path, new_path = "/dev/null", filename
+                elif status == "removed":
+                    old_path, new_path = filename, "/dev/null"
+                elif status == "renamed" and previous_filename:
+                    old_path, new_path = previous_filename, filename
+                else:
+                    old_path, new_path = filename, filename
+
                 patch_sections.append(
-                    f"diff --git a/{filename} b/{filename}\n"
+                    f"diff --git a/{old_path} b/{new_path}\n"
                     f"# status: {status}\n"
                     f"{patch.strip()}"
                 )
