@@ -241,6 +241,27 @@ client.get_pr_commit_sha(123)
 
 - `pr_number`: Required. Pull request number.
 
+### Read referenced commit context
+
+Returns compact remote context for a commit SHA mentioned in review discussion,
+including changed files and a truncated patch excerpt suitable for AI prompts.
+
+**Call:**
+
+```python
+client.get_commit_review_context(
+    "343e2e9",
+    max_files=3,
+    max_patch_chars=4000,
+)
+```
+
+**Parameters:**
+
+- `commit_ref`: Required. Full or short commit SHA resolvable in the current repository.
+- `max_files`: Optional. Maximum number of changed files to include in the returned context.
+- `max_patch_chars`: Optional. Maximum combined patch excerpt size before truncation.
+
 ### Merge a pull request
 
 Merges a pull request using the selected merge strategy.

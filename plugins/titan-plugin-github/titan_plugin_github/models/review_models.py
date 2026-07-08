@@ -250,6 +250,16 @@ class ThreadReviewCandidate(BaseModel):
     is_outdated: bool = False
 
 
+class ReferencedCommitContext(BaseModel):
+    """Remote commit context referenced from a review-thread reply."""
+
+    sha: str
+    abbreviated_sha: str
+    message: str = ""
+    changed_files: list[str] = Field(default_factory=list)
+    patch_excerpt: Optional[str] = None
+
+
 class ThreadReviewContext(BaseModel):
     """Enriched context for AI to decide what to do with a thread."""
 
@@ -261,6 +271,7 @@ class ThreadReviewContext(BaseModel):
     main_comment_author: str
     all_replies: list[dict] = Field(default_factory=list)
     current_code_hunk: Optional[str] = None
+    referenced_commits: list[ReferencedCommitContext] = Field(default_factory=list)
     is_outdated: bool = False
 
 
