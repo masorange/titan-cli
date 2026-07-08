@@ -253,7 +253,11 @@ def _threads_to_text(contexts: list[ThreadReviewContext]) -> str:
             for commit in ctx.referenced_commits:
                 parts.append(f"- Commit `{commit.abbreviated_sha}`")
                 if commit.message:
-                    parts.append(f"  Message: {commit.message}")
+                    parts.append("  Message:")
+                    parts.append("  ```")
+                    for line in commit.message.splitlines():
+                        parts.append(f"  {line}")
+                    parts.append("  ```")
                 if commit.changed_files:
                     parts.append("  Files: " + ", ".join(commit.changed_files))
                 if commit.patch_excerpt:
