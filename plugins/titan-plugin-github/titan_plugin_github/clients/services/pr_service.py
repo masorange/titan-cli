@@ -778,4 +778,5 @@ class PRService:
         """Trim large gh payload sections without hiding that they were truncated."""
         if len(text) <= max_chars:
             return text
-        return text[: max_chars - 15].rstrip() + "\n... [truncated]"
+        suffix = "\n... [truncated]"
+        return text[: max_chars - len(suffix)].rstrip() + suffix
