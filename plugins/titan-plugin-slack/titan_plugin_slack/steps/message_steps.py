@@ -134,12 +134,13 @@ def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Compose Slack Message")
 
     existing = ctx.get("slack_message_text")
-    if existing:
+    existing_stripped = str(existing).strip() if existing else ""
+    if existing_stripped:
         ctx.textual.dim_text("Slack message text already provided, skipping prompt.")
         ctx.textual.end_step("skip")
         return Skip(
             "Slack message text already provided",
-            metadata={"slack_message_text": existing},
+            metadata={"slack_message_text": existing_stripped},
         )
 
     try:
