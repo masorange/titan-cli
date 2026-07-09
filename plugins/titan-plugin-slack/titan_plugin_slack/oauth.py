@@ -318,13 +318,8 @@ class SlackOAuthFlow:
             authed_user_id=(authed_user_data.get("id") if authed_user_data else payload.get("user_id")),
         )
 
-    def _wait_for_callback(self, expected_state: str) -> str:
-        """Wait for the local OAuth callback and return the authorization code."""
-        logger.info(
-            "slack_oauth_callback_wait_started",
-            redirect_uri=self.redirect_uri,
-            timeout=self.timeout,
-        )
+    def _start_callback_server(self) -> tuple[HTTPServer, Thread, Event, dict[str, str]]:
+        """Bind and start the local OAuth callback listener before the browser opens."""
         callback_event = Event()
         callback_data: dict[str, str] = {}
 
@@ -366,6 +361,26 @@ class SlackOAuthFlow:
 
         thread = Thread(target=serve_once, daemon=True)
         thread.start()
+        logger.info(
+            "slack_oauth_callback_listener_started",
+            redirect_uri=self.redirect_uri,
+        )
+        return server, thread, callback_event, callback_data
+
+    def _wait_for_callback(
+        self,
+        expected_state: str,
+        server: HTTPServer,
+        thread: Thread,
+        callback_event: Event,
+        callback_data: dict[str, str],
+    ) -> str:
+        """Wait for the already-running local OAuth callback listener to receive the code."""
+        logger.info(
+            "slack_oauth_callback_wait_started",
+            redirect_uri=self.redirect_uri,
+            timeout=self.timeout,
+        )
         callback_event.wait(self.timeout)
         server.server_close()
         thread.join(timeout=1)
@@ -397,10 +412,13 @@ class SlackOAuthFlow:
         session = self.create_session()
         authorize_url = self.build_authorize_url(session)
 
+        server, thread, callback_event, callback_data = self._start_callback_server()
+
         browser_started = self.browser_opener(authorize_url)
         if browser_started is False:
+            server.server_close()
             logger.error("slack_oauth_browser_open_failed")
             raise SlackOAuthError("Failed to open a browser for Slack OAuth.")
 
-        code = self._wait_for_callback(session.state)
+        code = self._wait_for_callback(session.state, server, thread, callback_event, callback_data)
         return self.exchange_code(code, session.code_verifier)
