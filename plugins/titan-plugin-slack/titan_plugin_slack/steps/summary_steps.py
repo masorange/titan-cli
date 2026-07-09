@@ -226,12 +226,17 @@ def ensure_target_conversation_step(ctx: WorkflowContext) -> WorkflowResult:
                 ctx.textual.error_text(err)
                 ctx.textual.end_step("error")
                 return Error(err)
-    else:
+    elif target.target_type == "channel":
         conversation = UISlackConversation(
             id=target.target_id,
             is_im=False,
             team_id=target.team_id,
         )
+    else:
+        message = f"Unsupported Slack target type: {target.target_type}"
+        ctx.textual.error_text(message)
+        ctx.textual.end_step("error")
+        return Error(message)
 
     ctx.textual.success_text(
         f"Slack conversation ready: {conversation.id} for {target.target_name}"
