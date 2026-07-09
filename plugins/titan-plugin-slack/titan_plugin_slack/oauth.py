@@ -126,6 +126,95 @@ CALLBACK_SUCCESS_HTML = """<!doctype html>
 </html>
 """.encode("utf-8")
 
+CALLBACK_ERROR_HTML = """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Titan Slack Connection</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --border: #d8deea;
+        --text: #182033;
+        --muted: #5c667d;
+        --accent: #4f46e5;
+        --error: #b91c1c;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: radial-gradient(circle at top, #eef2ff 0%, var(--bg) 55%);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .card {
+        width: min(100%, 520px);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 32px 28px;
+        box-shadow: 0 18px 50px rgba(24, 32, 51, 0.10);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(79, 70, 229, 0.10);
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .title {
+        margin: 18px 0 10px;
+        font-size: 30px;
+        line-height: 1.1;
+      }
+
+      .body {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+
+      .status {
+        margin-top: 22px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(185, 28, 28, 0.08);
+        color: var(--error);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="eyebrow">Titan • Slack</div>
+      <h1 class="title">Slack connection failed</h1>
+      <p class="body">
+        Titan could not complete the Slack OAuth callback. Return to the CLI to see the error details.
+      </p>
+      <div class="status">You can close this tab.</div>
+    </main>
+  </body>
+</html>
+""".encode("utf-8")
+
 
 class SlackOAuthError(Exception):
     """Raised when the Slack OAuth flow fails."""
@@ -318,7 +407,9 @@ class SlackOAuthFlow:
             authed_user_id=(authed_user_data.get("id") if authed_user_data else payload.get("user_id")),
         )
 
-    def _start_callback_server(self) -> tuple[HTTPServer, Thread, Event, dict[str, str]]:
+    def _start_callback_server(
+        self, expected_state: str
+    ) -> tuple[HTTPServer, Thread, Event, dict[str, str]]:
         """Bind and start the local OAuth callback listener before the browser opens."""
         callback_event = Event()
         callback_data: dict[str, str] = {}
@@ -341,10 +432,17 @@ class SlackOAuthFlow:
                     has_code=bool(callback_data["code"]),
                     has_error=bool(callback_data["error"]),
                 )
+                callback_succeeded = (
+                    not callback_data["error"]
+                    and callback_data["state"] == expected_state
+                    and bool(callback_data["code"])
+                )
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(CALLBACK_SUCCESS_HTML)
+                self.wfile.write(
+                    CALLBACK_SUCCESS_HTML if callback_succeeded else CALLBACK_ERROR_HTML
+                )
                 callback_event.set()
 
             def log_message(self, format, *args):  # noqa: A003
@@ -412,7 +510,7 @@ class SlackOAuthFlow:
         session = self.create_session()
         authorize_url = self.build_authorize_url(session)
 
-        server, thread, callback_event, callback_data = self._start_callback_server()
+        server, thread, callback_event, callback_data = self._start_callback_server(session.state)
 
         browser_started = self.browser_opener(authorize_url)
         if browser_started is False:
