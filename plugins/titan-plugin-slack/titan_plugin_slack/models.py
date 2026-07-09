@@ -53,6 +53,8 @@ class NetworkSlackMessage:
     ts: str
     text: str
     user: Optional[str] = None
+    bot_id: Optional[str] = None
+    username: Optional[str] = None
     thread_ts: Optional[str] = None
     reply_count: int = 0
     subtype: Optional[str] = None
@@ -75,6 +77,8 @@ class UISlackMessage:
     ts: str
     text: str
     user: Optional[str] = None
+    bot_id: Optional[str] = None
+    username: Optional[str] = None
     thread_ts: Optional[str] = None
     reply_count: int = 0
     subtype: Optional[str] = None

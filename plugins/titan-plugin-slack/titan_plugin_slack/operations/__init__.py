@@ -11,6 +11,7 @@ from .identity_resolution_operations import (
     extract_identity_ids_from_messages,
     replace_slack_mentions,
     build_user_display_label,
+    build_message_author_label,
 )
 from .message_summary_operations import (
     build_summary_prompt,
@@ -27,6 +28,7 @@ __all__ = [
     "extract_identity_ids_from_messages",
     "replace_slack_mentions",
     "build_user_display_label",
+    "build_message_author_label",
     "format_messages_as_transcript",
     "truncate_transcript_for_summary",
     "build_summary_prompt",

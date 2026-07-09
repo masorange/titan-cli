@@ -36,6 +36,19 @@ def build_user_display_label(user_display_names: dict[str, str], user_id: str | 
     return user_display_names.get(user_id, user_id)
 
 
+def build_message_author_label(
+    user_display_names: dict[str, str], message: UISlackMessage
+) -> str:
+    """Return the preferred author label for a Slack message, including bot/app authors."""
+    if message.user:
+        return build_user_display_label(user_display_names, message.user)
+    if message.username:
+        return message.username
+    if message.bot_id:
+        return user_display_names.get(message.bot_id, message.bot_id)
+    return "Unknown"
+
+
 def replace_slack_mentions(
     text: str,
     *,

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from ..models import UISlackMessage
 from .identity_resolution_operations import (
-    build_user_display_label,
+    build_message_author_label,
     replace_slack_mentions,
 )
 
@@ -25,7 +25,7 @@ def format_messages_as_transcript(
         lines.append("")
 
     for message in messages:
-        author = build_user_display_label(user_display_names or {}, message.user)
+        author = build_message_author_label(user_display_names or {}, message)
         text = replace_slack_mentions(
             message.text.strip(),
             user_display_names=user_display_names,
