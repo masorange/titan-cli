@@ -115,16 +115,21 @@ def select_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
 
 def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Select a Slack channel from the configured defaults, or search people/channels.
+    Select a Slack target from a preferred value or configured default, or search.
 
-    When no default channels are configured, or when the user chooses to search
-    instead of using a default, this falls back to the unified person-or-channel
-    search (`select_target_step`).
+    If `slack_preferred_target` is set and resolves to exactly one person or
+    channel, it is selected automatically with no prompt at all. Otherwise, this
+    falls back to the configured `default_channels` picker, or, when none are
+    configured (or the user chooses to search instead), to the unified
+    person-or-channel search (`select_target_step`).
 
     Requires:
         ctx.slack: An initialized SlackClient.
 
     Inputs (from ctx.data):
+        slack_preferred_target (str, optional): Person or channel name (without `#`) to select
+            automatically without prompting, when it resolves to exactly one match. Takes priority
+            over configured default channels and manual search.
         slack_target_query (str, optional): Pre-filled query used if the user chooses to search manually.
         slack_search_limit (int, optional): Maximum number of matches to return during manual search. Defaults to 20.
         slack_search_page_size (int, optional): Page size used while scanning Slack. Defaults to 1000.
@@ -140,13 +145,23 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
 
     Returns:
         Success: If the target is selected successfully.
-        Error: If Slack is unavailable, the configured channel cannot be resolved, or no match is selected.
+        Error: If Slack is unavailable, or no match is selected.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
     if not ctx.slack:
         return Error("Slack client not available")
+
+    preferred_target = ctx.get("slack_preferred_target")
+    if preferred_target:
+        auto_selected = _try_auto_select_target(ctx, str(preferred_target))
+        if auto_selected is not None:
+            return auto_selected
+        ctx.textual.dim_text(
+            f"Preferred Slack target '{preferred_target}' did not resolve to exactly one "
+            "person or channel - falling back to default channel selection."
+        )
 
     configured_channels = getattr(ctx.slack, "default_channels", []) or []
     if not configured_channels:
@@ -212,6 +227,94 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
             ctx.textual.error_text(err)
             ctx.textual.end_step("error")
             return Error(err)
+
+
+def _try_auto_select_target(ctx: WorkflowContext, query: str) -> "Success | None":
+    """
+    Resolve `query` to exactly one Slack person or channel and auto-select it.
+
+    Returns None (no prompt shown, no step lifecycle started) when the query is
+    too short, the search fails, or it matches zero or more than one target -
+    auto-selection only ever happens on an unambiguous exact match.
+    """
+    normalized_query = normalize_search_query(query)
+    if len(normalized_query.lstrip("#")) < MIN_QUERY_LENGTH:
+        return None
+
+    search_limit = ctx.get("slack_search_limit", MAX_TARGET_OPTIONS)
+    page_size = ctx.get("slack_search_page_size", 1000)
+    max_pages = ctx.get("slack_search_max_pages", 50)
+    exclude_archived = ctx.get("slack_exclude_archived", True)
+
+    with ctx.textual.loading(f"Resolving preferred Slack target '{query}'..."):
+        users_result = ctx.slack.search_users(
+            normalized_query,
+            max_matches=search_limit,
+            page_size=page_size,
+            max_pages=max_pages,
+        )
+        channels_result = ctx.slack.search_channels(
+            normalized_query,
+            max_matches=search_limit,
+            page_size=page_size,
+            max_pages=max_pages,
+            exclude_archived=exclude_archived,
+        )
+
+    match users_result:
+        case ClientSuccess(data=matched_users):
+            users = matched_users
+        case ClientError():
+            users = []
+
+    match channels_result:
+        case ClientSuccess(data=matched_channels):
+            channels = matched_channels
+        case ClientError():
+            channels = []
+
+    exact_users = [
+        user
+        for user in users
+        if normalize_search_query(user.name) == normalized_query
+        or normalize_search_query(user.real_name or "") == normalized_query
+    ]
+    exact_channels = [
+        channel
+        for channel in channels
+        if _normalize_channel_name(channel.name) == normalized_query.lstrip("#")
+    ]
+
+    matches = [("user", user) for user in exact_users] + [
+        ("channel", channel) for channel in exact_channels
+    ]
+    if len(matches) != 1:
+        return None
+
+    target_type, item = matches[0]
+    team_id = ctx.get("slack_team_id")
+    connection_id = ctx.get("slack_connection_id")
+    target = (
+        build_user_target(item, team_id=team_id, connection_id=connection_id)
+        if target_type == "user"
+        else build_channel_target(item, team_id=team_id, connection_id=connection_id)
+    )
+
+    ctx.textual.begin_step("Select Slack Channel Target")
+    ctx.textual.success_text(
+        f"Using preferred Slack target: {target.target_name} ({target.target_id})"
+    )
+    ctx.textual.end_step("success")
+    return Success(
+        "Selected preferred Slack target",
+        metadata={
+            "slack_target": target,
+            "slack_target_type": target.target_type,
+            "slack_target_id": target.target_id,
+            "slack_target_name": target.target_name,
+            "slack_target_query": query,
+        },
+    )
 
 
 def _select_target_step(
