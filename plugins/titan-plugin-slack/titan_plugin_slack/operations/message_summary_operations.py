@@ -11,6 +11,11 @@ from .identity_resolution_operations import (
 )
 
 
+def sort_messages_chronologically(messages: list[UISlackMessage]) -> list[UISlackMessage]:
+    """Order Slack messages oldest-first (Slack's history API returns newest-first)."""
+    return sorted(messages, key=lambda message: float(message.ts))
+
+
 def format_messages_as_transcript(
     messages: list[UISlackMessage],
     *,

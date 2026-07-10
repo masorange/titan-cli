@@ -16,6 +16,7 @@ from .identity_resolution_operations import (
 from .message_summary_operations import (
     build_summary_prompt,
     format_messages_as_transcript,
+    sort_messages_chronologically,
     truncate_transcript_for_summary,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "build_user_display_label",
     "build_message_author_label",
     "format_messages_as_transcript",
+    "sort_messages_chronologically",
     "truncate_transcript_for_summary",
     "build_summary_prompt",
 ]

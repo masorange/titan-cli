@@ -11,6 +11,7 @@ from ..operations import (
     build_summary_prompt,
     extract_identity_ids_from_messages,
     format_messages_as_transcript,
+    sort_messages_chronologically,
     truncate_transcript_for_summary,
 )
 
@@ -296,6 +297,7 @@ def read_recent_messages_step(ctx: WorkflowContext) -> WorkflowResult:
 
     match result:
         case ClientSuccess(data=(messages, next_cursor, has_more)):
+            messages = sort_messages_chronologically(messages)
             user_display_names: dict[str, str] = {}
             channel_display_names: dict[str, str] = {}
             user_ids, channel_ids = extract_identity_ids_from_messages(messages)
