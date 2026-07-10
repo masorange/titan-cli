@@ -36,6 +36,7 @@ def test_slack_plugin_exposes_public_steps() -> None:
         "read_recent_messages",
         "ai_summarize_messages",
         "open_direct_message",
+        "format_markdown_message",
         "prompt_message_body",
         "post_message",
     }

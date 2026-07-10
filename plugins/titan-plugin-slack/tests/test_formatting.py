@@ -45,25 +45,24 @@ class TestToMrkdwn:
         markdown = "| Name | Version |\n| --- | --- |\n| titan-cli | 0.6.0 |"
         result = SlackFormatter.to_mrkdwn(markdown)
         assert result.startswith("```\n")
+        assert result.endswith("\n```")
         assert "Name" in result and "Version" in result
         assert "titan-cli" in result and "0.6.0" in result
 
-
-class TestTable:
-    def test_renders_headers_and_rows_aligned(self) -> None:
-        result = SlackFormatter.table(
-            rows=[["titan-cli", "0.6.0"], ["ragnarok", "0.9.3"]],
-            headers=["Plugin", "Version"],
+    def test_converts_inline_table_with_multiple_rows_aligned(self) -> None:
+        markdown = (
+            "| Plugin | Version |\n"
+            "| --- | --- |\n"
+            "| titan-cli | 0.6.0 |\n"
+            "| ragnarok | 0.9.3 |"
         )
+        result = SlackFormatter.to_mrkdwn(markdown)
         lines = result.strip("`\n").split("\n")
         assert lines[0].startswith("Plugin")
         assert "titan-cli" in lines[2]
-        assert result.startswith("```")
-        assert result.endswith("```")
+        assert "ragnarok" in lines[3]
 
-    def test_pads_missing_cells(self) -> None:
-        result = SlackFormatter.table(rows=[["a", "b"], ["only-one"]], headers=["Col1", "Col2"])
+    def test_converts_inline_table_with_missing_cells(self) -> None:
+        markdown = "| Col1 | Col2 |\n| --- | --- |\n| only-one |"
+        result = SlackFormatter.to_mrkdwn(markdown)
         assert "only-one" in result
-
-    def test_returns_empty_string_for_no_data(self) -> None:
-        assert SlackFormatter.table(rows=[]) == ""

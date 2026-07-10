@@ -95,7 +95,7 @@ How to read these contracts:
       step: validate_connection
     ```
 
-    **Used by built-in workflows:** `summarize-slack-target`
+    **Used by built-in workflows:** `post-message`, `summarize-slack-target`
 
     **Available to later steps:** `slack_auth`, `slack_team_id`, `slack_team_name`, `slack_user_id`
 
@@ -312,6 +312,8 @@ How to read these contracts:
       step: select_default_or_search_channel_target
     ```
 
+    **Used by built-in workflows:** `post-message`
+
     **Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
 
     **Requires**
@@ -362,6 +364,8 @@ How to read these contracts:
     - plugin: slack
       step: prepare_message_destination
     ```
+
+    **Used by built-in workflows:** `post-message`
 
     **Available to later steps:** `slack_conversation`, `slack_conversation_id`
 
@@ -432,7 +436,7 @@ How to read these contracts:
 
 
 ??? info "`prompt_message_body`"
-    Capture a multiline Slack message body for later posting.
+    Capture a multiline Slack message for later formatting and posting.
 
     **Workflow usage**
 
@@ -441,27 +445,70 @@ How to read these contracts:
       step: prompt_message_body
     ```
 
+    **Used by built-in workflows:** `post-message`
+
+    **Available to later steps:** `slack_message_markdown`
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `slack_message_text` | str, optional | Already Slack-ready message text. If present, the prompt is skipped. |
+    | `slack_message_markdown` | str, optional | Standard Markdown message already provided by a caller. If |
+    | present (and slack_message_text isn't), the prompt is skipped. | - | - |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `slack_message_markdown` | str | Captured message text, to be converted to Slack mrkdwn by a later step. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `slack_message_markdown` | If the message body is captured successfully. |
+    | `Skip` | `slack_message_markdown` | If a message was already provided by the caller. |
+    | `Error` | - | If the user cancels or the message body is empty. |
+
+
+??? info "`format_markdown_message`"
+    Convert a standard Markdown message into Slack mrkdwn, if provided.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: slack
+      step: format_markdown_message
+    ```
+
+    **Used by built-in workflows:** `post-message`
+
     **Available to later steps:** `slack_message_text`
 
     **Inputs (from ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `slack_message_text` | str, optional | Pre-filled message text. If already present, the prompt is skipped. |
+    | `slack_message_text` | str, optional | Already Slack-ready text. If present, this step does |
+    | nothing and leaves it untouched. | - | - |
+    | `slack_message_markdown` | str, optional | Standard Markdown text to convert to Slack mrkdwn. |
+    | Ignored when `slack_message_text` is already present. | - | - |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `slack_message_text` | str | Message text to post later. |
+    | `slack_message_text` | str | Slack mrkdwn-ready message text, when `slack_message_markdown` was converted. |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `slack_message_text` | If the message body is captured successfully. |
-    | `Skip` | `slack_message_text` | If the message body already exists in context. |
-    | `Error` | - | If the user cancels or the message body is empty. |
+    | `Skip` | `slack_message_text` | If `slack_message_text` is already set, or neither input is provided (a later step |
+    | `can still prompt the user to compose one interactively).` | - | - |
+    | `Success` | `slack_message_text` | If `slack_message_markdown` was converted successfully. |
+    | `Error` | - | If the Textual UI context is not available. |
 
 
 ??? info "`post_message`"
@@ -473,6 +520,8 @@ How to read these contracts:
     - plugin: slack
       step: post_message
     ```
+
+    **Used by built-in workflows:** `post-message`
 
     **Available to later steps:** `slack_message`, `slack_message_ts`, `slack_message_channel`
 

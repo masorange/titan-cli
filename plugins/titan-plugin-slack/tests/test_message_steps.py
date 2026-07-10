@@ -5,6 +5,7 @@ from titan_cli.engine import Error, Skip, Success
 from titan_cli.engine.context import WorkflowContext
 from titan_plugin_slack.models import UISlackConversation, UISlackPostedMessage, UISlackTarget
 from titan_plugin_slack.steps.message_steps import (
+    format_markdown_message_step,
     open_direct_message_step,
     prepare_message_destination_step,
     post_message_step,
@@ -74,24 +75,34 @@ def test_prepare_message_destination_step_uses_channel_target_directly() -> None
     assert conversation.is_im is False
 
 
-def test_prompt_message_body_step_skips_when_preset_exists() -> None:
+def test_prompt_message_body_step_skips_when_text_already_present() -> None:
     ctx = _build_context()
     ctx.data["slack_message_text"] = "Hello"
 
     result = prompt_message_body_step(ctx)
 
     assert isinstance(result, Skip)
-    assert result.metadata == {"slack_message_text": "Hello"}
+    ctx.textual.ask_multiline.assert_not_called()
 
 
-def test_prompt_message_body_step_returns_message_text() -> None:
+def test_prompt_message_body_step_skips_when_markdown_already_present() -> None:
+    ctx = _build_context()
+    ctx.data["slack_message_markdown"] = "**Hello**"
+
+    result = prompt_message_body_step(ctx)
+
+    assert isinstance(result, Skip)
+    ctx.textual.ask_multiline.assert_not_called()
+
+
+def test_prompt_message_body_step_returns_message_markdown() -> None:
     ctx = _build_context()
     ctx.textual.ask_multiline.return_value = "Hello there"
 
     result = prompt_message_body_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata == {"slack_message_text": "Hello there"}
+    assert result.metadata == {"slack_message_markdown": "Hello there"}
 
 
 def test_post_message_step_returns_message_metadata() -> None:
@@ -124,3 +135,33 @@ def test_post_message_step_returns_error_from_client() -> None:
 
     assert isinstance(result, Error)
     assert result.message == "Slack post_message failed: missing_scope"
+
+
+def test_format_markdown_message_step_skips_when_text_already_present() -> None:
+    ctx = _build_context()
+    ctx.data["slack_message_text"] = "Already ready: *bold*"
+    ctx.data["slack_message_markdown"] = "**should be ignored**"
+
+    result = format_markdown_message_step(ctx)
+
+    assert isinstance(result, Skip)
+    assert ctx.data["slack_message_text"] == "Already ready: *bold*"
+
+
+def test_format_markdown_message_step_converts_markdown() -> None:
+    ctx = _build_context()
+    ctx.data["slack_message_markdown"] = "**bold** and a [link](https://example.com)"
+
+    result = format_markdown_message_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_message_text"] == "*bold* and a <https://example.com|link>"
+
+
+def test_format_markdown_message_step_skips_when_nothing_provided() -> None:
+    ctx = _build_context()
+
+    result = format_markdown_message_step(ctx)
+
+    assert isinstance(result, Skip)
+    assert "slack_message_text" not in ctx.data
