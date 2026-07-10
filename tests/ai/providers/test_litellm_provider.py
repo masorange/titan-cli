@@ -196,6 +196,43 @@ class TestLiteLLMProvider:
         )
 
     @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
+    def test_generate_extracts_content_from_structured_message_payload(self, mock_litellm_client):
+        """Test gateways that return structured content instead of plain message.content."""
+        mock_client = Mock()
+        mock_litellm_client.return_value = self._make_gateway_client(client=mock_client)
+
+        message = Mock()
+        message.content = ""
+        message.model_dump.return_value = {
+            "content": [
+                {"type": "text", "text": "Structured response"},
+            ]
+        }
+
+        choice = Mock()
+        choice.message = message
+        choice.finish_reason = "stop"
+        choice.model_dump.return_value = {"message": message.model_dump.return_value}
+
+        response = Mock()
+        response.choices = [choice]
+        response.model = "gpt-3.5-turbo"
+        response.usage = None
+
+        mock_client.chat.completions.create.return_value = response
+
+        provider = LiteLLMProvider(
+            base_url="http://localhost:4000",
+            model="gpt-3.5-turbo",
+        )
+
+        request = AIRequest(messages=[AIMessage(role="user", content="Hello")])
+
+        result = provider.generate(request)
+
+        assert result.content == "Structured response"
+
+    @patch("titan_cli.ai.providers.litellm.LiteLLMClient")
     def test_generate_authentication_error(self, mock_litellm_client):
         """Test handling of authentication errors."""
         mock_client = Mock()

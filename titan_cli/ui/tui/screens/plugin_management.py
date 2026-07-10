@@ -28,7 +28,6 @@ from titan_cli.ui.tui.widgets import (
     DevSourcePathModal,
 )
 from .base import BaseScreen
-from .plugin_config_wizard import PluginConfigWizardScreen
 from .install_plugin_screen import InstallPluginScreen
 from titan_cli.core.plugins.local_sources import get_local_plugin_validation_error
 from titan_cli.core.plugins.community_sources import (
@@ -41,6 +40,8 @@ from titan_cli.core.logging import get_logger
 import asyncio
 import tomli
 import tomli_w
+
+from .plugin_config_resolver import plugin_has_config_ui, resolve_plugin_config_screen
 
 logger = get_logger(__name__)
 
@@ -216,6 +217,14 @@ class PluginManagementScreen(BaseScreen):
         """Initialize the screen with plugin list."""
         self._load_plugins()
 
+    def on_resume(self) -> None:
+        """Refresh plugin status after returning from child screens."""
+        super().on_resume()
+        try:
+            self._load_plugins()
+        except Exception:
+            pass
+
     def _load_plugins(self) -> None:
         """Load and display installed plugins."""
         self.installed_plugins = self.config.registry.list_installed()
@@ -246,8 +255,13 @@ class PluginManagementScreen(BaseScreen):
         # Add installed plugin options
         for plugin_name in self.installed_plugins:
             is_enabled = self.config.is_plugin_enabled(plugin_name)
-            status_icon = Icons.SUCCESS if is_enabled else Icons.ERROR
-            status_text = "Enabled" if is_enabled else "Disabled"
+            needs_attention = self._plugin_needs_attention(plugin_name, is_enabled)
+            if needs_attention:
+                status_icon = Icons.WARNING
+                status_text = "Setup needed"
+            else:
+                status_icon = Icons.SUCCESS if is_enabled else Icons.ERROR
+                status_text = "Enabled" if is_enabled else "Disabled"
 
             active_rec = self._build_stable_record(plugin_name)
             badge = " [community]" if active_rec else ""
@@ -287,6 +301,18 @@ class PluginManagementScreen(BaseScreen):
                 self.selected_missing_plugin = None
                 self.selected_plugin = target
                 self._show_plugin_details(target)
+
+    def _plugin_needs_attention(self, plugin_name: str, is_enabled: bool) -> bool:
+        """Return whether a plugin is enabled but still needs user attention."""
+        if not is_enabled or plugin_name != "slack":
+            return False
+
+        project_name = self.config.get_project_name()
+        if not project_name:
+            return False
+
+        token_key = f"{project_name}_slack_user_token"
+        return not bool(self.config.secrets.get(token_key))
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle plugin selection (Enter key)."""
@@ -359,6 +385,7 @@ class PluginManagementScreen(BaseScreen):
 
         # Get plugin info
         is_enabled = self.config.is_plugin_enabled(plugin_name)
+        needs_attention = self._plugin_needs_attention(plugin_name, is_enabled)
 
         # Clear and rebuild details
         details = self.query_one("#details-content", Container)
@@ -369,7 +396,10 @@ class PluginManagementScreen(BaseScreen):
         details.mount(Text(""))
 
         # Status
-        if is_enabled:
+        if needs_attention:
+            details.mount(Static("[bold]Status:[/bold] [yellow]Setup needed[/yellow]"))
+            details.mount(DimText("Slack is configured for this repository, but your personal Slack account is not connected yet."))
+        elif is_enabled:
             details.mount(Static("[bold]Status:[/bold] [green]Enabled[/green]"))
         else:
             details.mount(Static("[bold]Status:[/bold] [red]Disabled[/red]"))
@@ -415,8 +445,30 @@ class PluginManagementScreen(BaseScreen):
                     # Don't show secrets
                     if any(secret in key.lower() for secret in ['token', 'password', 'secret', 'api_key']):
                         details.mount(DimText(f"  {key}: ••••••••"))
+                    elif isinstance(value, list):
+                        label = key.replace("_", " ").title()
+                        if not value:
+                            details.mount(DimText(f"  {label}: Not set"))
+                        else:
+                            details.mount(DimText(f"  {label}:"))
+                            for item in value:
+                                details.mount(DimText(f"    - {item}"))
+                    elif isinstance(value, dict):
+                        label = key.replace("_", " ").title()
+                        if not value:
+                            details.mount(DimText(f"  {label}: Not set"))
+                        else:
+                            details.mount(DimText(f"  {label}:"))
+                            for nested_key, nested_value in value.items():
+                                details.mount(
+                                    DimText(
+                                        f"    {nested_key.replace('_', ' ').title()}: {nested_value}"
+                                    )
+                                )
                     else:
-                        details.mount(DimText(f"  {key}: {value}"))
+                        label = key.replace("_", " ").title()
+                        rendered = value if value not in (None, "") else "Not set"
+                        details.mount(DimText(f"  {label}: {rendered}"))
 
         active_rec = self._build_stable_record(plugin_name)
         is_community_plugin = self._is_community_plugin(plugin_name)
@@ -646,9 +698,7 @@ class PluginManagementScreen(BaseScreen):
             self.app.notify("Please select a plugin", severity="warning")
             return
 
-        # Check if plugin has config schema
-        plugin = self.config.registry._plugins.get(self.selected_plugin)
-        if not plugin or not hasattr(plugin, 'get_config_schema'):
+        if not plugin_has_config_ui(self.config, self.selected_plugin):
             self.app.notify("This plugin has no configuration options", severity="warning")
             return
 
@@ -663,8 +713,10 @@ class PluginManagementScreen(BaseScreen):
             else:
                 logger.info("plugin_configure_cancelled", plugin=self.selected_plugin)
 
-        wizard = PluginConfigWizardScreen(self.config, self.selected_plugin)
-        self.app.push_screen(wizard, on_wizard_close)
+        self.app.push_screen(
+            resolve_plugin_config_screen(self.config, self.selected_plugin),
+            on_wizard_close,
+        )
 
     def action_install_plugin(self) -> None:
         """Open the community plugin install wizard."""

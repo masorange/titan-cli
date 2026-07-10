@@ -497,13 +497,9 @@ class InstallPluginScreen(BaseScreen):
             )
             await asyncio.to_thread(self.config.load)
 
-            installed_plugin = self.config.registry._plugins.get(plugin_name)
-            if installed_plugin and hasattr(installed_plugin, "get_config_schema"):
-                try:
-                    schema = installed_plugin.get_config_schema()
-                    self._plugin_has_config = bool(schema.get("properties"))
-                except Exception:
-                    self._plugin_has_config = False
+            from .plugin_config_resolver import plugin_has_config_ui
+
+            self._plugin_has_config = plugin_has_config_ui(self.config, plugin_name)
 
             body.mount(SuccessText(f"{Icons.SUCCESS} Plugin added to this project."))
 
@@ -514,9 +510,12 @@ class InstallPluginScreen(BaseScreen):
             self._set_next_label("Next")
 
     def _open_config_wizard(self, plugin_name: str) -> None:
-        from .plugin_config_wizard import PluginConfigWizardScreen
-        wizard = PluginConfigWizardScreen(self.config, plugin_name)
-        self.app.push_screen(wizard, lambda _: self._load_step(self.current_step + 1))
+        from .plugin_config_resolver import resolve_plugin_config_screen
+
+        self.app.push_screen(
+            resolve_plugin_config_screen(self.config, plugin_name),
+            lambda _: self._load_step(self.current_step + 1),
+        )
 
     def _prepare_project_plugin_install(self, plugin_name: str) -> Optional[str]:
         """Persist the project pin and provision its isolated runtime."""

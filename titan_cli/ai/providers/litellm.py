@@ -8,6 +8,7 @@ Supports any OpenAI-compatible API endpoint, including:
 - Other OpenAI-compatible services
 """
 
+from collections.abc import Mapping, Sequence
 from typing import Optional
 
 try:
@@ -126,9 +127,14 @@ class LiteLLMProvider(AIProvider):
             response = self._client.chat.completions.create(**request_kwargs)
             choice = response.choices[0]
             usage = response.usage
-            content = choice.message.content or ""
             response_model = response.model or self._model
             finish_reason = choice.finish_reason or "stop"
+            content = self._extract_choice_content(choice)
+
+            if not content and finish_reason == "length":
+                raise AIProviderAPIError(
+                    "LiteLLM response was truncated before yielding textual content."
+                )
 
             return AIResponse(
                 content=content,
@@ -161,6 +167,95 @@ class LiteLLMProvider(AIProvider):
             raise AIProviderAPIError(
                 f"LiteLLM provider error: {str(e)}"
             )
+
+    @classmethod
+    def _extract_choice_content(cls, choice) -> str:
+        """Extract text content robustly from OpenAI-compatible response choices."""
+        message = getattr(choice, "message", None)
+        direct_content = getattr(message, "content", None)
+        text = cls._coerce_content_to_text(direct_content)
+        if text:
+            return text
+
+        if message is not None and hasattr(message, "model_dump"):
+            text = cls._extract_text_from_mapping(message.model_dump())
+            if text:
+                return text
+
+        if hasattr(choice, "model_dump"):
+            text = cls._extract_text_from_mapping(choice.model_dump())
+            if text:
+                return text
+
+        return ""
+
+    @classmethod
+    def _extract_text_from_mapping(cls, data) -> str:
+        if not isinstance(data, Mapping):
+            return ""
+
+        for key in ("content", "text", "output_text", "reasoning_content"):
+            text = cls._coerce_content_to_text(data.get(key))
+            if text:
+                return text
+
+        for key in (
+            "parts",
+            "candidates",
+            "output",
+            "outputs",
+            "message",
+            "provider_payload",
+            "provider_response",
+            "raw_response",
+            "response",
+        ):
+            text = cls._coerce_content_to_text(data.get(key))
+            if text:
+                return text
+
+        return ""
+
+    @classmethod
+    def _coerce_content_to_text(cls, content) -> str:
+        if content is None:
+            return ""
+
+        if isinstance(content, str):
+            return content.strip()
+
+        if isinstance(content, Mapping):
+            if "text" in content and isinstance(content["text"], str):
+                return content["text"].strip()
+            if "parts" in content:
+                return cls._coerce_content_to_text(content["parts"])
+            if "candidates" in content:
+                return cls._coerce_content_to_text(content["candidates"])
+            if "output" in content:
+                return cls._coerce_content_to_text(content["output"])
+            if "outputs" in content:
+                return cls._coerce_content_to_text(content["outputs"])
+            if "content" in content:
+                return cls._coerce_content_to_text(content["content"])
+            if "message" in content:
+                return cls._coerce_content_to_text(content["message"])
+            if "provider_payload" in content:
+                return cls._coerce_content_to_text(content["provider_payload"])
+            if "provider_response" in content:
+                return cls._coerce_content_to_text(content["provider_response"])
+            if "raw_response" in content:
+                return cls._coerce_content_to_text(content["raw_response"])
+            if "response" in content:
+                return cls._coerce_content_to_text(content["response"])
+            return ""
+
+        if isinstance(content, Sequence) and not isinstance(
+            content, (str, bytes, bytearray)
+        ):
+            parts = [cls._coerce_content_to_text(item) for item in content]
+            return "\n".join(part for part in parts if part).strip()
+
+        return ""
 
     def validate_api_key(self, api_key: Optional[str] = None) -> bool:
         """

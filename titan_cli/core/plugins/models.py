@@ -1,5 +1,5 @@
 # titan_cli/core/plugins/models.py
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -121,3 +121,65 @@ class JiraPluginConfig(BaseModel):
         if '@' not in v:
             raise ValueError("email must be a valid email address")
         return v.lower()  # Normalize email to lowercase
+
+
+class SlackPluginConfig(BaseModel):
+    """Configuration for personal Slack integration."""
+
+    user_token: Optional[str] = Field(
+        None,
+        description="Personal Slack user token stored in keyring.",
+        json_schema_extra={"format": "password", "required_in_schema": True},
+    )
+    default_team_id: Optional[str] = Field(
+        None,
+        description="Slack workspace/team ID bound to the current project.",
+        json_schema_extra={"config_scope": "project"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        description="Slack OAuth client ID used by the current project's Slack App.",
+        json_schema_extra={"config_scope": "project"},
+    )
+    default_team_name: Optional[str] = Field(
+        None,
+        description="Slack workspace/team name bound to the current project.",
+        json_schema_extra={"config_scope": "project"},
+    )
+    granted_scopes: List[str] = Field(
+        default_factory=list,
+        description="Scopes granted to the current project's Slack integration.",
+        json_schema_extra={"config_scope": "project"},
+    )
+    default_channels: List[str] = Field(
+        default_factory=list,
+        description="Default Slack channel names for this project. Names may include or omit '#'.",
+        json_schema_extra={"config_scope": "project"},
+    )
+
+    @field_validator("oauth_client_id")
+    @classmethod
+    def normalize_oauth_client_id(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize optional OAuth client ID values."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
+
+    @field_validator("default_channels")
+    @classmethod
+    def normalize_default_channels(cls, values: List[str]) -> List[str]:
+        """Normalize default channel names while preserving user-friendly config."""
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            channel = value.strip()
+            if not channel:
+                continue
+            normalized_name = channel.lstrip("#")
+            key = normalized_name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(normalized_name)
+        return normalized
