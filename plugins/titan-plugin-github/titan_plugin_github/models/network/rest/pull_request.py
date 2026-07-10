@@ -70,6 +70,7 @@ class NetworkPullRequest:
     reviewDecision: Optional[PRReviewDecision] = None
     isCrossRepository: bool = False
     headRepositoryOwnerLogin: Optional[str] = None
+    headRepositoryName: Optional[str] = None
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> 'NetworkPullRequest':
@@ -126,6 +127,7 @@ class NetworkPullRequest:
             ),
             isCrossRepository=data.get("isCrossRepository", False),
             headRepositoryOwnerLogin=(data.get("headRepositoryOwner") or {}).get("login"),
+            headRepositoryName=(data.get("headRepository") or {}).get("name"),
         )
 
 

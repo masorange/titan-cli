@@ -1510,6 +1510,14 @@ Select open inline threads worth AI analysis.
 
 **Available to later steps:** `thread_review_candidates (List[ThreadReviewCandidate])`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| review_threads (List[UICommentThread]) | - | - |
+| review_pr (UIPullRequest) | - | - |
+| review_current_user (str) | - | Authenticated GitHub login running Titan |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |

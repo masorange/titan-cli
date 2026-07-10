@@ -303,6 +303,10 @@ class GitClient:
         """Get diff of all uncommitted changes."""
         return self.diff_service.get_uncommitted_diff()
 
+    def get_uncommitted_diff_for_files(self, files: list[str]) -> ClientResult[str]:
+        """Get diff of uncommitted changes limited to specific files."""
+        return self.diff_service.get_uncommitted_diff_for_files(files)
+
     def get_staged_diff(self) -> ClientResult[str]:
         """Get diff of staged changes only."""
         return self.diff_service.get_staged_diff()
