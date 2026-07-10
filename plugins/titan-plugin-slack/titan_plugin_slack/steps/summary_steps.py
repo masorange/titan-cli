@@ -403,7 +403,7 @@ def ai_summarize_messages_step(ctx: WorkflowContext) -> WorkflowResult:
         )
         ctx.textual.error_text(message)
         ctx.textual.end_step("error")
-        return Error(message, exc)
+        return Error(message, exception=exc)
 
     summary = response.content.strip()
     logger.info(
