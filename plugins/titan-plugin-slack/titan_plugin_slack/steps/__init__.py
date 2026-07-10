@@ -6,6 +6,7 @@ from .discovery_steps import (
     validate_connection_step,
 )
 from .message_steps import (
+    format_markdown_message_step,
     open_direct_message_step,
     prepare_message_destination_step,
     post_message_step,
@@ -29,6 +30,7 @@ __all__ = [
     "list_users_step",
     "prepare_message_destination_step",
     "open_direct_message_step",
+    "format_markdown_message_step",
     "prompt_message_body_step",
     "post_message_step",
     "select_target_step",

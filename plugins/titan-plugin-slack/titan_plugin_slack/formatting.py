@@ -6,6 +6,11 @@ and there is no native table support. `SlackFormatter` lets any step render
 AI-generated or hand-written content correctly in Slack, while a second,
 standard-Markdown copy of the same source can still be shown elsewhere (e.g.
 the Titan TUI).
+
+`to_mrkdwn` is the only public entry point. A caller with structured tabular
+data (headers/rows) should build a plain Markdown pipe table string and pass
+it through `to_mrkdwn` like any other content - there is no separate table
+API to learn, and it converts everything (prose and tables) consistently.
 """
 
 import re
@@ -33,8 +38,9 @@ class SlackFormatter:
         Convert a standard Markdown document into Slack-flavored mrkdwn.
 
         Handles headers, bold/italic/strikethrough, links, bullet lists, and
-        pipe tables. Fenced code blocks are left untouched since Slack already
-        renders them as-is. Pipe tables are rendered with `SlackFormatter.table`.
+        pipe tables (rendered as a fixed-width grid inside a code block, since
+        Slack has no native table support). Fenced code blocks are left
+        untouched since Slack already renders them as-is.
 
         Args:
             text: Standard Markdown source text.
@@ -50,13 +56,14 @@ class SlackFormatter:
         return "".join(converted)
 
     @staticmethod
-    def table(rows: List[List[str]], headers: Optional[List[str]] = None) -> str:
+    def _render_table(rows: List[List[str]], headers: Optional[List[str]] = None) -> str:
         """
         Render tabular data as a fixed-width Slack table inside a code block.
 
-        Slack's plain-text messages have no native table support, so columns
-        are aligned with padding and wrapped in a fenced code block, which
-        Slack renders in a monospace font.
+        Slack has no native table support, so this is the only way to get an
+        actual comparable grid (e.g. checking one column across many rows) in
+        a plain-text message. Used internally by `to_mrkdwn` when it detects
+        a Markdown pipe table.
 
         Args:
             rows: Table body rows, each a list of cell values.
@@ -118,7 +125,7 @@ class SlackFormatter:
                     SlackFormatter._split_table_row(line)
                     for line in (lines[i], *lines[i + 2:table_end])
                 ]
-                output_lines.append(SlackFormatter.table(rows, headers=header))
+                output_lines.append(SlackFormatter._render_table(rows, headers=header))
                 i = table_end
                 continue
 

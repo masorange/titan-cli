@@ -2,6 +2,7 @@
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Skip, Success, WorkflowContext, WorkflowResult
+from ..formatting import SlackFormatter
 from ..models import UISlackConversation
 
 
@@ -113,19 +114,74 @@ def open_direct_message_step(ctx: WorkflowContext) -> WorkflowResult:
     return prepare_message_destination_step(ctx)
 
 
-def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
+def format_markdown_message_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Capture a multiline Slack message body for later posting.
+    Convert a standard Markdown message into Slack mrkdwn, if provided.
+
+    Leaves an already Slack-ready message untouched, so a caller that already
+    built Slack-specific content (e.g. a prebuilt table) is never
+    double-converted.
 
     Inputs (from ctx.data):
-        slack_message_text (str, optional): Pre-filled message text. If already present, the prompt is skipped.
+        slack_message_text (str, optional): Already Slack-ready text. If present, this step does
+            nothing and leaves it untouched.
+        slack_message_markdown (str, optional): Standard Markdown text to convert to Slack mrkdwn.
+            Ignored when `slack_message_text` is already present.
 
     Outputs (saved to ctx.data):
-        slack_message_text (str): Message text to post later.
+        slack_message_text (str): Slack mrkdwn-ready message text, when `slack_message_markdown` was converted.
+
+    Returns:
+        Skip: If `slack_message_text` is already set, or neither input is provided (a later step
+            can still prompt the user to compose one interactively).
+        Success: If `slack_message_markdown` was converted successfully.
+        Error: If the Textual UI context is not available.
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Format Slack Message")
+
+    if ctx.get("slack_message_text"):
+        ctx.textual.dim_text("Slack message text already provided - using as-is.")
+        ctx.textual.end_step("skip")
+        return Skip("Slack message text already provided")
+
+    markdown = ctx.get("slack_message_markdown")
+    if not markdown:
+        ctx.textual.dim_text("No message provided - you will be asked to compose one.")
+        ctx.textual.end_step("skip")
+        return Skip("No message provided")
+
+    formatted = SlackFormatter.to_mrkdwn(markdown)
+    ctx.textual.success_text("Converted Markdown message to Slack mrkdwn")
+    ctx.textual.end_step("success")
+    return Success(
+        "Converted Markdown message to Slack mrkdwn",
+        metadata={"slack_message_text": formatted},
+    )
+
+
+def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Capture a multiline Slack message for later formatting and posting.
+
+    Captured text is saved as `slack_message_markdown` (not `slack_message_text`)
+    so a later step (e.g. `format_markdown_message`) converts it to Slack
+    mrkdwn just like a caller-provided Markdown message would be - typed input
+    shouldn't be posted as raw, unconverted Markdown.
+
+    Inputs (from ctx.data):
+        slack_message_text (str, optional): Already Slack-ready message text. If present, the prompt is skipped.
+        slack_message_markdown (str, optional): Standard Markdown message already provided by a caller. If
+            present (and slack_message_text isn't), the prompt is skipped.
+
+    Outputs (saved to ctx.data):
+        slack_message_markdown (str): Captured message text, to be converted to Slack mrkdwn by a later step.
 
     Returns:
         Success: If the message body is captured successfully.
-        Skip: If the message body already exists in context.
+        Skip: If a message was already provided by the caller.
         Error: If the user cancels or the message body is empty.
     """
     if not ctx.textual:
@@ -133,15 +189,12 @@ def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Compose Slack Message")
 
-    existing = ctx.get("slack_message_text")
-    existing_stripped = str(existing).strip() if existing else ""
-    if existing_stripped:
-        ctx.textual.dim_text("Slack message text already provided, skipping prompt.")
+    existing_text = str(ctx.get("slack_message_text") or "").strip()
+    existing_markdown = str(ctx.get("slack_message_markdown") or "").strip()
+    if existing_text or existing_markdown:
+        ctx.textual.dim_text("Slack message already provided, skipping prompt.")
         ctx.textual.end_step("skip")
-        return Skip(
-            "Slack message text already provided",
-            metadata={"slack_message_text": existing_stripped},
-        )
+        return Skip("Slack message already provided")
 
     try:
         body = ctx.textual.ask_multiline("Enter the Slack message:", default="")
@@ -161,7 +214,7 @@ def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.end_step("success")
     return Success(
         "Slack message text captured",
-        metadata={"slack_message_text": body.strip()},
+        metadata={"slack_message_markdown": body.strip()},
     )
 
 
@@ -238,6 +291,7 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
 __all__ = [
     "prepare_message_destination_step",
     "open_direct_message_step",
+    "format_markdown_message_step",
     "prompt_message_body_step",
     "post_message_step",
 ]
