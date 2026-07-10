@@ -305,6 +305,16 @@ class GitHubClient:
             prerelease=prerelease,
         )
 
+    def list_releases(
+        self, limit: int = 15, exclude_drafts: bool = True
+    ) -> ClientResult[List[UIRelease]]:
+        """List published GitHub releases for the repository."""
+        return self._release_service.list_releases(limit=limit, exclude_drafts=exclude_drafts)
+
+    def get_release(self, tag_name: str) -> ClientResult[UIRelease]:
+        """Get a single GitHub release, including its full notes body."""
+        return self._release_service.get_release(tag_name)
+
     # ============================================================================
     # Team Operations
     # ============================================================================

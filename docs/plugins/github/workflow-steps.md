@@ -12,6 +12,7 @@ For full contract details for every public step, including documented inputs, ou
 - [Pull Request Review](#pull-request-review)
 - [Code Review](#code-review)
 - [Worktree Support](#worktree-support)
+- [Releases](#releases)
 
 ## Summary
 
@@ -62,6 +63,7 @@ For full contract details for every public step, including documented inputs, ou
 | `build_thread_actions` | Code Review | - |
 | `create_worktree` | Worktree Support | - |
 | `cleanup_worktree` | Worktree Support | - |
+| `select_release` | Releases | - |
 
 ## Pull Requests
 
@@ -137,6 +139,12 @@ Use these steps when a GitHub workflow should operate in a dedicated worktree.
 
 - `create_worktree`: create an isolated worktree for GitHub-focused workflow tasks
 - `cleanup_worktree`: remove a worktree created during workflow execution
+
+## Releases
+
+Use this step to let a workflow pick a published GitHub release and read its notes.
+
+- `select_release`: list published GitHub releases and select one to use as a notes source
 
 <!-- BEGIN GENERATED STEP CONTRACTS -->
 ## Detailed Step Contracts
@@ -388,11 +396,7 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    | Name | Type | Description |
-    |------|------|-------------|
-    | review_threads (List[UICommentThread]) | - | - |
-    | review_pr (UIPullRequest) | - | - |
-    | review_current_user (str) | - | Authenticated GitHub login running Titan |
+    None documented.
 
     **Outputs (saved to ctx.data)**
 
@@ -470,7 +474,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `draft` | bool or null, optional | Workflow draft mode. Use `true` or `false` to skip the prompt, or `null` to ask interactively. |
+    | `draft` | bool | None, optional | Draft mode from workflow params. Use True/False to skip the prompt, or None to ask interactively. |
 
     **Outputs (saved to ctx.data)**
 
@@ -573,6 +577,8 @@ How to read these contracts:
       step: prompt_for_labels
     ```
 
+    **Used by built-in workflows:** `create-pr-ai`
+
     **Available to later steps:** `<output_key>`
 
     **Requires**
@@ -585,9 +591,9 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `output_key` | str, optional | Context key where selected labels should be stored. Defaults to `labels`. |
-    | `prompt` | str, optional | Prompt text shown to the user. Defaults to `Select labels:`. |
-    | `default_selected_key` | str, optional | Context key used to preselect labels. Defaults to `output_key`. |
+    | `output_key` | str, optional | Context key where selected labels should be stored. Defaults to "labels". |
+    | `prompt` | str, optional | Prompt text shown to the user. Defaults to "Select labels:". |
+    | `default_selected_key` | str, optional | Context key used to preselect labels. Defaults to output_key. |
 
     **Outputs (saved to ctx.data)**
 
@@ -600,7 +606,7 @@ How to read these contracts:
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
     | `Success` | `<output_key>` | If label selection completes successfully. |
-    | `Skip` | - | If the repository has no labels. |
+    | `Skip` | `<output_key>` | If the repository has no labels. |
     | `Error` | - | If the GitHub client is unavailable or the prompt fails. |
 
 
@@ -614,7 +620,7 @@ How to read these contracts:
       step: select_cli
     ```
 
-    **Used by built-in workflows:** `review-pr`
+    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
     **Inputs (from ctx.data)**
 
@@ -1032,7 +1038,7 @@ How to read these contracts:
       step: select_pr_for_code_review
     ```
 
-    **Used by built-in workflows:** `review-pr`
+    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
     **Available to later steps:** `review_pr_number`, `review_pr_title`, `review_pr_head`, `review_pr_base`
 
@@ -1066,7 +1072,7 @@ How to read these contracts:
       step: fetch_pr_review_bundle
     ```
 
-    **Used by built-in workflows:** `review-pr`
+    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
     **Available to later steps:** `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template`
 
@@ -1540,7 +1546,7 @@ How to read these contracts:
       step: validate_review_actions
     ```
 
-    **Used by built-in workflows:** `review-pr`
+    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
     **Available to later steps:** `approved_action_proposals (List[ReviewActionProposal])`
 
@@ -1571,7 +1577,7 @@ How to read these contracts:
       step: submit_review_actions
     ```
 
-    **Used by built-in workflows:** `review-pr`
+    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
     **Inputs (from ctx.data)**
 
@@ -1597,6 +1603,8 @@ How to read these contracts:
     - plugin: github
       step: build_thread_review_candidates
     ```
+
+    **Used by built-in workflows:** `review-pr-thread-resolution`
 
     **Available to later steps:** `thread_review_candidates (List[ThreadReviewCandidate])`
 
@@ -1627,7 +1635,15 @@ How to read these contracts:
       step: build_thread_review_contexts
     ```
 
+    **Used by built-in workflows:** `review-pr-thread-resolution`
+
     **Available to later steps:** `thread_review_contexts (List[ThreadReviewContext])`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.github` | - | Optional GitHub client used to inspect referenced commits. |
 
     **Inputs (from ctx.data)**
 
@@ -1655,6 +1671,8 @@ How to read these contracts:
     - plugin: github
       step: ai_thread_resolution
     ```
+
+    **Used by built-in workflows:** `review-pr-thread-resolution`
 
     **Available to later steps:** `raw_thread_decisions`
 
@@ -1685,6 +1703,8 @@ How to read these contracts:
       step: normalize_thread_decisions
     ```
 
+    **Used by built-in workflows:** `review-pr-thread-resolution`
+
     **Available to later steps:** `thread_decisions`
 
     **Inputs (from ctx.data)**
@@ -1713,6 +1733,8 @@ How to read these contracts:
     - plugin: github
       step: build_thread_actions
     ```
+
+    **Used by built-in workflows:** `review-pr-thread-resolution`
 
     **Available to later steps:** `review_action_proposals (List[ReviewActionProposal])`
 
@@ -1794,6 +1816,50 @@ How to read these contracts:
     |--------|-----------------------|-------------|
     | `Success` | - | Worktree cleaned up |
     | `Exit` | - | No worktree to cleanup |
+
+
+### Releases
+
+??? info "`select_release`"
+    List published GitHub releases and select one to use as a notes source.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: select_release
+    ```
+
+    **Available to later steps:** `selected_release`, `selected_release_tag`, `selected_release_notes`, `selected_release_url`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.github` | - | An initialized GitHubClient. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `github_release_limit` | int, optional | Maximum number of releases to list. Defaults to 15. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `selected_release` | UIRelease | Selected GitHub release, including its notes body. |
+    | `selected_release_tag` | str | Tag name of the selected release. |
+    | `selected_release_notes` | str | Release notes body of the selected release. |
+    | `selected_release_url` | str | URL of the selected release. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `selected_release`, `selected_release_tag`, `selected_release_notes`, `selected_release_url` | If a release is selected successfully. |
+    | `Skip` | `selected_release`, `selected_release_tag`, `selected_release_notes`, `selected_release_url` | If no published releases exist. |
+    | `Error` | - | If the GitHub client is not available or the request fails. |
 <!-- END GENERATED STEP CONTRACTS -->
 
 ## Docstring-based reference

@@ -84,6 +84,7 @@ Titan currently requests these Slack scopes during OAuth:
 - [Client API](./client-api.md): direct Python methods exposed by `SlackClient`
 - [Workflow Steps](./workflow-steps.md): public reusable workflow steps grouped by functionality
 - [Built-in Workflows](./built-in-workflows.md): workflows shipped by the plugin
+- `SlackFormatter` (`titan_plugin_slack.formatting`): stateless text formatting toolkit (see below)
 
 ## Accessing the Client
 
@@ -109,3 +110,23 @@ The Slack plugin currently ships one built-in workflow:
 - `summarize-slack-target`
 
 Other Slack capabilities remain available as public reusable steps for composition from project workflows or other plugin workflows.
+
+## Message Formatting
+
+Slack messages sent through `chat.postMessage` render `mrkdwn`, not standard Markdown: bold uses a single asterisk (`*bold*`), there is no header syntax, and there is no native table support. `SlackFormatter` converts standard Markdown (e.g. AI-generated text) into Slack's mrkdwn, so the same source content can also be rendered as normal Markdown elsewhere (like the Titan TUI).
+
+```python
+from titan_plugin_slack.formatting import SlackFormatter
+
+# Convert a full Markdown document (headers, bold/italic/strikethrough,
+# links, bullet lists, and pipe tables) into Slack mrkdwn.
+slack_text = SlackFormatter.to_mrkdwn(markdown_summary)
+
+# Or build a Slack-friendly table directly from row data.
+table_text = SlackFormatter.table(
+    rows=[["titan-cli", "0.6.0"], ["ragnarok", "0.9.3"]],
+    headers=["Plugin", "Version"],
+)
+```
+
+Both methods are stateless and can be called from any step, project workflow, or personal script — no plugin registration required.

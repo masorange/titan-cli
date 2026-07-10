@@ -253,7 +253,7 @@ Select a Slack channel target through query filtering and final confirmation.
 
 ### `select_default_or_search_channel_target`
 
-Select a Slack channel from the configured defaults or search for another one.
+Select a Slack target from a preferred value or configured default, or search.
 
 **How to read this contract**
 
@@ -280,9 +280,12 @@ Select a Slack channel from the configured defaults or search for another one.
 
 | Name | Type | Description |
 |------|------|-------------|
+| `slack_preferred_target` | str, optional | Person or channel name (without `#`) to select |
+| automatically without prompting, when it resolves to exactly one match. Takes priority | - | - |
+| over configured default channels and manual search. | - | - |
 | `slack_target_query` | str, optional | Pre-filled query used if the user chooses to search manually. |
 | `slack_search_limit` | int, optional | Maximum number of matches to return during manual search. Defaults to 20. |
-| `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 1000. |
+| `slack_search_page_size` | int, optional | Page size used while scanning Slack. Defaults to 1000. |
 | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
 | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels while searching. Defaults to True. |
 
@@ -291,8 +294,8 @@ Select a Slack channel from the configured defaults or search for another one.
 | Name | Type | Description |
 |------|------|-------------|
 | `slack_target` | UISlackTarget | Canonical selected Slack target. |
-| `slack_target_type` | str | Selected target type (`channel`). |
-| `slack_target_id` | str | Slack channel ID. |
+| `slack_target_type` | str | Selected target type (`user` or `channel`). |
+| `slack_target_id` | str | Slack target identifier. |
 | `slack_target_name` | str | User-facing target name. |
 | `slack_target_query` | str | Query used to resolve the selection, when manual search was used. |
 
@@ -300,8 +303,8 @@ Select a Slack channel from the configured defaults or search for another one.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the channel target is selected successfully. |
-| `Error` | - | If Slack is unavailable, the configured channel cannot be resolved, or no match is selected. |
+| `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the target is selected successfully. |
+| `Error` | - | If Slack is unavailable, or no match is selected. |
 
 ## Messaging
 

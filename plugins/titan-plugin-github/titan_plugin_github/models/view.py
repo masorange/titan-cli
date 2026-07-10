@@ -239,15 +239,18 @@ class UIPRCreated:
 @dataclass
 class UIRelease:
     """
-    UI model for a newly created GitHub release.
+    UI model for a GitHub release.
 
-    Returned after create_release — contains the identifiers needed
-    to display the result or navigate to the release page.
+    Returned by create_release, list_releases, and get_release — contains
+    the identifiers and notes body needed to display or summarize a release.
     """
     tag_name: str
     title: str
     url: str
     is_prerelease: bool
+    body: str = ""
+    published_at: str = ""
+    is_draft: bool = False
 
 
 @dataclass

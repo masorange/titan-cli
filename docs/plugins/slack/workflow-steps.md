@@ -44,7 +44,7 @@ Use these steps to resolve a reusable Slack target object for later workflows.
 
 - `select_user_target`: filter visible Slack users by query and select one canonical user target
 - `select_channel_target`: filter visible Slack channels by query and select one canonical channel target
-- `select_default_or_search_channel_target`: choose one configured default channel or fall back to manual Slack channel search
+- `select_default_or_search_channel_target`: choose one configured default channel or fall back to a unified person/channel search
 
 ## Messaging
 
@@ -67,8 +67,8 @@ Use these steps to resolve a target conversation, read its recent messages, and 
 ## Notes
 
 - Built-in workflows may use only a subset of these steps.
-- `select_default_or_search_channel_target` is the step that uses repo-configured `default_channels`; it is available for custom workflows but is not used by any built-in workflow.
-- The built-in summary workflow uses the unified `select_target` step, so it can resolve either a person or a channel from one search.
+- `select_default_or_search_channel_target` is the step that uses repo-configured `default_channels`; when none are configured, or the user chooses to search instead, it falls back to the unified `select_target` search (person or channel). It is available for custom workflows but is not used by any built-in workflow.
+- The built-in summary workflow uses the unified `select_target` step directly, so it can resolve either a person or a channel from one search.
 
 <!-- BEGIN GENERATED STEP CONTRACTS -->
 ## Detailed Step Contracts
@@ -303,7 +303,7 @@ How to read these contracts:
 
 
 ??? info "`select_default_or_search_channel_target`"
-    Select a Slack channel from the configured defaults or search for another one.
+    Select a Slack target from a preferred value or configured default, or search.
 
     **Workflow usage**
 
@@ -324,9 +324,12 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
+    | `slack_preferred_target` | str, optional | Person or channel name (without `#`) to select |
+    | automatically without prompting, when it resolves to exactly one match. Takes priority | - | - |
+    | over configured default channels and manual search. | - | - |
     | `slack_target_query` | str, optional | Pre-filled query used if the user chooses to search manually. |
     | `slack_search_limit` | int, optional | Maximum number of matches to return during manual search. Defaults to 20. |
-    | `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 1000. |
+    | `slack_search_page_size` | int, optional | Page size used while scanning Slack. Defaults to 1000. |
     | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
     | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels while searching. Defaults to True. |
 
@@ -335,8 +338,8 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `slack_target` | UISlackTarget | Canonical selected Slack target. |
-    | `slack_target_type` | str | Selected target type (`channel`). |
-    | `slack_target_id` | str | Slack channel ID. |
+    | `slack_target_type` | str | Selected target type (`user` or `channel`). |
+    | `slack_target_id` | str | Slack target identifier. |
     | `slack_target_name` | str | User-facing target name. |
     | `slack_target_query` | str | Query used to resolve the selection, when manual search was used. |
 
@@ -344,8 +347,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the channel target is selected successfully. |
-    | `Error` | - | If Slack is unavailable, the configured channel cannot be resolved, or no match is selected. |
+    | `Success` | `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query` | If the target is selected successfully. |
+    | `Error` | - | If Slack is unavailable, or no match is selected. |
 
 
 ### Messaging

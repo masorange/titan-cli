@@ -14,7 +14,7 @@
       "steps": [
         {"name": "select_user_target", "summary": "Filter visible Slack users by query and select one canonical user target."},
         {"name": "select_channel_target", "summary": "Filter visible Slack channels by query and select one canonical channel target."},
-        {"name": "select_default_or_search_channel_target", "summary": "Choose one configured default channel or fall back to manual Slack channel search."}
+        {"name": "select_default_or_search_channel_target", "summary": "Choose one configured default channel or fall back to a unified person/channel search."}
       ]
     },
     {
