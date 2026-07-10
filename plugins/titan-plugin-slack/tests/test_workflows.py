@@ -20,5 +20,5 @@ def test_summarize_slack_target_workflow_structure() -> None:
         "read_recent_messages",
         "ai_summarize_messages",
     ]
-    assert workflow["steps"][1]["step"] == "select_default_or_search_channel_target"
+    assert workflow["steps"][1]["step"] == "select_target"
     assert workflow["steps"][3]["params"]["slack_history_limit"] == "${slack_history_limit}"

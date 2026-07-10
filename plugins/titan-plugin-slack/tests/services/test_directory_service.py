@@ -143,3 +143,85 @@ def test_search_public_channels_scans_multiple_pages_until_match() -> None:
     assert isinstance(result, ClientSuccess)
     matches = result.data
     assert [channel.id for channel in matches] == ["C2"]
+
+
+def test_search_users_reuses_cached_pages_across_searches() -> None:
+    web_client = MagicMock()
+    service = DirectoryService(web_client)
+    service.list_users = MagicMock(
+        side_effect=[
+            ClientSuccess(
+                data=([UISlackUser(id="U1", name="sam", real_name="Sam One")], "cursor-1")
+            ),
+            ClientSuccess(
+                data=([UISlackUser(id="U2", name="alex", real_name="Alex Smith")], None)
+            ),
+        ]
+    )
+
+    first = service.search_users("alex", max_matches=10, page_size=100, max_pages=5)
+    assert [user.id for user in first.data] == ["U2"]
+    assert service.list_users.call_count == 2
+
+    second = service.search_users("sam", max_matches=10, page_size=100, max_pages=5)
+
+    assert isinstance(second, ClientSuccess)
+    assert [user.id for user in second.data] == ["U1"]
+    assert service.list_users.call_count == 2, "second search must not re-scan already fetched pages"
+
+
+def test_search_channels_reuses_cached_pages_across_searches() -> None:
+    web_client = MagicMock()
+    web_client.conversations_list.side_effect = [
+        {
+            "ok": True,
+            "channels": [{"id": "C1", "name": "general"}],
+            "response_metadata": {"next_cursor": "cursor-1"},
+        },
+        {
+            "ok": True,
+            "channels": [{"id": "C2", "name": "eng-backend"}],
+            "response_metadata": {"next_cursor": None},
+        },
+    ]
+    service = DirectoryService(web_client)
+
+    first = service.search_channels("eng", max_matches=10, page_size=100, max_pages=5)
+    assert [channel.id for channel in first.data] == ["C2"]
+    assert web_client.conversations_list.call_count == 2
+
+    second = service.search_channels("general", max_matches=10, page_size=100, max_pages=5)
+
+    assert isinstance(second, ClientSuccess)
+    assert [channel.id for channel in second.data] == ["C1"]
+    assert web_client.conversations_list.call_count == 2, (
+        "second search must not re-scan already fetched pages"
+    )
+
+
+def test_search_users_refreshes_cache_after_ttl_expires() -> None:
+    web_client = MagicMock()
+    service = DirectoryService(web_client, cache_ttl_seconds=0)
+    service.list_users = MagicMock(
+        side_effect=[
+            ClientSuccess(data=([UISlackUser(id="U1", name="sam", real_name="Sam One")], None)),
+            ClientSuccess(data=([UISlackUser(id="U1", name="sam", real_name="Sam One")], None)),
+        ]
+    )
+
+    service.search_users("sam", max_matches=10, page_size=100, max_pages=5)
+    service.search_users("sam", max_matches=10, page_size=100, max_pages=5)
+
+    assert service.list_users.call_count == 2, "an expired cache must trigger a fresh scan"
+
+
+def test_search_users_returns_error_without_caching_partial_results() -> None:
+    web_client = MagicMock()
+    service = DirectoryService(web_client)
+    service.list_users = MagicMock(
+        return_value=ClientError(error_message="Slack list_users failed: ratelimited")
+    )
+
+    result = service.search_users("alex", max_matches=10, page_size=100, max_pages=5)
+
+    assert isinstance(result, ClientError)

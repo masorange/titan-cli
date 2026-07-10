@@ -179,7 +179,7 @@ Select a Slack user target through query filtering and final confirmation.
 |------|------|-------------|
 | `slack_target_query` | str, optional | Pre-filled query used to filter Slack users. |
 | `slack_search_limit` | int, optional | Maximum number of matches to return. Defaults to 20. |
-| `slack_search_page_size` | int, optional | Page size used while scanning Slack users. Defaults to 200. |
+| `slack_search_page_size` | int, optional | Page size used while scanning Slack users. Defaults to 1000. |
 | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
 
 **Outputs (saved to ctx.data)**
@@ -230,7 +230,7 @@ Select a Slack channel target through query filtering and final confirmation.
 |------|------|-------------|
 | `slack_target_query` | str, optional | Pre-filled query used to filter Slack channels. |
 | `slack_search_limit` | int, optional | Maximum number of matches to return. Defaults to 20. |
-| `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 200. |
+| `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 1000. |
 | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
 | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels while searching. Defaults to True. |
 
@@ -268,8 +268,6 @@ Select a Slack channel from the configured defaults or search for another one.
   step: select_default_or_search_channel_target
 ```
 
-**Used by built-in workflows:** `summarize-slack-target`
-
 **Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
 
 **Requires**
@@ -284,7 +282,7 @@ Select a Slack channel from the configured defaults or search for another one.
 |------|------|-------------|
 | `slack_target_query` | str, optional | Pre-filled query used if the user chooses to search manually. |
 | `slack_search_limit` | int, optional | Maximum number of matches to return during manual search. Defaults to 20. |
-| `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 200. |
+| `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 1000. |
 | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
 | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels while searching. Defaults to True. |
 
@@ -503,6 +501,8 @@ Search both Slack users and channels for a single unified target selection.
   step: select_target
 ```
 
+**Used by built-in workflows:** `summarize-slack-target`
+
 **Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
 
 **Requires**
@@ -517,7 +517,7 @@ Search both Slack users and channels for a single unified target selection.
 |------|------|-------------|
 | `slack_target_query` | str, optional | Query used to search both users and channels. |
 | `slack_search_limit` | int, optional | Maximum number of matches to keep from each search. Defaults to 10. |
-| `slack_search_page_size` | int, optional | Page size used while scanning Slack. Defaults to 200. |
+| `slack_search_page_size` | int, optional | Page size used while scanning Slack. Defaults to 1000. |
 | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
 | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels. Defaults to True. |
 
@@ -617,7 +617,7 @@ Read the most recent messages from the resolved Slack conversation.
 | Name | Type | Description |
 |------|------|-------------|
 | `slack_conversation_id` | str | Slack conversation ID to read. |
-| `slack_history_limit` | int, optional | Number of recent messages to fetch. Defaults to 50. |
+| `slack_history_limit` | int, optional | Number of recent messages to fetch. Defaults to 30. |
 
 **Outputs (saved to ctx.data)**
 

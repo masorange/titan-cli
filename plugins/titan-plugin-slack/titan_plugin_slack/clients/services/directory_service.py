@@ -1,5 +1,7 @@
 """Internal service for Slack directory and discovery operations."""
 
+import time
+
 from titan_cli.core.result import ClientError, ClientSuccess, ClientResult
 
 from ..sdk import SlackApiError
@@ -11,12 +13,67 @@ from ...models import (
     UISlackUser,
 )
 
+DEFAULT_DIRECTORY_PAGE_SIZE = 1000
+"""Slack's documented max `limit` for `users.list` and `conversations.list`."""
+
+DEFAULT_DIRECTORY_CACHE_TTL_SECONDS = 300.0
+
+
+class _DirectoryScanCache:
+    """Incremental cache of a paginated Slack directory scan (users or channels).
+
+    Search queries against the same directory reuse whatever pages a previous
+    search already fetched instead of restarting from `cursor=None`, and only
+    fetch further pages if more matches are still needed.
+    """
+
+    def __init__(self, ttl_seconds: float):
+        self._ttl_seconds = ttl_seconds
+        self._items: list = []
+        self._seen_ids: set[str] = set()
+        self._cursor: str | None = None
+        self._exhausted: bool = False
+        self._fetched_at: float | None = None
+
+    def reset_if_stale(self) -> None:
+        if self._fetched_at is None or (time.monotonic() - self._fetched_at) > self._ttl_seconds:
+            self._items = []
+            self._seen_ids = set()
+            self._cursor = None
+            self._exhausted = False
+            self._fetched_at = None
+
+    def extend(self, items: list, next_cursor: str | None, item_id) -> None:
+        for item in items:
+            entry_id = item_id(item)
+            if entry_id not in self._seen_ids:
+                self._seen_ids.add(entry_id)
+                self._items.append(item)
+        self._cursor = next_cursor
+        self._exhausted = next_cursor is None
+        self._fetched_at = time.monotonic()
+
+    @property
+    def items(self) -> list:
+        return self._items
+
+    @property
+    def cursor(self) -> str | None:
+        return self._cursor
+
+    @property
+    def exhausted(self) -> bool:
+        return self._exhausted
+
 
 class DirectoryService:
     """Service for Slack user and public channel discovery."""
 
-    def __init__(self, web_client):
+    def __init__(self, web_client, cache_ttl_seconds: float = DEFAULT_DIRECTORY_CACHE_TTL_SECONDS):
         self.web_client = web_client
+        self._users_cache = _DirectoryScanCache(cache_ttl_seconds)
+        self._public_channels_cache = _DirectoryScanCache(cache_ttl_seconds)
+        self._channels_cache = _DirectoryScanCache(cache_ttl_seconds)
 
     @staticmethod
     def _build_api_error(exc: SlackApiError, operation: str, error_code_name: str) -> ClientError:
@@ -159,26 +216,30 @@ class DirectoryService:
         query: str,
         *,
         max_matches: int = 20,
-        page_size: int = 200,
+        page_size: int = DEFAULT_DIRECTORY_PAGE_SIZE,
         max_pages: int = 50,
     ) -> ClientResult[list[UISlackUser]]:
         """Search Slack users by paging through visible users and filtering locally."""
-        cursor: str | None = None
-        scanned_pages = 0
-        collected: list[UISlackUser] = []
-        seen_ids: set[str] = set()
+        cache = self._users_cache
+        cache.reset_if_stale()
 
+        matches = filter_users_for_query(cache.items, query, limit=max_matches)
+        if len(matches) >= max_matches or cache.exhausted:
+            return ClientSuccess(
+                data=matches,
+                message=f"Found {len(matches)} Slack users for query",
+            )
+
+        cursor = cache.cursor
+        scanned_pages = 0
         while scanned_pages < max_pages:
             page_result = self.list_users(limit=page_size, cursor=cursor)
             match page_result:
                 case ClientSuccess(data=(users, next_cursor)):
-                    for user in users:
-                        if user.id not in seen_ids:
-                            seen_ids.add(user.id)
-                            collected.append(user)
+                    cache.extend(users, next_cursor, item_id=lambda u: u.id)
 
-                    matches = filter_users_for_query(collected, query, limit=max_matches)
-                    if len(matches) >= max_matches or not next_cursor:
+                    matches = filter_users_for_query(cache.items, query, limit=max_matches)
+                    if len(matches) >= max_matches or cache.exhausted:
                         return ClientSuccess(
                             data=matches,
                             message=f"Found {len(matches)} Slack users for query",
@@ -189,7 +250,6 @@ class DirectoryService:
                 case ClientError() as err:
                     return err
 
-        matches = filter_users_for_query(collected, query, limit=max_matches)
         return ClientSuccess(
             data=matches,
             message=f"Found {len(matches)} Slack users for query",
@@ -200,16 +260,23 @@ class DirectoryService:
         query: str,
         *,
         max_matches: int = 20,
-        page_size: int = 200,
+        page_size: int = DEFAULT_DIRECTORY_PAGE_SIZE,
         max_pages: int = 50,
         exclude_archived: bool = True,
     ) -> ClientResult[list[UISlackChannel]]:
         """Search Slack public channels by paging through visible channels and filtering locally."""
-        cursor: str | None = None
-        scanned_pages = 0
-        collected: list[UISlackChannel] = []
-        seen_ids: set[str] = set()
+        cache = self._public_channels_cache
+        cache.reset_if_stale()
 
+        matches = filter_channels_for_query(cache.items, query, limit=max_matches)
+        if len(matches) >= max_matches or cache.exhausted:
+            return ClientSuccess(
+                data=matches,
+                message=f"Found {len(matches)} Slack channels for query",
+            )
+
+        cursor = cache.cursor
+        scanned_pages = 0
         while scanned_pages < max_pages:
             page_result = self.list_public_channels(
                 limit=page_size,
@@ -218,13 +285,10 @@ class DirectoryService:
             )
             match page_result:
                 case ClientSuccess(data=(channels, next_cursor)):
-                    for channel in channels:
-                        if channel.id not in seen_ids:
-                            seen_ids.add(channel.id)
-                            collected.append(channel)
+                    cache.extend(channels, next_cursor, item_id=lambda c: c.id)
 
-                    matches = filter_channels_for_query(collected, query, limit=max_matches)
-                    if len(matches) >= max_matches or not next_cursor:
+                    matches = filter_channels_for_query(cache.items, query, limit=max_matches)
+                    if len(matches) >= max_matches or cache.exhausted:
                         return ClientSuccess(
                             data=matches,
                             message=f"Found {len(matches)} Slack channels for query",
@@ -235,7 +299,6 @@ class DirectoryService:
                 case ClientError() as err:
                     return err
 
-        matches = filter_channels_for_query(collected, query, limit=max_matches)
         return ClientSuccess(
             data=matches,
             message=f"Found {len(matches)} Slack channels for query",
@@ -246,16 +309,23 @@ class DirectoryService:
         query: str,
         *,
         max_matches: int = 20,
-        page_size: int = 200,
+        page_size: int = DEFAULT_DIRECTORY_PAGE_SIZE,
         max_pages: int = 50,
         exclude_archived: bool = True,
     ) -> ClientResult[list[UISlackChannel]]:
         """Search accessible public and private Slack channels by paging and filtering locally."""
-        cursor: str | None = None
-        scanned_pages = 0
-        collected: list[UISlackChannel] = []
-        seen_ids: set[str] = set()
+        cache = self._channels_cache
+        cache.reset_if_stale()
 
+        matches = filter_channels_for_query(cache.items, query, limit=max_matches)
+        if len(matches) >= max_matches or cache.exhausted:
+            return ClientSuccess(
+                data=matches,
+                message=f"Found {len(matches)} Slack channels for query",
+            )
+
+        cursor = cache.cursor
+        scanned_pages = 0
         while scanned_pages < max_pages:
             try:
                 response = self.web_client.conversations_list(
@@ -292,15 +362,11 @@ class DirectoryService:
 
             channels = [self._map_channel(channel) for channel in response.get("channels", [])]
             ui_channels = [self._to_ui_channel(channel) for channel in channels]
-
-            for channel in ui_channels:
-                if channel.id not in seen_ids:
-                    seen_ids.add(channel.id)
-                    collected.append(channel)
-
-            matches = filter_channels_for_query(collected, query, limit=max_matches)
             next_cursor = response.get("response_metadata", {}).get("next_cursor") or None
-            if len(matches) >= max_matches or not next_cursor:
+            cache.extend(ui_channels, next_cursor, item_id=lambda c: c.id)
+
+            matches = filter_channels_for_query(cache.items, query, limit=max_matches)
+            if len(matches) >= max_matches or cache.exhausted:
                 return ClientSuccess(
                     data=matches,
                     message=f"Found {len(matches)} Slack channels for query",
@@ -309,7 +375,6 @@ class DirectoryService:
             cursor = next_cursor
             scanned_pages += 1
 
-        matches = filter_channels_for_query(collected, query, limit=max_matches)
         return ClientSuccess(
             data=matches,
             message=f"Found {len(matches)} Slack channels for query",

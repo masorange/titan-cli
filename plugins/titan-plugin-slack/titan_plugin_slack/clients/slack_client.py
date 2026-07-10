@@ -22,6 +22,9 @@ from ..models import (
 
 SlackApiError = slack_sdk_module.SlackApiError
 WebClient = slack_sdk_module.WebClient
+RateLimitErrorRetryHandler = slack_sdk_module.RateLimitErrorRetryHandler
+
+DEFAULT_MAX_RATE_LIMIT_RETRIES = 3
 
 
 class SlackClient:
@@ -33,6 +36,7 @@ class SlackClient:
         team_id: str | None = None,
         timeout: int = 30,
         default_channels: list[str] | None = None,
+        max_rate_limit_retries: int = DEFAULT_MAX_RATE_LIMIT_RETRIES,
     ):
         if not user_token:
             raise SlackClientError("Slack client requires a user token.")
@@ -41,7 +45,11 @@ class SlackClient:
         self.team_id = team_id
         self.timeout = timeout
         self.default_channels = default_channels or []
-        self._web_client = WebClient(token=user_token, timeout=timeout)
+        self._web_client = WebClient(
+            token=user_token,
+            timeout=timeout,
+            retry_handlers=[RateLimitErrorRetryHandler(max_retry_count=max_rate_limit_retries)],
+        )
 
         self.auth_service = AuthService(self._web_client)
         self.directory_service = DirectoryService(self._web_client)
@@ -92,7 +100,7 @@ class SlackClient:
         query: str,
         *,
         max_matches: int = 20,
-        page_size: int = 200,
+        page_size: int = 1000,
         max_pages: int = 50,
     ) -> ClientResult[list[UISlackUser]]:
         """Search Slack users across multiple pages of visible users."""
@@ -108,7 +116,7 @@ class SlackClient:
         query: str,
         *,
         max_matches: int = 20,
-        page_size: int = 200,
+        page_size: int = 1000,
         max_pages: int = 50,
         exclude_archived: bool = True,
     ) -> ClientResult[list[UISlackChannel]]:
@@ -126,7 +134,7 @@ class SlackClient:
         query: str,
         *,
         max_matches: int = 20,
-        page_size: int = 200,
+        page_size: int = 1000,
         max_pages: int = 50,
         exclude_archived: bool = True,
     ) -> ClientResult[list[UISlackChannel]]:

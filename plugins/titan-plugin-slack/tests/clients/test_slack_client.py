@@ -23,6 +23,15 @@ def test_slack_client_stores_user_token() -> None:
     assert client.web_client is not None
 
 
+def test_slack_client_configures_rate_limit_retry_handler() -> None:
+    client = SlackClient(user_token="xoxp-test-token", max_rate_limit_retries=5)
+
+    retry_handlers = client.web_client.retry_handlers
+    assert len(retry_handlers) == 1
+    assert isinstance(retry_handlers[0], slack_client_module.RateLimitErrorRetryHandler)
+    assert retry_handlers[0].max_retry_count == 5
+
+
 def test_slack_client_auth_test_returns_identity_fields() -> None:
     client = SlackClient(user_token="xoxp-test-token")
     client.web_client = MagicMock()

@@ -20,7 +20,7 @@ For full contract details for every public step, including documented inputs, ou
 | `list_users` | Validation and Discovery | `discover-slack-workspace` |
 | `select_user_target` | Selection and Target Resolution | `send-slack-direct-message` |
 | `select_channel_target` | Selection and Target Resolution | `send-slack-channel-message` |
-| `select_default_or_search_channel_target` | Selection and Target Resolution | `summarize-slack-target` |
+| `select_default_or_search_channel_target` | Selection and Target Resolution | - |
 | `prepare_message_destination` | Messaging | `send-slack-direct-message`, `send-slack-channel-message` |
 | `open_direct_message` | Messaging | - |
 | `prompt_message_body` | Messaging | `send-slack-direct-message`, `send-slack-channel-message` |
@@ -67,8 +67,8 @@ Use these steps to resolve a target conversation, read its recent messages, and 
 ## Notes
 
 - Built-in workflows may use only a subset of these steps.
-- `select_default_or_search_channel_target` is the step that uses repo-configured `default_channels`.
-- The built-in summary workflow currently uses the channel-oriented default/search step, not the unified `select_target` step.
+- `select_default_or_search_channel_target` is the step that uses repo-configured `default_channels`; it is available for custom workflows but is not used by any built-in workflow.
+- The built-in summary workflow uses the unified `select_target` step, so it can resolve either a person or a channel from one search.
 
 <!-- BEGIN GENERATED STEP CONTRACTS -->
 ## Detailed Step Contracts
@@ -235,7 +235,7 @@ How to read these contracts:
     |------|------|-------------|
     | `slack_target_query` | str, optional | Pre-filled query used to filter Slack users. |
     | `slack_search_limit` | int, optional | Maximum number of matches to return. Defaults to 20. |
-    | `slack_search_page_size` | int, optional | Page size used while scanning Slack users. Defaults to 200. |
+    | `slack_search_page_size` | int, optional | Page size used while scanning Slack users. Defaults to 1000. |
     | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
 
     **Outputs (saved to ctx.data)**
@@ -280,7 +280,7 @@ How to read these contracts:
     |------|------|-------------|
     | `slack_target_query` | str, optional | Pre-filled query used to filter Slack channels. |
     | `slack_search_limit` | int, optional | Maximum number of matches to return. Defaults to 20. |
-    | `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 200. |
+    | `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 1000. |
     | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
     | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels while searching. Defaults to True. |
 
@@ -312,8 +312,6 @@ How to read these contracts:
       step: select_default_or_search_channel_target
     ```
 
-    **Used by built-in workflows:** `summarize-slack-target`
-
     **Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
 
     **Requires**
@@ -328,7 +326,7 @@ How to read these contracts:
     |------|------|-------------|
     | `slack_target_query` | str, optional | Pre-filled query used if the user chooses to search manually. |
     | `slack_search_limit` | int, optional | Maximum number of matches to return during manual search. Defaults to 20. |
-    | `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 200. |
+    | `slack_search_page_size` | int, optional | Page size used while scanning Slack channels. Defaults to 1000. |
     | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
     | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels while searching. Defaults to True. |
 
@@ -517,6 +515,8 @@ How to read these contracts:
       step: select_target
     ```
 
+    **Used by built-in workflows:** `summarize-slack-target`
+
     **Available to later steps:** `slack_target`, `slack_target_type`, `slack_target_id`, `slack_target_name`, `slack_target_query`
 
     **Requires**
@@ -531,7 +531,7 @@ How to read these contracts:
     |------|------|-------------|
     | `slack_target_query` | str, optional | Query used to search both users and channels. |
     | `slack_search_limit` | int, optional | Maximum number of matches to keep from each search. Defaults to 10. |
-    | `slack_search_page_size` | int, optional | Page size used while scanning Slack. Defaults to 200. |
+    | `slack_search_page_size` | int, optional | Page size used while scanning Slack. Defaults to 1000. |
     | `slack_search_max_pages` | int, optional | Maximum pages to scan while searching. Defaults to 50. |
     | `slack_exclude_archived` | bool, optional | Whether to exclude archived channels. Defaults to True. |
 
@@ -619,7 +619,7 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `slack_conversation_id` | str | Slack conversation ID to read. |
-    | `slack_history_limit` | int, optional | Number of recent messages to fetch. Defaults to 50. |
+    | `slack_history_limit` | int, optional | Number of recent messages to fetch. Defaults to 30. |
 
     **Outputs (saved to ctx.data)**
 

@@ -295,7 +295,7 @@
         ],
         "Inputs (from ctx.data)": [
           "    slack_conversation_id (str): Slack conversation ID to read.",
-          "    slack_history_limit (int, optional): Number of recent messages to fetch. Defaults to 50."
+          "    slack_history_limit (int, optional): Number of recent messages to fetch. Defaults to 30."
         ],
         "Outputs (saved to ctx.data)": [
           "    slack_messages (list[UISlackMessage]): Retrieved Slack messages.",
@@ -326,7 +326,7 @@
         "Inputs (from ctx.data)": [
           "    slack_target_query (str, optional): Pre-filled query used to filter Slack channels.",
           "    slack_search_limit (int, optional): Maximum number of matches to return. Defaults to 20.",
-          "    slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 200.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 1000.",
           "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.",
           "    slack_exclude_archived (bool, optional): Whether to exclude archived channels while searching. Defaults to True."
         ],
@@ -357,7 +357,7 @@
         "Inputs (from ctx.data)": [
           "    slack_target_query (str, optional): Pre-filled query used if the user chooses to search manually.",
           "    slack_search_limit (int, optional): Maximum number of matches to return during manual search. Defaults to 20.",
-          "    slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 200.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 1000.",
           "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.",
           "    slack_exclude_archived (bool, optional): Whether to exclude archived channels while searching. Defaults to True."
         ],
@@ -373,9 +373,7 @@
           "    Error: If Slack is unavailable, the configured channel cannot be resolved, or no match is selected."
         ]
       },
-      "used_by_workflows": [
-        "summarize-slack-target"
-      ]
+      "used_by_workflows": []
     },
     {
       "name": "select_target",
@@ -390,7 +388,7 @@
         "Inputs (from ctx.data)": [
           "    slack_target_query (str, optional): Query used to search both users and channels.",
           "    slack_search_limit (int, optional): Maximum number of matches to keep from each search. Defaults to 10.",
-          "    slack_search_page_size (int, optional): Page size used while scanning Slack. Defaults to 200.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack. Defaults to 1000.",
           "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.",
           "    slack_exclude_archived (bool, optional): Whether to exclude archived channels. Defaults to True."
         ],
@@ -406,7 +404,9 @@
           "    Error: If Slack is unavailable, the query is invalid, the search fails, or no match is selected."
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "summarize-slack-target"
+      ]
     },
     {
       "name": "select_user_target",
@@ -421,7 +421,7 @@
         "Inputs (from ctx.data)": [
           "    slack_target_query (str, optional): Pre-filled query used to filter Slack users.",
           "    slack_search_limit (int, optional): Maximum number of matches to return. Defaults to 20.",
-          "    slack_search_page_size (int, optional): Page size used while scanning Slack users. Defaults to 200.",
+          "    slack_search_page_size (int, optional): Page size used while scanning Slack users. Defaults to 1000.",
           "    slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50."
         ],
         "Outputs (saved to ctx.data)": [
