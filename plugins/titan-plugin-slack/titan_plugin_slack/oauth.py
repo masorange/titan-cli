@@ -512,7 +512,13 @@ class SlackOAuthFlow:
 
         server, thread, callback_event, callback_data = self._start_callback_server(session.state)
 
-        browser_started = self.browser_opener(authorize_url)
+        try:
+            browser_started = self.browser_opener(authorize_url)
+        except Exception:
+            server.server_close()
+            logger.error("slack_oauth_browser_open_failed")
+            raise
+
         if browser_started is False:
             server.server_close()
             logger.error("slack_oauth_browser_open_failed")
