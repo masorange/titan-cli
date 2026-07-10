@@ -182,6 +182,7 @@ class GitHubPlugin(TitanPlugin):
             build_thread_actions,
         )
         from .steps.select_cli_step import select_cli_step
+        from .steps.release_steps import select_release_step
         return {
             "create_pr": create_pr_step,
             "prompt_for_pr_title": prompt_for_pr_title_step,
@@ -213,6 +214,8 @@ class GitHubPlugin(TitanPlugin):
             "fetch_pr_review_bundle": fetch_pr_review_bundle,
             # CLI selection
             "select_cli": select_cli_step,
+            # Releases
+            "select_release": select_release_step,
             # Phase 2: cheap context steps (pre-AI)
             "build_change_manifest": build_change_manifest,
             "build_existing_comments_index": build_existing_comments_index,

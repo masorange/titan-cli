@@ -5,6 +5,7 @@ from titan_cli.engine import Error, Success
 from titan_cli.engine.context import WorkflowContext
 from titan_plugin_slack.models import UISlackChannel, UISlackTarget, UISlackUser
 from titan_plugin_slack.steps.target_steps import (
+    SEARCH_OTHER_TARGET,
     select_channel_target_step,
     select_default_or_search_channel_target_step,
     select_user_target_step,

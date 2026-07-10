@@ -364,7 +364,7 @@ def test_build_thread_review_contexts_resolves_referenced_commits_against_fork_h
     ctx = WorkflowContext(secrets=Mock())
     ctx.textual = _FakeTextual()
     ctx.github = Mock()
-    ctx.data["review_pr"] = _make_pr(is_cross_repository=True, head_repository_name="fork-repo")
+    ctx.data["review_pr"] = _make_pr(is_cross_repository=True, author_name="author", head_repository_name="fork-repo")
     ctx.data["thread_review_candidates"] = [
         ThreadReviewCandidate(
             thread_id="thread_123",

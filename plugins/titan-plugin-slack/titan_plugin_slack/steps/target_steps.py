@@ -9,11 +9,12 @@ from ..operations import (
     build_user_target,
     normalize_search_query,
 )
+from .summary_steps import select_target_step
 
 
 MIN_QUERY_LENGTH = 2
 MAX_TARGET_OPTIONS = 20
-SEARCH_ANOTHER_CHANNEL = "__search_another_channel__"
+SEARCH_OTHER_TARGET = "__search_other_target__"
 
 
 def select_user_target_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -114,7 +115,11 @@ def select_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
 
 def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Select a Slack channel from the configured defaults or search for another one.
+    Select a Slack channel from the configured defaults, or search people/channels.
+
+    When no default channels are configured, or when the user chooses to search
+    instead of using a default, this falls back to the unified person-or-channel
+    search (`select_target_step`).
 
     Requires:
         ctx.slack: An initialized SlackClient.
@@ -122,19 +127,19 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
     Inputs (from ctx.data):
         slack_target_query (str, optional): Pre-filled query used if the user chooses to search manually.
         slack_search_limit (int, optional): Maximum number of matches to return during manual search. Defaults to 20.
-        slack_search_page_size (int, optional): Page size used while scanning Slack channels. Defaults to 1000.
+        slack_search_page_size (int, optional): Page size used while scanning Slack. Defaults to 1000.
         slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.
         slack_exclude_archived (bool, optional): Whether to exclude archived channels while searching. Defaults to True.
 
     Outputs (saved to ctx.data):
         slack_target (UISlackTarget): Canonical selected Slack target.
-        slack_target_type (str): Selected target type (`channel`).
-        slack_target_id (str): Slack channel ID.
+        slack_target_type (str): Selected target type (`user` or `channel`).
+        slack_target_id (str): Slack target identifier.
         slack_target_name (str): User-facing target name.
         slack_target_query (str): Query used to resolve the selection, when manual search was used.
 
     Returns:
-        Success: If the channel target is selected successfully.
+        Success: If the target is selected successfully.
         Error: If Slack is unavailable, the configured channel cannot be resolved, or no match is selected.
     """
     if not ctx.textual:
@@ -145,7 +150,7 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
 
     configured_channels = getattr(ctx.slack, "default_channels", []) or []
     if not configured_channels:
-        return select_channel_target_step(ctx)
+        return select_target_step(ctx)
 
     ctx.textual.begin_step("Select Slack Channel Target")
 
@@ -159,14 +164,14 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
     ]
     options.append(
         OptionItem(
-            value=SEARCH_ANOTHER_CHANNEL,
-            title="Search another channel",
-            description="Look up a channel by name",
+            value=SEARCH_OTHER_TARGET,
+            title="Search for someone or another channel",
+            description="Look up a person or channel by name",
         )
     )
 
     selected = ctx.textual.ask_option(
-        "Select a configured channel or search for another one:",
+        "Select a configured channel or search for someone or another channel:",
         options=options,
     )
     if not selected:
@@ -174,9 +179,9 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
         ctx.textual.end_step("error")
         return Error("No Slack channel was selected.")
 
-    if selected == SEARCH_ANOTHER_CHANNEL:
+    if selected == SEARCH_OTHER_TARGET:
         ctx.textual.end_step("skip")
-        return select_channel_target_step(ctx)
+        return select_target_step(ctx)
 
     configured_channel_name = str(selected)
     resolved = _resolve_channel_by_name(ctx, configured_channel_name)

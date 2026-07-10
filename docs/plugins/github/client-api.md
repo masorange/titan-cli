@@ -523,6 +523,42 @@ client.create_release(
 - `verify_tag`: Optional. Verify that the tag exists before creating the release.
 - `prerelease`: Optional. Mark the release as prerelease.
 
+### List releases
+
+Lists published GitHub releases for the repository.
+
+**Call:**
+
+```python
+client.list_releases(
+    limit=15,
+    exclude_drafts=True,
+)
+```
+
+**Parameters:**
+
+- `limit`: Optional. Maximum number of releases to return. Defaults to `15`.
+- `exclude_drafts`: Optional. Exclude draft releases from the result. Defaults to `True`.
+
+Returns a `ClientResult[List[UIRelease]]`. Each `UIRelease` includes `tag_name`, `title`, `url`, `is_prerelease`, `published_at`, and `is_draft`. The `body` field is left empty for list results — call `get_release` to fetch the full notes.
+
+### Get a release
+
+Fetches a single GitHub release, including its full notes body.
+
+**Call:**
+
+```python
+client.get_release(tag_name="v1.2.0")
+```
+
+**Parameters:**
+
+- `tag_name`: Required. Tag of the release to fetch.
+
+Returns a `ClientResult[UIRelease]` with `body` populated with the release notes text.
+
 ---
 
 ## Team operations
