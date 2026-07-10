@@ -10,9 +10,21 @@ class IdentityResolver:
     """Resolve Slack users and channels by ID with per-client caching."""
 
     def __init__(self, web_client):
-        self.web_client = web_client
+        self._web_client = web_client
         self._user_cache: dict[str, UISlackUser] = {}
         self._channel_cache: dict[str, UISlackChannel] = {}
+
+    @property
+    def web_client(self):
+        """Expose the underlying Slack WebClient."""
+        return self._web_client
+
+    @web_client.setter
+    def web_client(self, value) -> None:
+        """Replace the WebClient and invalidate caches tied to the old client."""
+        self._web_client = value
+        self._user_cache.clear()
+        self._channel_cache.clear()
 
     @staticmethod
     def _map_user(member: dict) -> NetworkSlackUser:
