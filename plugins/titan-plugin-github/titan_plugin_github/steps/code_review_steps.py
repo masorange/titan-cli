@@ -6,6 +6,7 @@ AI analysis combined with project-specific skill guidelines.
 """
 import re
 import threading
+import time
 from difflib import SequenceMatcher
 from typing import List, Optional
 
@@ -1944,8 +1945,24 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 detail="prompt still too large",
             )
             continue
+        worktree_reference_count = sum(
+            1 for entry in batch.files_context.values() if entry.worktree_reference
+        )
+        adapter_started_at = time.monotonic()
         with ctx.textual.loading(f"Asking {cli_display} to review {len(batch.files_context)} file(s) in {batch.batch_id}…"):
             response = adapter.execute(prompt, cwd=project_root, timeout=300)
+        adapter_duration_seconds = time.monotonic() - adapter_started_at
+        logger.info(
+            "findings_batch_adapter_call",
+            batch_id=batch.batch_id,
+            cli=adapter.cli_name.value,
+            files_context=len(batch.files_context),
+            worktree_reference_count=worktree_reference_count,
+            prompt_actual_chars=len(prompt),
+            duration_seconds=round(adapter_duration_seconds, 3),
+            exit_code=response.exit_code,
+            timed_out=response.exit_code == 124,
+        )
         _log_ai_response(
             step_name="ai_review_findings",
             cli_name=adapter.cli_name.value,
@@ -2746,8 +2763,19 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
 
     cli_display = adapter.cli_name.value.capitalize()
     thread_count = len(contexts)
+    adapter_started_at = time.monotonic()
     with ctx.textual.loading(f"Asking {cli_display} to analyse {thread_count} thread(s)…"):
         response = adapter.execute(prompt, cwd=project_root, timeout=300)
+    adapter_duration_seconds = time.monotonic() - adapter_started_at
+    logger.info(
+        "thread_resolution_adapter_call",
+        cli=adapter.cli_name.value,
+        thread_count=thread_count,
+        prompt_actual_chars=len(prompt),
+        duration_seconds=round(adapter_duration_seconds, 3),
+        exit_code=response.exit_code,
+        timed_out=response.exit_code == 124,
+    )
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no thread decisions")
