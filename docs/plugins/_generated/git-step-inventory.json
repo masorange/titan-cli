@@ -199,19 +199,27 @@
       "group": "Worktrees",
       "module": "titan_plugin_git.steps.create_worktree_step",
       "function": "create_worktree",
-      "summary": "Create a temporary git worktree in detached HEAD mode from remote main branch.",
+      "summary": "Create a temporary git worktree in detached HEAD mode from a remote base branch.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    base_branch (str, optional): Base branch to create the worktree from. Defaults to the git plugin's configured main branch.",
+          "    path (str, optional): Custom path for the worktree. Defaults to a temporary directory."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    worktree_path (str): Path to the created worktree.",
+          "    base_branch (str): Base branch name (e.g., \"develop\", \"main\" or \"rc/26.18.2\")."
+        ],
         "Returns": [
           "    Success: If the worktree is created successfully.",
-          "    Error: If the Git client is unavailable or worktree creation fails.",
+          "    Error: If the Git client is unavailable, no base branch can be resolved, or worktree creation fails.",
           "Example:",
           "    ```yaml",
           "    - name: \"Create Worktree\"",
           "      plugin: git",
           "      step: create_worktree",
+          "      params:",
+          "        base_branch: \"${base_branch}\"",
           "    ```"
         ]
       },

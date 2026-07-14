@@ -51,8 +51,7 @@ class GitClient:
         self,
         repo_path: str = ".",
         main_branch: str = "main",
-        default_remote: str = "origin",
-        rc_branch: str | None = None,
+        default_remote: str = "origin"
     ):
         """
         Initialize Git client.
@@ -65,7 +64,6 @@ class GitClient:
         self.repo_path = repo_path
         self.main_branch = main_branch
         self.default_remote = default_remote
-        self.rc_branch = rc_branch
 
         # Initialize network layer
         self.network = GitNetwork(repo_path=repo_path)

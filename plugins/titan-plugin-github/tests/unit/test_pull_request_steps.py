@@ -172,3 +172,44 @@ def test_create_pr_step_uses_context_base_branch():
     assert isinstance(result, Success)
     github.create_pull_request.assert_called_once()
     assert github.create_pull_request.call_args.kwargs["base"] == "rc/26.18"
+
+
+def test_create_pr_step_falls_back_to_main_branch():
+    github = Mock()
+    github.config.auto_assign_prs = False
+    github.create_pull_request.return_value = ClientSuccess(
+        data=Mock(number=4106, url="https://github.example/pr/4106"),
+        message="ok",
+    )
+    ctx = make_context(
+        github,
+        pr_title="notes: Add release notes for 26.18",
+        pr_body="Release notes",
+        pr_head_branch="notes/release-notes",
+    )
+    ctx.git = Mock(main_branch="develop")
+
+    result = create_pr_step(ctx)
+
+    assert isinstance(result, Success)
+    github.create_pull_request.assert_called_once()
+    assert github.create_pull_request.call_args.kwargs["base"] == "develop"
+
+
+def test_create_pr_step_errors_without_base_branch():
+    github = Mock()
+    github.config.auto_assign_prs = False
+    ctx = make_context(
+        github,
+        pr_title="notes: Add release notes for 26.18",
+        pr_body="Release notes",
+        pr_head_branch="notes/release-notes",
+    )
+    ctx.git = Mock(main_branch=None)
+
+    result = create_pr_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "pr_base_branch" in result.message
+    github.create_pull_request.assert_not_called()
+    ctx.textual.end_step.assert_called_once_with("error")

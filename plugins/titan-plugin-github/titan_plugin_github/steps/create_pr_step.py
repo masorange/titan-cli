@@ -17,6 +17,7 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
         pr_title (str): The title of the pull request.
         pr_body (str, optional): The body/description of the pull request.
         pr_head_branch (str): The branch with the new changes.
+        pr_base_branch (str, optional): The branch to merge into. Defaults to the git plugin's configured main branch.
         pr_is_draft (bool, optional): Whether to create the PR as a draft. Defaults to False.
         pr_reviewers (list, optional): List of GitHub usernames or team slugs to request review from.
         pr_excluded_reviewers (list, optional): List of GitHub usernames to exclude from team expansion.
@@ -56,12 +57,19 @@ def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
     head = ctx.get("pr_head_branch")
     is_draft = ctx.get("pr_is_draft", False)  # Default to not a draft
 
-    if not all([title, base, head]):
-        ctx.textual.error_text("Missing required context for creating a pull request: pr_title, pr_head_branch.")
+    missing = [
+        name
+        for name, value in (("pr_title", title), ("pr_head_branch", head))
+        if not value
+    ]
+    if not base:
+        missing.append("pr_base_branch (or git plugin 'main_branch' config)")
+
+    if missing:
+        error_msg = f"Missing required context for creating a pull request: {', '.join(missing)}."
+        ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
-        return Error(
-            "Missing required context for creating a pull request: pr_title, pr_head_branch."
-        )
+        return Error(error_msg)
 
     # 3. Determine assignees if auto-assign is enabled
     assignees = ctx.get("pr_assignees")
