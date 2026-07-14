@@ -482,8 +482,6 @@ How to read these contracts:
       step: format_markdown_message
     ```
 
-    **Used by built-in workflows:** `post-message`
-
     **Available to later steps:** `slack_message_text`
 
     **Inputs (from ctx.data)**
@@ -511,8 +509,50 @@ How to read these contracts:
     | `Error` | - | If the Textual UI context is not available. |
 
 
+??? info "`format_blockkit_message`"
+    Convert a standard Markdown message into Slack Block Kit blocks, if provided.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: slack
+      step: format_blockkit_message
+    ```
+
+    **Used by built-in workflows:** `post-message`
+
+    **Available to later steps:** `slack_message_blocks`, `slack_message_text`
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `slack_message_blocks` | list[dict], optional | Already Slack-ready blocks. If present, |
+    | this step does nothing and leaves them untouched. | - | - |
+    | `slack_message_markdown` | str, optional | Standard Markdown text to convert to Block Kit |
+    | blocks. Ignored when `slack_message_blocks` is already present. | - | - |
+    | `slack_message_text` | str, optional | Slack-ready fallback text. Left untouched if already |
+    | present; otherwise derived from `slack_message_markdown`. | - | - |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `slack_message_blocks` | list[dict] | Block Kit blocks, when `slack_message_markdown` was converted. |
+    | `slack_message_text` | str | Slack mrkdwn fallback text, when not already present. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Skip` | `slack_message_blocks`, `slack_message_text` | If `slack_message_blocks` is already set, or neither input is provided (a later step |
+    | `can still prompt the user to compose one interactively).` | - | - |
+    | `Success` | `slack_message_blocks`, `slack_message_text` | If `slack_message_markdown` was converted successfully. |
+    | `Error` | - | If the Textual UI context is not available. |
+
+
 ??? info "`post_message`"
-    Post a plain-text Slack message to the prepared conversation.
+    Post a Slack message to the prepared conversation.
 
     **Workflow usage**
 
@@ -537,6 +577,7 @@ How to read these contracts:
     |------|------|-------------|
     | `slack_conversation_id` | str | Slack conversation ID to post into. |
     | `slack_message_text` | str | Message body to post. |
+    | `slack_message_blocks` | list[dict], optional | Block Kit blocks to post alongside the text. |
     | `slack_thread_ts` | str, optional | Thread timestamp for replies. |
 
     **Outputs (saved to ctx.data)**

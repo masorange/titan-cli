@@ -23,6 +23,26 @@ def test_post_message_returns_posted_message() -> None:
     assert result.data.text == "Hello there"
 
 
+def test_post_message_forwards_blocks_to_chat_post_message() -> None:
+    web_client = MagicMock()
+    web_client.chat_postMessage.return_value = {
+        "ok": True,
+        "channel": "D123",
+        "ts": "123.456",
+        "message": {"text": "Hello there", "thread_ts": None},
+    }
+
+    service = MessageService(web_client)
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Hello there"}}]
+
+    result = service.post_message("D123", "Hello there", blocks=blocks)
+
+    assert isinstance(result, ClientSuccess)
+    web_client.chat_postMessage.assert_called_once_with(
+        channel="D123", text="Hello there", blocks=blocks, thread_ts=None
+    )
+
+
 def test_post_message_returns_client_error_on_api_failure() -> None:
     web_client = MagicMock()
     web_client.chat_postMessage.return_value = {"ok": False, "error": "missing_scope"}

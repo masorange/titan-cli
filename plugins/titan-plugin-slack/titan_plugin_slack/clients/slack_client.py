@@ -202,7 +202,10 @@ class SlackClient:
         channel_id: str,
         text: str,
         *,
+        blocks: list[dict] | None = None,
         thread_ts: str | None = None,
     ) -> ClientResult[UISlackPostedMessage]:
-        """Post a plain-text message to a Slack conversation."""
-        return self.message_service.post_message(channel_id, text, thread_ts=thread_ts)
+        """Post a message to a Slack conversation, optionally with Block Kit blocks."""
+        return self.message_service.post_message(
+            channel_id, text, blocks=blocks, thread_ts=thread_ts
+        )

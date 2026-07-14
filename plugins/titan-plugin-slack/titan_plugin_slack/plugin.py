@@ -198,6 +198,7 @@ class SlackPlugin(TitanPlugin):
         from .steps import (
             ai_summarize_messages_step,
             ensure_target_conversation_step,
+            format_blockkit_message_step,
             format_markdown_message_step,
             list_public_channels_step,
             list_users_step,
@@ -227,6 +228,7 @@ class SlackPlugin(TitanPlugin):
             "ai_summarize_messages": ai_summarize_messages_step,
             "open_direct_message": open_direct_message_step,
             "format_markdown_message": format_markdown_message_step,
+            "format_blockkit_message": format_blockkit_message_step,
             "prompt_message_body": prompt_message_body_step,
             "post_message": post_message_step,
         }

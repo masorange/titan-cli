@@ -43,5 +43,5 @@ def test_post_message_workflow_structure() -> None:
     ]
     assert workflow["steps"][1]["step"] == "select_default_or_search_channel_target"
     assert workflow["steps"][3]["step"] == "prompt_message_body"
-    assert workflow["steps"][4]["step"] == "format_markdown_message"
+    assert workflow["steps"][4]["step"] == "format_blockkit_message"
     assert all("on_error" not in step for step in workflow["steps"])

@@ -5,6 +5,7 @@ from titan_cli.engine import Error, Skip, Success
 from titan_cli.engine.context import WorkflowContext
 from titan_plugin_slack.models import UISlackConversation, UISlackPostedMessage, UISlackTarget
 from titan_plugin_slack.steps.message_steps import (
+    format_blockkit_message_step,
     format_markdown_message_step,
     open_direct_message_step,
     prepare_message_destination_step,
@@ -165,3 +166,66 @@ def test_format_markdown_message_step_skips_when_nothing_provided() -> None:
 
     assert isinstance(result, Skip)
     assert "slack_message_text" not in ctx.data
+
+
+def test_format_blockkit_message_step_skips_when_blocks_already_present() -> None:
+    ctx = _build_context()
+    ctx.data["slack_message_blocks"] = [{"type": "divider"}]
+    ctx.data["slack_message_markdown"] = "**should be ignored**"
+
+    result = format_blockkit_message_step(ctx)
+
+    assert isinstance(result, Skip)
+    assert ctx.data["slack_message_blocks"] == [{"type": "divider"}]
+
+
+def test_format_blockkit_message_step_converts_markdown() -> None:
+    ctx = _build_context()
+    ctx.data["slack_message_markdown"] = "# Release 0.7.0\n\nBody text."
+
+    result = format_blockkit_message_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_message_blocks"] == [
+        {"type": "header", "text": {"type": "plain_text", "text": "Release 0.7.0"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "Body text."}},
+    ]
+    assert result.metadata["slack_message_text"] == "*Release 0.7.0*\n\nBody text."
+
+
+def test_format_blockkit_message_step_keeps_existing_text_fallback() -> None:
+    ctx = _build_context()
+    ctx.data["slack_message_markdown"] = "# Release 0.7.0"
+    ctx.data["slack_message_text"] = "Custom fallback"
+
+    result = format_blockkit_message_step(ctx)
+
+    assert isinstance(result, Success)
+    assert "slack_message_text" not in result.metadata
+
+
+def test_format_blockkit_message_step_skips_when_nothing_provided() -> None:
+    ctx = _build_context()
+
+    result = format_blockkit_message_step(ctx)
+
+    assert isinstance(result, Skip)
+    assert "slack_message_blocks" not in ctx.data
+
+
+def test_post_message_step_forwards_blocks_to_client() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_id"] = "D123"
+    ctx.data["slack_message_text"] = "Hello there"
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Hello there"}}]
+    ctx.data["slack_message_blocks"] = blocks
+    posted = UISlackPostedMessage(channel="D123", ts="123.456", text="Hello there")
+    ctx.slack.post_message.return_value = ClientSuccess(data=posted)
+
+    result = post_message_step(ctx)
+
+    assert isinstance(result, Success)
+    ctx.slack.post_message.assert_called_once_with(
+        "D123", "Hello there", blocks=blocks, thread_ts=None
+    )

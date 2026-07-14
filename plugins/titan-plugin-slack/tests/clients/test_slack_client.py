@@ -273,5 +273,19 @@ def test_post_message_delegates_to_message_service() -> None:
 
     assert isinstance(result, ClientSuccess)
     client.message_service.post_message.assert_called_once_with(
-        "D123", "Hello", thread_ts="123.456"
+        "D123", "Hello", blocks=None, thread_ts="123.456"
+    )
+
+
+def test_post_message_forwards_blocks_to_message_service() -> None:
+    client = SlackClient(user_token="xoxp-test-token")
+    client.message_service = MagicMock()
+    client.message_service.post_message.return_value = ClientSuccess(data=MagicMock())
+    blocks = [{"type": "divider"}]
+
+    result = client.post_message("D123", "Hello", blocks=blocks)
+
+    assert isinstance(result, ClientSuccess)
+    client.message_service.post_message.assert_called_once_with(
+        "D123", "Hello", blocks=blocks, thread_ts=None
     )

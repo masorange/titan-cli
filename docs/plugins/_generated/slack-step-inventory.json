@@ -55,6 +55,10 @@
           "summary": "Convert a standard Markdown message into Slack mrkdwn, if provided."
         },
         {
+          "name": "format_blockkit_message",
+          "summary": "Convert a standard Markdown message into Slack Block Kit blocks, if provided."
+        },
+        {
           "name": "post_message",
           "summary": "Post the prepared message to the selected Slack conversation."
         }
@@ -140,6 +144,37 @@
       ]
     },
     {
+      "name": "format_blockkit_message",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "format_blockkit_message_step",
+      "summary": "Convert a standard Markdown message into Slack Block Kit blocks, if provided.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    slack_message_blocks (list[dict], optional): Already Slack-ready blocks. If present,",
+          "        this step does nothing and leaves them untouched.",
+          "    slack_message_markdown (str, optional): Standard Markdown text to convert to Block Kit",
+          "        blocks. Ignored when `slack_message_blocks` is already present.",
+          "    slack_message_text (str, optional): Slack-ready fallback text. Left untouched if already",
+          "        present; otherwise derived from `slack_message_markdown`."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_message_blocks (list[dict]): Block Kit blocks, when `slack_message_markdown` was converted.",
+          "    slack_message_text (str): Slack mrkdwn fallback text, when not already present."
+        ],
+        "Returns": [
+          "    Skip: If `slack_message_blocks` is already set, or neither input is provided (a later step",
+          "        can still prompt the user to compose one interactively).",
+          "    Success: If `slack_message_markdown` was converted successfully.",
+          "    Error: If the Textual UI context is not available."
+        ]
+      },
+      "used_by_workflows": [
+        "post-message"
+      ]
+    },
+    {
       "name": "format_markdown_message",
       "group": "Messaging",
       "module": "titan_plugin_slack.steps.message_steps",
@@ -163,9 +198,7 @@
           "    Error: If the Textual UI context is not available."
         ]
       },
-      "used_by_workflows": [
-        "post-message"
-      ]
+      "used_by_workflows": []
     },
     {
       "name": "list_public_channels",
@@ -247,7 +280,7 @@
       "group": "Messaging",
       "module": "titan_plugin_slack.steps.message_steps",
       "function": "post_message_step",
-      "summary": "Post a plain-text Slack message to the prepared conversation.",
+      "summary": "Post a Slack message to the prepared conversation.",
       "docstring_sections": {
         "Requires": [
           "    ctx.slack: An initialized SlackClient."
@@ -255,6 +288,7 @@
         "Inputs (from ctx.data)": [
           "    slack_conversation_id (str): Slack conversation ID to post into.",
           "    slack_message_text (str): Message body to post.",
+          "    slack_message_blocks (list[dict], optional): Block Kit blocks to post alongside the text.",
           "    slack_thread_ts (str, optional): Thread timestamp for replies."
         ],
         "Outputs (saved to ctx.data)": [

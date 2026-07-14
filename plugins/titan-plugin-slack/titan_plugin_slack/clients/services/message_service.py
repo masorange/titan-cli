@@ -51,13 +51,15 @@ class MessageService:
         channel_id: str,
         text: str,
         *,
+        blocks: list[dict] | None = None,
         thread_ts: str | None = None,
     ) -> ClientResult[UISlackPostedMessage]:
-        """Post a plain-text Slack message to a conversation."""
+        """Post a Slack message to a conversation, optionally with Block Kit blocks."""
         try:
             response = self.web_client.chat_postMessage(
                 channel=channel_id,
                 text=text,
+                blocks=blocks,
                 thread_ts=thread_ts,
             )
         except SlackApiError as exc:

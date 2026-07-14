@@ -93,15 +93,44 @@ Open or reuse a direct message conversation with a Slack user.
 
 - `user_id`: Required Slack user ID.
 
-### `post_message(channel_id, text, thread_ts=None)`
+### `post_message(channel_id, text, blocks=None, thread_ts=None)`
 
-Post a plain-text message to a Slack conversation.
+Post a message to a Slack conversation, optionally with Block Kit blocks.
 
 **Parameters:**
 
 - `channel_id`: Required conversation ID.
-- `text`: Required message text.
+- `text`: Required message text. Always sent, even when `blocks` is provided - Slack uses it as
+  the fallback for notifications and clients that can't render blocks.
+- `blocks`: Optional list of Block Kit block dicts (e.g. built with `SlackBlockFormatter`, see
+  [Formatting helpers](#formatting-helpers) below) rendered instead of the plain `text`.
 - `thread_ts`: Optional thread timestamp for replies.
+
+---
+
+## Formatting helpers
+
+Two stateless formatter classes convert standard Markdown into Slack-ready content; neither
+calls the Slack API. Both live in `titan_plugin_slack` and share the same Markdown-recognition
+rules (headers, bold/italic/strikethrough, links, bullet lists, pipe tables, horizontal rules),
+so a document converts consistently whichever one a caller uses.
+
+### `SlackFormatter.to_mrkdwn(text)`
+
+Converts standard Markdown into a single Slack `mrkdwn` string (bold becomes `*bold*`, headers
+become bold lines, tables render as a fixed-width grid inside a code block). This is what
+`text` should always contain, whether or not `blocks` is also sent.
+
+### `SlackBlockFormatter.to_blocks(text)`
+
+Converts the same kind of Markdown into a list of Block Kit block dicts - one `header`,
+`divider`, or `section` block per structural element - ready to pass as `post_message`'s
+`blocks` parameter. Oversized sections are automatically split to stay under Slack's per-block
+text limit.
+
+`SlackBlockFormatter` also exposes builders for assembling blocks by hand instead of (or
+alongside) `to_blocks`: `section(text)`, `header(text)`, `divider()`, `context(text)`, and
+`fields(texts)` (up to 10 side-by-side mrkdwn fields in one section).
 
 ---
 

@@ -2,6 +2,7 @@
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Skip, Success, WorkflowContext, WorkflowResult
+from ..block_formatting import SlackBlockFormatter
 from ..formatting import SlackFormatter
 from ..models import UISlackConversation
 
@@ -162,6 +163,63 @@ def format_markdown_message_step(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 
+def format_blockkit_message_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Convert a standard Markdown message into Slack Block Kit blocks, if provided.
+
+    Leaves already Slack-ready blocks untouched, so a caller that already
+    built its own blocks (e.g. buttons via `SlackBlockFormatter.section`
+    and friends) is never double-converted. Also fills in `slack_message_text`
+    from the same Markdown when missing, since Slack uses it as the
+    notification/accessibility fallback for messages posted with `blocks`.
+
+    Inputs (from ctx.data):
+        slack_message_blocks (list[dict], optional): Already Slack-ready blocks. If present,
+            this step does nothing and leaves them untouched.
+        slack_message_markdown (str, optional): Standard Markdown text to convert to Block Kit
+            blocks. Ignored when `slack_message_blocks` is already present.
+        slack_message_text (str, optional): Slack-ready fallback text. Left untouched if already
+            present; otherwise derived from `slack_message_markdown`.
+
+    Outputs (saved to ctx.data):
+        slack_message_blocks (list[dict]): Block Kit blocks, when `slack_message_markdown` was converted.
+        slack_message_text (str): Slack mrkdwn fallback text, when not already present.
+
+    Returns:
+        Skip: If `slack_message_blocks` is already set, or neither input is provided (a later step
+            can still prompt the user to compose one interactively).
+        Success: If `slack_message_markdown` was converted successfully.
+        Error: If the Textual UI context is not available.
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Format Slack Message (Block Kit)")
+
+    if ctx.get("slack_message_blocks"):
+        ctx.textual.dim_text("Slack message blocks already provided - using as-is.")
+        ctx.textual.end_step("skip")
+        return Skip("Slack message blocks already provided")
+
+    markdown = ctx.get("slack_message_markdown")
+    if not markdown:
+        ctx.textual.dim_text("No message provided - you will be asked to compose one.")
+        ctx.textual.end_step("skip")
+        return Skip("No message provided")
+
+    blocks = SlackBlockFormatter.to_blocks(markdown)
+    metadata = {"slack_message_blocks": blocks}
+    if not ctx.get("slack_message_text"):
+        metadata["slack_message_text"] = SlackFormatter.to_mrkdwn(markdown)
+
+    ctx.textual.success_text("Converted Markdown message to Slack Block Kit blocks")
+    ctx.textual.end_step("success")
+    return Success(
+        "Converted Markdown message to Slack Block Kit blocks",
+        metadata=metadata,
+    )
+
+
 def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Capture a multiline Slack message for later formatting and posting.
@@ -220,7 +278,12 @@ def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
 
 def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Post a plain-text Slack message to the prepared conversation.
+    Post a Slack message to the prepared conversation.
+
+    Posts Block Kit blocks when `slack_message_blocks` is present in context
+    (e.g. produced by `format_blockkit_message`), falling back to a plain
+    mrkdwn message otherwise. `slack_message_text` is always sent alongside
+    blocks, since Slack uses it as the notification/accessibility fallback.
 
     Requires:
         ctx.slack: An initialized SlackClient.
@@ -228,6 +291,7 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
     Inputs (from ctx.data):
         slack_conversation_id (str): Slack conversation ID to post into.
         slack_message_text (str): Message body to post.
+        slack_message_blocks (list[dict], optional): Block Kit blocks to post alongside the text.
         slack_thread_ts (str, optional): Thread timestamp for replies.
 
     Outputs (saved to ctx.data):
@@ -262,11 +326,13 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Slack message text not found in context")
 
     thread_ts = ctx.get("slack_thread_ts")
+    blocks = ctx.get("slack_message_blocks")
 
     with ctx.textual.loading("Posting Slack message..."):
         result = ctx.slack.post_message(
             conversation_id,
             message_text,
+            blocks=blocks,
             thread_ts=thread_ts,
         )
 
@@ -292,6 +358,7 @@ __all__ = [
     "prepare_message_destination_step",
     "open_direct_message_step",
     "format_markdown_message_step",
+    "format_blockkit_message_step",
     "prompt_message_body_step",
     "post_message_step",
 ]
