@@ -14,12 +14,14 @@ from titan_plugin_github.models.review_models import (
     ReferencedCommitContext,
     ReviewStrategy,
     ThreadReviewCandidate,
+    ThreadReviewContext,
 )
 from titan_plugin_github.models.review_enums import FileChangeStatus
 from titan_plugin_github.models.view import UIComment, UICommentThread, UIFileChange, UIPullRequest
 import titan_plugin_github.steps.code_review_steps as code_review_steps
 from titan_plugin_github.steps.code_review_steps import (
     ai_review_findings,
+    ai_thread_resolution,
     build_thread_review_candidates,
     build_thread_review_contexts,
     fetch_pr_review_bundle,
@@ -536,3 +538,95 @@ def test_ai_review_findings_splits_oversized_batch_via_prompt_budget_manager(mon
     assert len(fake_adapter.executed_prompts) == 2
     assert ctx.data["raw_findings"] == []
     assert ctx.data["ai_findings_failed"] is False
+
+
+class _FakeFencedAdapter:
+    """Fake headless adapter returning a markdown-fenced JSON array, once."""
+
+    cli_name = SupportedCLI.CLAUDE
+
+    def __init__(self, stdout: str):
+        self._stdout = stdout
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None) -> HeadlessResponse:
+        return HeadlessResponse(stdout=self._stdout, stderr="", exit_code=0)
+
+
+def test_ai_review_findings_parses_markdown_fenced_response(monkeypatch):
+    """review-batching-006: ai_review_findings must go through the centralized
+    `extract_json_payload()` helper, which strips markdown fences — not a
+    bespoke inline parser."""
+    fake_adapter = _FakeFencedAdapter('```json\n[{"title": "Bug"}]\n```')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_findings"] == [{"title": "Bug"}]
+    assert ctx.data["ai_findings_failed"] is False
+
+
+def test_ai_thread_resolution_parses_markdown_fenced_response(monkeypatch):
+    """review-batching-006: ai_thread_resolution used to hand-roll its own fence
+    stripping and JSON-slice extraction. It must now share the same
+    `extract_json_payload()` helper as ai_review_findings/ai_review_plan."""
+    fake_adapter = _FakeFencedAdapter('```json\n[{"thread_id": "t1", "decision": "resolved"}]\n```')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["thread_review_contexts"] = [
+        ThreadReviewContext(
+            thread_id="t1",
+            comment_id=1,
+            main_comment_body="Please fix this",
+            main_comment_author="alex",
+        )
+    ]
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_thread_resolution(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_thread_decisions"] == [{"thread_id": "t1", "decision": "resolved"}]
+
+
+def test_ai_thread_resolution_falls_back_to_empty_decisions_on_parse_failure(monkeypatch):
+    fake_adapter = _FakeFencedAdapter("I could not analyse these threads.")
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["thread_review_contexts"] = [
+        ThreadReviewContext(
+            thread_id="t1",
+            comment_id=1,
+            main_comment_body="Please fix this",
+            main_comment_author="alex",
+        )
+    ]
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_thread_resolution(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_thread_decisions"] == []

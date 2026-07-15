@@ -26,6 +26,7 @@ from ..models.review_models import (
 )
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
+from ..operations.ai_response_parsing_operations import extract_json_payload
 from ..operations.code_review_operations import (
     select_files_for_review,
     compute_diff_stat,
@@ -288,24 +289,6 @@ def _show_review_plan_validation_summary(ctx: WorkflowContext, plan) -> None:
     ctx.textual.dim_text(
         f"Validated plan: {focus_count} focus file(s) · {axes_count} axes · {extra_count} extra context request(s)"
     )
-
-
-def _strip_markdown_fences(text: str) -> str:
-    """Remove outer markdown code fences from a CLI response."""
-    stripped = text.strip()
-    if not stripped.startswith("```"):
-        return stripped
-    lines = stripped.split("\n")
-    return "\n".join(lines[1:-1]) if len(lines) > 2 else stripped
-
-
-def _extract_json_slice(text: str, opening: str, closing: str, label: str) -> str:
-    """Extract the outermost JSON object or array substring from a response."""
-    start = text.find(opening)
-    end = text.rfind(closing) + 1
-    if start == -1 or end == 0:
-        raise ValueError(f"No JSON {label} found in response")
-    return text[start:end]
 
 
 def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payload: dict) -> tuple[dict, list[dict]]:
@@ -1350,7 +1333,6 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     )
     from ..models.review_models import ReviewPlan
     from pydantic import ValidationError
-    import json
 
     if strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS:
         fallback = build_default_review_plan(
@@ -1439,11 +1421,18 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         return Success("Default review plan used (CLI error)", metadata={"review_plan": fallback})
 
     # Parse JSON response
-    try:
-        text = _strip_markdown_fences(response.stdout)
-        plan = ReviewPlan.model_validate_json(_extract_json_slice(text, "{", "}", "object"))
-    except (json.JSONDecodeError, ValidationError, ValueError) as e:
-        ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
+    parse_error: Optional[str] = None
+    match extract_json_payload(response.stdout, kind="object"):
+        case ClientSuccess(data=payload):
+            try:
+                plan = ReviewPlan.model_validate(payload)
+            except ValidationError as e:
+                parse_error = str(e)
+        case ClientError(error_message=err):
+            parse_error = err
+
+    if parse_error is not None:
+        ctx.textual.warning_text(f"Plan parsing failed ({parse_error}) — using default plan")
         fallback = build_default_review_plan(
             candidates,
             excluded_files,
@@ -1804,7 +1793,6 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         build_findings_prompt_parts,
         summarize_findings_prompt_parts,
     )
-    import json
 
     adapter = _resolve_headless_adapter(cli_preference)
 
@@ -1925,10 +1913,8 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             )
             continue
 
-        try:
-            text = _strip_markdown_fences(response.stdout)
-            raw = json.loads(_extract_json_slice(text, "[", "]", "array"))
-            if isinstance(raw, list):
+        match extract_json_payload(response.stdout, kind="array"):
+            case ClientSuccess(data=raw) if isinstance(raw, list):
                 aggregated_raw.extend(raw)
                 _render_findings_batch_result(
                     ctx,
@@ -1936,15 +1922,17 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     status="success",
                     findings_count=len(raw),
                 )
-        except (json.JSONDecodeError, ValueError) as e:
-            findings_failed = True
-            logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=str(e))
-            _render_findings_batch_result(
-                ctx,
-                batch.batch_id,
-                status="failed",
-                detail="parse error",
-            )
+            case ClientSuccess():
+                pass
+            case ClientError(error_message=err):
+                findings_failed = True
+                logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=err)
+                _render_findings_batch_result(
+                    ctx,
+                    batch.batch_id,
+                    status="failed",
+                    detail="parse error",
+                )
 
     if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
         candidates = ctx.get("review_candidates", [])
@@ -2686,8 +2674,6 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No thread_review_contexts in context")
 
-    import json
-
     adapter = _resolve_headless_adapter(cli_preference)
 
     if not adapter:
@@ -2723,21 +2709,14 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         return Success("No decisions (CLI error)", metadata={"raw_thread_decisions": []})
 
     # Parse JSON array response
-    try:
-        text = response.stdout.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-        start = text.find("[")
-        end = text.rfind("]") + 1
-        if start == -1 or end == 0:
-            raise ValueError("No JSON array found in response")
-        raw = json.loads(text[start:end])
-    except (json.JSONDecodeError, ValueError) as e:
-        ctx.textual.warning_text(f"Thread decisions parsing failed ({e}) — no decisions")
-        ctx.data["raw_thread_decisions"] = []
-        ctx.textual.end_step("success")
-        return Success("No decisions (parse error)", metadata={"raw_thread_decisions": []})
+    match extract_json_payload(response.stdout, kind="array"):
+        case ClientError(error_message=err):
+            ctx.textual.warning_text(f"Thread decisions parsing failed ({err}) — no decisions")
+            ctx.data["raw_thread_decisions"] = []
+            ctx.textual.end_step("success")
+            return Success("No decisions (parse error)", metadata={"raw_thread_decisions": []})
+        case ClientSuccess(data=raw):
+            pass
 
     ctx.data["raw_thread_decisions"] = raw
     ctx.textual.success_text(f"✓ AI returned {len(raw)} thread decision(s)")
