@@ -153,3 +153,76 @@ def test_worktree_reference_entries_get_a_high_fixed_cost_and_split_batches():
     assert len(package.batches) == 2
     assert list(package.batches[0].files_context.keys()) == ["a.py"]
     assert list(package.batches[1].files_context.keys()) == ["b.py"]
+
+
+def test_worktree_reference_files_are_capped_at_one_per_batch_even_with_ample_budget():
+    """review-batching-005: even when the char budget alone would fit several
+    worktree_reference files in one batch, at most one is allowed per batch — each
+    additional one forces a new batch, since every worktree_reference file means another
+    full file read by the CLI regardless of prompt size."""
+    paths = ["a.py", "b.py", "c.py"]
+    diff = "".join(make_diff(path, "x" * 10) for path in paths)
+    plan = ReviewPlan(
+        focus_files=[
+            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE)
+            for path in paths
+        ],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    manifest = make_manifest(paths)
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional correctness",
+            description="Does it work",
+        )
+    ]
+    strategy = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=100_000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+
+    assert len(package.batches) == 3
+    assert [list(batch.files_context.keys()) for batch in package.batches] == [["a.py"], ["b.py"], ["c.py"]]
+
+
+def test_mixed_batch_closes_before_a_second_worktree_reference_file():
+    """A batch may hold inline files plus one worktree_reference file, but a second
+    worktree_reference file must start a new batch even though the char budget has room."""
+    plan = ReviewPlan(
+        focus_files=[
+            FileReviewPlan(path="inline.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY),
+            FileReviewPlan(path="a.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE),
+            FileReviewPlan(path="b.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE),
+        ],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    diff = "".join(make_diff(path, "x" * 10) for path in ["inline.py", "a.py", "b.py"])
+    manifest = make_manifest(["inline.py", "a.py", "b.py"])
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional correctness",
+            description="Does it work",
+        )
+    ]
+    strategy = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=100_000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+
+    assert len(package.batches) == 2
+    assert list(package.batches[0].files_context.keys()) == ["inline.py", "a.py"]
+    assert list(package.batches[1].files_context.keys()) == ["b.py"]

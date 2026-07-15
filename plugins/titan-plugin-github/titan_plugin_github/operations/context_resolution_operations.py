@@ -135,8 +135,13 @@ def build_review_context_package(
     for file_plan in plan.focus_files:
         entry = _resolve_file_context(file_plan, diff, strategy, cwd, manager)
         entry_chars = entry.approximate_chars or get_prompt_budget_manager().estimate_entry_chars(entry)
+        # A worktree_reference file forces the CLI to read it from disk itself, which is
+        # expensive regardless of how cheap its prompt text looks — cap how many of them
+        # can stack up in a single batch, on top of the regular char-budget check.
+        exceeds_worktree_reference_limit = entry.worktree_reference and _batch_has_worktree_reference(current_files)
 
-        if current_files and strategy.batching_enabled and current_chars + entry_chars > content_budget:
+        exceeds_char_budget = current_chars + entry_chars > content_budget
+        if current_files and strategy.batching_enabled and (exceeds_char_budget or exceeds_worktree_reference_limit):
             batches.append(
                 FocusContextBatch(
                     batch_id=f"batch_{batch_index}",
@@ -309,6 +314,10 @@ def _estimate_related_chars(related_files: dict[str, str]) -> int:
 
 def _estimate_comment_chars(comment_context: list[CommentContextEntry]) -> int:
     return sum(len(entry.title) + len(entry.summary) for entry in comment_context)
+
+
+def _batch_has_worktree_reference(files_context: dict[str, FileContextEntry]) -> bool:
+    return any(entry.worktree_reference for entry in files_context.values())
 
 
 def _log_file_context(entry: FileContextEntry, path: str) -> FileContextEntry:
