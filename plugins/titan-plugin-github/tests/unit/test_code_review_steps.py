@@ -583,6 +583,85 @@ def test_ai_review_findings_parses_markdown_fenced_response(monkeypatch):
     assert ctx.data["ai_findings_failed"] is False
 
 
+class _FakeSequentialAdapter:
+    """Fake headless adapter returning one canned stdout per call, in order."""
+
+    cli_name = SupportedCLI.CLAUDE
+
+    def __init__(self, stdouts: list[str]):
+        self._stdouts = list(stdouts)
+        self.calls: list[dict] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None) -> HeadlessResponse:
+        self.calls.append({"prompt": prompt, "cwd": cwd, "timeout": timeout})
+        stdout = self._stdouts[len(self.calls) - 1]
+        return HeadlessResponse(stdout=stdout, stderr="", exit_code=0)
+
+
+def test_ai_review_findings_recovers_via_reformat_retry(monkeypatch):
+    """review-batching-007: when the model returns prose instead of JSON
+    (exit_code 0), ai_review_findings must retry once, asking the same CLI to
+    reformat its own previous output, using a short timeout distinct from the
+    300s analysis timeout — and recover the findings if the retry succeeds."""
+    fake_adapter = _FakeSequentialAdapter(
+        ["Reported one finding: fix the null check.", '```json\n[{"title": "Bug"}]\n```']
+    )
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_findings"] == [{"title": "Bug"}]
+    assert ctx.data["ai_findings_failed"] is False
+    assert len(fake_adapter.calls) == 2
+    assert fake_adapter.calls[1]["timeout"] == 45
+    assert fake_adapter.calls[1]["timeout"] != fake_adapter.calls[0]["timeout"]
+
+
+def test_ai_review_findings_marks_batch_failed_when_reformat_retry_also_fails(monkeypatch):
+    fake_adapter = _FakeSequentialAdapter(
+        ["Reported one finding: fix the null check.", "Still no JSON here, sorry."]
+    )
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 2
+    assert ctx.data["ai_findings_failed"] is True
+
+
 def test_ai_thread_resolution_parses_markdown_fenced_response(monkeypatch):
     """review-batching-006: ai_thread_resolution used to hand-roll its own fence
     stripping and JSON-slice extraction. It must now share the same

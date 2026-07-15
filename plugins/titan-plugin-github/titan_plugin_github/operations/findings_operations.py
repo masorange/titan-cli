@@ -49,7 +49,7 @@ This is one bounded review batch. Review only the provided code and report actio
 ## Instructions
 {instructions}
 
-Respond ONLY with a valid JSON array matching this schema:
+Respond ONLY with a valid JSON array matching this schema. Do not include any prose before or after the JSON.
 {schema}
 """
 

@@ -7,7 +7,11 @@ sites) and a third hand-rolled copy inside `ai_thread_resolution`.
 """
 
 from titan_cli.core.result import ClientError, ClientSuccess
-from titan_plugin_github.operations.ai_response_parsing_operations import extract_json_payload
+from titan_plugin_github.operations.ai_response_parsing_operations import (
+    REFORMAT_RETRY_TIMEOUT_SECONDS,
+    build_json_reformat_prompt,
+    extract_json_payload,
+)
 
 
 def test_extract_json_payload_parses_plain_array():
@@ -70,3 +74,16 @@ def test_extract_json_payload_errors_on_malformed_json():
 
     assert isinstance(result, ClientError)
     assert result.error_code == "JSON_PARSE_ERROR"
+
+
+def test_build_json_reformat_prompt_includes_previous_output_and_asks_for_json_only():
+    prompt = build_json_reformat_prompt("Reported one finding: fix the null check.", kind="array")
+
+    assert "Reported one finding: fix the null check." in prompt
+    assert "array" in prompt
+    assert "do not redo the analysis" in prompt.lower()
+
+
+def test_reformat_retry_timeout_is_distinct_from_the_full_analysis_timeout():
+    assert REFORMAT_RETRY_TIMEOUT_SECONDS < 300
+    assert REFORMAT_RETRY_TIMEOUT_SECONDS < 240

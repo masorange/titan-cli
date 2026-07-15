@@ -26,7 +26,11 @@ from ..models.review_models import (
 )
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
-from ..operations.ai_response_parsing_operations import extract_json_payload
+from ..operations.ai_response_parsing_operations import (
+    REFORMAT_RETRY_TIMEOUT_SECONDS,
+    build_json_reformat_prompt,
+    extract_json_payload,
+)
 from ..operations.code_review_operations import (
     select_files_for_review,
     compute_diff_stat,
@@ -1628,6 +1632,20 @@ def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
         ctx.textual.dim_text(f"  {path}")
 
 
+def _retry_findings_batch_reformat(adapter, previous_stdout: str, cwd: Optional[str]):
+    """Ask the same CLI to reformat its own previous output as a JSON array, without
+    rerunning the full analysis, using a short timeout distinct from the main one."""
+    reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
+    response = adapter.execute(reformat_prompt, cwd=cwd, timeout=REFORMAT_RETRY_TIMEOUT_SECONDS)
+    if not response.succeeded:
+        return ClientError(
+            error_message=f"Reformat retry CLI call failed (exit {response.exit_code})",
+            error_code="REFORMAT_RETRY_FAILED",
+            log_level="warning",
+        )
+    return extract_json_payload(response.stdout, kind="array")
+
+
 def _render_findings_batch_split(ctx: WorkflowContext, batch_id: str, produced_batches: list[str]) -> None:
     """Render a batch split caused by prompt budget constraints."""
     ctx.textual.warning_text(
@@ -1925,14 +1943,30 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             case ClientSuccess():
                 pass
             case ClientError(error_message=err):
-                findings_failed = True
                 logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=err)
-                _render_findings_batch_result(
-                    ctx,
-                    batch.batch_id,
-                    status="failed",
-                    detail="parse error",
-                )
+                match _retry_findings_batch_reformat(adapter, response.stdout, project_root):
+                    case ClientSuccess(data=raw) if isinstance(raw, list):
+                        aggregated_raw.extend(raw)
+                        logger.debug(
+                            "findings_batch_reformat_recovered",
+                            batch_id=batch.batch_id,
+                            findings_count=len(raw),
+                        )
+                        _render_findings_batch_result(
+                            ctx,
+                            batch.batch_id,
+                            status="success",
+                            findings_count=len(raw),
+                        )
+                    case _:
+                        findings_failed = True
+                        logger.debug("findings_batch_reformat_failed", batch_id=batch.batch_id)
+                        _render_findings_batch_result(
+                            ctx,
+                            batch.batch_id,
+                            status="failed",
+                            detail="parse error",
+                        )
 
     if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
         candidates = ctx.get("review_candidates", [])
