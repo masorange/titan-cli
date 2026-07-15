@@ -76,6 +76,11 @@ nav:
       - Client API: plugins/jira/client-api.md
       - Workflow Steps: plugins/jira/workflow-steps.md
       - Built-in Workflows: plugins/jira/built-in-workflows.md
+    - Firebase:
+      - Overview: plugins/firebase/overview.md
+      - Client API: plugins/firebase/client-api.md
+      - Workflow Steps: plugins/firebase/workflow-steps.md
+      - Built-in Workflows: plugins/firebase/built-in-workflows.md
     - Slack:
       - Overview: plugins/slack/overview.md
       - Client API: plugins/slack/client-api.md

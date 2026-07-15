@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "titan-plugin-firebase"
+version = "0.1.0"
+description = "Firebase plugin for Titan CLI"
+authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
+packages = [{include = "titan_plugin_firebase"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+titan-cli = ">=0.6.0"
+requests = ">=2.31.0,<3.0.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.plugins."titan.plugins"]
+firebase = "titan_plugin_firebase.plugin:FirebasePlugin"

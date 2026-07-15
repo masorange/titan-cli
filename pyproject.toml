@@ -24,6 +24,7 @@ packages = [
     {include = "titan_plugin_git", from = "plugins/titan-plugin-git"},
     {include = "titan_plugin_github", from = "plugins/titan-plugin-github"},
     {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"},
+    {include = "titan_plugin_firebase", from = "plugins/titan-plugin-firebase"},
     {include = "titan_plugin_slack", from = "plugins/titan-plugin-slack"}
 ]
 
@@ -66,6 +67,7 @@ textual-dev = "^1.0.0"
 titan-plugin-git = {path = "plugins/titan-plugin-git", develop = true}
 titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}
 titan-plugin-jira = {path = "plugins/titan-plugin-jira", develop = true}
+titan-plugin-firebase = {path = "plugins/titan-plugin-firebase", develop = true}
 titan-plugin-slack = {path = "plugins/titan-plugin-slack", develop = true}
 
 [build-system]
@@ -79,6 +81,7 @@ titan = "titan_cli.cli:app"
 git = "titan_plugin_git.plugin:GitPlugin"
 github = "titan_plugin_github.plugin:GitHubPlugin"
 jira = "titan_plugin_jira.plugin:JiraPlugin"
+firebase = "titan_plugin_firebase.plugin:FirebasePlugin"
 slack = "titan_plugin_slack.plugin:SlackPlugin"
 
 [tool.pytest.ini_options]
@@ -87,6 +90,7 @@ testpaths = [
     "plugins/titan-plugin-git/tests",
     "plugins/titan-plugin-github/tests",
     "plugins/titan-plugin-jira/tests",
+    "plugins/titan-plugin-firebase/tests",
     "plugins/titan-plugin-slack/tests"
 ]
 python_files = ["test_*.py"]

@@ -1,0 +1,27 @@
+{
+  "plugin": "firebase",
+  "groups": [
+    {
+      "name": "Authentication",
+      "steps": [
+        {
+          "name": "firebase_login",
+          "summary": "Validate the current user's Google Cloud ADC session for Firebase workflows."
+        },
+        {
+          "name": "firebase_status",
+          "summary": "Report the current Firebase ADC authentication status."
+        }
+      ]
+    },
+    {
+      "name": "Remote Config",
+      "steps": [
+        {
+          "name": "firebase_remoteconfig_get",
+          "summary": "Read one Firebase project's Remote Config template and expose its ETag."
+        }
+      ]
+    }
+  ]
+}
