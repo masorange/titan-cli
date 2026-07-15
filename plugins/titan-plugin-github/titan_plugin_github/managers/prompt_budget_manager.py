@@ -6,16 +6,33 @@ policy previously duplicated as free functions in
 """
 
 from ..models.review_enums import FileReadMode, PRSizeClass
-from ..models.review_models import FocusContextBatch, ReviewStrategy
+from ..models.review_models import FileContextEntry, FocusContextBatch, ReviewStrategy
 
 
 class PromptBudgetManager:
     """Owns prompt-part sizing, batch fit/split decisions, and degradation policy."""
 
+    # A worktree_reference entry is just a short hint in the prompt text, but the CLI still
+    # has to open and analyze the real file from the worktree with its own tools, so its
+    # actual cost is much higher than its prompt-text size suggests.
+    WORKTREE_REFERENCE_ESTIMATED_CHARS = 5000
+
     def content_budget(self, strategy: ReviewStrategy) -> int:
         """Return the char budget available for file/related/comment context."""
         reserve = 5000 if strategy.size_class in {PRSizeClass.LARGE, PRSizeClass.HUGE} else 3500
         return max(2500, strategy.max_prompt_chars - reserve)
+
+    def estimate_entry_chars(self, entry: FileContextEntry) -> int:
+        """Estimate the prompt-budget cost of a resolved file context entry."""
+        if entry.full_content:
+            return len(entry.full_content)
+        if entry.expanded_hunks:
+            return sum(len(hunk) for hunk in entry.expanded_hunks)
+        if entry.hunks:
+            return sum(len(hunk) for hunk in entry.hunks)
+        if entry.worktree_reference:
+            return self.WORKTREE_REFERENCE_ESTIMATED_CHARS
+        return 0
 
     def fit_batch_to_budget(
         self,

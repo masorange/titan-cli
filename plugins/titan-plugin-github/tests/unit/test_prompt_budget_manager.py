@@ -74,6 +74,51 @@ def test_get_prompt_budget_manager_returns_shared_instance():
 
 
 # ---------------------------------------------------------------------------
+# estimate_entry_chars()
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_entry_chars_uses_full_content_length():
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(path="a.py", read_mode=FileReadMode.FULL_FILE, full_content="x" * 1234)
+
+    assert manager.estimate_entry_chars(entry) == 1234
+
+
+def test_estimate_entry_chars_sums_expanded_hunks():
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(
+        path="a.py", read_mode=FileReadMode.EXPANDED_HUNKS, expanded_hunks=["x" * 100, "y" * 50]
+    )
+
+    assert manager.estimate_entry_chars(entry) == 150
+
+
+def test_estimate_entry_chars_sums_hunks():
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(path="a.py", read_mode=FileReadMode.HUNKS_ONLY, hunks=["x" * 100, "y" * 50])
+
+    assert manager.estimate_entry_chars(entry) == 150
+
+
+def test_estimate_entry_chars_penalizes_worktree_reference_regardless_of_hint_size():
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(
+        path="a.py", read_mode=FileReadMode.WORKTREE_REFERENCE, worktree_reference=True, review_hint="short"
+    )
+
+    assert manager.estimate_entry_chars(entry) == PromptBudgetManager.WORKTREE_REFERENCE_ESTIMATED_CHARS
+    assert manager.estimate_entry_chars(entry) > 800
+
+
+def test_estimate_entry_chars_returns_zero_for_empty_entry():
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(path="a.py")
+
+    assert manager.estimate_entry_chars(entry) == 0
+
+
+# ---------------------------------------------------------------------------
 # fit_batch_to_budget()
 # ---------------------------------------------------------------------------
 

@@ -134,7 +134,7 @@ def build_review_context_package(
 
     for file_plan in plan.focus_files:
         entry = _resolve_file_context(file_plan, diff, strategy, cwd, manager)
-        entry_chars = entry.approximate_chars or _estimate_entry_chars(entry)
+        entry_chars = entry.approximate_chars or get_prompt_budget_manager().estimate_entry_chars(entry)
 
         if current_files and strategy.batching_enabled and current_chars + entry_chars > content_budget:
             batches.append(
@@ -254,21 +254,9 @@ def _resolve_file_context(
         worktree_reference=True,
         review_hint=_build_worktree_hint(file_plan),
         changed_hunk_headers=hunk_headers,
-        approximate_chars=min(800, 80 + sum(len(header) for header in hunk_headers)),
+        approximate_chars=get_prompt_budget_manager().WORKTREE_REFERENCE_ESTIMATED_CHARS,
     )
     return _log_file_context(resolved_entry, file_plan.path)
-
-
-def _estimate_entry_chars(entry: FileContextEntry) -> int:
-    if entry.full_content:
-        return len(entry.full_content)
-    if entry.expanded_hunks:
-        return sum(len(hunk) for hunk in entry.expanded_hunks)
-    if entry.hunks:
-        return sum(len(hunk) for hunk in entry.hunks)
-    if entry.worktree_reference:
-        return 80 + len(entry.review_hint) + sum(len(header) for header in entry.changed_hunk_headers)
-    return 0
 
 
 def _file_limits(strategy: ReviewStrategy, path: str) -> dict[str, int]:

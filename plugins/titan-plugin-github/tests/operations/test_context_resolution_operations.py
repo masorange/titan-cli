@@ -5,6 +5,7 @@ extraction). Guards against silently reverting to the old inline
 `_content_budget()` free function.
 """
 
+from titan_plugin_github.managers.prompt_budget_manager import get_prompt_budget_manager
 from titan_plugin_github.models.review_enums import ChecklistCategory, FileChangeStatus, FileReadMode, FileReviewPriority, PRSizeClass, ReviewStrategyType
 from titan_plugin_github.models.review_models import (
     ChangeManifest,
@@ -109,3 +110,46 @@ def test_build_review_context_package_keeps_small_files_in_one_batch():
 
     assert len(package.batches) == 1
     assert set(package.batches[0].files_context.keys()) == set(paths)
+
+
+def test_worktree_reference_entries_get_a_high_fixed_cost_and_split_batches():
+    """review-batching-004: worktree_reference used to cost ~800 chars, cheap enough that
+    several of them fit in one batch even though the CLI must read each file for real from
+    the worktree. Now they carry a fixed high cost, so they no longer group together under a
+    budget that would have fit them at the old estimate."""
+    paths = ["a.py", "b.py"]
+    diff = "".join(make_diff(path, "x" * 10) for path in paths)
+    plan = ReviewPlan(
+        focus_files=[
+            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE)
+            for path in paths
+        ],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    manifest = make_manifest(paths)
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional correctness",
+            description="Does it work",
+        )
+    ]
+    # Budget that would have fit two ~800-char entries (old estimate) but not two
+    # WORKTREE_REFERENCE_ESTIMATED_CHARS-sized ones.
+    strategy = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=2000 + 3500,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+
+    first_entry = package.batches[0].files_context["a.py"]
+    assert first_entry.worktree_reference is True
+    assert first_entry.approximate_chars == get_prompt_budget_manager().WORKTREE_REFERENCE_ESTIMATED_CHARS
+    assert len(package.batches) == 2
+    assert list(package.batches[0].files_context.keys()) == ["a.py"]
+    assert list(package.batches[1].files_context.keys()) == ["b.py"]
