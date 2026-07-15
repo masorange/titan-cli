@@ -3,10 +3,23 @@ from unittest.mock import Mock
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Error, Exit, Success
-from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest, ReferencedCommitContext, ThreadReviewCandidate
+from titan_cli.external_cli.adapters import HeadlessResponse
+from titan_cli.external_cli.adapters.base import SupportedCLI
+from titan_plugin_github.models.review_enums import FileReadMode, PRSizeClass, ReviewStrategyType
+from titan_plugin_github.models.review_models import (
+    ChangeManifest,
+    FileContextEntry,
+    FocusContextBatch,
+    PullRequestManifest,
+    ReferencedCommitContext,
+    ReviewStrategy,
+    ThreadReviewCandidate,
+)
 from titan_plugin_github.models.review_enums import FileChangeStatus
 from titan_plugin_github.models.view import UIComment, UICommentThread, UIFileChange, UIPullRequest
+import titan_plugin_github.steps.code_review_steps as code_review_steps
 from titan_plugin_github.steps.code_review_steps import (
+    ai_review_findings,
     build_thread_review_candidates,
     build_thread_review_contexts,
     fetch_pr_review_bundle,
@@ -457,3 +470,69 @@ def test_build_thread_review_contexts_ignores_unavailable_referenced_commits():
     )
     contexts = ctx.data["thread_review_contexts"]
     assert contexts[0].referenced_commits == []
+
+
+class _FakeFindingsAdapter:
+    """Fake headless adapter recording every prompt it was asked to execute."""
+
+    cli_name = SupportedCLI.CLAUDE
+
+    def __init__(self):
+        self.executed_prompts: list[str] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None) -> HeadlessResponse:
+        self.executed_prompts.append(prompt)
+        return HeadlessResponse(stdout="[]", stderr="", exit_code=0)
+
+
+def _make_findings_batch(batch_id: str, files_chars: dict[str, int]) -> FocusContextBatch:
+    return FocusContextBatch(
+        batch_id=batch_id,
+        files_context={
+            path: FileContextEntry(
+                path=path,
+                read_mode=FileReadMode.HUNKS_ONLY,
+                hunks=["x" * chars],
+                approximate_chars=chars,
+            )
+            for path, chars in files_chars.items()
+        },
+    )
+
+
+def test_ai_review_findings_splits_oversized_batch_via_prompt_budget_manager(monkeypatch):
+    """
+    review-batching-003 wiring test: `ai_review_findings` must route batch
+    fitting through `PromptBudgetManager.fit_batch_to_budget()` so an
+    over-budget batch gets split and both halves are still sent to the CLI.
+    """
+    fake_adapter = _FakeFindingsAdapter()
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [
+        _make_findings_batch("batch_1", {"a.py": 3000, "b.py": 3000})
+    ]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    # The oversized batch_1 must have been split into batch_1a/batch_1b, and
+    # both halves sent to the adapter independently (2 CLI calls, not 1).
+    assert len(fake_adapter.executed_prompts) == 2
+    assert ctx.data["raw_findings"] == []
+    assert ctx.data["ai_findings_failed"] is False

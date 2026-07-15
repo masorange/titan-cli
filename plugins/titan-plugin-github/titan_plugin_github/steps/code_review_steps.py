@@ -17,7 +17,8 @@ from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headl
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
-from ..models.review_enums import FileReadMode, ReviewActionType, ReviewStrategyType, ThreadDecisionType
+from ..managers.prompt_budget_manager import get_prompt_budget_manager
+from ..models.review_enums import ReviewActionType, ReviewStrategyType, ThreadDecisionType
 from ..models.review_models import (
     PRClassification,
     ReferencedCommitContext,
@@ -305,72 +306,6 @@ def _extract_json_slice(text: str, opening: str, closing: str, label: str) -> st
     if start == -1 or end == 0:
         raise ValueError(f"No JSON {label} found in response")
     return text[start:end]
-
-
-def _fit_batch_to_budget(batch, prompt_parts: dict[str, str], budget_chars: int):
-    """Shrink or split a batch until it fits the prompt budget, or mark it oversized."""
-    prompt = prompt_parts["prompt"]
-    actual_chars = len(prompt)
-    if actual_chars <= budget_chars:
-        fitted = batch.model_copy(update={"prompt_actual_chars": actual_chars})
-        return [fitted], False
-
-    file_items = list(batch.files_context.items())
-    if len(file_items) > 1:
-        midpoint = max(1, len(file_items) // 2)
-        left = batch.model_copy(
-            update={
-                "batch_id": f"{batch.batch_id}a",
-                "files_context": dict(file_items[:midpoint]),
-                "degraded_context": True,
-            }
-        )
-        right = batch.model_copy(
-            update={
-                "batch_id": f"{batch.batch_id}b",
-                "files_context": dict(file_items[midpoint:]),
-                "degraded_context": True,
-            }
-        )
-        return [left, right], True
-
-    only_path, only_entry = file_items[0]
-    if not only_entry.worktree_reference:
-        degraded_entry = only_entry.model_copy(
-            update={
-                "full_content": None,
-                "expanded_hunks": [],
-                "hunks": [],
-                "read_mode": FileReadMode.WORKTREE_REFERENCE,
-                "worktree_reference": True,
-                "review_hint": only_entry.review_hint
-                or "Read this file from the worktree and inspect the changed regions first.",
-                "approximate_chars": min(800, only_entry.approximate_chars or 800),
-            }
-        )
-        return [
-            batch.model_copy(
-                update={
-                    "files_context": {only_path: degraded_entry},
-                    "degraded_context": True,
-                }
-            )
-        ], True
-
-    if batch.related_files:
-        return [batch.model_copy(update={"related_files": {}, "degraded_context": True})], True
-
-    if batch.comment_context:
-        return [batch.model_copy(update={"comment_context": [], "degraded_context": True})], True
-
-    oversized = batch.model_copy(
-        update={
-            "prompt_actual_chars": actual_chars,
-            "prompt_still_too_large": True,
-            "degraded_context": True,
-        }
-    )
-    return [oversized], False
 
 
 def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payload: dict) -> tuple[dict, list[dict]]:
@@ -1889,7 +1824,9 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         batch = batch_queue.pop(0)
         prompt_parts = build_findings_prompt_parts(batch)
         prompt = prompt_parts["prompt"]
-        fitted_batches, changed = _fit_batch_to_budget(batch, prompt_parts, strategy.max_prompt_chars)
+        fitted_batches, changed = get_prompt_budget_manager().fit_batch_to_budget(
+            batch, prompt_parts, strategy.max_prompt_chars
+        )
         if changed:
             logger.debug(
                 "findings_batch_rebalanced",

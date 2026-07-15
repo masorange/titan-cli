@@ -6,7 +6,8 @@ from typing import Optional
 from titan_cli.core.logging import get_logger
 
 from ..managers.diff_context_manager import DiffContextManager, get_or_create_diff_manager
-from ..models.review_enums import ContextRequestType, FileReadMode
+from ..managers.prompt_budget_manager import get_prompt_budget_manager
+from ..models.review_enums import ContextRequestType, FileReadMode, PRSizeClass
 from ..models.review_models import (
     ChangeManifest,
     CommentContextEntry,
@@ -123,7 +124,7 @@ def build_review_context_package(
     checklist_applicable = [item for item in checklist if item.id in applicable_ids] or checklist[:2]
     related_files = resolve_context_requests(plan.extra_context_requests[:1], cwd)
     comment_context = comment_context[: strategy.max_comment_entries]
-    content_budget = _content_budget(strategy)
+    content_budget = get_prompt_budget_manager().content_budget(strategy)
 
     batches: list[FocusContextBatch] = []
     current_files: dict[str, FileContextEntry] = {}
@@ -270,13 +271,8 @@ def _estimate_entry_chars(entry: FileContextEntry) -> int:
     return 0
 
 
-def _content_budget(strategy: ReviewStrategy) -> int:
-    reserve = 5000 if strategy.size_class.value in {"large", "huge"} else 3500
-    return max(2500, strategy.max_prompt_chars - reserve)
-
-
 def _file_limits(strategy: ReviewStrategy, path: str) -> dict[str, int]:
-    is_large = strategy.size_class.value in {"large", "huge"}
+    is_large = strategy.size_class in {PRSizeClass.LARGE, PRSizeClass.HUGE}
     is_central = _looks_like_central_file(path)
     is_test = _is_test_file(path)
     return {
