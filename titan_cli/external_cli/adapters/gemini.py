@@ -8,7 +8,7 @@ Gemini without opening an interactive session.
 import re
 import shutil
 import subprocess
-from typing import Optional
+from typing import Any, Optional
 
 from .base import HeadlessResponse, SupportedCLI
 
@@ -27,6 +27,10 @@ class GeminiHeadlessAdapter:
     def cli_name(self) -> SupportedCLI:
         return SupportedCLI.GEMINI
 
+    @property
+    def supports_structured_output(self) -> bool:
+        return False
+
     def is_available(self) -> bool:
         return shutil.which("gemini") is not None
 
@@ -35,6 +39,7 @@ class GeminiHeadlessAdapter:
         prompt: str,
         cwd: Optional[str] = None,
         timeout: int = 60,
+        json_schema: Optional[dict[str, Any]] = None,
     ) -> HeadlessResponse:
         cmd = ["gemini", "--prompt", prompt]
         try:

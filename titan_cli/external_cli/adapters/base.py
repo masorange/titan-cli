@@ -8,7 +8,7 @@ Titan interacts only with this generic interface.
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Optional
+from typing import Any, Optional
 from typing import Protocol, runtime_checkable
 
 
@@ -54,6 +54,12 @@ class HeadlessCliAdapter(Protocol):
         """The CLI identifier."""
         ...
 
+    @property
+    def supports_structured_output(self) -> bool:
+        """Whether this adapter can enforce a JSON Schema on the CLI's own response,
+        instead of relying on prompt instructions the model may not follow."""
+        ...
+
     def is_available(self) -> bool:
         """Return True if the CLI is installed and reachable."""
         ...
@@ -63,6 +69,7 @@ class HeadlessCliAdapter(Protocol):
         prompt: str,
         cwd: Optional[str] = None,
         timeout: int = 60,
+        json_schema: Optional[dict[str, Any]] = None,
     ) -> HeadlessResponse:
         """
         Run the CLI with the given prompt in headless mode.
@@ -71,8 +78,11 @@ class HeadlessCliAdapter(Protocol):
             prompt: The prompt to send to the CLI.
             cwd: Working directory for the subprocess.
             timeout: Seconds before the subprocess is killed.
+            json_schema: Optional JSON Schema (top-level type "object") to enforce on the
+                response. Ignored by adapters where `supports_structured_output` is False.
 
         Returns:
-            HeadlessResponse with stdout, stderr, and exit_code.
+            HeadlessResponse with stdout, stderr, and exit_code. When `json_schema` is
+            honored, stdout is the schema-validated JSON, with no surrounding prose.
         """
         ...

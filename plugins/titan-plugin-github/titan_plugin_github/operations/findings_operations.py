@@ -3,7 +3,10 @@
 import json
 from typing import Any
 
+from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
+
 from ..models.review_models import Finding, FocusContextBatch, ReviewChecklistItem
+from .ai_response_parsing_operations import extract_json_payload
 from .prompt_formatting_operations import comment_context_to_json
 
 
@@ -184,6 +187,61 @@ def _finding_schema() -> str:
         ],
         indent=2,
     )
+
+
+def findings_json_schema() -> dict[str, Any]:
+    """JSON Schema for `--json-schema`, enforcing findings as a tool call instead of
+    relying on the model to follow a "respond only with JSON" prompt instruction.
+
+    Wrapped in an object because Anthropic's structured-output tool schema requires a
+    top-level "object" type; the array of findings lives under the "findings" key.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "severity": {"type": "string", "enum": ["blocking", "important", "nit"]},
+                        "category": {"type": "string"},
+                        "path": {"type": "string"},
+                        "line": {"type": ["integer", "null"]},
+                        "title": {"type": "string"},
+                        "why": {"type": "string"},
+                        "evidence": {"type": "string"},
+                        "snippet": {"type": ["string", "null"]},
+                        "suggested_comment": {"type": "string"},
+                    },
+                    "required": ["severity", "category", "path", "title", "why", "evidence", "suggested_comment"],
+                },
+            }
+        },
+        "required": ["findings"],
+    }
+
+
+def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[list]:
+    """Parse a findings-batch CLI response.
+
+    When `structured` is True (the adapter enforced `findings_json_schema()`), stdout is
+    the schema envelope `{"findings": [...]}` and this unwraps the `findings` key.
+    Otherwise stdout is free text and this falls back to extracting a bare JSON array.
+    """
+    if not structured:
+        return extract_json_payload(stdout, kind="array")
+    match extract_json_payload(stdout, kind="object"):
+        case ClientSuccess(data=payload) if isinstance(payload, dict) and "findings" in payload:
+            return ClientSuccess(data=payload["findings"])
+        case ClientSuccess():
+            return ClientError(
+                error_message="Structured response missing 'findings' field",
+                error_code="MISSING_FINDINGS_FIELD",
+                log_level="warning",
+            )
+        case error:
+            return error
 
 
 def build_default_findings() -> list[Finding]:

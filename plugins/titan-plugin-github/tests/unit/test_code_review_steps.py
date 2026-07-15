@@ -482,10 +482,12 @@ class _FakeFindingsAdapter:
     def __init__(self):
         self.executed_prompts: list[str] = []
 
+    supports_structured_output = False
+
     def is_available(self) -> bool:
         return True
 
-    def execute(self, prompt: str, cwd=None, timeout=None) -> HeadlessResponse:
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
         self.executed_prompts.append(prompt)
         return HeadlessResponse(stdout="[]", stderr="", exit_code=0)
 
@@ -544,6 +546,7 @@ class _FakeFencedAdapter:
     """Fake headless adapter returning a markdown-fenced JSON array, once."""
 
     cli_name = SupportedCLI.CLAUDE
+    supports_structured_output = False
 
     def __init__(self, stdout: str):
         self._stdout = stdout
@@ -551,7 +554,7 @@ class _FakeFencedAdapter:
     def is_available(self) -> bool:
         return True
 
-    def execute(self, prompt: str, cwd=None, timeout=None) -> HeadlessResponse:
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
         return HeadlessResponse(stdout=self._stdout, stderr="", exit_code=0)
 
 
@@ -587,6 +590,7 @@ class _FakeSequentialAdapter:
     """Fake headless adapter returning one canned stdout per call, in order."""
 
     cli_name = SupportedCLI.CLAUDE
+    supports_structured_output = False
 
     def __init__(self, stdouts: list[str]):
         self._stdouts = list(stdouts)
@@ -595,7 +599,7 @@ class _FakeSequentialAdapter:
     def is_available(self) -> bool:
         return True
 
-    def execute(self, prompt: str, cwd=None, timeout=None) -> HeadlessResponse:
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
         self.calls.append({"prompt": prompt, "cwd": cwd, "timeout": timeout})
         stdout = self._stdouts[len(self.calls) - 1]
         return HeadlessResponse(stdout=stdout, stderr="", exit_code=0)
@@ -659,6 +663,83 @@ def test_ai_review_findings_marks_batch_failed_when_reformat_retry_also_fails(mo
 
     assert isinstance(result, Success)
     assert len(fake_adapter.calls) == 2
+    assert ctx.data["ai_findings_failed"] is True
+
+
+class _FakeStructuredOutputAdapter:
+    """Fake adapter simulating a CLI that supports --json-schema (like Claude)."""
+
+    cli_name = SupportedCLI.CLAUDE
+    supports_structured_output = True
+
+    def __init__(self, stdout: str):
+        self._stdout = stdout
+        self.calls: list[dict] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
+        self.calls.append({"prompt": prompt, "cwd": cwd, "timeout": timeout, "json_schema": json_schema})
+        return HeadlessResponse(stdout=self._stdout, stderr="", exit_code=0)
+
+
+def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
+    """review-batching-008: when the adapter supports structured output, ai_review_findings
+    must request it (json_schema kwarg) and unwrap the {"findings": [...]} envelope,
+    instead of parsing a bare JSON array out of free text."""
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": [{"title": "Bug"}]}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_findings"] == [{"title": "Bug"}]
+    assert ctx.data["ai_findings_failed"] is False
+    assert fake_adapter.calls[0]["json_schema"] is not None
+    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings"]
+
+
+def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeypatch):
+    """If the model doesn't call the structured-output tool on the first try (rare), the
+    reformat retry must still request structured output — not silently downgrade to
+    free-text parsing."""
+    fake_adapter = _FakeStructuredOutputAdapter("I won't call that tool.")
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 2
+    assert fake_adapter.calls[1]["json_schema"] is not None
     assert ctx.data["ai_findings_failed"] is True
 
 

@@ -1632,18 +1632,32 @@ def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
         ctx.textual.dim_text(f"  {path}")
 
 
-def _retry_findings_batch_reformat(adapter, previous_stdout: str, cwd: Optional[str]):
+def _retry_findings_batch_reformat(
+    adapter, previous_stdout: str, cwd: Optional[str], batch_id: str, structured: bool
+):
     """Ask the same CLI to reformat its own previous output as a JSON array, without
     rerunning the full analysis, using a short timeout distinct from the main one."""
+    from ..operations.findings_operations import findings_json_schema, parse_findings_response
+
     reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
-    response = adapter.execute(reformat_prompt, cwd=cwd, timeout=REFORMAT_RETRY_TIMEOUT_SECONDS)
+    schema = findings_json_schema() if structured else None
+    _log_ai_prompt("ai_review_findings_reformat_retry", adapter.cli_name.value, reformat_prompt, batch_id=batch_id)
+    response = adapter.execute(reformat_prompt, cwd=cwd, timeout=REFORMAT_RETRY_TIMEOUT_SECONDS, json_schema=schema)
+    _log_ai_response(
+        step_name="ai_review_findings_reformat_retry",
+        cli_name=adapter.cli_name.value,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+        batch_id=batch_id,
+    )
     if not response.succeeded:
         return ClientError(
             error_message=f"Reformat retry CLI call failed (exit {response.exit_code})",
             error_code="REFORMAT_RETRY_FAILED",
             log_level="warning",
         )
-    return extract_json_payload(response.stdout, kind="array")
+    return parse_findings_response(response.stdout, structured=structured)
 
 
 def _render_findings_batch_split(ctx: WorkflowContext, batch_id: str, produced_batches: list[str]) -> None:
@@ -1809,6 +1823,8 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     from ..operations.findings_operations import (
         build_default_findings,
         build_findings_prompt_parts,
+        findings_json_schema,
+        parse_findings_response,
         summarize_findings_prompt_parts,
     )
 
@@ -1820,6 +1836,11 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("success")
         return Success("No findings (no CLI available)", metadata={"raw_findings": []})
 
+    # Structured output forces the CLI to return findings via a schema-validated tool
+    # call instead of relying on the model to follow a "respond only with JSON" prompt
+    # instruction, which models frequently ignore in favor of a prose summary.
+    use_structured_output = adapter.supports_structured_output
+    findings_schema = findings_json_schema() if use_structured_output else None
     cli_display = adapter.cli_name.value.capitalize()
     aggregated_raw = []
     findings_failed = False
@@ -1893,7 +1914,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         )
         adapter_started_at = time.monotonic()
         with ctx.textual.loading(f"Asking {cli_display} to review {len(batch.files_context)} file(s) in {batch.batch_id}…"):
-            response = adapter.execute(prompt, cwd=project_root, timeout=300)
+            response = adapter.execute(prompt, cwd=project_root, timeout=300, json_schema=findings_schema)
         adapter_duration_seconds = time.monotonic() - adapter_started_at
         logger.info(
             "findings_batch_adapter_call",
@@ -1905,6 +1926,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             duration_seconds=round(adapter_duration_seconds, 3),
             exit_code=response.exit_code,
             timed_out=response.exit_code == 124,
+            structured_output=use_structured_output,
         )
         _log_ai_response(
             step_name="ai_review_findings",
@@ -1931,7 +1953,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             )
             continue
 
-        match extract_json_payload(response.stdout, kind="array"):
+        match parse_findings_response(response.stdout, structured=use_structured_output):
             case ClientSuccess(data=raw) if isinstance(raw, list):
                 aggregated_raw.extend(raw)
                 _render_findings_batch_result(
@@ -1944,7 +1966,9 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 pass
             case ClientError(error_message=err):
                 logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=err)
-                match _retry_findings_batch_reformat(adapter, response.stdout, project_root):
+                match _retry_findings_batch_reformat(
+                    adapter, response.stdout, project_root, batch.batch_id, use_structured_output
+                ):
                     case ClientSuccess(data=raw) if isinstance(raw, list):
                         aggregated_raw.extend(raw)
                         logger.debug(

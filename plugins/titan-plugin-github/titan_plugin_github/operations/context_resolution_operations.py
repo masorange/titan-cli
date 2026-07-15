@@ -304,7 +304,9 @@ def _build_worktree_hint(file_plan: FileReviewPlan) -> str:
     return (
         "Read this file from the worktree. Prioritize the changed regions first and validate: "
         f"{reasons}. Check especially for semantic mismatches, missing guarantees, state inconsistencies, "
-        "and behavior changes that remain executable but no longer mean the same thing. Cross-check nearby helpers, types, and tests if the changed region depends on them."
+        "and behavior changes that remain executable but no longer mean the same thing. You may check a few "
+        "directly related files (an imported type, a caller, a test) if genuinely needed to resolve a "
+        "specific doubt, but do not perform a broad, open-ended exploration of the codebase."
     )
 
 

@@ -6,8 +6,11 @@ from titan_plugin_github.models.review_models import (
     PullRequestManifest,
     ReviewChecklistItem,
 )
+from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.operations.findings_operations import (
     build_findings_prompt_parts,
+    findings_json_schema,
+    parse_findings_response,
     summarize_findings_prompt_parts,
 )
 
@@ -109,3 +112,43 @@ def test_build_findings_prompt_parts_renders_worktree_reference():
     assert "Read from worktree instead of inline context." in parts["files_context"]
     assert "Changed regions to inspect first:" in parts["files_context"]
     assert "@@ -10,20 +10,30 @@" in parts["files_context"]
+
+
+# ---------------------------------------------------------------------------
+# findings_json_schema() / parse_findings_response()
+# ---------------------------------------------------------------------------
+
+
+def test_findings_json_schema_wraps_array_in_object_with_findings_key():
+    schema = findings_json_schema()
+
+    assert schema["type"] == "object"
+    assert schema["required"] == ["findings"]
+    assert schema["properties"]["findings"]["type"] == "array"
+
+
+def test_parse_findings_response_unstructured_parses_bare_array():
+    result = parse_findings_response('[{"title": "Bug"}]', structured=False)
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data == [{"title": "Bug"}]
+
+
+def test_parse_findings_response_structured_unwraps_findings_key():
+    result = parse_findings_response('{"findings": [{"title": "Bug"}]}', structured=True)
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data == [{"title": "Bug"}]
+
+
+def test_parse_findings_response_structured_errors_when_findings_key_missing():
+    result = parse_findings_response('{"other": []}', structured=True)
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "MISSING_FINDINGS_FIELD"
+
+
+def test_parse_findings_response_structured_falls_back_to_error_on_prose():
+    result = parse_findings_response("I refuse to call that tool.", structured=True)
+
+    assert isinstance(result, ClientError)
