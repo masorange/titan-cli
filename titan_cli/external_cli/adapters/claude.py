@@ -106,6 +106,9 @@ class ClaudeHeadlessAdapter:
         except json.JSONDecodeError:
             return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
 
+        if not isinstance(envelope, dict):
+            return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
+
         if envelope.get("is_error"):
             return HeadlessResponse(
                 stdout="",
