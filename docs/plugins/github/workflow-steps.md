@@ -189,6 +189,7 @@ How to read these contracts:
     | `pr_title` | str | The title of the pull request. |
     | `pr_body` | str, optional | The body/description of the pull request. |
     | `pr_head_branch` | str | The branch with the new changes. |
+    | `pr_base_branch` | str, optional | The branch to merge into. Defaults to the git plugin's configured main branch. |
     | `pr_is_draft` | bool, optional | Whether to create the PR as a draft. Defaults to False. |
     | `pr_reviewers` | list, optional | List of GitHub usernames or team slugs to request review from. |
     | `pr_excluded_reviewers` | list, optional | List of GitHub usernames to exclude from team expansion. |

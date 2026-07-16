@@ -484,7 +484,7 @@ Show summary of branch changes (git diff base...head --stat).
 
 ### `create_worktree`
 
-Create a temporary git worktree in detached HEAD mode from remote main branch.
+Create a temporary git worktree in detached HEAD mode from a remote base branch.
 
 **How to read this contract**
 
@@ -499,12 +499,28 @@ Create a temporary git worktree in detached HEAD mode from remote main branch.
   step: create_worktree
 ```
 
+**Available to later steps:** `worktree_path`, `base_branch`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `base_branch` | str, optional | Base branch to create the worktree from. Defaults to the git plugin's configured main branch. |
+| `path` | str, optional | Custom path for the worktree. Defaults to a temporary directory. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `worktree_path` | str | Path to the created worktree. |
+| `base_branch` | str | Base branch name (e.g., "develop", "main" or "rc/26.18.2"). |
+
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | - | If the worktree is created successfully. |
-| `Error` | - | If the Git client is unavailable or worktree creation fails. |
+| `Success` | `worktree_path`, `base_branch` | If the worktree is created successfully. |
+| `Error` | - | If the Git client is unavailable, no base branch can be resolved, or worktree creation fails. |
 
 ### `remove_worktree`
 
