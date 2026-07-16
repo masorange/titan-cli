@@ -15,6 +15,7 @@ from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
 from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService
+from ..models.review_models import ReferencedCommitContext
 from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated, UIRelease
 
 
@@ -191,6 +192,24 @@ class GitHubClient:
         """Get the latest commit SHA for a PR."""
         return self._pr_service.get_pr_commit_sha(pr_number)
 
+    def get_commit_review_context(
+        self,
+        commit_ref: str,
+        *,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+        max_files: int = 3,
+        max_patch_chars: int = 4000,
+    ) -> ClientResult[ReferencedCommitContext]:
+        """Get a compact remote context for a referenced commit."""
+        return self._pr_service.get_commit_review_context(
+            commit_ref,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            max_files=max_files,
+            max_patch_chars=max_patch_chars,
+        )
+
     # ============================================================================
     # Review Operations
     # ============================================================================
@@ -285,6 +304,16 @@ class GitHubClient:
             verify_tag=verify_tag,
             prerelease=prerelease,
         )
+
+    def list_releases(
+        self, limit: int = 15, exclude_drafts: bool = True
+    ) -> ClientResult[List[UIRelease]]:
+        """List published GitHub releases for the repository."""
+        return self._release_service.list_releases(limit=limit, exclude_drafts=exclude_drafts)
+
+    def get_release(self, tag_name: str) -> ClientResult[UIRelease]:
+        """Get a single GitHub release, including its full notes body."""
+        return self._release_service.get_release(tag_name)
 
     # ============================================================================
     # Team Operations

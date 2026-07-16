@@ -4,6 +4,15 @@ Documentation for AI coding agents working on Titan CLI.
 
 ---
 
+## 🧭 Session Bootstrap
+
+Before doing any work in this repo, read [`harness/README.md`](harness/README.md) — it names
+the current-focus domain/task and points to that domain's own state files
+(`feature-list.json`, `progress.md`, `session-handoff.md`). Don't ask which task we're on;
+that file answers it.
+
+---
+
 ## 📋 Project Overview
 
 **Titan CLI** is a modular development tools orchestrator that streamlines workflows through plugins, configuration management, and an intuitive terminal UI.
@@ -1447,6 +1456,8 @@ Executes a `ParsedWorkflow` by iterating through steps, resolving plugin calls, 
 - Show error messages for failed steps
 - Merge step metadata into `ctx.data`
 - Show final workflow success/failure message
+
+For workflow step authoring rules, including how to publish step outputs through result metadata instead of direct `ctx.data` mutation, see [.claude/docs/workflow-step-rules.md](.claude/docs/workflow-step-rules.md).
 
 **What the executor does NOT do:**
 - ❌ Does NOT show step headers (steps do this via `ctx.textual.begin_step()`)

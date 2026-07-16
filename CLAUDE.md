@@ -2,6 +2,13 @@
 
 Documentation for the Titan CLI project to assist Claude in development.
 
+## Session Bootstrap
+
+Before doing any work in this repo, read [`harness/README.md`](harness/README.md) — it names
+the current-focus domain/task and points to that domain's own state files
+(`feature-list.json`, `progress.md`, `session-handoff.md`). Don't ask which task we're on;
+that file answers it.
+
 ## Project Overview
 
 Titan CLI is a command-line tool with a Textual-based TUI (Terminal User Interface) that enables automated workflows for Git, GitHub, Jira, and other services, with AI integration for intelligent assistance.
@@ -93,6 +100,8 @@ To create new workflow steps using the Textual TUI framework:
 
 **📖 [Textual Workflow Steps Development Guide](.claude/docs/textual.md)**
 
+**📖 [Workflow Step Rules](.claude/docs/workflow-step-rules.md)**
+
 This guide includes:
 - Basic step structure
 - Complete `ctx.textual` API reference
@@ -100,6 +109,8 @@ This guide includes:
 - Complete usage examples
 - Code file references
 - Scroll behavior guidelines
+
+The step rules cover required conventions such as publishing step outputs via `Success(metadata={...})` instead of directly mutating `ctx.data` at return time.
 
 ### Common Pitfalls ⚠️
 

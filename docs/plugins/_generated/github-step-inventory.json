@@ -38,6 +38,10 @@
           "summary": "Prompt for a pull request body."
         },
         {
+          "name": "prompt_for_pr_draft",
+          "summary": "Ask whether the pull request should be created as a draft."
+        },
+        {
           "name": "prompt_for_issue_body_step",
           "summary": "Prompt for free-form issue input before AI expansion."
         },
@@ -133,8 +137,20 @@
           "summary": "Index existing review comments to avoid duplicates."
         },
         {
+          "name": "classify_pr",
+          "summary": "Classify PR size and composition before review planning."
+        },
+        {
+          "name": "score_review_candidates",
+          "summary": "Rank changed files and exclude low-value review candidates."
+        },
+        {
           "name": "build_review_checklist",
           "summary": "Prepare a review checklist from PR context."
+        },
+        {
+          "name": "select_review_strategy",
+          "summary": "Choose the review execution strategy from deterministic PR signals."
         },
         {
           "name": "ai_review_plan",
@@ -206,6 +222,15 @@
           "summary": "Remove a worktree created during workflow execution."
         }
       ]
+    },
+    {
+      "name": "Releases",
+      "steps": [
+        {
+          "name": "select_release",
+          "summary": "List published GitHub releases and select one to use as a notes source."
+        }
+      ]
     }
   ],
   "steps": [
@@ -225,7 +250,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "ai_review_plan",
@@ -243,7 +270,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "ai_suggest_issue_title_and_body",
@@ -319,7 +348,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "build_change_manifest",
@@ -337,7 +368,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "build_existing_comments_index",
@@ -355,7 +388,9 @@
           "    Success"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "build_new_comment_actions",
@@ -373,7 +408,9 @@
           "    Success or Skip (no findings)"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "build_review_checklist",
@@ -391,7 +428,9 @@
           "    Success"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "build_thread_actions",
@@ -409,7 +448,9 @@
           "    Success, Skip (no actionable decisions), or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "build_thread_review_candidates",
@@ -427,7 +468,9 @@
           "    Success, Skip (no candidates), or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "build_thread_review_contexts",
@@ -436,7 +479,9 @@
       "function": "build_thread_review_contexts",
       "summary": "Enrich thread candidates with diff hunk context and full reply history.",
       "docstring_sections": {
-        "Requires": [],
+        "Requires": [
+          "    ctx.github: Optional GitHub client used to inspect referenced commits."
+        ],
         "Inputs (from ctx.data)": [],
         "Outputs (saved to ctx.data)": [
           "    thread_review_contexts (List[ThreadReviewContext])"
@@ -445,7 +490,9 @@
           "    Success, Skip (no candidates), or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "check_clean_state",
@@ -508,6 +555,34 @@
       ]
     },
     {
+      "name": "classify_pr",
+      "group": "Code Review",
+      "module": "titan_plugin_github.steps.code_review_steps",
+      "function": "classify_pr",
+      "summary": "Classify PR size and composition before planning.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.textual: Textual UI context."
+        ],
+        "Inputs (from ctx.data)": [
+          "    change_manifest (ChangeManifest): Structured PR change summary.",
+          "    existing_comments_index (List[ExistingCommentIndexEntry], optional): Existing comments used to estimate review activity.",
+          "    review_threads (List[UICommentThread], optional): Current review threads."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    pr_classification (PRClassification): Deterministic PR classification.",
+          "    review_profile (ReviewProfile): Resolved review profile used during classification."
+        ],
+        "Returns": [
+          "    Success: When PR classification is computed successfully.",
+          "    Error: When required context is missing or the step cannot run."
+        ]
+      },
+      "used_by_workflows": [
+        "review-pr"
+      ]
+    },
+    {
       "name": "cleanup_worktree",
       "group": "Worktree Support",
       "module": "titan_plugin_github.steps.worktree_steps",
@@ -522,7 +597,9 @@
           "    Exit: No worktree to cleanup"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "create_issue",
@@ -606,7 +683,9 @@
           "    Error: Failed to create worktree"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "dedupe_findings",
@@ -624,7 +703,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "fetch_pending_comments",
@@ -671,7 +752,10 @@
           "    Success, Skip (empty diff), or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr",
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "get_pull_request",
@@ -738,7 +822,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "normalize_thread_decisions",
@@ -756,7 +842,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "preview_and_confirm_issue",
@@ -807,14 +895,18 @@
       "group": "Prompt and Selection",
       "module": "titan_plugin_github.steps.github_prompt_steps",
       "function": "prompt_for_labels_step",
-      "summary": "Prompts the user to select labels for the issue.",
+      "summary": "Prompt the user to select repository labels and save them to context.",
       "docstring_sections": {
         "Requires": [
           "    ctx.github: An initialized GitHubClient."
         ],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    output_key (str, optional): Context key where selected labels should be stored. Defaults to \"labels\".",
+          "    prompt (str, optional): Prompt text shown to the user. Defaults to \"Select labels:\".",
+          "    default_selected_key (str, optional): Context key used to preselect labels. Defaults to output_key."
+        ],
         "Outputs (saved to ctx.data)": [
-          "    labels (list[str]): Labels selected by the user."
+          "    <output_key> (list[str]): Labels selected by the user."
         ],
         "Returns": [
           "    Success: If label selection completes successfully.",
@@ -822,7 +914,9 @@
           "    Error: If the GitHub client is unavailable or the prompt fails."
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "create-pr-ai"
+      ]
     },
     {
       "name": "prompt_for_pr_body",
@@ -845,6 +939,31 @@
         ]
       },
       "used_by_workflows": []
+    },
+    {
+      "name": "prompt_for_pr_draft",
+      "group": "Prompt and Selection",
+      "module": "titan_plugin_github.steps.github_prompt_steps",
+      "function": "prompt_for_pr_draft_step",
+      "summary": "Ask whether the pull request should be created as a draft.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.textual: Textual UI components."
+        ],
+        "Inputs (from ctx.data)": [
+          "    draft (bool | None, optional): Draft mode from workflow params. Use True/False to skip the prompt, or None to ask interactively."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    pr_is_draft (bool): Whether the PR should be created as a draft."
+        ],
+        "Returns": [
+          "    Success: If the draft preference was resolved successfully.",
+          "    Error: If the user cancels or the prompt fails."
+        ]
+      },
+      "used_by_workflows": [
+        "create-pr-ai"
+      ]
     },
     {
       "name": "prompt_for_pr_title",
@@ -949,7 +1068,9 @@
           "    Success or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "review_comments",
@@ -971,6 +1092,34 @@
       ]
     },
     {
+      "name": "score_review_candidates",
+      "group": "Code Review",
+      "module": "titan_plugin_github.steps.code_review_steps",
+      "function": "score_review_candidates",
+      "summary": "Rank changed files and precompute excluded files.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.textual: Textual UI context."
+        ],
+        "Inputs (from ctx.data)": [
+          "    change_manifest (ChangeManifest): Structured PR change summary."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    review_profile (ReviewProfile): Resolved review profile used during scoring.",
+          "    review_candidates (List[ScoredReviewCandidate]): Ranked review candidates.",
+          "    excluded_review_files (List[ExcludedFileEntry]): Files excluded from deep review."
+        ],
+        "Returns": [
+          "    Success: When review candidates are scored successfully.",
+          "    Exit: When no reviewable candidates remain after exclusions.",
+          "    Error: When required context is missing or the step cannot run."
+        ]
+      },
+      "used_by_workflows": [
+        "review-pr"
+      ]
+    },
+    {
       "name": "select_cli",
       "group": "Prompt and Selection",
       "module": "titan_plugin_github.steps.select_cli_step",
@@ -984,7 +1133,10 @@
           "    Success with the chosen CLI name stored in ctx.data"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr",
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "select_pr_for_code_review",
@@ -1005,7 +1157,10 @@
           "    Success, Exit (no PRs or cancelled), or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr",
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "select_pr_for_review",
@@ -1028,6 +1183,58 @@
       },
       "used_by_workflows": [
         "respond-pr-comments"
+      ]
+    },
+    {
+      "name": "select_release",
+      "group": "Releases",
+      "module": "titan_plugin_github.steps.release_steps",
+      "function": "select_release_step",
+      "summary": "List published GitHub releases and select one to use as a notes source.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.github: An initialized GitHubClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    github_release_limit (int, optional): Maximum number of releases to list. Defaults to 15."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    selected_release (UIRelease): Selected GitHub release, including its notes body.",
+          "    selected_release_tag (str): Tag name of the selected release.",
+          "    selected_release_notes (str): Release notes body of the selected release.",
+          "    selected_release_url (str): URL of the selected release."
+        ],
+        "Returns": [
+          "    Success: If a release is selected successfully.",
+          "    Skip: If no published releases exist.",
+          "    Error: If the GitHub client is not available or the request fails."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "select_review_strategy",
+      "group": "Code Review",
+      "module": "titan_plugin_github.steps.code_review_steps",
+      "function": "select_review_strategy",
+      "summary": "Choose review strategy based on deterministic PR classification.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.textual: Textual UI context."
+        ],
+        "Inputs (from ctx.data)": [
+          "    pr_classification (PRClassification): Deterministic PR classification."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    review_strategy (ReviewStrategy): Execution strategy for planning and findings."
+        ],
+        "Returns": [
+          "    Success: When a review strategy is selected successfully.",
+          "    Error: When required context is missing or the step cannot run."
+        ]
+      },
+      "used_by_workflows": [
+        "review-pr"
       ]
     },
     {
@@ -1064,7 +1271,10 @@
           "    Success, Skip (no approved actions), or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr",
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "validate_review_actions",
@@ -1082,7 +1292,10 @@
           "    Success, Skip (none approved), or Error"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr",
+        "review-pr-thread-resolution"
+      ]
     },
     {
       "name": "validate_review_plan",
@@ -1100,7 +1313,9 @@
           "    Success or Error (halts workflow on validation failure)"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "review-pr"
+      ]
     },
     {
       "name": "verify_pull_request_state",

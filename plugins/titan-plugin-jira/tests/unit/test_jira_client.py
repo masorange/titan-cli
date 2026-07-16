@@ -372,11 +372,24 @@ def test_transition_issue_delegates(jira_client):
         return_value=ClientSuccess(data=None, message="Success")
     )
 
-    result = jira_client.transition_issue("TEST-123", "Done", comment="Completed")
+    fields = {"customfield_1": {"id": "100"}}
+    update = {"labels": [{"add": "qa"}]}
+
+    result = jira_client.transition_issue(
+        "TEST-123",
+        "Done",
+        comment="Completed",
+        fields=fields,
+        update=update,
+    )
 
     assert isinstance(result, ClientSuccess)
     jira_client._transition_service.transition_issue.assert_called_once_with(
-        "TEST-123", "Done", "Completed"
+        "TEST-123",
+        "Done",
+        comment="Completed",
+        fields=fields,
+        update=update,
     )
 
 

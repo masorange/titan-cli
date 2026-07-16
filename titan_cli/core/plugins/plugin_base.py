@@ -94,6 +94,14 @@ class TitanPlugin(ABC):
         """
         return None
 
+    def has_custom_config_screen(self) -> bool:
+        """Return whether this plugin provides a custom configuration screen."""
+        return False
+
+    def create_config_screen(self, config: Any) -> Optional[Any]:
+        """Create a plugin-specific configuration screen when supported."""
+        return None
+
     def get_steps(self) -> Dict[str, Callable]:
         """
         Get workflow steps provided by this plugin.

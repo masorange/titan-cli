@@ -25,6 +25,24 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
         relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
+        id=ChecklistCategory.SEMANTIC_CORRECTNESS,
+        name="Semantic Correctness",
+        description=(
+            "Changes that preserve execution but alter the meaning, classification, "
+            "labeling, or interpretation of data, events, or outputs."
+        ),
+        relevant_file_patterns=[],
+    ),
+    ReviewChecklistItem(
+        id=ChecklistCategory.STATE_CONSISTENCY,
+        name="State Consistency",
+        description=(
+            "Changes that report success, failure, completion, or state inconsistently "
+            "with what actually happened."
+        ),
+        relevant_file_patterns=[],
+    ),
+    ReviewChecklistItem(
         id=ChecklistCategory.TEST_COVERAGE,
         name="Test Coverage",
         description=(
@@ -97,4 +115,3 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
         relevant_file_patterns=[],
     ),
 ]
-

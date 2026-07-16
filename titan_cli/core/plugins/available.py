@@ -28,4 +28,10 @@ KNOWN_PLUGINS: List[KnownPlugin] = [
         "package_name": "titan-plugin-jira",
         "dependencies": []
     },
+    {
+        "name": "slack",
+        "description": "Slack integration for personal messaging and workspace access.",
+        "package_name": "titan-plugin-slack",
+        "dependencies": []
+    },
 ]

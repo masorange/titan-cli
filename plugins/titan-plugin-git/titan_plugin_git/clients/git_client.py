@@ -303,6 +303,10 @@ class GitClient:
         """Get diff of all uncommitted changes."""
         return self.diff_service.get_uncommitted_diff()
 
+    def get_uncommitted_diff_for_files(self, files: list[str]) -> ClientResult[str]:
+        """Get diff of uncommitted changes limited to specific files."""
+        return self.diff_service.get_uncommitted_diff_for_files(files)
+
     def get_staged_diff(self) -> ClientResult[str]:
         """Get diff of staged changes only."""
         return self.diff_service.get_staged_diff()
@@ -377,6 +381,10 @@ class GitClient:
     ) -> ClientResult[None]:
         """Fetch from remote."""
         return self.remote_service.fetch(remote, branch, all)
+
+    def fetch_refspec(self, remote: str, refspec: str) -> ClientResult[None]:
+        """Fetch an explicit refspec from remote."""
+        return self.remote_service.fetch_refspec(remote, refspec)
 
     def get_github_repo_info(self) -> ClientResult[Tuple[Optional[str], Optional[str]]]:
         """Extract GitHub repository owner and name from origin."""

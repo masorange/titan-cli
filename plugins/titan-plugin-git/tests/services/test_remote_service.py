@@ -169,6 +169,16 @@ class TestRemoteServiceFetch:
         assert isinstance(result, ClientError)
         assert result.error_code == "FETCH_ERROR"
 
+    def test_fetch_refspec(self, service, mock_git_network):
+        """Test fetch explicit refspec from remote."""
+        mock_git_network.run_command.return_value = ""
+
+        result = service.fetch_refspec("origin", "pull/223/head:refs/titan/review/pr-223")
+
+        assert isinstance(result, ClientSuccess)
+        args = mock_git_network.run_command.call_args.args[0]
+        assert args == ["git", "fetch", "origin", "pull/223/head:refs/titan/review/pr-223"]
+
 
 @pytest.mark.unit
 class TestRemoteServiceGetGithubRepoInfo:

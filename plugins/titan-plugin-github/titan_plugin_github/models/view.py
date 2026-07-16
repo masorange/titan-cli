@@ -13,6 +13,7 @@ These models are GitHub-specific and live in the GitHub plugin, not in the core.
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from .pr_enums import PRState
 from .review_enums import FileChangeStatus, FindingSeverity
 
 
@@ -141,7 +142,7 @@ class UIPullRequest:
     title: str
     body: str
     status_icon: str  # "🟢" "🔴" "🟣" "📝" etc.
-    state: str  # "OPEN", "CLOSED", "MERGED"
+    state: PRState
     author_name: str  # Just the username
     head_ref: str  # Head branch name (for operations)
     base_ref: str  # Base branch name (for operations)
@@ -154,6 +155,11 @@ class UIPullRequest:
     labels: List[str]  # Just label names
     formatted_created_at: str  # "DD/MM/YYYY HH:MM:SS"
     formatted_updated_at: str  # "DD/MM/YYYY HH:MM:SS"
+    checks_summary: str = ""
+    review_status_summary: str = ""
+    is_cross_repository: bool = False
+    head_repository_owner: Optional[str] = None
+    head_repository_name: Optional[str] = None
 
 
 @dataclass
@@ -233,15 +239,18 @@ class UIPRCreated:
 @dataclass
 class UIRelease:
     """
-    UI model for a newly created GitHub release.
+    UI model for a GitHub release.
 
-    Returned after create_release — contains the identifiers needed
-    to display the result or navigate to the release page.
+    Returned by create_release, list_releases, and get_release — contains
+    the identifiers and notes body needed to display or summarize a release.
     """
     tag_name: str
     title: str
     url: str
     is_prerelease: bool
+    body: str = ""
+    published_at: str = ""
+    is_draft: bool = False
 
 
 @dataclass
