@@ -31,6 +31,14 @@ class ClaudeHeadlessAdapter:
     def supports_structured_output(self) -> bool:
         return True
 
+    @property
+    def supports_tool_restriction(self) -> bool:
+        return True
+
+    @property
+    def supports_effort_control(self) -> bool:
+        return True
+
     def is_available(self) -> bool:
         return shutil.which("claude") is not None
 
@@ -40,10 +48,20 @@ class ClaudeHeadlessAdapter:
         cwd: Optional[str] = None,
         timeout: int = 60,
         json_schema: Optional[dict[str, Any]] = None,
+        disallowed_tools: Optional[list[str]] = None,
+        effort: Optional[str] = None,
     ) -> HeadlessResponse:
         cmd = ["claude", "--print"]
         if json_schema is not None:
             cmd += ["--output-format", "json", "--json-schema", json.dumps(json_schema)]
+        if disallowed_tools:
+            # --disallowedTools is a variadic flag with no natural terminator: passed as
+            # separate argv tokens, it keeps consuming words until the next recognized flag,
+            # swallowing the trailing prompt argument as if it were another tool name. A
+            # single comma-joined token avoids that ambiguity.
+            cmd += [f"--disallowedTools={','.join(disallowed_tools)}"]
+        if effort is not None:
+            cmd += ["--effort", effort]
         cmd.append(prompt)
         try:
             result = subprocess.run(

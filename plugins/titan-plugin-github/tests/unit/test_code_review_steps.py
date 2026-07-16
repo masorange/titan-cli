@@ -483,11 +483,13 @@ class _FakeFindingsAdapter:
         self.executed_prompts: list[str] = []
 
     supports_structured_output = False
+    supports_tool_restriction = False
+    supports_effort_control = False
 
     def is_available(self) -> bool:
         return True
 
-    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
         self.executed_prompts.append(prompt)
         return HeadlessResponse(stdout="[]", stderr="", exit_code=0)
 
@@ -547,6 +549,8 @@ class _FakeFencedAdapter:
 
     cli_name = SupportedCLI.CLAUDE
     supports_structured_output = False
+    supports_tool_restriction = False
+    supports_effort_control = False
 
     def __init__(self, stdout: str):
         self._stdout = stdout
@@ -554,7 +558,7 @@ class _FakeFencedAdapter:
     def is_available(self) -> bool:
         return True
 
-    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
         return HeadlessResponse(stdout=self._stdout, stderr="", exit_code=0)
 
 
@@ -591,6 +595,8 @@ class _FakeSequentialAdapter:
 
     cli_name = SupportedCLI.CLAUDE
     supports_structured_output = False
+    supports_tool_restriction = False
+    supports_effort_control = False
 
     def __init__(self, stdouts: list[str]):
         self._stdouts = list(stdouts)
@@ -599,8 +605,10 @@ class _FakeSequentialAdapter:
     def is_available(self) -> bool:
         return True
 
-    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
-        self.calls.append({"prompt": prompt, "cwd": cwd, "timeout": timeout})
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
+        self.calls.append(
+            {"prompt": prompt, "cwd": cwd, "timeout": timeout, "disallowed_tools": disallowed_tools, "effort": effort}
+        )
         stdout = self._stdouts[len(self.calls) - 1]
         return HeadlessResponse(stdout=stdout, stderr="", exit_code=0)
 
@@ -671,6 +679,8 @@ class _FakeStructuredOutputAdapter:
 
     cli_name = SupportedCLI.CLAUDE
     supports_structured_output = True
+    supports_tool_restriction = True
+    supports_effort_control = True
 
     def __init__(self, stdout: str):
         self._stdout = stdout
@@ -679,8 +689,17 @@ class _FakeStructuredOutputAdapter:
     def is_available(self) -> bool:
         return True
 
-    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None) -> HeadlessResponse:
-        self.calls.append({"prompt": prompt, "cwd": cwd, "timeout": timeout, "json_schema": json_schema})
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "cwd": cwd,
+                "timeout": timeout,
+                "json_schema": json_schema,
+                "disallowed_tools": disallowed_tools,
+                "effort": effort,
+            }
+        )
         return HeadlessResponse(stdout=self._stdout, stderr="", exit_code=0)
 
 
@@ -741,6 +760,162 @@ def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeyp
     assert len(fake_adapter.calls) == 2
     assert fake_adapter.calls[1]["json_schema"] is not None
     assert ctx.data["ai_findings_failed"] is True
+
+
+def test_ai_review_findings_restricts_tools_when_supported(monkeypatch):
+    """O-003/D-011 fix: when the adapter supports tool restriction, ai_review_findings must
+    deny Bash (and the other unneeded tools) so the CLI can't explore far beyond the batch's
+    worktree_reference files — Read/Grep/Glob stay implicitly available since they're not
+    in the denylist."""
+    from titan_plugin_github.operations.findings_operations import FINDINGS_DISALLOWED_TOOLS
+
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": [{"title": "Bug"}]}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["disallowed_tools"] == list(FINDINGS_DISALLOWED_TOOLS)
+
+
+def test_ai_review_findings_omits_disallowed_tools_when_unsupported(monkeypatch):
+    """Adapters without tool-restriction support (Codex, Gemini) must not receive a
+    disallowed_tools list — the step must not assume the capability is universal."""
+    fake_adapter = _FakeSequentialAdapter(['[{"title": "Bug"}]'])
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["disallowed_tools"] is None
+
+
+def test_ai_review_findings_reformat_retry_also_restricts_tools(monkeypatch):
+    """The reformat retry reuses the same adapter for a lighter-weight call with no
+    exploration need at all — it must still receive the same tool restriction."""
+    from titan_plugin_github.operations.findings_operations import FINDINGS_DISALLOWED_TOOLS
+
+    fake_adapter = _FakeStructuredOutputAdapter("I won't call that tool.")
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 2
+    assert fake_adapter.calls[1]["disallowed_tools"] == list(FINDINGS_DISALLOWED_TOOLS)
+
+
+def _make_worktree_reference_batch(batch_id: str, path: str) -> FocusContextBatch:
+    return FocusContextBatch(
+        batch_id=batch_id,
+        files_context={
+            path: FileContextEntry(
+                path=path,
+                read_mode=FileReadMode.WORKTREE_REFERENCE,
+                worktree_reference=True,
+                review_hint="Read this file from the worktree.",
+                approximate_chars=100,
+            )
+        },
+    )
+
+
+def test_ai_review_findings_caps_effort_for_worktree_reference_batch(monkeypatch):
+    """O-003 fix: a real replay showed removing Bash alone didn't reduce duration — Claude
+    still took ~330s regardless of tool. Capping effort at FINDINGS_WORKTREE_REFERENCE_EFFORT
+    cut that to ~170s in the same replay while still finding a genuine bug an independent CLI
+    also found, so ai_review_findings must request it for worktree_reference batches."""
+    from titan_plugin_github.operations.findings_operations import FINDINGS_WORKTREE_REFERENCE_EFFORT
+
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": []}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_worktree_reference_batch("batch_1", "HomeScreen.kt")]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["effort"] == FINDINGS_WORKTREE_REFERENCE_EFFORT
+
+
+def test_ai_review_findings_omits_effort_when_no_worktree_reference(monkeypatch):
+    """A batch with only inline file content has no reason to explore, so it must keep the
+    adapter's default effort rather than unconditionally capping every findings call."""
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": []}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["effort"] is None
 
 
 def test_ai_thread_resolution_parses_markdown_fenced_response(monkeypatch):

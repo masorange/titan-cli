@@ -33,6 +33,14 @@ class CodexHeadlessAdapter:
     def supports_structured_output(self) -> bool:
         return False
 
+    @property
+    def supports_tool_restriction(self) -> bool:
+        return False
+
+    @property
+    def supports_effort_control(self) -> bool:
+        return False
+
     def is_available(self) -> bool:
         return shutil.which("codex") is not None
 
@@ -42,6 +50,8 @@ class CodexHeadlessAdapter:
         cwd: Optional[str] = None,
         timeout: int = 60,
         json_schema: Optional[dict[str, Any]] = None,
+        disallowed_tools: Optional[list[str]] = None,
+        effort: Optional[str] = None,
     ) -> HeadlessResponse:
         # Use flags for non-interactive headless execution:
         # - --json: machine-readable JSONL output

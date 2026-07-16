@@ -1633,16 +1633,24 @@ def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
 
 
 def _retry_findings_batch_reformat(
-    adapter, previous_stdout: str, cwd: Optional[str], batch_id: str, structured: bool
+    adapter, previous_stdout: str, cwd: Optional[str], batch_id: str, structured: bool, effort: Optional[str] = None
 ):
     """Ask the same CLI to reformat its own previous output as a JSON array, without
     rerunning the full analysis, using a short timeout distinct from the main one."""
-    from ..operations.findings_operations import findings_json_schema, parse_findings_response
+    from ..operations.findings_operations import FINDINGS_DISALLOWED_TOOLS, findings_json_schema, parse_findings_response
 
     reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
     schema = findings_json_schema() if structured else None
+    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
     _log_ai_prompt("ai_review_findings_reformat_retry", adapter.cli_name.value, reformat_prompt, batch_id=batch_id)
-    response = adapter.execute(reformat_prompt, cwd=cwd, timeout=REFORMAT_RETRY_TIMEOUT_SECONDS, json_schema=schema)
+    response = adapter.execute(
+        reformat_prompt,
+        cwd=cwd,
+        timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
+        json_schema=schema,
+        disallowed_tools=disallowed_tools,
+        effort=effort if adapter.supports_effort_control else None,
+    )
     _log_ai_response(
         step_name="ai_review_findings_reformat_retry",
         cli_name=adapter.cli_name.value,
@@ -1821,6 +1829,8 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         return Error("No review_context_batches in context (run resolve_review_context first)")
 
     from ..operations.findings_operations import (
+        FINDINGS_DISALLOWED_TOOLS,
+        FINDINGS_WORKTREE_REFERENCE_EFFORT,
         build_default_findings,
         build_findings_prompt_parts,
         findings_json_schema,
@@ -1841,6 +1851,10 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     # instruction, which models frequently ignore in favor of a prose summary.
     use_structured_output = adapter.supports_structured_output
     findings_schema = findings_json_schema() if use_structured_output else None
+    # Removes Bash (and other unneeded tools) from the CLI's own session so it can't explore
+    # far beyond the batch's worktree_reference files (D-011/O-003) — Read/Grep/Glob stay
+    # available for the legitimate cross-file lookups the worktree_reference hint permits.
+    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
     cli_display = adapter.cli_name.value.capitalize()
     aggregated_raw = []
     findings_failed = False
@@ -1912,9 +1926,24 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         worktree_reference_count = sum(
             1 for entry in batch.files_context.values() if entry.worktree_reference
         )
+        # A worktree_reference batch is the one shape shown to reliably drive O-003's
+        # duration/timeout problem (D-011) — capping effort only here, not on every batch,
+        # leaves batches that already complete quickly untouched.
+        effort = (
+            FINDINGS_WORKTREE_REFERENCE_EFFORT
+            if worktree_reference_count and adapter.supports_effort_control
+            else None
+        )
         adapter_started_at = time.monotonic()
         with ctx.textual.loading(f"Asking {cli_display} to review {len(batch.files_context)} file(s) in {batch.batch_id}…"):
-            response = adapter.execute(prompt, cwd=project_root, timeout=300, json_schema=findings_schema)
+            response = adapter.execute(
+                prompt,
+                cwd=project_root,
+                timeout=300,
+                json_schema=findings_schema,
+                disallowed_tools=disallowed_tools,
+                effort=effort,
+            )
         adapter_duration_seconds = time.monotonic() - adapter_started_at
         logger.info(
             "findings_batch_adapter_call",
@@ -1927,6 +1956,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             exit_code=response.exit_code,
             timed_out=response.exit_code == 124,
             structured_output=use_structured_output,
+            effort=effort,
         )
         _log_ai_response(
             step_name="ai_review_findings",
@@ -1967,7 +1997,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             case ClientError(error_message=err):
                 logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=err)
                 match _retry_findings_batch_reformat(
-                    adapter, response.stdout, project_root, batch.batch_id, use_structured_output
+                    adapter, response.stdout, project_root, batch.batch_id, use_structured_output, effort
                 ):
                     case ClientSuccess(data=raw) if isinstance(raw, list):
                         aggregated_raw.extend(raw)

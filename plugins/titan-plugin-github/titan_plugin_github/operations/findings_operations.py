@@ -189,6 +189,31 @@ def _finding_schema() -> str:
     )
 
 
+FINDINGS_DISALLOWED_TOOLS = ("Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent")
+"""Tools removed from the CLI's session for `ai_review_findings` calls.
+
+A findings-review call never needs to modify files, fetch the web, or spawn a subagent, and
+`Bash` is the exact vector traced (D-011) to unbounded, mostly unproductive exploration —
+recursive shell greps/finds across whole directory trees, not scoped to the worktree the way
+`Read`/`Grep`/`Glob` are. Those three stay available: they cover the same legitimate
+cross-file lookups (an imported type, a caller, a test) through Claude Code's own bounded
+tools instead of arbitrary shell recursion.
+"""
+
+FINDINGS_WORKTREE_REFERENCE_EFFORT = "medium"
+"""Reasoning-effort tier for findings batches that include a worktree_reference file.
+
+Removing Bash alone (`FINDINGS_DISALLOWED_TOOLS`) didn't reduce O-003's duration/timeout —
+a real replay showed Claude still takes ~15 Read/Grep turns and ~330s regardless of which
+tool is available, while Codex/Gemini cover similar ground in far fewer output tokens and a
+fraction of the time. Capping effort at "medium" (vs. the session default) cut a real replay
+from ~330s/$1.10 to ~170s/$0.78 while still surfacing a genuine bug an independent CLI
+(Gemini) also found — "low" was faster still (~50s/$0.34) but missed that bug, so "medium" is
+the current balance. Provisional pending more real-PR data, same as
+`WORKTREE_REFERENCE_ESTIMATED_CHARS` (O-001).
+"""
+
+
 def findings_json_schema() -> dict[str, Any]:
     """JSON Schema for `--json-schema`, enforcing findings as a tool call instead of
     relying on the model to follow a "respond only with JSON" prompt instruction.

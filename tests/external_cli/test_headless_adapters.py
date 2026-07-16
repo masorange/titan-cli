@@ -174,6 +174,56 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.stdout, "not json at all")
         self.assertTrue(response.succeeded)
 
+    def test_supports_tool_restriction(self):
+        self.assertTrue(self.adapter.supports_tool_restriction)
+
+    @patch("subprocess.run")
+    def test_execute_with_disallowed_tools_adds_flag(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        self.adapter.execute(
+            "review this", cwd="/tmp", timeout=45, disallowed_tools=["Bash", "Agent"]
+        )
+
+        mock_run.assert_called_once_with(
+            ["claude", "--print", "--disallowedTools=Bash,Agent", "review this"],
+            capture_output=True,
+            text=True,
+            cwd="/tmp",
+            timeout=45,
+        )
+
+    @patch("subprocess.run")
+    def test_execute_without_disallowed_tools_omits_flag(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        self.adapter.execute("review this")
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertNotIn("--disallowedTools", called_cmd)
+
+    def test_supports_effort_control(self):
+        self.assertTrue(self.adapter.supports_effort_control)
+
+    @patch("subprocess.run")
+    def test_execute_with_effort_adds_flag(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        self.adapter.execute("review this", cwd="/tmp", timeout=45, effort="medium")
+
+        mock_run.assert_called_once_with(
+            ["claude", "--print", "--effort", "medium", "review this"],
+            capture_output=True,
+            text=True,
+            cwd="/tmp",
+            timeout=45,
+        )
+
+    @patch("subprocess.run")
+    def test_execute_without_effort_omits_flag(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        self.adapter.execute("review this")
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertNotIn("--effort", called_cmd)
+
 
 # ── CodexHeadlessAdapter ──────────────────────────────────────────────────────
 
@@ -193,6 +243,28 @@ class TestCodexHeadlessAdapterStructuredOutput(unittest.TestCase):
 
         called_cmd = mock_run.call_args.args[0]
         self.assertNotIn("--json-schema", called_cmd)
+
+    def test_supports_tool_restriction_is_false(self):
+        self.assertFalse(self.adapter.supports_tool_restriction)
+
+    @patch("subprocess.run")
+    def test_execute_ignores_disallowed_tools(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+        self.adapter.execute("prompt", disallowed_tools=["Bash", "Agent"])
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertNotIn("--disallowedTools", called_cmd)
+
+    def test_supports_effort_control_is_false(self):
+        self.assertFalse(self.adapter.supports_effort_control)
+
+    @patch("subprocess.run")
+    def test_execute_ignores_effort(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+        self.adapter.execute("prompt", effort="medium")
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertNotIn("--effort", called_cmd)
 
 
 # ── GeminiHeadlessAdapter ─────────────────────────────────────────────────────
@@ -251,6 +323,38 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
     def test_execute_cli_not_found(self, _):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.exit_code, 127)
+
+    def test_supports_tool_restriction_is_false(self):
+        self.assertFalse(self.adapter.supports_tool_restriction)
+
+    @patch("subprocess.run")
+    def test_execute_ignores_disallowed_tools(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="response\n", stderr="", returncode=0)
+        self.adapter.execute("my prompt", disallowed_tools=["Bash", "Agent"])
+
+        mock_run.assert_called_once_with(
+            ["gemini", "--prompt", "my prompt"],
+            capture_output=True,
+            text=True,
+            cwd=None,
+            timeout=60,
+        )
+
+    def test_supports_effort_control_is_false(self):
+        self.assertFalse(self.adapter.supports_effort_control)
+
+    @patch("subprocess.run")
+    def test_execute_ignores_effort(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="response\n", stderr="", returncode=0)
+        self.adapter.execute("my prompt", effort="medium")
+
+        mock_run.assert_called_once_with(
+            ["gemini", "--prompt", "my prompt"],
+            capture_output=True,
+            text=True,
+            cwd=None,
+            timeout=60,
+        )
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
