@@ -6,6 +6,7 @@ AI analysis combined with project-specific skill guidelines.
 """
 import re
 import threading
+import time
 from difflib import SequenceMatcher
 from typing import List, Optional
 
@@ -16,7 +17,8 @@ from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headl
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
-from ..models.review_enums import FileReadMode, ReviewActionType, ReviewStrategyType, ThreadDecisionType
+from ..managers.prompt_budget_manager import get_prompt_budget_manager
+from ..models.review_enums import ReviewActionType, ReviewStrategyType, ThreadDecisionType
 from ..models.review_models import (
     PRClassification,
     ReferencedCommitContext,
@@ -24,6 +26,11 @@ from ..models.review_models import (
 )
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
+from ..operations.ai_response_parsing_operations import (
+    REFORMAT_RETRY_TIMEOUT_SECONDS,
+    build_json_reformat_prompt,
+    extract_json_payload,
+)
 from ..operations.code_review_operations import (
     select_files_for_review,
     compute_diff_stat,
@@ -286,90 +293,6 @@ def _show_review_plan_validation_summary(ctx: WorkflowContext, plan) -> None:
     ctx.textual.dim_text(
         f"Validated plan: {focus_count} focus file(s) · {axes_count} axes · {extra_count} extra context request(s)"
     )
-
-
-def _strip_markdown_fences(text: str) -> str:
-    """Remove outer markdown code fences from a CLI response."""
-    stripped = text.strip()
-    if not stripped.startswith("```"):
-        return stripped
-    lines = stripped.split("\n")
-    return "\n".join(lines[1:-1]) if len(lines) > 2 else stripped
-
-
-def _extract_json_slice(text: str, opening: str, closing: str, label: str) -> str:
-    """Extract the outermost JSON object or array substring from a response."""
-    start = text.find(opening)
-    end = text.rfind(closing) + 1
-    if start == -1 or end == 0:
-        raise ValueError(f"No JSON {label} found in response")
-    return text[start:end]
-
-
-def _fit_batch_to_budget(batch, prompt_parts: dict[str, str], budget_chars: int):
-    """Shrink or split a batch until it fits the prompt budget, or mark it oversized."""
-    prompt = prompt_parts["prompt"]
-    actual_chars = len(prompt)
-    if actual_chars <= budget_chars:
-        fitted = batch.model_copy(update={"prompt_actual_chars": actual_chars})
-        return [fitted], False
-
-    file_items = list(batch.files_context.items())
-    if len(file_items) > 1:
-        midpoint = max(1, len(file_items) // 2)
-        left = batch.model_copy(
-            update={
-                "batch_id": f"{batch.batch_id}a",
-                "files_context": dict(file_items[:midpoint]),
-                "degraded_context": True,
-            }
-        )
-        right = batch.model_copy(
-            update={
-                "batch_id": f"{batch.batch_id}b",
-                "files_context": dict(file_items[midpoint:]),
-                "degraded_context": True,
-            }
-        )
-        return [left, right], True
-
-    only_path, only_entry = file_items[0]
-    if not only_entry.worktree_reference:
-        degraded_entry = only_entry.model_copy(
-            update={
-                "full_content": None,
-                "expanded_hunks": [],
-                "hunks": [],
-                "read_mode": FileReadMode.WORKTREE_REFERENCE,
-                "worktree_reference": True,
-                "review_hint": only_entry.review_hint
-                or "Read this file from the worktree and inspect the changed regions first.",
-                "approximate_chars": min(800, only_entry.approximate_chars or 800),
-            }
-        )
-        return [
-            batch.model_copy(
-                update={
-                    "files_context": {only_path: degraded_entry},
-                    "degraded_context": True,
-                }
-            )
-        ], True
-
-    if batch.related_files:
-        return [batch.model_copy(update={"related_files": {}, "degraded_context": True})], True
-
-    if batch.comment_context:
-        return [batch.model_copy(update={"comment_context": [], "degraded_context": True})], True
-
-    oversized = batch.model_copy(
-        update={
-            "prompt_actual_chars": actual_chars,
-            "prompt_still_too_large": True,
-            "degraded_context": True,
-        }
-    )
-    return [oversized], False
 
 
 def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payload: dict) -> tuple[dict, list[dict]]:
@@ -1414,7 +1337,6 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     )
     from ..models.review_models import ReviewPlan
     from pydantic import ValidationError
-    import json
 
     if strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS:
         fallback = build_default_review_plan(
@@ -1503,11 +1425,18 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         return Success("Default review plan used (CLI error)", metadata={"review_plan": fallback})
 
     # Parse JSON response
-    try:
-        text = _strip_markdown_fences(response.stdout)
-        plan = ReviewPlan.model_validate_json(_extract_json_slice(text, "{", "}", "object"))
-    except (json.JSONDecodeError, ValidationError, ValueError) as e:
-        ctx.textual.warning_text(f"Plan parsing failed ({e}) — using default plan")
+    parse_error: Optional[str] = None
+    match extract_json_payload(response.stdout, kind="object"):
+        case ClientSuccess(data=payload):
+            try:
+                plan = ReviewPlan.model_validate(payload)
+            except ValidationError as e:
+                parse_error = str(e)
+        case ClientError(error_message=err):
+            parse_error = err
+
+    if parse_error is not None:
+        ctx.textual.warning_text(f"Plan parsing failed ({parse_error}) — using default plan")
         fallback = build_default_review_plan(
             candidates,
             excluded_files,
@@ -1703,11 +1632,52 @@ def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
         ctx.textual.dim_text(f"  {path}")
 
 
+def _retry_findings_batch_reformat(
+    adapter, previous_stdout: str, cwd: Optional[str], batch_id: str, structured: bool, effort: Optional[str] = None
+):
+    """Ask the same CLI to reformat its own previous output as a JSON array, without
+    rerunning the full analysis, using a short timeout distinct from the main one."""
+    from ..operations.findings_operations import FINDINGS_DISALLOWED_TOOLS, findings_json_schema, parse_findings_response
+
+    reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
+    schema = findings_json_schema() if structured else None
+    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
+    _log_ai_prompt("ai_review_findings_reformat_retry", adapter.cli_name.value, reformat_prompt, batch_id=batch_id)
+    response = adapter.execute(
+        reformat_prompt,
+        cwd=cwd,
+        timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
+        json_schema=schema,
+        disallowed_tools=disallowed_tools,
+        effort=effort if adapter.supports_effort_control else None,
+    )
+    _log_ai_response(
+        step_name="ai_review_findings_reformat_retry",
+        cli_name=adapter.cli_name.value,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+        batch_id=batch_id,
+    )
+    if not response.succeeded:
+        return ClientError(
+            error_message=f"Reformat retry CLI call failed (exit {response.exit_code})",
+            error_code="REFORMAT_RETRY_FAILED",
+            log_level="warning",
+        )
+    return parse_findings_response(response.stdout, structured=structured)
+
+
 def _render_findings_batch_split(ctx: WorkflowContext, batch_id: str, produced_batches: list[str]) -> None:
     """Render a batch split caused by prompt budget constraints."""
     ctx.textual.warning_text(
         f"{batch_id} exceeded prompt budget and was split into {', '.join(produced_batches)}"
     )
+
+
+def _render_findings_batch_degraded(ctx: WorkflowContext, batch_id: str) -> None:
+    """Render an in-place context reduction (no new batches) caused by prompt budget constraints."""
+    ctx.textual.warning_text(f"{batch_id} exceeded prompt budget and was degraded to fit")
 
 
 def _render_findings_batch_result(
@@ -1864,11 +1834,14 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         return Error("No review_context_batches in context (run resolve_review_context first)")
 
     from ..operations.findings_operations import (
+        FINDINGS_DISALLOWED_TOOLS,
+        FINDINGS_WORKTREE_REFERENCE_EFFORT,
         build_default_findings,
         build_findings_prompt_parts,
+        findings_json_schema,
+        parse_findings_response,
         summarize_findings_prompt_parts,
     )
-    import json
 
     adapter = _resolve_headless_adapter(cli_preference)
 
@@ -1878,6 +1851,15 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("success")
         return Success("No findings (no CLI available)", metadata={"raw_findings": []})
 
+    # Structured output forces the CLI to return findings via a schema-validated tool
+    # call instead of relying on the model to follow a "respond only with JSON" prompt
+    # instruction, which models frequently ignore in favor of a prose summary.
+    use_structured_output = adapter.supports_structured_output
+    findings_schema = findings_json_schema() if use_structured_output else None
+    # Removes Bash (and other unneeded tools) from the CLI's own session so it can't explore
+    # far beyond the batch's worktree_reference files (D-011/O-003) — Read/Grep/Glob stay
+    # available for the legitimate cross-file lookups the worktree_reference hint permits.
+    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
     cli_display = adapter.cli_name.value.capitalize()
     aggregated_raw = []
     findings_failed = False
@@ -1888,7 +1870,9 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         batch = batch_queue.pop(0)
         prompt_parts = build_findings_prompt_parts(batch)
         prompt = prompt_parts["prompt"]
-        fitted_batches, changed = _fit_batch_to_budget(batch, prompt_parts, strategy.max_prompt_chars)
+        fitted_batches, changed = get_prompt_budget_manager().fit_batch_to_budget(
+            batch, prompt_parts, strategy.max_prompt_chars
+        )
         if changed:
             logger.debug(
                 "findings_batch_rebalanced",
@@ -1897,11 +1881,15 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 prompt_actual_chars=len(prompt),
                 prompt_budget_target_chars=strategy.max_prompt_chars,
             )
-            _render_findings_batch_split(
-                ctx,
-                batch.batch_id,
-                [candidate.batch_id for candidate in fitted_batches],
-            )
+            is_actual_split = len(fitted_batches) > 1 or fitted_batches[0].batch_id != batch.batch_id
+            if is_actual_split:
+                _render_findings_batch_split(
+                    ctx,
+                    batch.batch_id,
+                    [candidate.batch_id for candidate in fitted_batches],
+                )
+            else:
+                _render_findings_batch_degraded(ctx, batch.batch_id)
             batch_queue = fitted_batches + batch_queue
             continue
 
@@ -1944,8 +1932,41 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 detail="prompt still too large",
             )
             continue
+        worktree_reference_count = sum(
+            1 for entry in batch.files_context.values() if entry.worktree_reference
+        )
+        # A worktree_reference batch is the one shape shown to reliably drive O-003's
+        # duration/timeout problem (D-011) — capping effort only here, not on every batch,
+        # leaves batches that already complete quickly untouched.
+        effort = (
+            FINDINGS_WORKTREE_REFERENCE_EFFORT
+            if worktree_reference_count and adapter.supports_effort_control
+            else None
+        )
+        adapter_started_at = time.monotonic()
         with ctx.textual.loading(f"Asking {cli_display} to review {len(batch.files_context)} file(s) in {batch.batch_id}…"):
-            response = adapter.execute(prompt, cwd=project_root, timeout=300)
+            response = adapter.execute(
+                prompt,
+                cwd=project_root,
+                timeout=300,
+                json_schema=findings_schema,
+                disallowed_tools=disallowed_tools,
+                effort=effort,
+            )
+        adapter_duration_seconds = time.monotonic() - adapter_started_at
+        logger.info(
+            "findings_batch_adapter_call",
+            batch_id=batch.batch_id,
+            cli=adapter.cli_name.value,
+            files_context=len(batch.files_context),
+            worktree_reference_count=worktree_reference_count,
+            prompt_actual_chars=len(prompt),
+            duration_seconds=round(adapter_duration_seconds, 3),
+            exit_code=response.exit_code,
+            timed_out=response.exit_code == 124,
+            structured_output=use_structured_output,
+            effort=effort,
+        )
         _log_ai_response(
             step_name="ai_review_findings",
             cli_name=adapter.cli_name.value,
@@ -1971,10 +1992,8 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             )
             continue
 
-        try:
-            text = _strip_markdown_fences(response.stdout)
-            raw = json.loads(_extract_json_slice(text, "[", "]", "array"))
-            if isinstance(raw, list):
+        match parse_findings_response(response.stdout, structured=use_structured_output):
+            case ClientSuccess(data=raw) if isinstance(raw, list):
                 aggregated_raw.extend(raw)
                 _render_findings_batch_result(
                     ctx,
@@ -1982,15 +2001,35 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     status="success",
                     findings_count=len(raw),
                 )
-        except (json.JSONDecodeError, ValueError) as e:
-            findings_failed = True
-            logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=str(e))
-            _render_findings_batch_result(
-                ctx,
-                batch.batch_id,
-                status="failed",
-                detail="parse error",
-            )
+            case ClientSuccess():
+                pass
+            case ClientError(error_message=err):
+                logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=err)
+                match _retry_findings_batch_reformat(
+                    adapter, response.stdout, project_root, batch.batch_id, use_structured_output, effort
+                ):
+                    case ClientSuccess(data=raw) if isinstance(raw, list):
+                        aggregated_raw.extend(raw)
+                        logger.debug(
+                            "findings_batch_reformat_recovered",
+                            batch_id=batch.batch_id,
+                            findings_count=len(raw),
+                        )
+                        _render_findings_batch_result(
+                            ctx,
+                            batch.batch_id,
+                            status="success",
+                            findings_count=len(raw),
+                        )
+                    case _:
+                        findings_failed = True
+                        logger.debug("findings_batch_reformat_failed", batch_id=batch.batch_id)
+                        _render_findings_batch_result(
+                            ctx,
+                            batch.batch_id,
+                            status="failed",
+                            detail="parse error",
+                        )
 
     if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
         candidates = ctx.get("review_candidates", [])
@@ -2732,8 +2771,6 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No thread_review_contexts in context")
 
-    import json
-
     adapter = _resolve_headless_adapter(cli_preference)
 
     if not adapter:
@@ -2746,8 +2783,19 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
 
     cli_display = adapter.cli_name.value.capitalize()
     thread_count = len(contexts)
+    adapter_started_at = time.monotonic()
     with ctx.textual.loading(f"Asking {cli_display} to analyse {thread_count} thread(s)…"):
         response = adapter.execute(prompt, cwd=project_root, timeout=300)
+    adapter_duration_seconds = time.monotonic() - adapter_started_at
+    logger.info(
+        "thread_resolution_adapter_call",
+        cli=adapter.cli_name.value,
+        thread_count=thread_count,
+        prompt_actual_chars=len(prompt),
+        duration_seconds=round(adapter_duration_seconds, 3),
+        exit_code=response.exit_code,
+        timed_out=response.exit_code == 124,
+    )
 
     if not response.succeeded:
         ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no thread decisions")
@@ -2758,21 +2806,14 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         return Success("No decisions (CLI error)", metadata={"raw_thread_decisions": []})
 
     # Parse JSON array response
-    try:
-        text = response.stdout.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-        start = text.find("[")
-        end = text.rfind("]") + 1
-        if start == -1 or end == 0:
-            raise ValueError("No JSON array found in response")
-        raw = json.loads(text[start:end])
-    except (json.JSONDecodeError, ValueError) as e:
-        ctx.textual.warning_text(f"Thread decisions parsing failed ({e}) — no decisions")
-        ctx.data["raw_thread_decisions"] = []
-        ctx.textual.end_step("success")
-        return Success("No decisions (parse error)", metadata={"raw_thread_decisions": []})
+    match extract_json_payload(response.stdout, kind="array"):
+        case ClientError(error_message=err):
+            ctx.textual.warning_text(f"Thread decisions parsing failed ({err}) — no decisions")
+            ctx.data["raw_thread_decisions"] = []
+            ctx.textual.end_step("success")
+            return Success("No decisions (parse error)", metadata={"raw_thread_decisions": []})
+        case ClientSuccess(data=raw):
+            pass
 
     ctx.data["raw_thread_decisions"] = raw
     ctx.textual.success_text(f"✓ AI returned {len(raw)} thread decision(s)")

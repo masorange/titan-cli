@@ -6,7 +6,8 @@ from typing import Optional
 from titan_cli.core.logging import get_logger
 
 from ..managers.diff_context_manager import DiffContextManager, get_or_create_diff_manager
-from ..models.review_enums import ContextRequestType, FileReadMode
+from ..managers.prompt_budget_manager import get_prompt_budget_manager
+from ..models.review_enums import ContextRequestType, FileReadMode, PRSizeClass
 from ..models.review_models import (
     ChangeManifest,
     CommentContextEntry,
@@ -123,7 +124,7 @@ def build_review_context_package(
     checklist_applicable = [item for item in checklist if item.id in applicable_ids] or checklist[:2]
     related_files = resolve_context_requests(plan.extra_context_requests[:1], cwd)
     comment_context = comment_context[: strategy.max_comment_entries]
-    content_budget = _content_budget(strategy)
+    content_budget = get_prompt_budget_manager().content_budget(strategy)
 
     batches: list[FocusContextBatch] = []
     current_files: dict[str, FileContextEntry] = {}
@@ -133,9 +134,14 @@ def build_review_context_package(
 
     for file_plan in plan.focus_files:
         entry = _resolve_file_context(file_plan, diff, strategy, cwd, manager)
-        entry_chars = entry.approximate_chars or _estimate_entry_chars(entry)
+        entry_chars = entry.approximate_chars or get_prompt_budget_manager().estimate_entry_chars(entry)
+        # A worktree_reference file forces the CLI to read it from disk itself, which is
+        # expensive regardless of how cheap its prompt text looks — cap how many of them
+        # can stack up in a single batch, on top of the regular char-budget check.
+        exceeds_worktree_reference_limit = entry.worktree_reference and _batch_has_worktree_reference(current_files)
 
-        if current_files and strategy.batching_enabled and current_chars + entry_chars > content_budget:
+        exceeds_char_budget = current_chars + entry_chars > content_budget
+        if current_files and strategy.batching_enabled and (exceeds_char_budget or exceeds_worktree_reference_limit):
             batches.append(
                 FocusContextBatch(
                     batch_id=f"batch_{batch_index}",
@@ -253,30 +259,13 @@ def _resolve_file_context(
         worktree_reference=True,
         review_hint=_build_worktree_hint(file_plan),
         changed_hunk_headers=hunk_headers,
-        approximate_chars=min(800, 80 + sum(len(header) for header in hunk_headers)),
+        approximate_chars=get_prompt_budget_manager().WORKTREE_REFERENCE_ESTIMATED_CHARS,
     )
     return _log_file_context(resolved_entry, file_plan.path)
 
 
-def _estimate_entry_chars(entry: FileContextEntry) -> int:
-    if entry.full_content:
-        return len(entry.full_content)
-    if entry.expanded_hunks:
-        return sum(len(hunk) for hunk in entry.expanded_hunks)
-    if entry.hunks:
-        return sum(len(hunk) for hunk in entry.hunks)
-    if entry.worktree_reference:
-        return 80 + len(entry.review_hint) + sum(len(header) for header in entry.changed_hunk_headers)
-    return 0
-
-
-def _content_budget(strategy: ReviewStrategy) -> int:
-    reserve = 5000 if strategy.size_class.value in {"large", "huge"} else 3500
-    return max(2500, strategy.max_prompt_chars - reserve)
-
-
 def _file_limits(strategy: ReviewStrategy, path: str) -> dict[str, int]:
-    is_large = strategy.size_class.value in {"large", "huge"}
+    is_large = strategy.size_class in {PRSizeClass.LARGE, PRSizeClass.HUGE}
     is_central = _looks_like_central_file(path)
     is_test = _is_test_file(path)
     return {
@@ -315,7 +304,9 @@ def _build_worktree_hint(file_plan: FileReviewPlan) -> str:
     return (
         "Read this file from the worktree. Prioritize the changed regions first and validate: "
         f"{reasons}. Check especially for semantic mismatches, missing guarantees, state inconsistencies, "
-        "and behavior changes that remain executable but no longer mean the same thing. Cross-check nearby helpers, types, and tests if the changed region depends on them."
+        "and behavior changes that remain executable but no longer mean the same thing. You may check a few "
+        "directly related files (an imported type, a caller, a test) if genuinely needed to resolve a "
+        "specific doubt, but do not perform a broad, open-ended exploration of the codebase."
     )
 
 
@@ -325,6 +316,10 @@ def _estimate_related_chars(related_files: dict[str, str]) -> int:
 
 def _estimate_comment_chars(comment_context: list[CommentContextEntry]) -> int:
     return sum(len(entry.title) + len(entry.summary) for entry in comment_context)
+
+
+def _batch_has_worktree_reference(files_context: dict[str, FileContextEntry]) -> bool:
+    return any(entry.worktree_reference for entry in files_context.values())
 
 
 def _log_file_context(entry: FileContextEntry, path: str) -> FileContextEntry:

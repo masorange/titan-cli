@@ -3,10 +3,25 @@ from unittest.mock import Mock
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Error, Exit, Success
-from titan_plugin_github.models.review_models import ChangeManifest, PullRequestManifest, ReferencedCommitContext, ThreadReviewCandidate
+from titan_cli.external_cli.adapters import HeadlessResponse
+from titan_cli.external_cli.adapters.base import SupportedCLI
+from titan_plugin_github.models.review_enums import FileReadMode, PRSizeClass, ReviewStrategyType
+from titan_plugin_github.models.review_models import (
+    ChangeManifest,
+    FileContextEntry,
+    FocusContextBatch,
+    PullRequestManifest,
+    ReferencedCommitContext,
+    ReviewStrategy,
+    ThreadReviewCandidate,
+    ThreadReviewContext,
+)
 from titan_plugin_github.models.review_enums import FileChangeStatus
 from titan_plugin_github.models.view import UIComment, UICommentThread, UIFileChange, UIPullRequest
+import titan_plugin_github.steps.code_review_steps as code_review_steps
 from titan_plugin_github.steps.code_review_steps import (
+    ai_review_findings,
+    ai_thread_resolution,
     build_thread_review_candidates,
     build_thread_review_contexts,
     fetch_pr_review_bundle,
@@ -457,3 +472,496 @@ def test_build_thread_review_contexts_ignores_unavailable_referenced_commits():
     )
     contexts = ctx.data["thread_review_contexts"]
     assert contexts[0].referenced_commits == []
+
+
+class _FakeFindingsAdapter:
+    """Fake headless adapter recording every prompt it was asked to execute."""
+
+    cli_name = SupportedCLI.CLAUDE
+
+    def __init__(self):
+        self.executed_prompts: list[str] = []
+
+    supports_structured_output = False
+    supports_tool_restriction = False
+    supports_effort_control = False
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
+        self.executed_prompts.append(prompt)
+        return HeadlessResponse(stdout="[]", stderr="", exit_code=0)
+
+
+def _make_findings_batch(batch_id: str, files_chars: dict[str, int]) -> FocusContextBatch:
+    return FocusContextBatch(
+        batch_id=batch_id,
+        files_context={
+            path: FileContextEntry(
+                path=path,
+                read_mode=FileReadMode.HUNKS_ONLY,
+                hunks=["x" * chars],
+                approximate_chars=chars,
+            )
+            for path, chars in files_chars.items()
+        },
+    )
+
+
+def test_ai_review_findings_splits_oversized_batch_via_prompt_budget_manager(monkeypatch):
+    """
+    review-batching-003 wiring test: `ai_review_findings` must route batch
+    fitting through `PromptBudgetManager.fit_batch_to_budget()` so an
+    over-budget batch gets split and both halves are still sent to the CLI.
+    """
+    fake_adapter = _FakeFindingsAdapter()
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [
+        _make_findings_batch("batch_1", {"a.py": 3000, "b.py": 3000})
+    ]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    # The oversized batch_1 must have been split into batch_1a/batch_1b, and
+    # both halves sent to the adapter independently (2 CLI calls, not 1).
+    assert len(fake_adapter.executed_prompts) == 2
+    assert ctx.data["raw_findings"] == []
+    assert ctx.data["ai_findings_failed"] is False
+
+
+class _FakeFencedAdapter:
+    """Fake headless adapter returning a markdown-fenced JSON array, once."""
+
+    cli_name = SupportedCLI.CLAUDE
+    supports_structured_output = False
+    supports_tool_restriction = False
+    supports_effort_control = False
+
+    def __init__(self, stdout: str):
+        self._stdout = stdout
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
+        return HeadlessResponse(stdout=self._stdout, stderr="", exit_code=0)
+
+
+def test_ai_review_findings_parses_markdown_fenced_response(monkeypatch):
+    """review-batching-006: ai_review_findings must go through the centralized
+    `extract_json_payload()` helper, which strips markdown fences — not a
+    bespoke inline parser."""
+    fake_adapter = _FakeFencedAdapter('```json\n[{"title": "Bug"}]\n```')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_findings"] == [{"title": "Bug"}]
+    assert ctx.data["ai_findings_failed"] is False
+
+
+class _FakeSequentialAdapter:
+    """Fake headless adapter returning one canned stdout per call, in order."""
+
+    cli_name = SupportedCLI.CLAUDE
+    supports_structured_output = False
+    supports_tool_restriction = False
+    supports_effort_control = False
+
+    def __init__(self, stdouts: list[str]):
+        self._stdouts = list(stdouts)
+        self.calls: list[dict] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
+        self.calls.append(
+            {"prompt": prompt, "cwd": cwd, "timeout": timeout, "disallowed_tools": disallowed_tools, "effort": effort}
+        )
+        stdout = self._stdouts[len(self.calls) - 1]
+        return HeadlessResponse(stdout=stdout, stderr="", exit_code=0)
+
+
+def test_ai_review_findings_recovers_via_reformat_retry(monkeypatch):
+    """review-batching-007: when the model returns prose instead of JSON
+    (exit_code 0), ai_review_findings must retry once, asking the same CLI to
+    reformat its own previous output, using a short timeout distinct from the
+    300s analysis timeout — and recover the findings if the retry succeeds."""
+    fake_adapter = _FakeSequentialAdapter(
+        ["Reported one finding: fix the null check.", '```json\n[{"title": "Bug"}]\n```']
+    )
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_findings"] == [{"title": "Bug"}]
+    assert ctx.data["ai_findings_failed"] is False
+    assert len(fake_adapter.calls) == 2
+    assert fake_adapter.calls[1]["timeout"] == 45
+    assert fake_adapter.calls[1]["timeout"] != fake_adapter.calls[0]["timeout"]
+
+
+def test_ai_review_findings_marks_batch_failed_when_reformat_retry_also_fails(monkeypatch):
+    fake_adapter = _FakeSequentialAdapter(
+        ["Reported one finding: fix the null check.", "Still no JSON here, sorry."]
+    )
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 2
+    assert ctx.data["ai_findings_failed"] is True
+
+
+class _FakeStructuredOutputAdapter:
+    """Fake adapter simulating a CLI that supports --json-schema (like Claude)."""
+
+    cli_name = SupportedCLI.CLAUDE
+    supports_structured_output = True
+    supports_tool_restriction = True
+    supports_effort_control = True
+
+    def __init__(self, stdout: str):
+        self._stdout = stdout
+        self.calls: list[dict] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "cwd": cwd,
+                "timeout": timeout,
+                "json_schema": json_schema,
+                "disallowed_tools": disallowed_tools,
+                "effort": effort,
+            }
+        )
+        return HeadlessResponse(stdout=self._stdout, stderr="", exit_code=0)
+
+
+def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
+    """review-batching-008: when the adapter supports structured output, ai_review_findings
+    must request it (json_schema kwarg) and unwrap the {"findings": [...]} envelope,
+    instead of parsing a bare JSON array out of free text."""
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": [{"title": "Bug"}]}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_findings"] == [{"title": "Bug"}]
+    assert ctx.data["ai_findings_failed"] is False
+    assert fake_adapter.calls[0]["json_schema"] is not None
+    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings"]
+
+
+def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeypatch):
+    """If the model doesn't call the structured-output tool on the first try (rare), the
+    reformat retry must still request structured output — not silently downgrade to
+    free-text parsing."""
+    fake_adapter = _FakeStructuredOutputAdapter("I won't call that tool.")
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 2
+    assert fake_adapter.calls[1]["json_schema"] is not None
+    assert ctx.data["ai_findings_failed"] is True
+
+
+def test_ai_review_findings_restricts_tools_when_supported(monkeypatch):
+    """O-003/D-011 fix: when the adapter supports tool restriction, ai_review_findings must
+    deny Bash (and the other unneeded tools) so the CLI can't explore far beyond the batch's
+    worktree_reference files — Read/Grep/Glob stay implicitly available since they're not
+    in the denylist."""
+    from titan_plugin_github.operations.findings_operations import FINDINGS_DISALLOWED_TOOLS
+
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": [{"title": "Bug"}]}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["disallowed_tools"] == list(FINDINGS_DISALLOWED_TOOLS)
+
+
+def test_ai_review_findings_omits_disallowed_tools_when_unsupported(monkeypatch):
+    """Adapters without tool-restriction support (Codex, Gemini) must not receive a
+    disallowed_tools list — the step must not assume the capability is universal."""
+    fake_adapter = _FakeSequentialAdapter(['[{"title": "Bug"}]'])
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["disallowed_tools"] is None
+
+
+def test_ai_review_findings_reformat_retry_also_restricts_tools(monkeypatch):
+    """The reformat retry reuses the same adapter for a lighter-weight call with no
+    exploration need at all — it must still receive the same tool restriction."""
+    from titan_plugin_github.operations.findings_operations import FINDINGS_DISALLOWED_TOOLS
+
+    fake_adapter = _FakeStructuredOutputAdapter("I won't call that tool.")
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 2
+    assert fake_adapter.calls[1]["disallowed_tools"] == list(FINDINGS_DISALLOWED_TOOLS)
+
+
+def _make_worktree_reference_batch(batch_id: str, path: str) -> FocusContextBatch:
+    return FocusContextBatch(
+        batch_id=batch_id,
+        files_context={
+            path: FileContextEntry(
+                path=path,
+                read_mode=FileReadMode.WORKTREE_REFERENCE,
+                worktree_reference=True,
+                review_hint="Read this file from the worktree.",
+                approximate_chars=100,
+            )
+        },
+    )
+
+
+def test_ai_review_findings_caps_effort_for_worktree_reference_batch(monkeypatch):
+    """O-003 fix: a real replay showed removing Bash alone didn't reduce duration — Claude
+    still took ~330s regardless of tool. Capping effort at FINDINGS_WORKTREE_REFERENCE_EFFORT
+    cut that to ~170s in the same replay while still finding a genuine bug an independent CLI
+    also found, so ai_review_findings must request it for worktree_reference batches."""
+    from titan_plugin_github.operations.findings_operations import FINDINGS_WORKTREE_REFERENCE_EFFORT
+
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": []}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_worktree_reference_batch("batch_1", "HomeScreen.kt")]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["effort"] == FINDINGS_WORKTREE_REFERENCE_EFFORT
+
+
+def test_ai_review_findings_omits_effort_when_no_worktree_reference(monkeypatch):
+    """A batch with only inline file content has no reason to explore, so it must keep the
+    adapter's default effort rather than unconditionally capping every findings call."""
+    fake_adapter = _FakeStructuredOutputAdapter('{"findings": []}')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
+    ctx.data["review_strategy"] = ReviewStrategy(
+        strategy=ReviewStrategyType.BATCHED_FINDINGS,
+        size_class=PRSizeClass.SMALL,
+        max_focus_files=10,
+        max_prompt_chars=6000,
+        max_comment_entries=5,
+        batching_enabled=True,
+    )
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert fake_adapter.calls[0]["effort"] is None
+
+
+def test_ai_thread_resolution_parses_markdown_fenced_response(monkeypatch):
+    """review-batching-006: ai_thread_resolution used to hand-roll its own fence
+    stripping and JSON-slice extraction. It must now share the same
+    `extract_json_payload()` helper as ai_review_findings/ai_review_plan."""
+    fake_adapter = _FakeFencedAdapter('```json\n[{"thread_id": "t1", "decision": "resolved"}]\n```')
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["thread_review_contexts"] = [
+        ThreadReviewContext(
+            thread_id="t1",
+            comment_id=1,
+            main_comment_body="Please fix this",
+            main_comment_author="alex",
+        )
+    ]
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_thread_resolution(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_thread_decisions"] == [{"thread_id": "t1", "decision": "resolved"}]
+
+
+def test_ai_thread_resolution_falls_back_to_empty_decisions_on_parse_failure(monkeypatch):
+    fake_adapter = _FakeFencedAdapter("I could not analyse these threads.")
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    ctx = WorkflowContext(secrets=Mock())
+    ctx.textual = _FakeTextual()
+    ctx.data["thread_review_contexts"] = [
+        ThreadReviewContext(
+            thread_id="t1",
+            comment_id=1,
+            main_comment_body="Please fix this",
+            main_comment_author="alex",
+        )
+    ]
+    ctx.data["cli_preference"] = "auto"
+    ctx.data["project_root"] = "/tmp/project"
+
+    result = ai_thread_resolution(ctx)
+
+    assert isinstance(result, Success)
+    assert ctx.data["raw_thread_decisions"] == []

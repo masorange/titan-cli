@@ -3,7 +3,10 @@
 import json
 from typing import Any
 
+from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
+
 from ..models.review_models import Finding, FocusContextBatch, ReviewChecklistItem
+from .ai_response_parsing_operations import extract_json_payload
 from .prompt_formatting_operations import comment_context_to_json
 
 
@@ -49,7 +52,7 @@ This is one bounded review batch. Review only the provided code and report actio
 ## Instructions
 {instructions}
 
-Respond ONLY with a valid JSON array matching this schema:
+Respond ONLY with a valid JSON array matching this schema. Do not include any prose before or after the JSON.
 {schema}
 """
 
@@ -125,6 +128,9 @@ def _add_line_numbers(content: str) -> str:
     return "\n".join(f"{str(i + 1).rjust(width)} | {line}" for i, line in enumerate(lines))
 
 
+_DIFF_HUNK_MARKER = "# --- diff hunk ---"
+
+
 def _annotate_diff_hunk(hunk: str) -> str:
     import re
 
@@ -145,11 +151,23 @@ def _annotate_diff_hunk(hunk: str) -> str:
     if new_line_start is None:
         return "\n".join(lines)
 
-    result = [header_line] if header_line else []
+    # `expanded_hunks` entries (DiffContextManager.build_expanded_hunks) prepend a
+    # "surrounding context" block of raw file lines (no diff +/-/space prefixes) before the
+    # real diff hunk. Only the portion after the marker is actual diff content — annotating
+    # the preamble too would misread indented raw code lines as numbered [CONTEXT] diff lines
+    # and corrupt the line counter for everything that follows.
+    preamble: list[str] = []
+    diff_lines = lines
+    if _DIFF_HUNK_MARKER in lines:
+        marker_idx = lines.index(_DIFF_HUNK_MARKER)
+        preamble = lines[: marker_idx + 1]
+        diff_lines = lines[marker_idx + 1 :]
+
+    result = list(preamble) if preamble else ([header_line] if header_line else [])
     current_line = new_line_start
     width = len(str(current_line + 100))
 
-    for line in lines:
+    for line in diff_lines:
         if line.startswith("@@"):
             continue
         if line.startswith("---") or line.startswith("+++"):
@@ -184,6 +202,86 @@ def _finding_schema() -> str:
         ],
         indent=2,
     )
+
+
+FINDINGS_DISALLOWED_TOOLS = ("Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent")
+"""Tools removed from the CLI's session for `ai_review_findings` calls.
+
+A findings-review call never needs to modify files, fetch the web, or spawn a subagent, and
+`Bash` is the exact vector traced (D-011) to unbounded, mostly unproductive exploration —
+recursive shell greps/finds across whole directory trees, not scoped to the worktree the way
+`Read`/`Grep`/`Glob` are. Those three stay available: they cover the same legitimate
+cross-file lookups (an imported type, a caller, a test) through Claude Code's own bounded
+tools instead of arbitrary shell recursion.
+"""
+
+FINDINGS_WORKTREE_REFERENCE_EFFORT = "medium"
+"""Reasoning-effort tier for findings batches that include a worktree_reference file.
+
+Removing Bash alone (`FINDINGS_DISALLOWED_TOOLS`) didn't reduce O-003's duration/timeout —
+a real replay showed Claude still takes ~15 Read/Grep turns and ~330s regardless of which
+tool is available, while Codex/Gemini cover similar ground in far fewer output tokens and a
+fraction of the time. Capping effort at "medium" (vs. the session default) cut a real replay
+from ~330s/$1.10 to ~170s/$0.78 while still surfacing a genuine bug an independent CLI
+(Gemini) also found — "low" was faster still (~50s/$0.34) but missed that bug, so "medium" is
+the current balance. Provisional pending more real-PR data, same as
+`WORKTREE_REFERENCE_ESTIMATED_CHARS` (O-001).
+"""
+
+
+def findings_json_schema() -> dict[str, Any]:
+    """JSON Schema for `--json-schema`, enforcing findings as a tool call instead of
+    relying on the model to follow a "respond only with JSON" prompt instruction.
+
+    Wrapped in an object because Anthropic's structured-output tool schema requires a
+    top-level "object" type; the array of findings lives under the "findings" key.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "severity": {"type": "string", "enum": ["blocking", "important", "nit"]},
+                        "category": {"type": "string"},
+                        "path": {"type": "string"},
+                        "line": {"type": ["integer", "null"]},
+                        "title": {"type": "string"},
+                        "why": {"type": "string"},
+                        "evidence": {"type": "string"},
+                        "snippet": {"type": ["string", "null"]},
+                        "suggested_comment": {"type": "string"},
+                    },
+                    "required": ["severity", "category", "path", "title", "why", "evidence", "suggested_comment"],
+                },
+            }
+        },
+        "required": ["findings"],
+    }
+
+
+def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[list]:
+    """Parse a findings-batch CLI response.
+
+    When `structured` is True (the adapter enforced `findings_json_schema()`), stdout is
+    the schema envelope `{"findings": [...]}` and this unwraps the `findings` key.
+    Otherwise stdout is free text and this falls back to extracting a bare JSON array.
+    """
+    if not structured:
+        return extract_json_payload(stdout, kind="array")
+    match extract_json_payload(stdout, kind="object"):
+        case ClientSuccess(data=payload) if isinstance(payload, dict) and "findings" in payload:
+            return ClientSuccess(data=payload["findings"])
+        case ClientSuccess():
+            return ClientError(
+                error_message="Structured response missing 'findings' field",
+                error_code="MISSING_FINDINGS_FIELD",
+                log_level="warning",
+            )
+        case error:
+            return error
 
 
 def build_default_findings() -> list[Finding]:

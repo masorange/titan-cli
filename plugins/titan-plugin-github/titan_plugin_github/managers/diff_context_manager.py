@@ -116,6 +116,11 @@ class DiffContextManager:
         Return diff hunks enriched with surrounding file context.
 
         Uses already-parsed hunk coordinates instead of reparsing @@ headers.
+
+        The "# --- diff hunk ---" marker below is parsed by
+        `findings_operations._annotate_diff_hunk`, which only applies diff-style line
+        annotation after it (the surrounding-context block above it is raw file content,
+        not diff-prefixed). Keep both in sync if this format changes.
         """
         hunks = self.get_hunks(path)
         if not hunks:
