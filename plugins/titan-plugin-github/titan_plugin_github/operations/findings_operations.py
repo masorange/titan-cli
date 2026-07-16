@@ -128,6 +128,9 @@ def _add_line_numbers(content: str) -> str:
     return "\n".join(f"{str(i + 1).rjust(width)} | {line}" for i, line in enumerate(lines))
 
 
+_DIFF_HUNK_MARKER = "# --- diff hunk ---"
+
+
 def _annotate_diff_hunk(hunk: str) -> str:
     import re
 
@@ -148,11 +151,23 @@ def _annotate_diff_hunk(hunk: str) -> str:
     if new_line_start is None:
         return "\n".join(lines)
 
-    result = [header_line] if header_line else []
+    # `expanded_hunks` entries (DiffContextManager.build_expanded_hunks) prepend a
+    # "surrounding context" block of raw file lines (no diff +/-/space prefixes) before the
+    # real diff hunk. Only the portion after the marker is actual diff content — annotating
+    # the preamble too would misread indented raw code lines as numbered [CONTEXT] diff lines
+    # and corrupt the line counter for everything that follows.
+    preamble: list[str] = []
+    diff_lines = lines
+    if _DIFF_HUNK_MARKER in lines:
+        marker_idx = lines.index(_DIFF_HUNK_MARKER)
+        preamble = lines[: marker_idx + 1]
+        diff_lines = lines[marker_idx + 1 :]
+
+    result = list(preamble) if preamble else ([header_line] if header_line else [])
     current_line = new_line_start
     width = len(str(current_line + 100))
 
-    for line in lines:
+    for line in diff_lines:
         if line.startswith("@@"):
             continue
         if line.startswith("---") or line.startswith("+++"):

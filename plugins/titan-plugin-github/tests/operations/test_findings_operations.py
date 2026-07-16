@@ -8,6 +8,7 @@ from titan_plugin_github.models.review_models import (
 )
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.operations.findings_operations import (
+    _annotate_diff_hunk,
     build_findings_prompt_parts,
     findings_json_schema,
     parse_findings_response,
@@ -112,6 +113,70 @@ def test_build_findings_prompt_parts_renders_worktree_reference():
     assert "Read from worktree instead of inline context." in parts["files_context"]
     assert "Changed regions to inspect first:" in parts["files_context"]
     assert "@@ -10,20 +10,30 @@" in parts["files_context"]
+
+
+# ---------------------------------------------------------------------------
+# _annotate_diff_hunk()
+# ---------------------------------------------------------------------------
+
+
+def test_annotate_diff_hunk_numbers_added_and_context_lines():
+    hunk = "@@ -10,2 +10,3 @@\n def bar():\n+    return 1\n-    return 0"
+
+    result = _annotate_diff_hunk(hunk)
+
+    assert "10 [CONTEXT] def bar():" in result
+    assert "11 [ADDED]     return 1" in result
+    assert "[DELETED - do not review]     return 0" in result
+
+
+def test_annotate_diff_hunk_does_not_number_surrounding_context_lines():
+    """Regression test: `expanded_hunks` entries prepend a raw, non-diff-prefixed
+    surrounding-context block before the real diff hunk (DiffContextManager.build_expanded_hunks).
+    Indented raw lines in that block must not be mislabeled as numbered [CONTEXT] diff lines."""
+    hunk = (
+        "@@ -10,2 +10,3 @@\n"
+        "# --- surrounding context (lines 8-12) ---\n"
+        "    def foo():\n"
+        "        pass\n"
+        "def bar():\n"
+        "# --- diff hunk ---\n"
+        " def bar():\n"
+        "+    return 1\n"
+        "-    return 0"
+    )
+
+    result = _annotate_diff_hunk(hunk)
+
+    assert "    def foo():" in result
+    assert "[CONTEXT]    def foo():" not in result
+    assert "        pass" in result
+    assert "[CONTEXT]        pass" not in result
+
+
+def test_annotate_diff_hunk_real_hunk_numbering_unaffected_by_surrounding_context():
+    """The actual diff-hunk lines after the '# --- diff hunk ---' marker must get the same
+    line numbers they would get without the surrounding-context preamble at all — the raw
+    preamble lines must not advance the line counter."""
+    plain_hunk = "@@ -10,2 +10,3 @@\n def bar():\n+    return 1\n-    return 0"
+    expanded_hunk = (
+        "@@ -10,2 +10,3 @@\n"
+        "# --- surrounding context (lines 8-12) ---\n"
+        "    def foo():\n"
+        "        pass\n"
+        "def bar():\n"
+        "# --- diff hunk ---\n"
+        " def bar():\n"
+        "+    return 1\n"
+        "-    return 0"
+    )
+
+    plain_result = _annotate_diff_hunk(plain_hunk)
+    expanded_result = _annotate_diff_hunk(expanded_hunk)
+
+    plain_diff_lines = plain_result.splitlines()[1:]  # drop the @@ header
+    expanded_diff_lines = expanded_result.splitlines()[-len(plain_diff_lines):]
+    assert expanded_diff_lines == plain_diff_lines
 
 
 # ---------------------------------------------------------------------------
