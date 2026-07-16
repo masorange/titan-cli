@@ -1675,6 +1675,11 @@ def _render_findings_batch_split(ctx: WorkflowContext, batch_id: str, produced_b
     )
 
 
+def _render_findings_batch_degraded(ctx: WorkflowContext, batch_id: str) -> None:
+    """Render an in-place context reduction (no new batches) caused by prompt budget constraints."""
+    ctx.textual.warning_text(f"{batch_id} exceeded prompt budget and was degraded to fit")
+
+
 def _render_findings_batch_result(
     ctx: WorkflowContext,
     batch_id: str,
@@ -1876,11 +1881,15 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 prompt_actual_chars=len(prompt),
                 prompt_budget_target_chars=strategy.max_prompt_chars,
             )
-            _render_findings_batch_split(
-                ctx,
-                batch.batch_id,
-                [candidate.batch_id for candidate in fitted_batches],
-            )
+            is_actual_split = len(fitted_batches) > 1 or fitted_batches[0].batch_id != batch.batch_id
+            if is_actual_split:
+                _render_findings_batch_split(
+                    ctx,
+                    batch.batch_id,
+                    [candidate.batch_id for candidate in fitted_batches],
+                )
+            else:
+                _render_findings_batch_degraded(ctx, batch.batch_id)
             batch_queue = fitted_batches + batch_queue
             continue
 
