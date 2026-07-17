@@ -2925,7 +2925,7 @@ files = []
 develop = true
 
 [package.dependencies]
-titan-cli = ">=0.6.0"
+titan-cli = ">=0.7.0"
 
 [package.source]
 type = "directory"
@@ -2942,7 +2942,7 @@ files = []
 develop = true
 
 [package.dependencies]
-titan-cli = ">=0.6.0"
+titan-cli = ">=0.7.0"
 
 [package.source]
 type = "directory"
@@ -2962,7 +2962,7 @@ develop = true
 jinja2 = ">=3.0.0"
 pydantic = ">=2.0.0"
 requests = ">=2.31.0"
-titan-cli = ">=0.6.0"
+titan-cli = ">=0.7.0"
 
 [package.source]
 type = "directory"
@@ -2979,8 +2979,9 @@ files = []
 develop = true
 
 [package.dependencies]
+requests = ">=2.31.0"
 slack-sdk = ">=3.27.0"
-titan-cli = ">=0.6.0"
+titan-cli = ">=0.7.0"
 
 [package.source]
 type = "directory"
