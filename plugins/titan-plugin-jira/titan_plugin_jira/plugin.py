@@ -261,6 +261,10 @@ class JiraPlugin(TitanPlugin):
         from .steps.search_jql_step import search_jql_step
         from .steps.prompt_select_issue_step import prompt_select_issue_step
         from .steps.get_issue_step import get_issue_step
+        from .steps.get_comments_step import get_comments_step
+        from .steps.select_jira_issue_step import select_jira_issue_step
+        from .steps.build_jira_task_context_step import build_jira_task_context_step
+        from .steps.confirm_and_assign_issue_step import confirm_and_assign_issue
         from .steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
         from .steps.list_versions_step import list_versions_step
         from .steps.issue_management_steps import (
@@ -279,7 +283,7 @@ class JiraPlugin(TitanPlugin):
         from .steps.select_issue_priority_step import select_issue_priority
         from .steps.ai_enhance_issue_description_step import ai_enhance_issue_description
         from .steps.review_issue_description_step import review_issue_description
-        from .steps.confirm_auto_assign_step import confirm_auto_assign
+        from .steps.confirm_assignee_for_new_issue_step import confirm_assignee_for_new_issue
         from .steps.create_generic_issue_step import create_generic_issue
 
         return {
@@ -288,6 +292,10 @@ class JiraPlugin(TitanPlugin):
             "search_jql": search_jql_step,
             "prompt_select_issue": prompt_select_issue_step,
             "get_issue": get_issue_step,
+            "get_comments": get_comments_step,
+            "select_jira_issue": select_jira_issue_step,
+            "build_jira_task_context": build_jira_task_context_step,
+            "confirm_and_assign_issue": confirm_and_assign_issue,
             "ai_analyze_issue_requirements": ai_analyze_issue_requirements_step,
             "list_versions": list_versions_step,
             "get_transitions": get_transitions_step,
@@ -304,7 +312,7 @@ class JiraPlugin(TitanPlugin):
             "select_issue_priority": select_issue_priority,
             "ai_enhance_issue_description": ai_enhance_issue_description,
             "review_issue_description": review_issue_description,
-            "confirm_auto_assign": confirm_auto_assign,
+            "confirm_assignee_for_new_issue": confirm_assignee_for_new_issue,
             "create_generic_issue": create_generic_issue,
         }
 

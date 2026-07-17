@@ -12,6 +12,7 @@ import json
 
 from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
+from titan_cli.engine.option_item import OptionItem
 from titan_cli.engine.results import Success, Error, Skip, WorkflowResult
 from titan_cli.external_cli.launcher import CLILauncher
 from titan_cli.external_cli.configs import CLI_REGISTRY
@@ -150,36 +151,25 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     if len(available_launchers) == 1:
         cli_to_launch = list(available_launchers.keys())[0]
     else:
-        # Show available CLIs with numbers
-        ctx.textual.bold_primary_text(msg.AIAssistant.SELECT_ASSISTANT_CLI)
-
-        cli_options = list(available_launchers.keys())
-        for idx, cli_name in enumerate(cli_options, 1):
-            display_name = CLI_REGISTRY[cli_name].get("display_name", cli_name)
-            ctx.textual.text(f"  {idx}. {display_name}")
-
         if pre_launch_warning:
-            ctx.textual.text("")  # spacing
             ctx.textual.panel(pre_launch_warning, panel_type="warning")
+            ctx.textual.text("")  # spacing
 
-        ctx.textual.text("")  # spacing
-        choice_str = ctx.textual.ask_text("Select option (or press Enter to cancel):", default="")
+        options = [
+            OptionItem(
+                value=cli_name,
+                title=CLI_REGISTRY[cli_name].get("display_name", cli_name),
+            )
+            for cli_name in available_launchers
+        ]
 
-        if not choice_str or choice_str.strip() == "":
+        cli_to_launch = ctx.textual.ask_option(
+            msg.AIAssistant.SELECT_ASSISTANT_CLI,
+            options=options,
+        )
+
+        if not cli_to_launch:
             ctx.textual.dim_text(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
-            ctx.textual.end_step("skip")
-            return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
-
-        try:
-            choice_idx = int(choice_str.strip()) - 1
-            if 0 <= choice_idx < len(cli_options):
-                cli_to_launch = cli_options[choice_idx]
-            else:
-                ctx.textual.error_text("Invalid option selected")
-                ctx.textual.end_step("skip")
-                return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
-        except ValueError:
-            ctx.textual.error_text("Invalid input - must be a number")
             ctx.textual.end_step("skip")
             return Skip(msg.AIAssistant.DECLINED_ASSISTANCE_SKIPPED)
 
@@ -192,7 +182,6 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     cli_name = CLI_REGISTRY[cli_to_launch].get("display_name", cli_to_launch)
 
     # Launch the CLI
-    ctx.textual.text("")  # spacing
     ctx.textual.primary_text(msg.AIAssistant.LAUNCHING_ASSISTANT.format(cli_name=cli_name))
 
     project_root = ctx.get("project_root", ".")

@@ -611,33 +611,6 @@ How to read these contracts:
     | `Error` | - | If the GitHub client is unavailable or the prompt fails. |
 
 
-??? info "`select_cli`"
-    Ask user to explicitly choose which AI CLI to use for PR analysis.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: select_cli
-    ```
-
-    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
-
-    **Inputs (from ctx.data)**
-
-    None documented.
-
-    **Outputs (saved to ctx.data)**
-
-    None documented.
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success with the chosen CLI name stored in ctx.data` | - | - |
-
-
 ### Issue Creation
 
 ??? info "`ai_suggest_issue_title_and_body`"

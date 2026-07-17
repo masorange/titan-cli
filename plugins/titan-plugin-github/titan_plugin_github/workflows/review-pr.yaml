@@ -9,7 +9,7 @@ steps:
 
   - id: select_cli
     name: "Select AI CLI"
-    plugin: github
+    plugin: core
     step: select_cli
 
   - id: fetch_bundle
