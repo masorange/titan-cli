@@ -133,8 +133,13 @@ default_channels = ["general"]
 
     config.load = MagicMock(side_effect=fake_load)
 
+    secret_values = {
+        "demo-project_slack_user_token": "xoxe-old-token",
+        "demo-project_slack_refresh_token": "xoxe-old-refresh-token",
+        "demo-project_slack_token_expires_at": "1",
+    }
     secrets = MagicMock()
-    secrets.get.side_effect = ["xoxe-old-token", "xoxe-old-refresh-token", "1"]
+    secrets.get.side_effect = lambda key: secret_values.get(key)
 
     refreshed = SlackOAuthResult(
         access_token="xoxe-new-token",

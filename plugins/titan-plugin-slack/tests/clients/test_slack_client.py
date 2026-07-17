@@ -275,3 +275,79 @@ def test_post_message_delegates_to_message_service() -> None:
     client.message_service.post_message.assert_called_once_with(
         "D123", "Hello", thread_ts="123.456"
     )
+
+
+def test_auth_test_refreshes_token_and_retries_on_token_revoked() -> None:
+    token_refresher = MagicMock(return_value="xoxp-new-token")
+    client = SlackClient(user_token="xoxp-old-token", token_refresher=token_refresher)
+    client.auth_service = MagicMock()
+    client.auth_service.auth_test.side_effect = [
+        ClientError(
+            error_message="Slack auth failed: token_revoked",
+            error_code="AUTH_ERROR",
+            details={"slack_error": "token_revoked"},
+        ),
+        ClientSuccess(data=UISlackAuth(user_id="U123", team_id="T123", team="Acme")),
+    ]
+
+    result = client.auth_test()
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.user_id == "U123"
+    token_refresher.assert_called_once()
+    assert client.user_token == "xoxp-new-token"
+    assert client.web_client.token == "xoxp-new-token"
+    assert client.auth_service.auth_test.call_count == 2
+
+
+def test_auth_test_does_not_refresh_on_non_auth_error() -> None:
+    token_refresher = MagicMock(return_value="xoxp-new-token")
+    client = SlackClient(user_token="xoxp-old-token", token_refresher=token_refresher)
+    client.auth_service = MagicMock()
+    client.auth_service.auth_test.return_value = ClientError(
+        error_message="Slack auth failed: channel_not_found",
+        error_code="AUTH_ERROR",
+        details={"slack_error": "channel_not_found"},
+    )
+
+    result = client.auth_test()
+
+    assert isinstance(result, ClientError)
+    token_refresher.assert_not_called()
+    assert client.auth_service.auth_test.call_count == 1
+
+
+def test_auth_test_does_not_refresh_without_token_refresher() -> None:
+    client = SlackClient(user_token="xoxp-old-token")
+    client.auth_service = MagicMock()
+    client.auth_service.auth_test.return_value = ClientError(
+        error_message="Slack auth failed: token_revoked",
+        error_code="AUTH_ERROR",
+        details={"slack_error": "token_revoked"},
+    )
+
+    result = client.auth_test()
+
+    assert isinstance(result, ClientError)
+    assert result.error_message == "Slack auth failed: token_revoked"
+    assert client.auth_service.auth_test.call_count == 1
+
+
+def test_auth_test_reports_clear_error_when_refresh_itself_fails() -> None:
+    token_refresher = MagicMock(side_effect=RuntimeError("refresh token expired"))
+    client = SlackClient(user_token="xoxp-old-token", token_refresher=token_refresher)
+    client.auth_service = MagicMock()
+    client.auth_service.auth_test.return_value = ClientError(
+        error_message="Slack auth failed: token_revoked",
+        error_code="AUTH_ERROR",
+        details={"slack_error": "token_revoked"},
+    )
+
+    result = client.auth_test()
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "AUTH_REFRESH_FAILED"
+    assert "reconnect" in result.error_message.lower()
+    token_refresher.assert_called_once()
+    assert client.auth_service.auth_test.call_count == 1
+    assert client.user_token == "xoxp-old-token"

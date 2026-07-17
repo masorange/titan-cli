@@ -1,11 +1,12 @@
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import tomli
 import tomli_w
 
 from titan_cli.core.config import TitanConfig
+from titan_cli.core.logging import get_logger
 from titan_cli.core.plugins.models import SlackPluginConfig
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.secrets import SecretManager
@@ -19,6 +20,8 @@ from .config import (
 from .exceptions import SlackClientError, SlackConfigurationError
 from .oauth import SlackOAuthFlow, SlackOAuthResult
 from .screens.slack_config_screen import SlackConfigScreen
+
+logger = get_logger(__name__)
 
 
 class SlackPlugin(TitanPlugin):
@@ -128,6 +131,50 @@ class SlackPlugin(TitanPlugin):
             },
         )
 
+    def _make_token_refresher(
+        self,
+        config: TitanConfig,
+        secrets: SecretManager,
+        project_name: str,
+    ) -> Callable[[], str]:
+        """Build a callable that exchanges the stored refresh token for a new
+        access token and persists the result, for use by both the proactive
+        refresh below and the reactive refresh-and-retry in SlackClient.
+        """
+
+        def _refresh() -> str:
+            refresh_token_key = build_project_slack_refresh_token_key(project_name)
+            current_refresh_token = secrets.get(refresh_token_key)
+            if not current_refresh_token:
+                raise SlackConfigurationError(
+                    f"No Slack refresh token available for project '{project_name}'. "
+                    "Reconnect Slack for this repository."
+                )
+
+            plugin_config_data = self._get_plugin_config(config)
+            validated_config = SlackPluginConfig(**plugin_config_data)
+            if not validated_config.oauth_client_id:
+                raise SlackConfigurationError(
+                    "Slack token refresh requires an OAuth client ID in project configuration."
+                )
+
+            flow = SlackOAuthFlow(client_id=validated_config.oauth_client_id)
+            refreshed = flow.refresh_access_token(current_refresh_token)
+
+            # Slack rotates the refresh token on every use: persisting immediately
+            # replaces the one we just consumed so the next refresh (proactive or
+            # reactive) doesn't retry with an already-invalidated token.
+            self._persist_refreshed_tokens(
+                config,
+                secrets,
+                project_name,
+                refreshed,
+                validated_config,
+            )
+            return refreshed.access_token
+
+        return _refresh
+
     def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
         """Initialize the Slack client using the current user's personal token."""
         plugin_config_data = self._get_plugin_config(config)
@@ -156,29 +203,31 @@ class SlackPlugin(TitanPlugin):
         except ValueError:
             token_expires_at = None
 
+        token_refresher = (
+            self._make_token_refresher(config, secrets, project_name) if refresh_token else None
+        )
+
         if self._should_refresh_token(token_expires_at, refresh_token):
-            if not validated_config.oauth_client_id:
-                raise SlackConfigurationError(
-                    "Slack token refresh requires an OAuth client ID in project configuration."
+            try:
+                user_token = token_refresher()
+                refreshed_config_data = self._get_plugin_config(config)
+                validated_config = SlackPluginConfig(**refreshed_config_data)
+            except Exception as exc:
+                # Don't fail plugin initialization over a proactive refresh
+                # failure (e.g. transient network error): fall back to the
+                # current token and let SlackClient's reactive refresh-and-retry
+                # handle it if the token turns out to actually be unusable.
+                logger.warning(
+                    "slack_proactive_token_refresh_failed",
+                    error=str(exc),
+                    project_name=project_name,
                 )
-            flow = SlackOAuthFlow(client_id=validated_config.oauth_client_id)
-            refreshed = flow.refresh_access_token(refresh_token)
-            self._persist_refreshed_tokens(
-                config,
-                secrets,
-                project_name,
-                refreshed,
-                validated_config,
-            )
-            user_token = refreshed.access_token
-            refresh_token = refreshed.refresh_token or refresh_token
-            refreshed_config_data = self._get_plugin_config(config)
-            validated_config = SlackPluginConfig(**refreshed_config_data)
 
         self._client = SlackClient(
             user_token=user_token,
             team_id=validated_config.default_team_id,
             default_channels=validated_config.default_channels,
+            token_refresher=token_refresher,
         )
 
     def is_available(self) -> bool:
