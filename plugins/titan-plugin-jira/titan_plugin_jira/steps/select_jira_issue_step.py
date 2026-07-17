@@ -90,7 +90,7 @@ def select_jira_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error(error_msg)
 
     project_key = getattr(ctx.jira, "project_key", None)
-    escaped_term = search_term.replace('"', '\\"')
+    escaped_term = search_term.replace("\\", "\\\\").replace('"', '\\"')
     if project_key:
         jql = f'project = "{project_key}" AND text ~ "{escaped_term}*" ORDER BY updated DESC'
     else:
