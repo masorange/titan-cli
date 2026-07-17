@@ -261,6 +261,9 @@ class JiraPlugin(TitanPlugin):
         from .steps.search_jql_step import search_jql_step
         from .steps.prompt_select_issue_step import prompt_select_issue_step
         from .steps.get_issue_step import get_issue_step
+        from .steps.get_comments_step import get_comments_step
+        from .steps.select_jira_issue_step import select_jira_issue_step
+        from .steps.build_jira_task_context_step import build_jira_task_context_step
         from .steps.ai_analyze_issue_step import ai_analyze_issue_requirements_step
         from .steps.list_versions_step import list_versions_step
         from .steps.issue_management_steps import (
@@ -288,6 +291,9 @@ class JiraPlugin(TitanPlugin):
             "search_jql": search_jql_step,
             "prompt_select_issue": prompt_select_issue_step,
             "get_issue": get_issue_step,
+            "get_comments": get_comments_step,
+            "select_jira_issue": select_jira_issue_step,
+            "build_jira_task_context": build_jira_task_context_step,
             "ai_analyze_issue_requirements": ai_analyze_issue_requirements_step,
             "list_versions": list_versions_step,
             "get_transitions": get_transitions_step,

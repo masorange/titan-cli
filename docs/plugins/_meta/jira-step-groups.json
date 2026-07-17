@@ -6,14 +6,22 @@
       "steps": [
         {"name": "search_saved_query", "summary": "Search Jira issues using a named saved query."},
         {"name": "search_jql", "summary": "Search Jira issues using explicit JQL from workflow context."},
-        {"name": "prompt_select_issue", "summary": "Prompt the user to select one issue from search results."}
+        {"name": "prompt_select_issue", "summary": "Prompt the user to select one issue from search results."},
+        {"name": "select_jira_issue", "summary": "Resolve a Jira issue key from a number, a full key, or a text search."}
       ]
     },
     {
       "name": "Issue Retrieval and Analysis",
       "steps": [
         {"name": "get_issue", "summary": "Fetch full details for a selected Jira issue."},
+        {"name": "get_comments", "summary": "Fetch all comments for a Jira issue."},
         {"name": "ai_analyze_issue_requirements", "summary": "Generate an AI-assisted requirements analysis for the selected issue."}
+      ]
+    },
+    {
+      "name": "AI Planning Handoff",
+      "steps": [
+        {"name": "build_jira_task_context", "summary": "Build the full AI prompt for planning work on a Jira issue."}
       ]
     },
     {

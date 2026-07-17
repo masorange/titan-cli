@@ -15,6 +15,10 @@
         {
           "name": "prompt_select_issue",
           "summary": "Prompt the user to select one issue from search results."
+        },
+        {
+          "name": "select_jira_issue",
+          "summary": "Resolve a Jira issue key from a number, a full key, or a text search."
         }
       ]
     },
@@ -26,8 +30,21 @@
           "summary": "Fetch full details for a selected Jira issue."
         },
         {
+          "name": "get_comments",
+          "summary": "Fetch all comments for a Jira issue."
+        },
+        {
           "name": "ai_analyze_issue_requirements",
           "summary": "Generate an AI-assisted requirements analysis for the selected issue."
+        }
+      ]
+    },
+    {
+      "name": "AI Planning Handoff",
+      "steps": [
+        {
+          "name": "build_jira_task_context",
+          "summary": "Build the full AI prompt for planning work on a Jira issue."
         }
       ]
     },
@@ -171,6 +188,30 @@
       "used_by_workflows": []
     },
     {
+      "name": "build_jira_task_context",
+      "group": "AI Planning Handoff",
+      "module": "titan_plugin_jira.steps.build_jira_task_context_step",
+      "function": "build_jira_task_context_step",
+      "summary": "Build the full AI prompt for planning work on a JIRA issue.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    jira_issue (UIJiraIssue): Issue details, from get_issue",
+          "    jira_comments (list[UIJiraComment], optional): Issue comments, from get_comments"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    jira_task_context (str): Full prompt text (instructions + issue + comments)"
+        ],
+        "Returns": [
+          "    Success: Prompt built",
+          "    Error: jira_issue is missing"
+        ]
+      },
+      "used_by_workflows": [
+        "plan-jira-issue"
+      ]
+    },
+    {
       "name": "confirm_auto_assign",
       "group": "Issue Creation",
       "module": "titan_plugin_jira.steps.confirm_auto_assign_step",
@@ -250,6 +291,31 @@
       "used_by_workflows": []
     },
     {
+      "name": "get_comments",
+      "group": "Issue Retrieval and Analysis",
+      "module": "titan_plugin_jira.steps.get_comments_step",
+      "function": "get_comments_step",
+      "summary": "Get all comments for a JIRA issue.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.jira: An initialized JiraClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    jira_issue_key (str): JIRA issue key (e.g., \"PROJ-123\")"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    jira_comments (list[UIJiraComment]): Comments for the issue, oldest first"
+        ],
+        "Returns": [
+          "    Success: Comments retrieved (empty list if the issue has none)",
+          "    Error: JIRA client not available, issue key missing, or the request failed"
+        ]
+      },
+      "used_by_workflows": [
+        "plan-jira-issue"
+      ]
+    },
+    {
       "name": "get_issue",
       "group": "Issue Retrieval and Analysis",
       "module": "titan_plugin_jira.steps.get_issue_step",
@@ -269,7 +335,9 @@
           "    Error: Failed to get issue"
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "plan-jira-issue"
+      ]
     },
     {
       "name": "get_transitions",
@@ -510,6 +578,30 @@
       },
       "used_by_workflows": [
         "create-generic-issue"
+      ]
+    },
+    {
+      "name": "select_jira_issue",
+      "group": "Search and Selection",
+      "module": "titan_plugin_jira.steps.select_jira_issue_step",
+      "function": "select_jira_issue_step",
+      "summary": "Resolve a JIRA issue key from user input: a plain number, a full key, or a text search.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.jira: An initialized JiraClient."
+        ],
+        "Inputs (from ctx.data)": [],
+        "Outputs (saved to ctx.data)": [
+          "    jira_issue_key (str): The resolved JIRA issue key",
+          "    selected_issue (UIJiraIssue, optional): Set only when resolved via search"
+        ],
+        "Returns": [
+          "    Success: An issue key was resolved",
+          "    Error: JIRA client not available, invalid input, search failed, or no selection made"
+        ]
+      },
+      "used_by_workflows": [
+        "plan-jira-issue"
       ]
     },
     {

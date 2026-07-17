@@ -504,31 +504,6 @@ Prompt the user to select repository labels and save them to context.
 | `Skip` | `<output_key>` | If the repository has no labels. |
 | `Error` | - | If the GitHub client is unavailable or the prompt fails. |
 
-### `select_cli`
-
-Ask user to explicitly choose which AI CLI to use for PR analysis.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: select_cli
-```
-
-**Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success with the chosen CLI name stored in ctx.data` | - | - |
-
 ## Issue Creation
 
 ### `ai_suggest_issue_title_and_body`

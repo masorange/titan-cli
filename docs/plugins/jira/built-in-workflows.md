@@ -52,3 +52,26 @@ hooks:
       plugin: project
       step: prepare_jira_fields
 ```
+
+## `plan-jira-issue`
+
+Resolves a Jira issue (by number, full key, or text search), fetches its full details and
+comments, and hands that context to an external AI coding CLI (chosen by the user, e.g.
+Claude Code) with instructions to study the issue, break the work into steps, and confirm
+the plan with the user before implementing anything. The workflow ends as soon as the user
+exits that CLI session.
+
+**Source workflow:** `plugins/titan-plugin-jira/titan_plugin_jira/workflows/plan-jira-issue.yaml`
+
+### Default flow
+
+1. `jira.select_jira_issue`
+2. `jira.get_issue`
+3. `jira.get_comments`
+4. `jira.build_jira_task_context`
+5. `core.ai_code_assistant`
+
+### Typical usage
+
+- hand off a Jira issue to an AI coding assistant to plan the implementation before touching any code
+- let the user pick which installed CLI (Claude, Gemini, ...) does the planning

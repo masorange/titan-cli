@@ -205,6 +205,45 @@ How to read these contracts:
     | `Error` | - | If there are no issues, the selection is invalid, or the prompt is cancelled. |
 
 
+??? info "`select_jira_issue`"
+    Resolve a JIRA issue key from user input: a plain number, a full key, or a text search.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: jira
+      step: select_jira_issue
+    ```
+
+    **Used by built-in workflows:** `plan-jira-issue`
+
+    **Available to later steps:** `jira_issue_key`, `selected_issue`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.jira` | - | An initialized JiraClient. |
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `jira_issue_key` | str | The resolved JIRA issue key |
+    | `selected_issue` | UIJiraIssue, optional | Set only when resolved via search |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `jira_issue_key`, `selected_issue` | An issue key was resolved |
+    | `Error` | - | JIRA client not available, invalid input, search failed, or no selection made |
+
+
 ### Issue Retrieval and Analysis
 
 ??? info "`get_issue`"
@@ -216,6 +255,8 @@ How to read these contracts:
     - plugin: jira
       step: get_issue
     ```
+
+    **Used by built-in workflows:** `plan-jira-issue`
 
     **Available to later steps:** `jira_issue`
 
@@ -238,6 +279,46 @@ How to read these contracts:
     |--------|-----------------------|-------------|
     | `Success` | `jira_issue` | Issue retrieved |
     | `Error` | - | Failed to get issue |
+
+
+??? info "`get_comments`"
+    Get all comments for a JIRA issue.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: jira
+      step: get_comments
+    ```
+
+    **Used by built-in workflows:** `plan-jira-issue`
+
+    **Available to later steps:** `jira_comments`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.jira` | - | An initialized JiraClient. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `jira_issue_key` | str | JIRA issue key (e.g., "PROJ-123") |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `jira_comments` | list[UIJiraComment] | Comments for the issue, oldest first |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `jira_comments` | Comments retrieved (empty list if the issue has none) |
+    | `Error` | - | JIRA client not available, issue key missing, or the request failed |
 
 
 ??? info "`ai_analyze_issue_requirements`"
@@ -275,6 +356,43 @@ How to read these contracts:
     | `Success` | `ai_analysis`, `analysis_sections` | If the issue analysis completes successfully. |
     | `Skip` | `ai_analysis`, `analysis_sections` | If AI is not configured or not available. |
     | `Error` | - | If no issue is available to analyze. |
+
+
+### AI Planning Handoff
+
+??? info "`build_jira_task_context`"
+    Build the full AI prompt for planning work on a JIRA issue.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: jira
+      step: build_jira_task_context
+    ```
+
+    **Used by built-in workflows:** `plan-jira-issue`
+
+    **Available to later steps:** `jira_task_context`
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `jira_issue` | UIJiraIssue | Issue details, from get_issue |
+    | `jira_comments` | list[UIJiraComment], optional | Issue comments, from get_comments |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `jira_task_context` | str | Full prompt text (instructions + issue + comments) |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `jira_task_context` | Prompt built |
+    | `Error` | - | jira_issue is missing |
 
 
 ### Transitions and Fix Versions

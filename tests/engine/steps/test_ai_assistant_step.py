@@ -91,15 +91,18 @@ class TestExecuteAIAssistantStep(unittest.TestCase):
 
     @patch('shutil.which', return_value='/usr/bin/some_cli')
     def test_multiple_clis_available_select_one(self, mock_which):
-        # Mock user confirming and selecting option 2 (gemini)
+        # Mock user confirming and picking gemini from the option list
         self.mock_ctx.textual.ask_confirm = MagicMock(return_value=True)
-        self.mock_ctx.textual.ask_text = MagicMock(return_value="2")
+        self.mock_ctx.textual.ask_option = MagicMock(return_value="gemini")
 
         result = execute_ai_assistant_step(self.mock_step, self.mock_ctx)
         self.assertIsInstance(result, Success)
 
-        # Check that the user was asked to select an option
-        self.mock_ctx.textual.ask_text.assert_called_once()
+        # Check that the user was asked to select from a proper option list
+        self.mock_ctx.textual.ask_option.assert_called_once()
+        call_kwargs = self.mock_ctx.textual.ask_option.call_args.kwargs
+        option_values = [opt.value for opt in call_kwargs['options']]
+        self.assertIn('gemini', option_values)
 
         # Check that launch_external_cli was called with gemini
         self.mock_ctx.textual.launch_external_cli.assert_called_once()
@@ -109,15 +112,15 @@ class TestExecuteAIAssistantStep(unittest.TestCase):
 
     @patch('shutil.which', return_value='/usr/bin/some_cli')
     def test_multiple_clis_available_cancel(self, mock_which):
-        # Mock user confirming but then cancelling selection (empty input)
+        # Mock user confirming but then cancelling selection (no option picked)
         self.mock_ctx.textual.ask_confirm = MagicMock(return_value=True)
-        self.mock_ctx.textual.ask_text = MagicMock(return_value="")
+        self.mock_ctx.textual.ask_option = MagicMock(return_value=None)
 
         result = execute_ai_assistant_step(self.mock_step, self.mock_ctx)
         self.assertIsInstance(result, Skip)
 
-        # Verify that ask_text was called to get user's selection
-        self.mock_ctx.textual.ask_text.assert_called_once()
+        # Verify that ask_option was called to get user's selection
+        self.mock_ctx.textual.ask_option.assert_called_once()
 
         # Verify that launch_external_cli was NOT called
         self.mock_ctx.textual.launch_external_cli.assert_not_called()
