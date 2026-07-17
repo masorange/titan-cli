@@ -89,6 +89,7 @@ class UISlackAuth:
     """Auth identity model returned by Slack auth validation."""
 
     user_id: Optional[str] = None
+    user: Optional[str] = None
     team_id: Optional[str] = None
     team: Optional[str] = None
     url: Optional[str] = None

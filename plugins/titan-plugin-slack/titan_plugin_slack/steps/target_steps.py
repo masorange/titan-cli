@@ -1,6 +1,6 @@
 """Reusable Slack target selection steps for users and channels."""
 
-from titan_cli.ui.tui.widgets import OptionItem
+from titan_cli.ui.tui.widgets import OptionItem, SelectionOption
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
@@ -115,13 +115,16 @@ def select_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
 
 def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Select a Slack target from a preferred value or configured default, or search.
+    Select Slack targets from a preferred value, configured defaults, or search.
 
     If `slack_preferred_target` is set and resolves to exactly one person or
-    channel, it is selected automatically with no prompt at all. Otherwise, this
-    falls back to the configured `default_channels` picker, or, when none are
-    configured (or the user chooses to search instead), to the unified
-    person-or-channel search (`select_target_step`).
+    channel, it is selected automatically with no prompt at all, producing a
+    single `slack_target`. Otherwise, this falls back to a checklist of the
+    configured `default_channels` (multiselect, none preselected) so the caller
+    can post to several channels at once, producing `slack_targets`. If no
+    default channels are configured, or the user checks none of them, this
+    falls back to the unified person-or-channel search (`select_target_step`),
+    which also produces a single `slack_target`.
 
     Requires:
         ctx.slack: An initialized SlackClient.
@@ -130,22 +133,28 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
         slack_preferred_target (str, optional): Person or channel name (without `#`) to select
             automatically without prompting, when it resolves to exactly one match. Takes priority
             over configured default channels and manual search.
-        slack_target_query (str, optional): Pre-filled query used if the user chooses to search manually.
+        slack_target_query (str, optional): Pre-filled query used if the user falls back to search.
         slack_search_limit (int, optional): Maximum number of matches to return during manual search. Defaults to 20.
         slack_search_page_size (int, optional): Page size used while scanning Slack. Defaults to 1000.
         slack_search_max_pages (int, optional): Maximum pages to scan while searching. Defaults to 50.
         slack_exclude_archived (bool, optional): Whether to exclude archived channels while searching. Defaults to True.
 
     Outputs (saved to ctx.data):
-        slack_target (UISlackTarget): Canonical selected Slack target.
-        slack_target_type (str): Selected target type (`user` or `channel`).
-        slack_target_id (str): Slack target identifier.
-        slack_target_name (str): User-facing target name.
-        slack_target_query (str): Query used to resolve the selection, when manual search was used.
+        slack_target (UISlackTarget, optional): Canonical selected Slack target, when exactly one
+            target was resolved via `slack_preferred_target` or manual search.
+        slack_targets (list[UISlackTarget], optional): Resolved targets for every checked channel
+            that resolved successfully, when one or more configured default channels were
+            selected via the checklist.
+        slack_conversation_ids (list[str], optional): Conversation IDs for every checked channel
+            that resolved successfully, set together with `slack_targets`.
+        slack_unresolved_channels (list[str], optional): Names of checked channels that could not
+            be resolved, set together with `slack_targets`. Empty when every checked channel
+            resolved.
 
     Returns:
-        Success: If the target is selected successfully.
-        Error: If Slack is unavailable, or no match is selected.
+        Success: If at least one selected target was resolved (channels that failed to resolve
+            are skipped with a warning, the rest still get posted to).
+        Error: If Slack is unavailable, or none of the selected channels could be resolved.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -167,66 +176,56 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
     if not configured_channels:
         return select_target_step(ctx)
 
-    ctx.textual.begin_step("Select Slack Channel Target")
+    ctx.textual.begin_step("Select Slack Channels")
 
     options = [
-        OptionItem(
-            value=channel_name,
-            title=f"#{channel_name}",
-            description="Configured default channel",
-        )
+        SelectionOption(value=channel_name, label=channel_name, selected=False)
         for channel_name in configured_channels
     ]
-    options.append(
-        OptionItem(
-            value=SEARCH_OTHER_TARGET,
-            title="Search for someone or another channel",
-            description="Look up a person or channel by name",
-        )
+    selected_names = ctx.textual.ask_multiselect(
+        "Select the Slack channels to post this message to:",
+        options,
     )
 
-    selected = ctx.textual.ask_option(
-        "Select a configured channel or search for someone or another channel:",
-        options=options,
-    )
-    if not selected:
-        ctx.textual.error_text("No Slack channel was selected.")
-        ctx.textual.end_step("error")
-        return Error("No Slack channel was selected.")
-
-    if selected == SEARCH_OTHER_TARGET:
+    if not selected_names:
+        ctx.textual.dim_text("No default channel selected - falling back to manual search.")
         ctx.textual.end_step("skip")
         return select_target_step(ctx)
 
-    configured_channel_name = str(selected)
-    resolved = _resolve_channel_by_name(ctx, configured_channel_name)
-    match resolved:
-        case ClientSuccess(data=channel):
-            team_id = ctx.get("slack_team_id")
-            connection_id = ctx.get("slack_connection_id")
-            target = build_channel_target(
-                channel,
-                team_id=team_id,
-                connection_id=connection_id,
-            )
-            ctx.textual.success_text(
-                f"Selected Slack target: {target.target_name} ({target.target_id})"
-            )
-            ctx.textual.end_step("success")
-            return Success(
-                "Selected Slack channel target",
-                metadata={
-                    "slack_target": target,
-                    "slack_target_type": target.target_type,
-                    "slack_target_id": target.target_id,
-                    "slack_target_name": target.target_name,
-                    "slack_target_query": configured_channel_name,
-                },
-            )
-        case ClientError(error_message=err):
-            ctx.textual.error_text(err)
-            ctx.textual.end_step("error")
-            return Error(err)
+    team_id = ctx.get("slack_team_id")
+    connection_id = ctx.get("slack_connection_id")
+
+    targets = []
+    unresolved_channels: list[str] = []
+    for channel_name in selected_names:
+        resolved = _resolve_channel_by_name(ctx, str(channel_name))
+        match resolved:
+            case ClientSuccess(data=channel):
+                targets.append(
+                    build_channel_target(channel, team_id=team_id, connection_id=connection_id)
+                )
+            case ClientError(error_message=err):
+                unresolved_channels.append(str(channel_name))
+                ctx.textual.warning_text(f"Could not resolve #{channel_name}: {err}")
+
+    if not targets:
+        ctx.textual.error_text("None of the selected Slack channels could be resolved.")
+        ctx.textual.end_step("error")
+        return Error("None of the selected Slack channels could be resolved.")
+
+    ctx.textual.success_text(
+        f"Selected {len(targets)} Slack channel(s): "
+        + ", ".join(f"#{target.target_name}" for target in targets)
+    )
+    ctx.textual.end_step("success")
+    return Success(
+        f"Selected {len(targets)} Slack channels",
+        metadata={
+            "slack_targets": targets,
+            "slack_conversation_ids": [target.target_id for target in targets],
+            "slack_unresolved_channels": unresolved_channels,
+        },
+    )
 
 
 def _try_auto_select_target(ctx: WorkflowContext, query: str) -> "Success | None":

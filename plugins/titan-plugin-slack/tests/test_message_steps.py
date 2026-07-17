@@ -75,6 +75,20 @@ def test_prepare_message_destination_step_uses_channel_target_directly() -> None
     assert conversation.is_im is False
 
 
+def test_prepare_message_destination_step_uses_channel_targets_list() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_targets"] = [
+        UISlackTarget(target_type="channel", target_id="C1", target_name="general"),
+        UISlackTarget(target_type="channel", target_id="C2", target_name="eng-backend"),
+    ]
+
+    result = prepare_message_destination_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_conversation_ids"] == ["C1", "C2"]
+
+
 def test_prompt_message_body_step_skips_when_text_already_present() -> None:
     ctx = _build_context()
     ctx.data["slack_message_text"] = "Hello"
@@ -135,6 +149,56 @@ def test_post_message_step_returns_error_from_client() -> None:
 
     assert isinstance(result, Error)
     assert result.message == "Slack post_message failed: missing_scope"
+
+
+def test_post_message_step_posts_to_multiple_conversations() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_message_text"] = "Hello there"
+    posted_c1 = UISlackPostedMessage(channel="C1", ts="1.1", text="Hello there")
+    posted_c2 = UISlackPostedMessage(channel="C2", ts="2.2", text="Hello there")
+    ctx.slack.post_message.side_effect = [
+        ClientSuccess(data=posted_c1),
+        ClientSuccess(data=posted_c2),
+    ]
+
+    result = post_message_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_message_channels"] == ["C1", "C2"]
+
+
+def test_post_message_step_skips_failed_conversation_but_posts_to_rest() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_message_text"] = "Hello there"
+    posted_c2 = UISlackPostedMessage(channel="C2", ts="2.2", text="Hello there")
+    ctx.slack.post_message.side_effect = [
+        ClientError(error_message="channel_not_found", error_code="POST_MESSAGE_ERROR"),
+        ClientSuccess(data=posted_c2),
+    ]
+
+    result = post_message_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_message_channels"] == ["C2"]
+    ctx.textual.warning_text.assert_called_once()
+
+
+def test_post_message_step_errors_when_all_conversations_fail() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_message_text"] = "Hello there"
+    ctx.slack.post_message.return_value = ClientError(
+        error_message="channel_not_found", error_code="POST_MESSAGE_ERROR"
+    )
+
+    result = post_message_step(ctx)
+
+    assert isinstance(result, Error)
 
 
 def test_format_markdown_message_step_skips_when_text_already_present() -> None:

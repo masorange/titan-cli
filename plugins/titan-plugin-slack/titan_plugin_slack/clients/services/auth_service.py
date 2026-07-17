@@ -49,6 +49,7 @@ class AuthService:
         return ClientSuccess(
             data=UISlackAuth(
                 user_id=response.get("user_id"),
+                user=response.get("user"),
                 team_id=response.get("team_id"),
                 team=response.get("team"),
                 url=response.get("url"),

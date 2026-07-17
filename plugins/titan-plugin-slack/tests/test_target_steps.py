@@ -5,7 +5,6 @@ from titan_cli.engine import Error, Success
 from titan_cli.engine.context import WorkflowContext
 from titan_plugin_slack.models import UISlackChannel, UISlackTarget, UISlackUser
 from titan_plugin_slack.steps.target_steps import (
-    SEARCH_OTHER_TARGET,
     select_channel_target_step,
     select_default_or_search_channel_target_step,
     select_user_target_step,
@@ -93,13 +92,14 @@ def test_select_default_or_search_channel_target_uses_configured_default() -> No
     ctx.slack = MagicMock()
     ctx.slack.default_channels = ["eng-backend"]
     channel = UISlackChannel(id="C2", name="eng-backend")
-    ctx.textual.ask_option.return_value = "eng-backend"
+    ctx.textual.ask_multiselect.return_value = ["eng-backend"]
     ctx.slack.search_channels.return_value = ClientSuccess(data=[channel])
 
     result = select_default_or_search_channel_target_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata["slack_target_id"] == "C2"
+    assert result.metadata["slack_conversation_ids"] == ["C2"]
+    assert result.metadata["slack_unresolved_channels"] == []
 
 
 def test_select_default_or_search_channel_target_falls_back_to_unified_search_when_no_defaults() -> None:
@@ -137,14 +137,14 @@ def test_select_default_or_search_channel_target_falls_back_to_a_person_when_no_
     assert result.metadata["slack_target_id"] == "U1"
 
 
-def test_select_default_or_search_channel_target_search_other_falls_back_to_unified_search() -> None:
+def test_select_default_or_search_channel_target_no_channel_checked_falls_back_to_unified_search() -> None:
     ctx = _build_context()
     ctx.slack = MagicMock()
     ctx.slack.default_channels = ["eng-backend"]
-    ctx.textual.ask_option.side_effect = [
-        SEARCH_OTHER_TARGET,
-        UISlackTarget(target_type="user", target_id="U1", target_name="Alex Smith"),
-    ]
+    ctx.textual.ask_multiselect.return_value = []
+    ctx.textual.ask_option.return_value = UISlackTarget(
+        target_type="user", target_id="U1", target_name="Alex Smith"
+    )
     ctx.textual.ask_text.return_value = "alex"
     user = UISlackUser(id="U1", name="alex", real_name="Alex Smith")
     ctx.slack.search_users.return_value = ClientSuccess(data=[user])
@@ -155,6 +155,36 @@ def test_select_default_or_search_channel_target_search_other_falls_back_to_unif
     assert isinstance(result, Success)
     assert result.metadata["slack_target_type"] == "user"
     assert result.metadata["slack_target_id"] == "U1"
+
+
+def test_select_default_or_search_channel_target_skips_unresolved_channel_but_posts_to_rest() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = ["eng-backend", "ghost-channel"]
+    ctx.textual.ask_multiselect.return_value = ["eng-backend", "ghost-channel"]
+    ctx.slack.search_channels.side_effect = [
+        ClientSuccess(data=[UISlackChannel(id="C2", name="eng-backend")]),
+        ClientSuccess(data=[]),
+    ]
+
+    result = select_default_or_search_channel_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_conversation_ids"] == ["C2"]
+    assert result.metadata["slack_unresolved_channels"] == ["ghost-channel"]
+    ctx.textual.warning_text.assert_called_once()
+
+
+def test_select_default_or_search_channel_target_errors_when_no_channel_resolves() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = ["ghost-channel"]
+    ctx.textual.ask_multiselect.return_value = ["ghost-channel"]
+    ctx.slack.search_channels.return_value = ClientSuccess(data=[])
+
+    result = select_default_or_search_channel_target_step(ctx)
+
+    assert isinstance(result, Error)
 
 
 def test_select_default_or_search_channel_target_auto_selects_preferred_channel() -> None:
@@ -201,10 +231,10 @@ def test_select_default_or_search_channel_target_falls_back_when_preferred_targe
         ClientSuccess(data=[]),  # resolving the preferred target fails
         ClientSuccess(data=[UISlackChannel(id="C2", name="eng-backend")]),  # configured default
     ]
-    ctx.textual.ask_option.return_value = "eng-backend"
+    ctx.textual.ask_multiselect.return_value = ["eng-backend"]
 
     result = select_default_or_search_channel_target_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata["slack_target_id"] == "C2"
+    assert result.metadata["slack_conversation_ids"] == ["C2"]
     ctx.textual.dim_text.assert_called_once()

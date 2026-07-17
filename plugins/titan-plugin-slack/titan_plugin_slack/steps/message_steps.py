@@ -8,21 +8,33 @@ from ..models import UISlackConversation
 
 def prepare_message_destination_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Prepare a Slack message destination from the selected target.
+    Prepare a Slack message destination from the selected target(s).
 
     Requires:
         ctx.slack: An initialized SlackClient.
 
     Inputs (from ctx.data):
-        slack_target (UISlackTarget): Selected Slack target. Must be a `user` or `channel` target.
+        slack_targets (list[UISlackTarget], optional): Selected Slack channel targets, when
+            multiple channels were checked via a checklist (e.g.
+            `select_default_or_search_channel_target`). Takes priority over `slack_target`.
+        slack_target (UISlackTarget, optional): Selected Slack target. Must be a `user` or
+            `channel` target. Used when `slack_targets` is not set.
 
     Outputs (saved to ctx.data):
-        slack_conversation (UISlackConversation): Resolved Slack destination conversation.
-        slack_conversation_id (str): Conversation or channel ID used for later message operations.
+        slack_conversation (UISlackConversation, optional): Resolved Slack destination
+            conversation, when a single `slack_target` was used.
+        slack_conversation_id (str, optional): Conversation or channel ID used for later message
+            operations, when a single `slack_target` was used.
+        slack_conversation_name (str, optional): User-facing name of the destination, set
+            together with `slack_conversation_id`.
+        slack_conversation_ids (list[str], optional): Conversation IDs for every channel in
+            `slack_targets`, when multiple targets were used.
+        slack_conversation_names (list[str], optional): User-facing names for every channel in
+            `slack_conversation_ids`, set together with `slack_conversation_ids`.
 
     Returns:
-        Success: If the Slack message destination is ready.
-        Error: If Slack is unavailable, the target is missing or invalid, or the Slack request fails.
+        Success: If the Slack message destination(s) are ready.
+        Error: If Slack is unavailable, no target is provided, or the Slack request fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -33,6 +45,22 @@ def prepare_message_destination_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.error_text("Slack client not available")
         ctx.textual.end_step("error")
         return Error("Slack client not available")
+
+    targets = ctx.get("slack_targets")
+    if targets:
+        conversation_ids = [target.target_id for target in targets]
+        conversation_names = [target.target_name for target in targets]
+        ctx.textual.success_text(
+            f"Slack channel destinations ready: {', '.join(conversation_names)}"
+        )
+        ctx.textual.end_step("success")
+        return Success(
+            "Slack channel destinations ready",
+            metadata={
+                "slack_conversation_ids": conversation_ids,
+                "slack_conversation_names": conversation_names,
+            },
+        )
 
     target = ctx.get("slack_target")
     if not target:
@@ -55,6 +83,7 @@ def prepare_message_destination_step(ctx: WorkflowContext) -> WorkflowResult:
                     metadata={
                         "slack_conversation": conversation,
                         "slack_conversation_id": conversation.id,
+                        "slack_conversation_name": target.target_name,
                     },
                 )
             case ClientError(error_message=err):
@@ -77,6 +106,7 @@ def prepare_message_destination_step(ctx: WorkflowContext) -> WorkflowResult:
             metadata={
                 "slack_conversation": conversation,
                 "slack_conversation_id": conversation.id,
+                "slack_conversation_name": target.target_name,
             },
         )
 
@@ -220,24 +250,39 @@ def prompt_message_body_step(ctx: WorkflowContext) -> WorkflowResult:
 
 def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Post a plain-text Slack message to the prepared conversation.
+    Post a plain-text Slack message to the prepared conversation(s).
+
+    When `slack_conversation_ids` holds more than one conversation, the message is posted to
+    each one independently: a conversation that fails is skipped with a warning while the rest
+    still get the message, and the step only fails outright if every post fails.
 
     Requires:
         ctx.slack: An initialized SlackClient.
 
     Inputs (from ctx.data):
-        slack_conversation_id (str): Slack conversation ID to post into.
+        slack_conversation_ids (list[str], optional): Slack conversation IDs to post into. Takes
+            priority over `slack_conversation_id` when set.
+        slack_conversation_id (str, optional): Single Slack conversation ID to post into. Used
+            when `slack_conversation_ids` is not set.
         slack_message_text (str): Message body to post.
-        slack_thread_ts (str, optional): Thread timestamp for replies.
+        slack_thread_ts (str, optional): Thread timestamp for replies. Only applied when posting
+            to a single conversation.
 
     Outputs (saved to ctx.data):
-        slack_message (UISlackPostedMessage): Posted Slack message metadata.
-        slack_message_ts (str): Timestamp of the posted message.
-        slack_message_channel (str): Channel or conversation ID where the message was posted.
+        slack_message (UISlackPostedMessage, optional): Posted Slack message metadata, when a
+            single conversation was used.
+        slack_message_ts (str, optional): Timestamp of the posted message, when a single
+            conversation was used.
+        slack_message_channel (str, optional): Channel the message was posted to, when a single
+            conversation was used.
+        slack_messages (list[UISlackPostedMessage], optional): Posted message metadata for every
+            conversation that succeeded, when multiple conversations were used.
+        slack_message_channels (list[str], optional): Channels the message was successfully
+            posted to, when multiple conversations were used.
 
     Returns:
-        Success: If the Slack message is posted successfully.
-        Error: If Slack is unavailable, required context is missing, or the Slack request fails.
+        Success: If the Slack message is posted to at least one conversation.
+        Error: If Slack is unavailable, required context is missing, or every post fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -249,18 +294,56 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("Slack client not available")
 
-    conversation_id = ctx.get("slack_conversation_id")
-    if not conversation_id:
-        ctx.textual.error_text("Slack conversation ID not found in context")
-        ctx.textual.end_step("error")
-        return Error("Slack conversation ID not found in context")
-
     message_text = ctx.get("slack_message_text")
     if not message_text:
         ctx.textual.error_text("Slack message text not found in context")
         ctx.textual.end_step("error")
         return Error("Slack message text not found in context")
 
+    conversation_ids = ctx.get("slack_conversation_ids")
+    if conversation_ids:
+        conversation_names = ctx.get("slack_conversation_names") or []
+        names_by_id = dict(zip(conversation_ids, conversation_names))
+
+        posted_messages = []
+        failed: list[tuple[str, str]] = []
+        with ctx.textual.loading(f"Posting Slack message to {len(conversation_ids)} channel(s)..."):
+            for conversation_id in conversation_ids:
+                result = ctx.slack.post_message(conversation_id, message_text)
+                match result:
+                    case ClientSuccess(data=message):
+                        posted_messages.append(message)
+                    case ClientError(error_message=err):
+                        failed.append((conversation_id, err))
+
+        for message in posted_messages:
+            display_name = names_by_id.get(message.channel, message.channel)
+            ctx.textual.success_text(f"Slack message posted to {display_name}")
+        for conversation_id, err in failed:
+            display_name = names_by_id.get(conversation_id, conversation_id)
+            ctx.textual.warning_text(f"Failed to post to {display_name}: {err}")
+
+        if not posted_messages:
+            ctx.textual.error_text("Failed to post Slack message to any selected channel")
+            ctx.textual.end_step("error")
+            return Error("Failed to post Slack message to any selected channel")
+
+        ctx.textual.end_step("success")
+        return Success(
+            f"Slack message posted to {len(posted_messages)} channel(s)",
+            metadata={
+                "slack_messages": posted_messages,
+                "slack_message_channels": [message.channel for message in posted_messages],
+            },
+        )
+
+    conversation_id = ctx.get("slack_conversation_id")
+    if not conversation_id:
+        ctx.textual.error_text("Slack conversation ID not found in context")
+        ctx.textual.end_step("error")
+        return Error("Slack conversation ID not found in context")
+
+    conversation_name = ctx.get("slack_conversation_name")
     thread_ts = ctx.get("slack_thread_ts")
 
     with ctx.textual.loading("Posting Slack message..."):
@@ -272,7 +355,7 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
 
     match result:
         case ClientSuccess(data=message):
-            ctx.textual.success_text(f"Slack message posted to {message.channel}")
+            ctx.textual.success_text(f"Slack message posted to {conversation_name or message.channel}")
             ctx.textual.end_step("success")
             return Success(
                 "Slack message posted",
