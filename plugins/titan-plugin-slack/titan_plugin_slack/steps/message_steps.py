@@ -334,6 +334,8 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
             metadata={
                 "slack_messages": posted_messages,
                 "slack_message_channels": [message.channel for message in posted_messages],
+                "slack_failed_channels": [cid for cid, _ in failed],
+                "slack_post_errors": failed,
             },
         )
 
