@@ -32,7 +32,7 @@ Guides the user through issue creation, enhances the description with AI, and cr
 3. `jira.select_issue_priority`
 4. `jira.ai_enhance_issue_description`
 5. `jira.review_issue_description`
-6. `jira.confirm_auto_assign`
+6. `jira.confirm_assignee_for_new_issue`
 7. `before_create_issue` hook
 8. `jira.create_generic_issue`
 
@@ -55,11 +55,11 @@ hooks:
 
 ## `plan-jira-issue`
 
-Resolves a Jira issue (by number, full key, or text search), fetches its full details and
-comments, and hands that context to an external AI coding CLI (chosen by the user, e.g.
-Claude Code) with instructions to study the issue, break the work into steps, and confirm
-the plan with the user before implementing anything. The workflow ends as soon as the user
-exits that CLI session.
+Resolves a Jira issue (by number, full key, or from the board's "Ready to Dev" list), fetches
+its full details and comments, and hands that context to an external AI coding CLI (chosen by
+the user, e.g. Claude Code) with instructions to study the issue, break the work into steps,
+and confirm the plan with the user before implementing anything. Once the user exits that CLI
+session, the workflow offers to assign the issue to the current user in Jira.
 
 **Source workflow:** `plugins/titan-plugin-jira/titan_plugin_jira/workflows/plan-jira-issue.yaml`
 
@@ -70,8 +70,10 @@ exits that CLI session.
 3. `jira.get_comments`
 4. `jira.build_jira_task_context`
 5. `core.ai_code_assistant`
+6. `jira.confirm_and_assign_issue`
 
 ### Typical usage
 
 - hand off a Jira issue to an AI coding assistant to plan the implementation before touching any code
 - let the user pick which installed CLI (Claude, Gemini, ...) does the planning
+- claim the issue for yourself in Jira right after planning/starting the work, without leaving the terminal

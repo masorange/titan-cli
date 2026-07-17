@@ -1,5 +1,5 @@
 """
-Select JIRA issue step (by number, full key, or search)
+Select JIRA issue step (by number, full key, or Ready to Dev list)
 """
 
 import re
@@ -8,7 +8,7 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.ui.tui.widgets import Table
 from ..messages import msg
-from ..utils import IssueSorter
+from ..utils import SAVED_QUERIES, IssueSorter
 from ..operations import build_issue_table_data
 
 _NUMERIC_RE = re.compile(r"^\d+$")
@@ -17,20 +17,20 @@ _FULL_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*-\d+$")
 
 def select_jira_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Resolve a JIRA issue key from user input: a plain number, a full key, or a text search.
+    Resolve a JIRA issue key from user input: a plain number, a full key, or a board search.
 
     A plain number (e.g. "123") is composed with the default project configured on the
     JIRA client (ctx.jira.project_key) into a full key (e.g. "PROJ-123"). A full key
     (e.g. "OTHERPROJ-45") is used as-is, which also covers issues from other boards.
-    Leaving the input empty switches to a text search scoped to the default project,
-    letting the user pick from a list of results.
+    Leaving the input empty lists the "Ready to Dev" issues in the default project,
+    letting the user pick from that list.
 
     Requires:
         ctx.jira: An initialized JiraClient.
 
     Outputs (saved to ctx.data):
         jira_issue_key (str): The resolved JIRA issue key
-        selected_issue (UIJiraIssue, optional): Set only when resolved via search
+        selected_issue (UIJiraIssue, optional): Set only when resolved via the Ready to Dev list
 
     Returns:
         Success: An issue key was resolved
@@ -48,7 +48,7 @@ def select_jira_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.text("")
     raw_input_value = ctx.textual.ask_text(
-        "Enter Jira issue number or key (e.g. 123 or PROJ-456), or leave empty to search",
+        "Enter Jira issue number or key (e.g. 123 or PROJ-456), or leave empty to list Ready to Dev issues",
         default=""
     )
     raw_input_value = (raw_input_value or "").strip()
@@ -80,29 +80,26 @@ def select_jira_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("success")
         return Success(f"Using issue: {issue_key}", metadata={"jira_issue_key": issue_key})
 
-    # Search mode: empty input means "let me search instead"
-    search_term = ctx.textual.ask_text("Enter text to search for in the project's issues", default="")
-    search_term = (search_term or "").strip()
-    if not search_term:
-        error_msg = "No issue key or search text provided"
+    # Empty input: list the board's "Ready to Dev" issues instead of asking for free text
+    project_key = getattr(ctx.jira, "project_key", None)
+    if not project_key:
+        error_msg = (
+            "No default JIRA project configured, so the Ready to Dev issues can't be listed. "
+            "Enter the full issue key instead (e.g. PROJ-123), or configure default_project in .titan/config.toml."
+        )
         ctx.textual.error_text(error_msg)
         ctx.textual.end_step("error")
         return Error(error_msg)
 
-    project_key = getattr(ctx.jira, "project_key", None)
-    escaped_term = search_term.replace("\\", "\\\\").replace('"', '\\"')
-    if project_key:
-        jql = f'project = "{project_key}" AND text ~ "{escaped_term}*" ORDER BY updated DESC'
-    else:
-        jql = f'text ~ "{escaped_term}*" ORDER BY updated DESC'
+    jql = SAVED_QUERIES.format("ready_to_dev_issues", project=project_key)
 
-    with ctx.textual.loading(f"Searching JIRA issues matching '{search_term}'..."):
+    with ctx.textual.loading("Searching Ready to Dev issues..."):
         result = ctx.jira.search_issues(jql=jql, max_results=25, fields=["*all"])
 
     match result:
         case ClientSuccess(data=issues):
             if not issues:
-                error_msg = f"No issues found matching '{search_term}'"
+                error_msg = f"No Ready to Dev issues found in project {project_key}"
                 ctx.textual.dim_text(error_msg)
                 ctx.textual.end_step("error")
                 return Error(error_msg)
@@ -116,7 +113,7 @@ def select_jira_issue_step(ctx: WorkflowContext) -> WorkflowResult:
 
             headers, rows = build_issue_table_data(sorted_issues, summary_max_length=60)
             ctx.textual.mount(
-                Table(headers=headers, rows=rows, title=f"Issues matching '{search_term}'")
+                Table(headers=headers, rows=rows, title="Ready to Dev Issues")
             )
 
         case ClientError(error_message=err):

@@ -21,7 +21,8 @@
     {
       "name": "AI Planning Handoff",
       "steps": [
-        {"name": "build_jira_task_context", "summary": "Build the full AI prompt for planning work on a Jira issue."}
+        {"name": "build_jira_task_context", "summary": "Build the full AI prompt for planning work on a Jira issue."},
+        {"name": "confirm_and_assign_issue", "summary": "Offer to assign the current issue to the user in Jira."}
       ]
     },
     {
@@ -45,7 +46,7 @@
         {"name": "select_issue_priority", "summary": "Choose the Jira issue priority."},
         {"name": "ai_enhance_issue_description", "summary": "Expand the raw issue request into title and description using AI."},
         {"name": "review_issue_description", "summary": "Review and optionally edit the generated issue content."},
-        {"name": "confirm_auto_assign", "summary": "Ask whether the new issue should be self-assigned."},
+        {"name": "confirm_assignee_for_new_issue", "summary": "Ask whether the new issue should be self-assigned."},
         {"name": "create_generic_issue", "summary": "Create a Jira issue from the prepared workflow context."}
       ]
     }

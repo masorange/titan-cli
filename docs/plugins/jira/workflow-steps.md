@@ -33,7 +33,7 @@ For full contract details for every public step, including documented inputs, ou
 | `select_issue_priority` | Issue Creation | `create-generic-issue` |
 | `ai_enhance_issue_description` | Issue Creation | `create-generic-issue` |
 | `review_issue_description` | Issue Creation | `create-generic-issue` |
-| `confirm_auto_assign` | Issue Creation | `create-generic-issue` |
+| `confirm_assignee_for_new_issue` | Issue Creation | `create-generic-issue` |
 | `create_generic_issue` | Issue Creation | `create-generic-issue` |
 
 ## Search and Selection
@@ -73,7 +73,7 @@ Use these steps to guide a user from a rough request to a created Jira issue.
 - `select_issue_priority`: choose the Jira issue priority
 - `ai_enhance_issue_description`: expand the raw request into title and description using AI
 - `review_issue_description`: review and optionally edit the generated issue content
-- `confirm_auto_assign`: ask whether the new issue should be self-assigned
+- `confirm_assignee_for_new_issue`: ask whether the new issue should be self-assigned
 - `create_generic_issue`: create the Jira issue from the prepared workflow context
 
 <!-- BEGIN GENERATED STEP CONTRACTS -->
@@ -206,7 +206,7 @@ How to read these contracts:
 
 
 ??? info "`select_jira_issue`"
-    Resolve a JIRA issue key from user input: a plain number, a full key, or a text search.
+    Resolve a JIRA issue key from user input: a plain number, a full key, or a board search.
 
     **Workflow usage**
 
@@ -234,7 +234,7 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `jira_issue_key` | str | The resolved JIRA issue key |
-    | `selected_issue` | UIJiraIssue, optional | Set only when resolved via search |
+    | `selected_issue` | UIJiraIssue, optional | Set only when resolved via the Ready to Dev list |
 
     **Returns**
 
@@ -393,6 +393,40 @@ How to read these contracts:
     |--------|-----------------------|-------------|
     | `Success` | `jira_task_context` | Prompt built |
     | `Error` | - | jira_issue is missing |
+
+
+??? info "`confirm_and_assign_issue`"
+    Ask the user if they want to assign the current JIRA issue to themselves, and do it.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: jira
+      step: confirm_and_assign_issue
+    ```
+
+    **Used by built-in workflows:** `plan-jira-issue`
+
+    **Available to later steps:** `issue_assigned_to_me`
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `jira_issue_key` | str | JIRA issue key to assign |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `issue_assigned_to_me` | bool | Whether the issue was assigned to the current user |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `issue_assigned_to_me` | Issue assigned, or user declined to assign it |
+    | `Error` | - | JIRA client not available, issue key missing, or the assignment call failed |
 
 
 ### Transitions and Fix Versions
@@ -773,14 +807,14 @@ How to read these contracts:
     | `WorkflowResult` | - | - |
 
 
-??? info "`confirm_auto_assign`"
-    Ask if user wants to auto-assign the issue.
+??? info "`confirm_assignee_for_new_issue`"
+    Ask if the issue about to be created should be self-assigned.
 
     **Workflow usage**
 
     ```yaml
     - plugin: jira
-      step: confirm_auto_assign
+      step: confirm_assignee_for_new_issue
     ```
 
     **Used by built-in workflows:** `create-generic-issue`

@@ -1,5 +1,5 @@
 name: "Plan JIRA Issue with AI CLI"
-description: "Fetch a JIRA issue and its comments, then hand it off to an AI coding CLI to study it, break the work into steps, and confirm the plan with you"
+description: "Fetch a JIRA issue and its comments, hand it off to an AI coding CLI to study it and confirm a plan, then offer to assign the issue to yourself"
 
 steps:
   - id: select_issue
@@ -33,3 +33,8 @@ steps:
       # "do you want AI assistance?" prompt and go straight to CLI selection/launch.
       ask_confirmation: false
       fail_on_decline: false
+
+  - id: confirm_and_assign_issue
+    name: "Assign Issue to Yourself"
+    plugin: jira
+    step: confirm_and_assign_issue

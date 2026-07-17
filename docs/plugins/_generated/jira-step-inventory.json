@@ -45,6 +45,10 @@
         {
           "name": "build_jira_task_context",
           "summary": "Build the full AI prompt for planning work on a Jira issue."
+        },
+        {
+          "name": "confirm_and_assign_issue",
+          "summary": "Offer to assign the current issue to the user in Jira."
         }
       ]
     },
@@ -109,7 +113,7 @@
           "summary": "Review and optionally edit the generated issue content."
         },
         {
-          "name": "confirm_auto_assign",
+          "name": "confirm_assignee_for_new_issue",
           "summary": "Ask whether the new issue should be self-assigned."
         },
         {
@@ -212,11 +216,34 @@
       ]
     },
     {
-      "name": "confirm_auto_assign",
+      "name": "confirm_and_assign_issue",
+      "group": "AI Planning Handoff",
+      "module": "titan_plugin_jira.steps.confirm_and_assign_issue_step",
+      "function": "confirm_and_assign_issue",
+      "summary": "Ask the user if they want to assign the current JIRA issue to themselves, and do it.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    jira_issue_key (str): JIRA issue key to assign"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    issue_assigned_to_me (bool): Whether the issue was assigned to the current user"
+        ],
+        "Returns": [
+          "    Success: Issue assigned, or user declined to assign it",
+          "    Error: JIRA client not available, issue key missing, or the assignment call failed"
+        ]
+      },
+      "used_by_workflows": [
+        "plan-jira-issue"
+      ]
+    },
+    {
+      "name": "confirm_assignee_for_new_issue",
       "group": "Issue Creation",
-      "module": "titan_plugin_jira.steps.confirm_auto_assign_step",
-      "function": "confirm_auto_assign",
-      "summary": "Ask if user wants to auto-assign the issue.",
+      "module": "titan_plugin_jira.steps.confirm_assignee_for_new_issue_step",
+      "function": "confirm_assignee_for_new_issue",
+      "summary": "Ask if the issue about to be created should be self-assigned.",
       "docstring_sections": {
         "Requires": [],
         "Inputs (from ctx.data)": [],
@@ -585,7 +612,7 @@
       "group": "Search and Selection",
       "module": "titan_plugin_jira.steps.select_jira_issue_step",
       "function": "select_jira_issue_step",
-      "summary": "Resolve a JIRA issue key from user input: a plain number, a full key, or a text search.",
+      "summary": "Resolve a JIRA issue key from user input: a plain number, a full key, or a board search.",
       "docstring_sections": {
         "Requires": [
           "    ctx.jira: An initialized JiraClient."
@@ -593,7 +620,7 @@
         "Inputs (from ctx.data)": [],
         "Outputs (saved to ctx.data)": [
           "    jira_issue_key (str): The resolved JIRA issue key",
-          "    selected_issue (UIJiraIssue, optional): Set only when resolved via search"
+          "    selected_issue (UIJiraIssue, optional): Set only when resolved via the Ready to Dev list"
         ],
         "Returns": [
           "    Success: An issue key was resolved",
