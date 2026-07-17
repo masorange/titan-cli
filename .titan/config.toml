@@ -46,4 +46,10 @@ granted_scopes = [
     "im:write",
     "mpim:write",
 ]
-default_channels = ["titan-cli", "chapter-apps-general", "chapter-apps-ios-ragnarok", "chapter-apps-android-ragnarok", "help-titan-cli"]
+default_channels = [
+    "titan-cli",
+    "chapter-apps-general",
+    "chapter-apps-ios-ragnarok",
+    "chapter-apps-android-ragnarok",
+    "help-titan-cli",
+]

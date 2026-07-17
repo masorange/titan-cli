@@ -41,9 +41,11 @@ class AuthService:
             )
 
         if not response.get("ok", False):
+            error_code = response.get("error", "unknown_error")
             return ClientError(
-                error_message=f"Slack auth failed: {response.get('error', 'unknown_error')}",
+                error_message=f"Slack auth failed: {error_code}",
                 error_code="AUTH_ERROR",
+                details={"slack_error": error_code},
             )
 
         return ClientSuccess(

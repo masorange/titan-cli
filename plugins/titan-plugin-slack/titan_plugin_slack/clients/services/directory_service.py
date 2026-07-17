@@ -149,9 +149,11 @@ class DirectoryService:
             )
 
         if not response.get("ok", False):
+            error_code = response.get("error", "unknown_error")
             return ClientError(
-                error_message=f"Slack list_users failed: {response.get('error', 'unknown_error')}",
+                error_message=f"Slack list_users failed: {error_code}",
                 error_code="LIST_USERS_ERROR",
+                details={"slack_error": error_code},
             )
 
         members = [self._map_user(member) for member in response.get("members", [])]
@@ -195,12 +197,11 @@ class DirectoryService:
             )
 
         if not response.get("ok", False):
+            error_code = response.get("error", "unknown_error")
             return ClientError(
-                error_message=(
-                    "Slack list_public_channels failed: "
-                    f"{response.get('error', 'unknown_error')}"
-                ),
+                error_message=f"Slack list_public_channels failed: {error_code}",
                 error_code="LIST_PUBLIC_CHANNELS_ERROR",
+                details={"slack_error": error_code},
             )
 
         channels = [self._map_channel(channel) for channel in response.get("channels", [])]
@@ -353,11 +354,11 @@ class DirectoryService:
                 )
 
             if not response.get("ok", False):
+                error_code = response.get("error", "unknown_error")
                 return ClientError(
-                    error_message=(
-                        f"Slack search_channels failed: {response.get('error', 'unknown_error')}"
-                    ),
+                    error_message=f"Slack search_channels failed: {error_code}",
                     error_code="SEARCH_CHANNELS_ERROR",
+                    details={"slack_error": error_code},
                 )
 
             channels = [self._map_channel(channel) for channel in response.get("channels", [])]
