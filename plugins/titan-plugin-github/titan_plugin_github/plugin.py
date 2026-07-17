@@ -181,7 +181,6 @@ class GitHubPlugin(TitanPlugin):
             normalize_thread_decisions,
             build_thread_actions,
         )
-        from .steps.select_cli_step import select_cli_step
         from .steps.release_steps import select_release_step
         return {
             "create_pr": create_pr_step,
@@ -212,8 +211,6 @@ class GitHubPlugin(TitanPlugin):
             # Code review steps
             "select_pr_for_code_review": select_pr_for_code_review,
             "fetch_pr_review_bundle": fetch_pr_review_bundle,
-            # CLI selection
-            "select_cli": select_cli_step,
             # Releases
             "select_release": select_release_step,
             # Phase 2: cheap context steps (pre-AI)

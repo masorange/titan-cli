@@ -1,7 +1,7 @@
 """
-Confirm Auto Assign Step
+Confirm Assignee for New Issue Step
 
-Asks user if they want to auto-assign the issue to themselves.
+Asks user if the JIRA issue about to be created should be self-assigned.
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success
@@ -16,9 +16,13 @@ from titan_plugin_jira.constants import (
 )
 
 
-def confirm_auto_assign(ctx: WorkflowContext) -> WorkflowResult:
+def confirm_assignee_for_new_issue(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Ask if user wants to auto-assign the issue.
+    Ask if the issue about to be created should be self-assigned.
+
+    This only records the intent for `create_generic_issue` to use when building the
+    creation payload — it does not call the Jira API itself, and it does not reassign an
+    issue that already exists. For assigning an existing issue, use `confirm_and_assign_issue`.
 
     Stores in:
     - ctx.data["auto_assign"] = bool

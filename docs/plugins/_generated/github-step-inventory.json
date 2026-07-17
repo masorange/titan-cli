@@ -52,10 +52,6 @@
         {
           "name": "prompt_for_labels",
           "summary": "Prompt for GitHub labels to attach to an issue or PR."
-        },
-        {
-          "name": "select_cli",
-          "summary": "Select which external CLI should be used by a workflow."
         }
       ]
     },
@@ -1117,25 +1113,6 @@
       },
       "used_by_workflows": [
         "review-pr"
-      ]
-    },
-    {
-      "name": "select_cli",
-      "group": "Prompt and Selection",
-      "module": "titan_plugin_github.steps.select_cli_step",
-      "function": "select_cli_step",
-      "summary": "Ask user to explicitly choose which AI CLI to use for PR analysis.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [],
-        "Returns": [
-          "    Success with the chosen CLI name stored in ctx.data"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr",
-        "review-pr-thread-resolution"
       ]
     },
     {
