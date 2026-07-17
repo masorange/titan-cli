@@ -51,7 +51,6 @@ def confirm_and_assign_issue(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("error")
             return Error(error_msg)
 
-    ctx.textual.text("")
     want_to_assign = ctx.textual.ask_confirm(
         f"Assign {issue_key} to yourself ({user.display_name})?", default=True
     )
