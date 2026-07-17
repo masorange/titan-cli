@@ -95,7 +95,13 @@ class SlackClient:
         if slack_error not in RETRYABLE_AUTH_ERROR_CODES or self._token_refresher is None:
             return result
 
+        stale_token = self.user_token
+
         with self._refresh_lock:
+            if self.user_token != stale_token:
+                logger.info("slack_reactive_token_refresh_already_done")
+                return call()
+
             try:
                 new_token = self._token_refresher()
             except Exception as exc:
