@@ -113,7 +113,8 @@ class ConversationService:
                     "Reconnect Slack configuration to grant the required scopes."
                 )
                 details["needed_scopes"] = needed
-                details["provided_scopes"] = provided
+                if provided:
+                    details["provided_scopes"] = provided
             return ClientError(
                 error_message=message,
                 error_code="READ_CHANNEL_ERROR",
@@ -165,7 +166,8 @@ class ConversationService:
                     "Reconnect Slack configuration to grant the required scopes."
                 )
                 details["needed_scopes"] = needed
-                details["provided_scopes"] = provided
+                if provided:
+                    details["provided_scopes"] = provided
             return ClientError(
                 error_message=message,
                 error_code="OPEN_DIRECT_MESSAGE_ERROR",
