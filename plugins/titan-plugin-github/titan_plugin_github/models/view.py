@@ -137,6 +137,10 @@ class UIPullRequest:
 
     All fields are pre-formatted and ready for widget rendering.
     Computed/derived fields are calculated once during construction.
+
+    Fields:
+        requested_reviewers: All GitHub logins of users requested to review
+        pending_reviewers: Logins of reviewers who haven't submitted a review yet
     """
     number: int
     title: str

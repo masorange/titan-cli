@@ -48,6 +48,7 @@ class NetworkPullRequest:
         mergedAt: Merge timestamp if merged (ISO 8601, camelCase as in API)
         reviews: List of reviews
         labels: List of label objects with 'name' field
+        requestedReviewers: List of users requested to review the PR
     """
     number: int
     title: str
