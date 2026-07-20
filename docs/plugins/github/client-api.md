@@ -95,6 +95,28 @@ client.get_pull_request(123)
 
 - `pr_number`: Required. Pull request number.
 
+**Returns:**
+
+A `UIPullRequest` object with the following fields:
+
+- `number`: PR number
+- `title`: PR title  
+- `body`: PR description
+- `status_icon`: Status emoji (🟢 open, 🔴 closed, 🟣 merged, 📝 draft)
+- `state`: PR state (OPEN, CLOSED, MERGED)
+- `author_name`: GitHub username of PR author
+- `head_ref`: Source branch name
+- `base_ref`: Target branch name
+- `branch_info`: Formatted branch information (e.g., "feature/xyz → main")
+- `stats`: Formatted change statistics (e.g., "+123 -45")
+- `files_changed`: Number of files changed
+- `is_mergeable`: Whether the PR can be merged
+- `is_draft`: Whether the PR is a draft
+- `review_summary`: Formatted review status (e.g., "✅ 2 approved")
+- `labels`: List of label names
+- `requested_reviewers`: GitHub usernames of all users requested to review
+- `pending_reviewers`: GitHub usernames of users who haven't reviewed yet
+
 ### List pull requests pending review
 
 Returns PRs that still need your review.
