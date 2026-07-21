@@ -30,7 +30,14 @@ class WorkflowFilterService:
             Project workflow using GitHub steps -> "Github"
             Project workflow using Jira steps -> "Jira"
             Project workflow with no plugins -> "Custom"
+            Workflow with explicit `category:` in its YAML -> that category, verbatim
         """
+        # An explicit `category:` in the workflow YAML always wins over auto-detection.
+        # Lets a workflow that incidentally uses a plugin step (e.g. `github`) stay
+        # grouped under its own project/team category instead of that plugin's tab.
+        if wf_info.category:
+            return wf_info.category
+
         # If it's already from a plugin, extract the name
         if wf_info.source.startswith("plugin:"):
             plugin_name = wf_info.source.split(":", 1)[1]
