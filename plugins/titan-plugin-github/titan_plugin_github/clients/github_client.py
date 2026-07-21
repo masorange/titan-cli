@@ -14,7 +14,7 @@ from titan_cli.core.plugins.models import GitHubPluginConfig
 from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
-from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService
+from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService, ContentsService
 from ..models.review_models import ReferencedCommitContext
 from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated, UIRelease
 
@@ -77,6 +77,7 @@ class GitHubClient:
         self._issue_service = IssueService(self._gh_network)
         self._team_service = TeamService(self._gh_network)
         self._release_service = ReleaseService(self._gh_network)
+        self._contents_service = ContentsService(self._gh_network)
 
     def get_pr_template(self) -> Optional[str]:
         """Get the PR template if available."""
@@ -314,6 +315,46 @@ class GitHubClient:
     def get_release(self, tag_name: str) -> ClientResult[UIRelease]:
         """Get a single GitHub release, including its full notes body."""
         return self._release_service.get_release(tag_name)
+
+    # ============================================================================
+    # Contents Operations
+    # ============================================================================
+
+    def list_repository_directory(
+        self,
+        path: str,
+        ref: Optional[str] = None,
+        *,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+    ) -> ClientResult[List[Dict[str, Any]]]:
+        """
+        List the entries of a directory in a repository.
+
+        Defaults to this client's own repo; pass repo_owner/repo_name to read
+        from a different repository without instantiating a new client.
+        """
+        return self._contents_service.list_directory(
+            path, ref, repo_owner=repo_owner, repo_name=repo_name
+        )
+
+    def path_exists(
+        self,
+        path: str,
+        ref: Optional[str] = None,
+        *,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+    ) -> ClientResult[bool]:
+        """
+        Check whether a path exists in a repository.
+
+        Defaults to this client's own repo; pass repo_owner/repo_name to check
+        against a different repository without instantiating a new client.
+        """
+        return self._contents_service.path_exists(
+            path, ref, repo_owner=repo_owner, repo_name=repo_name
+        )
 
     # ============================================================================
     # Team Operations

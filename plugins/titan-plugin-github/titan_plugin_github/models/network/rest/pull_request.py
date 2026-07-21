@@ -48,6 +48,7 @@ class NetworkPullRequest:
         mergedAt: Merge timestamp if merged (ISO 8601, camelCase as in API)
         reviews: List of reviews
         labels: List of label objects with 'name' field
+        requestedReviewers: List of users requested to review the PR
     """
     number: int
     title: str
@@ -71,6 +72,7 @@ class NetworkPullRequest:
     isCrossRepository: bool = False
     headRepositoryOwnerLogin: Optional[str] = None
     headRepositoryName: Optional[str] = None
+    requestedReviewers: List[NetworkUser] = field(default_factory=list)  # Users requested to review
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> 'NetworkPullRequest':
@@ -96,6 +98,10 @@ class NetworkPullRequest:
         # Parse reviews
         reviews_data = data.get("reviews", [])
         reviews = [NetworkReview.from_json(r) for r in reviews_data]
+
+        # Parse requested reviewers
+        requested_reviewers_data = data.get("requestedReviewers", [])
+        requested_reviewers = [NetworkUser.from_json(r) for r in requested_reviewers_data]
 
         return cls(
             number=data.get("number", 0),
@@ -128,6 +134,7 @@ class NetworkPullRequest:
             isCrossRepository=data.get("isCrossRepository", False),
             headRepositoryOwnerLogin=(data.get("headRepositoryOwner") or {}).get("login"),
             headRepositoryName=(data.get("headRepository") or {}).get("name"),
+            requestedReviewers=requested_reviewers,
         )
 
 

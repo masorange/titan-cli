@@ -276,6 +276,44 @@ class TestFromRestPR:
         assert ui_pr.formatted_created_at == ""
         assert ui_pr.formatted_updated_at == ""
 
+    def test_maps_requested_reviewers_and_pending_reviewers(self):
+        """Test that requested and pending reviewers are correctly mapped"""
+        # Arrange
+        author = NetworkUser(login="author")
+        reviewer1 = NetworkUser(login="reviewer1", name="Reviewer One")
+        reviewer2 = NetworkUser(login="reviewer2", name="Reviewer Two")
+        reviewer3 = NetworkUser(login="reviewer3", name="Reviewer Three")
+
+        rest_pr = NetworkPullRequest(
+            number=1,
+            title="PR",
+            body="",
+            state="OPEN",
+            isDraft=False,
+            author=author,
+            headRefName="feature",
+            baseRefName="main",
+            mergeable="MERGEABLE",
+            additions=0,
+            deletions=0,
+            changedFiles=0,
+            reviews=[
+                Mock(state="APPROVED", user=reviewer1),
+                Mock(state="CHANGES_REQUESTED", user=reviewer2),
+            ],
+            labels=[],
+            requestedReviewers=[reviewer1, reviewer2, reviewer3],
+            createdAt="2025-01-15T10:00:00Z",
+            updatedAt="2025-01-15T10:00:00Z",
+        )
+
+        # Act
+        ui_pr = from_rest_pr(rest_pr)
+
+        # Assert
+        assert ui_pr.requested_reviewers == ["reviewer1", "reviewer2", "reviewer3"]
+        assert ui_pr.pending_reviewers == ["reviewer3"]
+
 
 class TestPRSelectionOperations:
     def test_build_pr_selection_description_base(self):
