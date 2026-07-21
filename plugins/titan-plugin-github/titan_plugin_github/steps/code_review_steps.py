@@ -13,7 +13,7 @@ from typing import List, Optional
 from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
-from titan_cli.external_cli.adapters import HEADLESS_ADAPTER_REGISTRY, get_headless_adapter
+from titan_cli.external_cli.adapters import get_headless_adapter, list_available_headless_clis
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
@@ -886,11 +886,8 @@ def _get_review_diff(
 def _resolve_headless_adapter(cli_preference: str):
     """Return the first available headless adapter, or None."""
     if cli_preference == "auto":
-        for cli_name in HEADLESS_ADAPTER_REGISTRY:
-            candidate = get_headless_adapter(cli_name)
-            if candidate.is_available():
-                return candidate
-        return None
+        available = list_available_headless_clis()
+        return get_headless_adapter(available[0]) if available else None
 
     try:
         candidate = get_headless_adapter(cli_preference)

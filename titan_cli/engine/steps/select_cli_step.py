@@ -9,7 +9,7 @@ from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.option_item import OptionItem
 from titan_cli.engine.results import Success, WorkflowResult
-from titan_cli.external_cli.adapters import get_headless_adapter
+from titan_cli.external_cli.adapters import list_available_headless_clis
 from titan_cli.external_cli.configs import CLI_REGISTRY
 
 _CLI_DESCRIPTIONS = {
@@ -37,17 +37,14 @@ def execute_select_cli_step(step: WorkflowStepModel, ctx: WorkflowContext) -> Wo
 
     question = step.params.get("question", "Which AI CLI do you want to use?")
 
-    options = []
-    for cli_name in CLI_REGISTRY:
-        adapter = get_headless_adapter(cli_name)
-        if adapter.is_available():
-            options.append(
-                OptionItem(
-                    value=cli_name,
-                    title=CLI_REGISTRY[cli_name].get("display_name", cli_name),
-                    description=_CLI_DESCRIPTIONS.get(cli_name, ""),
-                )
-            )
+    options = [
+        OptionItem(
+            value=cli_name,
+            title=CLI_REGISTRY[cli_name].get("display_name", cli_name),
+            description=_CLI_DESCRIPTIONS.get(cli_name, ""),
+        )
+        for cli_name in list_available_headless_clis()
+    ]
 
     if not options:
         ctx.textual.warning_text("No AI CLI available.")
