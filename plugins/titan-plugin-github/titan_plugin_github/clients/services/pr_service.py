@@ -56,7 +56,7 @@ class PRService:
                 "baseRefName", "headRefName", "additions", "deletions",
                 "changedFiles", "mergeable", "isDraft", "createdAt",
                 "updatedAt", "mergedAt", "reviews", "labels",
-                "statusCheckRollup", "reviewDecision",
+                "statusCheckRollup", "reviewDecision", "reviewRequests",
                 "isCrossRepository", "headRepositoryOwner", "headRepository",
             ]
 

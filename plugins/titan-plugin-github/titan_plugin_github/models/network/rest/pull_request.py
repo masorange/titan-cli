@@ -99,8 +99,8 @@ class NetworkPullRequest:
         reviews_data = data.get("reviews", [])
         reviews = [NetworkReview.from_json(r) for r in reviews_data]
 
-        # Parse requested reviewers
-        requested_reviewers_data = data.get("requestedReviewers", [])
+        # Parse requested reviewers (gh CLI JSON field is "reviewRequests")
+        requested_reviewers_data = data.get("reviewRequests", [])
         requested_reviewers = [NetworkUser.from_json(r) for r in requested_reviewers_data]
 
         return cls(
