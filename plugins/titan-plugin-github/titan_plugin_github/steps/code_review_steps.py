@@ -43,6 +43,7 @@ from ..operations.review_action_operations import (
     resolve_action_anchors,
 )
 from ..operations.thread_resolution_operations import (
+    batch_thread_review_contexts,
     build_thread_review_candidates as build_thread_review_candidates_operation,
     build_thread_review_contexts as build_thread_review_contexts_operation,
     build_thread_resolution_prompt,
@@ -2741,18 +2742,23 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
     """
     AI call: decide what to do with each open thread.
 
-    Sends thread contexts (original comment + replies + current code) to the
+    Splits thread contexts into prompt-budget-bound batches (see
+    batch_thread_review_contexts) and sends each batch — original comment +
+    replies + current code + referenced commits, all untouched — to the
     selected headless CLI. The AI decides per thread: resolved / insist /
-    reply / skip.
+    reply / skip. Batches run sequentially and their decisions are aggregated;
+    a batch that fails (CLI error or parse error) is skipped without aborting
+    the remaining batches.
 
-    On CLI failure or parse failure, falls back to empty decisions (no actions).
+    On total failure (no batch produced usable output), falls back to empty
+    decisions (no actions).
 
     Requires (from ctx.data):
         thread_review_contexts (List[ThreadReviewContext])
         cli_preference (str): "claude" | "gemini" | "codex" | "auto"
 
     Outputs (saved to ctx.data):
-        raw_thread_decisions (list): Raw AI output before normalization
+        raw_thread_decisions (list): Raw AI output aggregated across batches, before normalization
 
     Returns:
         Success or Error
@@ -2779,46 +2785,90 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("success")
         return Success("No decisions (no CLI available)", metadata={"raw_thread_decisions": []})
 
-    prompt = build_thread_resolution_prompt(contexts)
-
+    # Split into batches so one call never has to carry every open thread at
+    # once — each thread's full conversation/hunk/commit context stays intact,
+    # only the number of threads sharing a single AI call is bounded.
+    batches = batch_thread_review_contexts(contexts)
     cli_display = adapter.cli_name.value.capitalize()
-    thread_count = len(contexts)
-    adapter_started_at = time.monotonic()
-    with ctx.textual.loading(f"Asking {cli_display} to analyse {thread_count} thread(s)…"):
-        response = adapter.execute(prompt, cwd=project_root, timeout=300)
-    adapter_duration_seconds = time.monotonic() - adapter_started_at
-    logger.info(
-        "thread_resolution_adapter_call",
-        cli=adapter.cli_name.value,
-        thread_count=thread_count,
-        prompt_actual_chars=len(prompt),
-        duration_seconds=round(adapter_duration_seconds, 3),
-        exit_code=response.exit_code,
-        timed_out=response.exit_code == 124,
+    ctx.textual.dim_text(
+        f"Reviewing {len(contexts)} thread(s) in {len(batches)} batch(es) with {cli_display}"
     )
 
-    if not response.succeeded:
-        ctx.textual.warning_text(f"CLI call failed (exit {response.exit_code}) — no thread decisions")
-        if response.stderr:
-            ctx.textual.dim_text(response.stderr[:200])
-        ctx.data["raw_thread_decisions"] = []
+    aggregated_raw: list = []
+    any_batch_failed = False
+
+    for batch_index, batch in enumerate(batches, start=1):
+        batch_label = f"batch {batch_index}/{len(batches)}"
+        prompt = build_thread_resolution_prompt(batch)
+
+        _log_ai_prompt(
+            step_name="ai_thread_resolution",
+            cli_name=adapter.cli_name.value,
+            prompt=prompt,
+            batch_index=batch_index,
+            batch_count=len(batches),
+            thread_count=len(batch),
+        )
+
+        adapter_started_at = time.monotonic()
+        with ctx.textual.loading(
+            f"Asking {cli_display} to analyse {batch_label} ({len(batch)} thread(s))…"
+        ):
+            response = adapter.execute(prompt, cwd=project_root, timeout=300)
+        adapter_duration_seconds = time.monotonic() - adapter_started_at
+        logger.info(
+            "thread_resolution_adapter_call",
+            cli=adapter.cli_name.value,
+            batch_index=batch_index,
+            batch_count=len(batches),
+            thread_count=len(batch),
+            prompt_actual_chars=len(prompt),
+            duration_seconds=round(adapter_duration_seconds, 3),
+            exit_code=response.exit_code,
+            timed_out=response.exit_code == 124,
+        )
+        _log_ai_response(
+            step_name="ai_thread_resolution",
+            cli_name=adapter.cli_name.value,
+            stdout=response.stdout,
+            stderr=response.stderr,
+            exit_code=response.exit_code,
+            batch_index=batch_index,
+            batch_count=len(batches),
+        )
+
+        if not response.succeeded:
+            any_batch_failed = True
+            ctx.textual.warning_text(f"{batch_label}: CLI call failed (exit {response.exit_code}) — skipped")
+            if response.stderr:
+                ctx.textual.dim_text(response.stderr[:200])
+            continue
+
+        match extract_json_payload(response.stdout, kind="array"):
+            case ClientError(error_message=err):
+                any_batch_failed = True
+                ctx.textual.warning_text(f"{batch_label}: decisions parsing failed ({err}) — skipped")
+                continue
+            case ClientSuccess(data=raw):
+                aggregated_raw.extend(raw)
+
+    ctx.data["raw_thread_decisions"] = aggregated_raw
+
+    if not aggregated_raw:
+        status = "No decisions (all batches failed)" if any_batch_failed else "No decisions"
+        ctx.textual.warning_text(status)
         ctx.textual.end_step("success")
-        return Success("No decisions (CLI error)", metadata={"raw_thread_decisions": []})
+        return Success(status, metadata={"raw_thread_decisions": []})
 
-    # Parse JSON array response
-    match extract_json_payload(response.stdout, kind="array"):
-        case ClientError(error_message=err):
-            ctx.textual.warning_text(f"Thread decisions parsing failed ({err}) — no decisions")
-            ctx.data["raw_thread_decisions"] = []
-            ctx.textual.end_step("success")
-            return Success("No decisions (parse error)", metadata={"raw_thread_decisions": []})
-        case ClientSuccess(data=raw):
-            pass
-
-    ctx.data["raw_thread_decisions"] = raw
-    ctx.textual.success_text(f"✓ AI returned {len(raw)} thread decision(s)")
+    summary = f"✓ AI returned {len(aggregated_raw)} thread decision(s)"
+    if any_batch_failed:
+        summary += " (some batches failed — partial results)"
+    ctx.textual.success_text(summary)
     ctx.textual.end_step("success")
-    return Success("AI thread decisions retrieved", metadata={"raw_thread_decisions_count": len(raw)})
+    return Success(
+        "AI thread decisions retrieved",
+        metadata={"raw_thread_decisions_count": len(aggregated_raw)},
+    )
 
 
 def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
