@@ -95,6 +95,28 @@ client.get_pull_request(123)
 
 - `pr_number`: Required. Pull request number.
 
+**Returns:**
+
+A `UIPullRequest` object with the following fields:
+
+- `number`: PR number
+- `title`: PR title  
+- `body`: PR description
+- `status_icon`: Status emoji (🟢 open, 🔴 closed, 🟣 merged, 📝 draft)
+- `state`: PR state (OPEN, CLOSED, MERGED)
+- `author_name`: GitHub username of PR author
+- `head_ref`: Source branch name
+- `base_ref`: Target branch name
+- `branch_info`: Formatted branch information (e.g., "feature/xyz → main")
+- `stats`: Formatted change statistics (e.g., "+123 -45")
+- `files_changed`: Number of files changed
+- `is_mergeable`: Whether the PR can be merged
+- `is_draft`: Whether the PR is a draft
+- `review_summary`: Formatted review status (e.g., "✅ 2 approved")
+- `labels`: List of label names
+- `requested_reviewers`: GitHub usernames of all users requested to review
+- `pending_reviewers`: GitHub usernames of users who haven't reviewed yet
+
 ### List pull requests pending review
 
 Returns PRs that still need your review.
@@ -558,6 +580,60 @@ client.get_release(tag_name="v1.2.0")
 - `tag_name`: Required. Tag of the release to fetch.
 
 Returns a `ClientResult[UIRelease]` with `body` populated with the release notes text.
+
+---
+
+## Contents operations
+
+Browse a repository's file tree through the GitHub Contents API, without cloning it locally. Both methods default to the client's own configured repo, but accept `repo_owner`/`repo_name` to read from a different repository.
+
+### List a directory
+
+Lists the entries of a directory in a repository.
+
+**Call:**
+
+```python
+client.list_repository_directory(
+    "services/backend",
+    ref="main",
+    repo_owner="example-org",
+    repo_name="other-repo",
+)
+```
+
+**Parameters:**
+
+- `path`: Required. Directory path relative to the repo root. Pass `""` for the repo root.
+- `ref`: Optional. Branch, tag, or commit SHA to read from. Defaults to the repo's default branch.
+- `repo_owner`: Optional. Overrides the client's configured repo owner for this call.
+- `repo_name`: Optional. Overrides the client's configured repo name for this call.
+
+Returns a `ClientResult[List[dict]]`. Each entry is shaped like `{"name": str, "path": str, "type": "dir" | "file"}`. Returns `ClientError` (`NOT_A_DIRECTORY`) if `path` points to a file instead of a directory, and `ClientError` (`NOT_FOUND`) if the path doesn't exist.
+
+### Check whether a path exists
+
+Checks whether a path exists in a repository.
+
+**Call:**
+
+```python
+client.path_exists(
+    "Dockerfile",
+    ref="main",
+    repo_owner="example-org",
+    repo_name="other-repo",
+)
+```
+
+**Parameters:**
+
+- `path`: Required. Path relative to the repo root.
+- `ref`: Optional. Branch, tag, or commit SHA to check against. Defaults to the repo's default branch.
+- `repo_owner`: Optional. Overrides the client's configured repo owner for this call.
+- `repo_name`: Optional. Overrides the client's configured repo name for this call.
+
+Returns a `ClientResult[bool]` — `ClientSuccess(data=False)` for a missing path, not a `ClientError`.
 
 ---
 

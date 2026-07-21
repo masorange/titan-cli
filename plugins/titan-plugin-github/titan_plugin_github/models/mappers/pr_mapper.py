@@ -35,6 +35,13 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
     # Extract label names from label objects
     label_names = [label.get("name", "") for label in rest_pr.labels]
 
+    # Extract requested reviewers
+    requested_reviewers = [user.login for user in rest_pr.requestedReviewers]
+
+    # Calculate pending reviewers (requested but not yet reviewed)
+    reviewed_logins = {review.user.login for review in rest_pr.reviews if review.state != "PENDING"}
+    pending_reviewers = [login for login in requested_reviewers if login not in reviewed_logins]
+
     return UIPullRequest(
         number=rest_pr.number,
         title=rest_pr.title,
@@ -58,6 +65,8 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         is_cross_repository=rest_pr.isCrossRepository,
         head_repository_owner=rest_pr.headRepositoryOwnerLogin,
         head_repository_name=rest_pr.headRepositoryName,
+        requested_reviewers=requested_reviewers,
+        pending_reviewers=pending_reviewers,
     )
 
 

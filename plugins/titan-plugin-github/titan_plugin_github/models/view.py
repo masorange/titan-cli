@@ -10,7 +10,7 @@ Network models contain raw API data; view models contain UI-ready data.
 These models are GitHub-specific and live in the GitHub plugin, not in the core.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 from .pr_enums import PRState
@@ -137,6 +137,10 @@ class UIPullRequest:
 
     All fields are pre-formatted and ready for widget rendering.
     Computed/derived fields are calculated once during construction.
+
+    Fields:
+        requested_reviewers: All GitHub logins of users requested to review
+        pending_reviewers: Logins of reviewers who haven't submitted a review yet
     """
     number: int
     title: str
@@ -160,6 +164,8 @@ class UIPullRequest:
     is_cross_repository: bool = False
     head_repository_owner: Optional[str] = None
     head_repository_name: Optional[str] = None
+    requested_reviewers: List[str] = field(default_factory=list)  # All requested reviewer logins
+    pending_reviewers: List[str] = field(default_factory=list)  # Reviewers who haven't reviewed yet
 
 
 @dataclass
