@@ -28,7 +28,7 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
         prompt_template: str - Template for the prompt (use {context} placeholder)
         ask_confirmation: bool - Whether to ask user before launching (default: True)
         fail_on_decline: bool - If True, return Error when user declines (default: False)
-        cli_preference: str - Which CLI to use: "claude", "gemini", "auto" (default: "auto")
+        cli_preference: str - Which CLI to use: "claude", "gemini", "codex", "auto" (default: "auto")
 
     Example workflow usage:
         - id: ai-help
@@ -55,8 +55,8 @@ def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> 
     cli_preference = step.params.get("cli_preference", "auto")
     pre_launch_warning = step.params.get("pre_launch_warning")
 
-    # Validate cli_preference
-    VALID_CLI_PREFERENCES = {"auto", "claude", "gemini"}
+    # Validate cli_preference against the single source of truth for supported CLIs
+    VALID_CLI_PREFERENCES = {"auto", *CLI_REGISTRY.keys()}
     if cli_preference not in VALID_CLI_PREFERENCES:
         ctx.textual.error_text(f"Invalid cli_preference: {cli_preference}. Must be one of {VALID_CLI_PREFERENCES}")
         ctx.textual.end_step("error")
