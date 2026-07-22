@@ -77,7 +77,8 @@ class CLILauncherScreen(BaseScreen):
             launcher = CLILauncher(
                 cli_name,
                 install_instructions=config.get("install_instructions"),
-                prompt_flag=config.get("prompt_flag")
+                prompt_flag=config.get("prompt_flag"),
+                model_flag=config.get("model_flag")
             )
             if launcher.is_available():
                 available[cli_name] = {

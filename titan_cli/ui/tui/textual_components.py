@@ -993,7 +993,8 @@ class TextualComponents:
                 launcher = CLILauncher(
                     cli_name,
                     install_instructions=config.get("install_instructions"),
-                    prompt_flag=config.get("prompt_flag")
+                    prompt_flag=config.get("prompt_flag"),
+                    model_flag=config.get("model_flag")
                 )
                 exit_code = launcher.launch(prompt=prompt, cwd=cwd)
                 result_container["exit_code"] = exit_code
