@@ -349,6 +349,63 @@ class TitanConfig:
 
         self.save_ai_connections_config(ai_cfg)
 
+    def get_ai_preferences_config(self) -> dict:
+        """Return global AI preferences normalized to the current schema."""
+        config_data = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
+        ai_cfg = config_data.setdefault("ai", {})
+        prefs = ai_cfg.setdefault("preferences", {})
+        prefs.setdefault("default_selection_mode", "ask")
+        prefs.setdefault("fallback_enabled", True)
+        prefs.setdefault("tasks", {})
+        prefs.setdefault("workflows", {})
+        return prefs
+
+    def save_ai_preferences_config(self, preferences: dict) -> None:
+        """Persist global AI preferences without touching AI connections."""
+        config_data = self._load_and_migrate_toml(
+            self._global_config_path,
+            migration_manager=self.global_migration_manager,
+        )
+        config_data["config_version"] = (
+            self.config.config_version if getattr(self, "config", None) else "1.0"
+        )
+        config_data.setdefault("ai", {})["preferences"] = preferences
+        self._write_global_config(config_data)
+
+    def upsert_task_ai_preference(self, task: str, preference_data: dict) -> None:
+        """Create or update a persisted preference for an AI task."""
+        prefs = self.get_ai_preferences_config()
+        prefs["tasks"][task] = self._strip_none(preference_data)
+        self.save_ai_preferences_config(prefs)
+
+    def upsert_workflow_ai_preference(self, workflow_name: str, preference_data: dict) -> None:
+        """Create or update a persisted preference for a specific workflow."""
+        prefs = self.get_ai_preferences_config()
+        prefs["workflows"][workflow_name] = self._strip_none(preference_data)
+        self.save_ai_preferences_config(prefs)
+
+    @staticmethod
+    def _strip_none(data: dict) -> dict:
+        """Drop None-valued keys - TOML has no null type."""
+        return {k: v for k, v in data.items() if v is not None}
+
+    def delete_task_ai_preference(self, task: str) -> None:
+        """Delete a persisted task-level AI preference, if present."""
+        prefs = self.get_ai_preferences_config()
+        if task in prefs["tasks"]:
+            del prefs["tasks"][task]
+            self.save_ai_preferences_config(prefs)
+
+    def delete_workflow_ai_preference(self, workflow_name: str) -> None:
+        """Delete a persisted workflow-level AI preference, if present."""
+        prefs = self.get_ai_preferences_config()
+        if workflow_name in prefs["workflows"]:
+            del prefs["workflows"][workflow_name]
+            self.save_ai_preferences_config(prefs)
+
     def _write_toml(self, path: Path, data: dict) -> None:
         """Write raw TOML data to disk."""
         if not path.parent.exists():

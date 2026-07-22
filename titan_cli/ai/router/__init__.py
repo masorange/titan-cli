@@ -18,6 +18,7 @@ from .models import (
     AIRouteDecision,
     AIRoutePolicy,
 )
+from .resolver import AIRouteNeedsInput, AIRouteResolution, AIRouteResolver
 
 __all__ = [
     "AITask",
@@ -31,4 +32,7 @@ __all__ = [
     "AIExecutionResult",
     "AIAvailabilityChecker",
     "AIProviderAvailability",
+    "AIRouteResolver",
+    "AIRouteNeedsInput",
+    "AIRouteResolution",
 ]
