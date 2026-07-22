@@ -8,6 +8,7 @@ a plugin's external-service client, so it does not follow the plugin 5-layer
 pattern but mirrors ClientResult's success/error shape for consistency.
 """
 
+from .availability import AIAvailabilityChecker, AIProviderAvailability
 from .enums import AICapability, AIProviderType, AITask
 from .models import (
     AIExecutionError,
@@ -28,4 +29,6 @@ __all__ = [
     "AIExecutionSuccess",
     "AIExecutionError",
     "AIExecutionResult",
+    "AIAvailabilityChecker",
+    "AIProviderAvailability",
 ]

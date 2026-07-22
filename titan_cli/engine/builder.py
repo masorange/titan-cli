@@ -11,6 +11,7 @@ from titan_cli.core.secrets import SecretManager
 from .context import WorkflowContext
 from titan_cli.ai.client import AIClient
 from titan_cli.ai.exceptions import AIConfigurationError
+from titan_cli.ai.router import AIAvailabilityChecker
 
 
 class WorkflowContextBuilder:
@@ -33,6 +34,7 @@ class WorkflowContextBuilder:
         )
         ctx = WorkflowContextBuilder(plugin_registry, secrets, ai_config) \\
             .with_ai() \\
+            .with_ai_router() \\
             .build()
     """
 
@@ -56,6 +58,7 @@ class WorkflowContextBuilder:
 
         # Service clients
         self._ai = None
+        self._ai_router = None
         self._git = None
         self._github = None
         self._jira = None
@@ -83,6 +86,25 @@ class WorkflowContextBuilder:
                     self._ai = None
             else:
                 self._ai = None
+        return self
+
+    def with_ai_router(self, ai_router: Optional[Any] = None) -> WorkflowContextBuilder:
+        """
+        Add AI availability/routing checker.
+
+        Args:
+            ai_router: Optional AIAvailabilityChecker instance (auto-created if None)
+
+        Note:
+            This is a detection-only checker for now (no route resolution, no
+            preferences, no fallback). `ctx.ai` remains the way steps actually
+            execute AI requests; `ctx.ai_router` is additive and not yet used
+            by any workflow.
+        """
+        if ai_router:
+            self._ai_router = ai_router
+        else:
+            self._ai_router = AIAvailabilityChecker(self._ai_config, self._secrets)
         return self
 
     def with_git(self, git_client: Optional[Any] = None) -> WorkflowContextBuilder:
@@ -205,6 +227,7 @@ class WorkflowContextBuilder:
             secrets=self._secrets,
             plugin_manager=self._plugin_registry,
             ai=self._ai,
+            ai_router=self._ai_router,
             git=self._git,
             github=self._github,
             github_managers=self._plugin_managers.get("github"),

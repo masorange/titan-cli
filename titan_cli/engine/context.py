@@ -37,6 +37,7 @@ class WorkflowContext:
 
     # Service clients (populated by builder)
     ai: Optional[Any] = None
+    ai_router: Optional[Any] = None
     git: Optional[Any] = None
     github: Optional[Any] = None
     github_managers: Optional[Any] = None
