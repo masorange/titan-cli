@@ -120,18 +120,19 @@ class AIRouteResolver:
         """
         Try to honor a persisted preference.
 
-        Returns `AIRouteDecision` if its provider is available,
-        `AIRouteNeedsInput` if unavailable (never a silent fallback, even if
-        `pref.fallback` is set), or `None` if the preference's provider value
-        doesn't map to a known `AIProviderType` (caller should keep checking
-        lower-precedence sources).
+        Returns `AIRouteDecision` if its exact provider/cli/connection_id is
+        available, `AIRouteNeedsInput` if unavailable (never a silent
+        fallback, even if `pref.fallback` is set or a *different* candidate
+        of the same provider type happens to be available), or `None` if the
+        preference's provider value doesn't map to a known `AIProviderType`
+        (caller should keep checking lower-precedence sources).
         """
         try:
             provider = AIProviderType(pref.provider)
         except ValueError:
             return None
 
-        if self.availability.is_provider_available(provider):
+        if self._identifier_available(provider, pref.cli or pref.connection_id):
             return AIRouteDecision(
                 provider=provider,
                 cli=pref.cli,
@@ -143,6 +144,28 @@ class AIRouteResolver:
             reason=f"{reason} is no longer available ('{pref.provider}')",
             candidates=self._candidates(),
         )
+
+    def _identifier_available(self, provider: AIProviderType, identifier: Optional[str]) -> bool:
+        """
+        Whether `provider` is available and, if `identifier` (a specific CLI
+        name or connection ID) is given, whether that exact candidate is
+        among the available ones - not just any candidate of that provider
+        type.
+        """
+        if provider == AIProviderType.CLI_HEADLESS:
+            candidates = self.availability.available_headless_clis()
+        elif provider == AIProviderType.CLI_INTERACTIVE:
+            candidates = self.availability.available_interactive_clis()
+        elif provider in (AIProviderType.REMOTE, AIProviderType.REMOTE_STRUCTURED):
+            candidates = self.availability.available_remote_connections()
+        elif provider == AIProviderType.OFF:
+            return True
+        else:
+            return False
+
+        if identifier is None:
+            return bool(candidates)
+        return any(candidate.identifier == identifier for candidate in candidates)
 
 
 __all__ = ["AIRouteResolver", "AIRouteNeedsInput", "AIRouteResolution"]

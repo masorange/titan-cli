@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from typing import List, Optional
 import tomli
-from .models import TitanConfigModel
+from .models import AIConfig, AIPreferences, TitanConfigModel
 from .migrations import MigrationManager
 from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
@@ -374,6 +374,22 @@ class TitanConfig:
         )
         config_data.setdefault("ai", {})["preferences"] = preferences
         self._write_global_config(config_data)
+        self._sync_in_memory_ai_preferences(preferences)
+
+    def _sync_in_memory_ai_preferences(self, preferences: dict) -> None:
+        """
+        Keep the already-parsed `self.config.ai.preferences` in sync with what
+        was just persisted to disk, so a caller holding this same TitanConfig
+        instance (e.g. a workflow step, in the same process) sees the new
+        preference immediately, without needing a full `.load()`.
+        """
+        if not getattr(self, "config", None):
+            return
+        parsed = AIPreferences(**preferences)
+        if self.config.ai:
+            self.config.ai.preferences = parsed
+        else:
+            self.config.ai = AIConfig(preferences=parsed)
 
     def upsert_task_ai_preference(self, task: str, preference_data: dict) -> None:
         """Create or update a persisted preference for an AI task."""

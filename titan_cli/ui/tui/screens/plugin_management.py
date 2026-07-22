@@ -217,9 +217,9 @@ class PluginManagementScreen(BaseScreen):
         """Initialize the screen with plugin list."""
         self._load_plugins()
 
-    def on_resume(self) -> None:
+    def on_screen_resume(self) -> None:
         """Refresh plugin status after returning from child screens."""
-        super().on_resume()
+        super().on_screen_resume()
         try:
             self._load_plugins()
         except Exception:

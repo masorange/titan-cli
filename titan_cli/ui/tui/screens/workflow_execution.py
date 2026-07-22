@@ -178,6 +178,7 @@ class WorkflowExecutionScreen(BaseScreen):
             # Add AI if configured
             ctx_builder.with_ai()
             ctx_builder.with_ai_router()
+            ctx_builder.with_titan_config(self.config)
 
             # Add registered plugins to context
             for plugin_name in self.config.registry.list_installed():

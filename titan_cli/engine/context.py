@@ -35,6 +35,9 @@ class WorkflowContext:
     # Plugin registry
     plugin_manager: Optional[Any] = None
 
+    # TitanConfig instance (for steps that need to persist user preferences)
+    titan_config: Optional[Any] = None
+
     # Service clients (populated by builder)
     ai: Optional[Any] = None
     ai_router: Optional[Any] = None
