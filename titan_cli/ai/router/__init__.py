@@ -9,6 +9,7 @@ pattern but mirrors ClientResult's success/error shape for consistency.
 """
 
 from .availability import AIAvailabilityChecker, AIProviderAvailability
+from .declaration import declare_ai_usage, declared_ai_usage_enforces, get_declared_ai_policy
 from .enums import AICapability, AIProviderType, AITask
 from .models import (
     AIExecutionError,
@@ -35,4 +36,7 @@ __all__ = [
     "AIRouteResolver",
     "AIRouteNeedsInput",
     "AIRouteResolution",
+    "declare_ai_usage",
+    "get_declared_ai_policy",
+    "declared_ai_usage_enforces",
 ]

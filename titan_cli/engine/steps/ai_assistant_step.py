@@ -10,7 +10,14 @@ errors or context that could benefit from AI assistance.
 
 import json
 
-from titan_cli.ai.router import AIRouteDecision, AIRouteResolver, AIProviderType, AITask
+from titan_cli.ai.router import (
+    AICapability,
+    AIRouteDecision,
+    AIRouteResolver,
+    AIProviderType,
+    AITask,
+    declare_ai_usage,
+)
 from titan_cli.core.workflows.models import WorkflowStepModel
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.option_item import OptionItem
@@ -20,6 +27,12 @@ from titan_cli.external_cli.configs import CLI_REGISTRY
 from titan_cli.messages import msg
 
 
+@declare_ai_usage(
+    task=AITask.GENERIC_ASSISTANT,
+    capabilities={AICapability.TEXT_GENERATION, AICapability.INTERACTIVE_SESSION},
+    preferred=[AIProviderType.CLI_INTERACTIVE],
+    enforces=True,
+)
 def execute_ai_assistant_step(step: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
     """
     Launch AI coding assistant with context from workflow.
