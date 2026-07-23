@@ -6,6 +6,8 @@ Uses AI to enhance the brief description into a detailed issue description.
 
 from pathlib import Path
 from jinja2 import Template
+from titan_cli.ai.router.declaration import declare_ai_usage
+from titan_cli.ai.router.enums import AICapability
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_cli.ui.tui.widgets import Panel
 from titan_plugin_jira.constants import (
@@ -19,6 +21,10 @@ from titan_plugin_jira.constants import (
 )
 
 
+@declare_ai_usage(
+    task="jira_issue_enhancement",
+    capabilities={AICapability.TEXT_GENERATION},
+)
 def ai_enhance_issue_description(ctx: WorkflowContext) -> WorkflowResult:
     """
     Use AI to generate title and enhance the brief description into a detailed description.

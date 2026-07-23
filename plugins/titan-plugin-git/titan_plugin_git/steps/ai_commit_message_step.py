@@ -1,6 +1,10 @@
 # plugins/titan-plugin-git/titan_plugin_git/steps/ai_commit_message_step.py
+from titan_cli.ai.router.declaration import declare_ai_usage
+from titan_cli.ai.router.enums import AICapability, AIProviderType, AITask
+from titan_cli.ai.router.resolver import AIRouteDecision, AIRouteResolver
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.external_cli.adapters import get_headless_adapter
 from titan_plugin_git.messages import msg
 from ..operations import (
     build_ai_commit_prompt,
@@ -9,6 +13,33 @@ from ..operations import (
 )
 
 
+def _resolve_commit_message_provider(ctx: WorkflowContext) -> tuple[AIProviderType, str | None]:
+    """
+    Decide which provider should generate the commit message.
+
+    Falls back to `remote` (the historical default) whenever there is no
+    router, no persisted preference, or the resolved provider isn't one this
+    step knows how to drive for a one-shot text generation (e.g.
+    `cli_interactive`, which expects an interactive session, not a single
+    prompt/response).
+    """
+    if not ctx.ai_router:
+        return AIProviderType.REMOTE, None
+
+    resolver = AIRouteResolver(ctx.ai_router.ai_config, ctx.ai_router)
+    resolution = resolver.resolve(task=AITask.COMMIT_MESSAGE, workflow_name=ctx.workflow_name)
+
+    if isinstance(resolution, AIRouteDecision) and resolution.provider == AIProviderType.CLI_HEADLESS:
+        return AIProviderType.CLI_HEADLESS, resolution.cli
+
+    return AIProviderType.REMOTE, None
+
+
+@declare_ai_usage(
+    task=AITask.COMMIT_MESSAGE,
+    capabilities={AICapability.TEXT_GENERATION, AICapability.READ_REPO},
+    enforces=True,
+)
 def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
     """
     Generate a commit message using AI based on the current changes.
@@ -37,8 +68,18 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
     # Begin step container
     ctx.textual.begin_step("AI Commit Message")
 
-    # Check if AI is configured
-    if not ctx.ai or not ctx.ai.is_available():
+    # Resolve which provider should generate the message, then check that
+    # provider specifically is actually usable (a headless-CLI preference
+    # doesn't require ctx.ai/remote to be configured at all).
+    provider, headless_cli = _resolve_commit_message_provider(ctx)
+
+    if provider == AIProviderType.CLI_HEADLESS:
+        adapter = get_headless_adapter(headless_cli) if headless_cli else None
+        if not adapter or not adapter.is_available():
+            ctx.textual.error_text(f"Configured headless CLI '{headless_cli}' is not available.")
+            ctx.textual.end_step("error")
+            return Error(f"Configured headless CLI '{headless_cli}' is not available.")
+    elif not ctx.ai or not ctx.ai.is_available():
         ctx.textual.error_text(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
         ctx.textual.end_step("error")
         return Error(msg.Steps.AICommitMessage.AI_NOT_CONFIGURED)
@@ -78,16 +119,31 @@ def ai_generate_commit_message(ctx: WorkflowContext) -> WorkflowResult:
         # Build AI prompt using operations
         prompt = build_ai_commit_prompt(diff_text, files_for_commit, max_diff_chars=8000)
 
-        # Call AI with loading indicator
-        from titan_cli.ai.models import AIMessage
+        project_root = ctx.get("project_root", ".")
 
-        messages = [AIMessage(role="user", content=prompt)]
+        if provider == AIProviderType.CLI_HEADLESS:
+            adapter = get_headless_adapter(headless_cli)
+            with ctx.textual.loading(msg.Steps.AICommitMessage.GENERATING_MESSAGE):
+                cli_response = adapter.execute(prompt, cwd=project_root, timeout=180)
 
-        with ctx.textual.loading(msg.Steps.AICommitMessage.GENERATING_MESSAGE):
-            response = ctx.ai.generate(messages, max_tokens=1024, temperature=0.7)
+            if not cli_response.succeeded:
+                ctx.textual.end_step("error")
+                return Error(
+                    f"Headless CLI '{headless_cli}' failed: {cli_response.stderr or 'unknown error'}"
+                )
 
-        # Process AI response using operations (normalize and capitalize)
-        commit_message = process_ai_commit_message(response.content)
+            commit_message = process_ai_commit_message(cli_response.stdout)
+        else:
+            # Call AI with loading indicator
+            from titan_cli.ai.models import AIMessage
+
+            messages = [AIMessage(role="user", content=prompt)]
+
+            with ctx.textual.loading(msg.Steps.AICommitMessage.GENERATING_MESSAGE):
+                response = ctx.ai.generate(messages, max_tokens=1024, temperature=0.7)
+
+            # Process AI response using operations (normalize and capitalize)
+            commit_message = process_ai_commit_message(response.content)
 
         # Show preview to user
         ctx.textual.text("")  # spacing

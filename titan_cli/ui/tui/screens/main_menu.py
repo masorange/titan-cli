@@ -24,6 +24,7 @@ from .base import BaseScreen
 
 from .cli_launcher import CLILauncherScreen
 from .ai_config import AIConfigScreen
+from .ai_workflow_config import AIWorkflowConfigScreen
 from .plugin_management import PluginManagementScreen
 
 class MainMenuScreen(BaseScreen):
@@ -128,6 +129,7 @@ class MainMenuScreen(BaseScreen):
                 [
                     Option(f"{Icons.PLUGIN} Plugin Management", id="plugin_management"),
                     Option(f"{Icons.AI_CONFIG}  AI Configuration", id="ai_config"),
+                    Option(f"{Icons.AI_CONFIG}  AI Workflow Configuration", id="ai_workflow_config"),
                 ]
             )
 
@@ -191,6 +193,8 @@ class MainMenuScreen(BaseScreen):
             self.handle_plugin_management_action()
         elif action == "ai_config":
             self.handle_ai_config_action()
+        elif action == "ai_workflow_config":
+            self.handle_ai_workflow_config_action()
 
     def handle_cli_action(self) -> None:
         """Handle Launch External CLI action."""
@@ -225,6 +229,19 @@ class MainMenuScreen(BaseScreen):
                 self.app.notify(f"Error refreshing status bar: {e}", severity="error")
 
         self.app.push_screen(AIConfigScreen(self.config), callback=on_ai_config_closed)
+
+    def handle_ai_workflow_config_action(self) -> None:
+        """Handle AI Workflow Configuration action."""
+
+        def on_closed(result) -> None:
+            try:
+                self.config.load()
+                status_bar = self.query_one("#status-bar", StatusBarWidget)
+                self._update_status_bar(status_bar)
+            except Exception as e:
+                self.app.notify(f"Error refreshing status bar: {e}", severity="error")
+
+        self.app.push_screen(AIWorkflowConfigScreen(self.config), callback=on_closed)
 
     def handle_switch_project_action(self) -> None:
         """Handle Switch Project action."""

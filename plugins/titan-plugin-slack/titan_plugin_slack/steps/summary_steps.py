@@ -1,6 +1,8 @@
 """Slack target resolution and AI summary steps."""
 
 from titan_cli.ai.models import AIMessage
+from titan_cli.ai.router.declaration import declare_ai_usage
+from titan_cli.ai.router.enums import AICapability
 from titan_cli.core.logging import get_logger
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.ui.tui.widgets import OptionItem
@@ -336,6 +338,10 @@ def read_recent_messages_step(ctx: WorkflowContext) -> WorkflowResult:
             return Error(err)
 
 
+@declare_ai_usage(
+    task="slack_summary",
+    capabilities={AICapability.TEXT_GENERATION},
+)
 def ai_summarize_messages_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Summarize recent Slack messages with AI.

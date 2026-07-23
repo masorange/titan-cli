@@ -1,4 +1,6 @@
 import ast
+from titan_cli.ai.router.declaration import declare_ai_usage
+from titan_cli.ai.router.enums import AICapability, AITask
 from titan_cli.engine.context import WorkflowContext
 from titan_cli.engine.results import WorkflowResult, Success, Error, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
@@ -6,6 +8,10 @@ from ..agents.issue_generator import IssueGeneratorAgent
 from ..operations import filter_valid_labels
 from pathlib import Path
 
+@declare_ai_usage(
+    task=AITask.ISSUE_GENERATION,
+    capabilities={AICapability.TEXT_GENERATION},
+)
 def ai_suggest_issue_title_and_body_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Use AI to suggest a title and description for a GitHub issue.

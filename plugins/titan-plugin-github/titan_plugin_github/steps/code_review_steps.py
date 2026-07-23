@@ -10,6 +10,8 @@ import time
 from difflib import SequenceMatcher
 from typing import List, Optional
 
+from titan_cli.ai.router.declaration import declare_ai_usage
+from titan_cli.ai.router.enums import AICapability, AITask
 from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
@@ -1287,6 +1289,10 @@ def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
 # ============================================================================
 
 
+@declare_ai_usage(
+    task=AITask.CODE_REVIEW_PLAN,
+    capabilities={AICapability.STRUCTURED_OUTPUT, AICapability.READ_REPO},
+)
 def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     """
     First AI call: decide which files to read and which checklist items apply.
@@ -1797,6 +1803,10 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
 # ============================================================================
 
 
+@declare_ai_usage(
+    task=AITask.CODE_REVIEW_FINDINGS,
+    capabilities={AICapability.STRUCTURED_OUTPUT, AICapability.READ_REPO},
+)
 def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     """
     Second AI call: find actionable problems in the exact code context.
@@ -2735,6 +2745,10 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
     return Success("Thread contexts built", metadata={"thread_review_contexts_count": len(contexts)})
 
 
+@declare_ai_usage(
+    task="thread_resolution",
+    capabilities={AICapability.STRUCTURED_OUTPUT, AICapability.READ_REPO},
+)
 def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
     """
     AI call: decide what to do with each open thread.
