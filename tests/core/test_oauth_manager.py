@@ -605,3 +605,27 @@ def test_queued_oauth_event_sink_drains_events() -> None:
         "oauth.resolve.succeeded",
     ]
     assert sink.get(block=False) is None
+
+
+def test_queued_oauth_event_sink_drops_new_events_when_full() -> None:
+    sink = QueuedOAuthEventSink(maxsize=1)
+
+    sink.emit(OAuthEvent(type="oauth.resolve.started", operation_id="op-1"))
+    sink.emit(OAuthEvent(type="oauth.resolve.succeeded", operation_id="op-1"))
+
+    assert [event.type for event in sink.drain()] == ["oauth.resolve.started"]
+    assert sink.dropped_count == 1
+
+
+def test_oauth_manager_queue_overflow_does_not_abort_resolution(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("FIREBASE_ACCESS_TOKEN", "env-token")
+    manager = _manager(FakeSecretManager(), tmp_path)
+    sink = QueuedOAuthEventSink(maxsize=1)
+
+    credential = asyncio.run(manager.get_credential(_request(), sink=sink))
+
+    assert credential.access_token == "env-token"
+    assert sink.dropped_count >= 1

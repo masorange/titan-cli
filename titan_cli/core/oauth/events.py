@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
+from threading import Lock
 from typing import Any, Protocol
 
 
@@ -53,10 +54,21 @@ class QueuedOAuthEventSink:
 
     def __init__(self, maxsize: int = 0) -> None:
         self.queue: Queue[OAuthEvent] = Queue(maxsize=maxsize)
+        self._dropped_count = 0
+        self._dropped_count_lock = Lock()
 
     def emit(self, event: OAuthEvent) -> None:
-        """Queue an OAuth event without exposing token material."""
-        self.queue.put_nowait(event)
+        """Queue an OAuth event without allowing overflow to abort OAuth."""
+        try:
+            self.queue.put_nowait(event)
+        except Full:
+            self._record_dropped_event()
+
+    @property
+    def dropped_count(self) -> int:
+        """Return how many events were dropped because the queue was full."""
+        with self._dropped_count_lock:
+            return self._dropped_count
 
     def get(
         self,
@@ -78,3 +90,8 @@ class QueuedOAuthEventSink:
             if event is None:
                 return events
             events.append(event)
+
+    def _record_dropped_event(self) -> None:
+        """Record a dropped event without blocking the OAuth flow."""
+        with self._dropped_count_lock:
+            self._dropped_count += 1
