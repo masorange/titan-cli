@@ -1,3 +1,5 @@
+import pytest
+
 from titan_plugin_firebase.client import RemoteConfigTemplate
 from titan_plugin_firebase.config import FirebasePluginConfig
 from titan_plugin_firebase.exceptions import FirebaseClientError
@@ -143,3 +145,70 @@ def test_build_remote_config_inventory_collects_failures() -> None:
     assert inventory.project_count == 1
     assert len(inventory.failures) == 1
     assert inventory.failures[0].target.project_id == "masmovil-prod"
+
+
+def test_build_remote_config_inventory_collects_template_normalization_failures() -> None:
+    target_config = FirebasePluginConfig(
+        projects=[
+            {"brand": "yoigo", "environment": "prod", "project_id": "yoigo-prod"},
+            {
+                "brand": "masmovil",
+                "environment": "prod",
+                "project_id": "masmovil-prod",
+            },
+        ]
+    )
+    targets = resolve_project_targets(target_config)
+    client = FakeInventoryClient(
+        {
+            "yoigo-prod": RemoteConfigTemplate(
+                project_id="yoigo-prod",
+                etag="etag-a",
+                template={"parameters": {"feature_enabled": {}}},
+            ),
+            "masmovil-prod": RemoteConfigTemplate(
+                project_id="masmovil-prod",
+                etag="etag-b",
+                template={
+                    "parameters": {
+                        "broken_parameter": {
+                            "defaultValue": ["not", "an", "object"],
+                        },
+                    },
+                },
+            ),
+        }
+    )
+
+    inventory = build_remote_config_inventory(client, targets)
+
+    assert inventory.project_count == 1
+    assert len(inventory.failures) == 1
+    assert inventory.failures[0].target.project_id == "masmovil-prod"
+    assert "broken_parameter" in inventory.failures[0].message
+    assert "could not be normalized" in inventory.failures[0].message
+
+
+def test_build_remote_config_inventory_raises_template_normalization_failure() -> None:
+    target_config = FirebasePluginConfig(
+        projects=[
+            {
+                "brand": "masmovil",
+                "environment": "prod",
+                "project_id": "masmovil-prod",
+            },
+        ]
+    )
+    targets = resolve_project_targets(target_config)
+    client = FakeInventoryClient(
+        {
+            "masmovil-prod": RemoteConfigTemplate(
+                project_id="masmovil-prod",
+                etag="etag-b",
+                template={"parameters": ["not", "an", "object"]},
+            ),
+        }
+    )
+
+    with pytest.raises(FirebaseClientError, match="parameters must be"):
+        build_remote_config_inventory(client, targets, continue_on_error=False)

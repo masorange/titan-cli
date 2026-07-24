@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Optional
 
+from pydantic import ValidationError
+
 from ..exceptions import FirebaseAuthRejectedError, FirebaseClientError
 from ..models import (
     FirebaseProjectTarget,
@@ -83,6 +85,11 @@ def build_remote_config_inventory(
     for target in targets:
         try:
             remote_config = client.get_remote_config(target.project_id)
+            project_inventory = build_project_inventory(
+                target=target,
+                template=remote_config.template,
+                etag=remote_config.etag,
+            )
         except FirebaseAuthRejectedError:
             raise
         except FirebaseClientError as exc:
@@ -96,13 +103,7 @@ def build_remote_config_inventory(
             )
             continue
 
-        project_inventories.append(
-            build_project_inventory(
-                target=target,
-                template=remote_config.template,
-                etag=remote_config.etag,
-            )
-        )
+        project_inventories.append(project_inventory)
 
     return RemoteConfigInventory(
         targets=list(targets),
@@ -119,18 +120,64 @@ def build_project_inventory(
     etag: Optional[str],
 ) -> RemoteConfigProjectInventory:
     """Build normalized inventory for one Remote Config template."""
+    if not isinstance(template, dict):
+        raise FirebaseClientError(
+            f"Remote Config template for {target.reference()} could not be "
+            "normalized: template must be a JSON object."
+        )
+
     raw_parameters = template.get("parameters")
-    parameters_payload = raw_parameters if isinstance(raw_parameters, dict) else {}
-    parameters = {
-        key: build_parameter_inventory(key, payload if isinstance(payload, dict) else {})
-        for key, payload in sorted(parameters_payload.items())
-    }
+    if raw_parameters is None:
+        parameters_payload = {}
+    elif isinstance(raw_parameters, dict):
+        parameters_payload = raw_parameters
+    else:
+        raise FirebaseClientError(
+            f"Remote Config template for {target.reference()} could not be "
+            "normalized: parameters must be a JSON object when present."
+        )
+
+    parameters = {}
+    for key, payload in sorted(parameters_payload.items()):
+        if not isinstance(payload, dict):
+            raise FirebaseClientError(
+                f"Remote Config parameter '{key}' for {target.reference()} "
+                "could not be normalized: parameter payload must be a JSON object."
+            )
+        try:
+            parameters[key] = build_parameter_inventory(
+                key,
+                payload,
+            )
+        except ValidationError as exc:
+            raise FirebaseClientError(
+                f"Remote Config parameter '{key}' for {target.reference()} "
+                f"could not be normalized: {_validation_error_summary(exc)}"
+            ) from exc
 
     version = template.get("version")
-    version_payload = version if isinstance(version, dict) else None
+    if version is None:
+        version_payload = None
+    elif isinstance(version, dict):
+        version_payload = version
+    else:
+        raise FirebaseClientError(
+            f"Remote Config template for {target.reference()} could not be "
+            "normalized: version must be a JSON object when present."
+        )
     version_number = None
     if version_payload and version_payload.get("versionNumber") is not None:
-        version_number = str(version_payload["versionNumber"])
+        raw_version_number = version_payload["versionNumber"]
+        if isinstance(raw_version_number, bool) or not isinstance(
+            raw_version_number,
+            (int, str),
+        ):
+            raise FirebaseClientError(
+                f"Remote Config template for {target.reference()} could not be "
+                "normalized: version.versionNumber must be a string or integer "
+                "when present."
+            )
+        version_number = str(raw_version_number)
 
     return RemoteConfigProjectInventory(
         target=target,
@@ -140,6 +187,17 @@ def build_project_inventory(
         parameter_count=len(parameters),
         parameters=parameters,
     )
+
+
+def _validation_error_summary(exc: ValidationError) -> str:
+    """Return a compact Pydantic validation error summary."""
+    errors = exc.errors()
+    if not errors:
+        return str(exc)
+    first_error = errors[0]
+    location = ".".join(str(part) for part in first_error.get("loc", ()))
+    message = str(first_error.get("msg") or exc)
+    return f"{location}: {message}" if location else message
 
 
 def build_key_inventory(
