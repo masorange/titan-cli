@@ -62,10 +62,14 @@ def resolve_project_targets(
             )
         )
 
+    environment_aliases = _environment_alias_map(config.environments)
     return _filter_targets(
-        _dedupe_targets(targets),
+        _dedupe_targets(_normalize_target_environments(targets, environment_aliases)),
         brands=_as_filter_set(brands),
-        environments=_as_filter_set(environments),
+        environments=_as_filter_set(
+            environments,
+            aliases=environment_aliases,
+        ),
     )
 
 
@@ -426,7 +430,48 @@ def _filter_targets(
     return filtered
 
 
-def _as_filter_set(value: Any) -> Optional[set[str]]:
+def _environment_alias_map(environments: Sequence[Any]) -> dict[str, str]:
+    """Build a lookup from configured environment aliases to canonical names."""
+    aliases: dict[str, str] = {}
+    for environment in environments:
+        name = getattr(environment, "name", None)
+        if not isinstance(name, str) or not name.strip():
+            continue
+        canonical = name.strip()
+        for value in [canonical, *getattr(environment, "aliases", [])]:
+            if isinstance(value, str) and value.strip():
+                aliases[value.strip()] = canonical
+    return aliases
+
+
+def _normalize_target_environments(
+    targets: Sequence[FirebaseProjectTarget],
+    aliases: Mapping[str, str],
+) -> list[FirebaseProjectTarget]:
+    """Normalize target environments through configured aliases."""
+    if not aliases:
+        return list(targets)
+
+    normalized_targets: list[FirebaseProjectTarget] = []
+    for target in targets:
+        environment = target.environment
+        canonical = aliases.get(environment or "")
+        if not canonical or canonical == environment:
+            normalized_targets.append(target)
+            continue
+
+        data = target.model_dump()
+        data["environment"] = canonical
+        data["label"] = None
+        normalized_targets.append(FirebaseProjectTarget.model_validate(data))
+    return normalized_targets
+
+
+def _as_filter_set(
+    value: Any,
+    *,
+    aliases: Optional[Mapping[str, str]] = None,
+) -> Optional[set[str]]:
     """Normalize workflow filter values into a set."""
     if value is None:
         return None
@@ -437,7 +482,12 @@ def _as_filter_set(value: Any) -> Optional[set[str]]:
     else:
         values = [str(value).strip()]
 
-    normalized = {part for part in values if part}
+    alias_map = aliases or {}
+    normalized = {
+        alias_map.get(part, part)
+        for part in values
+        if part
+    }
     return normalized or None
 
 

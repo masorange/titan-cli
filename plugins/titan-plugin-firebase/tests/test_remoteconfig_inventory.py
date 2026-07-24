@@ -60,6 +60,47 @@ def test_resolve_project_targets_from_brand_environment_mapping() -> None:
     assert targets[0].project_id == "yoigo-prod"
 
 
+def test_resolve_project_targets_filters_environment_aliases() -> None:
+    config = FirebasePluginConfig(
+        environments=[
+            {"name": "production", "aliases": ["prod", "live"]},
+            {"name": "staging", "aliases": ["pre"]},
+        ],
+        brand_projects={
+            "production": {"yoigo": "yoigo-prod"},
+            "staging": {"yoigo": "yoigo-pre"},
+        },
+    )
+
+    targets = resolve_project_targets(config, environments="prod")
+
+    assert len(targets) == 1
+    assert targets[0].environment == "production"
+    assert targets[0].project_id == "yoigo-prod"
+    assert targets[0].label == "production/yoigo"
+
+
+def test_resolve_project_targets_normalizes_target_environment_aliases() -> None:
+    config = FirebasePluginConfig(
+        environments=[
+            {"name": "production", "aliases": ["prod"]},
+        ],
+        projects=[
+            {
+                "brand": "yoigo",
+                "environment": "prod",
+                "project_id": "yoigo-prod",
+            },
+        ],
+    )
+
+    targets = resolve_project_targets(config)
+
+    assert len(targets) == 1
+    assert targets[0].environment == "production"
+    assert targets[0].label == "production/yoigo"
+
+
 def test_build_remote_config_inventory_aggregates_keys_and_types() -> None:
     target_config = FirebasePluginConfig(
         projects=[
