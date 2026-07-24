@@ -154,7 +154,7 @@ Read a Firebase Remote Config template for one project.
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
 | `Success` | `firebase_project_id`, `firebase_remoteconfig_template`, `firebase_remoteconfig_etag`, `firebase_remoteconfig_version` | If the Remote Config template is read successfully. |
-| `Error` | - | If Firebase is unavailable, no project ID is provided, or the API request fails. |
+| `Error` | - | If Firebase is unavailable, no project ID is provided, the API request fails, or the template payload is malformed. |
 
 ### `firebase_remoteconfig_inventory`
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager, nullcontext
+from typing import Any
 
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
 
@@ -29,7 +30,7 @@ def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResu
 
     Returns:
         Success: If the Remote Config template is read successfully.
-        Error: If Firebase is unavailable, no project ID is provided, or the API request fails.
+        Error: If Firebase is unavailable, no project ID is provided, the API request fails, or the template payload is malformed.
     """
     if ctx.textual:
         ctx.textual.begin_step("Get Firebase Remote Config")
@@ -84,11 +85,18 @@ def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResu
             ctx.textual.end_step("error")
         return Error(message, exception=exc)
 
-    if ctx.textual:
-        version = remote_config.version or {}
-        version_number = (
-            version.get("versionNumber") if isinstance(version, dict) else None
+    try:
+        template, version, version_number = _validate_remote_config_template(
+            remote_config.template
         )
+    except FirebaseClientError as exc:
+        message = str(exc)
+        if ctx.textual:
+            ctx.textual.error_text(message)
+            ctx.textual.end_step("error")
+        return Error(message, exception=exc)
+
+    if ctx.textual:
         suffix = f" version {version_number}" if version_number else ""
         ctx.textual.success_text(
             f"Remote Config template loaded for {remote_config.project_id}{suffix}"
@@ -99,9 +107,9 @@ def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResu
         "Firebase Remote Config template loaded",
         metadata={
             "firebase_project_id": remote_config.project_id,
-            "firebase_remoteconfig_template": remote_config.template,
+            "firebase_remoteconfig_template": template,
             "firebase_remoteconfig_etag": remote_config.etag,
-            "firebase_remoteconfig_version": remote_config.version,
+            "firebase_remoteconfig_version": version,
         },
     )
 
@@ -111,3 +119,37 @@ def _loading(ctx: WorkflowContext, message: str) -> AbstractContextManager[objec
     if ctx.textual:
         return ctx.textual.loading(message)
     return nullcontext()
+
+
+def _validate_remote_config_template(
+    template: Any,
+) -> tuple[dict[str, Any], dict[str, Any] | None, str | None]:
+    """Validate the Remote Config template shape before rendering metadata."""
+    if not isinstance(template, dict):
+        raise FirebaseClientError(
+            "Firebase Remote Config template payload was malformed: "
+            "template must be a JSON object."
+        )
+
+    version = template.get("version")
+    if version is not None and not isinstance(version, dict):
+        raise FirebaseClientError(
+            "Firebase Remote Config template payload was malformed: "
+            "version must be a JSON object when present."
+        )
+
+    version_number = None
+    if version:
+        raw_version_number = version.get("versionNumber")
+        if raw_version_number is not None:
+            if isinstance(raw_version_number, bool) or not isinstance(
+                raw_version_number,
+                (int, str),
+            ):
+                raise FirebaseClientError(
+                    "Firebase Remote Config template payload was malformed: "
+                    "version.versionNumber must be a string or integer when present."
+                )
+            version_number = str(raw_version_number)
+
+    return template, version, version_number

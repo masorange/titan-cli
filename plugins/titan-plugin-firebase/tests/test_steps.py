@@ -320,6 +320,57 @@ def test_remoteconfig_get_maps_client_error() -> None:
     assert "permission denied" in result.message
 
 
+def test_remoteconfig_get_rejects_non_object_template() -> None:
+    client = _firebase_client()
+    client.get_remote_config.return_value = RemoteConfigTemplate(
+        project_id="demo-project",
+        template=["not", "an", "object"],
+        etag="etag-7",
+    )
+    ctx = _ctx(firebase=client, data={"project_id": "demo-project"})
+
+    result = execute_firebase_remoteconfig_get_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "template must be a JSON object" in result.message
+    ctx.textual.success_text.assert_not_called()
+    ctx.textual.end_step.assert_called_with("error")
+
+
+def test_remoteconfig_get_rejects_non_object_version() -> None:
+    client = _firebase_client()
+    client.get_remote_config.return_value = RemoteConfigTemplate(
+        project_id="demo-project",
+        template={"version": ["not", "an", "object"], "parameters": {}},
+        etag="etag-7",
+    )
+    ctx = _ctx(firebase=client, data={"project_id": "demo-project"})
+
+    result = execute_firebase_remoteconfig_get_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "version must be a JSON object" in result.message
+    ctx.textual.success_text.assert_not_called()
+    ctx.textual.end_step.assert_called_with("error")
+
+
+def test_remoteconfig_get_rejects_invalid_version_number_shape() -> None:
+    client = _firebase_client()
+    client.get_remote_config.return_value = RemoteConfigTemplate(
+        project_id="demo-project",
+        template={"version": {"versionNumber": ["7"]}, "parameters": {}},
+        etag="etag-7",
+    )
+    ctx = _ctx(firebase=client, data={"project_id": "demo-project"})
+
+    result = execute_firebase_remoteconfig_get_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "version.versionNumber must be a string or integer" in result.message
+    ctx.textual.success_text.assert_not_called()
+    ctx.textual.end_step.assert_called_with("error")
+
+
 def test_remoteconfig_get_reauthenticates_once_after_rejected_token() -> None:
     client = _firebase_client()
     client.config = FirebasePluginConfig(
