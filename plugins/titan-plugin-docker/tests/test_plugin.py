@@ -20,6 +20,7 @@ def test_docker_plugin_exposes_public_steps() -> None:
 
     assert set(steps) == {
         "select_service_group",
+        "select_services_to_stop",
         "compose_up",
         "compose_down",
         "compose_status",

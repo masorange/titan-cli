@@ -90,6 +90,7 @@ class DockerPlugin(TitanPlugin):
         Returns a dictionary of available workflow steps.
         """
         from .steps.select_service_group_step import select_service_group_step
+        from .steps.select_services_to_stop_step import select_services_to_stop_step
         from .steps.compose_up_step import compose_up_step
         from .steps.compose_down_step import compose_down_step
         from .steps.compose_status_step import compose_status_step
@@ -97,6 +98,7 @@ class DockerPlugin(TitanPlugin):
 
         return {
             "select_service_group": select_service_group_step,
+            "select_services_to_stop": select_services_to_stop_step,
             "compose_up": compose_up_step,
             "compose_down": compose_down_step,
             "compose_status": compose_status_step,

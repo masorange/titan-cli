@@ -1,6 +1,6 @@
 # Docker Built-in Workflows
 
-The Docker plugin currently ships two workflows: one for the compose lifecycle, one for building/pushing images.
+The Docker plugin currently ships three workflows: two for the compose lifecycle, one for building/pushing images.
 
 ## `docker-up`
 
@@ -18,6 +18,27 @@ Starts Docker Compose services (all services, or a project-configured `service_g
 
 - `select_service_group`
 - `compose_up`
+- `compose_status`
+
+## `docker-down`
+
+Stops Docker Compose services. Presents every service as a checked-by-default
+checklist - unchecking a service keeps it running. Leaving everything checked
+runs a full `docker compose down`; unchecking some services stops only the
+rest. Unchecking everything exits without stopping anything.
+
+**Source workflow:** `plugins/titan-plugin-docker/titan_plugin_docker/workflows/docker-down.yaml`
+
+### Default flow
+
+1. `docker.select_services_to_stop`
+2. `docker.compose_down`
+3. `docker.compose_status`
+
+### Related public steps
+
+- `select_services_to_stop`
+- `compose_down`
 - `compose_status`
 
 ## `docker-build-push`

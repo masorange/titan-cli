@@ -116,6 +116,23 @@ class ComposeService:
         except DockerCommandError as e:
             return ClientError(error_message=str(e), error_code="COMPOSE_STATUS_ERROR")
 
+    @log_client_operation()
+    def list_services(self) -> ClientResult[List[str]]:
+        """
+        List every service name defined in the compose file, regardless of
+        whether it currently has a running/stopped container.
+
+        Returns:
+            ClientResult[List[str]]
+        """
+        try:
+            args = self._compose_args("config", "--services")
+            output = self.docker.run_command(args)
+            services = [line.strip() for line in output.splitlines() if line.strip()]
+            return ClientSuccess(data=services, message=f"Found {len(services)} service(s)")
+        except DockerCommandError as e:
+            return ClientError(error_message=str(e), error_code="COMPOSE_LIST_SERVICES_ERROR")
+
     @staticmethod
     def _parse_ps_output(output: str) -> List[NetworkComposeService]:
         """

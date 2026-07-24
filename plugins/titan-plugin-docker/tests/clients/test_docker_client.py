@@ -51,6 +51,28 @@ def test_compose_status_parses_json_array() -> None:
     assert [s.service for s in result.data.services] == ["db", "backend"]
 
 
+def test_list_services_parses_newline_output() -> None:
+    client = _make_client()
+
+    with patch.object(client.network, "run_command", return_value="db\nbackend\nfrontend\n") as run_command:
+        result = client.list_services()
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data == ["db", "backend", "frontend"]
+    args = run_command.call_args.args[0]
+    assert args == ["docker", "compose", "-f", "docker-compose.yml", "config", "--services"]
+
+
+def test_list_services_wraps_command_failures() -> None:
+    client = _make_client()
+
+    with patch.object(client.network, "run_command", side_effect=DockerCommandError("boom")):
+        result = client.list_services()
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "COMPOSE_LIST_SERVICES_ERROR"
+
+
 def test_build_target_delegates_to_build_service() -> None:
     client = _make_client()
     target = DockerBuildTargetConfig(

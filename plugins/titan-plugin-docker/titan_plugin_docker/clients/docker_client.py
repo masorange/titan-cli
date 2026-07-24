@@ -69,6 +69,10 @@ class DockerClient:
         """Get compose project status (empty/None inspects all services)."""
         return self.compose_service.status(services=services)
 
+    def list_services(self) -> ClientResult[List[str]]:
+        """List every service name defined in the compose file."""
+        return self.compose_service.list_services()
+
     # ===== Build Methods =====
 
     def build_target(self, target: DockerBuildTargetConfig) -> ClientResult[UIBuildResult]:

@@ -57,3 +57,28 @@ def list_group_names(service_groups: Dict[str, List[str]]) -> List[str]:
         List of group names
     """
     return list(service_groups.keys())
+
+
+def resolve_stop_selection(all_services: List[str], selected_services: List[str]) -> List[str]:
+    """
+    Resolve which services to stop from a checkbox-style selection where
+    every service starts checked (selected = "stop this one").
+
+    If every service is still selected, the whole project should go down
+    (empty list, per `ComposeService.down`'s "no services = full down"
+    contract) instead of stopping each service one by one. Otherwise, only
+    the explicitly selected services are stopped, leaving unchecked ones
+    running.
+
+    Args:
+        all_services: Every service name defined in the compose file
+        selected_services: Service names the user left checked
+
+    Returns:
+        Empty list to signal a full `docker compose down`, or the subset of
+        service names to `stop`
+    """
+    if all_services and set(selected_services) == set(all_services):
+        return []
+
+    return list(selected_services)
