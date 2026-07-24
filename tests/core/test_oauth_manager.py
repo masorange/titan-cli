@@ -594,6 +594,31 @@ def test_oauth_manager_saves_one_json_blob(tmp_path) -> None:
     assert [call[0] for call in secrets.set_calls] == [secret_key]
 
 
+def test_oauth_lock_async_acquire_cancellation_does_not_leak_lock(tmp_path) -> None:
+    async def exercise_cancelled_acquire() -> None:
+        manager = OAuthLockManager(
+            lock_dir=tmp_path,
+            enable_file_locks=False,
+            poll_interval_seconds=0.01,
+        )
+        held_lock = manager.acquire_blocking("firebase:demo", timeout_seconds=1)
+        pending_acquire = asyncio.create_task(
+            manager.acquire("firebase:demo", timeout_seconds=1)
+        )
+
+        await asyncio.sleep(0.05)
+        pending_acquire.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending_acquire
+
+        held_lock.release()
+        await asyncio.sleep(0.05)
+        next_lock = await manager.acquire("firebase:demo", timeout_seconds=0.2)
+        next_lock.release()
+
+    asyncio.run(exercise_cancelled_acquire())
+
+
 def test_queued_oauth_event_sink_drains_events() -> None:
     sink = QueuedOAuthEventSink()
 

@@ -14,6 +14,10 @@ import time
 from .exceptions import OAuthLockTimeout
 
 
+class _OAuthLockAcquisitionCancelled(Exception):
+    """Raised inside the worker thread when async lock acquisition is cancelled."""
+
+
 class _FileLock:
     """Small cross-process file lock with no third-party dependency."""
 
@@ -30,13 +34,16 @@ class _FileLock:
         self._handle = None
         self._acquired = False
 
-    def acquire(self) -> None:
+    def acquire(self, cancel_event: threading.Event | None = None) -> None:
         """Acquire the file lock, waiting up to timeout_seconds."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = open(self.path, "a+")
         start = time.monotonic()
 
         while True:
+            if cancel_event and cancel_event.is_set():
+                self._close_handle()
+                raise _OAuthLockAcquisitionCancelled
             try:
                 self._try_acquire_once()
                 self._acquired = True
@@ -138,27 +145,44 @@ class OAuthLockManager:
         timeout_seconds: float | None = 60,
     ) -> OAuthHeldLock:
         """Acquire a credential lock without blocking the event loop."""
-        return await asyncio.to_thread(
-            self.acquire_blocking,
-            key,
-            timeout_seconds=timeout_seconds,
+        cancel_event = threading.Event()
+        worker = asyncio.create_task(
+            asyncio.to_thread(
+                self.acquire_blocking,
+                key,
+                timeout_seconds=timeout_seconds,
+                _cancel_event=cancel_event,
+            )
         )
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancel_event.set()
+            try:
+                held_lock = await asyncio.shield(worker)
+            except _OAuthLockAcquisitionCancelled:
+                pass
+            except OAuthLockTimeout:
+                pass
+            else:
+                held_lock.release()
+            raise
 
     def acquire_blocking(
         self,
         key: str,
         *,
         timeout_seconds: float | None = 60,
+        _cancel_event: threading.Event | None = None,
     ) -> OAuthHeldLock:
         """Acquire a credential lock from synchronous code."""
         thread_lock = self._get_thread_lock(key)
-        if timeout_seconds is None:
-            acquired = thread_lock.acquire()
-        else:
-            acquired = thread_lock.acquire(timeout=timeout_seconds)
-
-        if not acquired:
-            raise OAuthLockTimeout(f"Timed out waiting for OAuth lock '{key}'.")
+        self._acquire_thread_lock(
+            thread_lock,
+            key,
+            timeout_seconds=timeout_seconds,
+            cancel_event=_cancel_event,
+        )
 
         file_lock = None
         try:
@@ -168,7 +192,7 @@ class OAuthLockManager:
                     timeout_seconds=timeout_seconds,
                     poll_interval_seconds=self.poll_interval_seconds,
                 )
-                file_lock.acquire()
+                file_lock.acquire(cancel_event=_cancel_event)
             return OAuthHeldLock(key=key, thread_lock=thread_lock, file_lock=file_lock)
         except Exception:
             thread_lock.release()
@@ -187,6 +211,47 @@ class OAuthLockManager:
             yield held_lock
         finally:
             await asyncio.to_thread(held_lock.release)
+
+    def _acquire_thread_lock(
+        self,
+        thread_lock: threading.Lock,
+        key: str,
+        *,
+        timeout_seconds: float | None,
+        cancel_event: threading.Event | None,
+    ) -> None:
+        """Acquire an in-process lock while observing async cancellation."""
+        start = time.monotonic()
+        while True:
+            if cancel_event and cancel_event.is_set():
+                raise _OAuthLockAcquisitionCancelled
+
+            acquired = thread_lock.acquire(
+                timeout=self._next_poll_timeout(start, timeout_seconds)
+            )
+            if acquired:
+                return
+
+            if self._timed_out(start, timeout_seconds):
+                raise OAuthLockTimeout(f"Timed out waiting for OAuth lock '{key}'.")
+
+    def _next_poll_timeout(
+        self,
+        start: float,
+        timeout_seconds: float | None,
+    ) -> float:
+        """Return the next bounded wait interval for cancellable acquisition."""
+        if timeout_seconds is None:
+            return self.poll_interval_seconds
+        remaining = timeout_seconds - (time.monotonic() - start)
+        return max(0.0, min(self.poll_interval_seconds, remaining))
+
+    def _timed_out(self, start: float, timeout_seconds: float | None) -> bool:
+        """Return whether a lock wait exceeded its timeout."""
+        return (
+            timeout_seconds is not None
+            and time.monotonic() - start >= timeout_seconds
+        )
 
     def _get_thread_lock(self, key: str) -> threading.Lock:
         with self._guard:
