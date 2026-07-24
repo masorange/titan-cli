@@ -112,6 +112,26 @@ def test_oauth_token_set_normalizes_scalar_scope() -> None:
     assert token_set.scopes == ("openid",)
 
 
+def test_oauth_token_set_from_dict_rejects_non_string_refresh_token() -> None:
+    with pytest.raises(ValueError, match="refresh_token"):
+        OAuthTokenSet.from_dict(
+            {
+                "access_token": "access-token",
+                "refresh_token": 123,
+            }
+        )
+
+
+def test_oauth_token_set_from_dict_rejects_non_string_scope_element() -> None:
+    with pytest.raises(ValueError, match=r"scopes\[1\]"):
+        OAuthTokenSet.from_dict(
+            {
+                "access_token": "access-token",
+                "scopes": ["openid", 123],
+            }
+        )
+
+
 def test_oauth_manager_prefers_environment_token(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("FIREBASE_ACCESS_TOKEN", "env-token")
     manager = _manager(
@@ -705,6 +725,28 @@ def test_file_lock_retries_lock_contention_error(tmp_path) -> None:
 
     assert attempts == 2
     lock.release()
+
+
+def test_file_lock_windows_byte_initialization_does_not_grow_file(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    lock_path = tmp_path / "oauth.lock"
+    lock = oauth_locks._FileLock(
+        lock_path,
+        timeout_seconds=1,
+        poll_interval_seconds=0,
+    )
+    monkeypatch.setattr(oauth_locks.os, "name", "nt")
+
+    lock._handle = open(lock_path, "a+")
+    try:
+        lock._ensure_windows_lock_byte()
+        lock._ensure_windows_lock_byte()
+    finally:
+        lock._close_handle()
+
+    assert lock_path.read_text() == "0"
 
 
 def test_file_lock_propagates_non_contention_oserror(tmp_path) -> None:

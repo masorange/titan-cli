@@ -2,26 +2,43 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 import hashlib
 import json
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 
-def _normalize_optional(value: str | None) -> str | None:
+def _normalize_optional(value: Any, *, field_name: str = "value") -> str | None:
     if value is None:
         return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string when present.")
     stripped = value.strip()
     return stripped or None
 
 
-def _normalize_values(values: Sequence[str] | str | None) -> tuple[str, ...]:
-    if not values:
+def _normalize_values(
+    values: Sequence[str] | str | None,
+    *,
+    field_name: str = "values",
+) -> tuple[str, ...]:
+    if values is None:
         return ()
     if isinstance(values, str):
         values = (values,)
-    return tuple(sorted({value.strip() for value in values if value and value.strip()}))
+    elif not isinstance(values, Sequence):
+        raise ValueError(f"{field_name} must be a string or sequence of strings.")
+
+    normalized_values = []
+    for index, value in enumerate(values):
+        if not isinstance(value, str):
+            raise ValueError(f"{field_name}[{index}] must be a string.")
+        stripped = value.strip()
+        if stripped:
+            normalized_values.append(stripped)
+    return tuple(sorted(set(normalized_values)))
 
 
 @dataclass(frozen=True)
@@ -40,18 +57,32 @@ class OAuthRequest:
     def __post_init__(self) -> None:
         object.__setattr__(self, "provider", self.provider.strip().lower())
         object.__setattr__(self, "connection_id", self.connection_id.strip())
-        object.__setattr__(self, "scopes", _normalize_values(self.scopes))
+        object.__setattr__(
+            self,
+            "scopes",
+            _normalize_values(self.scopes, field_name="scopes"),
+        )
         object.__setattr__(
             self,
             "legacy_secret_keys",
-            _normalize_values(self.legacy_secret_keys),
+            _normalize_values(
+                self.legacy_secret_keys,
+                field_name="legacy_secret_keys",
+            ),
         )
         object.__setattr__(
             self,
             "access_token_env_var",
-            _normalize_optional(self.access_token_env_var),
+            _normalize_optional(
+                self.access_token_env_var,
+                field_name="access_token_env_var",
+            ),
         )
-        object.__setattr__(self, "subject", _normalize_optional(self.subject))
+        object.__setattr__(
+            self,
+            "subject",
+            _normalize_optional(self.subject, field_name="subject"),
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
         if not self.provider:
@@ -73,9 +104,17 @@ class OAuthTokenSet:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "access_token", self.access_token.strip())
-        object.__setattr__(self, "refresh_token", _normalize_optional(self.refresh_token))
+        object.__setattr__(
+            self,
+            "refresh_token",
+            _normalize_optional(self.refresh_token, field_name="refresh_token"),
+        )
         object.__setattr__(self, "token_type", self.token_type.strip() or "Bearer")
-        object.__setattr__(self, "scopes", _normalize_values(self.scopes))
+        object.__setattr__(
+            self,
+            "scopes",
+            _normalize_values(self.scopes, field_name="scopes"),
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def is_valid(
@@ -113,15 +152,25 @@ class OAuthTokenSet:
         expires_at_raw = payload.get("expires_at")
         expires_at = int(expires_at_raw) if expires_at_raw is not None else None
 
-        scopes_raw = payload.get("scopes")
-        scopes = scopes_raw if isinstance(scopes_raw, list) else ()
+        refresh_token = _normalize_optional(
+            payload.get("refresh_token"),
+            field_name="Stored OAuth token set refresh_token",
+        )
+
+        try:
+            scopes = _normalize_values(
+                payload.get("scopes"),
+                field_name="Stored OAuth token set scopes",
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
 
         metadata_raw = payload.get("metadata")
         metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
 
         return cls(
             access_token=access_token,
-            refresh_token=payload.get("refresh_token"),
+            refresh_token=refresh_token,
             expires_at=expires_at,
             token_type=str(payload.get("token_type") or "Bearer"),
             scopes=scopes,

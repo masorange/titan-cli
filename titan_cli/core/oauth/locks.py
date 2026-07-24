@@ -39,6 +39,11 @@ class _FileLock:
         """Acquire the file lock, waiting up to timeout_seconds."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = open(self.path, "a+")
+        try:
+            self._ensure_windows_lock_byte()
+        except Exception:
+            self._close_handle()
+            raise
         start = time.monotonic()
 
         while True:
@@ -88,9 +93,6 @@ class _FileLock:
             import msvcrt
 
             self._handle.seek(0)
-            self._handle.write("0")
-            self._handle.flush()
-            self._handle.seek(0)
             msvcrt.locking(self._handle.fileno(), msvcrt.LK_NBLCK, 1)
             return
 
@@ -113,6 +115,18 @@ class _FileLock:
             errno.EWOULDBLOCK,
         }
         return exc.errno in lock_contention_errnos
+
+    def _ensure_windows_lock_byte(self) -> None:
+        """Initialize the byte Windows locks without growing the file on retries."""
+        if os.name != "nt" or not self._handle:
+            return
+        self._handle.seek(0, os.SEEK_END)
+        if self._handle.tell() > 0:
+            self._handle.seek(0)
+            return
+        self._handle.write("0")
+        self._handle.flush()
+        self._handle.seek(0)
 
     def _close_handle(self) -> None:
         if self._handle:
