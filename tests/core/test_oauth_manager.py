@@ -94,6 +94,24 @@ def _request(**overrides) -> OAuthRequest:
     return OAuthRequest(**defaults)
 
 
+def test_oauth_request_normalizes_scalar_scope_and_legacy_secret_key() -> None:
+    request = OAuthRequest(
+        provider="google",
+        connection_id="firebase:demo",
+        scopes="openid",
+        legacy_secret_keys="firebase_access_token",
+    )
+
+    assert request.scopes == ("openid",)
+    assert request.legacy_secret_keys == ("firebase_access_token",)
+
+
+def test_oauth_token_set_normalizes_scalar_scope() -> None:
+    token_set = OAuthTokenSet(access_token="access-token", scopes="openid")
+
+    assert token_set.scopes == ("openid",)
+
+
 def test_oauth_manager_prefers_environment_token(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("FIREBASE_ACCESS_TOKEN", "env-token")
     manager = _manager(

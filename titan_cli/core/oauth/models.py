@@ -16,9 +16,11 @@ def _normalize_optional(value: str | None) -> str | None:
     return stripped or None
 
 
-def _normalize_values(values: Sequence[str] | None) -> tuple[str, ...]:
+def _normalize_values(values: Sequence[str] | str | None) -> tuple[str, ...]:
     if not values:
         return ()
+    if isinstance(values, str):
+        values = (values,)
     return tuple(sorted({value.strip() for value in values if value and value.strip()}))
 
 
@@ -42,11 +44,7 @@ class OAuthRequest:
         object.__setattr__(
             self,
             "legacy_secret_keys",
-            tuple(
-                value.strip()
-                for value in self.legacy_secret_keys
-                if value and value.strip()
-            ),
+            _normalize_values(self.legacy_secret_keys),
         )
         object.__setattr__(
             self,
