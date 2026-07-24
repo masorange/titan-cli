@@ -71,12 +71,17 @@ class OAuthTokenStore:
     ) -> str:
         """Write a token set and return the SecretManager key used."""
         secret_key = self.build_secret_key(request)
-        payload = json.dumps(
-            token_set.to_dict(),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        self._set_secret(secret_key, payload, scope=scope)
+        try:
+            payload = json.dumps(
+                token_set.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            self._set_secret(secret_key, payload, scope=scope)
+        except Exception as exc:
+            raise OAuthStorageError(
+                f"OAuth credential '{secret_key}' could not be written."
+            ) from exc
         return secret_key
 
     def delete(self, request: OAuthRequest, *, scope: ScopeType = "user") -> None:
