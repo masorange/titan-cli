@@ -297,21 +297,25 @@ class GoogleOAuthFlow:
                     return
 
                 query = parse_qs(parsed.query)
-                callback_data["code"] = query.get("code", [""])[0]
-                callback_data["state"] = query.get("state", [""])[0]
-                callback_data["error"] = query.get("error", [""])[0]
-                callback_succeeded = (
-                    not callback_data["error"]
-                    and callback_data["state"] == expected_state
-                    and bool(callback_data["code"])
+                code = query.get("code", [""])[0]
+                state = query.get("state", [""])[0]
+                error = query.get("error", [""])[0]
+                status_code, body, completed = _resolve_callback_response(
+                    callback_data,
+                    code=code,
+                    state=state,
+                    error=error,
+                    expected_state=expected_state,
                 )
-                self.send_response(200)
+                self._send_callback_response(status_code, body)
+                if completed:
+                    callback_event.set()
+
+            def _send_callback_response(self, status_code: int, body: bytes) -> None:
+                self.send_response(status_code)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(
-                    CALLBACK_SUCCESS_HTML if callback_succeeded else CALLBACK_ERROR_HTML
-                )
-                callback_event.set()
+                self.wfile.write(body)
 
             def log_message(self, format, *args):  # noqa: A003
                 return
@@ -429,6 +433,33 @@ class GoogleOAuthFlow:
             token_type=str(payload.get("token_type") or "Bearer"),
             granted_scopes=granted_scopes,
         )
+
+
+def _resolve_callback_response(
+    callback_data: dict[str, str],
+    *,
+    code: str,
+    state: str,
+    error: str,
+    expected_state: str,
+) -> tuple[int, bytes, bool]:
+    """Return the loopback callback response without closing on invalid state."""
+    if state != expected_state:
+        return 400, CALLBACK_ERROR_HTML, False
+
+    if error:
+        callback_data["code"] = code
+        callback_data["state"] = state
+        callback_data["error"] = error
+        return 200, CALLBACK_ERROR_HTML, True
+
+    if not code:
+        return 400, CALLBACK_ERROR_HTML, False
+
+    callback_data["code"] = code
+    callback_data["state"] = state
+    callback_data["error"] = error
+    return 200, CALLBACK_SUCCESS_HTML, True
 
 
 class GoogleOAuthProvider:

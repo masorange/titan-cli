@@ -8,6 +8,7 @@ from titan_plugin_firebase.oauth import (
     GoogleOAuthError,
     GoogleOAuthFlow,
     GoogleOAuthSession,
+    _resolve_callback_response,
 )
 
 
@@ -50,6 +51,78 @@ def test_google_oauth_authorize_url_requests_offline_access() -> None:
     assert query["access_type"] == ["offline"]
     assert query["prompt"] == ["consent"]
     assert query["code_challenge_method"] == ["S256"]
+
+
+def test_google_oauth_callback_ignores_requests_without_expected_state() -> None:
+    callback_data = {}
+
+    status, _body, completed = _resolve_callback_response(
+        callback_data,
+        code="",
+        state="",
+        error="",
+        expected_state="expected-state",
+    )
+    assert status == 400
+    assert completed is False
+    assert callback_data == {}
+
+    status, _body, completed = _resolve_callback_response(
+        callback_data,
+        code="wrong-code",
+        state="wrong-state",
+        error="",
+        expected_state="expected-state",
+    )
+    assert status == 400
+    assert completed is False
+    assert callback_data == {}
+
+    status, _body, completed = _resolve_callback_response(
+        callback_data,
+        code="",
+        state="expected-state",
+        error="",
+        expected_state="expected-state",
+    )
+    assert status == 400
+    assert completed is False
+    assert callback_data == {}
+
+    status, _body, completed = _resolve_callback_response(
+        callback_data,
+        code="good-code",
+        state="expected-state",
+        error="",
+        expected_state="expected-state",
+    )
+    assert status == 200
+    assert completed is True
+    assert callback_data == {
+        "code": "good-code",
+        "state": "expected-state",
+        "error": "",
+    }
+
+
+def test_google_oauth_callback_accepts_provider_error_with_expected_state() -> None:
+    callback_data = {}
+
+    status, _body, completed = _resolve_callback_response(
+        callback_data,
+        code="",
+        state="expected-state",
+        error="access_denied",
+        expected_state="expected-state",
+    )
+
+    assert status == 200
+    assert completed is True
+    assert callback_data == {
+        "code": "",
+        "state": "expected-state",
+        "error": "access_denied",
+    }
 
 
 def test_google_oauth_exchange_code_requires_refresh_token() -> None:
