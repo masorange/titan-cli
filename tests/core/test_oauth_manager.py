@@ -1096,6 +1096,35 @@ def test_queued_oauth_event_sink_drains_events() -> None:
     assert sink.get(block=False) is None
 
 
+def test_oauth_event_metadata_is_immutable_snapshot() -> None:
+    metadata = {
+        "source": "oauth-cache",
+        "nested": {"safe": "value"},
+        "items": ["first"],
+    }
+
+    event = OAuthEvent(
+        type="oauth.resolve.succeeded",
+        operation_id="op-1",
+        metadata=metadata,
+    )
+    metadata["source"] = "mutated"
+    metadata["token"] = "secret"
+    metadata["nested"]["safe"] = "mutated"
+    metadata["items"].append("second")
+
+    assert event.metadata == {
+        "source": "oauth-cache",
+        "nested": {"safe": "value"},
+        "items": ("first",),
+    }
+    assert "token" not in event.metadata
+    with pytest.raises(TypeError):
+        event.metadata["token"] = "secret"
+    with pytest.raises(TypeError):
+        event.metadata["nested"]["safe"] = "mutated"
+
+
 def test_queued_oauth_event_sink_drops_new_events_when_full() -> None:
     sink = QueuedOAuthEventSink(maxsize=1)
 
