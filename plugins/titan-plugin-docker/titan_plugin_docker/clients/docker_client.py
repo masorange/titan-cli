@@ -5,14 +5,14 @@ Docker Client Facade
 Unified API that delegates to specialized services.
 All methods return ClientResult for consistent error handling.
 """
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from titan_cli.core.result import ClientResult
 from titan_cli.core.plugins.models import DockerBuildTargetConfig
 
 from .network import DockerNetwork
-from .services import ComposeService, BuildService
-from ..models.view import UIComposeStatus, UIBuildResult
+from .services import ComposeService, BuildService, PruneService
+from ..models.view import UIComposeStatus, UIBuildResult, UIDiskUsage, UIPruneEntry
 
 
 class DockerClient:
@@ -54,6 +54,7 @@ class DockerClient:
         # Initialize services
         self.compose_service = ComposeService(self.network, compose_file)
         self.build_service = BuildService(self.network)
+        self.prune_service = PruneService(self.network)
 
     # ===== Compose Methods =====
 
@@ -75,6 +76,20 @@ class DockerClient:
 
     # ===== Build Methods =====
 
-    def build_target(self, target: DockerBuildTargetConfig) -> ClientResult[UIBuildResult]:
-        """Build (and optionally push) a single configured image."""
-        return self.build_service.build_target(target)
+    def build_target(
+        self,
+        target: DockerBuildTargetConfig,
+        on_output: Optional[Callable[[str], None]] = None,
+    ) -> ClientResult[UIBuildResult]:
+        """Build (and optionally push) a single configured image, optionally streaming build output via `on_output`."""
+        return self.build_service.build_target(target, on_output=on_output)
+
+    # ===== Prune Methods =====
+
+    def disk_usage(self) -> ClientResult[UIDiskUsage]:
+        """Get a host-wide breakdown of Docker's disk usage."""
+        return self.prune_service.disk_usage()
+
+    def prune(self, targets: List[str]) -> ClientResult[List[UIPruneEntry]]:
+        """Prune the given host-wide resource categories (see `PRUNE_COMMANDS` for valid keys)."""
+        return self.prune_service.prune(targets)

@@ -93,3 +93,25 @@ def test_build_target_delegates_to_build_service() -> None:
     assert args[:3] == ["docker", "buildx", "build"]
     assert "--push" in args
     assert "--target" in args and "production" in args
+
+
+def test_build_target_streams_output_when_callback_given() -> None:
+    client = _make_client()
+    target = DockerBuildTargetConfig(
+        name="frontend",
+        dockerfile="packages/frontend/Dockerfile",
+        image="ghcr.io/finxo/economy-frontend",
+    )
+    lines = []
+
+    def fake_stream_command(args, on_line, check=True, cwd=None):
+        on_line("#1 [internal] load build definition")
+        on_line("#2 DONE 0.1s")
+        return "#1 [internal] load build definition\n#2 DONE 0.1s"
+
+    with patch.object(client.network, "stream_command", side_effect=fake_stream_command) as stream_command:
+        result = client.build_target(target, on_output=lines.append)
+
+    assert isinstance(result, ClientSuccess)
+    assert lines == ["#1 [internal] load build definition", "#2 DONE 0.1s"]
+    stream_command.assert_called_once()

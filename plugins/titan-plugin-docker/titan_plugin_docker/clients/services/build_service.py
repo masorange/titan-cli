@@ -5,6 +5,8 @@ Build Service
 Business logic for building (and optionally pushing) Docker images.
 Uses network layer to execute commands, parses to network models, maps to view models.
 """
+from typing import Callable, Optional
+
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
 from titan_cli.core.plugins.models import DockerBuildTargetConfig
@@ -34,7 +36,11 @@ class BuildService:
         self.docker = docker_network
 
     @log_client_operation()
-    def build_target(self, target: DockerBuildTargetConfig) -> ClientResult[UIBuildResult]:
+    def build_target(
+        self,
+        target: DockerBuildTargetConfig,
+        on_output: Optional[Callable[[str], None]] = None,
+    ) -> ClientResult[UIBuildResult]:
         """
         Build (and optionally push) a single configured image.
 
@@ -43,6 +49,7 @@ class BuildService:
 
         Args:
             target: Build target configuration
+            on_output: Optional callback invoked with each line of build output as it streams
 
         Returns:
             ClientResult[UIBuildResult]
@@ -62,7 +69,10 @@ class BuildService:
                 args.append("--push")
             args.append(target.context)
 
-            self.docker.run_command(args)
+            if on_output:
+                self.docker.stream_command(args, on_line=on_output)
+            else:
+                self.docker.run_command(args)
 
             network_result = NetworkBuildResult(
                 name=target.name,

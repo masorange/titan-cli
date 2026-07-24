@@ -95,6 +95,9 @@ class DockerPlugin(TitanPlugin):
         from .steps.compose_down_step import compose_down_step
         from .steps.compose_status_step import compose_status_step
         from .steps.build_push_images_step import build_push_images_step
+        from .steps.disk_usage_step import disk_usage_step
+        from .steps.select_prune_targets_step import select_prune_targets_step
+        from .steps.prune_resources_step import prune_resources_step
 
         return {
             "select_service_group": select_service_group_step,
@@ -103,6 +106,9 @@ class DockerPlugin(TitanPlugin):
             "compose_down": compose_down_step,
             "compose_status": compose_status_step,
             "build_push_images": build_push_images_step,
+            "disk_usage": disk_usage_step,
+            "select_prune_targets": select_prune_targets_step,
+            "prune_resources": prune_resources_step,
         }
 
     @property

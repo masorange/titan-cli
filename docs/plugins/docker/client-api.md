@@ -126,8 +126,12 @@ target = DockerBuildTargetConfig(
     push=True,
 )
 client.build_target(target)
+
+# Stream build output line by line instead of waiting for the final result
+client.build_target(target, on_output=lambda line: print(line))
 ```
 
 **Parameters:**
 
 - `target` (`DockerBuildTargetConfig`, required): the build target to build. Typically resolved from `client.build_targets` (project configuration) rather than constructed by hand.
+- `on_output` (callable, optional): called with each line of `docker buildx build` output as it streams (stdout+stderr merged, in emission order). Omit to just run the build and get the final result.
