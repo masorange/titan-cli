@@ -59,6 +59,7 @@ class WorkflowContextBuilder:
         self._git = None
         self._github = None
         self._jira = None
+        self._firebase = None
         self._slack = None
 
         # Plugin managers (keyed by plugin name)
@@ -198,6 +199,33 @@ class WorkflowContextBuilder:
                 self._slack = None
         return self
 
+    def with_firebase(
+        self,
+        firebase_client: Optional[Any] = None,
+    ) -> WorkflowContextBuilder:
+        """
+        Add Firebase client to workflow context.
+
+        Args:
+            firebase_client: Optional FirebaseClient instance. If None, attempts
+                to load it from the Firebase plugin registry entry.
+
+        Returns:
+            Self for method chaining
+        """
+        if firebase_client:
+            self._firebase = firebase_client
+        else:
+            firebase_plugin = self._plugin_registry.get_plugin("firebase")
+            if firebase_plugin and firebase_plugin.is_available():
+                try:
+                    self._firebase = firebase_plugin.get_client()
+                except Exception:
+                    self._firebase = None
+            else:
+                self._firebase = None
+        return self
+
 
     def build(self) -> WorkflowContext:
         """Build the WorkflowContext."""
@@ -209,5 +237,6 @@ class WorkflowContextBuilder:
             github=self._github,
             github_managers=self._plugin_managers.get("github"),
             jira=self._jira,
+            firebase=self._firebase,
             slack=self._slack,
         )

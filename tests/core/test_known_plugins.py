@@ -7,3 +7,14 @@ def test_known_plugins_includes_slack() -> None:
     assert slack_plugin is not None
     assert slack_plugin["package_name"] == "titan-plugin-slack"
     assert slack_plugin["dependencies"] == []
+
+
+def test_known_plugins_includes_firebase() -> None:
+    firebase_plugin = next(
+        (plugin for plugin in KNOWN_PLUGINS if plugin["name"] == "firebase"),
+        None,
+    )
+
+    assert firebase_plugin is not None
+    assert firebase_plugin["package_name"] == "titan-plugin-firebase"
+    assert firebase_plugin["dependencies"] == []

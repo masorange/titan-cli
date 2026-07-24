@@ -11,13 +11,14 @@ plugin clients directly and compose workflows from reusable public steps.
 
 ## Official plugins
 
-Titan ships with four official plugins:
+Titan ships with five official plugins:
 
 | Plugin | Description |
 |--------|-------------|
 | **git** | Smart commits, branch management, AI-powered commit messages |
 | **github** | Create PRs with AI descriptions, manage issues, code reviews |
 | **jira** | Search issues, AI-powered analysis, workflow automation |
+| **firebase** | ADC-backed Firebase Remote Config access |
 | **slack** | Personal Slack auth, workspace summaries, and reusable Slack workflow steps |
 
 Enable them per project in `.titan/config.toml`:
@@ -30,6 +31,9 @@ enabled = true
 enabled = true
 
 [plugins.jira]
+enabled = true
+
+[plugins.firebase]
 enabled = true
 
 [plugins.slack]
