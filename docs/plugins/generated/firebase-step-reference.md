@@ -23,7 +23,7 @@ Validate that the current user has Firebase OAuth authentication.
 
 **Used by built-in workflows:** `list-remoteconfig-keys`
 
-**Available to later steps:** `firebase_account`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed`
+**Available to later steps:** `firebase_account`, `firebase_auth_source`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed`
 
 **Requires**
 
@@ -42,7 +42,8 @@ Validate that the current user has Firebase OAuth authentication.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `firebase_account` | Optional[str] | Active gcloud account reported by `gcloud auth list`. |
+| `firebase_account` | Optional[str] | Reserved until Firebase token identity can be resolved; currently None. |
+| `firebase_auth_source` | Optional[str] | Safe source label for the token Titan will use. |
 | `firebase_login_command` | str | Command the user can run to create an ADC session. |
 | `firebase_access_token_saved` | bool | Whether this step saved a token to Titan's OAuth token store. |
 | `firebase_oauth_login_completed` | bool | Whether this step completed browser OAuth login. |
@@ -51,9 +52,9 @@ Validate that the current user has Firebase OAuth authentication.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_account`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If Firebase OAuth auth is available. |
+| `Success` | `firebase_account`, `firebase_auth_source`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If Firebase OAuth auth is available. |
 | `Error` | - | If Firebase client or auth is missing and fail_on_missing_auth is True. |
-| `Skip` | `firebase_account`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If auth is missing and fail_on_missing_auth is False. |
+| `Skip` | `firebase_account`, `firebase_auth_source`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If auth is missing and fail_on_missing_auth is False. |
 
 ### `firebase_status`
 
@@ -72,7 +73,7 @@ Report the current Firebase OAuth authentication status.
   step: firebase_status
 ```
 
-**Available to later steps:** `firebase_account`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed`
+**Available to later steps:** `firebase_account`, `firebase_auth_source`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed`
 
 **Requires**
 
@@ -91,7 +92,8 @@ Report the current Firebase OAuth authentication status.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `firebase_account` | Optional[str] | Active gcloud account reported by `gcloud auth list`. |
+| `firebase_account` | Optional[str] | Reserved until Firebase token identity can be resolved; currently None. |
+| `firebase_auth_source` | Optional[str] | Safe source label for the token Titan will use. |
 | `firebase_login_command` | str | Command the user can run to create an ADC session. |
 | `firebase_access_token_saved` | bool | Whether this step saved a token to Titan's OAuth token store. |
 | `firebase_oauth_login_completed` | bool | Whether this step completed browser OAuth login. |
@@ -100,9 +102,9 @@ Report the current Firebase OAuth authentication status.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_account`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If Firebase OAuth auth is available. |
+| `Success` | `firebase_account`, `firebase_auth_source`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If Firebase OAuth auth is available. |
 | `Error` | - | If Firebase client or auth is missing and fail_on_missing_auth is True. |
-| `Skip` | `firebase_account`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If auth is missing and fail_on_missing_auth is False. |
+| `Skip` | `firebase_account`, `firebase_auth_source`, `firebase_login_command`, `firebase_access_token_saved`, `firebase_oauth_login_completed` | If auth is missing and fail_on_missing_auth is False. |
 
 ## Remote Config
 

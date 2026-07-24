@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import re
 from typing import Any, Optional, Sequence
 
 import requests
@@ -28,6 +29,7 @@ from .models import FirebaseProjectTarget, RemoteConfigInventory
 ACCESS_TOKEN_SECRET_KEY = "firebase_access_token"
 OAUTH_CLIENT_ID_SECRET_KEY = "firebase_oauth_client_id"
 OAUTH_CLIENT_SECRET_KEY = "firebase_oauth_client_secret"
+GOOGLE_CLOUD_PROJECT_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 
 
 @dataclass(frozen=True)
@@ -378,6 +380,19 @@ class FirebaseClient:
             "gcloud ADC",
         }
 
+    def _normalize_project_id(self, project_id: str) -> str:
+        """Normalize and validate a Google Cloud project ID."""
+        normalized_project_id = project_id.strip() if project_id else ""
+        if not normalized_project_id:
+            raise FirebaseClientError("Firebase project_id is required.")
+        if not GOOGLE_CLOUD_PROJECT_ID_PATTERN.fullmatch(normalized_project_id):
+            raise FirebaseClientError(
+                "Firebase project_id must be a valid Google Cloud project ID "
+                "(6-30 lowercase letters, digits, or hyphens; starts with a "
+                "letter and does not end with a hyphen)."
+            )
+        return normalized_project_id
+
     def get_remote_config(self, project_id: str) -> RemoteConfigTemplate:
         """
         Read a Firebase Remote Config template for one project.
@@ -391,9 +406,7 @@ class FirebaseClient:
         Raises:
             FirebaseClientError: If auth is missing or the API request fails.
         """
-        normalized_project_id = project_id.strip() if project_id else ""
-        if not normalized_project_id:
-            raise FirebaseClientError("Firebase project_id is required.")
+        normalized_project_id = self._normalize_project_id(project_id)
 
         token, auth_source = self.resolve_access_token()
         if not token:

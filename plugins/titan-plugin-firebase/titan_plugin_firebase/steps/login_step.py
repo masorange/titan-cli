@@ -11,6 +11,9 @@ from titan_cli.engine import Error, Skip, Success, WorkflowContext, WorkflowResu
 
 from ..exceptions import FirebaseClientError
 
+_TRUE_BOOLEAN_STRINGS = {"1", "true", "yes", "y", "on"}
+_FALSE_BOOLEAN_STRINGS = {"0", "false", "no", "n", "off"}
+
 
 class _WorkflowOAuthSink:
     """Adapts provider-neutral OAuth events to the current workflow context."""
@@ -54,6 +57,33 @@ def _error(ctx: WorkflowContext, message: str) -> None:
         ctx.textual.error_text(message)
 
 
+def _get_workflow_bool(
+    ctx: WorkflowContext,
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    """Return a strict workflow boolean from ctx.data."""
+    if not ctx.has(key):
+        return default
+
+    value = ctx.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _TRUE_BOOLEAN_STRINGS:
+            return True
+        if normalized in _FALSE_BOOLEAN_STRINGS:
+            return False
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+
+    raise ValueError(
+        f"{key} must be a boolean or one of: true/false, yes/no, on/off, 1/0."
+    )
+
+
 def _get_auth_source_label(ctx: WorkflowContext) -> Optional[str]:
     """Return a safe label for the current Firebase auth source."""
     source_getter = getattr(ctx.firebase, "get_access_token_source_label", None)
@@ -74,23 +104,19 @@ def _is_available(ctx: WorkflowContext, sink: _WorkflowOAuthSink) -> bool:
 def _auth_success(
     ctx: WorkflowContext,
     *,
-    account: Optional[str],
     login_command: str,
     token_saved: bool = False,
     oauth_login_completed: bool = False,
 ) -> Success:
     """Render and return a successful Firebase auth result."""
-    account_label = (
-        _get_auth_source_label(ctx)
-        or account
-        or ctx.firebase.config.access_token_env_var
-    )
-    _success(ctx, f"Firebase auth available via {account_label}")
+    auth_source_label = _get_auth_source_label(ctx) or "configured Firebase auth"
+    _success(ctx, f"Firebase auth available via {auth_source_label}")
     _end(ctx, "success")
     return Success(
         "Firebase auth available",
         metadata={
-            "firebase_account": account,
+            "firebase_account": None,
+            "firebase_auth_source": auth_source_label,
             "firebase_login_command": login_command,
             "firebase_access_token_saved": token_saved,
             "firebase_oauth_login_completed": oauth_login_completed,
@@ -333,21 +359,31 @@ def _check_auth(
         _end(ctx, "error")
         return Error(message)
 
-    account = ctx.firebase.get_active_account()
     login_command = ctx.firebase.get_login_command()
     oauth_sink = _WorkflowOAuthSink(ctx)
+    try:
+        prompt_for_missing_auth = _get_workflow_bool(
+            ctx,
+            "prompt_for_missing_auth",
+            default=prompt_for_missing_auth_default,
+        )
+        fail_on_missing_auth = _get_workflow_bool(
+            ctx,
+            "fail_on_missing_auth",
+            default=True,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        _error(ctx, message)
+        _end(ctx, "error")
+        return Error(message, recoverable=True)
 
     if _is_available(ctx, oauth_sink):
         return _auth_success(
             ctx,
-            account=account,
             login_command=login_command,
         )
 
-    prompt_for_missing_auth = ctx.get(
-        "prompt_for_missing_auth",
-        prompt_for_missing_auth_default,
-    )
     if prompt_for_missing_auth:
         auth_available, auth_error, oauth_attempted = prompt_for_firebase_auth(ctx)
         if auth_error:
@@ -358,7 +394,6 @@ def _check_auth(
         if auth_available:
             return _auth_success(
                 ctx,
-                account=account,
                 login_command=login_command,
                 token_saved=True,
                 oauth_login_completed=oauth_attempted,
@@ -368,7 +403,6 @@ def _check_auth(
         "Firebase auth not available. Configure Firebase oauth_client_id, set "
         f"{ctx.firebase.config.access_token_env_var}, or run: {login_command}"
     )
-    fail_on_missing_auth = ctx.get("fail_on_missing_auth", True)
     if fail_on_missing_auth:
         _error(ctx, message)
         _end(ctx, "error")
@@ -379,7 +413,8 @@ def _check_auth(
     return Skip(
         message,
         metadata={
-            "firebase_account": account,
+            "firebase_account": None,
+            "firebase_auth_source": None,
             "firebase_login_command": login_command,
             "firebase_access_token_saved": False,
             "firebase_oauth_login_completed": False,
@@ -399,7 +434,8 @@ def execute_firebase_login_step(ctx: WorkflowContext) -> WorkflowResult:
         prompt_for_missing_auth (bool, optional): Prompt for Google OAuth setup/login when auth is missing. Defaults to True.
 
     Outputs (saved to ctx.data):
-        firebase_account (Optional[str]): Active gcloud account reported by `gcloud auth list`.
+        firebase_account (Optional[str]): Reserved until Firebase token identity can be resolved; currently None.
+        firebase_auth_source (Optional[str]): Safe source label for the token Titan will use.
         firebase_login_command (str): Command the user can run to create an ADC session.
         firebase_access_token_saved (bool): Whether this step saved a token to Titan's OAuth token store.
         firebase_oauth_login_completed (bool): Whether this step completed browser OAuth login.
@@ -428,7 +464,8 @@ def execute_firebase_status_step(ctx: WorkflowContext) -> WorkflowResult:
         prompt_for_missing_auth (bool, optional): Prompt for Google OAuth setup/login when auth is missing. Defaults to False.
 
     Outputs (saved to ctx.data):
-        firebase_account (Optional[str]): Active gcloud account reported by `gcloud auth list`.
+        firebase_account (Optional[str]): Reserved until Firebase token identity can be resolved; currently None.
+        firebase_auth_source (Optional[str]): Safe source label for the token Titan will use.
         firebase_login_command (str): Command the user can run to create an ADC session.
         firebase_access_token_saved (bool): Whether this step saved a token to Titan's OAuth token store.
         firebase_oauth_login_completed (bool): Whether this step completed browser OAuth login.

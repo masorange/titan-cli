@@ -348,6 +348,34 @@ def test_get_remote_config_requires_adc(monkeypatch) -> None:
         client.get_remote_config("demo-project")
 
 
+@pytest.mark.parametrize(
+    "project_id",
+    [
+        "demo/project",
+        "demo-project?alt=json",
+        "demo-project#fragment",
+        "Demo-project",
+        "demo-",
+        "short",
+    ],
+)
+def test_get_remote_config_rejects_invalid_project_id(
+    monkeypatch,
+    project_id: str,
+) -> None:
+    client = _client()
+    get_adc_access_token = MagicMock(return_value="token")
+    request_get = MagicMock()
+    monkeypatch.setattr(client, "get_adc_access_token", get_adc_access_token)
+    monkeypatch.setattr("titan_plugin_firebase.client.requests.get", request_get)
+
+    with pytest.raises(FirebaseClientError, match="valid Google Cloud project ID"):
+        client.get_remote_config(project_id)
+
+    get_adc_access_token.assert_not_called()
+    request_get.assert_not_called()
+
+
 def test_get_remote_config_rejects_non_object_json(monkeypatch) -> None:
     client = _client()
     monkeypatch.setattr(client, "get_adc_access_token", MagicMock(return_value="token"))

@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+import pytest
+
 from titan_cli.engine import Error, Skip, Success, WorkflowContext
 from titan_plugin_firebase.client import RemoteConfigTemplate
 from titan_plugin_firebase.config import FirebasePluginConfig
@@ -54,14 +56,20 @@ def _save_oauth_client_id_mock(client: MagicMock):
 def test_firebase_login_success() -> None:
     client = _firebase_client()
     client.is_available.return_value = True
+    client.get_access_token_source_label.return_value = "gcloud ADC"
     ctx = _ctx(firebase=client)
 
     result = execute_firebase_login_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata["firebase_account"] == "user@example.com"
+    assert result.metadata["firebase_account"] is None
+    assert result.metadata["firebase_auth_source"] == "gcloud ADC"
     assert result.metadata["firebase_access_token_saved"] is False
     assert result.metadata["firebase_oauth_login_completed"] is False
+    client.get_active_account.assert_not_called()
+    ctx.textual.success_text.assert_called_with(
+        "Firebase auth available via gcloud ADC"
+    )
 
 
 def test_firebase_login_uses_google_oauth_when_configured() -> None:
@@ -78,6 +86,8 @@ def test_firebase_login_uses_google_oauth_when_configured() -> None:
     result = execute_firebase_login_step(ctx)
 
     assert isinstance(result, Success)
+    assert result.metadata["firebase_account"] is None
+    assert result.metadata["firebase_auth_source"] == "Titan OAuth token store"
     assert result.metadata["firebase_access_token_saved"] is True
     assert result.metadata["firebase_oauth_login_completed"] is True
     client.get_access_token.assert_called_once()
@@ -197,11 +207,62 @@ def test_firebase_status_skips_when_auth_missing_and_configured() -> None:
     result = execute_firebase_status_step(ctx)
 
     assert isinstance(result, Skip)
+    assert result.metadata["firebase_account"] is None
+    assert result.metadata["firebase_auth_source"] is None
     assert result.metadata["firebase_login_command"] == (
         "gcloud auth application-default login"
     )
     assert result.metadata["firebase_access_token_saved"] is False
     assert result.metadata["firebase_oauth_login_completed"] is False
+
+
+def test_firebase_status_parses_serialized_false_flag() -> None:
+    client = _firebase_client()
+    client.is_available.return_value = False
+    ctx = _ctx(firebase=client, data={"fail_on_missing_auth": "false"})
+
+    result = execute_firebase_status_step(ctx)
+
+    assert isinstance(result, Skip)
+    assert result.metadata["firebase_access_token_saved"] is False
+
+
+def test_firebase_login_parses_serialized_prompt_false_flag() -> None:
+    client = _firebase_client()
+    client.is_available.return_value = False
+    ctx = _ctx(
+        firebase=client,
+        data={
+            "prompt_for_missing_auth": "false",
+            "fail_on_missing_auth": False,
+        },
+    )
+
+    result = execute_firebase_login_step(ctx)
+
+    assert isinstance(result, Skip)
+    ctx.textual.ask_text.assert_not_called()
+    ctx.textual.ask_password.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "flag_value",
+    [
+        None,
+        "eventually",
+        [],
+    ],
+)
+def test_firebase_status_rejects_invalid_missing_auth_flag(flag_value) -> None:
+    client = _firebase_client()
+    client.is_available.return_value = False
+    ctx = _ctx(firebase=client, data={"fail_on_missing_auth": flag_value})
+
+    result = execute_firebase_status_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "fail_on_missing_auth must be a boolean" in result.message
+    client.is_available.assert_not_called()
 
 
 def test_remoteconfig_get_uses_project_id() -> None:
