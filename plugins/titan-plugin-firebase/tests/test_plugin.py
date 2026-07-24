@@ -262,7 +262,9 @@ def test_firebase_plugin_reuses_generic_secret_only_for_same_config_id() -> None
     )
 
 
-def test_firebase_plugin_is_available_delegates_to_client(monkeypatch) -> None:
+def test_firebase_plugin_is_available_when_client_is_initialized(
+    monkeypatch,
+) -> None:
     plugin = FirebasePlugin()
     config = MagicMock()
     config.config.plugins = {"firebase": MagicMock(config={})}
@@ -270,7 +272,13 @@ def test_firebase_plugin_is_available_delegates_to_client(monkeypatch) -> None:
     monkeypatch.setattr(
         plugin.get_client(),
         "is_available",
-        MagicMock(return_value=True),
+        MagicMock(return_value=False),
     )
 
     assert plugin.is_available() is True
+
+
+def test_firebase_plugin_is_not_available_before_initialize() -> None:
+    plugin = FirebasePlugin()
+
+    assert plugin.is_available() is False

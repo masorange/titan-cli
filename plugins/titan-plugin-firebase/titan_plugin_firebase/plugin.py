@@ -74,8 +74,7 @@ class FirebasePlugin(TitanPlugin):
         elif validated_config.oauth_client_id:
             oauth_client_id = validated_config.oauth_client_id
             oauth_client_secret = (
-                validated_config.oauth_client_secret
-                or project_oauth_client_secret
+                validated_config.oauth_client_secret or project_oauth_client_secret
             )
             if (
                 oauth_client_secret is None
@@ -200,12 +199,8 @@ class FirebasePlugin(TitanPlugin):
         return schema
 
     def is_available(self) -> bool:
-        """Return whether Firebase OAuth access is available."""
-        return (
-            hasattr(self, "_client")
-            and self._client is not None
-            and self._client.is_available()
-        )
+        """Return whether the Firebase client is initialized."""
+        return hasattr(self, "_client") and self._client is not None
 
     def get_client(self) -> FirebaseClient:
         """Return the initialized Firebase client."""
