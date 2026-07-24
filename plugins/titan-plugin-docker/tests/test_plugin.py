@@ -25,6 +25,11 @@ def test_docker_plugin_exposes_public_steps() -> None:
         "compose_down",
         "compose_status",
         "build_push_images",
+        "disk_usage",
+        "select_prune_targets",
+        "prune_resources",
+        "select_containers_to_remove",
+        "remove_containers",
     }
 
 

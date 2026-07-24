@@ -135,3 +135,71 @@ client.build_target(target, on_output=lambda line: print(line))
 
 - `target` (`DockerBuildTargetConfig`, required): the build target to build. Typically resolved from `client.build_targets` (project configuration) rather than constructed by hand.
 - `on_output` (callable, optional): called with each line of `docker buildx build` output as it streams (stdout+stderr merged, in emission order). Omit to just run the build and get the final result.
+
+---
+
+## Prune operations
+
+These operate on the whole Docker host, not just this project - Docker doesn't scope disk usage or prune targets to a single compose file.
+
+### Get disk usage
+
+Returns a breakdown of Docker's disk usage (images, containers, local volumes, build cache) via `docker system df`.
+
+**Call:**
+
+```python
+client.disk_usage()
+```
+
+**Parameters:**
+
+- No parameters.
+
+### Prune resources
+
+Removes unused resources for the given categories.
+
+**Call:**
+
+```python
+client.prune(["containers", "images"])
+```
+
+**Parameters:**
+
+- `targets` (list of str, required): subset of `"containers"`, `"images"`, `"build_cache"`, `"volumes"`. `"images"` only removes dangling (untagged) images. Docker itself refuses to remove a volume still attached to any container, so `"volumes"` never touches an in-use volume.
+
+---
+
+## Container operations
+
+These also operate on the whole Docker host - every container, not just this project's compose services.
+
+### List containers
+
+Lists every container on the host, running or stopped.
+
+**Call:**
+
+```python
+client.list_containers()
+```
+
+**Parameters:**
+
+- No parameters.
+
+### Remove containers
+
+Removes the given containers via `docker rm` (without `-f`).
+
+**Call:**
+
+```python
+client.remove_containers(["abc123", "def456"])
+```
+
+**Parameters:**
+
+- `container_ids` (list of str, required): container IDs or names to remove. Docker itself refuses (surfaced as a `ClientError`) if any of them is still running.

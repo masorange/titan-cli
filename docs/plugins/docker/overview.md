@@ -62,7 +62,13 @@ The client returns `ClientResult[...]` values. In practice, this means each call
 The Docker plugin exposes these reusable public steps through `get_steps()`:
 
 - `select_service_group`
+- `select_services_to_stop`
 - `compose_up`
 - `compose_down`
 - `compose_status`
 - `build_push_images`
+- `disk_usage`
+- `select_prune_targets`
+- `prune_resources`
+- `select_containers_to_remove`
+- `remove_containers`

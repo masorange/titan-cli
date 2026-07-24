@@ -98,6 +98,8 @@ class DockerPlugin(TitanPlugin):
         from .steps.disk_usage_step import disk_usage_step
         from .steps.select_prune_targets_step import select_prune_targets_step
         from .steps.prune_resources_step import prune_resources_step
+        from .steps.select_containers_to_remove_step import select_containers_to_remove_step
+        from .steps.remove_containers_step import remove_containers_step
 
         return {
             "select_service_group": select_service_group_step,
@@ -109,6 +111,8 @@ class DockerPlugin(TitanPlugin):
             "disk_usage": disk_usage_step,
             "select_prune_targets": select_prune_targets_step,
             "prune_resources": prune_resources_step,
+            "select_containers_to_remove": select_containers_to_remove_step,
+            "remove_containers": remove_containers_step,
         }
 
     @property

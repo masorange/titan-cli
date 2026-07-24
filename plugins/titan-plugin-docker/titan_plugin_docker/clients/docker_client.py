@@ -11,8 +11,8 @@ from titan_cli.core.result import ClientResult
 from titan_cli.core.plugins.models import DockerBuildTargetConfig
 
 from .network import DockerNetwork
-from .services import ComposeService, BuildService, PruneService
-from ..models.view import UIComposeStatus, UIBuildResult, UIDiskUsage, UIPruneEntry
+from .services import ComposeService, BuildService, PruneService, ContainerService
+from ..models.view import UIComposeStatus, UIBuildResult, UIDiskUsage, UIPruneEntry, UIContainer
 
 
 class DockerClient:
@@ -55,6 +55,7 @@ class DockerClient:
         self.compose_service = ComposeService(self.network, compose_file)
         self.build_service = BuildService(self.network)
         self.prune_service = PruneService(self.network)
+        self.container_service = ContainerService(self.network)
 
     # ===== Compose Methods =====
 
@@ -93,3 +94,13 @@ class DockerClient:
     def prune(self, targets: List[str]) -> ClientResult[List[UIPruneEntry]]:
         """Prune the given host-wide resource categories (see `PRUNE_COMMANDS` for valid keys)."""
         return self.prune_service.prune(targets)
+
+    # ===== Container Methods =====
+
+    def list_containers(self) -> ClientResult[List[UIContainer]]:
+        """List every container on the host, running or stopped (not scoped to this project)."""
+        return self.container_service.list_containers()
+
+    def remove_containers(self, container_ids: List[str]) -> ClientResult[List[str]]:
+        """Remove the given (stopped) containers."""
+        return self.container_service.remove_containers(container_ids)

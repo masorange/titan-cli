@@ -115,3 +115,79 @@ def test_build_target_streams_output_when_callback_given() -> None:
     assert isinstance(result, ClientSuccess)
     assert lines == ["#1 [internal] load build definition", "#2 DONE 0.1s"]
     stream_command.assert_called_once()
+
+
+def test_disk_usage_parses_ndjson_output() -> None:
+    client = _make_client()
+    df_output = "\n".join([
+        json.dumps({"Type": "Images", "TotalCount": "15", "Active": "7", "Size": "36.45GB", "Reclaimable": "19.08GB (52%)"}),
+        json.dumps({"Type": "Containers", "TotalCount": "7", "Active": "7", "Size": "89.45MB", "Reclaimable": "0B (0%)"}),
+    ])
+
+    with patch.object(client.network, "run_command", return_value=df_output):
+        result = client.disk_usage()
+
+    assert isinstance(result, ClientSuccess)
+    assert [e.resource_type for e in result.data.entries] == ["Images", "Containers"]
+    assert result.data.entries[0].has_reclaimable is True
+    assert result.data.entries[1].has_reclaimable is False
+
+
+def test_prune_runs_one_command_per_target() -> None:
+    client = _make_client()
+
+    with patch.object(client.network, "run_command", return_value="Total reclaimed space: 1.2GB") as run_command:
+        result = client.prune(["containers", "images"])
+
+    assert isinstance(result, ClientSuccess)
+    assert [e.target for e in result.data] == ["containers", "images"]
+    assert all(e.reclaimed == "1.2GB" for e in result.data)
+    assert run_command.call_args_list[0].args[0] == ["docker", "container", "prune", "-f"]
+    assert run_command.call_args_list[1].args[0] == ["docker", "image", "prune", "-f"]
+
+
+def test_prune_wraps_command_failures() -> None:
+    client = _make_client()
+
+    with patch.object(client.network, "run_command", side_effect=DockerCommandError("boom")):
+        result = client.prune(["volumes"])
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "PRUNE_ERROR"
+
+
+def test_list_containers_parses_ndjson_output() -> None:
+    client = _make_client()
+    ps_output = "\n".join([
+        json.dumps({"ID": "abc123", "Names": "db_container", "Image": "postgres", "State": "running", "Status": "Up 2 hours"}),
+        json.dumps({"ID": "def456", "Names": "old_container", "Image": "old-app", "State": "exited", "Status": "Exited (0) 3 days ago"}),
+    ])
+
+    with patch.object(client.network, "run_command", return_value=ps_output):
+        result = client.list_containers()
+
+    assert isinstance(result, ClientSuccess)
+    assert [c.name for c in result.data] == ["db_container", "old_container"]
+    assert result.data[0].state_icon == "✓"
+    assert result.data[1].state_icon == "✗"
+
+
+def test_remove_containers_delegates_to_container_service() -> None:
+    client = _make_client()
+
+    with patch.object(client.network, "run_command", return_value="") as run_command:
+        result = client.remove_containers(["abc123", "def456"])
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data == ["abc123", "def456"]
+    assert run_command.call_args.args[0] == ["docker", "rm", "abc123", "def456"]
+
+
+def test_remove_containers_wraps_command_failures() -> None:
+    client = _make_client()
+
+    with patch.object(client.network, "run_command", side_effect=DockerCommandError("container is running")):
+        result = client.remove_containers(["abc123"])
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "REMOVE_CONTAINERS_ERROR"
