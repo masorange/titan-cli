@@ -15,6 +15,7 @@ from .exceptions import (
     OAuthAuthorizationError,
     OAuthError,
     OAuthProviderNotFound,
+    OAuthTokenInvalidError,
     OAuthTokenRefreshError,
 )
 from .locks import OAuthLockManager
@@ -183,7 +184,7 @@ class OAuthManager:
                         stored_token_set.token_set,
                         event_sink,
                     )
-                except OAuthError:
+                except OAuthTokenInvalidError:
                     self._emit(
                         event_sink,
                         "oauth.refresh.failed",
@@ -204,6 +205,18 @@ class OAuthManager:
                         credential_key,
                         "Deleted stale OAuth credential after refresh failure.",
                     )
+                except OAuthError:
+                    self._emit(
+                        event_sink,
+                        "oauth.refresh.failed",
+                        operation_id,
+                        request,
+                        credential_key,
+                        "OAuth refresh failed.",
+                    )
+                    if not request.interactive:
+                        raise
+                    reauthorize_storage_scope = storage_scope
                 except Exception as exc:
                     self._emit(
                         event_sink,
@@ -215,16 +228,7 @@ class OAuthManager:
                     )
                     if not request.interactive:
                         raise OAuthTokenRefreshError(str(exc)) from exc
-                    self.token_store.delete(request, scope=storage_scope)
                     reauthorize_storage_scope = storage_scope
-                    self._emit(
-                        event_sink,
-                        "oauth.refresh.stale_deleted",
-                        operation_id,
-                        request,
-                        credential_key,
-                        "Deleted stale OAuth credential after refresh failure.",
-                    )
                 else:
                     self.token_store.write(request, refreshed, scope=storage_scope)
                     credential = self._credential_from_token_set(

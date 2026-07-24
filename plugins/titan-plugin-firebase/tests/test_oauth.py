@@ -3,7 +3,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from titan_cli.core.oauth import OAuthRequest, OAuthTokenSet
+from titan_cli.core.oauth import OAuthRequest, OAuthTokenInvalidError, OAuthTokenSet
 from titan_plugin_firebase.oauth import (
     AUTHORIZE_URL,
     TOKEN_URL,
@@ -249,7 +249,7 @@ def test_google_oauth_refresh_access_token_keeps_existing_refresh_token() -> Non
     }
 
 
-def test_google_oauth_refresh_access_token_sends_client_secret_when_configured() -> None:
+def test_google_oauth_refresh_sends_client_secret_when_configured() -> None:
     requests_module = FakeRequests(
         FakeResponse(
             {
@@ -270,7 +270,25 @@ def test_google_oauth_refresh_access_token_sends_client_secret_when_configured()
     assert requests_module.post_calls[0][1]["client_secret"] == "client-secret"
 
 
-def test_google_oauth_provider_refresh_preserves_scopes_when_response_omits_scope() -> None:
+def test_google_oauth_refresh_access_token_marks_invalid_grant() -> None:
+    flow = GoogleOAuthFlow(
+        client_id="client-id",
+        requests_module=FakeRequests(
+            FakeResponse(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Token has been expired or revoked.",
+                },
+                status_code=400,
+            )
+        ),
+    )
+
+    with pytest.raises(OAuthTokenInvalidError, match="invalid or revoked"):
+        flow.refresh_access_token("refresh")
+
+
+def test_google_oauth_provider_refresh_preserves_omitted_scope() -> None:
     requests_module = FakeRequests(
         FakeResponse(
             {

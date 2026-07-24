@@ -14,6 +14,7 @@ from .exceptions import (
     OAuthLockTimeout,
     OAuthProviderNotFound,
     OAuthStorageError,
+    OAuthTokenInvalidError,
     OAuthTokenRefreshError,
 )
 from .locks import OAuthHeldLock, OAuthLockManager
@@ -42,6 +43,7 @@ __all__ = [
     "OAuthProviderNotFound",
     "OAuthRequest",
     "OAuthStorageError",
+    "OAuthTokenInvalidError",
     "OAuthTokenRefreshError",
     "OAuthTokenSet",
     "OAuthTokenStore",

@@ -17,7 +17,12 @@ import webbrowser
 import requests
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.oauth import OAuthEventSink, OAuthRequest, OAuthTokenSet
+from titan_cli.core.oauth import (
+    OAuthEventSink,
+    OAuthRequest,
+    OAuthTokenInvalidError,
+    OAuthTokenSet,
+)
 
 
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -380,10 +385,14 @@ class GoogleOAuthFlow:
 
         if getattr(response, "status_code", 200) >= 400 or payload.get("error"):
             error = payload.get("error_description") or payload.get("error")
+            error_name = payload.get("error")
+            if operation == "refresh" and error_name == "invalid_grant":
+                raise OAuthTokenInvalidError(
+                    "Google OAuth refresh token is invalid or revoked."
+                )
             error_text = error.lower() if isinstance(error, str) else ""
-            if (
-                ("client_secret" in error_text or "client secret" in error_text)
-                and ("missing" in error_text or "invalid" in error_text)
+            if ("client_secret" in error_text or "client secret" in error_text) and (
+                "missing" in error_text or "invalid" in error_text
             ):
                 error = (
                     f"{error}. Enter the Client ID and Client Secret from the "

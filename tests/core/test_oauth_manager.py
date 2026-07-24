@@ -12,6 +12,7 @@ from titan_cli.core.oauth import (
     OAuthLockManager,
     OAuthManager,
     OAuthRequest,
+    OAuthTokenInvalidError,
     OAuthTokenSet,
     OAuthTokenStore,
     QueuedOAuthEventSink,
@@ -406,11 +407,51 @@ def test_oauth_manager_interactive_authorizes_after_refresh_failure(
     assert provider.authorize_calls == 1
     stored_payload = json.loads(secrets.values[old_secret_key])
     assert stored_payload["refresh_token"] == "new-refresh-token"
-    assert "oauth.refresh.stale_deleted" in [event.type for event in sink.events]
+    assert "oauth.refresh.stale_deleted" not in [event.type for event in sink.events]
+    assert secrets.delete_calls == []
+
+
+def test_oauth_manager_keeps_stored_token_when_refresh_and_relogin_fail(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("FIREBASE_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager()
+    request = _request(interactive=True)
+    store = OAuthTokenStore(secrets)
+    old_secret_key = store.write(
+        request,
+        OAuthTokenSet(
+            access_token="expired-token",
+            refresh_token="old-refresh-token",
+            expires_at=1,
+        ),
+    )
+    old_payload = secrets.scoped_values[("user", "titan", old_secret_key)]
+
+    class BrokenReauthorizingProvider:
+        async def refresh(self, request, token_set, sink):
+            raise RuntimeError("temporary network failure")
+
+        async def authorize(self, request, sink):
+            raise OAuthAuthorizationError("user cancelled")
+
+    manager = OAuthManager(
+        secrets,
+        providers={"google": BrokenReauthorizingProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+    )
+
+    with pytest.raises(OAuthAuthorizationError, match="user cancelled"):
+        asyncio.run(manager.get_credential(request))
+
+    assert secrets.delete_calls == []
+    assert secrets.scoped_values[("user", "titan", old_secret_key)] == old_payload
 
 
 @pytest.mark.parametrize("storage_scope", ["env", "project"])
-def test_oauth_manager_relogin_preserves_stale_token_storage_scope(
+def test_oauth_manager_deletes_explicitly_invalid_token_before_relogin(
     monkeypatch,
     tmp_path,
     storage_scope,
@@ -431,7 +472,7 @@ def test_oauth_manager_relogin_preserves_stale_token_storage_scope(
 
     class ReauthorizingProvider:
         async def refresh(self, request, token_set, sink):
-            raise RuntimeError("refresh token revoked")
+            raise OAuthTokenInvalidError("refresh token revoked")
 
         async def authorize(self, request, sink):
             return OAuthTokenSet(

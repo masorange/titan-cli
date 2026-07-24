@@ -25,5 +25,9 @@ class OAuthTokenRefreshError(OAuthError):
     """Raised when an OAuth provider cannot refresh an expired credential."""
 
 
+class OAuthTokenInvalidError(OAuthTokenRefreshError):
+    """Raised when a stored OAuth refresh token is explicitly invalid."""
+
+
 class OAuthLockTimeout(OAuthError):
     """Raised when a credential lock cannot be acquired in time."""
