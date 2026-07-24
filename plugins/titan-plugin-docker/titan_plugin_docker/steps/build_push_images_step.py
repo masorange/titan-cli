@@ -68,7 +68,7 @@ def build_push_images_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text(f"Building {target.name} ({target.platforms})...")
 
         console = TextArea(read_only=True, show_line_numbers=False, soft_wrap=False)
-        console.styles.height = 14
+        console.styles.height = 40
         console.styles.border = ("round", "gray")
         ctx.textual.mount(console)
 

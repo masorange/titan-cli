@@ -32,7 +32,7 @@ Use these steps to resolve which services to operate on and drive the compose li
 
 Use this step to build (and push, per target config) configured Docker images.
 
-- `build_push_images`: build every configured `build_targets` entry, or a single one when `build_target_name` is set in the workflow context, saving `docker_build_results` to the workflow context. Streams `docker buildx build` output into a live scrollable console per target instead of a plain spinner.
+- `build_push_images`: build every configured `build_targets` entry, or a single one when `build_target_name` is set in the workflow context, saving `docker_build_results` to the workflow context. Streams `docker buildx build` output into a live, read-only text area per target (mouse-selectable and copyable) instead of a plain spinner.
 
 ## Prune
 
