@@ -1225,12 +1225,14 @@ def test_file_lock_retries_lock_contention_error(tmp_path) -> None:
         poll_interval_seconds=0,
     )
     attempts = 0
+    original_try_acquire_once = lock._try_acquire_once
 
     def try_acquire_once() -> None:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
             raise BlockingIOError(errno.EAGAIN, "resource temporarily unavailable")
+        original_try_acquire_once()
 
     lock._try_acquire_once = try_acquire_once
 
