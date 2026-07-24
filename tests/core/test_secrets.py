@@ -144,6 +144,31 @@ def test_project_scope_updates_process_env_when_it_mirrors_project(
     assert resolved.scope == "project"
 
 
+def test_project_scope_updates_stay_coherent_across_instances(
+    tmp_project_path,
+    mock_env,
+):
+    first = SecretManager(project_path=tmp_project_path)
+    second = SecretManager(project_path=tmp_project_path)
+
+    first.set("project_token", "first_value", scope="project")
+    second.set("project_token", "final_value", scope="project")
+
+    secrets_file = tmp_project_path / ".titan" / "secrets.env"
+    assert "PROJECT_TOKEN='final_value'" in secrets_file.read_text()
+    assert os.environ["PROJECT_TOKEN"] == "final_value"
+
+    first_resolved = first.get_with_scope("project_token")
+    second_resolved = second.get_with_scope("project_token")
+
+    assert first_resolved is not None
+    assert first_resolved.value == "final_value"
+    assert first_resolved.scope == "project"
+    assert second_resolved is not None
+    assert second_resolved.value == "final_value"
+    assert second_resolved.scope == "project"
+
+
 def test_project_scope_does_not_update_real_env_even_when_values_match(
     tmp_project_path,
     mock_env,
