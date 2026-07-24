@@ -103,7 +103,12 @@ class OAuthTokenSet:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "access_token", self.access_token.strip())
+        if not isinstance(self.access_token, str):
+            raise ValueError("OAuth access_token must be a string.")
+        access_token = self.access_token.strip()
+        if not access_token:
+            raise ValueError("OAuth access_token is required.")
+        object.__setattr__(self, "access_token", access_token)
         object.__setattr__(
             self,
             "refresh_token",

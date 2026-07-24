@@ -114,6 +114,17 @@ def test_oauth_token_set_normalizes_scalar_scope() -> None:
     assert token_set.scopes == ("openid",)
 
 
+@pytest.mark.parametrize("access_token", ["", "   "])
+def test_oauth_token_set_rejects_empty_access_token(access_token: str) -> None:
+    with pytest.raises(ValueError, match="access_token"):
+        OAuthTokenSet(access_token=access_token)
+
+
+def test_oauth_token_set_rejects_non_string_access_token() -> None:
+    with pytest.raises(ValueError, match="access_token"):
+        OAuthTokenSet(access_token=123)
+
+
 def test_oauth_token_set_from_dict_rejects_non_string_refresh_token() -> None:
     with pytest.raises(ValueError, match="refresh_token"):
         OAuthTokenSet.from_dict(
@@ -315,10 +326,6 @@ def test_oauth_manager_refresh_preserves_omitted_refresh_token(
 @pytest.mark.parametrize(
     "token_factory",
     [
-        pytest.param(
-            lambda: OAuthTokenSet(access_token=""),
-            id="empty-access-token",
-        ),
         pytest.param(
             lambda: OAuthTokenSet(
                 access_token="fresh-token",
@@ -585,10 +592,6 @@ def test_oauth_manager_wraps_authorization_errors(monkeypatch, tmp_path) -> None
 @pytest.mark.parametrize(
     "token_factory",
     [
-        pytest.param(
-            lambda: OAuthTokenSet(access_token=""),
-            id="empty-access-token",
-        ),
         pytest.param(
             lambda: OAuthTokenSet(
                 access_token="login-token",
