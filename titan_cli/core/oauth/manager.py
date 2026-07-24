@@ -232,6 +232,10 @@ class OAuthManager:
                         raise OAuthTokenRefreshError(str(exc)) from exc
                     reauthorize_storage_scope = storage_scope
                 else:
+                    refreshed = self._preserve_refresh_state(
+                        stored_token_set.token_set,
+                        refreshed,
+                    )
                     self.token_store.write(request, refreshed, scope=storage_scope)
                     credential = self._credential_from_token_set(
                         request,
@@ -446,6 +450,21 @@ class OAuthManager:
                     source=f"keyring:{secret_key}",
                 )
         return None
+
+    def _preserve_refresh_state(
+        self,
+        previous: OAuthTokenSet,
+        refreshed: OAuthTokenSet,
+    ) -> OAuthTokenSet:
+        """Keep refresh metadata that providers may omit when unchanged."""
+        return OAuthTokenSet(
+            access_token=refreshed.access_token,
+            refresh_token=refreshed.refresh_token or previous.refresh_token,
+            expires_at=refreshed.expires_at,
+            token_type=refreshed.token_type,
+            scopes=refreshed.scopes or previous.scopes,
+            metadata=refreshed.metadata,
+        )
 
     def _credential_from_token_set(
         self,

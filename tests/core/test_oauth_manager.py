@@ -265,6 +265,51 @@ def test_oauth_manager_refresh_preserves_original_storage_scope(
     assert stored_payload["access_token"] == "fresh-token"
 
 
+def test_oauth_manager_refresh_preserves_omitted_refresh_token(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager()
+    request = _request()
+    store = OAuthTokenStore(secrets)
+    secret_key = store.write(
+        request,
+        OAuthTokenSet(
+            access_token="almost-expired-token",
+            refresh_token="stable-refresh-token",
+            expires_at=int(time.time()) + 120,
+            scopes=("resource.read",),
+        ),
+    )
+
+    class RefreshProvider:
+        async def refresh(self, request, token_set, sink):
+            return OAuthTokenSet(
+                access_token="fresh-token",
+                expires_at=int(time.time()) + 3600,
+            )
+
+        async def authorize(self, request, sink):
+            raise AssertionError("authorize should not run")
+
+    manager = OAuthManager(
+        secrets,
+        providers={"google": RefreshProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+        refresh_margin_seconds=300,
+    )
+
+    credential = asyncio.run(manager.get_credential(request))
+
+    assert credential.access_token == "fresh-token"
+    assert credential.source == "oauth-refresh"
+    stored_payload = json.loads(secrets.values[secret_key])
+    assert stored_payload["refresh_token"] == "stable-refresh-token"
+    assert stored_payload["scopes"] == ["resource.read"]
+
+
 def test_oauth_manager_refreshes_before_legacy_secret(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
     secrets = FakeSecretManager({"demo_legacy_access_token": "legacy-token"})
