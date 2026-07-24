@@ -167,7 +167,9 @@ class OAuthManager:
                 return credential
 
             stored_token_set = self.token_store.read_with_scope(request)
-            reauthorize_storage_scope: ScopeType = "user"
+            reauthorize_storage_scope: ScopeType = (
+                stored_token_set.scope if stored_token_set else "user"
+            )
             if stored_token_set and stored_token_set.token_set.refresh_token:
                 storage_scope = stored_token_set.scope
                 self._emit(

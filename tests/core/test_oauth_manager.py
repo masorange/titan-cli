@@ -529,6 +529,55 @@ def test_oauth_manager_interactive_authorizes_after_refresh_failure(
     assert secrets.delete_calls == []
 
 
+@pytest.mark.parametrize("storage_scope", ["env", "project"])
+def test_oauth_manager_relogin_preserves_scope_for_token_without_refresh_token(
+    monkeypatch,
+    tmp_path,
+    storage_scope,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager()
+    request = _request(interactive=True)
+    store = OAuthTokenStore(secrets)
+    old_secret_key = store.write(
+        request,
+        OAuthTokenSet(
+            access_token="expired-token",
+            expires_at=1,
+        ),
+        scope=storage_scope,
+    )
+
+    class ReauthorizingProvider:
+        async def refresh(self, request, token_set, sink):
+            raise AssertionError("refresh should not run without refresh_token")
+
+        async def authorize(self, request, sink):
+            return OAuthTokenSet(
+                access_token="new-login-token",
+                refresh_token="new-refresh-token",
+                expires_at=int(time.time()) + 3600,
+            )
+
+    manager = OAuthManager(
+        secrets,
+        providers={"google": ReauthorizingProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+    )
+
+    credential = asyncio.run(manager.get_credential(request))
+
+    assert credential.access_token == "new-login-token"
+    assert secrets.set_calls[-1][0] == old_secret_key
+    assert secrets.set_calls[-1][2] == storage_scope
+    assert ("user", "titan", old_secret_key) not in secrets.scoped_values
+    stored_payload = json.loads(
+        secrets.scoped_values[(storage_scope, "titan", old_secret_key)]
+    )
+    assert stored_payload["access_token"] == "new-login-token"
+
+
 def test_oauth_manager_keeps_stored_token_when_refresh_and_relogin_fail(
     monkeypatch,
     tmp_path,
