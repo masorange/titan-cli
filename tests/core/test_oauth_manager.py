@@ -275,6 +275,83 @@ def test_oauth_manager_reads_legacy_secret_key(monkeypatch, tmp_path) -> None:
     assert credential.source == "keyring:demo_firebase_access_token"
 
 
+def test_oauth_manager_interactive_uses_legacy_before_authorization(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("FIREBASE_ACCESS_TOKEN", raising=False)
+
+    class AuthorizingProvider:
+        def __init__(self) -> None:
+            self.authorize_calls = 0
+
+        async def refresh(self, request, token_set, sink):
+            raise AssertionError("refresh should not run")
+
+        async def authorize(self, request, sink):
+            self.authorize_calls += 1
+            return OAuthTokenSet(access_token="browser-token")
+
+    provider = AuthorizingProvider()
+    manager = _manager(
+        FakeSecretManager({"demo_firebase_access_token": " legacy-token "}),
+        tmp_path,
+        providers={"google": provider},
+    )
+
+    credential = asyncio.run(manager.get_credential(_request(interactive=True)))
+
+    assert credential.access_token == "legacy-token"
+    assert credential.source == "keyring:demo_firebase_access_token"
+    assert provider.authorize_calls == 0
+
+
+def test_oauth_manager_refresh_failure_checks_legacy_before_authorization(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("FIREBASE_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager({"demo_firebase_access_token": " legacy-token "})
+    request = _request(interactive=True)
+    store = OAuthTokenStore(secrets)
+    store.write(
+        request,
+        OAuthTokenSet(
+            access_token="expired-oauth-token",
+            refresh_token="refresh-token",
+            expires_at=1,
+        ),
+    )
+
+    class RefreshThenAuthorizeProvider:
+        def __init__(self) -> None:
+            self.refresh_calls = 0
+            self.authorize_calls = 0
+
+        async def refresh(self, request, token_set, sink):
+            self.refresh_calls += 1
+            raise RuntimeError("temporary refresh failure")
+
+        async def authorize(self, request, sink):
+            self.authorize_calls += 1
+            return OAuthTokenSet(access_token="browser-token")
+
+    provider = RefreshThenAuthorizeProvider()
+    manager = OAuthManager(
+        secrets,
+        providers={"google": provider},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+    )
+
+    credential = asyncio.run(manager.get_credential(request))
+
+    assert credential.access_token == "legacy-token"
+    assert credential.source == "keyring:demo_firebase_access_token"
+    assert provider.refresh_calls == 1
+    assert provider.authorize_calls == 0
+
+
 def test_oauth_manager_raises_when_no_credential(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("FIREBASE_ACCESS_TOKEN", raising=False)
     manager = _manager(FakeSecretManager(), tmp_path)

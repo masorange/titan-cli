@@ -240,6 +240,19 @@ class OAuthManager:
                     self._emit_resolved(event_sink, operation_id, request, credential)
                     return credential
 
+            legacy_credential = self._credential_from_legacy_secret(
+                request,
+                credential_key,
+            )
+            if legacy_credential:
+                self._emit_resolved(
+                    event_sink,
+                    operation_id,
+                    request,
+                    legacy_credential,
+                )
+                return legacy_credential
+
             if request.interactive:
                 self._emit(
                     event_sink,
@@ -284,19 +297,6 @@ class OAuthManager:
                 )
                 self._emit_resolved(event_sink, operation_id, request, credential)
                 return credential
-
-            legacy_credential = self._credential_from_legacy_secret(
-                request,
-                credential_key,
-            )
-            if legacy_credential:
-                self._emit_resolved(
-                    event_sink,
-                    operation_id,
-                    request,
-                    legacy_credential,
-                )
-                return legacy_credential
 
             self._emit(
                 event_sink,
