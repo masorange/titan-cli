@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
 
-from ..exceptions import FirebaseClientError
+from ..exceptions import FirebaseAuthRejectedError, FirebaseClientError
+from .auth_retry import reauthenticate_after_rejected_token
 
 
 def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResult:
@@ -55,14 +56,27 @@ def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResu
             ctx.textual.end_step("error")
         return Error(message)
 
-    loading = (
-        ctx.textual.loading(f"Reading Remote Config for {project_id}...")
-        if ctx.textual
-        else nullcontext()
-    )
+    loading_message = f"Reading Remote Config for {project_id}..."
     try:
-        with loading:
+        with _loading(ctx, loading_message):
             remote_config = ctx.firebase.get_remote_config(str(project_id))
+    except FirebaseAuthRejectedError as exc:
+        retry_error = reauthenticate_after_rejected_token(ctx, exc)
+        if retry_error:
+            if ctx.textual:
+                ctx.textual.error_text(retry_error.message)
+                ctx.textual.end_step("error")
+            return retry_error
+
+        try:
+            with _loading(ctx, loading_message):
+                remote_config = ctx.firebase.get_remote_config(str(project_id))
+        except FirebaseClientError as retry_exc:
+            message = str(retry_exc)
+            if ctx.textual:
+                ctx.textual.error_text(message)
+                ctx.textual.end_step("error")
+            return Error(message, exception=retry_exc)
     except FirebaseClientError as exc:
         message = str(exc)
         if ctx.textual:
@@ -72,7 +86,9 @@ def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResu
 
     if ctx.textual:
         version = remote_config.version or {}
-        version_number = version.get("versionNumber") if isinstance(version, dict) else None
+        version_number = (
+            version.get("versionNumber") if isinstance(version, dict) else None
+        )
         suffix = f" version {version_number}" if version_number else ""
         ctx.textual.success_text(
             f"Remote Config template loaded for {remote_config.project_id}{suffix}"
@@ -88,3 +104,10 @@ def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResu
             "firebase_remoteconfig_version": remote_config.version,
         },
     )
+
+
+def _loading(ctx: WorkflowContext, message: str) -> AbstractContextManager[object]:
+    """Return a fresh loading context for each request attempt."""
+    if ctx.textual:
+        return ctx.textual.loading(message)
+    return nullcontext()

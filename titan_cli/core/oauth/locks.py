@@ -1,0 +1,199 @@
+"""Credential-scoped locks for OAuth operations."""
+
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+import hashlib
+import os
+from pathlib import Path
+import threading
+import time
+
+from .exceptions import OAuthLockTimeout
+
+
+class _FileLock:
+    """Small cross-process file lock with no third-party dependency."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        timeout_seconds: float | None,
+        poll_interval_seconds: float,
+    ) -> None:
+        self.path = path
+        self.timeout_seconds = timeout_seconds
+        self.poll_interval_seconds = poll_interval_seconds
+        self._handle = None
+        self._acquired = False
+
+    def acquire(self) -> None:
+        """Acquire the file lock, waiting up to timeout_seconds."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = open(self.path, "a+")
+        start = time.monotonic()
+
+        while True:
+            try:
+                self._try_acquire_once()
+                self._acquired = True
+                return
+            except (BlockingIOError, OSError):
+                if self._timed_out(start):
+                    self._close_handle()
+                    raise OAuthLockTimeout(
+                        f"Timed out waiting for OAuth lock '{self.path.name}'."
+                    )
+                time.sleep(self.poll_interval_seconds)
+
+    def release(self) -> None:
+        """Release the file lock."""
+        if not self._handle:
+            return
+
+        try:
+            if self._acquired:
+                if os.name == "nt":
+                    import msvcrt
+
+                    self._handle.seek(0)
+                    msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._acquired = False
+            self._close_handle()
+
+    def _try_acquire_once(self) -> None:
+        if not self._handle:
+            raise RuntimeError("File lock handle is not open.")
+
+        if os.name == "nt":
+            import msvcrt
+
+            self._handle.seek(0)
+            self._handle.write("0")
+            self._handle.flush()
+            self._handle.seek(0)
+            msvcrt.locking(self._handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+
+        import fcntl
+
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _timed_out(self, start: float) -> bool:
+        if self.timeout_seconds is None:
+            return False
+        return time.monotonic() - start >= self.timeout_seconds
+
+    def _close_handle(self) -> None:
+        if self._handle:
+            self._handle.close()
+            self._handle = None
+
+
+@dataclass
+class OAuthHeldLock:
+    """A held OAuth credential lock."""
+
+    key: str
+    thread_lock: threading.Lock
+    file_lock: _FileLock | None = None
+
+    def release(self) -> None:
+        """Release file and in-process locks."""
+        try:
+            if self.file_lock:
+                self.file_lock.release()
+        finally:
+            self.thread_lock.release()
+
+
+class OAuthLockManager:
+    """Coordinates refresh/login for the same OAuth credential."""
+
+    def __init__(
+        self,
+        *,
+        lock_dir: Path | None = None,
+        poll_interval_seconds: float = 0.05,
+        enable_file_locks: bool = True,
+    ) -> None:
+        self.lock_dir = lock_dir or Path.home() / ".titan" / "oauth" / "locks"
+        self.poll_interval_seconds = poll_interval_seconds
+        self.enable_file_locks = enable_file_locks
+        self._guard = threading.Lock()
+        self._locks: dict[str, threading.Lock] = {}
+
+    async def acquire(
+        self,
+        key: str,
+        *,
+        timeout_seconds: float | None = 60,
+    ) -> OAuthHeldLock:
+        """Acquire a credential lock without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.acquire_blocking,
+            key,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def acquire_blocking(
+        self,
+        key: str,
+        *,
+        timeout_seconds: float | None = 60,
+    ) -> OAuthHeldLock:
+        """Acquire a credential lock from synchronous code."""
+        thread_lock = self._get_thread_lock(key)
+        if timeout_seconds is None:
+            acquired = thread_lock.acquire()
+        else:
+            acquired = thread_lock.acquire(timeout=timeout_seconds)
+
+        if not acquired:
+            raise OAuthLockTimeout(f"Timed out waiting for OAuth lock '{key}'.")
+
+        file_lock = None
+        try:
+            if self.enable_file_locks:
+                file_lock = _FileLock(
+                    self._lock_path(key),
+                    timeout_seconds=timeout_seconds,
+                    poll_interval_seconds=self.poll_interval_seconds,
+                )
+                file_lock.acquire()
+            return OAuthHeldLock(key=key, thread_lock=thread_lock, file_lock=file_lock)
+        except Exception:
+            thread_lock.release()
+            raise
+
+    @asynccontextmanager
+    async def lock(
+        self,
+        key: str,
+        *,
+        timeout_seconds: float | None = 60,
+    ):
+        """Async context manager for a credential lock."""
+        held_lock = await self.acquire(key, timeout_seconds=timeout_seconds)
+        try:
+            yield held_lock
+        finally:
+            await asyncio.to_thread(held_lock.release)
+
+    def _get_thread_lock(self, key: str) -> threading.Lock:
+        with self._guard:
+            if key not in self._locks:
+                self._locks[key] = threading.Lock()
+            return self._locks[key]
+
+    def _lock_path(self, key: str) -> Path:
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        return self.lock_dir / f"{digest}.lock"

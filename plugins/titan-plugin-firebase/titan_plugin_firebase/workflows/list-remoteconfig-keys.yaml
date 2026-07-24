@@ -1,0 +1,14 @@
+name: "List Firebase Remote Config Keys"
+description: "List Remote Config keys across configured Firebase brand projects"
+params:
+  continue_on_error: true
+steps:
+  - id: firebase_login
+    name: "Validate Firebase Auth"
+    plugin: firebase
+    step: firebase_login
+
+  - id: firebase_remoteconfig_inventory
+    name: "Build Remote Config Key Inventory"
+    plugin: firebase
+    step: firebase_remoteconfig_inventory

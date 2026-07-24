@@ -6,11 +6,11 @@
       "steps": [
         {
           "name": "firebase_login",
-          "summary": "Validate the current user's Google Cloud ADC session for Firebase workflows."
+          "summary": "Validate Firebase OAuth auth from Titan OAuth store, env var, or Google Cloud ADC."
         },
         {
           "name": "firebase_status",
-          "summary": "Report the current Firebase ADC authentication status."
+          "summary": "Report the current Firebase OAuth authentication status."
         }
       ]
     },
@@ -20,6 +20,10 @@
         {
           "name": "firebase_remoteconfig_get",
           "summary": "Read one Firebase project's Remote Config template and expose its ETag."
+        },
+        {
+          "name": "firebase_remoteconfig_inventory",
+          "summary": "Build a key inventory across configured Firebase brand projects."
         }
       ]
     }
@@ -30,25 +34,30 @@
       "group": "Authentication",
       "module": "titan_plugin_firebase.steps.login_step",
       "function": "execute_firebase_login_step",
-      "summary": "Validate that the current user has a Firebase ADC session.",
+      "summary": "Validate that the current user has Firebase OAuth authentication.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
         ],
         "Inputs (from ctx.data)": [
-          "    fail_on_missing_auth (bool, optional): Return Error when ADC is missing. Defaults to True."
+          "    fail_on_missing_auth (bool, optional): Return Error when auth is missing. Defaults to True.",
+          "    prompt_for_missing_auth (bool, optional): Prompt for Google OAuth setup/login when auth is missing. Defaults to True."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_account (Optional[str]): Active gcloud account reported by `gcloud auth list`.",
-          "    firebase_login_command (str): Command the user can run to create an ADC session."
+          "    firebase_login_command (str): Command the user can run to create an ADC session.",
+          "    firebase_access_token_saved (bool): Whether this step saved a token to Titan's OAuth token store.",
+          "    firebase_oauth_login_completed (bool): Whether this step completed browser OAuth login."
         ],
         "Returns": [
-          "    Success: If gcloud ADC is available.",
-          "    Error: If Firebase client or ADC auth is missing and fail_on_missing_auth is True.",
-          "    Skip: If ADC auth is missing and fail_on_missing_auth is False."
+          "    Success: If Firebase OAuth auth is available.",
+          "    Error: If Firebase client or auth is missing and fail_on_missing_auth is True.",
+          "    Skip: If auth is missing and fail_on_missing_auth is False."
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "list-remoteconfig-keys"
+      ]
     },
     {
       "name": "firebase_remoteconfig_get",
@@ -78,26 +87,67 @@
       "used_by_workflows": []
     },
     {
-      "name": "firebase_status",
-      "group": "Authentication",
-      "module": "titan_plugin_firebase.steps.login_step",
-      "function": "execute_firebase_status_step",
-      "summary": "Report the current Firebase ADC authentication status.",
+      "name": "firebase_remoteconfig_inventory",
+      "group": "Remote Config",
+      "module": "titan_plugin_firebase.steps.remoteconfig_inventory_step",
+      "function": "execute_firebase_remoteconfig_inventory_step",
+      "summary": "Build a key inventory across configured Firebase Remote Config projects.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
         ],
         "Inputs (from ctx.data)": [
-          "    fail_on_missing_auth (bool, optional): Return Error when ADC is missing. Defaults to True."
+          "    project_targets (list[dict], optional): Explicit Firebase project targets.",
+          "    firebase_project_targets (list[dict], optional): Alternate explicit target key.",
+          "    projects (list[dict|str], optional): Firebase project targets or project IDs.",
+          "    brand_projects (dict, optional): Brand/environment project mapping override.",
+          "    brand (str, optional): Single brand filter.",
+          "    brands (list[str]|str, optional): Brand filter list or comma-separated string.",
+          "    environment (str, optional): Single environment filter.",
+          "    environments (list[str]|str, optional): Environment filter list or comma-separated string.",
+          "    continue_on_error (bool, optional): Continue when one project read fails. Defaults to True."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_remoteconfig_inventory (dict): Aggregated inventory payload.",
+          "    firebase_remoteconfig_keys (list[dict]): Unique key inventory rows.",
+          "    firebase_remoteconfig_targets (list[dict]): Project targets that were requested.",
+          "    firebase_remoteconfig_project_count (int): Number of projects read successfully.",
+          "    firebase_remoteconfig_key_count (int): Number of unique keys found.",
+          "    firebase_remoteconfig_failures (list[dict]): Project read failures, when any."
+        ],
+        "Returns": [
+          "    Success: If at least one project is read and key inventory is built.",
+          "    Error: If Firebase is unavailable, no targets are configured, or all project reads fail."
+        ]
+      },
+      "used_by_workflows": [
+        "list-remoteconfig-keys"
+      ]
+    },
+    {
+      "name": "firebase_status",
+      "group": "Authentication",
+      "module": "titan_plugin_firebase.steps.login_step",
+      "function": "execute_firebase_status_step",
+      "summary": "Report the current Firebase OAuth authentication status.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    fail_on_missing_auth (bool, optional): Return Error when auth is missing. Defaults to True.",
+          "    prompt_for_missing_auth (bool, optional): Prompt for Google OAuth setup/login when auth is missing. Defaults to False."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_account (Optional[str]): Active gcloud account reported by `gcloud auth list`.",
-          "    firebase_login_command (str): Command the user can run to create an ADC session."
+          "    firebase_login_command (str): Command the user can run to create an ADC session.",
+          "    firebase_access_token_saved (bool): Whether this step saved a token to Titan's OAuth token store.",
+          "    firebase_oauth_login_completed (bool): Whether this step completed browser OAuth login."
         ],
         "Returns": [
-          "    Success: If gcloud ADC is available.",
-          "    Error: If Firebase client or ADC auth is missing and fail_on_missing_auth is True.",
-          "    Skip: If ADC auth is missing and fail_on_missing_auth is False."
+          "    Success: If Firebase OAuth auth is available.",
+          "    Error: If Firebase client or auth is missing and fail_on_missing_auth is True.",
+          "    Skip: If auth is missing and fail_on_missing_auth is False."
         ]
       },
       "used_by_workflows": []

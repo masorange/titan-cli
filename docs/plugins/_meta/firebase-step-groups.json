@@ -6,11 +6,11 @@
       "steps": [
         {
           "name": "firebase_login",
-          "summary": "Validate the current user's Google Cloud ADC session for Firebase workflows."
+          "summary": "Validate Firebase OAuth auth from Titan OAuth store, env var, or Google Cloud ADC."
         },
         {
           "name": "firebase_status",
-          "summary": "Report the current Firebase ADC authentication status."
+          "summary": "Report the current Firebase OAuth authentication status."
         }
       ]
     },
@@ -20,6 +20,10 @@
         {
           "name": "firebase_remoteconfig_get",
           "summary": "Read one Firebase project's Remote Config template and expose its ETag."
+        },
+        {
+          "name": "firebase_remoteconfig_inventory",
+          "summary": "Build a key inventory across configured Firebase brand projects."
         }
       ]
     }
