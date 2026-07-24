@@ -1,9 +1,11 @@
 import asyncio
 import json
+import threading
 import time
 
 import pytest
 
+import titan_cli.core.oauth.locks as oauth_locks
 from titan_cli.core.oauth import (
     CollectingOAuthEventSink,
     OAuthAuthenticationRequired,
@@ -617,6 +619,51 @@ def test_oauth_lock_async_acquire_cancellation_does_not_leak_lock(tmp_path) -> N
         next_lock.release()
 
     asyncio.run(exercise_cancelled_acquire())
+
+
+def test_oauth_lock_file_lock_uses_remaining_timeout(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    captured_timeouts = []
+
+    class FakeFileLock:
+        def __init__(
+            self,
+            path,
+            *,
+            timeout_seconds,
+            poll_interval_seconds,
+        ) -> None:
+            captured_timeouts.append(timeout_seconds)
+
+        def acquire(self, cancel_event=None) -> None:
+            return None
+
+        def release(self) -> None:
+            return None
+
+    monkeypatch.setattr(oauth_locks, "_FileLock", FakeFileLock)
+    manager = OAuthLockManager(
+        lock_dir=tmp_path,
+        enable_file_locks=True,
+        poll_interval_seconds=0.01,
+    )
+    thread_lock = manager._get_thread_lock("firebase:demo")
+    thread_lock.acquire()
+
+    def release_thread_lock() -> None:
+        time.sleep(0.05)
+        thread_lock.release()
+
+    releaser = threading.Thread(target=release_thread_lock)
+    releaser.start()
+    held_lock = manager.acquire_blocking("firebase:demo", timeout_seconds=0.5)
+    held_lock.release()
+    releaser.join()
+
+    assert captured_timeouts
+    assert 0 < captured_timeouts[0] < 0.5
 
 
 def test_queued_oauth_event_sink_drains_events() -> None:

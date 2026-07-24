@@ -176,11 +176,13 @@ class OAuthLockManager:
         _cancel_event: threading.Event | None = None,
     ) -> OAuthHeldLock:
         """Acquire a credential lock from synchronous code."""
+        started_at = time.monotonic()
         thread_lock = self._get_thread_lock(key)
         self._acquire_thread_lock(
             thread_lock,
             key,
             timeout_seconds=timeout_seconds,
+            started_at=started_at,
             cancel_event=_cancel_event,
         )
 
@@ -189,7 +191,10 @@ class OAuthLockManager:
             if self.enable_file_locks:
                 file_lock = _FileLock(
                     self._lock_path(key),
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=self._remaining_timeout(
+                        started_at,
+                        timeout_seconds,
+                    ),
                     poll_interval_seconds=self.poll_interval_seconds,
                 )
                 file_lock.acquire(cancel_event=_cancel_event)
@@ -218,21 +223,21 @@ class OAuthLockManager:
         key: str,
         *,
         timeout_seconds: float | None,
+        started_at: float,
         cancel_event: threading.Event | None,
     ) -> None:
         """Acquire an in-process lock while observing async cancellation."""
-        start = time.monotonic()
         while True:
             if cancel_event and cancel_event.is_set():
                 raise _OAuthLockAcquisitionCancelled
 
             acquired = thread_lock.acquire(
-                timeout=self._next_poll_timeout(start, timeout_seconds)
+                timeout=self._next_poll_timeout(started_at, timeout_seconds)
             )
             if acquired:
                 return
 
-            if self._timed_out(start, timeout_seconds):
+            if self._timed_out(started_at, timeout_seconds):
                 raise OAuthLockTimeout(f"Timed out waiting for OAuth lock '{key}'.")
 
     def _next_poll_timeout(
@@ -245,6 +250,16 @@ class OAuthLockManager:
             return self.poll_interval_seconds
         remaining = timeout_seconds - (time.monotonic() - start)
         return max(0.0, min(self.poll_interval_seconds, remaining))
+
+    def _remaining_timeout(
+        self,
+        start: float,
+        timeout_seconds: float | None,
+    ) -> float | None:
+        """Return remaining timeout budget from a shared acquisition start."""
+        if timeout_seconds is None:
+            return None
+        return max(0.0, timeout_seconds - (time.monotonic() - start))
 
     def _timed_out(self, start: float, timeout_seconds: float | None) -> bool:
         """Return whether a lock wait exceeded its timeout."""
