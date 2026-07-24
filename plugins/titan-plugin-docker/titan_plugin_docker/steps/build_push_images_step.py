@@ -1,5 +1,5 @@
 # plugins/titan-plugin-docker/titan_plugin_docker/steps/build_push_images_step.py
-from textual.widgets import Log
+from textual.widgets import TextArea
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.core.result import ClientSuccess, ClientError
@@ -8,12 +8,27 @@ from ..operations import resolve_build_targets
 from ..exceptions import DockerError
 
 
+def _make_on_output(app, console: TextArea):
+    def _append_line(line: str) -> None:
+        console.insert(f"{line}\n", location=console.document.end)
+        console.scroll_end(animate=False)
+
+    def on_output(line: str) -> None:
+        try:
+            app.call_from_thread(_append_line, line)
+        except Exception:
+            pass
+
+    return on_output
+
+
 def build_push_images_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Build (and push, per target config) one or all configured Docker images.
 
-    Streams `docker buildx build` output into a live scrollable console per
-    target, instead of a plain spinner, so progress is visible for long builds.
+    Streams `docker buildx build` output into a live, selectable/copyable
+    text area per target, instead of a plain spinner, so progress is visible
+    for long builds and the log can be copied out.
 
     Inputs (from ctx.data):
         build_target_name (str, optional): Name of a single configured build target
@@ -52,18 +67,12 @@ def build_push_images_step(ctx: WorkflowContext) -> WorkflowResult:
     for target in targets:
         ctx.textual.dim_text(f"Building {target.name} ({target.platforms})...")
 
-        console = Log(highlight=False)
+        console = TextArea(read_only=True, show_line_numbers=False, soft_wrap=False)
         console.styles.height = 14
         console.styles.border = ("round", "gray")
         ctx.textual.mount(console)
 
-        def on_output(line: str, console=console) -> None:
-            try:
-                ctx.textual.app.call_from_thread(console.write_line, line)
-            except Exception:
-                pass
-
-        result = ctx.docker.build_target(target, on_output=on_output)
+        result = ctx.docker.build_target(target, on_output=_make_on_output(ctx.textual.app, console))
 
         match result:
             case ClientSuccess(data=build_result):
