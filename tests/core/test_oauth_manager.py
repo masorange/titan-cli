@@ -68,6 +68,18 @@ class FakeSecretManager:
         self.delete_calls.append((key, scope))
 
 
+class FailingSecretManager(FakeSecretManager):
+    def set(
+        self,
+        key: str,
+        value: str,
+        namespace: str = "titan",
+        scope: str = "user",
+    ) -> None:
+        self.set_calls.append((key, value, scope))
+        raise RuntimeError("keyring unavailable")
+
+
 def _manager(
     secrets: FakeSecretManager,
     tmp_path,
@@ -95,6 +107,25 @@ def _request(**overrides) -> OAuthRequest:
     }
     defaults.update(overrides)
     return OAuthRequest(**defaults)
+
+
+def _store_token_payload(
+    secrets: FakeSecretManager,
+    request: OAuthRequest,
+    token_set: OAuthTokenSet,
+    *,
+    scope: str = "user",
+) -> tuple[OAuthTokenStore, str]:
+    store = OAuthTokenStore(secrets)
+    secret_key = store.build_secret_key(request)
+    payload = json.dumps(
+        token_set.to_dict(),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    secrets.values[secret_key] = payload
+    secrets.scoped_values[(scope, "titan", secret_key)] = payload
+    return store, secret_key
 
 
 def _unsafe_oauth_token_set(**overrides) -> OAuthTokenSet:
@@ -925,6 +956,112 @@ def test_oauth_manager_saves_one_json_blob(tmp_path) -> None:
     assert [call[0] for call in secrets.set_calls] == [secret_key]
 
 
+def test_oauth_manager_save_token_set_write_failure_emits_storage_failure(
+    tmp_path,
+) -> None:
+    secrets = FailingSecretManager()
+    manager = _manager(secrets, tmp_path)
+    sink = CollectingOAuthEventSink()
+
+    with pytest.raises(OAuthStorageError) as exc_info:
+        manager.save_token_set_blocking(
+            _request(),
+            OAuthTokenSet(access_token="manual-token"),
+            sink=sink,
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert [event.type for event in sink.events] == ["oauth.storage.failed"]
+    assert dict(sink.events[0].metadata) == {"phase": "storage"}
+
+
+def test_oauth_manager_refresh_write_failure_emits_refresh_failure(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FailingSecretManager()
+    request = _request()
+    store, _secret_key = _store_token_payload(
+        secrets,
+        request,
+        OAuthTokenSet(
+            access_token="expired-token",
+            refresh_token="refresh-token",
+            expires_at=1,
+        ),
+    )
+
+    class RefreshProvider:
+        async def refresh(self, request, token_set, sink):
+            return OAuthTokenSet(
+                access_token="fresh-token",
+                refresh_token=token_set.refresh_token,
+                expires_at=int(time.time()) + 3600,
+            )
+
+        async def authorize(self, request, sink):
+            raise AssertionError("authorize should not run")
+
+    sink = CollectingOAuthEventSink()
+    manager = OAuthManager(
+        secrets,
+        providers={"google": RefreshProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+    )
+
+    with pytest.raises(OAuthStorageError) as exc_info:
+        asyncio.run(manager.get_credential(request, sink=sink))
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert [event.type for event in sink.events] == [
+        "oauth.resolve.started",
+        "oauth.lock.acquired",
+        "oauth.refresh.started",
+        "oauth.refresh.failed",
+    ]
+    assert dict(sink.events[-1].metadata) == {"phase": "storage"}
+
+
+def test_oauth_manager_authorization_write_failure_emits_authorize_failure(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FailingSecretManager()
+
+    class AuthorizingProvider:
+        async def refresh(self, request, token_set, sink):
+            raise AssertionError("refresh should not run")
+
+        async def authorize(self, request, sink):
+            return OAuthTokenSet(
+                access_token="login-token",
+                refresh_token="refresh-token",
+                expires_at=int(time.time()) + 3600,
+            )
+
+    sink = CollectingOAuthEventSink()
+    manager = _manager(
+        secrets,
+        tmp_path,
+        providers={"google": AuthorizingProvider()},
+    )
+
+    with pytest.raises(OAuthStorageError) as exc_info:
+        asyncio.run(manager.get_credential(_request(interactive=True), sink=sink))
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert [event.type for event in sink.events] == [
+        "oauth.resolve.started",
+        "oauth.lock.acquired",
+        "oauth.authorize.started",
+        "oauth.authorize.failed",
+    ]
+    assert dict(sink.events[-1].metadata) == {"phase": "storage"}
+
+
 def test_oauth_token_store_wraps_json_serialization_errors() -> None:
     store = OAuthTokenStore(FakeSecretManager())
     token_set = OAuthTokenSet(
@@ -939,17 +1076,7 @@ def test_oauth_token_store_wraps_json_serialization_errors() -> None:
 
 
 def test_oauth_token_store_wraps_secret_write_errors() -> None:
-    class BrokenSecretManager(FakeSecretManager):
-        def set(
-            self,
-            key: str,
-            value: str,
-            namespace: str = "titan",
-            scope: str = "user",
-        ) -> None:
-            raise RuntimeError("keyring unavailable")
-
-    store = OAuthTokenStore(BrokenSecretManager())
+    store = OAuthTokenStore(FailingSecretManager())
 
     with pytest.raises(OAuthStorageError) as exc_info:
         store.write(_request(), OAuthTokenSet(access_token="manual-token"))

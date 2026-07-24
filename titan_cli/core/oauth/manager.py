@@ -15,6 +15,7 @@ from .exceptions import (
     OAuthAuthorizationError,
     OAuthError,
     OAuthProviderNotFound,
+    OAuthStorageError,
     OAuthTokenInvalidError,
     OAuthTokenRefreshError,
 )
@@ -260,7 +261,16 @@ class OAuthManager:
                         raise OAuthTokenRefreshError(str(exc)) from exc
                     reauthorize_storage_scope = storage_scope
                 else:
-                    self.token_store.write(request, refreshed, scope=storage_scope)
+                    self._write_token_set_or_emit_failure(
+                        request,
+                        refreshed,
+                        scope=storage_scope,
+                        sink=event_sink,
+                        operation_id=operation_id,
+                        credential_key=credential_key,
+                        failure_event_type="oauth.refresh.failed",
+                        failure_message="OAuth refreshed credential could not be saved.",
+                    )
                     credential = self._credential_from_token_set(
                         request,
                         credential_key,
@@ -319,10 +329,15 @@ class OAuthManager:
                         "OAuth authorization failed.",
                     )
                     raise OAuthAuthorizationError(str(exc)) from exc
-                self.token_store.write(
+                self._write_token_set_or_emit_failure(
                     request,
                     token_set,
                     scope=reauthorize_storage_scope,
+                    sink=event_sink,
+                    operation_id=operation_id,
+                    credential_key=credential_key,
+                    failure_event_type="oauth.authorize.failed",
+                    failure_message="OAuth authorized credential could not be saved.",
                 )
                 credential = self._credential_from_token_set(
                     request,
@@ -376,7 +391,16 @@ class OAuthManager:
         credential_key = build_oauth_credential_key(request)
 
         async with self.lock_manager.lock(credential_key):
-            secret_key = self.token_store.write(request, token_set, scope=scope)
+            secret_key = self._write_token_set_or_emit_failure(
+                request,
+                token_set,
+                scope=scope,
+                sink=event_sink,
+                operation_id=operation_id,
+                credential_key=credential_key,
+                failure_event_type="oauth.storage.failed",
+                failure_message="OAuth credential could not be saved.",
+            )
 
         self._emit(
             event_sink,
@@ -500,6 +524,33 @@ class OAuthManager:
                 legacy_credential,
             )
         return legacy_credential
+
+    def _write_token_set_or_emit_failure(
+        self,
+        request: OAuthRequest,
+        token_set: OAuthTokenSet,
+        *,
+        scope: ScopeType,
+        sink: OAuthEventSink,
+        operation_id: str,
+        credential_key: str,
+        failure_event_type: str,
+        failure_message: str,
+    ) -> str:
+        """Persist token data while preserving OAuth lifecycle semantics."""
+        try:
+            return self.token_store.write(request, token_set, scope=scope)
+        except OAuthStorageError:
+            self._emit(
+                sink,
+                failure_event_type,
+                operation_id,
+                request,
+                credential_key,
+                failure_message,
+                metadata={"phase": "storage"},
+            )
+            raise
 
     def _prepare_refresh_result(
         self,
