@@ -134,6 +134,33 @@ def test_firebase_login_prompts_client_pair_when_google_rejects_secret() -> None
     assert any("client secret" in msg.lower() for msg in warning_messages)
 
 
+def test_firebase_login_blank_replacement_client_id_uses_manual_token() -> None:
+    client = _firebase_client()
+    client.config = FirebasePluginConfig(
+        default_project="default-project",
+        oauth_client_id="stale-client-id",
+    )
+    client.is_available.side_effect = [False, True]
+    client.get_access_token.side_effect = FirebaseClientError(
+        "Firebase OAuth credential resolution failed: "
+        "Google OAuth exchange failed: The provided client secret is invalid."
+    )
+    client.get_access_token_source_label.return_value = "Titan OAuth token store"
+    ctx = _ctx(firebase=client)
+    ctx.textual.ask_text.return_value = " "
+    ctx.textual.ask_password.return_value = " ya29.manual-token "
+
+    result = execute_firebase_login_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_access_token_saved"] is True
+    assert result.metadata["firebase_oauth_login_completed"] is False
+    client.get_access_token.assert_called_once()
+    client.save_oauth_client_id.assert_not_called()
+    client.save_access_token.assert_called_once_with("ya29.manual-token")
+    ctx.textual.ask_text.assert_called_once()
+
+
 def test_firebase_login_prompts_and_saves_token_when_auth_missing() -> None:
     client = _firebase_client()
     client.is_available.side_effect = [False, True]

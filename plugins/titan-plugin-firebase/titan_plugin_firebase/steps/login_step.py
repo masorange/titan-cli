@@ -187,7 +187,9 @@ def _ask_for_oauth_client_secret(ctx: WorkflowContext) -> Optional[str]:
     return normalized or None
 
 
-def _prompt_and_configure_oauth_client_id(ctx: WorkflowContext) -> Optional[Error]:
+def _prompt_and_configure_oauth_client_id(
+    ctx: WorkflowContext,
+) -> tuple[bool, Optional[Error]]:
     """Prompt for and save the Google OAuth client ID when missing."""
     _warning(
         ctx,
@@ -197,7 +199,7 @@ def _prompt_and_configure_oauth_client_id(ctx: WorkflowContext) -> Optional[Erro
     )
     client_id = _ask_for_oauth_client_id(ctx)
     if not client_id:
-        return None
+        return False, None
 
     client_secret = _ask_for_oauth_client_secret(ctx)
     if not client_secret:
@@ -215,21 +217,27 @@ def _prompt_and_configure_oauth_client_id(ctx: WorkflowContext) -> Optional[Erro
         elif callable(configurer):
             configurer(client_id, client_secret=client_secret)
         else:
-            return Error(
-                "Firebase client cannot configure Google OAuth dynamically.",
-                recoverable=True,
+            return (
+                False,
+                Error(
+                    "Firebase client cannot configure Google OAuth dynamically.",
+                    recoverable=True,
+                ),
             )
     except FirebaseClientError as exc:
-        return Error(str(exc), exception=exc, recoverable=True)
+        return False, Error(str(exc), exception=exc, recoverable=True)
     except Exception as exc:
-        return Error(
-            f"Could not configure Firebase browser OAuth: {exc}",
-            exception=exc,
-            recoverable=True,
+        return (
+            False,
+            Error(
+                f"Could not configure Firebase browser OAuth: {exc}",
+                exception=exc,
+                recoverable=True,
+            ),
         )
 
     _success(ctx, "Firebase browser OAuth configured")
-    return None
+    return True, None
 
 
 def _prompt_and_save_access_token(ctx: WorkflowContext) -> Optional[Error]:
@@ -339,10 +347,12 @@ def prompt_for_firebase_auth(
         if oauth_client_id and not client_id_rejected:
             break
 
-        oauth_config_error = _prompt_and_configure_oauth_client_id(ctx)
+        oauth_configured, oauth_config_error = _prompt_and_configure_oauth_client_id(
+            ctx
+        )
         if oauth_config_error:
             return False, oauth_config_error, False
-        if not getattr(ctx.firebase.config, "oauth_client_id", None):
+        if not oauth_configured:
             break
 
     prompt_error = _prompt_and_save_access_token(ctx)
