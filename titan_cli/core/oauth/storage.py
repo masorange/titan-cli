@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
-from titan_cli.core.secrets import ScopeType, SecretManager
+from titan_cli.core.secrets import ResolvedSecret, ScopeType, SecretManager
 
 from .exceptions import OAuthStorageError
 from .models import OAuthRequest, OAuthTokenSet, build_oauth_credential_key
+
+
+@dataclass(frozen=True)
+class StoredOAuthTokenSet:
+    """Stored OAuth token set with its SecretManager scope."""
+
+    token_set: OAuthTokenSet
+    scope: ScopeType
 
 
 class OAuthTokenStore:
@@ -30,16 +39,24 @@ class OAuthTokenStore:
 
     def read(self, request: OAuthRequest) -> OAuthTokenSet | None:
         """Read a stored token set, if present."""
+        stored_token_set = self.read_with_scope(request)
+        return stored_token_set.token_set if stored_token_set else None
+
+    def read_with_scope(self, request: OAuthRequest) -> StoredOAuthTokenSet | None:
+        """Read a stored token set with the scope that supplied it."""
         secret_key = self.build_secret_key(request)
-        raw_value = self._get_secret(secret_key)
-        if not raw_value:
+        resolved_secret = self._get_secret_with_scope(secret_key)
+        if not resolved_secret or not resolved_secret.value:
             return None
 
         try:
-            payload = json.loads(raw_value)
+            payload = json.loads(resolved_secret.value)
             if not isinstance(payload, dict):
                 raise ValueError("OAuth token payload is not an object.")
-            return OAuthTokenSet.from_dict(payload)
+            return StoredOAuthTokenSet(
+                token_set=OAuthTokenSet.from_dict(payload),
+                scope=resolved_secret.scope,
+            )
         except Exception as exc:
             raise OAuthStorageError(
                 f"Stored OAuth credential '{secret_key}' is not valid."
@@ -66,7 +83,21 @@ class OAuthTokenStore:
         """Delete a stored token set."""
         self._delete_secret(self.build_secret_key(request), scope=scope)
 
-    def _get_secret(self, key: str) -> str | None:
+    def _get_secret_with_scope(self, key: str) -> ResolvedSecret | None:
+        get_with_scope = getattr(self.secrets, "get_with_scope", None)
+        if get_with_scope:
+            if self.namespace == "titan":
+                resolved_secret = get_with_scope(key)
+            else:
+                resolved_secret = get_with_scope(key, namespace=self.namespace)
+            normalized_secret = _normalize_resolved_secret(resolved_secret)
+            if normalized_secret:
+                return normalized_secret
+
+        raw_value = self._get_secret_legacy(key)
+        return ResolvedSecret(raw_value, "user") if raw_value else None
+
+    def _get_secret_legacy(self, key: str) -> str | None:
         if self.namespace == "titan":
             return self.secrets.get(key)
         return self.secrets.get(key, namespace=self.namespace)
@@ -82,3 +113,14 @@ class OAuthTokenStore:
             self.secrets.delete(key, scope=scope)
             return
         self.secrets.delete(key, namespace=self.namespace, scope=scope)
+
+
+def _normalize_resolved_secret(value: object) -> ResolvedSecret | None:
+    """Normalize SecretManager-compatible scoped secret results."""
+    if value is None:
+        return None
+    secret_value = getattr(value, "value", None)
+    secret_scope = getattr(value, "scope", None)
+    if isinstance(secret_value, str) and secret_scope in {"env", "project", "user"}:
+        return ResolvedSecret(secret_value, secret_scope)
+    return None

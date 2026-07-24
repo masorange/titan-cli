@@ -93,7 +93,7 @@ class OAuthManager:
             self._emit_resolved(event_sink, operation_id, request, credential)
             return credential
 
-        stored_token_set = self.token_store.read(request)
+        stored_token_set = self.token_store.read_with_scope(request)
         provider = self.providers.get(request.provider)
         if not provider:
             legacy_credential = self._credential_from_legacy_secret(
@@ -109,7 +109,7 @@ class OAuthManager:
                 )
                 return legacy_credential
 
-            if stored_token_set and stored_token_set.refresh_token:
+            if stored_token_set and stored_token_set.token_set.refresh_token:
                 self._emit(
                     event_sink,
                     "oauth.provider.missing",
@@ -165,8 +165,10 @@ class OAuthManager:
                 self._emit_resolved(event_sink, operation_id, request, credential)
                 return credential
 
-            stored_token_set = self.token_store.read(request)
-            if stored_token_set and stored_token_set.refresh_token:
+            stored_token_set = self.token_store.read_with_scope(request)
+            reauthorize_storage_scope: ScopeType = "user"
+            if stored_token_set and stored_token_set.token_set.refresh_token:
+                storage_scope = stored_token_set.scope
                 self._emit(
                     event_sink,
                     "oauth.refresh.started",
@@ -178,7 +180,7 @@ class OAuthManager:
                 try:
                     refreshed = await provider.refresh(
                         request,
-                        stored_token_set,
+                        stored_token_set.token_set,
                         event_sink,
                     )
                 except OAuthError:
@@ -192,7 +194,8 @@ class OAuthManager:
                     )
                     if not request.interactive:
                         raise
-                    self.token_store.delete(request)
+                    self.token_store.delete(request, scope=storage_scope)
+                    reauthorize_storage_scope = storage_scope
                     self._emit(
                         event_sink,
                         "oauth.refresh.stale_deleted",
@@ -212,7 +215,8 @@ class OAuthManager:
                     )
                     if not request.interactive:
                         raise OAuthTokenRefreshError(str(exc)) from exc
-                    self.token_store.delete(request)
+                    self.token_store.delete(request, scope=storage_scope)
+                    reauthorize_storage_scope = storage_scope
                     self._emit(
                         event_sink,
                         "oauth.refresh.stale_deleted",
@@ -222,7 +226,7 @@ class OAuthManager:
                         "Deleted stale OAuth credential after refresh failure.",
                     )
                 else:
-                    self.token_store.write(request, refreshed)
+                    self.token_store.write(request, refreshed, scope=storage_scope)
                     credential = self._credential_from_token_set(
                         request,
                         credential_key,
@@ -263,7 +267,11 @@ class OAuthManager:
                         "OAuth authorization failed.",
                     )
                     raise OAuthAuthorizationError(str(exc)) from exc
-                self.token_store.write(request, token_set)
+                self.token_store.write(
+                    request,
+                    token_set,
+                    scope=reauthorize_storage_scope,
+                )
                 credential = self._credential_from_token_set(
                     request,
                     credential_key,
