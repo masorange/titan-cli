@@ -9,6 +9,8 @@ from threading import Lock
 from types import MappingProxyType
 from typing import Any, Protocol
 
+REDACTED_METADATA_VALUE = "<redacted>"
+
 
 @dataclass(frozen=True)
 class OAuthEvent:
@@ -108,17 +110,34 @@ def _freeze_metadata(value: Mapping[str, Any] | None) -> Mapping[str, Any]:
     """Return an immutable metadata snapshot for emitted events."""
     if not value:
         return MappingProxyType({})
-    return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+    return MappingProxyType(
+        {
+            key: REDACTED_METADATA_VALUE
+            if _is_sensitive_metadata_key(key)
+            else _freeze_value(item)
+            for key, item in value.items()
+        }
+    )
 
 
 def _freeze_value(value: Any) -> Any:
     """Recursively freeze common mutable containers."""
     if isinstance(value, Mapping):
         return MappingProxyType(
-            {key: _freeze_value(item) for key, item in value.items()}
+            {
+                key: REDACTED_METADATA_VALUE
+                if _is_sensitive_metadata_key(key)
+                else _freeze_value(item)
+                for key, item in value.items()
+            }
         )
     if isinstance(value, list | tuple):
         return tuple(_freeze_value(item) for item in value)
     if isinstance(value, set | frozenset):
         return frozenset(_freeze_value(item) for item in value)
     return value
+
+
+def _is_sensitive_metadata_key(key: object) -> bool:
+    """Return whether a metadata key may carry OAuth token material."""
+    return "token" in str(key).lower()

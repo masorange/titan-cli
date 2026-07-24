@@ -616,6 +616,95 @@ def test_oauth_manager_noninteractive_refresh_failure_uses_legacy_secret(
     assert credential.source == "keyring:demo_legacy_access_token"
 
 
+@pytest.mark.parametrize("storage_scope", ["user", "env", "project"])
+def test_oauth_manager_noninteractive_invalid_token_deletes_before_legacy_fallback(
+    monkeypatch,
+    tmp_path,
+    storage_scope,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager({"demo_legacy_access_token": " legacy-token "})
+    request = _request(interactive=False)
+    store = OAuthTokenStore(secrets)
+    old_secret_key = store.write(
+        request,
+        OAuthTokenSet(
+            access_token="expired-oauth-token",
+            refresh_token="revoked-refresh-token",
+            expires_at=1,
+        ),
+        scope=storage_scope,
+    )
+
+    class InvalidTokenProvider:
+        async def refresh(self, request, token_set, sink):
+            raise OAuthTokenInvalidError("refresh token revoked")
+
+        async def authorize(self, request, sink):
+            raise AssertionError("authorize should not run")
+
+    manager = OAuthManager(
+        secrets,
+        providers={"google": InvalidTokenProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+    )
+
+    credential = asyncio.run(manager.get_credential(request))
+
+    assert credential.access_token == "legacy-token"
+    assert credential.source == "keyring:demo_legacy_access_token"
+    assert secrets.delete_calls[-1] == (old_secret_key, storage_scope)
+    assert (storage_scope, "titan", old_secret_key) not in secrets.scoped_values
+
+
+def test_oauth_manager_noninteractive_invalid_token_deletes_before_error(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager()
+    request = _request(interactive=False)
+    store = OAuthTokenStore(secrets)
+    old_secret_key = store.write(
+        request,
+        OAuthTokenSet(
+            access_token="expired-oauth-token",
+            refresh_token="revoked-refresh-token",
+            expires_at=1,
+        ),
+        scope="project",
+    )
+
+    class InvalidTokenProvider:
+        async def refresh(self, request, token_set, sink):
+            raise OAuthTokenInvalidError("refresh token revoked")
+
+        async def authorize(self, request, sink):
+            raise AssertionError("authorize should not run")
+
+    sink = CollectingOAuthEventSink()
+    manager = OAuthManager(
+        secrets,
+        providers={"google": InvalidTokenProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+    )
+
+    with pytest.raises(OAuthTokenInvalidError):
+        asyncio.run(manager.get_credential(request, sink=sink))
+
+    assert secrets.delete_calls[-1] == (old_secret_key, "project")
+    assert ("project", "titan", old_secret_key) not in secrets.scoped_values
+    assert [event.type for event in sink.events] == [
+        "oauth.resolve.started",
+        "oauth.lock.acquired",
+        "oauth.refresh.started",
+        "oauth.refresh.failed",
+        "oauth.refresh.stale_deleted",
+    ]
+
+
 def test_oauth_manager_raises_when_no_credential(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
     manager = _manager(FakeSecretManager(), tmp_path)
@@ -1359,6 +1448,42 @@ def test_oauth_event_metadata_is_immutable_snapshot() -> None:
         event.metadata["token"] = "secret"
     with pytest.raises(TypeError):
         event.metadata["nested"]["safe"] = "mutated"
+
+
+def test_oauth_event_metadata_redacts_token_fields_recursively() -> None:
+    event = OAuthEvent(
+        type="oauth.provider.debug",
+        operation_id="op-1",
+        metadata={
+            "access_token": "raw-access-token",
+            "nested": {
+                "refresh_token": "raw-refresh-token",
+                "safe": "value",
+            },
+            "items": [
+                {
+                    "token": "raw-list-token",
+                    "label": "kept",
+                }
+            ],
+            "tuple_items": (
+                {
+                    "id_token": "raw-id-token",
+                    "audience": "kept",
+                },
+            ),
+            "set_items": frozenset({"safe"}),
+        },
+    )
+
+    assert event.metadata["access_token"] == "<redacted>"
+    assert event.metadata["nested"]["refresh_token"] == "<redacted>"
+    assert event.metadata["nested"]["safe"] == "value"
+    assert event.metadata["items"][0]["token"] == "<redacted>"
+    assert event.metadata["items"][0]["label"] == "kept"
+    assert event.metadata["tuple_items"][0]["id_token"] == "<redacted>"
+    assert event.metadata["tuple_items"][0]["audience"] == "kept"
+    assert event.metadata["set_items"] == frozenset({"safe"})
 
 
 def test_queued_oauth_event_sink_drops_new_events_when_full() -> None:
