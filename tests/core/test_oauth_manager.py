@@ -1096,6 +1096,17 @@ def test_queued_oauth_event_sink_drains_events() -> None:
     assert sink.get(block=False) is None
 
 
+def test_queued_oauth_event_sink_nonblocking_get_ignores_timeout() -> None:
+    sink = QueuedOAuthEventSink()
+
+    assert sink.get(block=False, timeout=1) is None
+
+    event = OAuthEvent(type="oauth.resolve.started", operation_id="op-1")
+    sink.emit(event)
+
+    assert sink.get(block=False, timeout=1) == event
+
+
 def test_oauth_event_metadata_is_immutable_snapshot() -> None:
     metadata = {
         "source": "oauth-cache",

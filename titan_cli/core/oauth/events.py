@@ -83,6 +83,8 @@ class QueuedOAuthEventSink:
     ) -> OAuthEvent | None:
         """Return the next queued event, or None when no event is available."""
         try:
+            if not block:
+                return self.queue.get(block=False)
             return self.queue.get(block=block, timeout=timeout)
         except Empty:
             return None
