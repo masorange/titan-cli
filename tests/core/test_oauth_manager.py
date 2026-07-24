@@ -311,6 +311,64 @@ def test_oauth_manager_refresh_preserves_omitted_refresh_token(
     assert stored_payload["scopes"] == ["resource.read"]
 
 
+@pytest.mark.parametrize(
+    "token_factory",
+    [
+        pytest.param(
+            lambda: OAuthTokenSet(access_token=""),
+            id="empty-access-token",
+        ),
+        pytest.param(
+            lambda: OAuthTokenSet(
+                access_token="fresh-token",
+                refresh_token="refresh-token",
+                expires_at=int(time.time()) + 120,
+            ),
+            id="expires-inside-refresh-margin",
+        ),
+        pytest.param(lambda: object(), id="wrong-type"),
+    ],
+)
+def test_oauth_manager_rejects_invalid_refresh_result_without_writing(
+    monkeypatch,
+    tmp_path,
+    token_factory,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager()
+    request = _request()
+    store = OAuthTokenStore(secrets)
+    store.write(
+        request,
+        OAuthTokenSet(
+            access_token="almost-expired-token",
+            refresh_token="refresh-token",
+            expires_at=int(time.time()) + 120,
+        ),
+    )
+    initial_set_call_count = len(secrets.set_calls)
+
+    class RefreshProvider:
+        async def refresh(self, request, token_set, sink):
+            return token_factory()
+
+        async def authorize(self, request, sink):
+            raise AssertionError("authorize should not run")
+
+    manager = OAuthManager(
+        secrets,
+        providers={"google": RefreshProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+        refresh_margin_seconds=300,
+    )
+
+    with pytest.raises(OAuthTokenRefreshError):
+        asyncio.run(manager.get_credential(request))
+
+    assert len(secrets.set_calls) == initial_set_call_count
+
+
 def test_oauth_manager_refreshes_before_legacy_secret(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
     secrets = FakeSecretManager({"demo_legacy_access_token": "legacy-token"})
@@ -521,6 +579,51 @@ def test_oauth_manager_wraps_authorization_errors(monkeypatch, tmp_path) -> None
 
     with pytest.raises(OAuthAuthorizationError, match="browser failed"):
         asyncio.run(manager.get_credential(request))
+
+
+@pytest.mark.parametrize(
+    "token_factory",
+    [
+        pytest.param(
+            lambda: OAuthTokenSet(access_token=""),
+            id="empty-access-token",
+        ),
+        pytest.param(
+            lambda: OAuthTokenSet(
+                access_token="login-token",
+                refresh_token="refresh-token",
+                expires_at=int(time.time()) + 120,
+            ),
+            id="expires-inside-refresh-margin",
+        ),
+        pytest.param(lambda: object(), id="wrong-type"),
+    ],
+)
+def test_oauth_manager_rejects_invalid_authorization_result_without_writing(
+    monkeypatch,
+    tmp_path,
+    token_factory,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+
+    class InvalidAuthorizingProvider:
+        async def refresh(self, request, token_set, sink):
+            raise AssertionError("refresh should not run")
+
+        async def authorize(self, request, sink):
+            return token_factory()
+
+    secrets = FakeSecretManager()
+    manager = _manager(
+        secrets,
+        tmp_path,
+        providers={"google": InvalidAuthorizingProvider()},
+    )
+
+    with pytest.raises(OAuthAuthorizationError):
+        asyncio.run(manager.get_credential(_request(interactive=True)))
+
+    assert secrets.set_calls == []
 
 
 def test_oauth_manager_refreshes_only_once_under_concurrency(

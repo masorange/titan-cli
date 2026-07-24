@@ -186,6 +186,10 @@ class OAuthManager:
                         stored_token_set.token_set,
                         event_sink,
                     )
+                    refreshed = self._prepare_refresh_result(
+                        stored_token_set.token_set,
+                        refreshed,
+                    )
                 except OAuthTokenInvalidError:
                     self._emit(
                         event_sink,
@@ -256,10 +260,6 @@ class OAuthManager:
                         raise OAuthTokenRefreshError(str(exc)) from exc
                     reauthorize_storage_scope = storage_scope
                 else:
-                    refreshed = self._preserve_refresh_state(
-                        stored_token_set.token_set,
-                        refreshed,
-                    )
                     self.token_store.write(request, refreshed, scope=storage_scope)
                     credential = self._credential_from_token_set(
                         request,
@@ -294,6 +294,11 @@ class OAuthManager:
                 )
                 try:
                     token_set = await provider.authorize(request, event_sink)
+                    self._validate_provider_token_set(
+                        token_set,
+                        error_cls=OAuthAuthorizationError,
+                        action="authorization",
+                    )
                 except OAuthError:
                     self._emit(
                         event_sink,
@@ -496,6 +501,25 @@ class OAuthManager:
             )
         return legacy_credential
 
+    def _prepare_refresh_result(
+        self,
+        previous: OAuthTokenSet,
+        refreshed: OAuthTokenSet,
+    ) -> OAuthTokenSet:
+        """Validate and normalize a provider refresh result before storage."""
+        self._validate_provider_token_set(
+            refreshed,
+            error_cls=OAuthTokenRefreshError,
+            action="refresh",
+        )
+        refreshed = self._preserve_refresh_state(previous, refreshed)
+        self._validate_provider_token_set(
+            refreshed,
+            error_cls=OAuthTokenRefreshError,
+            action="refresh",
+        )
+        return refreshed
+
     def _preserve_refresh_state(
         self,
         previous: OAuthTokenSet,
@@ -510,6 +534,25 @@ class OAuthManager:
             scopes=refreshed.scopes or previous.scopes,
             metadata=refreshed.metadata,
         )
+
+    def _validate_provider_token_set(
+        self,
+        token_set: OAuthTokenSet,
+        *,
+        error_cls: type[OAuthError],
+        action: str,
+    ) -> None:
+        """Validate provider token data before exposing or storing it."""
+        if not isinstance(token_set, OAuthTokenSet):
+            raise error_cls(f"OAuth {action} did not return token data.")
+        if not token_set.access_token:
+            raise error_cls(f"OAuth {action} returned an empty access token.")
+        if not token_set.is_valid(
+            refresh_margin_seconds=self.refresh_margin_seconds,
+        ):
+            raise error_cls(
+                f"OAuth {action} returned a token that expires too soon."
+            )
 
     def _credential_from_token_set(
         self,
