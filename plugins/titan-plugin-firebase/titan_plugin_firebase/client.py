@@ -431,6 +431,10 @@ class FirebaseClient:
                 raise FirebaseClientError(
                     "Firebase Remote Config response was not valid JSON."
                 ) from exc
+            if not isinstance(template, dict):
+                raise FirebaseClientError(
+                    "Firebase Remote Config response JSON was not an object."
+                )
 
             return RemoteConfigTemplate(
                 project_id=normalized_project_id,

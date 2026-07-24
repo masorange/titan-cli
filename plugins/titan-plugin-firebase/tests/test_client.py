@@ -23,7 +23,7 @@ class FakeResponse:
     def __init__(
         self,
         status_code: int,
-        payload: dict[str, Any] | None = None,
+        payload: Any = None,
         headers: dict[str, str] | None = None,
         text: str = "",
     ):
@@ -32,7 +32,7 @@ class FakeResponse:
         self.headers = headers or {}
         self.text = text
 
-    def json(self) -> dict[str, Any]:
+    def json(self) -> Any:
         if self._payload is None:
             raise ValueError("no json")
         return self._payload
@@ -345,6 +345,18 @@ def test_get_remote_config_requires_adc(monkeypatch) -> None:
     monkeypatch.setattr(client, "get_adc_access_token", MagicMock(return_value=None))
 
     with pytest.raises(FirebaseClientError, match="application-default login"):
+        client.get_remote_config("demo-project")
+
+
+def test_get_remote_config_rejects_non_object_json(monkeypatch) -> None:
+    client = _client()
+    monkeypatch.setattr(client, "get_adc_access_token", MagicMock(return_value="token"))
+    monkeypatch.setattr(
+        "titan_plugin_firebase.client.requests.get",
+        MagicMock(return_value=FakeResponse(200, payload=["not", "a", "template"])),
+    )
+
+    with pytest.raises(FirebaseClientError, match="JSON was not an object"):
         client.get_remote_config("demo-project")
 
 
