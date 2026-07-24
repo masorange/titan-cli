@@ -50,6 +50,11 @@ class _FileLock:
             if cancel_event and cancel_event.is_set():
                 self._close_handle()
                 raise _OAuthLockAcquisitionCancelled
+            if self._timed_out(start):
+                self._close_handle()
+                raise OAuthLockTimeout(
+                    f"Timed out waiting for OAuth lock '{self.path.name}'."
+                )
             try:
                 self._try_acquire_once()
                 self._acquired = True
@@ -58,12 +63,7 @@ class _FileLock:
                 if not self._is_lock_contention(exc):
                     self._close_handle()
                     raise
-                if self._timed_out(start):
-                    self._close_handle()
-                    raise OAuthLockTimeout(
-                        f"Timed out waiting for OAuth lock '{self.path.name}'."
-                    )
-                time.sleep(self.poll_interval_seconds)
+                time.sleep(self._next_sleep_interval(start))
 
     def release(self) -> None:
         """Release the file lock."""
@@ -104,6 +104,14 @@ class _FileLock:
         if self.timeout_seconds is None:
             return False
         return time.monotonic() - start >= self.timeout_seconds
+
+    def _next_sleep_interval(self, start: float) -> float:
+        """Return a sleep interval bounded by the remaining timeout."""
+        if self.timeout_seconds is None:
+            return self.poll_interval_seconds
+        elapsed = time.monotonic() - start
+        remaining = max(0.0, self.timeout_seconds - elapsed)
+        return min(self.poll_interval_seconds, remaining)
 
     def _is_lock_contention(self, exc: OSError) -> bool:
         """Return whether an OS error represents a busy lock."""

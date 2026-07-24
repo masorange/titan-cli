@@ -13,6 +13,7 @@ from titan_cli.core.oauth import (
     OAuthAuthorizationError,
     OAuthEvent,
     OAuthLockManager,
+    OAuthLockTimeout,
     OAuthManager,
     OAuthRequest,
     OAuthTokenInvalidError,
@@ -978,6 +979,31 @@ def test_file_lock_retries_lock_contention_error(tmp_path) -> None:
 
     assert attempts == 2
     lock.release()
+
+
+def test_file_lock_timeout_is_hard_bound_when_poll_interval_exceeds_timeout(
+    tmp_path,
+) -> None:
+    lock = oauth_locks._FileLock(
+        tmp_path / "oauth.lock",
+        timeout_seconds=0.01,
+        poll_interval_seconds=0.1,
+    )
+    attempts = 0
+
+    def try_acquire_once() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise BlockingIOError(errno.EAGAIN, "resource temporarily unavailable")
+
+    lock._try_acquire_once = try_acquire_once
+
+    with pytest.raises(OAuthLockTimeout):
+        lock.acquire()
+
+    assert attempts == 1
+    assert lock._handle is None
 
 
 def test_file_lock_windows_byte_initialization_does_not_grow_file(
