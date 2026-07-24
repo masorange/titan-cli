@@ -73,9 +73,7 @@ class FirebasePlugin(TitanPlugin):
             oauth_client_secret = project_oauth_client_secret
         elif validated_config.oauth_client_id:
             oauth_client_id = validated_config.oauth_client_id
-            oauth_client_secret = (
-                validated_config.oauth_client_secret or project_oauth_client_secret
-            )
+            oauth_client_secret = validated_config.oauth_client_secret
             if (
                 oauth_client_secret is None
                 and generic_oauth_client_id == oauth_client_id

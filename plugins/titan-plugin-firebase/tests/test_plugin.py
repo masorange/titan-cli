@@ -180,7 +180,7 @@ def test_firebase_plugin_does_not_mix_project_saved_id_with_config_secret() -> N
     assert plugin.get_client().config.oauth_client_secret is None
 
 
-def test_firebase_plugin_pairs_config_id_with_project_secret_from_wizard() -> None:
+def test_firebase_plugin_does_not_pair_config_id_with_project_secret() -> None:
     plugin = FirebasePlugin()
     config = MagicMock()
     config.get_project_name.return_value = "demo"
@@ -195,7 +195,28 @@ def test_firebase_plugin_pairs_config_id_with_project_secret_from_wizard() -> No
     plugin.initialize(config, secrets)
 
     assert plugin.get_client().config.oauth_client_id == "config-client-id"
-    assert plugin.get_client().config.oauth_client_secret == "wizard-client-secret"
+    assert plugin.get_client().config.oauth_client_secret is None
+
+
+def test_firebase_plugin_pairs_project_saved_id_with_project_secret() -> None:
+    plugin = FirebasePlugin()
+    config = MagicMock()
+    config.get_project_name.return_value = "demo"
+    config.config.plugins = {
+        "firebase": MagicMock(config={"oauth_client_id": "config-client-id"})
+    }
+    secrets = MagicMock()
+    secrets.get.side_effect = lambda key: {
+        "demo_firebase_oauth_client_id": "saved-google-client-id",
+        "demo_firebase_oauth_client_secret": "saved-google-client-secret",
+    }.get(key)
+
+    plugin.initialize(config, secrets)
+
+    assert plugin.get_client().config.oauth_client_id == "saved-google-client-id"
+    assert (
+        plugin.get_client().config.oauth_client_secret == "saved-google-client-secret"
+    )
 
 
 def test_firebase_plugin_config_oauth_client_id_overrides_generic_saved_value() -> None:
