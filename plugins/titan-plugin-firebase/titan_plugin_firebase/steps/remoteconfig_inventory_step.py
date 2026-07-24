@@ -5,6 +5,8 @@ from __future__ import annotations
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
+from pydantic import ValidationError
+
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
 
 from ..exceptions import FirebaseAuthRejectedError, FirebaseClientError
@@ -54,16 +56,23 @@ def execute_firebase_remoteconfig_inventory_step(
             ctx.textual.end_step("error")
         return Error(message)
 
-    targets = resolve_project_targets(
-        ctx.firebase.config,
-        project_targets=(
-            ctx.get("project_targets") or ctx.get("firebase_project_targets")
-        ),
-        projects=ctx.get("projects"),
-        brand_projects=ctx.get("brand_projects"),
-        brands=ctx.get("brands") or ctx.get("brand"),
-        environments=ctx.get("environments") or ctx.get("environment"),
-    )
+    try:
+        targets = resolve_project_targets(
+            ctx.firebase.config,
+            project_targets=(
+                ctx.get("project_targets") or ctx.get("firebase_project_targets")
+            ),
+            projects=ctx.get("projects"),
+            brand_projects=ctx.get("brand_projects"),
+            brands=ctx.get("brands") or ctx.get("brand"),
+            environments=ctx.get("environments") or ctx.get("environment"),
+        )
+    except (FirebaseClientError, TypeError, ValueError, ValidationError) as exc:
+        message = f"Invalid Firebase project targets: {exc}"
+        if ctx.textual:
+            ctx.textual.error_text(message)
+            ctx.textual.end_step("error")
+        return Error(message, exception=exc, recoverable=True)
     if not targets:
         message = (
             "No Firebase project targets configured. Configure "

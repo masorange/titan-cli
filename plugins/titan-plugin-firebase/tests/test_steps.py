@@ -523,6 +523,24 @@ def test_remoteconfig_inventory_errors_without_targets() -> None:
     assert "No Firebase project targets" in result.message
 
 
+def test_remoteconfig_inventory_errors_for_invalid_target_data() -> None:
+    client = _firebase_client()
+    client.config = FirebasePluginConfig()
+    ctx = _ctx(
+        firebase=client,
+        data={"project_targets": [{"project_id": " "}]},
+    )
+
+    result = execute_firebase_remoteconfig_inventory_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "Invalid Firebase project targets" in result.message
+    assert result.recoverable is True
+    client.get_remote_config_inventory.assert_not_called()
+    ctx.textual.error_text.assert_called_once()
+    ctx.textual.end_step.assert_called_with("error")
+
+
 def test_remoteconfig_inventory_errors_when_all_projects_fail() -> None:
     client = _firebase_client()
     client.config = FirebasePluginConfig(projects=["yoigo-prod"])
