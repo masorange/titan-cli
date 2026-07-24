@@ -7,11 +7,15 @@ from titan_cli.core.oauth import OAuthRequest, OAuthTokenInvalidError, OAuthToke
 from titan_plugin_firebase.oauth import (
     AUTHORIZE_URL,
     TOKEN_URL,
+    GoogleOAuthAuthorizeParams,
     GoogleOAuthError,
     GoogleOAuthFlow,
     GoogleOAuthProvider,
     GoogleOAuthSession,
+    GoogleOAuthTokenExchangeRequest,
+    GoogleOAuthTokenRefreshRequest,
     _resolve_callback_response,
+    build_loopback_redirect_uri,
 )
 
 
@@ -54,6 +58,58 @@ def test_google_oauth_authorize_url_requests_offline_access() -> None:
     assert query["access_type"] == ["offline"]
     assert query["prompt"] == ["consent"]
     assert query["code_challenge_method"] == ["S256"]
+    assert query["include_granted_scopes"] == ["true"]
+
+
+def test_google_oauth_authorize_params_model_encodes_protocol_defaults() -> None:
+    params = GoogleOAuthAuthorizeParams(
+        client_id="client-id",
+        redirect_uri="http://127.0.0.1:8766",
+        scopes=["scope-a", "scope-b"],
+        state="state",
+        code_challenge="challenge",
+    )
+
+    query = parse_qs(params.to_query_string())
+
+    assert query["response_type"] == ["code"]
+    assert query["scope"] == ["scope-a scope-b"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["access_type"] == ["offline"]
+
+
+def test_google_oauth_loopback_redirect_uri_uses_constant_host() -> None:
+    assert build_loopback_redirect_uri(8766) == "http://127.0.0.1:8766"
+
+
+def test_google_oauth_token_request_models_build_form_data() -> None:
+    exchange = GoogleOAuthTokenExchangeRequest(
+        client_id="client-id",
+        code="code",
+        code_verifier="verifier",
+        redirect_uri="http://127.0.0.1:8766",
+        client_secret="secret",
+    )
+    refresh = GoogleOAuthTokenRefreshRequest(
+        client_id="client-id",
+        refresh_token="refresh",
+        client_secret="secret",
+    )
+
+    assert exchange.as_form_data() == {
+        "client_id": "client-id",
+        "code": "code",
+        "code_verifier": "verifier",
+        "grant_type": "authorization_code",
+        "redirect_uri": "http://127.0.0.1:8766",
+        "client_secret": "secret",
+    }
+    assert refresh.as_form_data() == {
+        "client_id": "client-id",
+        "grant_type": "refresh_token",
+        "refresh_token": "refresh",
+        "client_secret": "secret",
+    }
 
 
 def test_google_oauth_callback_ignores_requests_without_expected_state() -> None:

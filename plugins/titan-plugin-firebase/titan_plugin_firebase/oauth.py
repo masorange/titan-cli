@@ -25,8 +25,30 @@ from titan_cli.core.oauth import (
 )
 
 
-AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+AUTHORIZE_URL = GOOGLE_OAUTH_AUTHORIZE_URL
+TOKEN_URL = GOOGLE_OAUTH_TOKEN_URL
+
+LOOPBACK_HOST = "127.0.0.1"
+LOOPBACK_REDIRECT_URI_TEMPLATE = "http://{host}:{port}"
+CALLBACK_ACCEPTED_PATHS = ("", "/", "/google/callback")
+CALLBACK_SERVER_TIMEOUT_SECONDS = 0.5
+CALLBACK_THREAD_JOIN_TIMEOUT_SECONDS = 1
+
+OAUTH_RESPONSE_TYPE_CODE = "code"
+OAUTH_CODE_CHALLENGE_METHOD_S256 = "S256"
+OAUTH_ACCESS_TYPE_OFFLINE = "offline"
+OAUTH_PROMPT_CONSENT = "consent"
+OAUTH_INCLUDE_GRANTED_SCOPES = "true"
+OAUTH_GRANT_TYPE_AUTHORIZATION_CODE = "authorization_code"
+OAUTH_GRANT_TYPE_REFRESH_TOKEN = "refresh_token"
+
+LOG_GOOGLE_OAUTH_AUTHORIZE_URL_BUILT = "google_oauth_authorize_url_built"
+LOG_GOOGLE_OAUTH_BROWSER_OPEN_FAILED = "google_oauth_browser_open_failed"
+LOG_GOOGLE_OAUTH_CALLBACK_LISTENER_STARTED = (
+    "google_oauth_callback_listener_started"
+)
 
 logger = get_logger(__name__)
 
@@ -115,12 +137,94 @@ class GoogleOAuthError(Exception):
     """Raised when Google OAuth cannot complete."""
 
 
+def build_loopback_redirect_uri(port: int) -> str:
+    """Return the Google OAuth loopback redirect URI for a local port."""
+    return LOOPBACK_REDIRECT_URI_TEMPLATE.format(
+        host=LOOPBACK_HOST,
+        port=port,
+    )
+
+
 @dataclass(frozen=True)
 class GoogleOAuthSession:
     """In-memory state for one Google OAuth PKCE flow."""
 
     state: str
     code_verifier: str
+
+
+@dataclass(frozen=True)
+class GoogleOAuthAuthorizeParams:
+    """Authorization request parameters for Google's browser OAuth endpoint."""
+
+    client_id: str
+    redirect_uri: str
+    scopes: Sequence[str]
+    state: str
+    code_challenge: str
+
+    def as_query_params(self) -> dict[str, str]:
+        """Return URL query parameters for Google's authorization endpoint."""
+        return {
+            "client_id": self.client_id,
+            "redirect_uri": self.redirect_uri,
+            "response_type": OAUTH_RESPONSE_TYPE_CODE,
+            "scope": " ".join(self.scopes),
+            "state": self.state,
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": OAUTH_CODE_CHALLENGE_METHOD_S256,
+            "access_type": OAUTH_ACCESS_TYPE_OFFLINE,
+            "prompt": OAUTH_PROMPT_CONSENT,
+            "include_granted_scopes": OAUTH_INCLUDE_GRANTED_SCOPES,
+        }
+
+    def to_query_string(self) -> str:
+        """Return encoded query parameters for Google's authorization endpoint."""
+        return urlencode(self.as_query_params())
+
+
+@dataclass(frozen=True)
+class GoogleOAuthTokenExchangeRequest:
+    """Token endpoint form data for exchanging an authorization code."""
+
+    client_id: str
+    code: str
+    code_verifier: str
+    redirect_uri: str
+    client_secret: str | None = None
+
+    def as_form_data(self) -> dict[str, str]:
+        """Return form data for Google's authorization-code exchange."""
+        data = {
+            "client_id": self.client_id,
+            "code": self.code,
+            "code_verifier": self.code_verifier,
+            "grant_type": OAUTH_GRANT_TYPE_AUTHORIZATION_CODE,
+            "redirect_uri": self.redirect_uri,
+        }
+        if self.client_secret:
+            data["client_secret"] = self.client_secret
+        return data
+
+
+@dataclass(frozen=True)
+class GoogleOAuthTokenRefreshRequest:
+    """Token endpoint form data for refreshing an access token."""
+
+    client_id: str
+    refresh_token: str
+    client_secret: str | None = None
+
+    def as_form_data(self) -> dict[str, str]:
+        """Return form data for Google's refresh-token grant."""
+        data = {
+            "client_id": self.client_id,
+            "grant_type": OAUTH_GRANT_TYPE_REFRESH_TOKEN,
+            "refresh_token": self.refresh_token,
+        }
+        if self.client_secret:
+            data["client_secret"] = self.client_secret
+        return data
 
 
 @dataclass(frozen=True)
@@ -175,7 +279,7 @@ class GoogleOAuthFlow:
         port = self._bound_redirect_port
         if port is None:
             port = self.redirect_port
-        return f"http://127.0.0.1:{port}"
+        return build_loopback_redirect_uri(port)
 
     @staticmethod
     def _build_code_challenge(code_verifier: str) -> str:
@@ -192,42 +296,33 @@ class GoogleOAuthFlow:
 
     def build_authorize_url(self, session: GoogleOAuthSession) -> str:
         """Build the Google OAuth authorization URL."""
-        query = urlencode(
-            {
-                "client_id": self.client_id,
-                "redirect_uri": self.redirect_uri,
-                "response_type": "code",
-                "scope": " ".join(self.scopes),
-                "state": session.state,
-                "code_challenge": self._build_code_challenge(session.code_verifier),
-                "code_challenge_method": "S256",
-                "access_type": "offline",
-                "prompt": "consent",
-                "include_granted_scopes": "true",
-            }
+        params = GoogleOAuthAuthorizeParams(
+            client_id=self.client_id,
+            redirect_uri=self.redirect_uri,
+            scopes=self.scopes,
+            state=session.state,
+            code_challenge=self._build_code_challenge(session.code_verifier),
         )
         logger.info(
-            "google_oauth_authorize_url_built",
+            LOG_GOOGLE_OAUTH_AUTHORIZE_URL_BUILT,
             redirect_uri=self.redirect_uri,
             scopes=self.scopes,
         )
-        return f"{AUTHORIZE_URL}?{query}"
+        return f"{AUTHORIZE_URL}?{params.to_query_string()}"
 
     def exchange_code(self, code: str, code_verifier: str) -> GoogleOAuthResult:
         """Exchange a Google authorization code for tokens."""
-        data = {
-            "client_id": self.client_id,
-            "code": code,
-            "code_verifier": code_verifier,
-            "grant_type": "authorization_code",
-            "redirect_uri": self.redirect_uri,
-        }
-        if self.client_secret:
-            data["client_secret"] = self.client_secret
+        request = GoogleOAuthTokenExchangeRequest(
+            client_id=self.client_id,
+            code=code,
+            code_verifier=code_verifier,
+            redirect_uri=self.redirect_uri,
+            client_secret=self.client_secret,
+        )
 
         response = self.requests.post(
             TOKEN_URL,
-            data=data,
+            data=request.as_form_data(),
             timeout=self.token_request_timeout,
         )
         payload = self._read_token_response(response, "exchange")
@@ -239,17 +334,15 @@ class GoogleOAuthFlow:
         if not normalized_refresh_token:
             raise GoogleOAuthError("Google OAuth refresh token is required.")
 
-        data = {
-            "client_id": self.client_id,
-            "grant_type": "refresh_token",
-            "refresh_token": normalized_refresh_token,
-        }
-        if self.client_secret:
-            data["client_secret"] = self.client_secret
+        request = GoogleOAuthTokenRefreshRequest(
+            client_id=self.client_id,
+            refresh_token=normalized_refresh_token,
+            client_secret=self.client_secret,
+        )
 
         response = self.requests.post(
             TOKEN_URL,
-            data=data,
+            data=request.as_form_data(),
             timeout=self.token_request_timeout,
         )
         payload = self._read_token_response(response, "refresh")
@@ -267,12 +360,12 @@ class GoogleOAuthFlow:
             browser_started = self.browser_opener(authorize_url)
         except Exception:
             server.server_close()
-            logger.error("google_oauth_browser_open_failed")
+            logger.error(LOG_GOOGLE_OAUTH_BROWSER_OPEN_FAILED)
             raise
 
         if browser_started is False:
             server.server_close()
-            logger.error("google_oauth_browser_open_failed")
+            logger.error(LOG_GOOGLE_OAUTH_BROWSER_OPEN_FAILED)
             raise GoogleOAuthError("Failed to open a browser for Google OAuth.")
 
         code = self._wait_for_callback(
@@ -295,7 +388,7 @@ class GoogleOAuthFlow:
         class CallbackHandler(BaseHTTPRequestHandler):
             def do_GET(self):  # type: ignore[override]
                 parsed = urlparse(self.path)
-                if parsed.path not in ("", "/", "/google/callback"):
+                if parsed.path not in CALLBACK_ACCEPTED_PATHS:
                     self.send_response(404)
                     self.end_headers()
                     self.wfile.write(b"Not found")
@@ -325,8 +418,8 @@ class GoogleOAuthFlow:
             def log_message(self, format, *args):  # noqa: A003
                 return
 
-        server = HTTPServer(("127.0.0.1", self.redirect_port), CallbackHandler)
-        server.timeout = 0.5
+        server = HTTPServer((LOOPBACK_HOST, self.redirect_port), CallbackHandler)
+        server.timeout = CALLBACK_SERVER_TIMEOUT_SECONDS
         self._bound_redirect_port = int(server.server_address[1])
 
         def serve_until_callback() -> None:
@@ -339,7 +432,7 @@ class GoogleOAuthFlow:
         thread = Thread(target=serve_until_callback, daemon=True)
         thread.start()
         logger.info(
-            "google_oauth_callback_listener_started",
+            LOG_GOOGLE_OAUTH_CALLBACK_LISTENER_STARTED,
             redirect_uri=self.redirect_uri,
         )
         return server, thread, callback_event, callback_data
@@ -355,7 +448,7 @@ class GoogleOAuthFlow:
         """Wait for the local callback and return the authorization code."""
         callback_event.wait(self.timeout)
         server.server_close()
-        thread.join(timeout=1)
+        thread.join(timeout=CALLBACK_THREAD_JOIN_TIMEOUT_SECONDS)
 
         if not callback_event.is_set():
             raise GoogleOAuthError("Google OAuth callback timed out.")
