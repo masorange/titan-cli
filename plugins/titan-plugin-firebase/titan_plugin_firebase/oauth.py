@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import secrets as secrets_module
 from threading import Event, Thread
 import time
-from typing import Callable
+from typing import Callable, Sequence
 from urllib.parse import parse_qs, urlencode, urlparse
 import webbrowser
 
@@ -126,7 +126,7 @@ class GoogleOAuthResult:
     refresh_token: str | None
     expires_in: int | None
     token_type: str
-    granted_scopes: list[str]
+    granted_scopes: list[str] | None
 
     @property
     def expires_at(self) -> int | None:
@@ -417,12 +417,13 @@ class GoogleOAuthFlow:
 
         expires_in_raw = payload.get("expires_in")
         expires_in = int(expires_in_raw) if expires_in_raw is not None else None
-        scope_string = payload.get("scope") or " ".join(self.scopes)
-        granted_scopes = [
-            scope.strip()
-            for scope in str(scope_string).split()
-            if scope.strip()
-        ]
+        granted_scopes = None
+        if "scope" in payload:
+            granted_scopes = [
+                scope.strip()
+                for scope in str(payload.get("scope") or "").split()
+                if scope.strip()
+            ]
 
         return GoogleOAuthResult(
             access_token=access_token.strip(),
@@ -486,6 +487,7 @@ class GoogleOAuthProvider:
             result,
             request,
             fallback_refresh_token=token_set.refresh_token,
+            fallback_scopes=token_set.scopes,
         )
 
     async def authorize(
@@ -503,13 +505,18 @@ class GoogleOAuthProvider:
         request: OAuthRequest,
         *,
         fallback_refresh_token: str | None = None,
+        fallback_scopes: Sequence[str] | None = None,
     ) -> OAuthTokenSet:
         return OAuthTokenSet(
             access_token=result.access_token,
             refresh_token=result.refresh_token or fallback_refresh_token,
             expires_at=result.expires_at,
             token_type=result.token_type,
-            scopes=result.granted_scopes or request.scopes,
+            scopes=(
+                result.granted_scopes
+                if result.granted_scopes is not None
+                else (fallback_scopes or request.scopes)
+            ),
             metadata={
                 "provider": "google",
                 "connection_id": request.connection_id,

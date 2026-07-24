@@ -1,12 +1,15 @@
+import asyncio
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from titan_cli.core.oauth import OAuthRequest, OAuthTokenSet
 from titan_plugin_firebase.oauth import (
     AUTHORIZE_URL,
     TOKEN_URL,
     GoogleOAuthError,
     GoogleOAuthFlow,
+    GoogleOAuthProvider,
     GoogleOAuthSession,
     _resolve_callback_response,
 )
@@ -238,6 +241,7 @@ def test_google_oauth_refresh_access_token_keeps_existing_refresh_token() -> Non
 
     assert result.access_token == "fresh"
     assert result.refresh_token is None
+    assert result.granted_scopes is None
     assert requests_module.post_calls[0][1] == {
         "client_id": "client-id",
         "grant_type": "refresh_token",
@@ -264,3 +268,69 @@ def test_google_oauth_refresh_access_token_sends_client_secret_when_configured()
     flow.refresh_access_token("refresh")
 
     assert requests_module.post_calls[0][1]["client_secret"] == "client-secret"
+
+
+def test_google_oauth_provider_refresh_preserves_scopes_when_response_omits_scope() -> None:
+    requests_module = FakeRequests(
+        FakeResponse(
+            {
+                "access_token": "fresh",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            }
+        )
+    )
+    flow = GoogleOAuthFlow(
+        client_id="client-id",
+        scopes=["new-scope"],
+        requests_module=requests_module,
+    )
+    provider = GoogleOAuthProvider(flow)
+    request = OAuthRequest(
+        provider="google",
+        connection_id="firebase:demo",
+        scopes=["new-scope"],
+    )
+    token_set = OAuthTokenSet(
+        access_token="old",
+        refresh_token="refresh",
+        scopes=["old-scope"],
+    )
+
+    refreshed = asyncio.run(provider.refresh(request, token_set, sink=None))
+
+    assert refreshed.access_token == "fresh"
+    assert refreshed.refresh_token == "refresh"
+    assert refreshed.scopes == ("old-scope",)
+
+
+def test_google_oauth_provider_refresh_uses_returned_scopes_when_present() -> None:
+    requests_module = FakeRequests(
+        FakeResponse(
+            {
+                "access_token": "fresh",
+                "scope": "returned-scope",
+            }
+        )
+    )
+    provider = GoogleOAuthProvider(
+        GoogleOAuthFlow(
+            client_id="client-id",
+            scopes=["new-scope"],
+            requests_module=requests_module,
+        )
+    )
+    request = OAuthRequest(
+        provider="google",
+        connection_id="firebase:demo",
+        scopes=["new-scope"],
+    )
+    token_set = OAuthTokenSet(
+        access_token="old",
+        refresh_token="refresh",
+        scopes=["old-scope"],
+    )
+
+    refreshed = asyncio.run(provider.refresh(request, token_set, sink=None))
+
+    assert refreshed.scopes == ("returned-scope",)
