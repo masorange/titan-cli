@@ -196,6 +196,14 @@ class OAuthManager:
                         "OAuth refresh failed.",
                     )
                     if not request.interactive:
+                        legacy_credential = self._legacy_after_refresh_failure(
+                            event_sink,
+                            operation_id,
+                            request,
+                            credential_key,
+                        )
+                        if legacy_credential:
+                            return legacy_credential
                         raise
                     self.token_store.delete(request, scope=storage_scope)
                     reauthorize_storage_scope = storage_scope
@@ -217,6 +225,14 @@ class OAuthManager:
                         "OAuth refresh failed.",
                     )
                     if not request.interactive:
+                        legacy_credential = self._legacy_after_refresh_failure(
+                            event_sink,
+                            operation_id,
+                            request,
+                            credential_key,
+                        )
+                        if legacy_credential:
+                            return legacy_credential
                         raise
                     reauthorize_storage_scope = storage_scope
                 except Exception as exc:
@@ -229,6 +245,14 @@ class OAuthManager:
                         "OAuth refresh failed.",
                     )
                     if not request.interactive:
+                        legacy_credential = self._legacy_after_refresh_failure(
+                            event_sink,
+                            operation_id,
+                            request,
+                            credential_key,
+                        )
+                        if legacy_credential:
+                            return legacy_credential
                         raise OAuthTokenRefreshError(str(exc)) from exc
                     reauthorize_storage_scope = storage_scope
                 else:
@@ -450,6 +474,27 @@ class OAuthManager:
                     source=f"keyring:{secret_key}",
                 )
         return None
+
+    def _legacy_after_refresh_failure(
+        self,
+        sink: OAuthEventSink,
+        operation_id: str,
+        request: OAuthRequest,
+        credential_key: str,
+    ) -> OAuthCredential | None:
+        """Return a configured legacy credential after refresh failure, if any."""
+        legacy_credential = self._credential_from_legacy_secret(
+            request,
+            credential_key,
+        )
+        if legacy_credential:
+            self._emit_resolved(
+                sink,
+                operation_id,
+                request,
+                legacy_credential,
+            )
+        return legacy_credential
 
     def _preserve_refresh_state(
         self,

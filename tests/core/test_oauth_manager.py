@@ -16,6 +16,7 @@ from titan_cli.core.oauth import (
     OAuthManager,
     OAuthRequest,
     OAuthTokenInvalidError,
+    OAuthTokenRefreshError,
     OAuthTokenSet,
     OAuthTokenStore,
     QueuedOAuthEventSink,
@@ -436,6 +437,61 @@ def test_oauth_manager_refresh_failure_checks_legacy_before_authorization(
     assert credential.source == "keyring:demo_legacy_access_token"
     assert provider.refresh_calls == 1
     assert provider.authorize_calls == 0
+
+
+@pytest.mark.parametrize(
+    "failure_factory",
+    [
+        pytest.param(
+            lambda: OAuthTokenInvalidError("refresh token revoked"),
+            id="invalid-token",
+        ),
+        pytest.param(
+            lambda: OAuthTokenRefreshError("provider unavailable"),
+            id="oauth-refresh-error",
+        ),
+        pytest.param(
+            lambda: RuntimeError("temporary refresh failure"),
+            id="unexpected-error",
+        ),
+    ],
+)
+def test_oauth_manager_noninteractive_refresh_failure_uses_legacy_secret(
+    monkeypatch,
+    tmp_path,
+    failure_factory,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager({"demo_legacy_access_token": " legacy-token "})
+    request = _request(interactive=False)
+    store = OAuthTokenStore(secrets)
+    store.write(
+        request,
+        OAuthTokenSet(
+            access_token="expired-oauth-token",
+            refresh_token="refresh-token",
+            expires_at=1,
+        ),
+    )
+
+    class BrokenProvider:
+        async def refresh(self, request, token_set, sink):
+            raise failure_factory()
+
+        async def authorize(self, request, sink):
+            raise AssertionError("authorize should not run")
+
+    manager = OAuthManager(
+        secrets,
+        providers={"google": BrokenProvider()},
+        token_store=store,
+        lock_manager=OAuthLockManager(lock_dir=tmp_path, enable_file_locks=False),
+    )
+
+    credential = asyncio.run(manager.get_credential(request))
+
+    assert credential.access_token == "legacy-token"
+    assert credential.source == "keyring:demo_legacy_access_token"
 
 
 def test_oauth_manager_raises_when_no_credential(monkeypatch, tmp_path) -> None:
