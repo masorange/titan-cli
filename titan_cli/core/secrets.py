@@ -30,6 +30,7 @@ class SecretManager:
     def __init__(self, project_path: Optional[Path] = None):
         self.project_path = project_path or Path.cwd()
         self._project_secret_values: dict[str, str] = {}
+        self._project_env_keys: set[str] = set()
         self._load_project_secrets()
 
     def _load_project_secrets(self):
@@ -37,6 +38,9 @@ class SecretManager:
         secrets_file = self.project_path / ".titan" / "secrets.env"
         if secrets_file.exists():
             self._project_secret_values = self._read_project_secrets_file()
+            self._project_env_keys = {
+                key for key in self._project_secret_values if key not in os.environ
+            }
             load_dotenv(secrets_file)
 
     def get(self, key: str, namespace: str = "titan") -> Optional[str]:
@@ -65,7 +69,7 @@ class SecretManager:
         project_value = self._project_secret_values.get(env_key)
 
         if env_value is not None:
-            if project_value is not None and env_value == project_value:
+            if env_key in self._project_env_keys:
                 return ResolvedSecret(env_value, "project")
             return ResolvedSecret(env_value, "env")
 
@@ -98,7 +102,9 @@ class SecretManager:
         """
         if scope == "env":
             # Set in current environment only
-            os.environ[key.upper()] = value
+            env_key = key.upper()
+            os.environ[env_key] = value
+            self._project_env_keys.discard(env_key)
 
         elif scope == "user":
             # Store in system keyring (most secure)
@@ -109,7 +115,9 @@ class SecretManager:
             secrets_file = self.project_path / ".titan" / "secrets.env"
             secrets_file.parent.mkdir(parents=True, exist_ok=True)
             key_upper = key.upper()
-            old_project_value = self._project_secret_values.get(key_upper)
+            should_update_env = (
+                key_upper in self._project_env_keys or key_upper not in os.environ
+            )
 
             # Read existing content
             existing_lines = []
@@ -132,14 +140,16 @@ class SecretManager:
             with open(secrets_file, "w") as f:
                 f.writelines(existing_lines)
             self._project_secret_values[key_upper] = value
-            if _env_key_should_follow_project(key_upper, old_project_value):
+            if should_update_env:
                 os.environ[key_upper] = value
+                self._project_env_keys.add(key_upper)
 
     def delete(self, key: str, namespace: str = "titan", scope: ScopeType = "user"):
         """Delete secret from specified scope"""
         if scope == "env":
             env_key = key.upper()
             os.environ.pop(env_key, None)
+            self._project_env_keys.discard(env_key)
 
         elif scope == "user":
             try:
@@ -152,7 +162,7 @@ class SecretManager:
             if not secrets_file.exists():
                 return
             key_upper = key.upper()
-            old_project_value = self._project_secret_values.pop(key_upper, None)
+            self._project_secret_values.pop(key_upper, None)
 
             # Read and filter
             with open(secrets_file, "r") as f:
@@ -163,11 +173,9 @@ class SecretManager:
             # Write back
             with open(secrets_file, "w") as f:
                 f.writelines(filtered)
-            if (
-                old_project_value is not None
-                and os.environ.get(key_upper) == old_project_value
-            ):
+            if key_upper in self._project_env_keys:
                 os.environ.pop(key_upper, None)
+                self._project_env_keys.discard(key_upper)
 
     def _read_project_secrets_file(self) -> dict[str, str]:
         """Read project secrets without consulting process environment."""
@@ -178,15 +186,3 @@ class SecretManager:
         return {
             key.upper(): value for key, value in values.items() if value is not None
         }
-
-
-def _env_key_should_follow_project(
-    key_upper: str,
-    old_project_value: Optional[str],
-) -> bool:
-    """Return whether process env mirrors project storage for a secret key."""
-    if key_upper not in os.environ:
-        return True
-    return (
-        old_project_value is not None and os.environ.get(key_upper) == old_project_value
-    )

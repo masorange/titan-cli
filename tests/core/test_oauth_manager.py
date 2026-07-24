@@ -16,6 +16,7 @@ from titan_cli.core.oauth import (
     OAuthLockTimeout,
     OAuthManager,
     OAuthRequest,
+    OAuthStorageError,
     OAuthTokenInvalidError,
     OAuthTokenRefreshError,
     OAuthTokenSet,
@@ -890,6 +891,38 @@ def test_oauth_manager_saves_one_json_blob(tmp_path) -> None:
     stored_payload = json.loads(secrets.values[secret_key])
     assert stored_payload["access_token"] == "manual-token"
     assert [call[0] for call in secrets.set_calls] == [secret_key]
+
+
+def test_oauth_token_store_wraps_json_serialization_errors() -> None:
+    store = OAuthTokenStore(FakeSecretManager())
+    token_set = OAuthTokenSet(
+        access_token="manual-token",
+        metadata={"bad": object()},
+    )
+
+    with pytest.raises(OAuthStorageError) as exc_info:
+        store.write(_request(), token_set)
+
+    assert isinstance(exc_info.value.__cause__, TypeError)
+
+
+def test_oauth_token_store_wraps_secret_write_errors() -> None:
+    class BrokenSecretManager(FakeSecretManager):
+        def set(
+            self,
+            key: str,
+            value: str,
+            namespace: str = "titan",
+            scope: str = "user",
+        ) -> None:
+            raise RuntimeError("keyring unavailable")
+
+    store = OAuthTokenStore(BrokenSecretManager())
+
+    with pytest.raises(OAuthStorageError) as exc_info:
+        store.write(_request(), OAuthTokenSet(access_token="manual-token"))
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
 def test_oauth_lock_async_acquire_cancellation_does_not_leak_lock(tmp_path) -> None:

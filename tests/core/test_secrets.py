@@ -112,6 +112,22 @@ def test_get_with_scope_keeps_real_env_over_project_secret(
     assert resolved.scope == "env"
 
 
+def test_get_with_scope_keeps_real_env_when_value_matches_project_secret(
+    tmp_project_path,
+    mock_env,
+):
+    os.environ["PROJECT_TOKEN"] = "same_value"
+    secrets_file = tmp_project_path / ".titan" / "secrets.env"
+    secrets_file.write_text("PROJECT_TOKEN='same_value'\n")
+
+    sm = SecretManager(project_path=tmp_project_path)
+    resolved = sm.get_with_scope("project_token")
+
+    assert resolved is not None
+    assert resolved.value == "same_value"
+    assert resolved.scope == "env"
+
+
 def test_project_scope_updates_process_env_when_it_mirrors_project(
     tmp_project_path,
     mock_env,
@@ -128,6 +144,24 @@ def test_project_scope_updates_process_env_when_it_mirrors_project(
     assert resolved.scope == "project"
 
 
+def test_project_scope_does_not_update_real_env_even_when_values_match(
+    tmp_project_path,
+    mock_env,
+):
+    os.environ["PROJECT_TOKEN"] = "same_value"
+    secrets_file = tmp_project_path / ".titan" / "secrets.env"
+    secrets_file.write_text("PROJECT_TOKEN='same_value'\n")
+
+    sm = SecretManager(project_path=tmp_project_path)
+    sm.set("project_token", "new_project_value", scope="project")
+
+    assert os.environ["PROJECT_TOKEN"] == "same_value"
+    resolved = sm.get_with_scope("project_token")
+    assert resolved is not None
+    assert resolved.value == "same_value"
+    assert resolved.scope == "env"
+
+
 def test_project_scope_delete_clears_process_env_when_it_mirrors_project(
     tmp_project_path,
     mock_env,
@@ -138,6 +172,21 @@ def test_project_scope_delete_clears_process_env_when_it_mirrors_project(
     sm.delete("project_token", scope="project")
 
     assert "PROJECT_TOKEN" not in os.environ
+
+
+def test_project_scope_delete_keeps_real_env_even_when_values_match(
+    tmp_project_path,
+    mock_env,
+):
+    os.environ["PROJECT_TOKEN"] = "same_value"
+    secrets_file = tmp_project_path / ".titan" / "secrets.env"
+    secrets_file.write_text("PROJECT_TOKEN='same_value'\n")
+
+    sm = SecretManager(project_path=tmp_project_path)
+    sm.delete("project_token", scope="project")
+
+    assert os.environ["PROJECT_TOKEN"] == "same_value"
+    assert sm.get_with_scope("project_token").scope == "env"
 
 
 # --- Test set method ---
