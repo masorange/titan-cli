@@ -236,8 +236,8 @@ def _prompt_and_save_access_token(ctx: WorkflowContext) -> Optional[Error]:
     """Prompt for a token and save it to Titan's OAuth token store."""
     _warning(
         ctx,
-        "Firebase browser OAuth is not configured. Paste an OAuth access token "
-        "to continue.",
+        "Firebase browser OAuth is not configured or did not complete. Paste an "
+        "OAuth access token to continue.",
     )
     token = _ask_for_access_token(ctx)
     if not token:
@@ -262,10 +262,7 @@ def _is_oauth_client_secret_error(exc: Exception) -> bool:
     """Return whether Google rejected the OAuth client secret at token exchange."""
     message = str(exc).lower()
     mentions_secret = "client_secret" in message or "client secret" in message
-    return mentions_secret and (
-        "missing" in message
-        or "invalid" in message
-    )
+    return mentions_secret and ("missing" in message or "invalid" in message)
 
 
 def _try_interactive_oauth(
@@ -294,13 +291,22 @@ def _try_interactive_oauth(
                 "app OAuth client.",
             )
             return True, None, True
-        return True, Error(str(exc), exception=exc, recoverable=True), False
+        _warning(
+            ctx,
+            f"Firebase browser OAuth did not complete: {exc}. "
+            "You can paste a temporary access token instead.",
+        )
+        return True, None, False
     except Exception as exc:
-        return True, Error(
-            f"Firebase Google OAuth login failed: {exc}",
-            exception=exc,
-            recoverable=True,
-        ), False
+        return (
+            True,
+            Error(
+                f"Firebase Google OAuth login failed: {exc}",
+                exception=exc,
+                recoverable=True,
+            ),
+            False,
+        )
 
     return True, None, False
 
@@ -310,22 +316,24 @@ def prompt_for_firebase_auth(
 ) -> tuple[bool, Optional[Error], bool]:
     """Prompt for browser OAuth or a manual token and return auth status."""
     oauth_sink = _WorkflowOAuthSink(ctx)
-    oauth_attempted_any = False
 
     for _attempt in range(3):
         oauth_attempted, oauth_error, client_id_rejected = _try_interactive_oauth(
             ctx,
             oauth_sink,
         )
-        oauth_attempted_any = oauth_attempted_any or oauth_attempted
         if oauth_error:
-            return False, oauth_error, oauth_attempted_any
+            return False, oauth_error, False
 
-        if oauth_attempted and not client_id_rejected and _is_available(
-            ctx,
-            oauth_sink,
+        if (
+            oauth_attempted
+            and not client_id_rejected
+            and _is_available(
+                ctx,
+                oauth_sink,
+            )
         ):
-            return True, None, oauth_attempted_any
+            return True, None, True
 
         oauth_client_id = getattr(ctx.firebase.config, "oauth_client_id", None)
         if oauth_client_id and not client_id_rejected:
@@ -333,15 +341,15 @@ def prompt_for_firebase_auth(
 
         oauth_config_error = _prompt_and_configure_oauth_client_id(ctx)
         if oauth_config_error:
-            return False, oauth_config_error, oauth_attempted_any
+            return False, oauth_config_error, False
         if not getattr(ctx.firebase.config, "oauth_client_id", None):
             break
 
     prompt_error = _prompt_and_save_access_token(ctx)
     if prompt_error:
-        return False, prompt_error, oauth_attempted_any
+        return False, prompt_error, False
 
-    return _is_available(ctx, oauth_sink), None, oauth_attempted_any
+    return _is_available(ctx, oauth_sink), None, False
 
 
 def _check_auth(
@@ -385,7 +393,9 @@ def _check_auth(
         )
 
     if prompt_for_missing_auth:
-        auth_available, auth_error, oauth_attempted = prompt_for_firebase_auth(ctx)
+        auth_available, auth_error, oauth_login_completed = prompt_for_firebase_auth(
+            ctx
+        )
         if auth_error:
             _error(ctx, auth_error.message)
             _end(ctx, "error")
@@ -396,7 +406,7 @@ def _check_auth(
                 ctx,
                 login_command=login_command,
                 token_saved=True,
-                oauth_login_completed=oauth_attempted,
+                oauth_login_completed=oauth_login_completed,
             )
 
     message = (

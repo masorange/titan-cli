@@ -42,6 +42,7 @@ def _firebase_client() -> MagicMock:
 
 def _save_oauth_client_id_mock(client: MagicMock):
     """Return a mock side effect that enables OAuth on fake Firebase clients."""
+
     def _save(client_id: str, client_secret: str | None = None) -> None:
         client.config = client.config.model_copy(
             update={
@@ -173,6 +174,52 @@ def test_firebase_login_prompts_oauth_client_id_before_manual_token() -> None:
     client.get_access_token.assert_called_once()
     assert client.get_access_token.call_args.kwargs["interactive"] is True
     ctx.textual.ask_password.assert_called_once()
+
+
+def test_firebase_login_falls_back_to_manual_token_after_oauth_failure() -> None:
+    client = _firebase_client()
+    client.config = FirebasePluginConfig(
+        default_project="default-project",
+        oauth_client_id="google-client-id",
+    )
+    client.is_available.side_effect = [False, False, True]
+    client.get_access_token.side_effect = FirebaseClientError(
+        "Firebase Google OAuth login failed: callback timed out"
+    )
+    client.get_access_token_source_label.return_value = "Titan OAuth token store"
+    ctx = _ctx(firebase=client)
+    ctx.textual.ask_password.return_value = " ya29.manual-token "
+
+    result = execute_firebase_login_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_access_token_saved"] is True
+    assert result.metadata["firebase_oauth_login_completed"] is False
+    client.get_access_token.assert_called_once()
+    assert client.get_access_token.call_args.kwargs["interactive"] is True
+    client.save_access_token.assert_called_once_with("ya29.manual-token")
+    warning_messages = [
+        call.args[0] for call in ctx.textual.warning_text.call_args_list
+    ]
+    assert any("did not complete" in msg for msg in warning_messages)
+
+
+def test_firebase_login_aborts_on_unexpected_oauth_failure() -> None:
+    client = _firebase_client()
+    client.config = FirebasePluginConfig(
+        default_project="default-project",
+        oauth_client_id="google-client-id",
+    )
+    client.is_available.return_value = False
+    client.get_access_token.side_effect = RuntimeError("unexpected crash")
+    ctx = _ctx(firebase=client)
+    ctx.textual.ask_password.return_value = " ya29.manual-token "
+
+    result = execute_firebase_login_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "Firebase Google OAuth login failed" in result.message
+    client.save_access_token.assert_not_called()
 
 
 def test_firebase_login_errors_when_auth_missing_and_token_not_entered() -> None:
