@@ -545,7 +545,10 @@ class OAuthManager:
         """Validate provider token data before exposing or storing it."""
         if not isinstance(token_set, OAuthTokenSet):
             raise error_cls(f"OAuth {action} did not return token data.")
-        if not token_set.access_token:
+        if (
+            not isinstance(token_set.access_token, str)
+            or not token_set.access_token.strip()
+        ):
             raise error_cls(f"OAuth {action} returned an empty access token.")
         if not token_set.is_valid(
             refresh_margin_seconds=self.refresh_margin_seconds,

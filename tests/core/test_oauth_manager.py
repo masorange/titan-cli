@@ -97,6 +97,22 @@ def _request(**overrides) -> OAuthRequest:
     return OAuthRequest(**defaults)
 
 
+def _unsafe_oauth_token_set(**overrides) -> OAuthTokenSet:
+    defaults = {
+        "access_token": "",
+        "refresh_token": None,
+        "expires_at": None,
+        "token_type": "Bearer",
+        "scopes": (),
+        "metadata": {},
+    }
+    defaults.update(overrides)
+    token_set = object.__new__(OAuthTokenSet)
+    for key, value in defaults.items():
+        object.__setattr__(token_set, key, value)
+    return token_set
+
+
 def test_oauth_request_normalizes_scalar_scope_and_legacy_secret_key() -> None:
     request = OAuthRequest(
         provider="google",
@@ -327,6 +343,14 @@ def test_oauth_manager_refresh_preserves_omitted_refresh_token(
 @pytest.mark.parametrize(
     "token_factory",
     [
+        pytest.param(
+            lambda: _unsafe_oauth_token_set(access_token=""),
+            id="empty-access-token",
+        ),
+        pytest.param(
+            lambda: _unsafe_oauth_token_set(access_token="   "),
+            id="blank-access-token",
+        ),
         pytest.param(
             lambda: OAuthTokenSet(
                 access_token="fresh-token",
@@ -593,6 +617,14 @@ def test_oauth_manager_wraps_authorization_errors(monkeypatch, tmp_path) -> None
 @pytest.mark.parametrize(
     "token_factory",
     [
+        pytest.param(
+            lambda: _unsafe_oauth_token_set(access_token=""),
+            id="empty-access-token",
+        ),
+        pytest.param(
+            lambda: _unsafe_oauth_token_set(access_token="   "),
+            id="blank-access-token",
+        ),
         pytest.param(
             lambda: OAuthTokenSet(
                 access_token="login-token",
