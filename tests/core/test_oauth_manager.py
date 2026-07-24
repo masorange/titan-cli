@@ -746,6 +746,70 @@ def test_oauth_manager_refreshes_only_once_under_concurrency(
     assert {credential.access_token for credential in credentials} == {"fresh-token-1"}
 
 
+def test_oauth_manager_refreshes_once_across_managers_with_file_locks(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("OAUTH_ACCESS_TOKEN", raising=False)
+    secrets = FakeSecretManager()
+    request = _request()
+    store = OAuthTokenStore(secrets)
+    store.write(
+        request,
+        OAuthTokenSet(
+            access_token="expired-token",
+            refresh_token="refresh-token",
+            expires_at=1,
+        ),
+    )
+
+    class RefreshProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def refresh(self, request, token_set, sink):
+            self.calls += 1
+            await asyncio.sleep(0.05)
+            return OAuthTokenSet(
+                access_token=f"fresh-token-{self.calls}",
+                refresh_token=token_set.refresh_token,
+                expires_at=int(time.time()) + 3600,
+            )
+
+        async def authorize(self, request, sink):
+            raise AssertionError("authorize should not run")
+
+    provider = RefreshProvider()
+    lock_dir = tmp_path / "locks"
+    manager_one = OAuthManager(
+        secrets,
+        providers={"google": provider},
+        token_store=OAuthTokenStore(secrets),
+        lock_manager=OAuthLockManager(lock_dir=lock_dir, enable_file_locks=True),
+    )
+    manager_two = OAuthManager(
+        secrets,
+        providers={"google": provider},
+        token_store=OAuthTokenStore(secrets),
+        lock_manager=OAuthLockManager(lock_dir=lock_dir, enable_file_locks=True),
+    )
+
+    async def resolve_with_separate_managers():
+        return await asyncio.gather(
+            manager_one.get_credential(request),
+            manager_two.get_credential(request),
+        )
+
+    credentials = asyncio.run(resolve_with_separate_managers())
+
+    assert provider.calls == 1
+    assert {credential.access_token for credential in credentials} == {"fresh-token-1"}
+    assert {credential.source for credential in credentials} == {
+        "oauth-cache",
+        "oauth-refresh",
+    }
+
+
 def test_oauth_manager_interactive_authorizes_after_refresh_failure(
     monkeypatch,
     tmp_path,
