@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+import errno
 import hashlib
 import os
 from pathlib import Path
@@ -48,7 +49,10 @@ class _FileLock:
                 self._try_acquire_once()
                 self._acquired = True
                 return
-            except (BlockingIOError, OSError):
+            except OSError as exc:
+                if not self._is_lock_contention(exc):
+                    self._close_handle()
+                    raise
                 if self._timed_out(start):
                     self._close_handle()
                     raise OAuthLockTimeout(
@@ -98,6 +102,17 @@ class _FileLock:
         if self.timeout_seconds is None:
             return False
         return time.monotonic() - start >= self.timeout_seconds
+
+    def _is_lock_contention(self, exc: OSError) -> bool:
+        """Return whether an OS error represents a busy lock."""
+        if getattr(exc, "winerror", None) in {32, 33}:
+            return True
+        lock_contention_errnos = {
+            errno.EACCES,
+            errno.EAGAIN,
+            errno.EWOULDBLOCK,
+        }
+        return exc.errno in lock_contention_errnos
 
     def _close_handle(self) -> None:
         if self._handle:

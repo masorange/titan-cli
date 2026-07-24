@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import json
 import threading
 import time
@@ -664,6 +665,47 @@ def test_oauth_lock_file_lock_uses_remaining_timeout(
 
     assert captured_timeouts
     assert 0 < captured_timeouts[0] < 0.5
+
+
+def test_file_lock_retries_lock_contention_error(tmp_path) -> None:
+    lock = oauth_locks._FileLock(
+        tmp_path / "oauth.lock",
+        timeout_seconds=1,
+        poll_interval_seconds=0,
+    )
+    attempts = 0
+
+    def try_acquire_once() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise BlockingIOError(errno.EAGAIN, "resource temporarily unavailable")
+
+    lock._try_acquire_once = try_acquire_once
+
+    lock.acquire()
+
+    assert attempts == 2
+    lock.release()
+
+
+def test_file_lock_propagates_non_contention_oserror(tmp_path) -> None:
+    lock = oauth_locks._FileLock(
+        tmp_path / "oauth.lock",
+        timeout_seconds=1,
+        poll_interval_seconds=0,
+    )
+
+    def try_acquire_once() -> None:
+        raise OSError(errno.ENOSPC, "no space left on device")
+
+    lock._try_acquire_once = try_acquire_once
+
+    with pytest.raises(OSError) as exc_info:
+        lock.acquire()
+
+    assert exc_info.value.errno == errno.ENOSPC
+    assert lock._handle is None
 
 
 def test_queued_oauth_event_sink_drains_events() -> None:
