@@ -6,9 +6,8 @@ from pathlib import Path
 from typing import Optional
 
 from titan_cli.core.config import TitanConfig
-from titan_cli.core.oauth import OAuthManager
+from titan_cli.core.oauth import OAuthTokenStore
 from titan_cli.core.plugins.plugin_base import TitanPlugin
-from titan_cli.core.secrets import SecretManager
 
 from .client import (
     FirebaseClient,
@@ -39,7 +38,7 @@ class FirebasePlugin(TitanPlugin):
     def dependencies(self) -> list[str]:
         return []
 
-    def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
+    def initialize(self, config: TitanConfig, secrets: object) -> None:
         """Initialize the Firebase client from merged Titan plugin config."""
         plugin_config_data = self._get_plugin_config(config)
         try:
@@ -52,19 +51,20 @@ class FirebasePlugin(TitanPlugin):
         if not isinstance(project_name, str) or not project_name.strip():
             project_name = None
 
+        secret_store, secret_namespace, token_store = self._build_oauth_storage(secrets)
         project_oauth_client_id = self._get_saved_oauth_client_id(
-            secrets,
+            token_store,
             project_name,
             include_generic=False,
         )
         project_oauth_client_secret = self._get_saved_oauth_client_secret(
-            secrets,
+            token_store,
             project_name,
             include_generic=False,
         )
-        generic_oauth_client_id = self._get_saved_oauth_client_id(secrets, None)
+        generic_oauth_client_id = self._get_saved_oauth_client_id(token_store, None)
         generic_oauth_client_secret = self._get_saved_oauth_client_secret(
-            secrets,
+            token_store,
             None,
         )
 
@@ -108,10 +108,13 @@ class FirebasePlugin(TitanPlugin):
 
         self._client = FirebaseClient(
             config=validated_config,
-            secrets=secrets,
+            secrets=secret_store,
             project_name=project_name,
-            oauth_manager=OAuthManager(secrets, providers=oauth_providers),
+            secret_namespace=secret_namespace,
+            token_store=token_store,
         )
+        if self._client.oauth_manager:
+            self._client.oauth_manager.providers.update(oauth_providers)
 
     def _get_plugin_config(self, config: TitanConfig) -> dict:
         """Extract Firebase plugin configuration from Titan config."""
@@ -123,7 +126,7 @@ class FirebasePlugin(TitanPlugin):
 
     def _get_saved_oauth_client_id(
         self,
-        secrets: SecretManager,
+        token_store: OAuthTokenStore,
         project_name: Optional[str],
         *,
         include_generic: bool = True,
@@ -136,14 +139,14 @@ class FirebasePlugin(TitanPlugin):
             keys.append(OAUTH_CLIENT_ID_SECRET_KEY)
 
         for key in keys:
-            value = secrets.get(key)
+            value = _read_oauth_aux_secret(token_store, key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return None
 
     def _get_saved_oauth_client_secret(
         self,
-        secrets: SecretManager,
+        token_store: OAuthTokenStore,
         project_name: Optional[str],
         *,
         include_generic: bool = True,
@@ -156,10 +159,32 @@ class FirebasePlugin(TitanPlugin):
             keys.append(OAUTH_CLIENT_SECRET_KEY)
 
         for key in keys:
-            value = secrets.get(key)
+            value = _read_oauth_aux_secret(token_store, key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return None
+
+    def _build_oauth_storage(
+        self,
+        secrets: object,
+    ) -> tuple[object, str, OAuthTokenStore]:
+        """Build Firebase OAuth storage from old SecretManager or new SecretBroker."""
+        namespace = getattr(secrets, "namespace", "titan")
+        if not isinstance(namespace, str) or not namespace.strip():
+            namespace = "titan"
+        secret_store = secrets
+
+        if hasattr(secrets, "_vault"):
+            try:
+                from titan_cli.core.security.oauth_tokens import (
+                    create_oauth_secret_store_from_broker,
+                )
+            except ImportError:
+                pass
+            else:
+                secret_store = create_oauth_secret_store_from_broker(secrets)
+
+        return secret_store, namespace, OAuthTokenStore(secret_store, namespace=namespace)
 
     def get_config_schema(self) -> dict:
         """Return the Firebase plugin JSON configuration schema."""
@@ -232,3 +257,38 @@ class FirebasePlugin(TitanPlugin):
     def workflows_path(self) -> Optional[Path]:
         """Return the plugin workflows directory path."""
         return Path(__file__).parent / "workflows"
+
+
+def _read_oauth_aux_secret(
+    token_store: OAuthTokenStore,
+    key: str,
+) -> Optional[str]:
+    """Read saved Firebase OAuth auxiliary secrets through available store APIs."""
+    read_legacy_secret = getattr(token_store, "read_legacy_secret", None)
+    if callable(read_legacy_secret):
+        resolved = read_legacy_secret(key)
+        value = getattr(resolved, "value", None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    get_secret_with_scope = getattr(token_store, "_get_secret_with_scope", None)
+    if callable(get_secret_with_scope):
+        try:
+            resolved = get_secret_with_scope(key)
+        except TypeError:
+            resolved = None
+        value = getattr(resolved, "value", None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    secrets = getattr(token_store, "secrets", None)
+    get_secret = getattr(secrets, "get", None)
+    if callable(get_secret):
+        try:
+            value = get_secret(key, namespace=token_store.namespace)
+        except TypeError:
+            value = get_secret(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return None

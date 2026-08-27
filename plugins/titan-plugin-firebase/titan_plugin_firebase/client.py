@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import re
-from typing import Any, Optional, Sequence
+from typing import Any, Literal, Optional, Sequence
 
 import requests
 
@@ -18,8 +18,8 @@ from titan_cli.core.oauth import (
     OAuthProviderNotFound,
     OAuthRequest,
     OAuthTokenSet,
+    OAuthTokenStore,
 )
-from titan_cli.core.secrets import ScopeType, SecretManager
 
 from . import auth
 from .config import FirebasePluginConfig
@@ -30,6 +30,7 @@ ACCESS_TOKEN_SECRET_KEY = "firebase_access_token"
 OAUTH_CLIENT_ID_SECRET_KEY = "firebase_oauth_client_id"
 OAUTH_CLIENT_SECRET_KEY = "firebase_oauth_client_secret"
 GOOGLE_CLOUD_PROJECT_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+OAuthStorageScope = Literal["project", "user"]
 
 
 @dataclass(frozen=True)
@@ -52,18 +53,44 @@ class FirebaseClient:
     def __init__(
         self,
         config: FirebasePluginConfig,
-        secrets: Optional[SecretManager] = None,
+        secrets: Optional[object] = None,
         project_name: Optional[str] = None,
         oauth_manager: Optional[OAuthManager] = None,
+        secret_namespace: str = "titan",
+        token_store: Optional[OAuthTokenStore] = None,
     ):
         """Initialize the Firebase client with validated plugin config."""
         self.config = config
         self.secrets = secrets
         self.project_name = project_name
-        self.oauth_manager = oauth_manager or (
-            OAuthManager(secrets) if secrets is not None else None
+        self.secret_namespace = secret_namespace
+        self.oauth_manager = oauth_manager or self._build_oauth_manager(
+            secrets=secrets,
+            token_store=token_store,
+            secret_namespace=secret_namespace,
         )
         self._ignored_access_token_sources: set[str] = set()
+
+    def _build_oauth_manager(
+        self,
+        *,
+        secrets: Optional[object],
+        token_store: Optional[OAuthTokenStore],
+        secret_namespace: str,
+    ) -> Optional[OAuthManager]:
+        if token_store is not None:
+            return _create_oauth_manager(secrets, token_store=token_store)
+        if secrets is None:
+            return None
+        return _create_oauth_manager(
+            secrets,
+            token_store=OAuthTokenStore(secrets, namespace=secret_namespace),
+        )
+
+    @property
+    def token_store(self) -> Optional[OAuthTokenStore]:
+        """Return the OAuth token store used for Firebase credentials."""
+        return self.oauth_manager.token_store if self.oauth_manager else None
 
     def is_gcloud_installed(self) -> bool:
         """Return whether the gcloud CLI is installed."""
@@ -222,8 +249,12 @@ class FirebaseClient:
         )
         if not self.oauth_manager:
             if not self.secrets:
-                raise FirebaseClientError("Titan SecretManager is not available.")
-            self.oauth_manager = OAuthManager(self.secrets)
+                raise FirebaseClientError("Titan OAuth token store is not available.")
+            self.oauth_manager = self._build_oauth_manager(
+                secrets=self.secrets,
+                token_store=None,
+                secret_namespace=self.secret_namespace,
+            )
 
         self.oauth_manager.providers["google"] = GoogleOAuthProvider(
             GoogleOAuthFlow(
@@ -240,11 +271,11 @@ class FirebaseClient:
         self,
         client_id: str,
         client_secret: str | None = None,
-        scope: ScopeType = "user",
+        scope: OAuthStorageScope = "user",
     ) -> None:
         """Persist a Google OAuth client ID and enable browser login."""
-        if not self.secrets:
-            raise FirebaseClientError("Titan SecretManager is not available.")
+        if not self.token_store:
+            raise FirebaseClientError("Titan OAuth token store is not available.")
 
         normalized = client_id.strip() if client_id else ""
         if not normalized:
@@ -260,28 +291,28 @@ class FirebaseClient:
             keys.insert(0, f"{self.project_name}_{OAUTH_CLIENT_ID_SECRET_KEY}")
 
         for key in keys:
-            self.secrets.set(key, normalized, scope=scope)
+            self._set_secret(key, normalized, scope=scope)
         if normalized_secret:
             secret_keys = [OAUTH_CLIENT_SECRET_KEY]
             if self.project_name:
                 secret_keys.insert(0, f"{self.project_name}_{OAUTH_CLIENT_SECRET_KEY}")
             for key in secret_keys:
-                self.secrets.set(key, normalized_secret, scope=scope)
+                self._set_secret(key, normalized_secret, scope=scope)
         else:
             for key in self.get_oauth_client_secret_secret_keys():
-                self.secrets.delete(key, scope=scope)
+                self._delete_secret(key, scope=scope)
 
         self.configure_google_oauth(normalized, client_secret=normalized_secret)
 
-    def delete_oauth_client_id(self, scope: ScopeType = "user") -> bool:
+    def delete_oauth_client_id(self, scope: OAuthStorageScope = "user") -> bool:
         """Delete saved Google OAuth client IDs and clear runtime OAuth config."""
         deleted = False
-        if self.secrets:
+        if self.token_store:
             for key in (
                 self.get_oauth_client_id_secret_keys()
                 + self.get_oauth_client_secret_secret_keys()
             ):
-                self.secrets.delete(key, scope=scope)
+                self._delete_secret(key, scope=scope)
                 deleted = True
 
         self.config = self.config.model_copy(
@@ -291,13 +322,11 @@ class FirebaseClient:
             self.oauth_manager.providers.pop("google", None)
         return deleted
 
-    def save_access_token(self, token: str, scope: ScopeType = "user") -> None:
+    def save_access_token(self, token: str, scope: OAuthStorageScope = "user") -> None:
         """Persist a Firebase access token using Titan's OAuth token store."""
         normalized = token.strip() if token else ""
         if not normalized:
             raise FirebaseClientError("Firebase access token is required.")
-        if not self.secrets:
-            raise FirebaseClientError("Titan SecretManager is not available.")
         if not self.oauth_manager:
             raise FirebaseClientError("Titan OAuthManager is not available.")
 
@@ -349,7 +378,7 @@ class FirebaseClient:
         self,
         source: Optional[str],
         *,
-        scope: ScopeType = "user",
+        scope: OAuthStorageScope = "user",
     ) -> bool:
         """Invalidate one rejected auth source for the current client session."""
         if not source:
@@ -357,9 +386,9 @@ class FirebaseClient:
 
         self._ignored_access_token_sources.add(source)
 
-        if source.startswith("keyring:") and self.secrets:
+        if source.startswith("keyring:") and self.token_store:
             key = source.removeprefix("keyring:")
-            self.secrets.delete(key, scope=scope)
+            self._delete_secret(key, scope=scope)
             return True
 
         if source in {"oauth-cache", "oauth-refresh", "oauth-login"}:
@@ -379,6 +408,29 @@ class FirebaseClient:
             "Firebase plugin access_token",
             "gcloud ADC",
         }
+
+    def _set_secret(self, key: str, value: str, *, scope: OAuthStorageScope) -> None:
+        """Store a Firebase OAuth auxiliary secret in the configured namespace."""
+        if not self.token_store:
+            raise FirebaseClientError("Titan OAuth token store is not available.")
+        _set_secret(
+            self.token_store.secrets,
+            key,
+            value,
+            namespace=self.secret_namespace,
+            scope=scope,
+        )
+
+    def _delete_secret(self, key: str, *, scope: OAuthStorageScope) -> None:
+        """Delete a Firebase OAuth auxiliary secret in the configured namespace."""
+        if not self.token_store:
+            raise FirebaseClientError("Titan OAuth token store is not available.")
+        _delete_secret(
+            self.token_store.secrets,
+            key,
+            namespace=self.secret_namespace,
+            scope=scope,
+        )
 
     def _normalize_project_id(self, project_id: str) -> str:
         """Normalize and validate a Google Cloud project ID."""
@@ -525,3 +577,60 @@ class FirebaseClient:
 
         text = (response.text or "").strip()
         return text or "No response detail provided."
+
+
+def _create_oauth_manager(
+    secrets: object | None = None,
+    *,
+    providers: dict[str, object] | None = None,
+    token_store: OAuthTokenStore | None = None,
+) -> OAuthManager:
+    """Create an OAuth manager across the old and new Titan credential APIs."""
+    try:
+        return OAuthManager(providers=providers, token_store=token_store)
+    except TypeError:
+        secret_backend = secrets or getattr(token_store, "secrets", None)
+        if secret_backend is None:
+            raise FirebaseClientError("Titan OAuth token store is not available.")
+        return OAuthManager(
+            secret_backend,
+            providers=providers,
+            token_store=token_store,
+        )
+
+
+def _set_secret(
+    secrets: object,
+    key: str,
+    value: str,
+    *,
+    namespace: str,
+    scope: OAuthStorageScope,
+) -> None:
+    """Store a secret while preserving old SecretManager call compatibility."""
+    set_secret = getattr(secrets, "set")
+    try:
+        if namespace == "titan":
+            set_secret(key, value, scope=scope)
+        else:
+            set_secret(key, value, namespace=namespace, scope=scope)
+    except TypeError:
+        set_secret(key, value, scope=scope)
+
+
+def _delete_secret(
+    secrets: object,
+    key: str,
+    *,
+    namespace: str,
+    scope: OAuthStorageScope,
+) -> None:
+    """Delete a secret while preserving old SecretManager call compatibility."""
+    delete_secret = getattr(secrets, "delete")
+    try:
+        if namespace == "titan":
+            delete_secret(key, scope=scope)
+        else:
+            delete_secret(key, namespace=namespace, scope=scope)
+    except TypeError:
+        delete_secret(key, scope=scope)
