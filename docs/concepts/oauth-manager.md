@@ -13,12 +13,22 @@ provider.
 - Blocking wrappers for today's synchronous workflow executor
 - Provider-neutral events through `OAuthEventSink`
 - Queue-backed event sink for a future shared runtime event queue
-- One SecretManager JSON blob per OAuth credential
+- One JSON token blob per OAuth credential, stored through the core security
+  adapter rather than direct keyring access
+- SecretBroker-aware namespacing, so plugin OAuth credentials use the same
+  scoped secret boundary as the rest of Titan
 - Credential-scoped locks for refresh/login coordination
 
 Provider adapters live outside the manager. A plugin can register a provider for
 browser login, device login, service-specific refresh, or any other OAuth flow
 without coupling the core manager to that product.
+
+OAuth storage must not read or write the OS keyring directly. Plugins should
+pass their scoped `SecretBroker` into `OAuthManager`; the security boundary
+derives the OAuth secret store from that broker and preserves the broker's
+namespace for user-scope tokens. Project-scope tokens still use the active
+project's `.titan/secrets.env` through `SecretManager`, keeping the same
+global/project precedence model as the rest of Titan secrets.
 
 ## Refresh Strategy
 

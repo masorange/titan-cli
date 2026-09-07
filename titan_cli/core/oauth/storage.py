@@ -8,9 +8,10 @@ from typing import Final, cast
 
 from titan_cli.core.security.oauth_tokens import (
     OAuthSecretOrigin,
+    OAuthSecretStoreProtocol,
     OAuthStorageScope,
     ResolvedOAuthSecret,
-    create_oauth_secret_store,
+    coerce_oauth_secret_store,
 )
 
 from .exceptions import OAuthStorageError
@@ -40,11 +41,30 @@ class OAuthTokenStore:
         self,
         secrets: object | None = None,
         *,
-        namespace: str = "titan",
+        namespace: str | None = None,
         secret_prefix: str = "oauth",
     ) -> None:
-        self.secrets = secrets or create_oauth_secret_store()
-        self.namespace = namespace
+        self.secret_store: OAuthSecretStoreProtocol = coerce_oauth_secret_store(secrets)
+        # Backward-compatible attribute for tests/callers that inspect the
+        # injected store, without re-opening any legacy get/set path.
+        self.secrets = self.secret_store
+        default_namespace = getattr(self.secret_store, "namespace", "titan")
+        if (
+            namespace is not None
+            and getattr(self.secret_store, "namespace_locked", False)
+            and namespace != default_namespace
+        ):
+            raise ValueError(
+                "OAuth token store namespace is derived from SecretBroker "
+                "and cannot be overridden."
+            )
+        self.namespace = (
+            namespace
+            if namespace is not None
+            else default_namespace
+            if isinstance(default_namespace, str)
+            else "titan"
+        )
         self.secret_prefix = secret_prefix
 
     def build_secret_key(self, request: OAuthRequest) -> str:
@@ -121,40 +141,14 @@ class OAuthTokenStore:
 
     def read_env_secret(self, key: str) -> str | None:
         """Read an explicit access-token environment variable."""
-        resolve_env = getattr(self.secrets, "resolve_env", None)
-        if resolve_env:
-            return resolve_env(key)
-        return None
+        return self.secret_store.resolve_env(key)
 
     def read_legacy_secret(self, key: str) -> ResolvedOAuthSecret | None:
         """Read a configured legacy single-token secret."""
         return self._get_secret_with_scope(key)
 
     def _get_secret_with_scope(self, key: str) -> ResolvedOAuthSecret | None:
-        resolve = getattr(self.secrets, "resolve", None)
-        if resolve:
-            resolved_secret = resolve(key, namespace=self.namespace)
-            normalized_secret = _normalize_resolved_secret(resolved_secret)
-            if normalized_secret:
-                return normalized_secret
-
-        get_with_scope = getattr(self.secrets, "get_with_scope", None)
-        if get_with_scope:
-            if self.namespace == "titan":
-                resolved_secret = get_with_scope(key)
-            else:
-                resolved_secret = get_with_scope(key, namespace=self.namespace)
-            normalized_secret = _normalize_resolved_secret(resolved_secret)
-            if normalized_secret:
-                return normalized_secret
-
-        raw_value = self._get_secret_legacy(key)
-        return ResolvedOAuthSecret(raw_value, "keyring", "user") if raw_value else None
-
-    def _get_secret_legacy(self, key: str) -> str | None:
-        if self.namespace == "titan":
-            return self.secrets.get(key)
-        return self.secrets.get(key, namespace=self.namespace)
+        return self.secret_store.resolve(key, namespace=self.namespace)
 
     def _set_secret(
         self,
@@ -163,16 +157,15 @@ class OAuthTokenStore:
         *,
         scope: OAuthStorageScope,
     ) -> None:
-        if self.namespace == "titan":
-            self.secrets.set(key, value, scope=scope)
-            return
-        self.secrets.set(key, value, namespace=self.namespace, scope=scope)
+        self.secret_store.set(
+            key,
+            value,
+            namespace=self.namespace,
+            scope=scope,
+        )
 
     def _delete_secret(self, key: str, *, scope: OAuthStorageScope) -> None:
-        if self.namespace == "titan":
-            self.secrets.delete(key, scope=scope)
-            return
-        self.secrets.delete(key, namespace=self.namespace, scope=scope)
+        self.secret_store.delete(key, namespace=self.namespace, scope=scope)
 
     def _verify_secret_deleted(self, key: str, *, scope: OAuthStorageScope) -> None:
         """Verify that a scoped credential is gone after deletion."""
@@ -188,71 +181,11 @@ class OAuthTokenStore:
         *,
         scope: OAuthStorageScope,
     ) -> str | None:
-        get_from_scope = getattr(self.secrets, "get_from_scope", None)
-        if get_from_scope:
-            if self.namespace == "titan":
-                return get_from_scope(key, scope=scope)
-            return get_from_scope(key, namespace=self.namespace, scope=scope)
-
-        resolved_secret = self._get_secret_with_scope(key)
-        if resolved_secret and resolved_secret.storage_scope == scope:
-            return resolved_secret.value
-        return None
-
-
-def _normalize_resolved_secret(value: object) -> ResolvedOAuthSecret | None:
-    """Normalize SecretManager-compatible scoped secret results."""
-    if value is None:
-        return None
-    if isinstance(value, tuple) and len(value) == 2:
-        secret_value, secret_origin = value
-        if isinstance(secret_value, str) and secret_origin in {
-            "env",
-            "project",
-            "keyring",
-        }:
-            return ResolvedOAuthSecret(
-                secret_value,
-                cast(OAuthSecretOrigin, secret_origin),
-                _storage_scope_for_origin(secret_origin),
-            )
-        return None
-    secret_value = getattr(value, "value", None)
-    secret_origin = getattr(value, "origin", None)
-    secret_storage_scope = getattr(value, "storage_scope", None)
-    if isinstance(secret_value, str) and secret_origin in {
-        "env",
-        "project",
-        "keyring",
-    }:
-        storage_scope = (
-            _validate_scope(secret_storage_scope)
-            if secret_storage_scope is not None
-            else _storage_scope_for_origin(secret_origin)
+        return self.secret_store.get_from_scope(
+            key,
+            namespace=self.namespace,
+            scope=scope,
         )
-        return ResolvedOAuthSecret(
-            secret_value,
-            cast(OAuthSecretOrigin, secret_origin),
-            storage_scope,
-        )
-
-    secret_scope = getattr(value, "scope", None)
-    if isinstance(secret_value, str) and secret_scope in {"env", "project", "user"}:
-        origin = "keyring" if secret_scope == "user" else secret_scope
-        return ResolvedOAuthSecret(
-            secret_value,
-            cast(OAuthSecretOrigin, origin),
-            None if secret_scope == "env" else cast(OAuthStorageScope, secret_scope),
-        )
-    return None
-
-
-def _storage_scope_for_origin(origin: object) -> OAuthStorageScope | None:
-    if origin == "project":
-        return "project"
-    if origin == "keyring":
-        return "user"
-    return None
 
 
 def _validate_scope(scope: object) -> OAuthStorageScope:

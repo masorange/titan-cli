@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -25,10 +26,12 @@ from titan_cli.core.oauth import (
     QueuedOAuthEventSink,
     build_oauth_credential_key,
 )
-from titan_cli.core.security.oauth_tokens import ResolvedOAuthSecret
+from titan_cli.core.security import SecretBroker
+from titan_cli.core.security._vault import SecretManager
+from titan_cli.core.security.oauth_tokens import OAuthSecretStore, ResolvedOAuthSecret
 
 
-class FakeSecretManager:
+class FakeSecretManager(OAuthSecretStore):
     def __init__(self, initial: dict[str, str] | None = None) -> None:
         self.values = dict(initial or {})
         self.scoped_values: dict[tuple[str, str, str], str] = {
@@ -57,6 +60,13 @@ class FakeSecretManager:
                     storage_scope,
                 )
         return None
+
+    def resolve(
+        self,
+        key: str,
+        namespace: str = "titan",
+    ) -> ResolvedOAuthSecret | None:
+        return self.get_with_scope(key, namespace=namespace)
 
     def resolve_env(self, key: str) -> str | None:
         value = os.environ.get(key)
@@ -1765,6 +1775,72 @@ def test_oauth_token_store_wraps_invalid_scope_without_writing() -> None:
 
     assert isinstance(exc_info.value.__cause__, ValueError)
     assert secrets.set_calls == []
+
+
+def test_oauth_token_store_rejects_legacy_get_set_secret_backends() -> None:
+    class LegacyGetSetSecrets:
+        def get(self, key: str, namespace: str = "titan") -> str | None:
+            return None
+
+        def set(
+            self,
+            key: str,
+            value: str,
+            namespace: str = "titan",
+            scope: str = "user",
+        ) -> None:
+            return None
+
+    with pytest.raises(TypeError, match="OAuth token storage requires"):
+        OAuthTokenStore(LegacyGetSetSecrets())
+
+
+def test_oauth_token_store_uses_secret_broker_namespace(tmp_path) -> None:
+    keyring_store: dict[tuple[str, str], str] = {}
+
+    def set_password(namespace: str, key: str, value: str) -> None:
+        keyring_store[(namespace, key)] = value
+
+    def get_password(namespace: str, key: str) -> str | None:
+        return keyring_store.get((namespace, key))
+
+    def delete_password(namespace: str, key: str) -> None:
+        keyring_store.pop((namespace, key), None)
+
+    with (
+        patch("keyring.get_password", side_effect=get_password),
+        patch(
+            "keyring.set_password",
+            side_effect=set_password,
+        ),
+        patch("keyring.delete_password", side_effect=delete_password),
+    ):
+        broker = SecretBroker(
+            SecretManager(project_path=tmp_path),
+            "titan.plugins.firebase",
+        )
+        store = OAuthTokenStore(broker)
+        request = _request()
+
+        secret_key = store.write(
+            request,
+            OAuthTokenSet(access_token="broker-token"),
+            scope="user",
+        )
+
+        assert ("titan.plugins.firebase", secret_key) in keyring_store
+        assert ("titan", secret_key) not in keyring_store
+        assert store.read(request).access_token == "broker-token"
+
+
+def test_oauth_token_store_does_not_override_broker_namespace(tmp_path) -> None:
+    broker = SecretBroker(
+        SecretManager(project_path=tmp_path),
+        "titan.plugins.firebase",
+    )
+
+    with pytest.raises(ValueError, match="SecretBroker"):
+        OAuthTokenStore(broker, namespace="titan")
 
 
 def test_oauth_lock_async_acquire_cancellation_does_not_leak_lock(tmp_path) -> None:
