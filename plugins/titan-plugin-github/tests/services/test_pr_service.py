@@ -375,6 +375,7 @@ def test_merge_pr_falls_back_to_regular_merge_when_detection_fails(
 
     assert isinstance(result, ClientSuccess)
     assert result.data.merged is True
+    assert result.data.queued is False
     assert "--squash" in mock_gh_network.run_command.call_args[0][0]
 
 
