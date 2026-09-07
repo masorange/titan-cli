@@ -44,11 +44,17 @@ class GraphQLPullRequestMergeQueueState:
 
         Returns:
             GraphQLPullRequestMergeQueueState instance
+
+        Raises:
+            ValueError: If the node is missing the required "number" field
         """
+        if data.get("number") is None:
+            raise ValueError('missing "number" in GraphQL pullRequest node')
+
         entry = data.get("mergeQueueEntry") or {}
 
         return cls(
-            number=data.get("number", 0),
+            number=int(data["number"]),
             state=data.get("state", ""),
             isMergeQueueEnabled=bool(data.get("isMergeQueueEnabled", False)),
             isInMergeQueue=bool(data.get("isInMergeQueue", False)),

@@ -828,6 +828,15 @@ class PRService:
 
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
+        except (ValueError, TypeError) as e:
+            return ClientError(
+                error_message=(
+                    f"Malformed GraphQL merge queue response for PR "
+                    f"#{pr_number}: {e}"
+                ),
+                error_code="INVALID_RESPONSE",
+                log_level="warning",
+            )
 
     @log_client_operation()
     def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:
