@@ -400,14 +400,14 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `verified_pr_info` | - | The pull request object, after a regular merge. |
-    | `merge_queue_state` | - | The merge queue state, after a queued merge. |
+    | `verified_pr_info` | - | The pull request object; saved only on the regular merge path (`merge_queued` falsy). |
+    | `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (`merge_queued` truthy). |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `verified_pr_info`, `merge_queue_state` | If the PR is merged, or still queued when it was enqueued. |
+    | `Success` | `verified_pr_info`, `merge_queue_state` | If the PR is merged, or still queued when it was enqueued. Exactly one output key is saved - `verified_pr_info` on the regular merge path, `merge_queue_state` on the queued merge path - never both. |
     | `Error` | - | If required context is missing, the PR is in neither state, or the GitHub call fails. |
 
 

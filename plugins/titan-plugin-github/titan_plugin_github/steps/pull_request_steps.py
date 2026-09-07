@@ -316,11 +316,11 @@ def verify_merge_outcome_step(ctx: WorkflowContext) -> WorkflowResult:
             Required - a missing value is treated as a workflow configuration error.
 
     Outputs (saved to ctx.data):
-        verified_pr_info: The pull request object, after a regular merge.
-        merge_queue_state: The merge queue state, after a queued merge.
+        verified_pr_info: The pull request object; saved only on the regular merge path (merge_queued falsy).
+        merge_queue_state: The merge queue state; saved only on the queued merge path (merge_queued truthy).
 
     Returns:
-        Success: If the PR is merged, or still queued when it was enqueued.
+        Success: If the PR is merged, or still queued when it was enqueued. Exactly one output key is saved - `verified_pr_info` on the regular merge path, `merge_queue_state` on the queued merge path - never both.
         Error: If required context is missing, the PR is in neither state, or the GitHub call fails.
     """
     if not ctx.textual:
