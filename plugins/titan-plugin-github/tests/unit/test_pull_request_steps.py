@@ -219,7 +219,7 @@ def test_verify_merge_outcome_step_verifies_regular_merge(sample_ui_pr):
     merged_pr = sample_ui_pr
     merged_pr.state = "MERGED"
     github.get_pull_request.return_value = ClientSuccess(data=merged_pr, message="ok")
-    ctx = make_context(github, pr_number=123)
+    ctx = make_context(github, pr_number=123, merge_queued=False)
 
     result = verify_merge_outcome_step(ctx)
 
@@ -233,7 +233,7 @@ def test_verify_merge_outcome_step_errors_when_regular_merge_did_not_happen(samp
     github = Mock()
     sample_ui_pr.state = "OPEN"
     github.get_pull_request.return_value = ClientSuccess(data=sample_ui_pr, message="ok")
-    ctx = make_context(github, pr_number=123)
+    ctx = make_context(github, pr_number=123, merge_queued=False)
 
     result = verify_merge_outcome_step(ctx)
 
@@ -278,6 +278,20 @@ def test_verify_merge_outcome_step_errors_when_pr_left_the_queue():
 
     assert isinstance(result, Error)
     assert "left the merge queue" in result.message
+    ctx.textual.end_step.assert_called_once_with("error")
+
+
+def test_verify_merge_outcome_step_errors_on_queue_state_lookup_failure():
+    github = Mock()
+    github.get_merge_queue_state.return_value = ClientError(error_message="graphql down")
+    ctx = make_context(github, pr_number=123, merge_queued=True)
+
+    result = verify_merge_outcome_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "Failed to verify the merge queue state" in result.message
+    assert "graphql down" in result.message
+    github.get_pull_request.assert_not_called()
     ctx.textual.end_step.assert_called_once_with("error")
 
 
