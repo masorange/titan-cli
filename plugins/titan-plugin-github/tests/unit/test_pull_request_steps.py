@@ -183,6 +183,41 @@ def test_check_merge_queue_step_does_not_block_on_lookup_failure():
     ctx.textual.end_step.assert_called_once_with("success")
 
 
+def test_check_then_merge_after_lookup_failure_falls_back_to_direct_merge():
+    """The check step's error fallback omits merge_queue_state; the merge step must cope."""
+    github = Mock()
+    github.get_merge_queue_state.return_value = ClientError(error_message="graphql down")
+    merge_result = UIPRMergeResult(
+        merged=True,
+        status_icon="✅",
+        sha_short="abc123d",
+        message="Successfully merged",
+    )
+    github.merge_pr.return_value = ClientSuccess(data=merge_result, message="ok")
+    ctx = make_context(github, pr_number=123, merge_method="squash")
+
+    check_result = check_merge_queue_step(ctx)
+    assert isinstance(check_result, Success)
+    ctx.data.update(check_result.metadata)
+    assert "merge_queue_state" not in ctx.data
+
+    result = merge_pull_request_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata == {
+        "merge_result": merge_result,
+        "merge_queued": False,
+        "expected_pr_state": "MERGED",
+    }
+    github.merge_pr.assert_called_once_with(
+        123,
+        merge_method="squash",
+        commit_title=None,
+        commit_message=None,
+        merge_queue_enabled=None,
+    )
+
+
 def test_merge_pull_request_step_reports_queued_pr():
     github = Mock()
     merge_result = UIPRMergeResult(
