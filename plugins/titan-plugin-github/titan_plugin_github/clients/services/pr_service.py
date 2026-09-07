@@ -587,12 +587,15 @@ class PRService:
             commit_title: Optional commit title. Ignored for a queued merge.
             commit_message: Optional commit message. Ignored for a queued merge.
             merge_queue_enabled: Known merge queue state, to avoid a second lookup.
-                When None, it is detected here; a failed detection falls back to a
-                regular merge.
+                When None, it is detected here; a detection that fails falls back to
+                a regular merge and says so in the result message, so a rejection by
+                a queue-protected branch is not mistaken for a plain merge failure.
 
         Returns:
             ClientResult[UIPRMergeResult]
         """
+        detection_warning = ""
+
         try:
             # Validate merge method
             valid_methods = ["squash", "merge", "rebase"]
@@ -608,6 +611,15 @@ class PRService:
 
             if merge_queue_enabled is None:
                 merge_queue_enabled = self._detect_merge_queue_enabled(pr_number)
+                if merge_queue_enabled is None:
+                    # Unknown is not the same as "no queue": merging directly may be
+                    # rejected by a queue-protected branch, so the reason travels
+                    # with the result instead of only reaching the log.
+                    detection_warning = (
+                        " (merge queue detection failed, merged directly without"
+                        " checking the queue)"
+                    )
+                    merge_queue_enabled = False
 
             if merge_queue_enabled:
                 return self._enqueue_pr(pr_number)
@@ -636,39 +648,43 @@ class PRService:
             network_result = NetworkPRMergeResult(
                 merged=True,
                 sha=sha,
-                message="Successfully merged"
+                message=f"Successfully merged{detection_warning}"
             )
             ui_result = from_network_pr_merge_result(network_result)
             return ClientSuccess(data=ui_result, message=f"PR #{pr_number} merged")
 
         except GitHubAPIError as e:
-            network_result = NetworkPRMergeResult(merged=False, message=str(e))
+            network_result = NetworkPRMergeResult(
+                merged=False, message=f"{e}{detection_warning}"
+            )
             ui_result = from_network_pr_merge_result(network_result)
             return ClientSuccess(data=ui_result, message="Merge failed")
 
-    def _detect_merge_queue_enabled(self, pr_number: int) -> bool:
+    def _detect_merge_queue_enabled(self, pr_number: int) -> Optional[bool]:
         """
         Check whether the PR's base branch requires a merge queue.
 
-        A failed detection is not an error: it returns False so the caller merges the
-        way it always did instead of blocking on a lookup.
+        A failed detection is not an error, but it is not a "no queue" answer either:
+        it returns None so the caller can fall back to a direct merge while telling
+        the user the queue was never checked.
 
         Args:
             pr_number: PR number
 
         Returns:
-            True when the base branch requires a merge queue
+            True when the base branch requires a merge queue, False when it does not,
+            None when the state could not be determined
         """
         match self.get_merge_queue_state(pr_number):
             case ClientSuccess(data=queue_state):
                 return queue_state.is_merge_queue_enabled
             case ClientError(error_message=err):
                 self._logger.warning(
-                    "Merge queue detection failed for PR #%s, assuming no merge queue: %s",
+                    "Merge queue detection failed for PR #%s, merging without a queue check: %s",
                     pr_number,
                     err,
                 )
-                return False
+                return None
 
     def _enqueue_pr(self, pr_number: int) -> ClientResult[UIPRMergeResult]:
         """

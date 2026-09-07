@@ -70,11 +70,11 @@ def check_merge_queue_step(ctx: WorkflowContext) -> WorkflowResult:
         pr_number (int): Pull request number to inspect.
 
     Outputs (saved to ctx.data):
-        merge_queue_enabled (bool): Whether the base branch requires a merge queue.
+        merge_queue_enabled (bool | None): Whether the base branch requires a merge queue, or None when the lookup failed.
         merge_queue_state: The merge queue state object, when the lookup succeeded.
 
     Returns:
-        Success: When the PR number is available. A failed lookup is not fatal: it reports merge_queue_enabled=False so the workflow behaves as it always did.
+        Success: When the PR number is available. A failed lookup is not fatal: it reports merge_queue_enabled=None, so the merge falls back to a direct merge and says the queue was never checked.
         Error: If required context is missing.
     """
     if not ctx.textual:
@@ -121,7 +121,7 @@ def check_merge_queue_step(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("success")
             return Success(
                 "Merge queue state unknown",
-                metadata={"merge_queue_enabled": False},
+                metadata={"merge_queue_enabled": None},
             )
 
 
@@ -141,7 +141,7 @@ def merge_pull_request_step(ctx: WorkflowContext) -> WorkflowResult:
         merge_method (str, optional): Merge strategy. Ignored with a merge queue.
         commit_title (str, optional): Override commit title. Ignored with a merge queue.
         commit_message (str, optional): Override commit message. Ignored with a merge queue.
-        merge_queue_enabled (bool, optional): Result of a previous `check_merge_queue`, reused to avoid looking the queue up twice.
+        merge_queue_enabled (bool, optional): Result of a previous `check_merge_queue`, reused to avoid looking the queue up twice. None means unknown, and the queue is looked up again here.
 
     Outputs (saved to ctx.data):
         merge_result: The GitHub merge result object.

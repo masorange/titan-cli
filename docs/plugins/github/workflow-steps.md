@@ -277,14 +277,14 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `merge_queue_enabled` | bool | Whether the base branch requires a merge queue. |
+    | `merge_queue_enabled` | bool \| None | Whether the base branch requires a merge queue, or None when the lookup failed. |
     | `merge_queue_state` | - | The merge queue state object, when the lookup succeeded. |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `merge_queue_enabled`, `merge_queue_state` | When the PR number is available. A failed lookup is not fatal: it reports merge_queue_enabled=False so the workflow behaves as it always did. |
+    | `Success` | `merge_queue_enabled`, `merge_queue_state` | When the PR number is available. A failed lookup is not fatal: it reports merge_queue_enabled=None, so the merge falls back to a direct merge and says the queue was never checked. |
     | `Error` | - | If required context is missing. |
 
 
@@ -314,7 +314,7 @@ How to read these contracts:
     | `merge_method` | str, optional | Merge strategy. Ignored with a merge queue. |
     | `commit_title` | str, optional | Override commit title. Ignored with a merge queue. |
     | `commit_message` | str, optional | Override commit message. Ignored with a merge queue. |
-    | `merge_queue_enabled` | bool, optional | Result of a previous `check_merge_queue`, reused to avoid looking the queue up twice. |
+    | `merge_queue_enabled` | bool, optional | Result of a previous `check_merge_queue`, reused to avoid looking the queue up twice. None means unknown, and the queue is looked up again here. |
 
     **Outputs (saved to ctx.data)**
 

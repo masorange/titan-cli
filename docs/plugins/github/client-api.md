@@ -311,8 +311,9 @@ client.merge_pr(
 - `commit_message`: Optional. Merge commit message. Ignored for a queued pull request.
 - `merge_queue_enabled`: Optional. Known merge queue state, to skip the detection lookup
   (for example the `merge_queue_enabled` value produced by the `check_merge_queue` step).
-  When omitted the state is detected automatically; a failed detection falls back to a
-  regular merge.
+  When omitted the state is detected automatically; a detection that fails falls back to
+  a regular merge and appends a "merge queue detection failed" note to the result message,
+  so a rejection by a queue-protected branch is not mistaken for a plain merge failure.
 
 **Result:** `UIPRMergeResult`. A queued pull request comes back with `merged=False`,
 `queued=True` and the `queue_position` GitHub assigned it. It is neither a merge nor a

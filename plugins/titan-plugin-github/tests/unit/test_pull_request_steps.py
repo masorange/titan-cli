@@ -179,7 +179,7 @@ def test_check_merge_queue_step_does_not_block_on_lookup_failure():
     result = check_merge_queue_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata == {"merge_queue_enabled": False}
+    assert result.metadata == {"merge_queue_enabled": None}
     ctx.textual.end_step.assert_called_once_with("success")
 
 

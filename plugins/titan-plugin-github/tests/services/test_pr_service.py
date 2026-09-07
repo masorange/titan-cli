@@ -254,6 +254,18 @@ def test_merge_pr_without_graphql_merges_normally(pr_service, mock_gh_network):
     assert "--squash" in mock_gh_network.run_command.call_args[0][0]
 
 
+def test_merge_pr_reports_unknown_merge_queue_state(queue_pr_service, mock_gh_network, mock_graphql_network):
+    """A failed detection merges directly but says the queue was never checked"""
+    mock_graphql_network.run_query.side_effect = GitHubAPIError("GraphQL unavailable")
+    mock_gh_network.run_command.return_value = "✓ Merged pull request #123 (abc123d)"
+
+    result = queue_pr_service.merge_pr(123, merge_method="squash")
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.merged is True
+    assert "detection failed" in result.data.message.lower()
+
+
 def test_merge_pr_enqueues_when_merge_queue_enabled(queue_pr_service, mock_gh_network, mock_graphql_network):
     """With a merge queue the PR is queued through the mutation, not merged by gh"""
     mock_graphql_network.run_query.side_effect = [
