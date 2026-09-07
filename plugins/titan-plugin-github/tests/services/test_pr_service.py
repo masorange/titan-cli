@@ -310,6 +310,22 @@ def test_merge_pr_reuses_known_merge_queue_state(pr_service, mock_gh_network, mo
     assert mock_graphql_network.run_query.call_count == 1
 
 
+def test_merge_pr_skips_detection_when_merge_queue_explicitly_disabled(
+    pr_service, mock_gh_network, mock_graphql_network
+):
+    """An explicit merge_queue_enabled=False merges directly, without any lookup"""
+    mock_gh_network.run_command.return_value = "✓ Merged pull request #123 (abc123d)"
+
+    result = pr_service.merge_pr(123, merge_method="squash", merge_queue_enabled=False)
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.merged is True
+    assert result.data.queued is False
+    assert "detection failed" not in result.data.message.lower()
+    assert "--squash" in mock_gh_network.run_command.call_args[0][0]
+    mock_graphql_network.run_query.assert_not_called()
+
+
 def test_merge_pr_queues_without_position_when_entry_missing(
     pr_service, mock_graphql_network
 ):
