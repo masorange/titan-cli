@@ -312,7 +312,8 @@ def verify_merge_outcome_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Inputs (from ctx.data):
         pr_number (int): Pull request number to inspect.
-        merge_queued (bool, optional): Set by `merge_pull_request` when the PR was added to the merge queue.
+        merge_queued (bool): Set by `merge_pull_request`; True when the PR was added to the merge queue.
+            Required - a missing value is treated as a workflow configuration error.
 
     Outputs (saved to ctx.data):
         verified_pr_info: The pull request object, after a regular merge.
@@ -338,7 +339,15 @@ def verify_merge_outcome_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No PR number in context")
 
-    if not ctx.get("merge_queued"):
+    merge_queued = ctx.get("merge_queued")
+    if merge_queued is None:
+        # merge_pull_request always publishes merge_queued, so an absent key means
+        # the merge step never ran: the workflow is wired wrong.
+        ctx.textual.error_text("merge_queued not set - did merge_pull_request run before this step?")
+        ctx.textual.end_step("error")
+        return Error("merge_queued not set in context")
+
+    if not merge_queued:
         # Regular merge: the PR must be MERGED right now
         with ctx.textual.loading(f"Verifying PR #{pr_number} was merged..."):
             result = ctx.github.get_pull_request(int(pr_number))
