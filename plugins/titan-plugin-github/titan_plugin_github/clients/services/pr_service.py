@@ -703,9 +703,13 @@ class PRService:
         if not self.graphql:
             return failed("GraphQL network is not available to reach the merge queue")
 
-        try:
-            owner, repo = self.gh.get_repo_string().split('/')
+        repo_string = self.gh.get_repo_string()
+        parts = repo_string.split('/', 1)
+        if len(parts) != 2 or not all(parts):
+            return failed(f"Cannot parse repository string: {repo_string!r}")
+        owner, repo = parts
 
+        try:
             node_response = self.graphql.run_query(
                 graphql_queries.GET_PR_NODE_ID,
                 {"owner": owner, "repo": repo, "prNumber": pr_number},
@@ -769,9 +773,17 @@ class PRService:
                 log_level="warning",
             )
 
-        try:
-            owner, repo = self.gh.get_repo_string().split('/')
+        repo_string = self.gh.get_repo_string()
+        parts = repo_string.split('/', 1)
+        if len(parts) != 2 or not all(parts):
+            return ClientError(
+                error_message=f"Cannot parse repository string: {repo_string!r}",
+                error_code="INVALID_REPO_STRING",
+                log_level="warning",
+            )
+        owner, repo = parts
 
+        try:
             response = self.graphql.run_query(
                 graphql_queries.GET_PR_MERGE_QUEUE_STATE,
                 {"owner": owner, "repo": repo, "prNumber": pr_number},
