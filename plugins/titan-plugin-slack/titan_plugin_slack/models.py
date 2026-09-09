@@ -125,3 +125,14 @@ class UISlackPostedMessage:
     ts: str
     text: Optional[str] = None
     thread_ts: Optional[str] = None
+
+
+@dataclass
+class UISlackUploadedFile:
+    """Uploaded Slack file metadata returned by file upload operations."""
+
+    file_id: str
+    channel: str
+    title: Optional[str] = None
+    name: Optional[str] = None
+    permalink: Optional[str] = None

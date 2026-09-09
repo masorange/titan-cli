@@ -1,0 +1,28 @@
+name: "Post Slack File"
+description: "Resolve a Slack target (preferred target, project default, or search) and upload a file with an optional message"
+
+steps:
+  - id: validate_connection
+    name: "Validate Slack Connection"
+    plugin: slack
+    step: validate_connection
+
+  - id: select_target
+    name: "Select Slack Target"
+    plugin: slack
+    step: select_default_or_search_channel_target
+
+  - id: prepare_destination
+    name: "Prepare Slack Destination"
+    plugin: slack
+    step: prepare_message_destination
+
+  - id: format_message
+    name: "Format Slack Message"
+    plugin: slack
+    step: format_markdown_message
+
+  - id: upload_file
+    name: "Upload File to Slack"
+    plugin: slack
+    step: upload_file

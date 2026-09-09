@@ -103,6 +103,20 @@ Post a plain-text message to a Slack conversation.
 - `text`: Required message text.
 - `thread_ts`: Optional thread timestamp for replies.
 
+### `upload_file(channel_id, file_path, title=None, initial_comment=None, thread_ts=None)`
+
+Upload a local file to a Slack conversation, optionally with a message posted above it. Uses `files.uploadV2` and requires the `files:write` scope; connections created before that scope was added must be reconnected.
+
+**Parameters:**
+
+- `channel_id`: Required conversation ID.
+- `file_path`: Required local path of the file to upload.
+- `title`: Optional title shown on the Slack file. Defaults to the file name.
+- `initial_comment`: Optional Slack-ready text posted as the message above the file.
+- `thread_ts`: Optional thread timestamp to share the file into.
+
+Returns `ClientResult[UISlackUploadedFile]` with `file_id`, `channel`, `title`, `name`, and `permalink`.
+
 ---
 
 ## Usage constraints

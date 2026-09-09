@@ -3,13 +3,14 @@ from unittest.mock import MagicMock
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Skip, Success
 from titan_cli.engine.context import WorkflowContext
-from titan_plugin_slack.models import UISlackConversation, UISlackPostedMessage, UISlackTarget
+from titan_plugin_slack.models import UISlackConversation, UISlackPostedMessage, UISlackTarget, UISlackUploadedFile
 from titan_plugin_slack.steps.message_steps import (
     format_markdown_message_step,
     open_direct_message_step,
     prepare_message_destination_step,
     post_message_step,
     prompt_message_body_step,
+    upload_file_step,
 )
 
 
@@ -229,3 +230,55 @@ def test_format_markdown_message_step_skips_when_nothing_provided() -> None:
 
     assert isinstance(result, Skip)
     assert "slack_message_text" not in ctx.data
+
+
+def test_upload_file_step_uploads_to_single_conversation(tmp_path) -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF")
+    ctx.data["slack_conversation_id"] = "C123"
+    ctx.data["slack_file_path"] = str(report)
+    ctx.data["slack_message_text"] = "Crashlytics report"
+    uploaded = UISlackUploadedFile(file_id="F1", channel="C123", title="report.pdf")
+    ctx.slack.upload_file.return_value = ClientSuccess(data=uploaded)
+
+    result = upload_file_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_uploaded_file"] == uploaded
+    ctx.slack.upload_file.assert_called_once_with(
+        "C123", str(report), title="report.pdf", initial_comment="Crashlytics report", thread_ts=None
+    )
+
+
+def test_upload_file_step_errors_when_file_missing() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_id"] = "C123"
+    ctx.data["slack_file_path"] = "/nonexistent/report.pdf"
+
+    result = upload_file_step(ctx)
+
+    assert isinstance(result, Error)
+    ctx.slack.upload_file.assert_not_called()
+
+
+def test_upload_file_step_uploads_to_multiple_conversations_and_tolerates_failures(tmp_path) -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF")
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_file_path"] = str(report)
+    ok = UISlackUploadedFile(file_id="F1", channel="C1")
+    ctx.slack.upload_file.side_effect = [
+        ClientSuccess(data=ok),
+        ClientError(error_message="Slack upload_file failed: not_in_channel", error_code="UPLOAD_FILE_ERROR"),
+    ]
+
+    result = upload_file_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_uploaded_files"] == [ok]
+    assert result.metadata["slack_failed_channels"] == ["C2"]

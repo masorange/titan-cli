@@ -1,6 +1,6 @@
 # Slack Built-in Workflows
 
-The Slack plugin currently ships two built-in workflows.
+The Slack plugin currently ships three built-in workflows.
 
 ## `summarize-slack-target`
 
@@ -82,3 +82,52 @@ If neither `slack_message_text` nor `slack_message_markdown` is set, `prompt_mes
 - `prompt_message_body`
 - `format_markdown_message`
 - `post_message`
+
+## `post-file`
+
+Resolve a Slack target and upload a local file with an optional message above it, meant to be called as a nested `workflow:` step from any other workflow (project, personal, or another plugin's). Same target resolution as `post-message`.
+
+**Source workflow:** `plugins/titan-plugin-slack/titan_plugin_slack/workflows/post-file.yaml`
+
+### Default flow
+
+1. `slack.validate_connection`
+2. `slack.select_default_or_search_channel_target`
+3. `slack.prepare_message_destination`
+4. `slack.format_markdown_message`
+5. `slack.upload_file`
+
+### Typical usage
+
+```yaml
+- id: post_report_to_slack
+  name: "Post Report to Slack"
+  workflow: "plugin:slack/post-file"
+  on_error: continue   # optional extra; a caller should never fail because of it
+```
+
+Before calling it, a caller must set:
+
+- `slack_file_path` (str): local path of the file to upload.
+
+And can optionally set:
+
+- `slack_file_title` (str): title shown on the Slack file. Defaults to the file name.
+- `slack_message_text` (str): already Slack-ready text posted above the file. Used verbatim.
+- `slack_message_markdown` (str): standard Markdown text. Converted to Slack mrkdwn by `format_markdown_message` and posted above the file.
+- `slack_preferred_target` (str): a person or channel name to auto-select with no prompt, when it resolves to exactly one match.
+
+Unlike `post-message`, this workflow never prompts for a message body: the file is the payload and the message is optional.
+
+### Scope constraints
+
+- always call it with `on_error: continue` on the outer `workflow:` step
+- depends on the `files:write` scope in addition to the messaging scopes; Slack connections created before `files:write` was part of the default scope set must be reconnected from Plugin Management
+
+### Related public steps
+
+- `validate_connection`
+- `select_default_or_search_channel_target`
+- `prepare_message_destination`
+- `format_markdown_message`
+- `upload_file`

@@ -21,6 +21,7 @@ from ..models import (
     UISlackConversation,
     UISlackMessage,
     UISlackPostedMessage,
+    UISlackUploadedFile,
     UISlackUser,
 )
 
@@ -287,4 +288,24 @@ class SlackClient:
         """Post a plain-text message to a Slack conversation."""
         return self._call_with_refresh(
             lambda: self.message_service.post_message(channel_id, text, thread_ts=thread_ts)
+        )
+
+    def upload_file(
+        self,
+        channel_id: str,
+        file_path: str,
+        *,
+        title: str | None = None,
+        initial_comment: str | None = None,
+        thread_ts: str | None = None,
+    ) -> ClientResult[UISlackUploadedFile]:
+        """Upload a local file to a Slack conversation, optionally with a message above it."""
+        return self._call_with_refresh(
+            lambda: self.message_service.upload_file(
+                channel_id,
+                file_path,
+                title=title,
+                initial_comment=initial_comment,
+                thread_ts=thread_ts,
+            )
         )

@@ -63,6 +63,7 @@ def test_slack_plugin_exposes_public_steps() -> None:
         "format_markdown_message",
         "prompt_message_body",
         "post_message",
+        "upload_file",
     }
 
 
