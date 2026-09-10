@@ -2904,7 +2904,7 @@ url = "plugins/titan-plugin-git"
 
 [[package]]
 name = "titan-plugin-github"
-version = "1.0.0"
+version = "1.1.0"
 description = "Titan CLI plugin for GitHub integration."
 optional = false
 python-versions = ">=3.11"
@@ -2913,7 +2913,7 @@ files = []
 develop = true
 
 [package.dependencies]
-titan-cli = ">=0.8.0"
+titan-cli = ">=0.9.0"
 
 [package.source]
 type = "directory"
@@ -2941,7 +2941,7 @@ url = "plugins/titan-plugin-jira"
 
 [[package]]
 name = "titan-plugin-slack"
-version = "1.0.0"
+version = "1.1.0"
 description = "Titan CLI plugin for Slack integration."
 optional = false
 python-versions = ">=3.11"

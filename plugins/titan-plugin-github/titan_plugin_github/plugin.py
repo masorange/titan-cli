@@ -20,7 +20,7 @@ class GitHubPlugin(TitanPlugin):
     def titan_requires(self) -> str:
         # Must stay in sync with the titan-cli dependency in this plugin's
         # pyproject.toml; a repo test enforces the pairing.
-        return ">=0.8.0"
+        return ">=0.9.0"
 
     @property
     def name(self) -> str:
