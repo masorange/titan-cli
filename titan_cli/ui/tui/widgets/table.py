@@ -4,10 +4,13 @@ Table Widget
 A simple table widget for displaying tabular data.
 """
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 from textual.app import ComposeResult
+from textual.events import Resize
 from textual.widget import Widget
 from textual.widgets import DataTable
+
+from titan_cli.ui.tui.widgets.table_layout import compute_flex_width, wrap_cell
 
 
 CursorType = Literal["cell", "row", "column", "none"]
@@ -49,6 +52,7 @@ class Table(Widget):
         show_cursor: bool = True,
         cursor_type: CursorType = "row",
         row_height: int = 1,
+        flex_column: Optional[int] = None,
         **kwargs
     ):
         """
@@ -65,6 +69,9 @@ class Table(Widget):
             show_cursor: Show the cursor highlight
             cursor_type: Cursor movement mode ("cell", "row", "column", "none")
             row_height: Number of lines per row (default 1, use 2+ for multiline cells)
+            flex_column: Index of the column that absorbs the leftover width. Its text is
+                folded into that width and rows grow as tall as they need, so the columns
+                after it stay on screen instead of requiring a horizontal scroll.
         """
         super().__init__(**kwargs)
         self.headers = headers
@@ -76,6 +83,8 @@ class Table(Widget):
         self.show_cursor = show_cursor
         self.cursor_type = cursor_type
         self.row_height = row_height
+        self.flex_column = flex_column
+        self._laid_out_width: Optional[int] = None
 
         # Add compact class if not full width
         if not full_width:
@@ -93,12 +102,42 @@ class Table(Widget):
         if self.title_text:
             table.border_title = self.title_text
 
-        # Add columns
-        for header in self.headers:
-            table.add_column(header)
-
-        # Add rows
-        for row in self.rows:
-            table.add_row(*row, height=self.row_height)
+        # With a flexible column both the columns and the rows depend on the width, which
+        # is unknown until the first layout; on_resize builds them and rebuilds on change.
+        if self.flex_column is None:
+            for header in self.headers:
+                table.add_column(header)
+            for row in self.rows:
+                table.add_row(*row, height=self.row_height)
 
         yield table
+
+    def on_resize(self, event: Resize) -> None:
+        """Refold the flexible column when the available width changes."""
+        if self.flex_column is None:
+            return
+        self._fill_rows(event.size.width)
+
+    def _fill_rows(self, total_width: int) -> None:
+        """(Re)build the rows with the flexible column folded into the width left for it."""
+        flex_width = compute_flex_width(
+            total_width, self.headers, self.rows, self.flex_column, self.cell_padding
+        )
+        if flex_width == self._laid_out_width:
+            return
+        self._laid_out_width = flex_width
+
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        # The flexible column is given the width explicitly. Left to size itself it
+        # shrinks to its longest folded line, and the slack is dead space on the right.
+        for index, header in enumerate(self.headers):
+            table.add_column(header, width=flex_width if index == self.flex_column else None)
+        for row in self.rows:
+            cells = list(row)
+            folded, lines = wrap_cell(cells[self.flex_column], flex_width)
+            cells[self.flex_column] = folded
+            # A blank line under a wrapped cell keeps rows apart; single-line rows
+            # need no separator.
+            height = max(lines + 1 if lines > 1 else 1, self.row_height)
+            table.add_row(*cells, height=height)

@@ -295,6 +295,7 @@ class SlackPlugin(TitanPlugin):
             select_channel_target_step,
             select_default_or_search_channel_target_step,
             select_user_target_step,
+            upload_file_step,
             validate_connection_step,
         )
 
@@ -314,6 +315,7 @@ class SlackPlugin(TitanPlugin):
             "format_markdown_message": format_markdown_message_step,
             "prompt_message_body": prompt_message_body_step,
             "post_message": post_message_step,
+            "upload_file": upload_file_step,
         }
 
     @property

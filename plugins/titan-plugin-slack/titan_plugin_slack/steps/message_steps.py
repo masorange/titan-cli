@@ -1,5 +1,7 @@
 """Reusable Slack messaging steps for direct messages and later channels."""
 
+import os
+
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Skip, Success, WorkflowContext, WorkflowResult
 from ..formatting import SlackFormatter
@@ -373,10 +375,130 @@ def post_message_step(ctx: WorkflowContext) -> WorkflowResult:
             return Error(err)
 
 
+def upload_file_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Upload a local file to the prepared Slack conversation(s), with an optional message above it.
+
+    When `slack_conversation_ids` holds more than one conversation, the file is uploaded to each
+    one independently: a conversation that fails is skipped with a warning while the rest still
+    get the file, and the step only fails outright if every upload fails.
+
+    Requires:
+        ctx.slack: An initialized SlackClient with the `files:write` scope.
+
+    Inputs (from ctx.data):
+        slack_file_path (str): Local path of the file to upload.
+        slack_file_title (str, optional): Title shown on the Slack file. Defaults to the file name.
+        slack_message_text (str, optional): Slack-ready text posted as the message above the file.
+        slack_conversation_ids (list[str], optional): Conversation IDs to upload into; wins over `slack_conversation_id`.
+        slack_conversation_id (str, optional): Single conversation ID, used when `slack_conversation_ids` is not set.
+        slack_thread_ts (str, optional): Thread timestamp to share the file into; single conversation only.
+
+    Outputs (saved to ctx.data):
+        slack_uploaded_file (UISlackUploadedFile, optional): Uploaded file metadata, single conversation case.
+        slack_uploaded_files (list[UISlackUploadedFile], optional): Uploaded file metadata per successful conversation.
+
+    Returns:
+        Success: If the file is uploaded to at least one conversation.
+        Error: If Slack is unavailable, the file is missing, or every upload fails.
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    ctx.textual.begin_step("Upload File to Slack")
+
+    if not ctx.slack:
+        ctx.textual.error_text("Slack client not available")
+        ctx.textual.end_step("error")
+        return Error("Slack client not available")
+
+    file_path = ctx.get("slack_file_path")
+    if not file_path:
+        ctx.textual.error_text("Slack file path not found in context")
+        ctx.textual.end_step("error")
+        return Error("Slack file path not found in context")
+    if not os.path.isfile(file_path):
+        ctx.textual.error_text(f"File does not exist: {file_path}")
+        ctx.textual.end_step("error")
+        return Error(f"File does not exist: {file_path}")
+
+    title = ctx.get("slack_file_title") or os.path.basename(file_path)
+    initial_comment = ctx.get("slack_message_text") or None
+
+    conversation_ids = ctx.get("slack_conversation_ids")
+    if conversation_ids:
+        conversation_names = ctx.get("slack_conversation_names") or []
+        names_by_id = dict(zip(conversation_ids, conversation_names))
+
+        uploaded_files = []
+        failed: list[tuple[str, str]] = []
+        with ctx.textual.loading(f"Uploading file to {len(conversation_ids)} channel(s)..."):
+            for conversation_id in conversation_ids:
+                result = ctx.slack.upload_file(
+                    conversation_id, file_path, title=title, initial_comment=initial_comment
+                )
+                match result:
+                    case ClientSuccess(data=uploaded):
+                        uploaded_files.append(uploaded)
+                    case ClientError(error_message=err):
+                        failed.append((conversation_id, err))
+
+        for uploaded in uploaded_files:
+            display_name = names_by_id.get(uploaded.channel, uploaded.channel)
+            ctx.textual.success_text(f"File uploaded to {display_name}")
+        for conversation_id, err in failed:
+            display_name = names_by_id.get(conversation_id, conversation_id)
+            ctx.textual.warning_text(f"Failed to upload to {display_name}: {err}")
+
+        if not uploaded_files:
+            ctx.textual.error_text("Failed to upload the file to any selected channel")
+            ctx.textual.end_step("error")
+            return Error("Failed to upload the file to any selected channel")
+
+        ctx.textual.end_step("success")
+        return Success(
+            f"File uploaded to {len(uploaded_files)} channel(s)",
+            metadata={
+                "slack_uploaded_files": uploaded_files,
+                "slack_failed_channels": [cid for cid, _ in failed],
+                "slack_upload_errors": failed,
+            },
+        )
+
+    conversation_id = ctx.get("slack_conversation_id")
+    if not conversation_id:
+        ctx.textual.error_text("Slack conversation ID not found in context")
+        ctx.textual.end_step("error")
+        return Error("Slack conversation ID not found in context")
+
+    conversation_name = ctx.get("slack_conversation_name")
+    thread_ts = ctx.get("slack_thread_ts")
+
+    with ctx.textual.loading("Uploading file to Slack..."):
+        result = ctx.slack.upload_file(
+            conversation_id,
+            file_path,
+            title=title,
+            initial_comment=initial_comment,
+            thread_ts=thread_ts,
+        )
+
+    match result:
+        case ClientSuccess(data=uploaded):
+            ctx.textual.success_text(f"File uploaded to {conversation_name or uploaded.channel}")
+            ctx.textual.end_step("success")
+            return Success("Slack file uploaded", metadata={"slack_uploaded_file": uploaded})
+        case ClientError(error_message=err):
+            ctx.textual.error_text(err)
+            ctx.textual.end_step("error")
+            return Error(err)
+
+
 __all__ = [
     "prepare_message_destination_step",
     "open_direct_message_step",
     "format_markdown_message_step",
     "prompt_message_body_step",
     "post_message_step",
+    "upload_file_step",
 ]

@@ -45,6 +45,7 @@ granted_scopes = [
     "groups:write",
     "im:write",
     "mpim:write",
+    "files:write",
 ]
 default_channels = [
     "titan-cli",

@@ -13,6 +13,7 @@ from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
 from textual.containers import Container
 from titan_cli.ui.tui.widgets import Panel, PromptInput, PromptTextArea, PromptSelectionList, SelectionOption, PromptChoice, ChoiceOption, PromptOptionList, OptionItem, DecisionBadge
+from titan_cli.core.interrupt import WorkflowAborted
 
 
 class TextualComponents:
@@ -252,6 +253,7 @@ class TextualComponents:
         show_cursor: bool = True,
         cursor_type: str = "row",
         row_height: int = 1,
+        flex_column: Optional[int] = None,
     ) -> None:
         """
         Show a table with consistent styling.
@@ -267,6 +269,10 @@ class TextualComponents:
             show_cursor: Show the cursor highlight
             cursor_type: Cursor movement mode ("cell", "row", "column", "none")
             row_height: Number of lines per row (default 1, use 2+ for multiline cells)
+            flex_column: Index of the column that takes the width the others leave. Use it
+                when one column holds long text (a title, a path) that would otherwise push
+                the columns after it off screen: its text is folded to fit and rows grow as
+                tall as they need, so nothing requires a horizontal scroll.
 
         Example:
             ctx.textual.table(headers=["Name", "Value"], rows=[["foo", "bar"]])
@@ -284,6 +290,7 @@ class TextualComponents:
             show_cursor=show_cursor,
             cursor_type=cursor_type,
             row_height=row_height,
+            flex_column=flex_column,
         )
         self.mount(table_widget)
 
@@ -451,6 +458,21 @@ class TextualComponents:
                 self.dim_text(f"  {line}")
             self.text("")
 
+    def _abort_if_app_closed(self) -> None:
+        """Stop the workflow when the user quits with a prompt open.
+
+        A prompt that returns its default once the TUI is gone does not just unblock
+        the thread — it answers for the user, and the rest of the step runs on those
+        invented answers with nobody watching. That is how quitting at "Export report
+        as PDF?" still wrote the PDF. Raising unwinds the workflow thread instead;
+        `WorkflowAborted` is a BaseException on purpose, so the `except Exception`
+        that turns step failures into errors does not catch it, and
+        `workflow_execution.py` logs it and lets the thread die. The thread still ends
+        promptly, which is what the app-exit escape was for in the first place.
+        """
+        if not self.app.is_running:
+            raise WorkflowAborted("Application closed while a prompt was waiting for an answer")
+
     def ask_text(self, question: str, default: str = "") -> Optional[str]:
         """
         Ask user for text input (blocks until user responds).
@@ -518,6 +540,7 @@ class TextualComponents:
             self.app.call_from_thread(_mount_input)
         except Exception:
             # App is closing or worker was cancelled
+            self._abort_if_app_closed()
             return default
 
         # BLOCK here until user responds (with timeout to allow cancellation)
@@ -525,9 +548,7 @@ class TextualComponents:
         while not result_event.is_set():
             if result_event.wait(timeout=0.5):
                 break
-            # Check if app is still running
-            if not self.app.is_running:
-                return default
+            self._abort_if_app_closed()
 
         # Check if user cancelled
         if result_container.get("cancelled", False):
@@ -582,13 +603,13 @@ class TextualComponents:
         try:
             self.app.call_from_thread(_mount_input)
         except Exception:
+            self._abort_if_app_closed()
             return None
 
         while not result_event.is_set():
             if result_event.wait(timeout=0.5):
                 break
-            if not self.app.is_running:
-                return None
+            self._abort_if_app_closed()
 
         if result_container.get("cancelled", False):
             raise KeyboardInterrupt("User cancelled input")
@@ -666,6 +687,7 @@ class TextualComponents:
             self.app.call_from_thread(_mount_textarea)
         except Exception:
             # App is closing or worker was cancelled
+            self._abort_if_app_closed()
             return default
 
         # BLOCK here until user responds (with timeout to allow cancellation)
@@ -673,9 +695,7 @@ class TextualComponents:
         while not result_event.is_set():
             if result_event.wait(timeout=0.5):
                 break
-            # Check if app is still running
-            if not self.app.is_running:
-                return default
+            self._abort_if_app_closed()
 
         # Check if user cancelled
         if result_container.get("cancelled", False):
@@ -733,13 +753,13 @@ class TextualComponents:
         try:
             self.app.call_from_thread(_mount)
         except Exception:
+            self._abort_if_app_closed()
             return default
 
         while not result_event.is_set():
             if result_event.wait(timeout=0.5):
                 break
-            if not self.app.is_running:
-                return default
+            self._abort_if_app_closed()
 
         return result_container.get("value", default)
 
@@ -792,13 +812,13 @@ class TextualComponents:
         try:
             self.app.call_from_thread(_mount)
         except Exception:
+            self._abort_if_app_closed()
             return None
 
         while not result_event.is_set():
             if result_event.wait(timeout=0.5):
                 break
-            if not self.app.is_running:
-                return None
+            self._abort_if_app_closed()
 
         return result_container.get("value")
 
@@ -853,8 +873,7 @@ class TextualComponents:
         # TUI is gone. (A KeyboardInterrupt handler would not help here - SIGINT is only
         # ever delivered to the main thread, never to this one.)
         while not result_container["ready"].wait(timeout=0.5):
-            if not self.app.is_running:
-                return []
+            self._abort_if_app_closed()
 
         # Remove the widget
         def _remove():
@@ -930,8 +949,7 @@ class TextualComponents:
         # wait with no escape hangs the console after the TUI is gone. (KeyboardInterrupt
         # cannot unblock it - SIGINT is only ever delivered to the main thread.)
         while not result_container["ready"].wait(timeout=0.5):
-            if not self.app.is_running:
-                return None
+            self._abort_if_app_closed()
 
         # Remove the widget
         def _remove():

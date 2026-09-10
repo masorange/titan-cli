@@ -351,3 +351,16 @@ def test_auth_test_reports_clear_error_when_refresh_itself_fails() -> None:
     token_refresher.assert_called_once()
     assert client.auth_service.auth_test.call_count == 1
     assert client.user_token == "xoxp-old-token"
+
+
+def test_upload_file_delegates_to_message_service() -> None:
+    client = SlackClient(user_token="xoxp-test-token")
+    client.message_service = MagicMock()
+    client.message_service.upload_file.return_value = ClientSuccess(data=MagicMock())
+
+    result = client.upload_file("C123", "/tmp/report.pdf", title="Report", initial_comment="Hi")
+
+    assert isinstance(result, ClientSuccess)
+    client.message_service.upload_file.assert_called_once_with(
+        "C123", "/tmp/report.pdf", title="Report", initial_comment="Hi", thread_ts=None
+    )

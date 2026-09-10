@@ -212,13 +212,34 @@ ctx.textual.panel("## Analysis\n\n- Point one", panel_type="info", use_markdown=
 
 Panel types: `"info"`, `"success"`, `"warning"`, `"error"`.
 
-##### `table(headers, rows, title="", full_width=True, cell_padding=1, zebra_stripes=False, show_header=True, show_cursor=True, cursor_type="row", row_height=1)`
+##### `table(headers, rows, title="", full_width=True, cell_padding=1, zebra_stripes=False, show_header=True, show_cursor=True, cursor_type="row", row_height=1, flex_column=None)`
 Shows a table with consistent styling. Preferred over mounting the `Table` widget manually.
 
 ```python
 ctx.textual.table(headers=["Name", "Value"], rows=[["foo", "bar"]])
 ctx.textual.table(headers=headers, rows=rows, title="Results", row_height=2)
 ```
+
+**`flex_column` — tables with one long column.** By default every column is as wide as its
+widest cell, so a column holding long text (an issue title, a file path, a commit message)
+pushes the columns after it off screen and the reader has to scroll sideways to see them.
+Pass the index of that column as `flex_column`: it takes whatever width the other columns
+leave, its text is folded into that width keeping its styles, and each row grows as tall as
+it needs. Rows are re-folded when the terminal is resized.
+
+```python
+# "Issue" holds class + method + exception message; Events and Users stay visible.
+ctx.textual.table(
+    headers=["#", "Issue", "Events", "Users"],
+    rows=rows,
+    flex_column=1,
+)
+```
+
+Do not combine it with `row_height`: heights are computed per row (`row_height` acts only as
+a floor). Fixing the column width instead of using this would not help — Textual's
+`DataTable` crops a fixed-width cell, with no ellipsis, and ignores the extra lines of a
+tall row.
 
 ##### `show_diff_stat(formatted_files, formatted_summary, title="Changes summary:", use_panel=False)`
 Renders a formatted `git diff --stat` display. Use alongside `format_diff_stat_display()` from `titan_plugin_git.operations`.
@@ -331,6 +352,25 @@ else:
     # User said No
     pass
 ```
+
+#### What every `ask_*` does when the user quits mid-prompt
+
+They raise `WorkflowAborted` (from `titan_cli.core.interrupt`), which unwinds the
+workflow thread. They do **not** return their default. `default` is what the prompt
+offers the user, never an answer given on the user's behalf: a step that kept running
+after the TUI closed would act on invented answers with nobody watching — that is how
+quitting at "Export report as PDF?" (`default=True`) still wrote a PDF file.
+
+Steps need no handling for it. `WorkflowAborted` is a `BaseException`, so the
+`except Exception` that turns step failures into `Error` results does not catch it; it
+reaches `workflow_execution.py`, which logs `workflow_aborted_on_app_exit` and lets the
+thread die. Two consequences worth knowing when you write a step:
+
+- Cleanup in an `except Exception` block will **not** run on abort. Put anything that
+  must always run in `finally`.
+- Later steps do not run either, so the `Skip`/`Exit` cleanup pattern does not save you
+  here. This has always been true of aborts (see `run_interruptible` for blocking AI and
+  CLI calls); prompts now follow the same rule.
 
 #### `ask_multiselect(question: str, options: List[SelectionOption]) -> List[Any]`
 Shows a multi-select list (spacebar to toggle, Enter to confirm).
@@ -586,9 +626,13 @@ rows = [
 
 # Preferred in steps
 ctx.textual.table(headers=headers, rows=rows, title="Issues")
+
+# When one column holds long text, let it absorb the leftover width
+ctx.textual.table(headers=headers, rows=rows, title="Issues", flex_column=3)
 ```
 
-**Implementation**: `/titan_cli/ui/tui/widgets/table.py`
+**Implementation**: `/titan_cli/ui/tui/widgets/table.py`, column arithmetic in
+`/titan_cli/ui/tui/widgets/table_layout.py`
 
 #### Text Widgets
 Various styled text widgets (used internally by `ctx.textual` methods).

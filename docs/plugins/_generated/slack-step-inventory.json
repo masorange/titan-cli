@@ -57,6 +57,10 @@
         {
           "name": "post_message",
           "summary": "Post the prepared message to the selected Slack conversation."
+        },
+        {
+          "name": "upload_file",
+          "summary": "Upload a local file to the selected Slack conversation, with an optional message above it."
         }
       ]
     },
@@ -164,6 +168,7 @@
         ]
       },
       "used_by_workflows": [
+        "post-file",
         "post-message"
       ]
     },
@@ -317,6 +322,7 @@
         ]
       },
       "used_by_workflows": [
+        "post-file",
         "post-message"
       ]
     },
@@ -446,6 +452,7 @@
         ]
       },
       "used_by_workflows": [
+        "post-file",
         "post-message"
       ]
     },
@@ -513,6 +520,37 @@
       "used_by_workflows": []
     },
     {
+      "name": "upload_file",
+      "group": "Messaging",
+      "module": "titan_plugin_slack.steps.message_steps",
+      "function": "upload_file_step",
+      "summary": "Upload a local file to the prepared Slack conversation(s), with an optional message above it.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.slack: An initialized SlackClient with the `files:write` scope."
+        ],
+        "Inputs (from ctx.data)": [
+          "    slack_file_path (str): Local path of the file to upload.",
+          "    slack_file_title (str, optional): Title shown on the Slack file. Defaults to the file name.",
+          "    slack_message_text (str, optional): Slack-ready text posted as the message above the file.",
+          "    slack_conversation_ids (list[str], optional): Conversation IDs to upload into; wins over `slack_conversation_id`.",
+          "    slack_conversation_id (str, optional): Single conversation ID, used when `slack_conversation_ids` is not set.",
+          "    slack_thread_ts (str, optional): Thread timestamp to share the file into; single conversation only."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    slack_uploaded_file (UISlackUploadedFile, optional): Uploaded file metadata, single conversation case.",
+          "    slack_uploaded_files (list[UISlackUploadedFile], optional): Uploaded file metadata per successful conversation."
+        ],
+        "Returns": [
+          "    Success: If the file is uploaded to at least one conversation.",
+          "    Error: If Slack is unavailable, the file is missing, or every upload fails."
+        ]
+      },
+      "used_by_workflows": [
+        "post-file"
+      ]
+    },
+    {
       "name": "validate_connection",
       "group": "Validation and Discovery",
       "module": "titan_plugin_slack.steps.discovery_steps",
@@ -538,6 +576,7 @@
         ]
       },
       "used_by_workflows": [
+        "post-file",
         "post-message",
         "summarize-slack-target"
       ]

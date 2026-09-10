@@ -21,7 +21,7 @@ Validate the configured Slack connection and expose identity metadata.
   step: validate_connection
 ```
 
-**Used by built-in workflows:** `post-message`, `summarize-slack-target`
+**Used by built-in workflows:** `post-file`, `post-message`, `summarize-slack-target`
 
 **Available to later steps:** `slack_auth`, `slack_team_id`, `slack_team_name`, `slack_user_id`, `slack_user_name`
 
@@ -269,7 +269,7 @@ Select Slack targets from a preferred value, configured defaults, or search.
   step: select_default_or_search_channel_target
 ```
 
-**Used by built-in workflows:** `post-message`
+**Used by built-in workflows:** `post-file`, `post-message`
 
 **Available to later steps:** `slack_target`, `target was resolved via `slack_preferred_target` or manual search.`, `slack_targets`, `that resolved successfully, when one or more configured default channels were`, `selected via the checklist.`, `slack_conversation_ids`, `that resolved successfully, set together with `slack_targets`.`, `slack_unresolved_channels`, `be resolved, set together with `slack_targets`. Empty when every checked channel`, `resolved.`
 
@@ -334,7 +334,7 @@ Prepare a Slack message destination from the selected target(s).
   step: prepare_message_destination
 ```
 
-**Used by built-in workflows:** `post-message`
+**Used by built-in workflows:** `post-file`, `post-message`
 
 **Available to later steps:** `slack_conversation`, `conversation, when a single `slack_target` was used.`, `slack_conversation_id`, `operations, when a single `slack_target` was used.`, `slack_conversation_name`, `together with `slack_conversation_id`.`, `slack_conversation_ids`, ``slack_targets`, when multiple targets were used.`, `slack_conversation_names`, ``slack_conversation_ids`, set together with `slack_conversation_ids`.`
 
@@ -481,7 +481,7 @@ Convert a standard Markdown message into Slack mrkdwn, if provided.
   step: format_markdown_message
 ```
 
-**Used by built-in workflows:** `post-message`
+**Used by built-in workflows:** `post-file`, `post-message`
 
 **Available to later steps:** `slack_message_text`
 
@@ -569,6 +569,58 @@ Post a plain-text Slack message to the prepared conversation(s).
 |--------|-----------------------|-------------|
 | `Success` | `slack_message`, `single conversation was used.`, `slack_message_ts`, `conversation was used.`, `slack_message_channel`, `conversation was used.`, `slack_messages`, `conversation that succeeded, when multiple conversations were used.`, `slack_message_channels`, `posted to, when multiple conversations were used.` | If the Slack message is posted to at least one conversation. |
 | `Error` | - | If Slack is unavailable, required context is missing, or every post fails. |
+
+### `upload_file`
+
+Upload a local file to the prepared Slack conversation(s), with an optional message above it.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: slack
+  step: upload_file
+```
+
+**Used by built-in workflows:** `post-file`
+
+**Available to later steps:** `slack_uploaded_file`, `slack_uploaded_files`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.slack` | - | An initialized SlackClient with the `files:write` scope. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_file_path` | str | Local path of the file to upload. |
+| `slack_file_title` | str, optional | Title shown on the Slack file. Defaults to the file name. |
+| `slack_message_text` | str, optional | Slack-ready text posted as the message above the file. |
+| `slack_conversation_ids` | list[str], optional | Conversation IDs to upload into; wins over `slack_conversation_id`. |
+| `slack_conversation_id` | str, optional | Single conversation ID, used when `slack_conversation_ids` is not set. |
+| `slack_thread_ts` | str, optional | Thread timestamp to share the file into; single conversation only. |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `slack_uploaded_file` | UISlackUploadedFile, optional | Uploaded file metadata, single conversation case. |
+| `slack_uploaded_files` | list[UISlackUploadedFile], optional | Uploaded file metadata per successful conversation. |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `slack_uploaded_file`, `slack_uploaded_files` | If the file is uploaded to at least one conversation. |
+| `Error` | - | If Slack is unavailable, the file is missing, or every upload fails. |
 
 ## Conversation Summaries
 
