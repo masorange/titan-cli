@@ -135,6 +135,26 @@ def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, ex
     )
 
 
+def _cli_failure_reason(response, cli_name: str) -> str:
+    """Translate a failed headless CLI run into a reason the reviewer can act on.
+
+    Raw stderr is usually noise, but the *kind* of failure decides what the user
+    should do next, and that must reach the UI: an exhausted quota is waited out or
+    routed to another CLI, a timeout is retried, a missing binary is installed. A
+    bare "exit 1" leaves all three indistinguishable.
+    """
+    if response.quota_exhausted:
+        return (
+            f"'{cli_name}' has run out of usage quota — wait for it to reset or route "
+            f"this task to another CLI in AI Configuration"
+        )
+    if response.exit_code == 124:
+        return f"'{cli_name}' timed out"
+    if response.exit_code == 127:
+        return f"'{cli_name}' is not installed"
+    return f"'{cli_name}' exited with code {response.exit_code}"
+
+
 def _extract_referenced_commit_shas(reply_bodies: list[str]) -> list[str]:
     """Collect distinct SHA-like tokens mentioned in reply bodies."""
     seen: set[str] = set()
@@ -1559,12 +1579,13 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     if not response.succeeded:
-        # Raw stderr means nothing to the reviewer; the actionable fact is that the
-        # AI plan failed and a deterministic plan takes over. Details go to the log
-        # (already captured in full by _log_ai_response above).
+        # Full stderr means nothing to the reviewer and stays in the log (already
+        # captured by _log_ai_response above), but the KIND of failure decides what
+        # the user does next, so the classified reason is shown alongside the fallback.
+        reason = _cli_failure_reason(response, adapter.cli_name.value)
         ctx.textual.warning_text(
-            "The AI couldn't produce a review plan — falling back to the automatic plan "
-            "(top-scored files)."
+            f"The AI couldn't produce a review plan ({reason}) — falling back to the "
+            "automatic plan (top-scored files)."
         )
         fallback = build_default_review_plan(
             candidates,
@@ -1576,7 +1597,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         ctx.data["review_plan"] = fallback
         _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
-        return Success("Default review plan used (CLI error)", metadata={"review_plan": fallback})
+        return Success(f"Default review plan used ({reason})", metadata={"review_plan": fallback})
 
     # Parse JSON response
     parse_error: Optional[str] = None
@@ -1837,7 +1858,7 @@ def _retry_findings_batch_reformat(
     )
     if not response.succeeded:
         return ClientError(
-            error_message=f"Reformat retry CLI call failed (exit {response.exit_code})",
+            error_message=f"Reformat retry CLI call failed: {_cli_failure_reason(response, adapter.cli_name.value)}",
             error_code="REFORMAT_RETRY_FAILED",
             log_level="warning",
         )
@@ -2133,6 +2154,7 @@ def _execute_findings_batch(
         duration_seconds=round(adapter_duration_seconds, 3),
         exit_code=response.exit_code,
         timed_out=response.exit_code == 124,
+        quota_exhausted=response.quota_exhausted,
         structured_output=use_structured_output,
         effort=effort,
     )
@@ -2151,11 +2173,16 @@ def _execute_findings_batch(
     )
 
     if not response.succeeded:
-        logger.debug("findings_batch_failed", batch_id=batch.batch_id, exit_code=response.exit_code)
+        logger.debug(
+            "findings_batch_failed",
+            batch_id=batch.batch_id,
+            exit_code=response.exit_code,
+            quota_exhausted=response.quota_exhausted,
+        )
         return {
             "status": "failed",
             "raw": None,
-            "detail": f"CLI exit {response.exit_code}",
+            "detail": _cli_failure_reason(response, adapter.cli_name.value),
             "timed_out": response.exit_code == 124,
         }
 
@@ -2959,9 +2986,14 @@ def verify_findings(ctx: WorkflowContext) -> WorkflowResult:
     )
 
     if not response.succeeded:
-        logger.warning("verification_call_failed", exit_code=response.exit_code)
+        logger.warning(
+            "verification_call_failed",
+            exit_code=response.exit_code,
+            quota_exhausted=response.quota_exhausted,
+        )
         ctx.textual.warning_text(
-            f"Verification call failed (exit {response.exit_code}) — findings pass unverified."
+            f"Verification call failed ({_cli_failure_reason(response, adapter.cli_name.value)}) "
+            "— findings pass unverified."
         )
         ctx.textual.end_step("skip")
         return Skip("Verification call failed")
@@ -3832,7 +3864,10 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
 
         if not response.succeeded:
             any_batch_failed = True
-            ctx.textual.warning_text(f"{batch_label}: CLI call failed (exit {response.exit_code}) — skipped")
+            ctx.textual.warning_text(
+                f"{batch_label}: CLI call failed "
+                f"({_cli_failure_reason(response, adapter.cli_name.value)}) — skipped"
+            )
             if response.stderr:
                 ctx.textual.dim_text(response.stderr[:200])
             continue
