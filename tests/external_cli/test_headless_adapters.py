@@ -17,6 +17,11 @@ from titan_cli.external_cli.adapters.base import HeadlessResponse, SupportedCLI
 from titan_cli.external_cli.adapters.claude import ClaudeHeadlessAdapter
 from titan_cli.external_cli.adapters.codex import CodexHeadlessAdapter
 from titan_cli.external_cli.adapters.gemini import GeminiHeadlessAdapter
+from titan_cli.external_cli.adapters.grok import (
+    _HEADLESS_PREAMBLE as _GROK_PREAMBLE,
+    _PERMISSION_MODE as _GROK_PERMISSION_MODE,
+    GrokHeadlessAdapter,
+)
 from titan_cli.external_cli.adapters.opencode import (
     _HEADLESS_PERMISSIONS,
     _HEADLESS_PREAMBLE as _OPENCODE_PREAMBLE,
@@ -37,6 +42,7 @@ class TestSupportedCLI(unittest.TestCase):
         self.assertEqual(SupportedCLI.GEMINI, "gemini")
         self.assertEqual(SupportedCLI.OPENCODE, "opencode")
         self.assertEqual(SupportedCLI.ANTIGRAVITY, "agy")
+        self.assertEqual(SupportedCLI.GROK, "grok")
 
     def test_is_str_compatible(self):
         self.assertIsInstance(SupportedCLI.CLAUDE, str)
@@ -829,6 +835,273 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         mock_run.assert_called_once()
 
 
+# ── GrokHeadlessAdapter ───────────────────────────────────────────────────────
+
+_GROK_BASE_CMD = [
+    "grok",
+    "--no-auto-update",
+    "--output-format",
+    "streaming-messages-json",
+    "--permission-mode",
+    _GROK_PERMISSION_MODE,
+]
+
+
+def _grok_stream(result="pong", *, narration="I'll look into this first.", **extra):
+    """One NDJSON run: an assistant narration turn, then the terminal result line.
+
+    The narration is what `--output-format json` would concatenate onto the answer,
+    so every parsing test carries one.
+    """
+    lines = [
+        json.dumps({"type": "system", "subtype": "init", "session_id": "abc"}),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "hidden reasoning"},
+                        {"type": "text", "text": narration},
+                    ],
+                },
+            }
+        ),
+        json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": result, **extra}),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+class TestGrokHeadlessAdapter(unittest.TestCase):
+
+    def setUp(self):
+        self.adapter = GrokHeadlessAdapter()
+
+    def test_cli_name(self):
+        self.assertEqual(self.adapter.cli_name, SupportedCLI.GROK)
+
+    def test_capabilities(self):
+        # Structured output is off on purpose: grok's --json-schema ends the run at
+        # the first text output, coercing the narration into the schema.
+        self.assertFalse(self.adapter.supports_structured_output)
+        self.assertTrue(self.adapter.supports_tool_restriction)
+        self.assertTrue(self.adapter.supports_effort_control)
+        self.assertTrue(self.adapter.supports_model_selection)
+
+    @patch("shutil.which", return_value="/usr/local/bin/grok")
+    def test_is_available_true(self, _):
+        self.assertTrue(self.adapter.is_available())
+
+    @patch("shutil.which", return_value=None)
+    def test_is_available_false(self, _):
+        self.assertFalse(self.adapter.is_available())
+
+    @patch("subprocess.run")
+    def test_execute_success(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
+
+        mock_run.assert_called_once_with(
+            _GROK_BASE_CMD + ["-p", _GROK_PREAMBLE + "review this"],
+            capture_output=True,
+            text=True,
+            cwd="/tmp",
+            timeout=30,
+        )
+        self.assertEqual(response.stdout, "pong")
+        self.assertTrue(response.succeeded)
+
+    @patch("subprocess.run")
+    def test_execute_pins_permission_mode_so_headless_never_waits_for_approval(self, mock_run):
+        # grok's default mode is "ask", which cannot prompt without a TTY.
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute("prompt")
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertIn("--permission-mode", called_cmd)
+        self.assertEqual(called_cmd[called_cmd.index("--permission-mode") + 1], "dontAsk")
+
+    @patch("subprocess.run")
+    def test_prompt_flag_is_last_and_immediately_precedes_prompt(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute(
+            "the prompt",
+            json_schema={"type": "object"},
+            disallowed_tools=["Bash"],
+            effort="high",
+            model="grok-build-0.1",
+        )
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertEqual(called_cmd[-2:], ["-p", _GROK_PREAMBLE + "the prompt"])
+
+    @patch("subprocess.run")
+    def test_execute_with_model_and_effort(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute("prompt", effort="low", model="grok-4.6")
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertEqual(
+            called_cmd,
+            _GROK_BASE_CMD
+            + ["--effort", "low", "-m", "grok-4.6", "-p", _GROK_PREAMBLE + "prompt"],
+        )
+
+    @patch("subprocess.run")
+    def test_disallowed_tools_become_deny_rules(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute("prompt", disallowed_tools=["Bash", "Write", "WebSearch"])
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertEqual(
+            [called_cmd[i + 1] for i, tok in enumerate(called_cmd) if tok == "--deny"],
+            ["Bash(*)", "Write(**)", "WebSearch(*)"],
+        )
+
+    @patch("subprocess.run")
+    def test_agent_restriction_disables_subagents(self, mock_run):
+        # "Agent" has no permission-rule equivalent; grok blocks subagents with a flag.
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute("prompt", disallowed_tools=["Agent"])
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertIn("--no-subagents", called_cmd)
+        self.assertNotIn("--deny", called_cmd)
+
+    @patch("subprocess.run")
+    def test_edit_and_notebook_edit_collapse_to_one_rule(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute("prompt", disallowed_tools=["Edit", "NotebookEdit"])
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertEqual(called_cmd.count("--deny"), 1)
+        self.assertIn("Edit(**)", called_cmd)
+
+    @patch("subprocess.run")
+    def test_unknown_tool_names_are_dropped(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute("prompt", disallowed_tools=["Telepathy"])
+
+        self.assertNotIn("--deny", mock_run.call_args.args[0])
+
+    @patch("subprocess.run")
+    def test_json_schema_is_never_passed_to_the_cli(self, mock_run):
+        # supports_structured_output is False, so Titan should not be sending a
+        # schema — and even if a caller does, the flag must stay off the command
+        # line: it would cut the run short at the narration turn.
+        mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        self.adapter.execute("prompt", json_schema={"type": "object"})
+
+        self.assertNotIn("--json-schema", mock_run.call_args.args[0])
+
+    @patch("subprocess.run")
+    def test_error_result_line_becomes_failed_response(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "error_during_execution",
+                    "is_error": True,
+                    "errors": ["Couldn't start session: no auth"],
+                }
+            ),
+            stderr="",
+            returncode=1,
+        )
+
+        response = self.adapter.execute("prompt")
+
+        self.assertFalse(response.succeeded)
+        self.assertEqual(response.stdout, "")
+        self.assertIn("no auth", response.stderr)
+
+    @patch("subprocess.run")
+    def test_error_result_line_on_zero_exit_still_fails(self, mock_run):
+        # grok exits 0 on some failed runs (observed with an unknown model id),
+        # so is_error - not the exit code - decides.
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps({"type": "result", "is_error": True, "errors": ["boom"]}),
+            stderr="",
+            returncode=0,
+        )
+
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.exit_code, 1)
+        self.assertIn("boom", response.stderr)
+        self.assertEqual(response.stdout, "")
+
+    @patch("subprocess.run")
+    def test_non_json_stdout_is_passed_through_sanitized(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout="\x1b[32mplain output\x1b[0m\n", stderr="", returncode=0
+        )
+
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "plain output")
+
+    @patch("subprocess.run")
+    def test_execute_strips_ansi_codes_inside_result(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=_grok_stream(result="\x1b[32mGreen text\x1b[0m\n"), stderr="", returncode=0
+        )
+
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "Green text")
+
+    @patch("subprocess.run")
+    def test_narration_is_not_part_of_the_answer(self, mock_run):
+        # The whole reason for streaming-messages-json: --output-format json glues
+        # every assistant turn together, so a commit-message run came back as
+        # "I'll read the adapter first.feat: ..." (observed live).
+        mock_run.return_value = MagicMock(
+            stdout=_grok_stream(
+                narration="I'll read the new adapter first.",
+                result="feat: Add Grok Build CLI headless adapter",
+            ),
+            stderr="",
+            returncode=0,
+        )
+
+        response = self.adapter.execute("write a commit message")
+
+        self.assertEqual(response.stdout, "feat: Add Grok Build CLI headless adapter")
+
+    @patch("subprocess.run")
+    def test_stream_without_result_line_falls_back_to_last_assistant_text(self, mock_run):
+        # A run killed mid-stream never emits the terminal line; the last assistant
+        # message beats returning an empty success.
+        stream = _grok_stream().splitlines()[:-1]
+        mock_run.return_value = MagicMock(stdout="\n".join(stream), stderr="", returncode=0)
+
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "I'll look into this first.")
+
+    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="grok", timeout=60))
+    def test_execute_timeout(self, _):
+        response = self.adapter.execute("prompt", timeout=60)
+        self.assertEqual(response.exit_code, 124)
+        self.assertIn("timed out", response.stderr)
+
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_execute_cli_not_found(self, _):
+        response = self.adapter.execute("prompt")
+        self.assertEqual(response.exit_code, 127)
+        self.assertIn("not found", response.stderr)
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 class TestHeadlessAdapterRegistry(unittest.TestCase):
@@ -839,6 +1112,7 @@ class TestHeadlessAdapterRegistry(unittest.TestCase):
         self.assertIn(SupportedCLI.CODEX, HEADLESS_ADAPTER_REGISTRY)
         self.assertIn(SupportedCLI.OPENCODE, HEADLESS_ADAPTER_REGISTRY)
         self.assertIn(SupportedCLI.ANTIGRAVITY, HEADLESS_ADAPTER_REGISTRY)
+        self.assertIn(SupportedCLI.GROK, HEADLESS_ADAPTER_REGISTRY)
 
     def test_get_headless_adapter_opencode(self):
         adapter = get_headless_adapter(SupportedCLI.OPENCODE)
@@ -848,6 +1122,10 @@ class TestHeadlessAdapterRegistry(unittest.TestCase):
         # StrEnum compatibility: "agy" == SupportedCLI.ANTIGRAVITY
         adapter = get_headless_adapter("agy")
         self.assertIsInstance(adapter, AntigravityHeadlessAdapter)
+
+    def test_get_headless_adapter_grok(self):
+        adapter = get_headless_adapter(SupportedCLI.GROK)
+        self.assertIsInstance(adapter, GrokHeadlessAdapter)
 
     def test_get_headless_adapter_claude(self):
         adapter = get_headless_adapter(SupportedCLI.CLAUDE)

@@ -17,6 +17,7 @@ from .gemini import GeminiHeadlessAdapter
 from .codex import CodexHeadlessAdapter
 from .opencode import OpenCodeHeadlessAdapter
 from .antigravity import AntigravityHeadlessAdapter
+from .grok import GrokHeadlessAdapter
 
 HEADLESS_ADAPTER_REGISTRY: Dict[SupportedCLI, Type] = {
     SupportedCLI.CLAUDE: ClaudeHeadlessAdapter,
@@ -24,6 +25,7 @@ HEADLESS_ADAPTER_REGISTRY: Dict[SupportedCLI, Type] = {
     SupportedCLI.CODEX: CodexHeadlessAdapter,
     SupportedCLI.OPENCODE: OpenCodeHeadlessAdapter,
     SupportedCLI.ANTIGRAVITY: AntigravityHeadlessAdapter,
+    SupportedCLI.GROK: GrokHeadlessAdapter,
 }
 
 

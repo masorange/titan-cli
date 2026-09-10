@@ -33,5 +33,13 @@ CLI_REGISTRY = {
         "install_instructions": None,
         "prompt_flag": "-i",
         "model_flag": "--model"
+    },
+    "grok": {
+        "display_name": "Grok Build CLI",
+        "install_instructions": "Install: curl -fsSL https://x.ai/cli/install.sh | bash",
+        # A positional prompt opens the TUI with that first turn; -p would run
+        # headless instead, which is not what the interactive launcher wants.
+        "prompt_flag": None,
+        "model_flag": "-m"
     }
 }
