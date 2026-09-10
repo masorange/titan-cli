@@ -25,6 +25,7 @@ class SupportedCLI(StrEnum):
     CODEX = "codex"
     OPENCODE = "opencode"
     ANTIGRAVITY = "agy"
+    GROK = "grok"
 
 
 _QUOTA_PATTERNS = re.compile(
