@@ -296,6 +296,13 @@ This is the most common mistake when writing steps.
 
 **`Skip` continues to the next step.** Use it for "nothing to do in this step, but keep going".
 
+**Neither survives an abort.** If the user quits the TUI while a step is waiting — at a
+prompt, or inside an AI or CLI call — the workflow thread is unwound with
+`WorkflowAborted` and no later step runs, cleanup steps included. Anything that must
+happen regardless belongs in a `finally` inside the step that allocated the resource.
+See the `ask_*` section of [`textual.md`](textual.md) for why prompts abort rather than
+answer with their default.
+
 ### ❌ Wrong — cleanup is skipped
 
 ```yaml
