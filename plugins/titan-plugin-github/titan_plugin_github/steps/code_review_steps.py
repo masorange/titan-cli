@@ -2173,16 +2173,18 @@ def _execute_findings_batch(
     )
 
     if not response.succeeded:
+        reason = _cli_failure_reason(response, adapter.cli_name.value)
         logger.debug(
             "findings_batch_failed",
             batch_id=batch.batch_id,
             exit_code=response.exit_code,
             quota_exhausted=response.quota_exhausted,
+            reason=reason,
         )
         return {
             "status": "failed",
             "raw": None,
-            "detail": _cli_failure_reason(response, adapter.cli_name.value),
+            "detail": reason,
             "timed_out": response.exit_code == 124,
         }
 
@@ -2313,6 +2315,11 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     findings_failed = False
     batches_attempted = 0
     batches_succeeded = 0
+    # Distinct reasons the batches gave, in first-seen order. Without these the
+    # step reports "0/N batches produced output" and the actual cause — a spent
+    # quota, a timeout, a missing binary — is only recoverable by correlating
+    # debug lines from the same second.
+    batch_failure_reasons: list[str] = []
     # Paths whose batch actually produced output — a failed/skipped batch's files were
     # NOT reviewed, and downstream passes (synthesis) must not claim they were.
     reviewed_paths: set[str] = set()
@@ -2470,6 +2477,9 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 )
             else:
                 findings_failed = True
+                reason = outcome.get("detail")
+                if reason and reason not in batch_failure_reasons:
+                    batch_failure_reasons.append(reason)
                 _render_findings_batch_result(
                     ctx,
                     batch.batch_id,
@@ -2484,13 +2494,23 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         # visibly instead of masquerading as a clean review.
         ctx.data["raw_findings"] = build_default_findings()
         ctx.data["ai_findings_failed"] = True
-        logger.error("findings_all_batches_failed", batches_attempted=batches_attempted)
+        why = "; ".join(batch_failure_reasons) if batch_failure_reasons else ""
+        logger.error(
+            "findings_all_batches_failed",
+            batches_attempted=batches_attempted,
+            reasons=batch_failure_reasons,
+            reason=why or None,
+        )
         ctx.textual.error_text(
-            f"AI findings failed: 0 of {batches_attempted} batch(es) produced output. "
-            "No code was reviewed — do not treat this as a clean review."
+            f"AI findings failed: 0 of {batches_attempted} batch(es) produced output"
+            + (f" — {why}. " if why else ". ")
+            + "No code was reviewed — do not treat this as a clean review."
         )
         ctx.textual.end_step("error")
-        return Error(f"AI findings failed: 0/{batches_attempted} batches produced output")
+        return Error(
+            f"AI findings failed: 0/{batches_attempted} batches produced output"
+            + (f" — {why}" if why else "")
+        )
 
     if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
         # Empty review on a PR the strategy flagged as suspicious-if-empty: instead of

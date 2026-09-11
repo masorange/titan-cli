@@ -1,49 +1,58 @@
 """
 Step: select_log_session
 
-Parse the log file and let the user pick a session to analyze.
+Index the selected log files and let the user pick a session.
 """
 
 from pathlib import Path
+
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error
 from titan_cli.ui.tui.widgets import OptionItem
 
-from operations import parse_log_file, format_session_label
+from operations import (
+    format_session_description,
+    format_session_label,
+    index_sessions,
+)
 
 
 def select_log_session(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Parse the log file and present a session selector.
+    Index the log files and present a session selector.
 
-    Inputs (from ctx.data):
-        log_path (str): Path to the log file
+    The index is a byte scan: it records where each session lives and counts
+    its entries without parsing them. Only the chosen session is parsed, by
+    the next step.
 
-    Outputs (saved to ctx.data):
-        log_session: Selected LogSession object
+    Inputs:
+        log_paths (list[str]): Log file paths, oldest first
+
+    Outputs:
+        log_session_ref (SessionRef): The selected session's location and counts
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
     ctx.textual.begin_step("Select Session")
 
-    log_path = ctx.get("log_path")
-    if not log_path:
+    raw_paths = ctx.get("log_paths") or []
+    paths = [Path(path) for path in raw_paths]
+    if not paths:
         ctx.textual.end_step("error")
-        return Error("No log path in context. Run prompt_log_path first.")
+        return Error("No log paths in context. Run select_log_source first.")
 
-    ctx.textual.dim_text(f"Parsing {log_path}...")
-
-    try:
-        sessions = parse_log_file(Path(log_path))
-    except Exception as e:
-        ctx.textual.error_text(f"Failed to parse log file: {e}")
-        ctx.textual.end_step("error")
-        return Error(f"Failed to parse log file: {e}")
+    with ctx.textual.loading(f"Indexing {len(paths)} log file(s)…"):
+        try:
+            sessions = index_sessions(paths)
+        except OSError as error:
+            ctx.textual.error_text(f"Failed to read log files: {error}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to read log files: {error}")
 
     if not sessions:
-        ctx.textual.error_text("No sessions found in log file")
+        ctx.textual.error_text("No sessions found in the selected log files")
         ctx.textual.end_step("error")
-        return Error("No sessions found in log file")
+        return Error("No sessions found")
 
     ctx.textual.dim_text(f"Found {len(sessions)} session(s)")
 
@@ -51,40 +60,36 @@ def select_log_session(ctx: WorkflowContext) -> WorkflowResult:
         selected = sessions[0]
         ctx.textual.success_text("✓ Single session found, selecting it automatically")
     else:
-        # Show latest sessions first
-        sessions_desc = list(reversed(sessions))
-
+        newest_first = list(reversed(sessions))
         options = [
             OptionItem(
-                value=i,
-                title=format_session_label(s),
-                description=_session_description(s),
+                value=index,
+                title=format_session_label(session),
+                description=format_session_description(session),
             )
-            for i, s in enumerate(sessions_desc)
+            for index, session in enumerate(newest_first)
         ]
 
-        selected_idx = ctx.textual.ask_option("Select a session to analyze:", options)
-
-        if selected_idx is None:
+        choice = ctx.textual.ask_option("Select a session to analyze:", options)
+        if choice is None:
             ctx.textual.end_step("error")
             return Error("No session selected")
 
-        selected = sessions_desc[selected_idx]
+        selected = newest_first[choice]
 
-    ctx.set("log_session", selected)
+    if selected.spans_rotation:
+        ctx.textual.warning_text(
+            "  This session was split by log rotation across "
+            + " + ".join(path.name for path in selected.files)
+        )
+    if selected.truncated_head:
+        ctx.textual.warning_text(
+            "  The start of this session is gone — rotation deleted the file "
+            "that held it"
+        )
 
     ctx.textual.end_step("success")
-    return Success(f"Session selected: {format_session_label(selected)}")
-
-
-def _session_description(session) -> str:
-    from operations import analyze_session
-    analysis = analyze_session(session)
-    wf_count = len(analysis.workflows)
-    err_count = len(analysis.errors)
-    parts = []
-    if wf_count:
-        parts.append(f"{wf_count} workflow{'s' if wf_count != 1 else ''}")
-    if err_count:
-        parts.append(f"{err_count} error{'s' if err_count != 1 else ''}")
-    return "  " + "  ·  ".join(parts) if parts else "  No workflows"
+    return Success(
+        f"Session selected: {format_session_label(selected)}",
+        metadata={"log_session_ref": selected},
+    )
