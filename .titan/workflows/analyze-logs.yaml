@@ -1,22 +1,43 @@
 name: "Analyze Logs"
-description: "Parse and analyze titan log sessions to diagnose issues and errors."
+description: "Read titan log sessions: workflow timeline, errors in context, and an AI diagnosis."
 
 steps:
-  - id: log-path
-    name: "Select Log File"
+  - id: log-source
+    name: "Select Log Files"
     plugin: project
-    step: prompt_log_path
+    step: select_log_source
 
   - id: log-session
     name: "Select Session"
     plugin: project
     step: select_log_session
     requires:
-      - log_path
+      - log_paths
 
   - id: analyze
     name: "Analyze Session"
     plugin: project
     step: analyze_log_session
+    requires:
+      - log_session_ref
+
+  - id: diagnose
+    name: "AI Diagnosis"
+    plugin: project
+    step: ai_diagnose_log_session
+    requires:
+      - log_analysis
+
+  - id: export
+    name: "Export Report"
+    plugin: project
+    step: export_log_report
+    requires:
+      - log_analysis
+
+  - id: explore
+    name: "Explore Log"
+    plugin: project
+    step: explore_log_session
     requires:
       - log_session

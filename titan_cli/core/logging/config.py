@@ -128,6 +128,16 @@ def _get_log_file_path(custom_path: Optional[Path] = None) -> Path:
     if custom_path:
         return custom_path
 
+    # An explicit override, honoured before the XDG default. This is what
+    # keeps a test run — which configures logging several times per session —
+    # out of the user's real log, where its fixtures otherwise appear as
+    # hundreds of errors in a session the user then tries to diagnose.
+    override = os.getenv("TITAN_LOG_DIR")
+    if override:
+        log_dir = Path(override).expanduser()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir / "titan.log"
+
     # XDG Base Directory: logs go in ~/.local/state/
     log_dir = Path.home() / ".local" / "state" / "titan" / "logs"
     try:
@@ -220,6 +230,13 @@ def _setup_console_handler(log_level: int, is_dev: bool) -> None:
     logging.getLogger("slack_sdk.web.base_client").setLevel(
         logging.DEBUG if is_dev else logging.WARNING
     )
+    # HTTP and LLM SDKs, capped at WARNING in BOTH modes. At DEBUG the OpenAI
+    # client logs every request payload — the entire prompt — duplicating what
+    # Titan already records as `ai_prompt_full`, and httpx logs raw response
+    # headers (spend counters, in-cluster URLs, org ids). Between them they
+    # were the dominant reason 60 MB of retention covered 21 hours.
+    for noisy in ("httpx", "httpcore", "openai", "anthropic", "google_genai", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _configure_structlog(is_dev: bool) -> None:
@@ -234,6 +251,11 @@ def _configure_structlog(is_dev: bool) -> None:
         structlog.contextvars.merge_contextvars,  # Add context variables
         structlog.stdlib.add_log_level,  # Add log level
         structlog.stdlib.add_logger_name,  # Add logger name
+        # Interpolate %s/%d args from stdlib-style calls. Without this,
+        # `logger.debug("path=%s", value)` writes the format string itself as
+        # the event name and strands the value in `positional_args` — which is
+        # how 34 of 101 distinct event names in a real log ended up malformed.
+        structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),  # Stack info if available
     ]
 
