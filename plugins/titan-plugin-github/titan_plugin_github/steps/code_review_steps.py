@@ -4,6 +4,7 @@ Steps for AI-powered PR code review.
 This module contains steps for reviewing pull requests authored by others using
 AI analysis combined with project-specific skill guidelines.
 """
+import os
 import re
 import threading
 import time
@@ -72,6 +73,17 @@ logger = get_logger(__name__)
 
 _PROMPT_PREVIEW_CHARS = 2000
 _RESPONSE_PREVIEW_CHARS = 1500
+
+# Writing every prompt and response to disk in full made `ai_prompt_full` +
+# `ai_prompt_built` + `ai_response_full` + `ai_response_received` 47.6% of a
+# 15 MB rotation set — the single largest thing in the log, and the reason the
+# retention window collapsed from months to hours. The bounded previews above
+# answer nearly every debugging question; the unbounded dumps are opt-in.
+#
+# Set TITAN_LOG_AI_PAYLOADS=1 to get them back when a prompt itself is the
+# thing under investigation.
+def _ai_payload_logging_enabled() -> bool:
+    return os.getenv("TITAN_LOG_AI_PAYLOADS", "").strip().lower() in ("1", "true", "yes")
 _COMMIT_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 _CENTRAL_PATH_HINTS = ("/utils/", "/configuration/", "/interceptors/", "/base/", "Utils.kt", "Configuration.kt")
 _MAX_REFERENCED_COMMITS_PER_THREAD = 3
@@ -98,13 +110,14 @@ def _log_ai_prompt(step_name: str, cli_name: str, prompt: str, **extra) -> None:
         prompt_last_chars=last,
         **extra,
     )
-    logger.debug(
-        "ai_prompt_full",
-        step=step_name,
-        cli=cli_name,
-        prompt=prompt,
-        **extra,
-    )
+    if _ai_payload_logging_enabled():
+        logger.debug(
+            "ai_prompt_full",
+            step=step_name,
+            cli=cli_name,
+            prompt=prompt,
+            **extra,
+        )
 
 
 def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, exit_code: int, **extra) -> None:
@@ -124,15 +137,16 @@ def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, ex
         stderr_last_chars=stderr_last,
         **extra,
     )
-    logger.debug(
-        "ai_response_full",
-        step=step_name,
-        cli=cli_name,
-        exit_code=exit_code,
-        stdout=stdout,
-        stderr=stderr,
-        **extra,
-    )
+    if _ai_payload_logging_enabled():
+        logger.debug(
+            "ai_response_full",
+            step=step_name,
+            cli=cli_name,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            **extra,
+        )
 
 
 def _cli_failure_reason(response, cli_name: str) -> str:
@@ -906,13 +920,13 @@ def _get_review_diff(
         return ctx.github.get_pr_diff(pr_number), True
 
     if not ctx.git:
-        logger.debug("Git plugin not available; using gh pr diff")
+        logger.debug("diff_source_selected", source="gh_pr_diff", reason="git_plugin_unavailable")
         return ctx.github.get_pr_diff(pr_number), True
 
     fetch_result = ctx.git.fetch(all=True)
     match fetch_result:
         case ClientError(error_message=err):
-            logger.warning(f"Git fetch failed: {err}, will try diff anyway")
+            logger.warning("git_fetch_failed", error=err, action="continuing_with_diff")
         case _:
             pass
 
@@ -1105,7 +1119,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
         + (f" ({test_count} test files)" if test_count else "")
         + f" · +{manifest.total_additions} -{manifest.total_deletions}"
     )
-    logger.debug(
+    logger.info(
         "change_manifest_census",
         tests=test_count,
         docs=docs_count,
@@ -1167,7 +1181,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     if resolved_count:
         msg += f" ({resolved_count} resolved)"
     ctx.textual.success_text(msg)
-    logger.debug(
+    logger.info(
         "existing_comments_index_built",
         existing_comments_total=len(index),
         comments_for_prompt_count=len(comment_context),
@@ -1286,10 +1300,13 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
 
     candidates, excluded = score_review_candidates_operation(manifest, review_profile=review_profile)
 
-    logger.debug(
+    logger.info(
         "review_candidates_scored",
         candidates=len(candidates),
         excluded=len(excluded),
+    )
+    logger.debug(
+        "review_candidates_detail",
         # Full lists, not a top-5 sample: "6 files, 0 excluded" is only
         # actionable once you can see WHICH files, and an exclusion is only
         # reviewable alongside the reason it was excluded. Debug level, since
@@ -1364,15 +1381,20 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
     if ctx.github_managers:
         profile_path = ctx.github_managers.review_profile._profile_path()
         checklist_path = ctx.github_managers.checklist._checklist_path()
-    logger.debug(
+    logger.info(
         "review_config_applied_to_pr",
-        project_root=str(ctx.data.get("project_root")) if ctx.data.get("project_root") else None,
         profile_source=("project" if profile_path and profile_path.exists() else "default"),
-        profile_path=str(profile_path) if profile_path else None,
         checklist_source=("project" if checklist_path and checklist_path.exists() else "default"),
-        checklist_path=str(checklist_path) if checklist_path else None,
         manifest_files=len(manifest.files) if manifest else 0,
         candidate_files=len(candidates),
+        offered_checklist_count=len(checklist),
+        applicable_checklist_count=len(applicable_preview_ids),
+    )
+    logger.debug(
+        "review_config_applied_detail",
+        project_root=str(ctx.data.get("project_root")) if ctx.data.get("project_root") else None,
+        profile_path=str(profile_path) if profile_path else None,
+        checklist_path=str(checklist_path) if checklist_path else None,
         offered_checklist_ids=[str(item.id) for item in checklist],
         applicable_checklist_preview=sorted(applicable_preview_ids),
         top_candidate_paths=[candidate.path for candidate in candidates[:5]],
@@ -1423,7 +1445,7 @@ def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
 
     strategy = select_review_strategy_operation(classification)
 
-    logger.debug(
+    logger.info(
         "review_strategy_selected",
         strategy=strategy.strategy,
         size_class=strategy.size_class,
@@ -2093,7 +2115,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         f"✓ Context: {files_count} focus file(s) in {batch_count} batch(es)"
         + (f" · {related_count} related file(s)" if related_count else "")
     )
-    logger.debug(
+    logger.info(
         "review_context_summary",
         comments_in_context=sum(len(batch.comment_context) for batch in package.batches),
     )
@@ -2774,7 +2796,7 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
         except ValidationError as e:
             skipped += 1
             ctx.textual.dim_text(f"⚠ Finding {i + 1} invalid, skipping: {e.error_count()} error(s)")
-            logger.debug("Finding %d validation error: %s", i + 1, e)
+            logger.debug("finding_validation_failed", index=i + 1, error=str(e))
 
     ctx.data["normalized_findings"] = findings
 
@@ -2835,7 +2857,12 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
                 removed_existing += 1
                 if any(ex.is_adjudicated and is_duplicate(finding, ex) for ex in existing_index):
                     removed_adjudicated += 1
-            logger.debug("Deduplicated finding: %s @ %s:%s", finding.title, finding.path, finding.line)
+            logger.debug(
+                "finding_deduplicated",
+                title=finding.title,
+                path=finding.path,
+                line=finding.line,
+            )
         else:
             deduped.append(finding)
             seen_keys.add(key)
@@ -2858,7 +2885,7 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
         else:
             summary += f" ({removed} internal duplicate(s) removed)"
     ctx.textual.success_text(summary)
-    logger.debug(
+    logger.info(
         "findings_deduplicated",
         deduped_findings_count=len(deduped),
         findings_removed_due_to_existing_threads=removed_existing,
@@ -4013,7 +4040,7 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
         except ValidationError as e:
             skipped += 1
             ctx.textual.dim_text(f"⚠ Decision {i + 1} invalid, skipping: {e.error_count()} error(s)")
-            logger.debug("ThreadDecision %d validation error: %s", i + 1, e)
+            logger.debug("thread_decision_validation_failed", index=i + 1, error=str(e))
 
     ctx.data["thread_decisions"] = decisions
 

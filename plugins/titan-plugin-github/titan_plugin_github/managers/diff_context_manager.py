@@ -72,9 +72,13 @@ class DiffContextManager:
         Returns:
             DiffContextManager with all hunks indexed
         """
-        logger.debug(f"Parsing diff: {len(diff)} bytes")
+        logger.debug("diff_parse_started", bytes=len(diff))
         parsed = _parse_diff(diff)
-        logger.debug(f"Parsed diff: {len(parsed.files)} files, {sum(len(f.hunks) for f in parsed.files.values())} hunks")
+        logger.debug(
+            "diff_parsed",
+            files=len(parsed.files),
+            hunks=sum(len(f.hunks) for f in parsed.files.values()),
+        )
         return cls(parsed)
 
     @classmethod
@@ -92,10 +96,10 @@ class DiffContextManager:
         Returns:
             DiffContextManager with hunks indexed under ``path``
         """
-        logger.debug(f"Parsing file diff: path={path}, size={len(file_diff)} bytes")
+        logger.debug("file_diff_parse_started", path=path, bytes=len(file_diff))
         parsed_file = _parse_file_diff_section(path, file_diff)
         hunks_count = len(parsed_file.hunks) if parsed_file else 0
-        logger.debug(f"Parsed file diff: {hunks_count} hunks")
+        logger.debug("file_diff_parsed", path=path, hunks=hunks_count)
         files = {path: parsed_file} if parsed_file else {}
         return cls(ParsedDiff(files=files, raw=file_diff))
 
@@ -106,14 +110,14 @@ class DiffContextManager:
     def get_file(self, path: str) -> Optional[ParsedFileDiff]:
         """Return parsed file diff for ``path``, or None if not in diff."""
         result = self._parsed.files.get(path)
-        logger.debug(f"get_file: path={path}, found={result is not None}")
+        logger.debug("diff_file_lookup", path=path, found=result is not None)
         return result
 
     def get_hunks(self, path: str) -> list[ParsedHunk]:
         """Return all hunks for ``path``, empty list if file not in diff."""
         file_diff = self._parsed.files.get(path)
         hunks = file_diff.hunks if file_diff else []
-        logger.debug(f"get_hunks: path={path}, count={len(hunks)}")
+        logger.debug("diff_hunks_lookup", path=path, count=len(hunks))
         return hunks
 
     def get_hunk_texts(self, path: str) -> list[str]:
@@ -156,10 +160,10 @@ class DiffContextManager:
             )
 
         logger.debug(
-            "build_expanded_hunks: path=%s, count=%s, extra_lines=%s",
-            path,
-            len(expanded),
-            extra_lines,
+            "expanded_hunks_built",
+            path=path,
+            count=len(expanded),
+            extra_lines=extra_lines,
         )
         return expanded
 
@@ -171,16 +175,30 @@ class DiffContextManager:
         """
         hunks = self.get_hunks(path)
         if not hunks:
-            logger.debug(f"get_hunk_for_line: path={path}, line={line} → no hunks")
+            logger.debug("hunk_for_line_missed", path=path, line=line, reason="no_hunks")
             return None
         for hunk in hunks:
             if hunk.contains_new_line(line):
-                logger.debug(f"get_hunk_for_line: path={path}, line={line} → exact match ({hunk.new_line_start}-{hunk.new_line_end})")
+                logger.debug(
+                    "hunk_for_line_matched",
+                    path=path,
+                    line=line,
+                    match="exact",
+                    hunk_start=hunk.new_line_start,
+                    hunk_end=hunk.new_line_end,
+                )
                 return hunk
         if allow_fallback:
-            logger.debug(f"get_hunk_for_line: path={path}, line={line} → fallback to first hunk ({hunks[0].new_line_start}-{hunks[0].new_line_end})")
+            logger.debug(
+                "hunk_for_line_matched",
+                path=path,
+                line=line,
+                match="fallback_first",
+                hunk_start=hunks[0].new_line_start,
+                hunk_end=hunks[0].new_line_end,
+            )
             return hunks[0]
-        logger.debug(f"get_hunk_for_line: path={path}, line={line} → no exact match")
+        logger.debug("hunk_for_line_missed", path=path, line=line, reason="no_exact_match")
         return None
 
     def get_hunk_for_old_line(self, path: str, line: int) -> Optional[ParsedHunk]:
@@ -192,13 +210,27 @@ class DiffContextManager:
         """
         hunks = self.get_hunks(path)
         if not hunks:
-            logger.debug(f"get_hunk_for_old_line: path={path}, old_line={line} → no hunks")
+            logger.debug("hunk_for_old_line_missed", path=path, old_line=line, reason="no_hunks")
             return None
         for hunk in hunks:
             if hunk.contains_old_line(line):
-                logger.debug(f"get_hunk_for_old_line: path={path}, old_line={line} → exact match ({hunk.old_line_start}-{hunk.old_line_end})")
+                logger.debug(
+                    "hunk_for_old_line_matched",
+                    path=path,
+                    old_line=line,
+                    match="exact",
+                    hunk_start=hunk.old_line_start,
+                    hunk_end=hunk.old_line_end,
+                )
                 return hunk
-        logger.debug(f"get_hunk_for_old_line: path={path}, old_line={line} → fallback to last hunk ({hunks[-1].old_line_start}-{hunks[-1].old_line_end})")
+        logger.debug(
+            "hunk_for_old_line_matched",
+            path=path,
+            old_line=line,
+            match="fallback_last",
+            hunk_start=hunks[-1].old_line_start,
+            hunk_end=hunks[-1].old_line_end,
+        )
         return hunks[-1]
 
     # ------------------------------------------------------------------
@@ -214,13 +246,13 @@ class DiffContextManager:
         empty diff is a no-op — the added-lines-only fallback stays in effect.
         """
         if not diff or not diff.strip():
-            logger.debug("attach_github_diff: empty diff ignored")
+            logger.debug("github_diff_attach_skipped", reason="empty_diff")
             return
         self._github_parsed = _parse_diff(diff)
         logger.debug(
-            "attach_github_diff: %s files, %s hunks",
-            len(self._github_parsed.files),
-            sum(len(f.hunks) for f in self._github_parsed.files.values()),
+            "github_diff_attached",
+            files=len(self._github_parsed.files),
+            hunks=sum(len(f.hunks) for f in self._github_parsed.files.values()),
         )
 
     @property
@@ -248,9 +280,9 @@ class DiffContextManager:
             # Anchors are resolved against the context diff — if its parse desynced,
             # any line we'd publish may be shifted. Force general-body degradation.
             logger.warning(
-                "get_publishable_lines: path=%s context diff failed line-count self-check "
-                "→ no inline placement",
-                path,
+                "publishable_lines_unavailable",
+                path=path,
+                reason="context_diff_line_count_self_check_failed",
             )
             return frozenset()
 
@@ -261,26 +293,34 @@ class DiffContextManager:
                 # which GitHub omits for large files — a missing entry doesn't mean
                 # the file is un-commentable, so drop the source, keep the floor.
                 logger.warning(
-                    "get_publishable_lines: path=%s missing from GitHub diff "
-                    "→ falling back to added lines",
-                    path,
+                    "publishable_lines_degraded",
+                    path=path,
+                    reason="missing_from_github_diff",
+                    fallback="added_lines",
                 )
             elif not file_diff.hunks_consistent:
                 logger.warning(
-                    "get_publishable_lines: path=%s GitHub diff failed line-count self-check "
-                    "→ falling back to added lines",
-                    path,
+                    "publishable_lines_degraded",
+                    path=path,
+                    reason="github_diff_line_count_self_check_failed",
+                    fallback="added_lines",
                 )
             else:
                 lines = file_diff.valid_review_lines
                 logger.debug(
-                    "get_publishable_lines: path=%s source=github_diff count=%s", path, len(lines)
+                    "publishable_lines_resolved",
+                    path=path,
+                    source="github_diff",
+                    count=len(lines),
                 )
                 return lines
 
         lines = context_file.added_lines if context_file else frozenset()
         logger.debug(
-            "get_publishable_lines: path=%s source=added_lines_fallback count=%s", path, len(lines)
+            "publishable_lines_resolved",
+            path=path,
+            source="added_lines_fallback",
+            count=len(lines),
         )
         return lines
 
@@ -321,7 +361,7 @@ class DiffContextManager:
         """
         self._content_provider = provider
         self._content_cache = {}
-        logger.debug("attach_content_provider: provider attached")
+        logger.debug("content_provider_attached")
 
     @property
     def has_content_provider(self) -> bool:
@@ -339,14 +379,12 @@ class DiffContextManager:
             content = self._content_provider(path)
             # Only cache successful lookups or legitimate None returns
             self._content_cache[path] = content
-            logger.debug(
-                "get_file_content: path=%s found=%s", path, content is not None
-            )
+            logger.debug("file_content_read", path=path, found=content is not None)
             return content
         except Exception as e:
             # Provider reads from worktree or network — transient failures shouldn't
             # permanently disable excerpts for this path. Log at warning and don't cache.
-            logger.warning("get_file_content: provider failed for %s: %s", path, e)
+            logger.warning("file_content_read_failed", path=path, error=str(e))
             return None
 
     def build_file_excerpt(
@@ -370,10 +408,11 @@ class DiffContextManager:
         lines = content.split("\n")
         if line > len(lines):
             logger.debug(
-                "build_file_excerpt: path=%s line=%s beyond file length %s",
-                path,
-                line,
-                len(lines),
+                "file_excerpt_skipped",
+                path=path,
+                line=line,
+                file_lines=len(lines),
+                reason="line_beyond_file_length",
             )
             return None
 
@@ -387,7 +426,7 @@ class DiffContextManager:
             excerpt.append(f"{str(number).rjust(width)} | {lines[number - 1]}{marker}")
 
         logger.debug(
-            "build_file_excerpt: path=%s line=%s window=%s-%s", path, line, start, end
+            "file_excerpt_built", path=path, line=line, window_start=start, window_end=end
         )
         return "\n".join(excerpt)
 
@@ -403,7 +442,12 @@ class DiffContextManager:
         """
         file_diff = self._parsed.files.get(path)
         valid = file_diff.valid_review_lines if file_diff else frozenset()
-        logger.debug(f"get_valid_review_lines: path={path}, count={len(valid)}, lines={sorted(list(valid))[:10]}...")
+        logger.debug(
+            "valid_review_lines_resolved",
+            path=path,
+            count=len(valid),
+            sample_lines=sorted(valid)[:10],
+        )
         return valid
 
     def get_all_valid_lines(self) -> dict[str, frozenset]:
@@ -413,7 +457,11 @@ class DiffContextManager:
         Replaces ``extract_valid_diff_lines`` from code_review_operations.
         """
         result = {path: fd.valid_review_lines for path, fd in self._parsed.files.items()}
-        logger.debug(f"get_all_valid_lines: {len(result)} files, total_valid_lines={sum(len(v) for v in result.values())}")
+        logger.info(
+            "all_valid_review_lines_resolved",
+            files=len(result),
+            total_valid_lines=sum(len(v) for v in result.values()),
+        )
         return result
 
     # ------------------------------------------------------------------
@@ -431,9 +479,9 @@ class DiffContextManager:
         """
         snippet_stripped = _sanitize_snippet(snippet)
         if not snippet_stripped:
-            logger.debug(f"find_lines_by_snippet: path={path}, snippet=<empty> → skipped")
+            logger.debug("snippet_search_skipped", path=path, reason="empty_snippet")
             return []
-        logger.debug(f"find_lines_by_snippet: path={path}, snippet='{snippet_stripped[:50]}...'")
+        logger.debug("snippet_search_started", path=path, snippet=snippet_stripped[:50])
         matches: list[int] = []
         for hunk in self.get_hunks(path):
             lines = hunk.content.split("\n")
@@ -452,7 +500,12 @@ class DiffContextManager:
                     if snippet_stripped in line[1:].strip():
                         matches.append(current)
                     current += 1
-        logger.debug(f"find_lines_by_snippet: path={path} → {len(matches)} match(es): {matches[:10]}")
+        logger.debug(
+            "snippet_search_completed",
+            path=path,
+            matches=len(matches),
+            sample_matches=matches[:10],
+        )
         return matches
 
     def find_line_by_snippet(self, path: str, snippet: str) -> Optional[int]:
@@ -495,23 +548,25 @@ class DiffContextManager:
 
             if len(matches) == 1:
                 logger.debug(
-                    "resolve_line_anchor: path=%s unique snippet match line=%s", path, matches[0]
+                    "line_anchor_resolved", path=path, line=matches[0], via="unique_snippet"
                 )
                 return matches[0]
 
             if line is not None and line in matches:
                 logger.debug(
-                    "resolve_line_anchor: path=%s ambiguous snippet, AI line %s among matches",
-                    path,
-                    line,
+                    "line_anchor_resolved",
+                    path=path,
+                    line=line,
+                    via="ai_line_among_matches",
                 )
                 return line
             if line is not None and line in self.get_valid_review_lines(path):
                 logger.debug(
-                    "resolve_line_anchor: path=%s ambiguous snippet %s, valid AI line %s wins",
-                    path,
-                    matches,
-                    line,
+                    "line_anchor_resolved",
+                    path=path,
+                    line=line,
+                    matches=matches,
+                    via="valid_ai_line",
                 )
                 return line
 
@@ -525,18 +580,19 @@ class DiffContextManager:
                 ),
             )
             logger.debug(
-                "resolve_line_anchor: path=%s ambiguous snippet %s, no usable AI line → %s",
-                path,
-                matches,
-                best,
+                "line_anchor_resolved",
+                path=path,
+                line=best,
+                matches=matches,
+                via="ambiguous_no_usable_ai_line",
             )
             return best
 
         if line is not None and line in self.get_valid_review_lines(path):
-            logger.debug("resolve_line_anchor: path=%s using validated line=%s", path, line)
+            logger.debug("line_anchor_resolved", path=path, line=line, via="validated_ai_line")
             return line
 
-        logger.debug("resolve_line_anchor: path=%s could not resolve line", path)
+        logger.debug("line_anchor_unresolved", path=path)
         return None
 
     # ------------------------------------------------------------------
@@ -563,13 +619,25 @@ class DiffContextManager:
             hunk = self.get_hunk_for_line(path, line)
 
         if not hunk:
-            logger.debug(f"build_focused_diff: path={path}, line={line}, is_outdated={is_outdated} → no hunk found")
+            logger.debug(
+                "focused_diff_skipped",
+                path=path,
+                line=line,
+                is_outdated=is_outdated,
+                reason="no_hunk",
+            )
             return ""
 
         result = _build_focused_diff_from_hunk(
             hunk.content, line, is_outdated, before=before, after=after
         )
-        logger.debug(f"build_focused_diff: path={path}, line={line}, is_outdated={is_outdated}, result_size={len(result)} bytes")
+        logger.debug(
+            "focused_diff_built",
+            path=path,
+            line=line,
+            is_outdated=is_outdated,
+            bytes=len(result),
+        )
         return result
 
     def extract_original_lines_for_suggestion(
@@ -586,10 +654,22 @@ class DiffContextManager:
         """
         hunk = self.get_hunk_for_line(path, line)
         if not hunk:
-            logger.debug(f"extract_original_lines_for_suggestion: path={path}, line={line}, count={count} → no hunk")
+            logger.debug(
+                "original_lines_extract_skipped",
+                path=path,
+                line=line,
+                count=count,
+                reason="no_hunk",
+            )
             return None
         result = _extract_lines_from_hunk(hunk.content, line, count)
-        logger.debug(f"extract_original_lines_for_suggestion: path={path}, line={line}, count={count} → {len(result.split(chr(10))) if result else 0} lines extracted")
+        logger.debug(
+            "original_lines_extracted",
+            path=path,
+            line=line,
+            count=count,
+            extracted=len(result.split("\n")) if result else 0,
+        )
         return result
 
     def build_comment_context(self, comment: UIComment) -> ResolvedCommentContext:
@@ -606,9 +686,13 @@ class DiffContextManager:
         effective_line = comment.original_line if is_outdated else comment.line
 
         logger.debug(
-            f"build_comment_context: comment_id={comment.id}, path={comment.path}, "
-            f"line={comment.line}, original_line={comment.original_line}, "
-            f"position={comment.position}, is_outdated={is_outdated}"
+            "comment_context_started",
+            comment_id=comment.id,
+            path=comment.path,
+            line=comment.line,
+            original_line=comment.original_line,
+            position=comment.position,
+            is_outdated=is_outdated,
         )
 
         focused = ""
@@ -624,7 +708,12 @@ class DiffContextManager:
                 else self.get_hunk_for_line(comment.path, effective_line)
             )
             full_hunk = hunk.content if hunk else None
-            logger.debug(f"build_comment_context: resolved from diff, focused_diff_len={len(focused)}, full_hunk_len={len(full_hunk) if full_hunk else 0}")
+            logger.debug(
+                "comment_context_resolved",
+                source="diff",
+                focused_diff_len=len(focused),
+                full_hunk_len=len(full_hunk) if full_hunk else 0,
+            )
 
         if not focused and comment.diff_hunk:
             # Fallback: use the diffHunk stored on the comment itself
@@ -632,7 +721,11 @@ class DiffContextManager:
                 comment.diff_hunk, effective_line, is_outdated
             )
             full_hunk = full_hunk or comment.diff_hunk
-            logger.debug(f"build_comment_context: fallback to comment.diff_hunk, focused_diff_len={len(focused)}")
+            logger.debug(
+                "comment_context_resolved",
+                source="comment_diff_hunk_fallback",
+                focused_diff_len=len(focused),
+            )
 
         return ResolvedCommentContext(
             comment_id=comment.id,
@@ -682,7 +775,7 @@ def _parse_file_diff_section(path: str, file_section: str) -> Optional[ParsedFil
 
 def _parse_diff(raw: str) -> ParsedDiff:
     """Parse a full unified diff into structured ``ParsedDiff``."""
-    logger.debug(f"_parse_diff: parsing {len(raw)} bytes")
+    logger.debug("raw_diff_parse_started", bytes=len(raw))
     files: dict[str, ParsedFileDiff] = {}
     current_path: Optional[str] = None
     current_hunk_lines: list[str] = []
@@ -700,7 +793,7 @@ def _parse_diff(raw: str) -> ParsedDiff:
             current_hunk_lines = []
             current_path = file_match.group("path") or file_match.group("quoted_path")
             if current_path not in files:
-                logger.debug(f"_parse_diff: found file: {current_path}")
+                logger.debug("raw_diff_file_found", path=current_path)
                 files[current_path] = ParsedFileDiff(path=current_path, hunks=[])
             continue
 
@@ -713,7 +806,11 @@ def _parse_diff(raw: str) -> ParsedDiff:
             current_hunk_lines.append(raw_line)
 
     _flush_hunk()
-    logger.debug(f"_parse_diff: completed → {len(files)} files, {sum(len(f.hunks) for f in files.values())} hunks")
+    logger.debug(
+        "raw_diff_parsed",
+        files=len(files),
+        hunks=sum(len(f.hunks) for f in files.values()),
+    )
     return ParsedDiff(files=files, raw=raw)
 
 
@@ -769,12 +866,12 @@ def _parse_hunk(path: str, content: str) -> Optional[ParsedHunk]:
     header_consistent = counted_new == new_count
     if not header_consistent:
         logger.warning(
-            "hunk_header_desync: path=%s header=%r declares %s new-file lines, parsed %s "
-            "— file will be excluded from inline placement",
-            path,
-            lines[0],
-            new_count,
-            counted_new,
+            "hunk_header_desync",
+            path=path,
+            header=lines[0],
+            declared_new_lines=new_count,
+            parsed_new_lines=counted_new,
+            consequence="file_excluded_from_inline_placement",
         )
 
     return ParsedHunk(
@@ -1040,12 +1137,9 @@ def get_or_create_diff_manager(
         existing = cache.get(cache_key)
         if existing is not None:
             if cache.get(hash_key) == diff_hash:
-                logger.debug("get_or_create_diff_manager: reusing cached manager")
+                logger.debug("diff_manager_cache_hit")
                 return existing
-            logger.debug(
-                "get_or_create_diff_manager: cached manager was built from a different "
-                "diff — reparsing"
-            )
+            logger.debug("diff_manager_cache_stale", action="reparsing")
 
     manager = DiffContextManager.from_diff(diff)
     if cache is not None:

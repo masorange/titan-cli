@@ -126,11 +126,11 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
         # Log AI generation metadata for debugging (no content logged)
         has_literal_newlines = "\\n" in (analysis.pr_body or "")
         logger.info(
-            "AI PR generation output | size=%s | title_len=%d | body_len=%d | body_has_literal_newlines=%s",
-            analysis.pr_size,
-            len(analysis.pr_title or ""),
-            len(analysis.pr_body or ""),
-            has_literal_newlines,
+            "ai_pr_generation_output",
+            size=analysis.pr_size,
+            title_len=len(analysis.pr_title or ""),
+            body_len=len(analysis.pr_body or ""),
+            body_has_literal_newlines=has_literal_newlines,
         )
 
         if analysis.pr_status in {
