@@ -229,7 +229,16 @@ class WorkflowExecutionScreen(BaseScreen):
         except WorkflowAborted:
             # The app closed while a step was blocked in an AI call or prompt.
             # There is no UI left to report to; just let this thread die.
-            logger.info("workflow_aborted_on_app_exit", workflow_name=self.workflow_name)
+            # `workflow=`, not `workflow_name=`: every other workflow lifecycle
+            # event keys the run by `workflow`, so a different name here made
+            # aborted runs unattributable — they grouped under a single empty
+            # name in any per-workflow report. Also carries the display name
+            # the other events use, with the slug kept alongside it.
+            logger.info(
+                "workflow_aborted_on_app_exit",
+                workflow=getattr(self.workflow, "name", None) or self.workflow_name,
+                workflow_slug=self.workflow_name,
+            )
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
             self._output(f"\n[red]{Icons.ERROR} Workflow failed: {e}[/red]")
             self._output("[dim]Press ESC or Q to return[/dim]")
