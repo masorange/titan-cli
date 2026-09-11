@@ -1290,7 +1290,15 @@ def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         "review_candidates_scored",
         candidates=len(candidates),
         excluded=len(excluded),
-        top_candidates=[candidate.path for candidate in candidates[:5]],
+        # Full lists, not a top-5 sample: "6 files, 0 excluded" is only
+        # actionable once you can see WHICH files, and an exclusion is only
+        # reviewable alongside the reason it was excluded. Debug level, since
+        # these are paths — content, not structure.
+        candidate_paths=[candidate.path for candidate in candidates],
+        excluded_files=[
+            f"{entry.path} ({entry.reason}{': ' + entry.detail if entry.detail else ''})"
+            for entry in excluded
+        ],
     )
     if not candidates:
         ctx.textual.dim_text("No reviewable candidates remain after exclusions.")
