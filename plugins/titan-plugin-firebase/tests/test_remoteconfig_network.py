@@ -148,3 +148,23 @@ def test_request_exception_is_wrapped(make_network, monkeypatch):
     with pytest.raises(FirebaseApiError) as exc:
         network.get_template("mm-firebase-yoigo")
     assert "dns" in str(exc.value)
+
+
+def test_quota_header_is_omitted_when_the_credential_carries_one(
+    make_network, make_response, template_payload
+):
+    network = make_network(
+        [make_response(200, template_payload, {"ETag": "e"})],
+        quota_project_id="mm-ragnarok-dev",
+    )
+
+    class CredentialsWithQuota:
+        quota_project_id = "mm-ragnarok-dev"
+
+    network.fake_session.credentials = CredentialsWithQuota()
+    network.get_template("mm-firebase-yoigo")
+
+    # google.auth injects the credential's quota project itself and overwrites
+    # this header, so setting it again would be noise at best and misleading at
+    # worst — the configured override is applied to the credential instead.
+    assert "x-goog-user-project" not in network.fake_session.calls[0]["headers"]

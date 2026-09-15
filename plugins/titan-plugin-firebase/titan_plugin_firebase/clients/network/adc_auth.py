@@ -17,6 +17,17 @@ Two consequences matter beyond convenience:
   version history shows. A service account would attribute every publish to
   itself, so `describe_identity` reports the credential kind and callers warn
   before writing.
+
+On naming the account: Titan does not try to resolve the signed-in user's
+email. An ADC session minted for `cloud-platform` does not necessarily carry
+the `userinfo.email` scope, so the obvious probe answers 401 — and when the
+credential has a quota project the probe answers 403 instead, because the
+userinfo endpoint rejects `x-goog-user-project` from a caller without
+`serviceusage.services.use` on it. Both were observed live. The identity that
+actually matters is the one Firebase records on the published version, which is
+reported after a publish, so the auth check reports the credential *kind* —
+the part that decides whether the audit trail names a person at all — and a
+service account's own email, which is available locally.
 """
 
 from __future__ import annotations
@@ -28,7 +39,6 @@ from typing import Optional, Sequence
 from ...exceptions import FirebaseAuthUnavailableError
 from ...models.view import UIAdcIdentity
 
-USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 DEFAULT_SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/cloud-platform",
 )
@@ -59,9 +69,19 @@ def _credential_kind(credentials: object) -> str:
     return type(credentials).__name__
 
 
-def resolve_credentials(scopes: Optional[Sequence[str]] = None):
+def resolve_credentials(
+    scopes: Optional[Sequence[str]] = None,
+    *,
+    quota_project_id: Optional[str] = None,
+):
     """
     Resolve Application Default Credentials.
+
+    A configured `quota_project_id` is applied to the credential itself, not
+    just to a request header: `google.auth` overwrites `x-goog-user-project`
+    with the credential's quota project on every request (see
+    `google.auth.credentials.Credentials.apply`), so a header alone would be
+    silently ignored whenever the ADC session carries one of its own.
 
     Raises:
         FirebaseAuthUnavailableError: If no ADC session exists, with the exact
@@ -78,6 +98,9 @@ def resolve_credentials(scopes: Optional[Sequence[str]] = None):
             "No se encontraron credenciales de Google (ADC). Ejecuta: "
             f"{ADC_LOGIN_HINT}"
         ) from exc
+
+    if quota_project_id and hasattr(credentials, "with_quota_project"):
+        credentials = credentials.with_quota_project(quota_project_id)
     return credentials
 
 
@@ -112,38 +135,21 @@ def build_session(credentials):
     return AuthorizedSession(credentials)
 
 
-def describe_identity(
-    credentials,
-    session,
-    *,
-    timeout: int = 10,
-) -> UIAdcIdentity:
+def describe_identity(credentials) -> UIAdcIdentity:
     """
-    Describe who the credentials belong to.
+    Describe the credential, without a network call.
 
-    The account is read through the authorized session so the token stays
-    inside `google.auth`. A failure here is not fatal: the identity is
-    informational, and Firebase attributes the publish from the token itself.
+    Everything reported here is available locally: the kind of credential, a
+    service account's own email, and the quota project. See the module
+    docstring for why the signed-in user's email is not resolved.
     """
     kind = _credential_kind(credentials)
     account = getattr(credentials, "service_account_email", None)
-
-    if account is None:
-        try:
-            response = session.get(USERINFO_URL, timeout=timeout)
-            if response.status_code == 200:
-                payload = response.json()
-                if isinstance(payload, dict):
-                    account = payload.get("email")
-        except Exception:
-            account = None
-
-    scopes = getattr(credentials, "scopes", None) or ()
     return UIAdcIdentity(
         account=account if isinstance(account, str) and account else None,
         credential_kind=kind,
         quota_project_id=getattr(credentials, "quota_project_id", None),
-        scopes=tuple(scopes),
+        scopes=tuple(getattr(credentials, "scopes", None) or ()),
     )
 
 
@@ -153,12 +159,15 @@ def service_account_env_var_set() -> bool:
     return bool(value and value.strip())
 
 
-def create_adc_session(scopes: Optional[Sequence[str]] = None) -> AdcSession:
+def create_adc_session(
+    scopes: Optional[Sequence[str]] = None,
+    *,
+    quota_project_id: Optional[str] = None,
+) -> AdcSession:
     """Resolve ADC, verify it can mint a token, and describe the identity."""
-    credentials = resolve_credentials(scopes)
+    credentials = resolve_credentials(scopes, quota_project_id=quota_project_id)
     refresh_credentials(credentials)
-    session = build_session(credentials)
     return AdcSession(
-        session=session,
-        identity=describe_identity(credentials, session),
+        session=build_session(credentials),
+        identity=describe_identity(credentials),
     )

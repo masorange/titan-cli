@@ -83,7 +83,7 @@ class RemoteConfigService:
                 details={"login_command": ADC_LOGIN_HINT},
             )
 
-        message = f"ADC activas para {identity.display_account}"
+        message = "ADC activas con credenciales de usuario"
         if not identity.is_user_credential:
             message = (
                 f"ADC activas como {identity.credential_kind} "

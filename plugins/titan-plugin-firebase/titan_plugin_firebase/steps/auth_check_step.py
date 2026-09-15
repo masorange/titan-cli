@@ -16,7 +16,7 @@ def execute_firebase_auth_check_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.firebase: An initialized FirebaseClient.
 
     Outputs (saved to ctx.data):
-        firebase_account (Optional[str]): Account the credentials belong to.
+        firebase_account (Optional[str]): Service account email, when applicable.
         firebase_credential_kind (str): user, service_account, impersonated, ...
         firebase_credential_is_user (bool): Whether publishes get a real author.
 
@@ -38,9 +38,18 @@ def execute_firebase_auth_check_step(ctx: WorkflowContext) -> WorkflowResult:
         result = ctx.firebase.check_auth()
 
     match result:
-        case ClientSuccess(data=identity):
+        case ClientSuccess(data=identity, message=message):
             if ctx.textual:
-                ctx.textual.success_text(f"Cuenta: {identity.display_account}")
+                ctx.textual.success_text(message)
+                if identity.is_user_credential:
+                    # Titan cannot read the signed-in email (an ADC token for
+                    # cloud-platform need not carry the userinfo scope), and
+                    # the authoritative answer is the one Firebase records on
+                    # the published version anyway.
+                    ctx.textual.dim_text(
+                        "Firebase registrará tu cuenta de Google como autora "
+                        "de cada publicación."
+                    )
                 if identity.quota_project_id:
                     ctx.textual.dim_text(
                         f"Proyecto de cuota: {identity.quota_project_id}"
@@ -48,7 +57,7 @@ def execute_firebase_auth_check_step(ctx: WorkflowContext) -> WorkflowResult:
                 _warn_about_attribution(ctx, identity)
                 ctx.textual.end_step("success")
             return Success(
-                f"ADC listas para {identity.display_account}",
+                message,
                 metadata={
                     "firebase_account": identity.account,
                     "firebase_credential_kind": identity.credential_kind,

@@ -48,7 +48,10 @@ class RemoteConfigNetwork:
     def adc_session(self) -> AdcSession:
         """Resolve ADC on first use, never during plugin initialization."""
         if self._adc_session is None:
-            self._adc_session = create_adc_session(self.scopes)
+            self._adc_session = create_adc_session(
+                self.scopes,
+                quota_project_id=self.quota_project_id,
+            )
         return self._adc_session
 
     def normalize_project_id(self, project_id: str) -> str:
@@ -70,11 +73,22 @@ class RemoteConfigNetwork:
     def _headers(self, project_id: str) -> dict[str, str]:
         # Accept-Encoding is not an optimization here: the API docs require it
         # on every request. Authorization is set by AuthorizedSession.
+        #
+        # x-goog-user-project decides which project is billed for quota. It is
+        # only set here when the credential has no quota project of its own,
+        # because google.auth overwrites this header with the credential's
+        # value on every request — which is why a configured quota_project_id
+        # is applied to the credential in adc_auth.resolve_credentials instead.
         headers = {"Accept-Encoding": "gzip"}
-        quota_project = self.quota_project_id or project_id
-        if quota_project:
-            headers["x-goog-user-project"] = quota_project
+        if not self._credential_quota_project():
+            headers["x-goog-user-project"] = self.quota_project_id or project_id
         return headers
+
+    def _credential_quota_project(self) -> Optional[str]:
+        """Quota project the credential will inject, if any."""
+        session = self.adc_session.session
+        credentials = getattr(session, "credentials", None)
+        return getattr(credentials, "quota_project_id", None)
 
     def get_template(
         self,
