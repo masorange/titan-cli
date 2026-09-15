@@ -21,22 +21,18 @@ def execute_firebase_remoteconfig_select_key_step(
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
-        firebase_remoteconfig_template (UIRemoteConfigTemplate): From
-            `firebase_remoteconfig_get`.
-        firebase_condition (Optional[str]): Write target, from
-            `firebase_remoteconfig_conditions`.
+        firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get.
+        firebase_condition (Optional[str]): Write target, from firebase_remoteconfig_conditions.
         key (str, optional): Preselected parameter key.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_key (str): Selected parameter key.
         firebase_value_type (str): Effective value type of the parameter.
-        firebase_current_value (Optional[str]): Raw current value for the
-            selected target, or None when the target has no value yet.
+        firebase_current_value (Optional[str]): Raw current value, None if unset.
 
     Returns:
         Success: If a parameter is selected.
-        Error: If the template is missing, the key does not exist, or the user
-            cancels.
+        Error: If the template is missing, the key is unknown, or the user cancels.
     """
     if ctx.textual:
         ctx.textual.begin_step("Seleccionar parámetro")

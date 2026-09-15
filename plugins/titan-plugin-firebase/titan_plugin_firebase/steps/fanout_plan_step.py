@@ -41,13 +41,12 @@ def execute_firebase_remoteconfig_fanout_plan_step(
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
-        firebase_targets (list[FirebaseProjectTarget]): From
-            `firebase_select_targets`.
+        firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.
         key (str): Parameter to change.
         value (str): New value.
         condition (str, optional): Condition to write instead of the default.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_fanout_plan (list[UIFanoutEntry]): Entries chosen to publish.
         firebase_fanout_rejected (list[UIFanoutEntry]): Entries left out.
 

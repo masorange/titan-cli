@@ -15,11 +15,10 @@ def execute_firebase_auth_check_step(ctx: WorkflowContext) -> WorkflowResult:
     Requires:
         ctx.firebase: An initialized FirebaseClient.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_account (Optional[str]): Account the credentials belong to.
         firebase_credential_kind (str): user, service_account, impersonated, ...
-        firebase_credential_is_user (bool): Whether publishes will be attributed
-            to a real person.
+        firebase_credential_is_user (bool): Whether publishes get a real author.
 
     Returns:
         Success: If credentials resolve and can mint a token.

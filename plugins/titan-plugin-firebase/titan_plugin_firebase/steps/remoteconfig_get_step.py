@@ -16,21 +16,18 @@ def execute_firebase_remoteconfig_get_step(ctx: WorkflowContext) -> WorkflowResu
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
-        firebase_project_id (str): Project to read, normally from
-            `firebase_select_target`.
+        firebase_project_id (str): Project to read, from firebase_select_target.
         project_id (str, optional): Alternative key for the same thing.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_project_id (str): Project that was read.
-        firebase_remoteconfig_etag (Optional[str]): ETag required to publish
-            over this template.
+        firebase_remoteconfig_etag (Optional[str]): ETag needed to publish over it.
         firebase_remoteconfig_version (Optional[str]): Active version number.
         firebase_remoteconfig_template (UIRemoteConfigTemplate): The template.
 
     Returns:
         Success: If the template is read.
-        Error: If Firebase is unavailable, no project is given, or the API
-            rejects the read.
+        Error: If Firebase is unavailable, no project is given, or the read fails.
     """
     if ctx.textual:
         ctx.textual.begin_step("Leer Remote Config")

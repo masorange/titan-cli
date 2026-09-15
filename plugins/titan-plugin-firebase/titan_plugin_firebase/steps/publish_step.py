@@ -27,15 +27,14 @@ def execute_firebase_remoteconfig_publish_step(
         firebase_change_confirmed (bool): Set by `firebase_remoteconfig_diff`.
         dry_run (bool, optional): Validate only, publish nothing.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_published_version (Optional[str]): New version number.
         firebase_published_author (Optional[str]): Author Firebase recorded.
         firebase_publish_result (UIRemoteConfigPublishResult): Full outcome.
 
     Returns:
         Success: If Firebase validated (dry run) or published the template.
-        Error: If inputs are missing, the change was never confirmed, or the
-            API rejected the write.
+        Error: If inputs are missing, the change is unconfirmed, or the write fails.
     """
     if ctx.textual:
         ctx.textual.begin_step("Publicar en Remote Config")

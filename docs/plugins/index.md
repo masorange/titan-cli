@@ -11,7 +11,7 @@ plugin clients directly and compose workflows from reusable public steps.
 
 ## Official plugins
 
-Titan ships with five official plugins:
+Titan ships with six official plugins:
 
 | Plugin | Description |
 |--------|-------------|
@@ -19,6 +19,7 @@ Titan ships with five official plugins:
 | **github** | Create PRs with AI descriptions, manage issues, code reviews |
 | **jira** | Search issues, AI-powered analysis, workflow automation |
 | **slack** | Personal Slack auth, workspace summaries, and reusable Slack workflow steps |
+| **firebase** | Read and publish Firebase Remote Config parameters across brands |
 | **docker** | Docker Compose lifecycle management and image build/push workflows |
 
 Enable them per project in `.titan/config.toml`:
@@ -34,6 +35,9 @@ enabled = true
 enabled = true
 
 [plugins.slack]
+enabled = true
+
+[plugins.firebase]
 enabled = true
 
 [plugins.docker]

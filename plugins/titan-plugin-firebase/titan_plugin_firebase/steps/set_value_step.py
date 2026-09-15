@@ -26,13 +26,12 @@ def execute_firebase_remoteconfig_set_value_step(
     Inputs (from ctx.data):
         firebase_project_id (str): Target project.
         firebase_key (str): Parameter to change.
-        firebase_condition (Optional[str]): Condition to write, or None for the
-            default value.
+        firebase_condition (Optional[str]): Condition to write, None for the default.
         firebase_value_type (Optional[str]): Type reported by the read.
         firebase_current_value (Optional[str]): Current raw value.
         value (str, optional): New value, for non-interactive runs.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_change (UIRemoteConfigChange): The validated change.
         firebase_new_value (str): Exact string that will be stored.
 

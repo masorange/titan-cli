@@ -19,15 +19,13 @@ def execute_firebase_select_targets_step(ctx: WorkflowContext) -> WorkflowResult
     Resolve several Firebase projects, one per brand.
 
     Inputs (from ctx.data):
-        brands (list[str] | str, optional): Brands to target. A comma-separated
-            string is accepted for CLI-style params.
+        brands (list[str] | str, optional): Brands to target; a comma-separated string is accepted.
         environment (str, optional): Environment for multi-environment configs.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_targets (list[FirebaseProjectTarget]): Resolved targets.
         firebase_environment (Optional[str]): Environment in use.
-        firebase_target_failures (dict[str, str]): Brands that could not be
-            resolved, with the reason.
+        firebase_target_failures (dict[str, str]): Unresolved brands and reasons.
 
     Returns:
         Success: If at least one target resolved.

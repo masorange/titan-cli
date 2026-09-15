@@ -23,7 +23,7 @@ def execute_firebase_select_target_step(ctx: WorkflowContext) -> WorkflowResult:
         brand (str, optional): Brand to resolve through the plugin config.
         environment (str, optional): Environment for multi-environment configs.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_project_id (str): Resolved project ID.
         firebase_brand (Optional[str]): Brand behind the project, when known.
         firebase_environment (Optional[str]): Environment, when configured.
@@ -31,8 +31,7 @@ def execute_firebase_select_target_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Returns:
         Success: If a project could be resolved.
-        Error: If the plugin is unavailable, the user cancels, or the
-            configuration names no project.
+        Error: If the plugin is unavailable, the user cancels, or nothing resolves.
     """
     if ctx.textual:
         ctx.textual.begin_step("Seleccionar proyecto Firebase")

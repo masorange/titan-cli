@@ -26,11 +26,10 @@ def execute_firebase_remoteconfig_fanout_publish_step(
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
-        firebase_fanout_plan (list[UIFanoutEntry]): From
-            `firebase_remoteconfig_fanout_plan`.
+        firebase_fanout_plan (list[UIFanoutEntry]): From firebase_remoteconfig_fanout_plan.
         dry_run (bool, optional): Validate everywhere, publish nothing.
 
-    Outputs (via result metadata):
+    Outputs (saved to ctx.data):
         firebase_fanout_outcomes (list[UIFanoutOutcome]): Per-brand results.
         firebase_fanout_published (int): Brands published.
         firebase_fanout_failed (int): Brands that failed.

@@ -24,13 +24,11 @@ def execute_firebase_remoteconfig_conditions_step(
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
-        firebase_remoteconfig_template (UIRemoteConfigTemplate): From
-            `firebase_remoteconfig_get`.
+        firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get.
         condition (str, optional): Preselected condition name, or "default".
 
-    Outputs (via result metadata):
-        firebase_condition (Optional[str]): Condition name, or None for the
-            parameter's default value.
+    Outputs (saved to ctx.data):
+        firebase_condition (Optional[str]): Condition name, None for the default.
         firebase_condition_label (str): User-facing label for the target.
 
     Returns:

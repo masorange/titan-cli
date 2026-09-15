@@ -1,0 +1,41 @@
+{
+  "plugin": "firebase",
+  "groups": [
+    {
+      "name": "Authentication",
+      "steps": [
+        {"name": "firebase_auth_check", "summary": "Check that Google Application Default Credentials are usable."}
+      ]
+    },
+    {
+      "name": "Project and Brand Selection",
+      "steps": [
+        {"name": "firebase_select_target", "summary": "Resolve the Firebase project to work on."},
+        {"name": "firebase_select_targets", "summary": "Resolve several Firebase projects, one per brand."}
+      ]
+    },
+    {
+      "name": "Reading Remote Config",
+      "steps": [
+        {"name": "firebase_remoteconfig_get", "summary": "Read the active Remote Config template for one project."},
+        {"name": "firebase_remoteconfig_conditions", "summary": "Show the template's conditions and choose which value a write targets."},
+        {"name": "firebase_remoteconfig_select_key", "summary": "Choose one Remote Config parameter."}
+      ]
+    },
+    {
+      "name": "Writing One Project",
+      "steps": [
+        {"name": "firebase_remoteconfig_set_value", "summary": "Ask for the new value of the selected parameter and validate it."},
+        {"name": "firebase_remoteconfig_diff", "summary": "Render the pending change and ask the user to confirm it."},
+        {"name": "firebase_remoteconfig_publish", "summary": "Publish one confirmed change, validating it with Firebase first."}
+      ]
+    },
+    {
+      "name": "Writing Several Brands",
+      "steps": [
+        {"name": "firebase_remoteconfig_fanout_plan", "summary": "Build the per-brand plan for one parameter change."},
+        {"name": "firebase_remoteconfig_fanout_publish", "summary": "Publish the planned change to each selected brand."}
+      ]
+    }
+  ]
+}
