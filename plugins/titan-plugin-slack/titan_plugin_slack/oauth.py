@@ -32,6 +32,7 @@ DEFAULT_SCOPES = [
     "mpim:write",
     "channels:write",
     "groups:write",
+    "files:write",
 ]
 
 logger = get_logger(__name__)

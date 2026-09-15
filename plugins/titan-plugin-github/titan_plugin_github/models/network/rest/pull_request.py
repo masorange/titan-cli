@@ -48,6 +48,7 @@ class NetworkPullRequest:
         mergedAt: Merge timestamp if merged (ISO 8601, camelCase as in API)
         reviews: List of reviews
         labels: List of label objects with 'name' field
+        requestedReviewers: List of users requested to review the PR
     """
     number: int
     title: str
@@ -71,6 +72,7 @@ class NetworkPullRequest:
     isCrossRepository: bool = False
     headRepositoryOwnerLogin: Optional[str] = None
     headRepositoryName: Optional[str] = None
+    requestedReviewers: List[NetworkUser] = field(default_factory=list)  # Users requested to review
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> 'NetworkPullRequest':
@@ -96,6 +98,10 @@ class NetworkPullRequest:
         # Parse reviews
         reviews_data = data.get("reviews", [])
         reviews = [NetworkReview.from_json(r) for r in reviews_data]
+
+        # Parse requested reviewers (gh CLI JSON field is "reviewRequests")
+        requested_reviewers_data = data.get("reviewRequests", [])
+        requested_reviewers = [NetworkUser.from_json(r) for r in requested_reviewers_data]
 
         return cls(
             number=data.get("number", 0),
@@ -128,6 +134,7 @@ class NetworkPullRequest:
             isCrossRepository=data.get("isCrossRepository", False),
             headRepositoryOwnerLogin=(data.get("headRepositoryOwner") or {}).get("login"),
             headRepositoryName=(data.get("headRepository") or {}).get("name"),
+            requestedReviewers=requested_reviewers,
         )
 
 
@@ -204,11 +211,19 @@ class NetworkPRMergeResult:
     """
     Result of merging a pull request via REST API.
 
+    A PR whose base branch requires a merge queue is not merged on request: it is
+    added to the queue and merged later by GitHub. That case is reported with
+    `merged=False` and `queued=True` — never as a merge.
+
     Attributes:
         merged: Whether the PR was successfully merged
         sha: Commit SHA of the merge (if successful)
         message: Success or error message
+        queued: Whether the PR was added to the base branch's merge queue
+        queue_position: Position in the merge queue, when known
     """
     merged: bool
     sha: Optional[str] = None
     message: str = ""
+    queued: bool = False
+    queue_position: Optional[int] = None

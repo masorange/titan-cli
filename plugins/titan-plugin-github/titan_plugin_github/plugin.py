@@ -4,7 +4,7 @@ from typing import Optional
 
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 from titan_cli.core.config import TitanConfig
-from titan_cli.core.secrets import SecretManager
+from titan_cli.core.security import SecretBroker
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from .clients.github_client import GitHubClient
 from .exceptions import GitHubError
@@ -15,6 +15,12 @@ class GitHubPlugin(TitanPlugin):
     """
     Titan CLI Plugin for GitHub operations.
     """
+
+    @property
+    def titan_requires(self) -> str:
+        # Must stay in sync with the titan-cli dependency in this plugin's
+        # pyproject.toml; a repo test enforces the pairing.
+        return ">=0.9.0"
 
     @property
     def name(self) -> str:
@@ -28,7 +34,7 @@ class GitHubPlugin(TitanPlugin):
     def dependencies(self) -> list[str]:
         return ["git"]
 
-    def initialize(self, config: TitanConfig, secrets: SecretManager) -> None:
+    def initialize(self, config: TitanConfig, broker: SecretBroker) -> None:
         """
         Initializes the GitHubClient.
         """
@@ -71,7 +77,6 @@ class GitHubPlugin(TitanPlugin):
         # Initialize client with validated configuration and git_client
         self._client = GitHubClient(
             config=validated_config,
-            secrets=secrets,
             git_client=git_client,
             repo_owner=repo_owner, # Pass detected/configured owner
             repo_name=repo_name, # Pass detected/configured name
@@ -139,8 +144,10 @@ class GitHubPlugin(TitanPlugin):
         from .steps.preview_step import preview_and_confirm_issue_step
         from .steps.pull_request_steps import (
             get_pull_request_step,
+            check_merge_queue_step,
             merge_pull_request_step,
             verify_pull_request_state_step,
+            verify_merge_outcome_step,
         )
         from .steps.pr_review_steps import (
             select_pr_for_review_step,
@@ -172,6 +179,7 @@ class GitHubPlugin(TitanPlugin):
             ai_review_findings,
             normalize_findings,
             dedupe_findings,
+            verify_findings,
             build_new_comment_actions,
             validate_review_actions,
             submit_review_actions,
@@ -181,7 +189,6 @@ class GitHubPlugin(TitanPlugin):
             normalize_thread_decisions,
             build_thread_actions,
         )
-        from .steps.select_cli_step import select_cli_step
         from .steps.release_steps import select_release_step
         return {
             "create_pr": create_pr_step,
@@ -196,8 +203,10 @@ class GitHubPlugin(TitanPlugin):
             "create_issue": create_issue_steps,
             "preview_and_confirm_issue": preview_and_confirm_issue_step,
             "get_pull_request": get_pull_request_step,
+            "check_merge_queue": check_merge_queue_step,
             "merge_pull_request": merge_pull_request_step,
             "verify_pull_request_state": verify_pull_request_state_step,
+            "verify_merge_outcome": verify_merge_outcome_step,
             "select_pr_for_review": select_pr_for_review_step,
             "fetch_pending_comments": fetch_pending_comments_step,
             "check_clean_state": check_clean_state_step,
@@ -212,8 +221,6 @@ class GitHubPlugin(TitanPlugin):
             # Code review steps
             "select_pr_for_code_review": select_pr_for_code_review,
             "fetch_pr_review_bundle": fetch_pr_review_bundle,
-            # CLI selection
-            "select_cli": select_cli_step,
             # Releases
             "select_release": select_release_step,
             # Phase 2: cheap context steps (pre-AI)
@@ -231,6 +238,7 @@ class GitHubPlugin(TitanPlugin):
             "ai_review_findings": ai_review_findings,
             "normalize_findings": normalize_findings,
             "dedupe_findings": dedupe_findings,
+            "verify_findings": verify_findings,
             # Phase 5: UI + submit
             "build_new_comment_actions": build_new_comment_actions,
             "validate_review_actions": validate_review_actions,

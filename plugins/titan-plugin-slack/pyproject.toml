@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "titan-plugin-slack"
-version = "1.0.0"
+version = "1.1.0"
 description = "Titan CLI plugin for Slack integration."
 authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
 packages = [{include = "titan_plugin_slack"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10"
-titan-cli = ">=0.6.0"
+python = ">=3.11"
+titan-cli = ">=0.8.0"
 slack-sdk = ">=3.27.0"
 requests = ">=2.31.0"
 

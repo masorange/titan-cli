@@ -218,6 +218,57 @@ Respond ONLY with a valid JSON array matching this exact schema for each element
 Return ONLY the JSON array. No explanation, no markdown fences."""
 
 
+DEFAULT_THREAD_BATCH_MAX_PROMPT_CHARS = 20_000
+DEFAULT_THREAD_BATCH_MAX_THREADS = 8
+
+
+def batch_thread_review_contexts(
+    contexts: list[ThreadReviewContext],
+    max_prompt_chars: int = DEFAULT_THREAD_BATCH_MAX_PROMPT_CHARS,
+    max_threads_per_batch: int = DEFAULT_THREAD_BATCH_MAX_THREADS,
+) -> list[list[ThreadReviewContext]]:
+    """
+    Split thread contexts into batches that keep each AI call within a prompt budget.
+
+    Each thread keeps its full conversation, code hunk, and referenced commit
+    context untouched — batching only controls how many threads share one AI
+    call, so no per-thread content is trimmed. A thread that alone exceeds the
+    budget is still sent by itself rather than being degraded.
+
+    Args:
+        contexts: Enriched thread contexts from build_thread_review_contexts
+        max_prompt_chars: Target prompt size per batch (soft budget)
+        max_threads_per_batch: Upper bound on threads per batch regardless of size
+
+    Returns:
+        List of thread-context batches, each safe to pass to build_thread_resolution_prompt
+    """
+    if not contexts:
+        return []
+
+    queue = [
+        contexts[i : i + max_threads_per_batch]
+        for i in range(0, len(contexts), max_threads_per_batch)
+    ]
+    batches: list[list[ThreadReviewContext]] = []
+
+    while queue:
+        batch = queue.pop(0)
+        if len(batch) == 1:
+            batches.append(batch)
+            continue
+
+        if len(build_thread_resolution_prompt(batch)) <= max_prompt_chars:
+            batches.append(batch)
+            continue
+
+        midpoint = max(1, len(batch) // 2)
+        queue.insert(0, batch[midpoint:])
+        queue.insert(0, batch[:midpoint])
+
+    return batches
+
+
 def _threads_to_text(contexts: list[ThreadReviewContext]) -> str:
     if not contexts:
         return "(no threads to review)"

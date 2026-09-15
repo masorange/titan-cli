@@ -104,14 +104,17 @@ class ConversationService:
         if not response.get("ok", False):
             needed = response.get("needed")
             provided = response.get("provided")
-            message = f"Slack read_channel failed: {response.get('error', 'unknown_error')}"
-            details = None
-            if response.get("error") == "missing_scope" and needed:
+            slack_error = response.get("error", "unknown_error")
+            message = f"Slack read_channel failed: {slack_error}"
+            details = {"slack_error": slack_error}
+            if slack_error == "missing_scope" and needed:
                 message += (
                     f". Missing scopes: {needed}. "
                     "Reconnect Slack configuration to grant the required scopes."
                 )
-                details = {"needed_scopes": needed, "provided_scopes": provided}
+                details["needed_scopes"] = needed
+                if provided:
+                    details["provided_scopes"] = provided
             return ClientError(
                 error_message=message,
                 error_code="READ_CHANNEL_ERROR",
@@ -154,16 +157,17 @@ class ConversationService:
         if not response.get("ok", False):
             needed = response.get("needed")
             provided = response.get("provided")
-            message = (
-                f"Slack open_direct_message failed: {response.get('error', 'unknown_error')}"
-            )
-            details = None
-            if response.get("error") == "missing_scope" and needed:
+            slack_error = response.get("error", "unknown_error")
+            message = f"Slack open_direct_message failed: {slack_error}"
+            details = {"slack_error": slack_error}
+            if slack_error == "missing_scope" and needed:
                 message += (
                     f". Missing scopes: {needed}. "
                     "Reconnect Slack configuration to grant the required scopes."
                 )
-                details = {"needed_scopes": needed, "provided_scopes": provided}
+                details["needed_scopes"] = needed
+                if provided:
+                    details["provided_scopes"] = provided
             return ClientError(
                 error_message=message,
                 error_code="OPEN_DIRECT_MESSAGE_ERROR",

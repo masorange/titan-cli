@@ -3,18 +3,19 @@ from unittest.mock import MagicMock
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Skip, Success
 from titan_cli.engine.context import WorkflowContext
-from titan_plugin_slack.models import UISlackConversation, UISlackPostedMessage, UISlackTarget
+from titan_plugin_slack.models import UISlackConversation, UISlackPostedMessage, UISlackTarget, UISlackUploadedFile
 from titan_plugin_slack.steps.message_steps import (
     format_markdown_message_step,
     open_direct_message_step,
     prepare_message_destination_step,
     post_message_step,
     prompt_message_body_step,
+    upload_file_step,
 )
 
 
 def _build_context() -> WorkflowContext:
-    ctx = WorkflowContext(secrets=MagicMock())
+    ctx = WorkflowContext()
     ctx.textual = MagicMock()
 
     loading_mock = MagicMock()
@@ -73,6 +74,20 @@ def test_prepare_message_destination_step_uses_channel_target_directly() -> None
     conversation = result.metadata["slack_conversation"]
     assert conversation.id == "C123"
     assert conversation.is_im is False
+
+
+def test_prepare_message_destination_step_uses_channel_targets_list() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_targets"] = [
+        UISlackTarget(target_type="channel", target_id="C1", target_name="general"),
+        UISlackTarget(target_type="channel", target_id="C2", target_name="eng-backend"),
+    ]
+
+    result = prepare_message_destination_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_conversation_ids"] == ["C1", "C2"]
 
 
 def test_prompt_message_body_step_skips_when_text_already_present() -> None:
@@ -137,6 +152,56 @@ def test_post_message_step_returns_error_from_client() -> None:
     assert result.message == "Slack post_message failed: missing_scope"
 
 
+def test_post_message_step_posts_to_multiple_conversations() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_message_text"] = "Hello there"
+    posted_c1 = UISlackPostedMessage(channel="C1", ts="1.1", text="Hello there")
+    posted_c2 = UISlackPostedMessage(channel="C2", ts="2.2", text="Hello there")
+    ctx.slack.post_message.side_effect = [
+        ClientSuccess(data=posted_c1),
+        ClientSuccess(data=posted_c2),
+    ]
+
+    result = post_message_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_message_channels"] == ["C1", "C2"]
+
+
+def test_post_message_step_skips_failed_conversation_but_posts_to_rest() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_message_text"] = "Hello there"
+    posted_c2 = UISlackPostedMessage(channel="C2", ts="2.2", text="Hello there")
+    ctx.slack.post_message.side_effect = [
+        ClientError(error_message="channel_not_found", error_code="POST_MESSAGE_ERROR"),
+        ClientSuccess(data=posted_c2),
+    ]
+
+    result = post_message_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_message_channels"] == ["C2"]
+    ctx.textual.warning_text.assert_called_once()
+
+
+def test_post_message_step_errors_when_all_conversations_fail() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_message_text"] = "Hello there"
+    ctx.slack.post_message.return_value = ClientError(
+        error_message="channel_not_found", error_code="POST_MESSAGE_ERROR"
+    )
+
+    result = post_message_step(ctx)
+
+    assert isinstance(result, Error)
+
+
 def test_format_markdown_message_step_skips_when_text_already_present() -> None:
     ctx = _build_context()
     ctx.data["slack_message_text"] = "Already ready: *bold*"
@@ -165,3 +230,55 @@ def test_format_markdown_message_step_skips_when_nothing_provided() -> None:
 
     assert isinstance(result, Skip)
     assert "slack_message_text" not in ctx.data
+
+
+def test_upload_file_step_uploads_to_single_conversation(tmp_path) -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF")
+    ctx.data["slack_conversation_id"] = "C123"
+    ctx.data["slack_file_path"] = str(report)
+    ctx.data["slack_message_text"] = "Crashlytics report"
+    uploaded = UISlackUploadedFile(file_id="F1", channel="C123", title="report.pdf")
+    ctx.slack.upload_file.return_value = ClientSuccess(data=uploaded)
+
+    result = upload_file_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_uploaded_file"] == uploaded
+    ctx.slack.upload_file.assert_called_once_with(
+        "C123", str(report), title="report.pdf", initial_comment="Crashlytics report", thread_ts=None
+    )
+
+
+def test_upload_file_step_errors_when_file_missing() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.data["slack_conversation_id"] = "C123"
+    ctx.data["slack_file_path"] = "/nonexistent/report.pdf"
+
+    result = upload_file_step(ctx)
+
+    assert isinstance(result, Error)
+    ctx.slack.upload_file.assert_not_called()
+
+
+def test_upload_file_step_uploads_to_multiple_conversations_and_tolerates_failures(tmp_path) -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF")
+    ctx.data["slack_conversation_ids"] = ["C1", "C2"]
+    ctx.data["slack_file_path"] = str(report)
+    ok = UISlackUploadedFile(file_id="F1", channel="C1")
+    ctx.slack.upload_file.side_effect = [
+        ClientSuccess(data=ok),
+        ClientError(error_message="Slack upload_file failed: not_in_channel", error_code="UPLOAD_FILE_ERROR"),
+    ]
+
+    result = upload_file_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_uploaded_files"] == [ok]
+    assert result.metadata["slack_failed_channels"] == ["C2"]

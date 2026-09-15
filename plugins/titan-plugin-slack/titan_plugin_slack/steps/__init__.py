@@ -11,6 +11,7 @@ from .message_steps import (
     prepare_message_destination_step,
     post_message_step,
     prompt_message_body_step,
+    upload_file_step,
 )
 from .summary_steps import (
     ai_summarize_messages_step,
@@ -33,6 +34,7 @@ __all__ = [
     "format_markdown_message_step",
     "prompt_message_body_step",
     "post_message_step",
+    "upload_file_step",
     "select_target_step",
     "ensure_target_conversation_step",
     "read_recent_messages_step",

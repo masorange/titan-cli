@@ -10,7 +10,7 @@ Network models contain raw API data; view models contain UI-ready data.
 These models are GitHub-specific and live in the GitHub plugin, not in the core.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 from .pr_enums import PRState
@@ -137,6 +137,10 @@ class UIPullRequest:
 
     All fields are pre-formatted and ready for widget rendering.
     Computed/derived fields are calculated once during construction.
+
+    Fields:
+        requested_reviewers: All GitHub logins of users requested to review
+        pending_reviewers: Logins of reviewers who haven't submitted a review yet
     """
     number: int
     title: str
@@ -160,6 +164,8 @@ class UIPullRequest:
     is_cross_repository: bool = False
     head_repository_owner: Optional[str] = None
     head_repository_name: Optional[str] = None
+    requested_reviewers: List[str] = field(default_factory=list)  # All requested reviewer logins
+    pending_reviewers: List[str] = field(default_factory=list)  # Reviewers who haven't reviewed yet
 
 
 @dataclass
@@ -202,11 +208,32 @@ class UIPRMergeResult:
     UI model for displaying PR merge result.
 
     All fields are pre-formatted and ready for widget rendering.
+
+    A queued PR (base branch with a merge queue) has `merged=False` and
+    `queued=True`: GitHub merges it later, so it is neither a merge nor a failure.
     """
     merged: bool
-    status_icon: str  # "✅" if merged, "❌" if not
+    status_icon: str  # "✅" if merged, "⏳" if queued, "❌" if not
     sha_short: str  # First 7 characters of merge commit SHA (or empty)
     message: str
+    queued: bool = False  # Added to the base branch's merge queue
+    queue_position: Optional[int] = None  # Position in the merge queue, when known
+
+
+@dataclass
+class UIMergeQueueState:
+    """
+    UI model for the merge queue state of a pull request.
+
+    Pre-formatted for display and for workflow branching decisions.
+    """
+    pr_number: int
+    pr_state: str  # "OPEN", "CLOSED", "MERGED"
+    is_merge_queue_enabled: bool  # Base branch requires a merge queue
+    is_in_merge_queue: bool  # PR is currently queued
+    queue_position: Optional[int]  # Position in the queue, when queued
+    queue_entry_state: Optional[str]  # "QUEUED", "AWAITING_CHECKS", ...
+    summary: str  # Ready-to-render description of the state
 
 
 @dataclass
@@ -272,6 +299,7 @@ __all__ = [
     "UIIssue",
     "UIReview",
     "UIPRMergeResult",
+    "UIMergeQueueState",
     "UIFileChange",
     "UIPRCreated",
     "UIRelease",

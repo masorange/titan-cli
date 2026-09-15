@@ -62,6 +62,21 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
           updatedAt
         }
       }
+      reviews(first: 50) {
+        nodes {
+          databaseId
+          body
+          state
+          author {
+            login
+            ... on User {
+              name
+            }
+          }
+          createdAt: submittedAt
+          updatedAt: submittedAt
+        }
+      }
     }
   }
 }
@@ -72,6 +87,34 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
       id
+    }
+  }
+}
+'''
+
+GET_PR_MERGE_QUEUE_STATE = '''
+query($owner: String!, $repo: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      number
+      state
+      isInMergeQueue
+      isMergeQueueEnabled
+      mergeQueueEntry {
+        position
+        state
+      }
+    }
+  }
+}
+'''
+
+ENQUEUE_PULL_REQUEST = '''
+mutation($prId: ID!) {
+  enqueuePullRequest(input: {pullRequestId: $prId}) {
+    mergeQueueEntry {
+      position
+      state
     }
   }
 }

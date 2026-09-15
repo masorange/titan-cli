@@ -15,11 +15,17 @@ from .base import HeadlessCliAdapter, SupportedCLI
 from .claude import ClaudeHeadlessAdapter
 from .gemini import GeminiHeadlessAdapter
 from .codex import CodexHeadlessAdapter
+from .opencode import OpenCodeHeadlessAdapter
+from .antigravity import AntigravityHeadlessAdapter
+from .grok import GrokHeadlessAdapter
 
 HEADLESS_ADAPTER_REGISTRY: Dict[SupportedCLI, Type] = {
     SupportedCLI.CLAUDE: ClaudeHeadlessAdapter,
     SupportedCLI.GEMINI: GeminiHeadlessAdapter,
     SupportedCLI.CODEX: CodexHeadlessAdapter,
+    SupportedCLI.OPENCODE: OpenCodeHeadlessAdapter,
+    SupportedCLI.ANTIGRAVITY: AntigravityHeadlessAdapter,
+    SupportedCLI.GROK: GrokHeadlessAdapter,
 }
 
 
@@ -44,3 +50,15 @@ def get_headless_adapter(cli_name: Union[SupportedCLI, str]) -> HeadlessCliAdapt
             f"Available: {available}"
         )
     return adapter_class()
+
+
+def list_available_headless_clis() -> list[SupportedCLI]:
+    """
+    Return the registered CLIs that currently have an available headless adapter,
+    in registry order.
+    """
+    return [
+        cli_name
+        for cli_name in HEADLESS_ADAPTER_REGISTRY
+        if get_headless_adapter(cli_name).is_available()
+    ]

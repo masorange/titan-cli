@@ -214,6 +214,8 @@ def _setup_console_handler(log_level: int, is_dev: bool) -> None:
     # This prevents EVENT/SYSTEM spam in the console while keeping app logs visible
     logging.getLogger("textual").setLevel(logging.WARNING)
     logging.getLogger("rich").setLevel(logging.WARNING)
+    # Silence markdown-it-py's per-rule parsing debug logs (entering fence/list/etc.)
+    logging.getLogger("markdown_it").setLevel(logging.WARNING)
     logging.getLogger("slack_sdk").setLevel(logging.DEBUG if is_dev else logging.WARNING)
     logging.getLogger("slack_sdk.web.base_client").setLevel(
         logging.DEBUG if is_dev else logging.WARNING

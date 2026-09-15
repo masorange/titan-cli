@@ -1,4 +1,4 @@
-name: "Review PR (Thread Resolution)"
+name: "Thread Resolution"
 description: "AI-powered analysis of open PR threads: resolve, insist, or reply"
 
 steps:
@@ -6,11 +6,6 @@ steps:
     name: "Select PR to Review"
     plugin: github
     step: select_pr_for_code_review
-
-  - id: select_cli
-    name: "Select AI CLI"
-    plugin: github
-    step: select_cli
 
   - id: fetch_bundle
     name: "Fetch PR Review Bundle"

@@ -9,14 +9,13 @@ from typing import List, Optional, Dict, Any
 import json
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
-from titan_cli.core.secrets import SecretManager
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from titan_plugin_git.clients.git_client import GitClient
 
 from .network import GHNetwork, GraphQLNetwork
-from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService
+from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService, ContentsService
 from ..models.review_models import ReferencedCommitContext
-from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIReview, UIFileChange, UIPRCreated, UIRelease
+from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIMergeQueueState, UIReview, UIFileChange, UIPRCreated, UIRelease
 
 
 class GitHubClient:
@@ -30,7 +29,7 @@ class GitHubClient:
 
     Examples:
         >>> config = GitHubPluginConfig()
-        >>> client = GitHubClient(config, secrets, git_client, "owner", "repo")
+        >>> client = GitHubClient(config, git_client, "owner", "repo")
         >>> result = client.get_pull_request(123)
         >>> match result:
         ...     case ClientSuccess(data=pr):
@@ -40,7 +39,6 @@ class GitHubClient:
     def __init__(
         self,
         config: GitHubPluginConfig,
-        secrets: SecretManager,
         git_client: GitClient,
         repo_owner: str,
         repo_name: str,
@@ -51,7 +49,6 @@ class GitHubClient:
 
         Args:
             config: GitHub configuration
-            secrets: SecretManager instance
             git_client: Initialized GitClient instance
             repo_owner: GitHub repository owner
             repo_name: GitHub repository name
@@ -61,7 +58,6 @@ class GitHubClient:
             GitHubAuthenticationError: If gh CLI is not authenticated
         """
         self.config = config
-        self.secrets = secrets
         self.git_client = git_client
         self.repo_owner = repo_owner
         self.repo_name = repo_name
@@ -72,11 +68,12 @@ class GitHubClient:
         self._graphql_network = GraphQLNetwork(self._gh_network)
 
         # Initialize services
-        self._pr_service = PRService(self._gh_network)
+        self._pr_service = PRService(self._gh_network, self._graphql_network)
         self._review_service = ReviewService(self._gh_network, self._graphql_network)
         self._issue_service = IssueService(self._gh_network)
         self._team_service = TeamService(self._gh_network)
         self._release_service = ReleaseService(self._gh_network)
+        self._contents_service = ContentsService(self._gh_network)
 
     def get_pr_template(self) -> Optional[str]:
         """Get the PR template if available."""
@@ -180,9 +177,21 @@ class GitHubClient:
         merge_method: str = "squash",
         commit_title: Optional[str] = None,
         commit_message: Optional[str] = None,
+        merge_queue_enabled: Optional[bool] = None,
     ) -> ClientResult[UIPRMergeResult]:
-        """Merge a pull request."""
-        return self._pr_service.merge_pr(pr_number, merge_method, commit_title, commit_message)
+        """
+        Merge a pull request, or add it to the base branch's merge queue.
+
+        When the base branch requires a merge queue the PR is queued instead of
+        merged, and the result carries `queued=True` with `merged=False`.
+        """
+        return self._pr_service.merge_pr(
+            pr_number, merge_method, commit_title, commit_message, merge_queue_enabled
+        )
+
+    def get_merge_queue_state(self, pr_number: int) -> ClientResult[UIMergeQueueState]:
+        """Get the merge queue state of a pull request."""
+        return self._pr_service.get_merge_queue_state(pr_number)
 
     def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """Add a comment to a PR."""
@@ -314,6 +323,46 @@ class GitHubClient:
     def get_release(self, tag_name: str) -> ClientResult[UIRelease]:
         """Get a single GitHub release, including its full notes body."""
         return self._release_service.get_release(tag_name)
+
+    # ============================================================================
+    # Contents Operations
+    # ============================================================================
+
+    def list_repository_directory(
+        self,
+        path: str,
+        ref: Optional[str] = None,
+        *,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+    ) -> ClientResult[List[Dict[str, Any]]]:
+        """
+        List the entries of a directory in a repository.
+
+        Defaults to this client's own repo; pass repo_owner/repo_name to read
+        from a different repository without instantiating a new client.
+        """
+        return self._contents_service.list_directory(
+            path, ref, repo_owner=repo_owner, repo_name=repo_name
+        )
+
+    def path_exists(
+        self,
+        path: str,
+        ref: Optional[str] = None,
+        *,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+    ) -> ClientResult[bool]:
+        """
+        Check whether a path exists in a repository.
+
+        Defaults to this client's own repo; pass repo_owner/repo_name to check
+        against a different repository without instantiating a new client.
+        """
+        return self._contents_service.path_exists(
+            path, ref, repo_owner=repo_owner, repo_name=repo_name
+        )
 
     # ============================================================================
     # Team Operations

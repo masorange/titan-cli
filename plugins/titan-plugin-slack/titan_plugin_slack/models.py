@@ -89,6 +89,7 @@ class UISlackAuth:
     """Auth identity model returned by Slack auth validation."""
 
     user_id: Optional[str] = None
+    user: Optional[str] = None
     team_id: Optional[str] = None
     team: Optional[str] = None
     url: Optional[str] = None
@@ -124,3 +125,14 @@ class UISlackPostedMessage:
     ts: str
     text: Optional[str] = None
     thread_ts: Optional[str] = None
+
+
+@dataclass
+class UISlackUploadedFile:
+    """Uploaded Slack file metadata returned by file upload operations."""
+
+    file_id: str
+    channel: str
+    title: Optional[str] = None
+    name: Optional[str] = None
+    permalink: Optional[str] = None

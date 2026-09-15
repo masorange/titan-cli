@@ -12,7 +12,7 @@ from titan_plugin_slack.steps.discovery_steps import (
 
 
 def _build_context() -> WorkflowContext:
-    ctx = WorkflowContext(secrets=MagicMock())
+    ctx = WorkflowContext()
     ctx.textual = MagicMock()
 
     loading_mock = MagicMock()
@@ -59,6 +59,7 @@ def test_validate_connection_step_returns_auth_metadata() -> None:
         "slack_team_id": "T123",
         "slack_team_name": "Acme",
         "slack_user_id": "U123",
+        "slack_user_name": None,
     }
 
 

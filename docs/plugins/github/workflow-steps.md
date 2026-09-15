@@ -29,7 +29,6 @@ For full contract details for every public step, including documented inputs, ou
 | `prompt_for_issue_body_step` | Prompt and Selection | `create-issue-ai` |
 | `prompt_for_self_assign` | Prompt and Selection | `create-issue-ai` |
 | `prompt_for_labels` | Prompt and Selection | `create-pr-ai` |
-| `select_cli` | Prompt and Selection | - |
 | `ai_suggest_issue_title_and_body` | Issue Creation | `create-issue-ai` |
 | `preview_and_confirm_issue` | Issue Creation | - |
 | `create_issue` | Issue Creation | `create-issue-ai` |
@@ -53,6 +52,7 @@ For full contract details for every public step, including documented inputs, ou
 | `ai_review_findings` | Code Review | - |
 | `normalize_findings` | Code Review | - |
 | `dedupe_findings` | Code Review | - |
+| `verify_findings` | Code Review | - |
 | `build_new_comment_actions` | Code Review | - |
 | `validate_review_actions` | Code Review | - |
 | `submit_review_actions` | Code Review | - |
@@ -85,7 +85,6 @@ Use these steps when a workflow needs interactive user input before creation or 
 - `prompt_for_issue_body_step`: capture the raw issue request before AI expansion
 - `prompt_for_self_assign`: ask whether the current user should be assigned to the issue
 - `prompt_for_labels`: prompt for repository labels and save the selection to a configurable context key
-- `select_cli`: choose which external CLI a workflow should use
 
 ## Issue Creation
 
@@ -124,6 +123,7 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `ai_review_findings`: run targeted AI analysis and produce candidate findings
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
 - `dedupe_findings`: remove duplicate or overlapping findings before submission
+- `verify_findings`: adversarial AI pass that drops findings refuted against the code (fail-open)
 - `build_new_comment_actions`: translate findings into GitHub review actions
 - `validate_review_actions`: validate those review actions before posting
 - `submit_review_actions`: submit review comments or review actions to GitHub
@@ -189,6 +189,7 @@ How to read these contracts:
     | `pr_title` | str | The title of the pull request. |
     | `pr_body` | str, optional | The body/description of the pull request. |
     | `pr_head_branch` | str | The branch with the new changes. |
+    | `pr_base_branch` | str, optional | The branch to merge into. Defaults to the git plugin's configured main branch. |
     | `pr_is_draft` | bool, optional | Whether to create the PR as a draft. Defaults to False. |
     | `pr_reviewers` | list, optional | List of GitHub usernames or team slugs to request review from. |
     | `pr_excluded_reviewers` | list, optional | List of GitHub usernames to exclude from team expansion. |
@@ -248,8 +249,47 @@ How to read these contracts:
     | `Error` | - | If required context is missing or the GitHub call fails. |
 
 
+??? info "`check_merge_queue`"
+    Check whether the pull request's base branch requires a merge queue.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: check_merge_queue
+    ```
+
+    **Available to later steps:** `merge_queue_enabled`, `merge_queue_state`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.github` | - | An initialized GitHubClient. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_number` | int | Pull request number to inspect. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `merge_queue_enabled` | bool \| None | Whether the base branch requires a merge queue, or None when the lookup failed. |
+    | `merge_queue_state` | - | The merge queue state object, when the lookup succeeded. |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `merge_queue_enabled`, `merge_queue_state` | When the PR number is available. A failed lookup is not fatal: it reports merge_queue_enabled=None, so the merge falls back to a direct merge and says the queue was never checked. |
+    | `Error` | - | If required context is missing. |
+
+
 ??? info "`merge_pull_request`"
-    Merge a pull request using the configured GitHub client.
+    Merge a pull request, or add it to the base branch's merge queue.
 
     **Workflow usage**
 
@@ -258,7 +298,7 @@ How to read these contracts:
       step: merge_pull_request
     ```
 
-    **Available to later steps:** `merge_result`
+    **Available to later steps:** `merge_result`, `merge_queued`, `expected_pr_state`
 
     **Requires**
 
@@ -271,21 +311,24 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `pr_number` | int | Pull request number to merge. |
-    | `merge_method` | str, optional | Merge strategy. |
-    | `commit_title` | str, optional | Override commit title. |
-    | `commit_message` | str, optional | Override commit message. |
+    | `merge_method` | str, optional | Merge strategy. Ignored with a merge queue. |
+    | `commit_title` | str, optional | Override commit title. Ignored with a merge queue. |
+    | `commit_message` | str, optional | Override commit message. Ignored with a merge queue. |
+    | `merge_queue_enabled` | bool, optional | Result of a previous `check_merge_queue`, reused to avoid looking the queue up twice. None means unknown, and the queue is looked up again here. |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
     | `merge_result` | - | The GitHub merge result object. |
+    | `merge_queued` | bool | True when the PR was added to the merge queue. |
+    | `expected_pr_state` | str | "MERGED" after a regular merge, "OPEN" once queued. |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `merge_result` | If the pull request is merged successfully. |
+    | `Success` | `merge_result`, `merge_queued`, `expected_pr_state` | If the pull request is merged or added to the merge queue. |
     | `Error` | - | If required context is missing or the GitHub call fails. |
 
 
@@ -328,6 +371,46 @@ How to read these contracts:
     | `Error` | - | If required context is missing, verification fails, or the GitHub call fails. |
 
 
+??? info "`verify_merge_outcome`"
+    Verify the outcome of a merge that may have gone through a merge queue.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: verify_merge_outcome
+    ```
+
+    **Available to later steps:** `verified_pr_info`, `merge_queue_state`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.github` | - | An initialized GitHubClient. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `pr_number` | int | Pull request number to inspect. |
+    | `merge_queued` | bool, optional | Set by `merge_pull_request` when the PR was added to the merge queue. |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `verified_pr_info` | - | The pull request object; saved only on the regular merge path (`merge_queued` falsy). |
+    | `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (`merge_queued` truthy). |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `verified_pr_info`, `merge_queue_state` | If the PR is merged, or still queued when it was enqueued. Exactly one output key is saved - `verified_pr_info` on the regular merge path, `merge_queue_state` on the queued merge path - never both. |
+    | `Error` | - | If required context is missing, the PR is in neither state, or the GitHub call fails. |
+
+
 ??? info "`ai_suggest_pr_description`"
     Generate PR title and description using PRAgent.
 
@@ -346,7 +429,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `ctx.ai` | - | An initialized AIClient |
+    | `ctx.ai_router` | - | The AI execution façade (falls back to ctx.ai) |
     | `ctx.git` | - | An initialized GitClient |
     | `ctx.github` | - | An initialized GitHubClient |
 
@@ -608,33 +691,6 @@ How to read these contracts:
     | `Success` | `<output_key>` | If label selection completes successfully. |
     | `Skip` | `<output_key>` | If the repository has no labels. |
     | `Error` | - | If the GitHub client is unavailable or the prompt fails. |
-
-
-??? info "`select_cli`"
-    Ask user to explicitly choose which AI CLI to use for PR analysis.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: select_cli
-    ```
-
-    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
-
-    **Inputs (from ctx.data)**
-
-    None documented.
-
-    **Outputs (saved to ctx.data)**
-
-    None documented.
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success with the chosen CLI name stored in ctx.data` | - | - |
 
 
 ### Issue Creation
@@ -1505,6 +1561,38 @@ How to read these contracts:
     | `Success or Error` | - | - |
 
 
+??? info "`verify_findings`"
+    Adversarial verification pass: try to REFUTE each finding before the human gate.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: verify_findings
+    ```
+
+    **Used by built-in workflows:** `review-pr`
+
+    **Available to later steps:** `deduped_findings`, `refuted_findings`
+
+    **Inputs (from ctx.data)**
+
+    None documented.
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `deduped_findings` | List[Finding] | verified set, refuted findings removed |
+    | `refuted_findings` | List[Finding] | findings dropped by this pass |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success or Skip` | - | - |
+
+
 ??? info "`build_new_comment_actions`"
     Convert deduplicated findings into ReviewActionProposal objects.
 
@@ -1684,7 +1772,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `raw_thread_decisions` | list | Raw AI output before normalization |
+    | `raw_thread_decisions` | list | Raw AI output aggregated across batches, before normalization |
 
     **Returns**
 
@@ -1815,7 +1903,10 @@ How to read these contracts:
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
     | `Success` | - | Worktree cleaned up |
-    | `Exit` | - | No worktree to cleanup |
+    | `Skip` | - | Nothing to clean up, no git client, or removal failed |
+    | `Never returns Exit` | - | that would stop the whole workflow, and this step may run |
+    | `before others (nothing was created is a normal case when worktree setup was` | - | - |
+    | `allowed to fail). Skip keeps the workflow going.` | - | - |
 
 
 ### Releases

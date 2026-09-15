@@ -1,6 +1,7 @@
 from titan_plugin_github.models.review_models import ReferencedCommitContext, ThreadReviewContext
 from titan_plugin_github.models.view import UIComment, UICommentThread
 from titan_plugin_github.operations.thread_resolution_operations import (
+    batch_thread_review_contexts,
     build_thread_resolution_prompt,
     build_thread_review_candidates,
 )
@@ -85,3 +86,61 @@ def test_build_thread_resolution_prompt_includes_referenced_commit_context():
     assert "343e2e9" in prompt
     assert "src/BaseDialog.kt" in prompt
     assert "remove default state value" in prompt
+
+
+def _make_context(thread_id: str, *, body: str = "Please fix this") -> ThreadReviewContext:
+    return ThreadReviewContext(
+        thread_id=thread_id,
+        comment_id=1,
+        path="src/main.py",
+        line=1,
+        main_comment_body=body,
+        main_comment_author="reviewer",
+        all_replies=[{"author": "author", "body": "Fixed"}],
+        current_code_hunk="@@ -1,2 +1,2 @@\n-old\n+new\n",
+    )
+
+
+def test_batch_thread_review_contexts_returns_empty_for_no_contexts():
+    assert batch_thread_review_contexts([]) == []
+
+
+def test_batch_thread_review_contexts_respects_max_threads_per_batch():
+    contexts = [_make_context(f"thread_{i}") for i in range(10)]
+
+    batches = batch_thread_review_contexts(
+        contexts, max_prompt_chars=1_000_000, max_threads_per_batch=4
+    )
+
+    assert [len(batch) for batch in batches] == [4, 4, 2]
+    assert sum(len(batch) for batch in batches) == len(contexts)
+
+
+def test_batch_thread_review_contexts_splits_when_over_char_budget():
+    contexts = [_make_context(f"thread_{i}", body="x" * 500) for i in range(4)]
+
+    batches = batch_thread_review_contexts(
+        contexts, max_prompt_chars=800, max_threads_per_batch=4
+    )
+
+    # Each thread body alone (500 chars) plus prompt scaffolding exceeds the
+    # 800-char budget for anything but single-thread batches.
+    assert all(len(batch) == 1 for batch in batches)
+    assert sum(len(batch) for batch in batches) == len(contexts)
+
+
+def test_batch_thread_review_contexts_keeps_oversized_single_thread_alone():
+    huge_context = _make_context("thread_huge", body="x" * 50_000)
+
+    batches = batch_thread_review_contexts([huge_context], max_prompt_chars=100)
+
+    assert len(batches) == 1
+    assert batches[0] == [huge_context]
+
+
+def test_batch_thread_review_contexts_preserves_full_context_per_thread():
+    context = _make_context("thread_1")
+
+    batches = batch_thread_review_contexts([context], max_prompt_chars=1_000_000)
+
+    assert batches == [[context]]

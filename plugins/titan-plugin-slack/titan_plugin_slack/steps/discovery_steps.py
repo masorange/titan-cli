@@ -19,6 +19,7 @@ def validate_connection_step(ctx: WorkflowContext) -> WorkflowResult:
         slack_team_id (str | None): Team identifier reported by Slack.
         slack_team_name (str | None): Team name reported by Slack.
         slack_user_id (str | None): User identifier reported by Slack.
+        slack_user_name (str | None): User name reported by Slack.
 
     Returns:
         Success: If the Slack connection validates successfully.
@@ -40,7 +41,7 @@ def validate_connection_step(ctx: WorkflowContext) -> WorkflowResult:
     match result:
         case ClientSuccess(data=auth):
             ctx.textual.success_text(
-                f"Connected to Slack team {auth.team or 'Unknown'} as {auth.user_id or 'Unknown'}"
+                f"Connected to Slack team {auth.team or 'Unknown'} as {auth.user or auth.user_id or 'Unknown'}"
             )
             ctx.textual.end_step("success")
             return Success(
@@ -50,6 +51,7 @@ def validate_connection_step(ctx: WorkflowContext) -> WorkflowResult:
                     "slack_team_id": auth.team_id,
                     "slack_team_name": auth.team,
                     "slack_user_id": auth.user_id,
+                    "slack_user_name": auth.user,
                 },
             )
         case ClientError(error_message=err):
