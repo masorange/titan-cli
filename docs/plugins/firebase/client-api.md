@@ -43,10 +43,17 @@ client.check_auth()
 
 - No parameters.
 
-**Returns:** `ClientResult[UIAdcIdentity]` — `account`, `credential_kind`
-(`user`, `service_account`, `impersonated`, ...), `quota_project_id`, and
-`is_user_credential`. `ClientError` with code `ADC_UNAVAILABLE` when there is no usable
-session; its `details["login_command"]` carries the command that creates one.
+**Returns:** `ClientResult[UIAdcIdentity]` — `credential_kind` (`user`,
+`service_account`, `impersonated`, ...), `is_user_credential`, `quota_project_id`, and
+`account`, which holds a service account's own email and is `None` for user credentials.
+`ClientError` with code `ADC_UNAVAILABLE` when there is no usable session; its
+`details["login_command"]` carries the command that creates one.
+
+Titan does not resolve the signed-in user's email: an ADC session minted for
+`cloud-platform` need not carry the `userinfo.email` scope, and the endpoint that would
+answer also rejects the credential's quota project. The authoritative author is the one
+Firebase records on the published version, which `publish_remote_config_change` reports.
+This call makes no network request beyond refreshing the token.
 
 ### `uses_service_account_env_var()`
 

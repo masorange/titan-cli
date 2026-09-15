@@ -33,6 +33,10 @@ service account, every publish is attributed to that service account instead, an
 The default ADC scope (`cloud-platform`) covers Remote Config. The narrow scope is
 `https://www.googleapis.com/auth/firebase.remoteconfig`.
 
+Titan reports which *kind* of credential is active but not the signed-in email: an ADC
+session minted for `cloud-platform` need not carry the `userinfo.email` scope. The account
+that matters appears on the published version, which the publish step reports back.
+
 ## Requirements
 
 - Enable the `firebase` plugin in `.titan/config.toml`
@@ -87,7 +91,7 @@ Other options:
 
 | Option | Default | What it does |
 |--------|---------|--------------|
-| `quota_project_id` | the project being read | Value sent as `x-goog-user-project`, which decides API quota and billing. Override it when your account lacks `serviceusage.services.use` on the Firebase project itself. |
+| `quota_project_id` | the credential's own quota project, else the project being read | Which project is billed for API quota. Override it when your account lacks `serviceusage.services.use` on the Firebase project itself. Titan applies it to the credential, because `google.auth` overwrites the `x-goog-user-project` header with the credential's value on every request. |
 | `api_base_url` | `https://firebaseremoteconfig.googleapis.com/v1` | Remote Config REST base URL. |
 | `request_timeout` | `30` | HTTP timeout in seconds. |
 | `oauth_scopes` | `["https://www.googleapis.com/auth/cloud-platform"]` | Scopes requested from ADC. |
