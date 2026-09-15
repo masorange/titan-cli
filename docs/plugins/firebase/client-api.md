@@ -1,153 +1,161 @@
 # Firebase Client API
 
-The public client is `titan_plugin_firebase.client.FirebaseClient`.
+The Firebase plugin exposes Remote Config through `FirebaseClient`. Every method returns
+a `ClientResult` — `ClientSuccess` with a UI model, or `ClientError` with an actionable
+message — so callers never handle exceptions.
+
+## Requirements
+
+To use the Firebase client in Titan code:
+
+- enable the `firebase` plugin
+- have an Application Default Credentials session (`gcloud auth application-default login`)
+
+There is no credential to configure or store: see [Overview](overview.md#authentication).
+
+---
+
+## Accessing the client
+
+```python
+firebase_plugin = config.registry.get_plugin("firebase")
+client = firebase_plugin.get_client()
+```
+
+Building the client does no I/O. Credentials are resolved on the first network call, so
+enabling the plugin never blocks on gcloud.
+
+---
 
 ## Authentication
 
-### `is_available(*, sink=None) -> bool`
+### `check_auth()`
 
-Returns `True` when an OAuth access token can be resolved from
-`FIREBASE_ACCESS_TOKEN`, Titan's OAuth token store, legacy Firebase keyring
-keys, plugin configuration, or Google Cloud ADC.
+Resolve Application Default Credentials and report the identity that will own any change.
 
-The optional `sink` receives provider-neutral OAuth events. UI and headless
-callers can observe resolution/refresh/login events without coupling the OAuth
-manager to a specific presentation layer.
+**Call:**
 
-ADC tokens are obtained with:
-
-```bash
-gcloud auth application-default print-access-token
+```python
+client.check_auth()
 ```
 
-### `get_active_account() -> str | None`
+**Parameters:**
 
-Returns the active account reported by `gcloud auth list`, or `None` when no
-active account can be resolved.
+- No parameters.
 
-### `get_adc_access_token() -> str | None`
+**Returns:** `ClientResult[UIAdcIdentity]` — `credential_kind` (`user`,
+`service_account`, `impersonated`, ...), `is_user_credential`, `quota_project_id`, and
+`account`, which holds a service account's own email and is `None` for user credentials.
+`ClientError` with code `ADC_UNAVAILABLE` when there is no usable session; its
+`details["login_command"]` carries the command that creates one.
 
-Returns the current ADC access token. Tokens are read from the local gcloud ADC
-session and are never persisted by Titan.
+Titan does not resolve the signed-in user's email: an ADC session minted for
+`cloud-platform` need not carry the `userinfo.email` scope, and the endpoint that would
+answer also rejects the credential's quota project. The authoritative author is the one
+Firebase records on the published version, which `publish_remote_config_change` reports.
+This call makes no network request beyond refreshing the token.
 
-### `build_oauth_request(interactive=False) -> OAuthRequest`
+### `uses_service_account_env_var()`
 
-Builds the provider-neutral request used by Titan's OAuth manager. Firebase uses
-provider `google`, connection ID `firebase:<project>`, the configured
-`oauth_scopes`, the `access_token_env_var`, and legacy secret keys for
-backwards compatibility.
+Whether `GOOGLE_APPLICATION_CREDENTIALS` is set, which would make a service account —
+not the person running the workflow — the author of every publish.
 
-### `get_oauth_credential(*, sink=None, interactive=False) -> OAuthCredential | None`
+**Parameters:**
 
-Returns the credential resolved by Titan's OAuth manager, if one is available.
-This method can read environment tokens, stored OAuth token-set blobs, and
-legacy Firebase keyring tokens. When `interactive=True` and `oauth_client_id` is
-configured, the Google OAuth provider opens the browser, receives the localhost
-callback, exchanges the authorization code with PKCE, and stores a refreshable
-token set.
+- No parameters.
 
-### `get_access_token(*, sink=None, interactive=False) -> str | None`
+**Returns:** `bool`.
 
-Returns the token Titan will use for Firebase REST calls. It checks the
-configured `access_token_env_var` first, which defaults to
-`FIREBASE_ACCESS_TOKEN`, through the OAuth manager. It then checks plugin
-configuration and finally falls back to ADC.
+---
 
-With provider-backed Google OAuth, the OAuth manager refreshes stored tokens
-before returning them when they are expired or inside the refresh margin. When
-refresh fails during an interactive resolution, the stale token-set blob is
-deleted and Titan runs a fresh authorization flow.
+## Reading
 
-### `save_access_token(token: str, scope="user") -> None`
+### `get_remote_config(project_id)`
 
-Stores a token as a single OAuth token-set blob through Titan's shared OAuth
-manager. The default `user` scope writes to the system keyring. Tokens stored
-this way are still short-lived OAuth access tokens; manually pasted tokens do
-not include `expires_at`, so refresh or replace them when Firebase rejects them
-as expired.
+Read the active Remote Config template for one project.
 
-Browser-based Google OAuth stores `access_token`, `refresh_token`, `expires_at`,
-token type, and granted scopes automatically; callers should prefer that flow
-over manual access tokens.
+**Call:**
 
-### `save_oauth_client_id(client_id: str, client_secret=None, scope="user") -> None`
-
-Stores a Google OAuth desktop client ID and optional Desktop app client secret
-in the user keyring, then configures the current Firebase client session for
-browser login. Titan saves both generic Firebase keys and project-specific keys
-when a project name is available, so the same Google OAuth client can be reused
-across Firebase projects. If no client secret is provided, stale saved client
-secret keys are deleted so Titan does not send a mismatched OAuth pair later.
-
-### `delete_oauth_client_id(scope="user") -> bool`
-
-Deletes saved Google OAuth client IDs and client secrets for the current
-project/generic Firebase scope, clears the runtime OAuth client configuration,
-and unregisters the Google provider from the current client session.
-
-### `configure_google_oauth(client_id: str, client_secret=None) -> None`
-
-Configures browser-based Google OAuth for the current client session without
-persisting the client ID or secret. This registers the Google provider used by
-the shared OAuth manager for login and refresh. If the client ID changes and no
-new client secret is provided, the previous runtime client secret is cleared.
-
-### `invalidate_access_token_source(source: str | None, scope="user") -> bool`
-
-Marks a rejected token source as unusable for the current client session.
-Legacy keyring tokens are deleted from the selected secret scope; OAuth
-token-store credentials are deleted from Titan's OAuth store. Environment,
-plugin config, and ADC sources are ignored for the remainder of the current
-client session.
-
-### `get_login_command() -> str`
-
-Returns the exact login command shown by Firebase auth steps:
-
-```bash
-gcloud auth application-default login
+```python
+client.get_remote_config("my-firebase-project")
 ```
 
-## Remote Config
+**Parameters:**
 
-### `get_remote_config(project_id: str) -> RemoteConfigTemplate`
+- `project_id`: Required Firebase project ID.
 
-Reads:
+**Returns:** `ClientResult[UIRemoteConfigTemplate]` — parameters sorted by key (each with
+its effective type, default value and conditional values), the template's conditions, its
+parameter group names, the active version metadata, and the `etag` a publish needs.
 
-```text
-GET {api_base_url}/projects/{project_id}/remoteConfig
+**Error codes:** `AUTH_REJECTED` (401), `PERMISSION_DENIED` (403), `NOT_FOUND` (404),
+`ETAG_CONFLICT` (409), `BAD_REQUEST` (400), `API_ERROR`, `ADC_UNAVAILABLE`.
+
+---
+
+## Writing
+
+### `validate_remote_config_change(project_id, key, new_value, condition=None)`
+
+Check one parameter edit against the live template without publishing anything.
+
+**Call:**
+
+```python
+client.validate_remote_config_change(
+    "my-firebase-project",
+    "feature_enabled",
+    "true",
+    "android_prod",
+)
 ```
 
-The request uses an OAuth bearer token and sends `x-goog-user-project` with the
-same project ID as quota project. It returns a `RemoteConfigTemplate` with:
+**Parameters:**
 
-- `project_id`: Firebase project ID used for the request
-- `template`: Remote Config JSON payload
-- `etag`: response `ETag` header, needed by future publish operations
-- `version`: convenience property for `template["version"]`
+- `project_id`: Required Firebase project ID.
+- `key`: Required parameter key. Must already exist in the template.
+- `new_value`: Required new value, as text. It is validated against the parameter's
+  effective type and normalized (booleans to `true`/`false`, JSON compacted).
+- `condition`: Optional condition name to write instead of the default value. It must
+  already exist in the template.
 
-Error handling distinguishes common Remote Config cases:
+**Returns:** `ClientResult[UIRemoteConfigChange]` — the value it would replace, the value
+it would store, whether the condition was inheriting the default, and `is_noop`.
 
-- `401`: OAuth token rejected or expired. The error keeps the resolved
-  `auth_source`, so workflow steps can invalidate that source, prompt for
-  fresh auth, and retry once.
-- `403`: account lacks permission on the Firebase project
-- `404`: project/template not found
+**Error codes:** `TEMPLATE_EDIT_ERROR` (unknown parameter or condition), `INVALID_VALUE`
+(value does not match the type), plus the read error codes above.
 
-### `get_remote_config_inventory(targets, continue_on_error=True) -> RemoteConfigInventory`
+### `publish_remote_config_change(project_id, change, validate_only=False)`
 
-Reads several Firebase project targets and returns:
+Apply one change to the template and publish it.
 
-- `targets`: configured brand/environment targets
-- `projects`: one normalized project inventory per successful template read
-- `keys`: unique key inventory across projects, including observed value types
-  and missing projects
-- `failures`: per-project read failures when `continue_on_error` is `True`
+**Call:**
 
-Remote Config values are normalized into the supported value types:
+```python
+client.publish_remote_config_change(
+    "my-firebase-project",
+    change,
+    validate_only=True,
+)
+```
 
-- `BOOLEAN`
-- `JSON`
-- `NUMBER`
-- `STRING`
-- `UNKNOWN`
+**Parameters:**
+
+- `project_id`: Required Firebase project ID.
+- `change`: Required `UIRemoteConfigChange`, normally from
+  `validate_remote_config_change`.
+- `validate_only`: Optional. When true, Firebase checks the payload and nothing is
+  published.
+
+**Behavior:** reads the template immediately before writing, so the ETag is fresh; sends
+it as `If-Match`; and on a 409 re-reads and reapplies the change once. A second conflict
+is reported rather than retried. The published version carries a description naming the
+key, the target, and the value before and after.
+
+**Returns:** `ClientResult[UIRemoteConfigPublishResult]` — the new `etag`, the version
+Firebase created (number, author email, origin, type), whether a conflict forced a retry,
+and the change that was applied.
+
+**Error codes:** `MISSING_ETAG` (the read returned none, so publishing would risk
+overwriting another edit), `TEMPLATE_EDIT_ERROR` (the parameter or condition disappeared
+between read and write), plus the read error codes above.

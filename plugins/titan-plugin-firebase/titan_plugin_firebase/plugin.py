@@ -3,24 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from titan_cli.core.config import TitanConfig
-from titan_cli.core.oauth import OAuthTokenStore
 from titan_cli.core.plugins.plugin_base import TitanPlugin
 
-from .client import (
-    FirebaseClient,
-    OAUTH_CLIENT_ID_SECRET_KEY,
-    OAUTH_CLIENT_SECRET_KEY,
-)
+from .clients.firebase_client import FirebaseClient
 from .config import FirebasePluginConfig
-from .exceptions import FirebaseClientError, FirebaseConfigurationError
-from .oauth import GoogleOAuthFlow, GoogleOAuthProvider
+from .exceptions import FirebaseConfigurationError, FirebaseError
 
 
 class FirebasePlugin(TitanPlugin):
-    """Titan CLI plugin for Firebase operations."""
+    """
+    Titan CLI plugin for Firebase Remote Config.
+
+    Authentication is Application Default Credentials, so the plugin takes no
+    credential of its own: `initialize` receives a secret broker like every
+    plugin does and deliberately never uses it.
+    """
 
     @property
     def name(self) -> str:
@@ -32,263 +31,125 @@ class FirebasePlugin(TitanPlugin):
 
     @property
     def description(self) -> str:
-        return "Provides Firebase OAuth auth and Remote Config access."
+        return "Reads and publishes Firebase Remote Config parameters."
 
     @property
     def dependencies(self) -> list[str]:
         return []
 
-    def initialize(self, config: TitanConfig, secrets: object) -> None:
-        """Initialize the Firebase client from merged Titan plugin config."""
-        plugin_config_data = self._get_plugin_config(config)
+    def initialize(self, config: Any, broker: Any) -> None:
+        """
+        Build the Firebase client from the merged plugin configuration.
+
+        Does no I/O: credentials are resolved on the first network call, so
+        enabling the plugin never waits on gcloud.
+        """
         try:
-            validated_config = FirebasePluginConfig(**plugin_config_data)
+            validated_config = FirebasePluginConfig(**self._get_plugin_config(config))
         except ValueError as exc:
             raise FirebaseConfigurationError(str(exc)) from exc
 
-        get_project_name = getattr(config, "get_project_name", None)
-        project_name = get_project_name() if callable(get_project_name) else None
-        if not isinstance(project_name, str) or not project_name.strip():
-            project_name = None
+        self._client = FirebaseClient(validated_config)
 
-        secret_store, secret_namespace, token_store = self._build_oauth_storage(secrets)
-        project_oauth_client_id = self._get_saved_oauth_client_id(
-            token_store,
-            project_name,
-            include_generic=False,
-        )
-        project_oauth_client_secret = self._get_saved_oauth_client_secret(
-            token_store,
-            project_name,
-            include_generic=False,
-        )
-        generic_oauth_client_id = self._get_saved_oauth_client_id(token_store, None)
-        generic_oauth_client_secret = self._get_saved_oauth_client_secret(
-            token_store,
-            None,
-        )
-
-        if project_oauth_client_id:
-            oauth_client_id = project_oauth_client_id
-            oauth_client_secret = project_oauth_client_secret
-        elif validated_config.oauth_client_id:
-            oauth_client_id = validated_config.oauth_client_id
-            oauth_client_secret = validated_config.oauth_client_secret
-            if (
-                oauth_client_secret is None
-                and generic_oauth_client_id == oauth_client_id
-            ):
-                oauth_client_secret = generic_oauth_client_secret
-        elif generic_oauth_client_id:
-            oauth_client_id = generic_oauth_client_id
-            oauth_client_secret = generic_oauth_client_secret
-        else:
-            oauth_client_id = None
-            oauth_client_secret = None
-        if oauth_client_id:
-            validated_config = validated_config.model_copy(
-                update={
-                    "oauth_client_id": oauth_client_id,
-                    "oauth_client_secret": oauth_client_secret,
-                }
-            )
-
-        oauth_providers = {}
-        if oauth_client_id:
-            oauth_providers["google"] = GoogleOAuthProvider(
-                GoogleOAuthFlow(
-                    client_id=oauth_client_id,
-                    client_secret=oauth_client_secret,
-                    redirect_port=validated_config.oauth_redirect_port,
-                    scopes=validated_config.oauth_scopes,
-                    timeout=validated_config.oauth_timeout,
-                    token_request_timeout=validated_config.request_timeout,
-                )
-            )
-
-        self._client = FirebaseClient(
-            config=validated_config,
-            secrets=secret_store,
-            project_name=project_name,
-            secret_namespace=secret_namespace,
-            token_store=token_store,
-        )
-        if self._client.oauth_manager:
-            self._client.oauth_manager.providers.update(oauth_providers)
-
-    def _get_plugin_config(self, config: TitanConfig) -> dict:
-        """Extract Firebase plugin configuration from Titan config."""
-        if "firebase" not in config.config.plugins:
+    def _get_plugin_config(self, config: Any) -> Dict[str, Any]:
+        """Extract the firebase section from the Titan configuration."""
+        plugins = getattr(getattr(config, "config", None), "plugins", None)
+        if not plugins or "firebase" not in plugins:
             return {}
-
-        plugin_entry = config.config.plugins["firebase"]
-        return plugin_entry.config if hasattr(plugin_entry, "config") else {}
-
-    def _get_saved_oauth_client_id(
-        self,
-        token_store: OAuthTokenStore,
-        project_name: Optional[str],
-        *,
-        include_generic: bool = True,
-    ) -> Optional[str]:
-        """Return a Google OAuth client ID saved during interactive login."""
-        keys = []
-        if project_name:
-            keys.append(f"{project_name}_{OAUTH_CLIENT_ID_SECRET_KEY}")
-        if include_generic:
-            keys.append(OAUTH_CLIENT_ID_SECRET_KEY)
-
-        for key in keys:
-            value = _read_oauth_aux_secret(token_store, key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return None
-
-    def _get_saved_oauth_client_secret(
-        self,
-        token_store: OAuthTokenStore,
-        project_name: Optional[str],
-        *,
-        include_generic: bool = True,
-    ) -> Optional[str]:
-        """Return a Google OAuth client secret saved during interactive login."""
-        keys = []
-        if project_name:
-            keys.append(f"{project_name}_{OAUTH_CLIENT_SECRET_KEY}")
-        if include_generic:
-            keys.append(OAUTH_CLIENT_SECRET_KEY)
-
-        for key in keys:
-            value = _read_oauth_aux_secret(token_store, key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return None
-
-    def _build_oauth_storage(
-        self,
-        secrets: object,
-    ) -> tuple[object, str, OAuthTokenStore]:
-        """Build Firebase OAuth storage from old SecretManager or new SecretBroker."""
-        namespace = getattr(secrets, "namespace", "titan")
-        if not isinstance(namespace, str) or not namespace.strip():
-            namespace = "titan"
-        secret_store = secrets
-
-        if hasattr(secrets, "_vault"):
-            try:
-                from titan_cli.core.security.oauth_tokens import (
-                    create_oauth_secret_store_from_broker,
-                )
-            except ImportError:
-                pass
-            else:
-                secret_store = create_oauth_secret_store_from_broker(secrets)
-
-        return secret_store, namespace, OAuthTokenStore(secret_store, namespace=namespace)
+        entry = plugins["firebase"]
+        return getattr(entry, "config", {}) or {}
 
     def get_config_schema(self) -> dict:
-        """Return the Firebase plugin JSON configuration schema."""
+        """Return the JSON schema for the plugin configuration screen."""
         schema = FirebasePluginConfig.model_json_schema()
         properties = schema.get("properties", {})
         preferred_order = [
-            "oauth_client_id",
-            "oauth_client_secret",
-            "oauth_redirect_port",
-            "oauth_scopes",
-            "oauth_timeout",
             "default_project",
-            "default_environment",
-            "projects",
-            "brand_projects",
-            "brand_projects_layout",
+            "quota_project_id",
             "api_base_url",
             "request_timeout",
-            "access_token_env_var",
-            "access_token",
+            "oauth_scopes",
         ]
-        ordered_properties = {
-            field_name: properties[field_name]
-            for field_name in preferred_order
-            if field_name in properties
+        ordered = {
+            field: properties[field] for field in preferred_order if field in properties
         }
-        ordered_properties.update(
+        ordered.update(
             {
-                field_name: field_info
-                for field_name, field_info in properties.items()
-                if field_name not in ordered_properties
+                field: value
+                for field, value in properties.items()
+                if field not in ordered
             }
         )
-        schema["properties"] = ordered_properties
+        schema["properties"] = ordered
         return schema
 
     def is_available(self) -> bool:
-        """Return whether the Firebase client is initialized."""
-        return hasattr(self, "_client") and self._client is not None
+        """Return whether the client was built."""
+        return getattr(self, "_client", None) is not None
 
     def get_client(self) -> FirebaseClient:
         """Return the initialized Firebase client."""
-        if not hasattr(self, "_client") or self._client is None:
-            raise FirebaseClientError(
-                "FirebasePlugin not initialized. Firebase client may not be available."
+        client = getattr(self, "_client", None)
+        if client is None:
+            raise FirebaseError(
+                "FirebasePlugin no está inicializado; el cliente de Firebase "
+                "no está disponible."
             )
-        return self._client
+        return client
 
     def get_steps(self) -> dict:
-        """Return public workflow steps for the Firebase plugin."""
-        from .steps.login_step import (
-            execute_firebase_login_step,
-            execute_firebase_status_step,
+        """Return the plugin's public workflow steps."""
+        from .steps.auth_check_step import execute_firebase_auth_check_step
+        from .steps.conditions_step import (
+            execute_firebase_remoteconfig_conditions_step,
         )
-        from .steps.remoteconfig_get_step import execute_firebase_remoteconfig_get_step
-        from .steps.remoteconfig_inventory_step import (
-            execute_firebase_remoteconfig_inventory_step,
+        from .steps.diff_step import execute_firebase_remoteconfig_diff_step
+        from .steps.fanout_plan_step import (
+            execute_firebase_remoteconfig_fanout_plan_step,
+        )
+        from .steps.fanout_publish_step import (
+            execute_firebase_remoteconfig_fanout_publish_step,
+        )
+        from .steps.publish_step import execute_firebase_remoteconfig_publish_step
+        from .steps.remoteconfig_get_step import (
+            execute_firebase_remoteconfig_get_step,
+        )
+        from .steps.select_key_step import (
+            execute_firebase_remoteconfig_select_key_step,
+        )
+        from .steps.select_target_step import execute_firebase_select_target_step
+        from .steps.select_targets_step import execute_firebase_select_targets_step
+        from .steps.set_value_step import (
+            execute_firebase_remoteconfig_set_value_step,
         )
 
         return {
-            "firebase_login": execute_firebase_login_step,
-            "firebase_status": execute_firebase_status_step,
+            "firebase_auth_check": execute_firebase_auth_check_step,
+            "firebase_select_target": execute_firebase_select_target_step,
             "firebase_remoteconfig_get": execute_firebase_remoteconfig_get_step,
-            "firebase_remoteconfig_inventory": (
-                execute_firebase_remoteconfig_inventory_step
+            "firebase_remoteconfig_conditions": (
+                execute_firebase_remoteconfig_conditions_step
+            ),
+            "firebase_remoteconfig_select_key": (
+                execute_firebase_remoteconfig_select_key_step
+            ),
+            "firebase_remoteconfig_set_value": (
+                execute_firebase_remoteconfig_set_value_step
+            ),
+            "firebase_remoteconfig_diff": execute_firebase_remoteconfig_diff_step,
+            "firebase_remoteconfig_publish": (
+                execute_firebase_remoteconfig_publish_step
+            ),
+            "firebase_select_targets": execute_firebase_select_targets_step,
+            "firebase_remoteconfig_fanout_plan": (
+                execute_firebase_remoteconfig_fanout_plan_step
+            ),
+            "firebase_remoteconfig_fanout_publish": (
+                execute_firebase_remoteconfig_fanout_publish_step
             ),
         }
 
     @property
     def workflows_path(self) -> Optional[Path]:
-        """Return the plugin workflows directory path."""
+        """Return the plugin workflows directory."""
         return Path(__file__).parent / "workflows"
-
-
-def _read_oauth_aux_secret(
-    token_store: OAuthTokenStore,
-    key: str,
-) -> Optional[str]:
-    """Read saved Firebase OAuth auxiliary secrets through available store APIs."""
-    read_legacy_secret = getattr(token_store, "read_legacy_secret", None)
-    if callable(read_legacy_secret):
-        resolved = read_legacy_secret(key)
-        value = getattr(resolved, "value", None)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-    get_secret_with_scope = getattr(token_store, "_get_secret_with_scope", None)
-    if callable(get_secret_with_scope):
-        try:
-            resolved = get_secret_with_scope(key)
-        except TypeError:
-            resolved = None
-        value = getattr(resolved, "value", None)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-    secrets = getattr(token_store, "secrets", None)
-    get_secret = getattr(secrets, "get", None)
-    if callable(get_secret):
-        try:
-            value = get_secret(key, namespace=token_store.namespace)
-        except TypeError:
-            value = get_secret(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-    return None

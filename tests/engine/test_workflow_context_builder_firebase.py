@@ -9,20 +9,20 @@ def test_with_firebase_loads_client_from_plugin_registry() -> None:
     firebase_plugin = MagicMock()
     firebase_client = MagicMock()
 
-    plugin_registry.get_plugin.return_value = firebase_plugin
+    plugin_registry.ensure_initialized.return_value = firebase_plugin
     firebase_plugin.is_available.return_value = True
     firebase_plugin.get_client.return_value = firebase_client
 
     ctx = (
         WorkflowContextBuilder(
             plugin_registry=plugin_registry,
-            secrets=MagicMock(),
             ai_config=None,
         )
         .with_firebase()
         .build()
     )
 
+    plugin_registry.ensure_initialized.assert_called_once_with("firebase")
     assert ctx.firebase is firebase_client
 
 
@@ -33,7 +33,6 @@ def test_with_firebase_uses_explicit_client() -> None:
     ctx = (
         WorkflowContextBuilder(
             plugin_registry=plugin_registry,
-            secrets=MagicMock(),
             ai_config=None,
         )
         .with_firebase(firebase_client)
@@ -43,25 +42,17 @@ def test_with_firebase_uses_explicit_client() -> None:
     assert ctx.firebase is firebase_client
 
 
-def test_with_firebase_injects_initialized_plugin_client_without_auth(
-    monkeypatch,
-) -> None:
+def test_with_firebase_injects_initialized_plugin_client_without_auth() -> None:
     plugin_registry = MagicMock()
     firebase_plugin = FirebasePlugin()
     config = MagicMock()
     config.config.plugins = {"firebase": MagicMock(config={})}
     firebase_plugin.initialize(config, MagicMock())
-    monkeypatch.setattr(
-        firebase_plugin.get_client(),
-        "is_available",
-        MagicMock(return_value=False),
-    )
-    plugin_registry.get_plugin.return_value = firebase_plugin
+    plugin_registry.ensure_initialized.return_value = firebase_plugin
 
     ctx = (
         WorkflowContextBuilder(
             plugin_registry=plugin_registry,
-            secrets=MagicMock(),
             ai_config=None,
         )
         .with_firebase()

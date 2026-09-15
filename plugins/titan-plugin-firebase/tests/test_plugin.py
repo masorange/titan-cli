@@ -1,305 +1,121 @@
-import importlib
-import sys
+"""Plugin contract: registration, config parsing, and no I/O on initialize."""
+
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from titan_plugin_firebase.client import FirebaseClient
+import pytest
+
+from titan_plugin_firebase.exceptions import FirebaseConfigurationError, FirebaseError
 from titan_plugin_firebase.plugin import FirebasePlugin
 
+EXPECTED_STEPS = {
+    "firebase_auth_check",
+    "firebase_select_target",
+    "firebase_remoteconfig_get",
+    "firebase_remoteconfig_conditions",
+    "firebase_remoteconfig_select_key",
+    "firebase_remoteconfig_set_value",
+    "firebase_remoteconfig_diff",
+    "firebase_remoteconfig_publish",
+    "firebase_select_targets",
+    "firebase_remoteconfig_fanout_plan",
+    "firebase_remoteconfig_fanout_publish",
+}
 
-def test_firebase_plugin_basic_properties() -> None:
+
+def _config(plugin_config: dict | None = None):
+    plugins = {}
+    if plugin_config is not None:
+        plugins["firebase"] = SimpleNamespace(config=plugin_config)
+    return SimpleNamespace(config=SimpleNamespace(plugins=plugins))
+
+
+def test_plugin_identity():
     plugin = FirebasePlugin()
-
     assert plugin.name == "firebase"
-    assert plugin.version == "0.1.0"
     assert plugin.dependencies == []
-    assert "Firebase" in plugin.description
 
 
-def test_firebase_plugin_exposes_public_steps() -> None:
+def test_initialize_reads_project_config():
     plugin = FirebasePlugin()
-
-    assert set(plugin.get_steps()) == {
-        "firebase_login",
-        "firebase_status",
-        "firebase_remoteconfig_get",
-        "firebase_remoteconfig_inventory",
-    }
-
-
-def test_firebase_steps_package_exports_are_lazy() -> None:
-    for module_name in list(sys.modules):
-        if module_name.startswith("titan_plugin_firebase.steps"):
-            sys.modules.pop(module_name)
-
-    steps_package = importlib.import_module("titan_plugin_firebase.steps")
-
-    assert "titan_plugin_firebase.steps.login_step" not in sys.modules
-    assert callable(steps_package.execute_firebase_login_step)
-    assert "titan_plugin_firebase.steps.login_step" in sys.modules
-
-
-def test_firebase_plugin_exposes_config_schema() -> None:
-    plugin = FirebasePlugin()
-
-    schema = plugin.get_config_schema()
-
-    assert "access_token" in schema["properties"]
-    assert "default_project" in schema["properties"]
-    assert "projects" in schema["properties"]
-    assert "default_environment" in schema["properties"]
-    assert "api_base_url" in schema["properties"]
-    assert "oauth_client_id" in schema["properties"]
-    assert "oauth_client_secret" in schema["properties"]
-    assert "oauth_redirect_port" in schema["properties"]
-    assert "oauth_timeout" in schema["properties"]
-    assert "oauth_scopes" in schema["properties"]
-    assert "brand_projects" in schema["properties"]
-    assert "access_token" not in schema.get("required", [])
-    assert list(schema["properties"])[0] == "oauth_client_id"
-    assert list(schema["properties"])[1] == "oauth_client_secret"
-    assert schema["properties"]["oauth_client_secret"]["format"] == "password"
-    assert schema["properties"]["access_token"]["ui_hidden"] is True
-
-
-def test_firebase_plugin_exposes_workflows_path() -> None:
-    plugin = FirebasePlugin()
-
-    assert plugin.workflows_path is not None
-    assert plugin.workflows_path.name == "workflows"
-
-
-def test_firebase_plugin_initialize_builds_client() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(config={"default_project": "demo-project"})
-    }
-    secrets = MagicMock()
-
-    plugin.initialize(config, secrets)
-
-    client = plugin.get_client()
-    assert isinstance(client, FirebaseClient)
-    assert client.config.default_project == "demo-project"
-    assert client.secrets == secrets
-    assert client.project_name == "demo"
-    assert client.oauth_manager is not None
-
-
-def test_firebase_plugin_initialize_registers_google_oauth_provider() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(
-            config={
-                "oauth_client_id": "google-client-id",
-                "oauth_client_secret": "google-client-secret",
-                "oauth_redirect_port": 8766,
-                "oauth_timeout": 60,
-            }
-        )
-    }
-    secrets = MagicMock()
-
-    plugin.initialize(config, secrets)
-
-    client = plugin.get_client()
-    assert "google" in client.oauth_manager.providers
-    assert client.oauth_manager.providers["google"].flow.client_secret == (
-        "google-client-secret"
+    plugin.initialize(
+        _config({"default_project": "mm-firebase-dev", "request_timeout": 5}),
+        MagicMock(),
     )
 
+    assert plugin.is_available()
+    assert plugin.get_client().config.default_project == "mm-firebase-dev"
+    assert plugin.get_client().config.request_timeout == 5
 
-def test_firebase_plugin_initialize_uses_saved_oauth_client_id() -> None:
+
+def test_initialize_without_plugin_section_uses_defaults():
     plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {"firebase": MagicMock(config={})}
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "demo_firebase_oauth_client_id": "saved-google-client-id",
-        "demo_firebase_oauth_client_secret": "saved-google-client-secret",
-    }.get(key)
+    plugin.initialize(_config(None), MagicMock())
 
-    plugin.initialize(config, secrets)
-
-    client = plugin.get_client()
-    assert client.config.oauth_client_id == "saved-google-client-id"
-    assert client.config.oauth_client_secret == "saved-google-client-secret"
-    assert "google" in client.oauth_manager.providers
+    assert plugin.get_client().config.api_base_url.startswith("https://")
 
 
-def test_firebase_plugin_project_saved_oauth_client_id_overrides_config_value() -> None:
+def test_initialize_never_touches_the_secret_broker():
+    # Authentication is ADC, so the plugin holds no credential: a broker call
+    # here would mean something is storing one.
     plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(
-            config={
-                "oauth_client_id": "old-config-client-id",
-                "oauth_client_secret": "old-config-client-secret",
-            }
-        )
+    broker = MagicMock()
+    plugin.initialize(_config({}), broker)
+
+    assert broker.method_calls == []
+
+
+def test_initialize_rejects_invalid_config():
+    plugin = FirebasePlugin()
+    with pytest.raises(FirebaseConfigurationError):
+        plugin.initialize(_config({"api_base_url": "ftp://nope"}), MagicMock())
+
+
+def test_get_client_before_initialize_is_an_error():
+    with pytest.raises(FirebaseError):
+        FirebasePlugin().get_client()
+
+
+def test_registered_steps():
+    assert set(FirebasePlugin().get_steps()) == EXPECTED_STEPS
+
+
+def test_workflows_directory_ships_the_read_and_write_workflows():
+    path = FirebasePlugin().workflows_path
+    assert path is not None
+    assert {file.name for file in path.glob("*.yaml")} == {
+        "read-remoteconfig.yaml",
+        "set-remoteconfig-value.yaml",
+        "set-remoteconfig-value-multiproject.yaml",
     }
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "demo_firebase_oauth_client_id": "saved-google-client-id",
-        "demo_firebase_oauth_client_secret": "saved-google-client-secret",
-    }.get(key)
-
-    plugin.initialize(config, secrets)
-
-    assert plugin.get_client().config.oauth_client_id == "saved-google-client-id"
-    assert plugin.get_client().config.oauth_client_secret == (
-        "saved-google-client-secret"
-    )
 
 
-def test_firebase_plugin_does_not_mix_project_saved_id_with_config_secret() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(
-            config={
-                "oauth_client_id": "config-client-id",
-                "oauth_client_secret": "config-client-secret",
-            }
-        )
-    }
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "demo_firebase_oauth_client_id": "saved-google-client-id",
-    }.get(key)
-
-    plugin.initialize(config, secrets)
-
-    assert plugin.get_client().config.oauth_client_id == "saved-google-client-id"
-    assert plugin.get_client().config.oauth_client_secret is None
+def test_config_schema_leads_with_the_project_fields():
+    schema = FirebasePlugin().get_config_schema()
+    assert list(schema["properties"])[:2] == [
+        "default_project",
+        "quota_project_id",
+    ]
 
 
-def test_firebase_plugin_does_not_pair_config_id_with_project_secret() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(config={"oauth_client_id": "config-client-id"})
-    }
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "demo_firebase_oauth_client_secret": "wizard-client-secret",
-    }.get(key)
-
-    plugin.initialize(config, secrets)
-
-    assert plugin.get_client().config.oauth_client_id == "config-client-id"
-    assert plugin.get_client().config.oauth_client_secret is None
+def test_config_schema_declares_no_credential_field():
+    # A credential field would be a design regression: ADC means there is
+    # nothing to ask the user for or store.
+    properties = FirebasePlugin().get_config_schema()["properties"]
+    assert not [
+        name
+        for name in properties
+        if any(word in name for word in ("token", "secret", "password", "client_id"))
+    ]
 
 
-def test_firebase_plugin_pairs_project_saved_id_with_project_secret() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(config={"oauth_client_id": "config-client-id"})
-    }
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "demo_firebase_oauth_client_id": "saved-google-client-id",
-        "demo_firebase_oauth_client_secret": "saved-google-client-secret",
-    }.get(key)
-
-    plugin.initialize(config, secrets)
-
-    assert plugin.get_client().config.oauth_client_id == "saved-google-client-id"
-    assert (
-        plugin.get_client().config.oauth_client_secret == "saved-google-client-secret"
-    )
-
-
-def test_firebase_plugin_config_oauth_client_id_overrides_generic_saved_value() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(
-            config={
-                "oauth_client_id": "config-client-id",
-                "oauth_client_secret": "config-client-secret",
-            }
-        )
-    }
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "firebase_oauth_client_id": "generic-saved-client-id",
-        "firebase_oauth_client_secret": "generic-saved-client-secret",
-    }.get(key)
-
-    plugin.initialize(config, secrets)
-
-    assert plugin.get_client().config.oauth_client_id == "config-client-id"
-    assert plugin.get_client().config.oauth_client_secret == "config-client-secret"
-
-
-def test_firebase_plugin_does_not_mix_config_id_with_different_generic_secret() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(config={"oauth_client_id": "config-client-id"})
-    }
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "firebase_oauth_client_id": "generic-saved-client-id",
-        "firebase_oauth_client_secret": "generic-saved-client-secret",
-    }.get(key)
-
-    plugin.initialize(config, secrets)
-
-    assert plugin.get_client().config.oauth_client_id == "config-client-id"
-    assert plugin.get_client().config.oauth_client_secret is None
-
-
-def test_firebase_plugin_reuses_generic_secret_only_for_same_config_id() -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.get_project_name.return_value = "demo"
-    config.config.plugins = {
-        "firebase": MagicMock(config={"oauth_client_id": "same-client-id"})
-    }
-    secrets = MagicMock()
-    secrets.get.side_effect = lambda key: {
-        "firebase_oauth_client_id": "same-client-id",
-        "firebase_oauth_client_secret": "generic-saved-client-secret",
-    }.get(key)
-
-    plugin.initialize(config, secrets)
-
-    assert plugin.get_client().config.oauth_client_id == "same-client-id"
-    assert plugin.get_client().config.oauth_client_secret == (
-        "generic-saved-client-secret"
-    )
-
-
-def test_firebase_plugin_is_available_when_client_is_initialized(
-    monkeypatch,
-) -> None:
-    plugin = FirebasePlugin()
-    config = MagicMock()
-    config.config.plugins = {"firebase": MagicMock(config={})}
-    plugin.initialize(config, MagicMock())
-    monkeypatch.setattr(
-        plugin.get_client(),
-        "is_available",
-        MagicMock(return_value=False),
-    )
-
-    assert plugin.is_available() is True
-
-
-def test_firebase_plugin_is_not_available_before_initialize() -> None:
-    plugin = FirebasePlugin()
-
-    assert plugin.is_available() is False
+def test_config_schema_declares_no_brand_vocabulary():
+    # The wizard walks this schema. A generic plugin must not interrogate the
+    # user about brands or a project naming scheme; a repository that has one
+    # keeps it in its own plugin and passes project IDs in.
+    properties = FirebasePlugin().get_config_schema()["properties"]
+    assert not [
+        name
+        for name in properties
+        if any(word in name for word in ("brand", "pattern", "environment"))
+    ]

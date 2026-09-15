@@ -24,13 +24,13 @@ OFFICIAL_PLUGIN_REFS = {
         "package_dir": "plugins/titan-plugin-jira",
         "plugin_ref": "titan_plugin_jira.plugin:JiraPlugin",
     },
-    "firebase": {
-        "package_dir": "plugins/titan-plugin-firebase",
-        "plugin_ref": "titan_plugin_firebase.plugin:FirebasePlugin",
-    },
     "slack": {
         "package_dir": "plugins/titan-plugin-slack",
         "plugin_ref": "titan_plugin_slack.plugin:SlackPlugin",
+    },
+    "firebase": {
+        "package_dir": "plugins/titan-plugin-firebase",
+        "plugin_ref": "titan_plugin_firebase.plugin:FirebasePlugin",
     },
 }
 
@@ -38,8 +38,8 @@ WORKFLOW_STEPS_PAGE_PATHS = {
     "git": "docs/plugins/git/workflow-steps.md",
     "github": "docs/plugins/github/workflow-steps.md",
     "jira": "docs/plugins/jira/workflow-steps.md",
-    "firebase": "docs/plugins/firebase/workflow-steps.md",
     "slack": "docs/plugins/slack/workflow-steps.md",
+    "firebase": "docs/plugins/firebase/workflow-steps.md",
 }
 
 SECTION_HEADERS = [

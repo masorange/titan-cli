@@ -1,47 +1,54 @@
 # Firebase Plugin
 
-The Firebase plugin provides read-only Firebase Remote Config access from Titan
-workflows.
+The Firebase plugin reads and writes Firebase Remote Config: it lists a project's
+parameters and conditions, changes one parameter's value, and applies the same change
+across several projects.
 
-It validates Firebase authentication, reads Remote Config templates, and can
-build a normalized key inventory across several brand/environment projects.
+It exposes:
 
-## Requirements
+- a public `FirebaseClient`
+- reusable workflow steps for reading, writing, and multi-project fan-out
+- three built-in workflows
 
-Use one of these authentication sources:
+## Authentication
 
-1. Browser-based Google OAuth through Titan, using a configured Google OAuth
-   desktop client ID. This stores an access token, refresh token, expiry, and
-   scopes in Titan's OAuth token store.
-2. A short-lived OAuth access token in `FIREBASE_ACCESS_TOKEN`.
-3. A short-lived OAuth access token saved manually. The `firebase_login` prompt
-   stores manual tokens in Titan's OAuth token store as a temporary fallback.
-   Legacy keys `firebase_access_token` and `<project>_firebase_access_token`
-   may still exist from older versions; those keys are still read by the OAuth
-   manager.
-4. A personal Google Cloud Application Default Credentials login:
+Authentication is **Application Default Credentials (ADC)**. Run once:
 
 ```bash
 gcloud auth application-default login
 ```
 
-One token can read several Firebase projects when the authenticated identity has
-Remote Config permissions on each project.
+Titan stores no Firebase credential of its own. `google.auth` reads the ADC session and
+refreshes the access token, and the authorized HTTP session sets the `Authorization`
+header itself — the plugin never handles the token, and never asks the secret broker for
+anything.
 
-Titan resolves Firebase credentials through the shared OAuth manager. That layer
-is asynchronous-ready, emits provider-neutral events, stores one token-set blob
-per credential, and uses credential-scoped locks before refresh/login
-operations. Browser-based Google OAuth tokens include `expires_at` and a
-`refresh_token`, so Titan refreshes them before requests when they are near
-expiry. Manually pasted access tokens do not include expiry metadata, so replace
-them when Firebase rejects them as expired.
+That has a consequence worth understanding before you write anything: **Firebase
+attributes every published version to the identity behind the token.** With user
+credentials that is you, so the Remote Config version history in the Firebase console
+shows your email with origin `REST_API`. If `GOOGLE_APPLICATION_CREDENTIALS` points at a
+service account, every publish is attributed to that service account instead, and the
+`firebase_auth_check` step warns about it.
 
-The plugin does not use service account files, shared keys, `firebase-admin`, or
-the Firebase CLI.
+The default ADC scope (`cloud-platform`) covers Remote Config. The narrow scope is
+`https://www.googleapis.com/auth/firebase.remoteconfig`.
+
+Titan reports which *kind* of credential is active but not the signed-in email: an ADC
+session minted for `cloud-platform` need not carry the `userinfo.email` scope. The account
+that matters appears on the published version, which the publish step reports back.
+
+## Requirements
+
+- Enable the `firebase` plugin in `.titan/config.toml`
+- An ADC session (`gcloud auth application-default login`)
+- Read access to Remote Config in the target projects; publishing additionally needs
+  update permission, which is often restricted in production projects
 
 ## Configuration
 
-Enable the plugin in `.titan/config.toml`:
+The plugin has no credential fields, and no notion of a brand, a project naming pattern, or
+an environment map. It is generic: it speaks about Firebase projects, and a project ID is
+either configured as the default or passed in.
 
 ```toml
 [plugins.firebase]
@@ -49,88 +56,85 @@ enabled = true
 
 [plugins.firebase.config]
 default_project = "my-firebase-project"
-default_environment = "prod"
-api_base_url = "https://firebaseremoteconfig.googleapis.com/v1"
-request_timeout = 30
-oauth_client_id = "your-google-oauth-desktop-client-id"
-# Prefer storing oauth_client_secret in Titan keyring through the wizard.
-oauth_redirect_port = 0
-oauth_timeout = 180
-oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 ```
 
-`oauth_client_id` should be a Google OAuth client configured with application
-type `Desktop app`. This client ID identifies Titan CLI as the installed tool
-running the login flow; it is not the Firebase iOS, Android, or web app client.
-Titan uses Authorization Code with PKCE and can store the Desktop app
-`oauth_client_secret` in Titan's keyring when Google requires it during token
-exchange. `oauth_redirect_port = 0` lets Titan choose a free `127.0.0.1`
-loopback port for the callback.
+That is the only field most setups need. The rest have working defaults:
 
-Titan resolves OAuth client credentials as an atomic pair: project-specific
-keyring values, explicit plugin config values, then generic Firebase keyring
-values. When the generic wizard stores the client ID in config and the client
-secret in the project keyring, Titan treats those as one configured pair. It
-does not combine a project-specific saved client ID with a different config
-secret, because Google's token endpoint rejects mismatched Desktop app
-credentials.
+| Option | Default | What it does |
+|--------|---------|--------------|
+| `quota_project_id` | the credential's own quota project, else the project being read | Which project is billed for API quota. Override it when your account lacks `serviceusage.services.use` on the Firebase project itself. Titan applies it to the credential, because `google.auth` overwrites the `x-goog-user-project` header with the credential's value on every request. |
+| `api_base_url` | `https://firebaseremoteconfig.googleapis.com/v1` | Remote Config REST base URL. |
+| `request_timeout` | `30` | HTTP timeout in seconds. |
+| `oauth_scopes` | `["https://www.googleapis.com/auth/cloud-platform"]` | Scopes requested from ADC. |
 
-The browser OAuth default uses `https://www.googleapis.com/auth/cloud-platform`
-because Google accepts it in the user consent flow and the Firebase Remote
-Config REST API lists it as an accepted authorization scope. The narrower
-`https://www.googleapis.com/auth/firebase.remoteconfig` scope is still valid for
-Remote Config API calls, but Google may reject it during interactive user
-consent with `invalid_scope`.
+## Working with several projects
 
-Do not store `access_token` manually in `.titan/config.toml`. Prefer configuring
-`oauth_client_id` and running `firebase_login` so Titan opens Google login and
-stores a refreshable credential. Use manual access tokens only as a temporary
-fallback, or set `FIREBASE_ACCESS_TOKEN` only for the current shell session.
+One Firebase project per brand, per team, or per environment is a naming scheme that belongs
+to the repository that has it — not to Firebase, and not here. So the multi-project steps
+take the project list from workflow data rather than from configuration:
 
-When `firebase_login` runs interactively and no token is available, it opens the
-browser for Google login if `oauth_client_id` is configured. If browser OAuth is
-not configured yet, it asks for the Google OAuth Desktop app client ID and
-client secret, saves them in the user keyring, opens Google login, and stores a
-refreshable credential. If a saved refresh token fails, Titan deletes that stale
-token and reauthorizes interactively instead of keeping the workflow stuck on
-the old credential. Manual access tokens are only the final fallback.
+- `firebase_project_ids` — the projects to act on, published by an earlier step (or passed
+  to the built-in workflow as the `project_ids` param, comma-separated).
+- `firebase_project_labels` — optional `project_id -> label`, so tables and prompts can show
+  your own vocabulary while this plugin stays unaware of what the names mean.
 
-`default_project` is optional. If it is not configured, workflows must pass a
-`project_id` parameter to `firebase_remoteconfig_get`.
+A plugin that owns such a mapping resolves it and publishes the result:
 
-For multibrand inventories, prefer explicit project targets:
-
-```toml
-[[plugins.firebase.config.projects]]
-brand = "yoigo"
-environment = "prod"
-project_id = "yoigo-prod-project"
-
-[[plugins.firebase.config.projects]]
-brand = "masmovil"
-environment = "prod"
-project_id = "masmovil-prod-project"
+```python
+return Success(
+    "Projects resolved",
+    metadata={
+        "firebase_project_ids": ["mm-firebase-yoigo", "mm-guuk-firebase-prod"],
+        "firebase_project_labels": {"mm-guuk-firebase-prod": "guuk"},
+    },
+)
 ```
 
-The compact `brand_projects` mapping is also supported. By default it is read as
-`environment -> brand -> project_id`:
+Workflows can use steps from any installed plugin, so that step chains directly with
+`firebase_remoteconfig_fanout_plan` and `firebase_remoteconfig_fanout_publish`.
 
-```toml
-[plugins.firebase.config.brand_projects.prod]
-yoigo = "yoigo-prod-project"
-masmovil = "masmovil-prod-project"
-```
+## Environments are conditions
 
-If your source data is `brand -> environment -> project_id`, set:
+Remote Config has no environment concept of its own. What a project has is
+**conditions** — named expressions such as `android_prod` — and each parameter can carry
+a value per condition on top of its default value. The plugin reads the conditions from
+the template rather than taking a configured list, so what you can target is always what
+the project actually declares.
 
-```toml
-[plugins.firebase.config]
-brand_projects_layout = "brand_environment"
-```
+Separate environments (dev, pre, pro) are therefore separate Firebase projects, and which
+ones exist is the caller's knowledge, not this plugin's — see "Working with several
+projects" above.
 
-## Entry Point
+## How writes work
 
-```toml
-[tool.poetry.plugins."titan.plugins"]
-firebase = "titan_plugin_firebase.plugin:FirebasePlugin"
-```
+Remote Config has no per-parameter write endpoint: publishing replaces the whole
+template. Every write here is therefore a read-modify-write:
+
+1. Read the template and its `ETag`.
+2. Replace exactly one value, carrying everything else over untouched.
+3. `PUT ?validate_only=true` with `If-Match: <etag>` so Firebase checks the payload.
+4. `PUT` with the same `If-Match` to publish. The version number increases by one.
+
+`If-Match` is always the ETag from the read, never `*`. If someone published in between,
+Firebase answers 409 and the plugin re-reads and reapplies the change once — so a
+concurrent edit in the Firebase console fails loudly instead of being silently
+overwritten.
+
+Values are validated against the parameter's type before any request. Booleans are
+normalized to the literals Firebase accepts (`"True"`, `"1"` and `"0"` are documented as
+wrong), JSON is parsed and stored compacted, and numbers are checked. Writing a
+conditional value for a condition the template does not declare is refused locally.
+
+Each publish carries a description Titan generates — the key, the target, and the value
+before and after — which appears in the version history next to your email.
+
+## Limits to know
+
+Remote Config caps a template at 2000 parameters, keeps at most 300 stored versions, and
+retains each for 90 days.
+
+## Related pages
+
+- [Client API](client-api.md)
+- [Workflow Steps](workflow-steps.md)
+- [Built-in Workflows](built-in-workflows.md)

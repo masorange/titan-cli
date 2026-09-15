@@ -5,154 +5,386 @@
       "name": "Authentication",
       "steps": [
         {
-          "name": "firebase_login",
-          "summary": "Validate Firebase OAuth auth from Titan OAuth store, env var, or Google Cloud ADC."
-        },
-        {
-          "name": "firebase_status",
-          "summary": "Report the current Firebase OAuth authentication status."
+          "name": "firebase_auth_check",
+          "summary": "Check that Google Application Default Credentials are usable."
         }
       ]
     },
     {
-      "name": "Remote Config",
+      "name": "Project Selection",
+      "steps": [
+        {
+          "name": "firebase_select_target",
+          "summary": "Resolve the Firebase project to work on."
+        },
+        {
+          "name": "firebase_select_targets",
+          "summary": "Resolve several Firebase projects from a caller-supplied list."
+        }
+      ]
+    },
+    {
+      "name": "Reading Remote Config",
       "steps": [
         {
           "name": "firebase_remoteconfig_get",
-          "summary": "Read one Firebase project's Remote Config template and expose its ETag."
+          "summary": "Read the active Remote Config template for one project."
         },
         {
-          "name": "firebase_remoteconfig_inventory",
-          "summary": "Build a key inventory across configured Firebase brand projects."
+          "name": "firebase_remoteconfig_conditions",
+          "summary": "Show the template's conditions and choose which value a write targets."
+        },
+        {
+          "name": "firebase_remoteconfig_select_key",
+          "summary": "Choose one Remote Config parameter."
+        }
+      ]
+    },
+    {
+      "name": "Writing One Project",
+      "steps": [
+        {
+          "name": "firebase_remoteconfig_set_value",
+          "summary": "Ask for the new value of the selected parameter and validate it."
+        },
+        {
+          "name": "firebase_remoteconfig_diff",
+          "summary": "Render the pending change and ask the user to confirm it."
+        },
+        {
+          "name": "firebase_remoteconfig_publish",
+          "summary": "Publish one confirmed change, validating it with Firebase first."
+        }
+      ]
+    },
+    {
+      "name": "Writing Several Projects",
+      "steps": [
+        {
+          "name": "firebase_remoteconfig_fanout_plan",
+          "summary": "Build the per-project plan for one parameter change."
+        },
+        {
+          "name": "firebase_remoteconfig_fanout_publish",
+          "summary": "Publish the planned change to each selected project."
         }
       ]
     }
   ],
   "steps": [
     {
-      "name": "firebase_login",
+      "name": "firebase_auth_check",
       "group": "Authentication",
-      "module": "titan_plugin_firebase.steps.login_step",
-      "function": "execute_firebase_login_step",
-      "summary": "Validate that the current user has Firebase OAuth authentication.",
+      "module": "titan_plugin_firebase.steps.auth_check_step",
+      "function": "execute_firebase_auth_check_step",
+      "summary": "Check that Google Application Default Credentials are usable.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_account (Optional[str]): Service account email, when applicable.",
+          "    firebase_credential_kind (str): user, service_account, impersonated, ...",
+          "    firebase_credential_is_user (bool): Whether publishes get a real author."
+        ],
+        "Returns": [
+          "    Success: If credentials resolve and can mint a token.",
+          "    Error: If no ADC session exists or it cannot be refreshed."
+        ]
+      },
+      "used_by_workflows": [
+        "read-remoteconfig",
+        "set-remoteconfig-value",
+        "set-remoteconfig-value-multiproject"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_conditions",
+      "group": "Reading Remote Config",
+      "module": "titan_plugin_firebase.steps.conditions_step",
+      "function": "execute_firebase_remoteconfig_conditions_step",
+      "summary": "Show the template's conditions and choose which value a write targets.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
         ],
         "Inputs (from ctx.data)": [
-          "    fail_on_missing_auth (bool, optional): Return Error when auth is missing. Defaults to True.",
-          "    prompt_for_missing_auth (bool, optional): Prompt for Google OAuth setup/login when auth is missing. Defaults to True."
+          "    firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get.",
+          "    condition (str, optional): Preselected condition name, or \"default\"."
         ],
         "Outputs (saved to ctx.data)": [
-          "    firebase_account (Optional[str]): Reserved until Firebase token identity can be resolved; currently None.",
-          "    firebase_auth_source (Optional[str]): Safe source label for the token Titan will use.",
-          "    firebase_login_command (str): Command the user can run to create an ADC session.",
-          "    firebase_access_token_saved (bool): Whether this step saved a token to Titan's OAuth token store.",
-          "    firebase_oauth_login_completed (bool): Whether this step completed browser OAuth login."
+          "    firebase_condition (Optional[str]): Condition name, None for the default.",
+          "    firebase_condition_label (str): User-facing label for the target."
         ],
         "Returns": [
-          "    Success: If Firebase OAuth auth is available.",
-          "    Error: If Firebase client or auth is missing and fail_on_missing_auth is True.",
-          "    Skip: If auth is missing and fail_on_missing_auth is False."
+          "    Success: If a target is chosen (or only the default exists).",
+          "    Error: If the template is missing or the user cancels."
         ]
       },
       "used_by_workflows": [
-        "list-remoteconfig-keys"
+        "read-remoteconfig",
+        "set-remoteconfig-value"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_diff",
+      "group": "Writing One Project",
+      "module": "titan_plugin_firebase.steps.diff_step",
+      "function": "execute_firebase_remoteconfig_diff_step",
+      "summary": "Render the pending change and ask the user to confirm it.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_change (UIRemoteConfigChange): From firebase_remoteconfig_set_value.",
+          "    firebase_project_id (str): Target project.",
+          "    firebase_target_label (Optional[str]): Display label for the project."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_change_confirmed (bool): Always True when the step succeeds."
+        ],
+        "Returns": [
+          "    Success: If the user confirms the change.",
+          "    Exit: If the change is a no-op, or the user declines.",
+          "    Error: If there is no pending change to show."
+        ]
+      },
+      "used_by_workflows": [
+        "set-remoteconfig-value"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_fanout_plan",
+      "group": "Writing Several Projects",
+      "module": "titan_plugin_firebase.steps.fanout_plan_step",
+      "function": "execute_firebase_remoteconfig_fanout_plan_step",
+      "summary": "Build the per-project plan for one parameter change.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.",
+          "    key (str): Parameter to change.",
+          "    value (str): New value.",
+          "    condition (str, optional): Condition to write instead of the default."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_fanout_plan (list[UIFanoutEntry]): Entries chosen to publish.",
+          "    firebase_fanout_rejected (list[UIFanoutEntry]): Entries left out."
+        ],
+        "Returns": [
+          "    Success: If at least one project is selected for publishing.",
+          "    Exit: If no project can take the change, or the user selects none.",
+          "    Error: If inputs are missing."
+        ]
+      },
+      "used_by_workflows": [
+        "set-remoteconfig-value-multiproject"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_fanout_publish",
+      "group": "Writing Several Projects",
+      "module": "titan_plugin_firebase.steps.fanout_publish_step",
+      "function": "execute_firebase_remoteconfig_fanout_publish_step",
+      "summary": "Publish the planned change to each selected project.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_fanout_plan (list[UIFanoutEntry]): From firebase_remoteconfig_fanout_plan.",
+          "    dry_run (bool, optional): Validate everywhere, publish nothing."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_fanout_outcomes (list[UIFanoutOutcome]): Per-project results.",
+          "    firebase_fanout_published (int): Projects published.",
+          "    firebase_fanout_failed (int): Projects that failed."
+        ],
+        "Returns": [
+          "    Success: If at least one project published (or validated in a dry run).",
+          "    Error: If the plan is missing or every project failed."
+        ]
+      },
+      "used_by_workflows": [
+        "set-remoteconfig-value-multiproject"
       ]
     },
     {
       "name": "firebase_remoteconfig_get",
-      "group": "Remote Config",
+      "group": "Reading Remote Config",
       "module": "titan_plugin_firebase.steps.remoteconfig_get_step",
       "function": "execute_firebase_remoteconfig_get_step",
-      "summary": "Read a Firebase Remote Config template for one project.",
+      "summary": "Read the active Remote Config template for one project.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
         ],
         "Inputs (from ctx.data)": [
-          "    project_id (str, optional): Firebase project ID to read.",
-          "    firebase_project_id (str, optional): Alternate project ID key from a previous step."
+          "    firebase_project_id (str): Project to read, from firebase_select_target.",
+          "    project_id (str, optional): Alternative key for the same thing."
         ],
         "Outputs (saved to ctx.data)": [
-          "    firebase_project_id (str): Firebase project ID used for the request.",
-          "    firebase_remoteconfig_template (dict): Remote Config template JSON payload.",
-          "    firebase_remoteconfig_etag (Optional[str]): ETag returned by Firebase for later publishing.",
-          "    firebase_remoteconfig_version (Optional[dict]): Remote Config template version payload."
+          "    firebase_project_id (str): Project that was read.",
+          "    firebase_remoteconfig_etag (Optional[str]): ETag needed to publish over it.",
+          "    firebase_remoteconfig_version (Optional[str]): Active version number.",
+          "    firebase_remoteconfig_template (UIRemoteConfigTemplate): The template."
         ],
         "Returns": [
-          "    Success: If the Remote Config template is read successfully.",
-          "    Error: If Firebase is unavailable, no project ID is provided, the API request fails, or the template payload is malformed."
-        ]
-      },
-      "used_by_workflows": []
-    },
-    {
-      "name": "firebase_remoteconfig_inventory",
-      "group": "Remote Config",
-      "module": "titan_plugin_firebase.steps.remoteconfig_inventory_step",
-      "function": "execute_firebase_remoteconfig_inventory_step",
-      "summary": "Build a key inventory across configured Firebase Remote Config projects.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.firebase: An initialized FirebaseClient."
-        ],
-        "Inputs (from ctx.data)": [
-          "    project_targets (list[dict], optional): Explicit Firebase project targets.",
-          "    firebase_project_targets (list[dict], optional): Alternate explicit target key.",
-          "    projects (list[dict|str], optional): Firebase project targets or project IDs.",
-          "    brand_projects (dict, optional): Brand/environment project mapping override.",
-          "    brand (str, optional): Single brand filter.",
-          "    brands (list[str]|str, optional): Brand filter list or comma-separated string.",
-          "    environment (str, optional): Single environment filter.",
-          "    environments (list[str]|str, optional): Environment filter list or comma-separated string.",
-          "    continue_on_error (bool, optional): Continue when one project read fails. Defaults to True."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    firebase_remoteconfig_inventory (dict): Aggregated inventory payload.",
-          "    firebase_remoteconfig_keys (list[dict]): Unique key inventory rows.",
-          "    firebase_remoteconfig_targets (list[dict]): Project targets that were requested.",
-          "    firebase_remoteconfig_project_count (int): Number of projects read successfully.",
-          "    firebase_remoteconfig_key_count (int): Number of unique keys found.",
-          "    firebase_remoteconfig_failures (list[dict]): Project read failures, when any."
-        ],
-        "Returns": [
-          "    Success: If at least one project is read and key inventory is built.",
-          "    Error: If Firebase is unavailable, no targets are configured, or all project reads fail."
+          "    Success: If the template is read.",
+          "    Error: If Firebase is unavailable, no project is given, or the read fails."
         ]
       },
       "used_by_workflows": [
-        "list-remoteconfig-keys"
+        "read-remoteconfig",
+        "set-remoteconfig-value"
       ]
     },
     {
-      "name": "firebase_status",
-      "group": "Authentication",
-      "module": "titan_plugin_firebase.steps.login_step",
-      "function": "execute_firebase_status_step",
-      "summary": "Report the current Firebase OAuth authentication status.",
+      "name": "firebase_remoteconfig_publish",
+      "group": "Writing One Project",
+      "module": "titan_plugin_firebase.steps.publish_step",
+      "function": "execute_firebase_remoteconfig_publish_step",
+      "summary": "Publish one confirmed change, validating it with Firebase first.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
         ],
         "Inputs (from ctx.data)": [
-          "    fail_on_missing_auth (bool, optional): Return Error when auth is missing. Defaults to True.",
-          "    prompt_for_missing_auth (bool, optional): Prompt for Google OAuth setup/login when auth is missing. Defaults to False."
+          "    firebase_project_id (str): Target project.",
+          "    firebase_change (UIRemoteConfigChange): The change to publish.",
+          "    firebase_change_confirmed (bool): Set by `firebase_remoteconfig_diff`.",
+          "    dry_run (bool, optional): Validate only, publish nothing."
         ],
         "Outputs (saved to ctx.data)": [
-          "    firebase_account (Optional[str]): Reserved until Firebase token identity can be resolved; currently None.",
-          "    firebase_auth_source (Optional[str]): Safe source label for the token Titan will use.",
-          "    firebase_login_command (str): Command the user can run to create an ADC session.",
-          "    firebase_access_token_saved (bool): Whether this step saved a token to Titan's OAuth token store.",
-          "    firebase_oauth_login_completed (bool): Whether this step completed browser OAuth login."
+          "    firebase_published_version (Optional[str]): New version number.",
+          "    firebase_published_author (Optional[str]): Author Firebase recorded.",
+          "    firebase_publish_result (UIRemoteConfigPublishResult): Full outcome."
         ],
         "Returns": [
-          "    Success: If Firebase OAuth auth is available.",
-          "    Error: If Firebase client or auth is missing and fail_on_missing_auth is True.",
-          "    Skip: If auth is missing and fail_on_missing_auth is False."
+          "    Success: If Firebase validated (dry run) or published the template.",
+          "    Error: If inputs are missing, the change is unconfirmed, or the write fails."
         ]
       },
-      "used_by_workflows": []
+      "used_by_workflows": [
+        "set-remoteconfig-value"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_select_key",
+      "group": "Reading Remote Config",
+      "module": "titan_plugin_firebase.steps.select_key_step",
+      "function": "execute_firebase_remoteconfig_select_key_step",
+      "summary": "Choose one Remote Config parameter.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get.",
+          "    firebase_condition (Optional[str]): Write target, from firebase_remoteconfig_conditions.",
+          "    key (str, optional): Preselected parameter key."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_key (str): Selected parameter key.",
+          "    firebase_value_type (str): Effective value type of the parameter.",
+          "    firebase_current_value (Optional[str]): Raw current value, None if unset."
+        ],
+        "Returns": [
+          "    Success: If a parameter is selected.",
+          "    Error: If the template is missing, the key is unknown, or the user cancels."
+        ]
+      },
+      "used_by_workflows": [
+        "read-remoteconfig",
+        "set-remoteconfig-value"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_set_value",
+      "group": "Writing One Project",
+      "module": "titan_plugin_firebase.steps.set_value_step",
+      "function": "execute_firebase_remoteconfig_set_value_step",
+      "summary": "Ask for the new value of the selected parameter and validate it.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_project_id (str): Target project.",
+          "    firebase_key (str): Parameter to change.",
+          "    firebase_condition (Optional[str]): Condition to write, None for the default.",
+          "    firebase_value_type (Optional[str]): Type reported by the read.",
+          "    firebase_current_value (Optional[str]): Current raw value.",
+          "    value (str, optional): New value, for non-interactive runs."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_change (UIRemoteConfigChange): The validated change.",
+          "    firebase_new_value (str): Exact string that will be stored."
+        ],
+        "Returns": [
+          "    Success: If the value is valid for the parameter type.",
+          "    Error: If inputs are missing, the value is invalid, or the user cancels."
+        ]
+      },
+      "used_by_workflows": [
+        "set-remoteconfig-value"
+      ]
+    },
+    {
+      "name": "firebase_select_target",
+      "group": "Project Selection",
+      "module": "titan_plugin_firebase.steps.select_target_step",
+      "function": "execute_firebase_select_target_step",
+      "summary": "Resolve the Firebase project to work on.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    project_id (str, optional): Firebase project ID to use.",
+          "    project_label (str, optional): Friendlier name to show for it."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_project_id (str): Resolved project ID.",
+          "    firebase_target_label (str): User-facing reference for the target."
+        ],
+        "Returns": [
+          "    Success: If a project could be resolved.",
+          "    Error: If the plugin is unavailable or nothing names a project."
+        ]
+      },
+      "used_by_workflows": [
+        "read-remoteconfig",
+        "set-remoteconfig-value"
+      ]
+    },
+    {
+      "name": "firebase_select_targets",
+      "group": "Project Selection",
+      "module": "titan_plugin_firebase.steps.select_targets_step",
+      "function": "execute_firebase_select_targets_step",
+      "summary": "Resolve several Firebase projects from a caller-supplied list.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    project_ids (list or str, optional): Projects to target; a comma- or space-separated string is accepted.",
+          "    firebase_project_ids (list or str, optional): Same, as published by an earlier step.",
+          "    firebase_project_labels (dict, optional): project_id to label, shown instead of the raw ID."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_targets (list[FirebaseProjectTarget]): Resolved targets.",
+          "    firebase_project_ids (list[str]): Normalized, de-duplicated project IDs."
+        ],
+        "Returns": [
+          "    Success: If at least one project was named.",
+          "    Error: If the plugin is unavailable or the list is empty."
+        ]
+      },
+      "used_by_workflows": [
+        "set-remoteconfig-value-multiproject"
+      ]
     }
   ]
 }

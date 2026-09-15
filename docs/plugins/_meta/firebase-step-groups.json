@@ -5,25 +5,68 @@
       "name": "Authentication",
       "steps": [
         {
-          "name": "firebase_login",
-          "summary": "Validate Firebase OAuth auth from Titan OAuth store, env var, or Google Cloud ADC."
-        },
-        {
-          "name": "firebase_status",
-          "summary": "Report the current Firebase OAuth authentication status."
+          "name": "firebase_auth_check",
+          "summary": "Check that Google Application Default Credentials are usable."
         }
       ]
     },
     {
-      "name": "Remote Config",
+      "name": "Project Selection",
+      "steps": [
+        {
+          "name": "firebase_select_target",
+          "summary": "Resolve the Firebase project to work on."
+        },
+        {
+          "name": "firebase_select_targets",
+          "summary": "Resolve several Firebase projects from a caller-supplied list."
+        }
+      ]
+    },
+    {
+      "name": "Reading Remote Config",
       "steps": [
         {
           "name": "firebase_remoteconfig_get",
-          "summary": "Read one Firebase project's Remote Config template and expose its ETag."
+          "summary": "Read the active Remote Config template for one project."
         },
         {
-          "name": "firebase_remoteconfig_inventory",
-          "summary": "Build a key inventory across configured Firebase brand projects."
+          "name": "firebase_remoteconfig_conditions",
+          "summary": "Show the template's conditions and choose which value a write targets."
+        },
+        {
+          "name": "firebase_remoteconfig_select_key",
+          "summary": "Choose one Remote Config parameter."
+        }
+      ]
+    },
+    {
+      "name": "Writing One Project",
+      "steps": [
+        {
+          "name": "firebase_remoteconfig_set_value",
+          "summary": "Ask for the new value of the selected parameter and validate it."
+        },
+        {
+          "name": "firebase_remoteconfig_diff",
+          "summary": "Render the pending change and ask the user to confirm it."
+        },
+        {
+          "name": "firebase_remoteconfig_publish",
+          "summary": "Publish one confirmed change, validating it with Firebase first."
+        }
+      ]
+    },
+    {
+      "name": "Writing Several Projects",
+      "steps": [
+        {
+          "name": "firebase_remoteconfig_fanout_plan",
+          "summary": "Build the per-project plan for one parameter change."
+        },
+        {
+          "name": "firebase_remoteconfig_fanout_publish",
+          "summary": "Publish the planned change to each selected project."
         }
       ]
     }

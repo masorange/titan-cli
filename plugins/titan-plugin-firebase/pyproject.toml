@@ -1,14 +1,21 @@
 [tool.poetry]
 name = "titan-plugin-firebase"
 version = "0.1.0"
-description = "Firebase plugin for Titan CLI"
+description = "Titan CLI plugin for Firebase Remote Config (read and write)."
 authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
 packages = [{include = "titan_plugin_firebase"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10"
-titan-cli = ">=0.6.0"
-requests = ">=2.31.0,<3.0.0"
+python = ">=3.11"
+titan-cli = ">=0.8.0"
+google-auth = ">=2.43.0"
+requests = ">=2.31.0"
+pydantic = ">=2.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0.0"
+pytest-mock = ">=3.10.0"
+responses = ">=0.25.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

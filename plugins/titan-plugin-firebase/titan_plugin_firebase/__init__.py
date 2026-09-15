@@ -1,12 +1,5 @@
-"""Firebase plugin for Titan CLI."""
+"""Titan CLI Firebase plugin."""
 
-from .client import FirebaseClient, RemoteConfigTemplate
-from .config import FirebasePluginConfig
 from .plugin import FirebasePlugin
 
-__all__ = [
-    "FirebaseClient",
-    "FirebasePlugin",
-    "FirebasePluginConfig",
-    "RemoteConfigTemplate",
-]
+__all__ = ["FirebasePlugin"]
