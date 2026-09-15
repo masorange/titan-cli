@@ -14,6 +14,9 @@ EXPECTED_STEPS = {
     "firebase_remoteconfig_get",
     "firebase_remoteconfig_conditions",
     "firebase_remoteconfig_select_key",
+    "firebase_remoteconfig_set_value",
+    "firebase_remoteconfig_diff",
+    "firebase_remoteconfig_publish",
 }
 
 
@@ -74,10 +77,13 @@ def test_registered_steps():
     assert set(FirebasePlugin().get_steps()) == EXPECTED_STEPS
 
 
-def test_workflows_directory_ships_the_read_workflow():
+def test_workflows_directory_ships_the_read_and_write_workflows():
     path = FirebasePlugin().workflows_path
     assert path is not None
-    assert {file.name for file in path.glob("*.yaml")} == {"read-remoteconfig.yaml"}
+    assert {file.name for file in path.glob("*.yaml")} == {
+        "read-remoteconfig.yaml",
+        "set-remoteconfig-value.yaml",
+    }
 
 
 def test_config_schema_leads_with_the_project_fields():

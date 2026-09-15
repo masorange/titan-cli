@@ -79,6 +79,55 @@ class UIRemoteConfigParameter:
 
 
 @dataclass(frozen=True)
+class UIRemoteConfigChange:
+    """One pending change to a single parameter value."""
+
+    key: str
+    condition: Optional[str]
+    value_type: RemoteConfigValueType
+    old_raw_value: Optional[str]
+    new_raw_value: str
+    inherited_from_default: bool = False
+
+    @property
+    def target_label(self) -> str:
+        """Which value of the parameter this change writes."""
+        return self.condition or "valor por defecto"
+
+    @property
+    def is_noop(self) -> bool:
+        """Whether publishing this change would alter nothing."""
+        return self.old_raw_value == self.new_raw_value
+
+    @property
+    def creates_conditional_value(self) -> bool:
+        """Whether this adds a conditional value the parameter lacked."""
+        return self.condition is not None and self.old_raw_value is None
+
+    def describe(self, *, max_value_length: int = 80) -> str:
+        """
+        One-line summary, published as the Remote Config version description.
+
+        It shows up in the Firebase version history next to the author, which
+        is the point: the history should say what changed, not just who
+        touched it.
+        """
+
+        def _trim(value: Optional[str]) -> str:
+            if value is None:
+                return "(sin valor)"
+            collapsed = " ".join(value.split())
+            if len(collapsed) <= max_value_length:
+                return collapsed
+            return f"{collapsed[: max_value_length - 1]}…"
+
+        return (
+            f"Titan: {self.key} [{self.target_label}] "
+            f"{_trim(self.old_raw_value)} -> {_trim(self.new_raw_value)}"
+        )
+
+
+@dataclass(frozen=True)
 class UIRemoteConfigVersion:
     """Version metadata of a published template."""
 
@@ -93,6 +142,23 @@ class UIRemoteConfigVersion:
     def display_author(self) -> str:
         """Author label for the UI."""
         return self.update_user_email or "(autor desconocido)"
+
+
+@dataclass(frozen=True)
+class UIRemoteConfigPublishResult:
+    """Outcome of publishing one template."""
+
+    project_id: str
+    validated_only: bool
+    etag: Optional[str]
+    version: Optional["UIRemoteConfigVersion"]
+    change: Optional[UIRemoteConfigChange] = None
+    retried_after_conflict: bool = False
+
+    @property
+    def version_number(self) -> Optional[str]:
+        """Version number Firebase assigned, when it published."""
+        return self.version.version_number if self.version else None
 
 
 @dataclass(frozen=True)

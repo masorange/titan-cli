@@ -19,8 +19,19 @@ from ...exceptions import (
     FirebaseApiError,
     FirebaseAuthUnavailableError,
 )
-from ...models.mappers import map_template
-from ...models.view import UIAdcIdentity, UIRemoteConfigTemplate
+from ...models.mappers import map_template, map_version
+from ...models.view import (
+    UIAdcIdentity,
+    UIRemoteConfigChange,
+    UIRemoteConfigPublishResult,
+    UIRemoteConfigTemplate,
+)
+from ...operations.template_operations import (
+    TemplateEditError,
+    apply_change,
+    build_change,
+)  # build_change is the pure operation; the service method below is validate_change
+from ...models.values import RemoteConfigValueError
 from ..network.adc_auth import ADC_LOGIN_HINT, service_account_env_var_set
 from ..network.remoteconfig_network import RemoteConfigNetwork
 
@@ -109,6 +120,146 @@ class RemoteConfigService:
     def uses_service_account_env_var(self) -> bool:
         """Whether GOOGLE_APPLICATION_CREDENTIALS would decide the identity."""
         return service_account_env_var_set()
+
+    @log_client_operation("firebase_publish_remote_config")
+    def publish_change(
+        self,
+        project_id,
+        change,
+        *,
+        validate_only: bool = False,
+    ) -> ClientResult[UIRemoteConfigPublishResult]:
+        """
+        Apply one parameter change and publish (or validate) the template.
+
+        The read happens here, immediately before the write, so the ETag is as
+        fresh as it can be. A conflict means someone published between the two
+        calls: the read-modify-write is retried once against the new template,
+        which is the documented recovery and is safe because the change is
+        described declaratively (key, target, value) rather than as a
+        pre-rendered payload.
+
+        `change` and its value are positional on purpose: the logging decorator
+        records keyword arguments, and a parameter value can carry
+        business-sensitive content.
+        """
+        attempt = self._attempt_publish(project_id, change, validate_only)
+        if isinstance(attempt, ClientError) and attempt.error_code == "ETAG_CONFLICT":
+            retry = self._attempt_publish(project_id, change, validate_only)
+            if isinstance(retry, ClientSuccess):
+                return ClientSuccess(
+                    data=UIRemoteConfigPublishResult(
+                        project_id=retry.data.project_id,
+                        validated_only=retry.data.validated_only,
+                        etag=retry.data.etag,
+                        version=retry.data.version,
+                        change=retry.data.change,
+                        retried_after_conflict=True,
+                    ),
+                    message=f"{retry.message} (tras reintentar por ETag)",
+                )
+            return retry
+        return attempt
+
+    def _attempt_publish(
+        self,
+        project_id: str,
+        change: UIRemoteConfigChange,
+        validate_only: bool,
+    ) -> ClientResult[UIRemoteConfigPublishResult]:
+        """One read-modify-write cycle."""
+        payload, etag, error = self.raw_template(project_id)
+        if error is not None:
+            return error
+        if not etag:
+            return ClientError(
+                error_message=(
+                    "Firebase no devolvió ETag en la lectura, así que no se "
+                    "puede publicar sin riesgo de pisar otros cambios."
+                ),
+                error_code="MISSING_ETAG",
+            )
+
+        try:
+            updated = apply_change(payload, change)
+        except TemplateEditError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="TEMPLATE_EDIT_ERROR",
+                log_level="warning",
+            )
+
+        try:
+            template, new_etag = self._network.put_template(
+                project_id,
+                updated,
+                etag=etag,
+                validate_only=validate_only,
+            )
+        except FirebaseAuthUnavailableError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="ADC_UNAVAILABLE",
+                details={"login_command": ADC_LOGIN_HINT},
+            )
+        except FirebaseApiError as exc:
+            return _api_error_to_client_error(exc)
+
+        version = map_version(template.version)
+        result = UIRemoteConfigPublishResult(
+            project_id=project_id.strip(),
+            validated_only=validate_only,
+            etag=new_etag,
+            version=version,
+            change=change,
+        )
+        message = (
+            f"Plantilla validada para {project_id}"
+            if validate_only
+            else (
+                f"Publicada la versión {result.version_number or '?'} de "
+                f"{project_id}"
+            )
+        )
+        return ClientSuccess(data=result, message=message)
+
+    @log_client_operation("firebase_validate_change")
+    def validate_change(
+        self,
+        project_id,
+        key,
+        new_value,
+        condition=None,
+    ) -> ClientResult[UIRemoteConfigChange]:
+        """
+        Validate a requested edit against the live template.
+
+        Arguments are positional because the value can be sensitive and the
+        logging decorator would record it as a keyword.
+        """
+        payload, _etag, error = self.raw_template(project_id)
+        if error is not None:
+            return error
+
+        try:
+            change = build_change(payload, key, new_value, condition)
+        except TemplateEditError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="TEMPLATE_EDIT_ERROR",
+                log_level="warning",
+            )
+        except RemoteConfigValueError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="INVALID_VALUE",
+                log_level="warning",
+            )
+
+        return ClientSuccess(
+            data=change,
+            message=f"Cambio validado para {key}",
+        )
 
     def raw_template(
         self,

@@ -2,8 +2,10 @@
 
 from .view import (
     UIAdcIdentity,
+    UIRemoteConfigChange,
     UIRemoteConfigCondition,
     UIRemoteConfigParameter,
+    UIRemoteConfigPublishResult,
     UIRemoteConfigTemplate,
     UIRemoteConfigValue,
     UIRemoteConfigVersion,
@@ -11,8 +13,10 @@ from .view import (
 
 __all__ = [
     "UIAdcIdentity",
+    "UIRemoteConfigChange",
     "UIRemoteConfigCondition",
     "UIRemoteConfigParameter",
+    "UIRemoteConfigPublishResult",
     "UIRemoteConfigTemplate",
     "UIRemoteConfigValue",
     "UIRemoteConfigVersion",
