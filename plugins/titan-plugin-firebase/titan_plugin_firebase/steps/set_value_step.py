@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
-from titan_cli.ui.tui.widgets import ChoiceOption
 
-from ..models.values import RemoteConfigValueType
+from .prompts import ask_value, blank_to_none, normalize_value_type
 
 
 def execute_firebase_remoteconfig_set_value_step(
@@ -58,14 +56,14 @@ def execute_firebase_remoteconfig_set_value_step(
         )
 
     condition = ctx.get("firebase_condition")
-    value_type = _value_type(ctx.get("firebase_value_type"))
+    value_type = normalize_value_type(ctx.get("firebase_value_type"))
     current_value = ctx.get("firebase_current_value")
 
-    new_value = ctx.get("value")
+    new_value = blank_to_none(ctx.get("value"))
     if new_value is None:
         if not ctx.textual:
             return _fail(ctx, "Se necesita la TUI para introducir un valor")
-        new_value = _ask_value(ctx, str(key), value_type, current_value, condition)
+        new_value = ask_value(ctx, str(key), value_type, current_value, condition)
         if new_value is None:
             return _fail(ctx, "No se introdujo ningún valor")
 
@@ -105,54 +103,6 @@ def execute_firebase_remoteconfig_set_value_step(
             return _fail(ctx, error_message)
 
     return _fail(ctx, "Respuesta inesperada al validar el valor")
-
-
-def _value_type(raw: Optional[object]) -> RemoteConfigValueType:
-    """Normalize the type reported by the read step."""
-    if isinstance(raw, RemoteConfigValueType):
-        return raw
-    if isinstance(raw, str):
-        return RemoteConfigValueType.__members__.get(
-            raw.strip().upper(),
-            RemoteConfigValueType.UNKNOWN,
-        )
-    return RemoteConfigValueType.UNKNOWN
-
-
-def _ask_value(
-    ctx: WorkflowContext,
-    key: str,
-    value_type: RemoteConfigValueType,
-    current_value: Optional[object],
-    condition: Optional[object],
-) -> Optional[str]:
-    """Prompt for the new value in the shape the type calls for."""
-    target = condition or "valor por defecto"
-    current = str(current_value) if current_value is not None else ""
-
-    if value_type == RemoteConfigValueType.BOOLEAN:
-        chosen = ctx.textual.ask_choice(
-            f"{key} [{target}] — valor actual: {current or '(sin valor)'}",
-            options=[
-                ChoiceOption(value="true", label="true", variant="success"),
-                ChoiceOption(value="false", label="false", variant="error"),
-            ],
-        )
-        return str(chosen) if chosen is not None else None
-
-    if value_type == RemoteConfigValueType.JSON:
-        # JSON values are routinely multi-line; a single-line input would make
-        # anything non-trivial uneditable.
-        return ctx.textual.ask_multiline(
-            f"{key} [{target}] — JSON:",
-            default=current,
-        )
-
-    hint = "número" if value_type == RemoteConfigValueType.NUMBER else "texto"
-    return ctx.textual.ask_text(
-        f"{key} [{target}] — nuevo valor ({hint}):",
-        default=current,
-    )
 
 
 def _fail(ctx: WorkflowContext, message: str) -> WorkflowResult:

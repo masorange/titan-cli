@@ -17,6 +17,9 @@ EXPECTED_STEPS = {
     "firebase_remoteconfig_set_value",
     "firebase_remoteconfig_diff",
     "firebase_remoteconfig_publish",
+    "firebase_select_targets",
+    "firebase_remoteconfig_fanout_plan",
+    "firebase_remoteconfig_fanout_publish",
 }
 
 
@@ -83,6 +86,7 @@ def test_workflows_directory_ships_the_read_and_write_workflows():
     assert {file.name for file in path.glob("*.yaml")} == {
         "read-remoteconfig.yaml",
         "set-remoteconfig-value.yaml",
+        "set-remoteconfig-value-multibrand.yaml",
     }
 
 

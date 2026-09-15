@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from ..targets import FirebaseProjectTarget
 from ..values import RemoteConfigValueType
 
 
@@ -159,6 +160,67 @@ class UIRemoteConfigPublishResult:
     def version_number(self) -> Optional[str]:
         """Version number Firebase assigned, when it published."""
         return self.version.version_number if self.version else None
+
+
+@dataclass(frozen=True)
+class UIFanoutEntry:
+    """One brand's share of a multi-brand change, before anything is published."""
+
+    target: FirebaseProjectTarget
+    change: Optional[UIRemoteConfigChange] = None
+    error: Optional[str] = None
+
+    @property
+    def status(self) -> str:
+        """ready, noop, or error."""
+        if self.error is not None:
+            return "error"
+        if self.change is None or self.change.is_noop:
+            return "noop"
+        return "ready"
+
+    @property
+    def is_publishable(self) -> bool:
+        """Whether publishing this entry would change anything."""
+        return self.status == "ready"
+
+    @property
+    def detail(self) -> str:
+        """One-line explanation for the plan table."""
+        if self.error is not None:
+            return self.error
+        if self.change is None:
+            return "sin cambio"
+        if self.change.is_noop:
+            return f"ya vale {self.change.new_raw_value}"
+        old = self.change.old_raw_value
+        return f"{old if old is not None else '(sin valor)'} -> {self.change.new_raw_value}"
+
+
+@dataclass(frozen=True)
+class UIFanoutOutcome:
+    """What happened when one brand's change was published."""
+
+    target: FirebaseProjectTarget
+    published: Optional["UIRemoteConfigPublishResult"] = None
+    error: Optional[str] = None
+
+    @property
+    def succeeded(self) -> bool:
+        """Whether Firebase accepted the publish."""
+        return self.error is None and self.published is not None
+
+    @property
+    def detail(self) -> str:
+        """One-line result for the report table."""
+        if self.error is not None:
+            return self.error
+        if self.published is None:
+            return "sin publicar"
+        version = self.published.version_number or "?"
+        if self.published.retried_after_conflict:
+            return f"versión {version} (reintentada por ETag)"
+        return f"versión {version}"
 
 
 @dataclass(frozen=True)

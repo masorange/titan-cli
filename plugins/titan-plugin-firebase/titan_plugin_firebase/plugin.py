@@ -112,6 +112,12 @@ class FirebasePlugin(TitanPlugin):
             execute_firebase_remoteconfig_conditions_step,
         )
         from .steps.diff_step import execute_firebase_remoteconfig_diff_step
+        from .steps.fanout_plan_step import (
+            execute_firebase_remoteconfig_fanout_plan_step,
+        )
+        from .steps.fanout_publish_step import (
+            execute_firebase_remoteconfig_fanout_publish_step,
+        )
         from .steps.publish_step import execute_firebase_remoteconfig_publish_step
         from .steps.remoteconfig_get_step import (
             execute_firebase_remoteconfig_get_step,
@@ -120,6 +126,7 @@ class FirebasePlugin(TitanPlugin):
             execute_firebase_remoteconfig_select_key_step,
         )
         from .steps.select_target_step import execute_firebase_select_target_step
+        from .steps.select_targets_step import execute_firebase_select_targets_step
         from .steps.set_value_step import (
             execute_firebase_remoteconfig_set_value_step,
         )
@@ -140,6 +147,13 @@ class FirebasePlugin(TitanPlugin):
             "firebase_remoteconfig_diff": execute_firebase_remoteconfig_diff_step,
             "firebase_remoteconfig_publish": (
                 execute_firebase_remoteconfig_publish_step
+            ),
+            "firebase_select_targets": execute_firebase_select_targets_step,
+            "firebase_remoteconfig_fanout_plan": (
+                execute_firebase_remoteconfig_fanout_plan_step
+            ),
+            "firebase_remoteconfig_fanout_publish": (
+                execute_firebase_remoteconfig_fanout_publish_step
             ),
         }
 

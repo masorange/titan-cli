@@ -17,7 +17,12 @@ def _load(name: str) -> dict:
 
 
 @pytest.mark.parametrize(
-    "name", ["read-remoteconfig.yaml", "set-remoteconfig-value.yaml"]
+    "name",
+    [
+        "read-remoteconfig.yaml",
+        "set-remoteconfig-value.yaml",
+        "set-remoteconfig-value-multibrand.yaml",
+    ],
 )
 def test_every_step_is_registered(name):
     workflow = _load(name)
@@ -61,3 +66,18 @@ def test_write_workflow_gates_publishing_behind_the_diff():
     assert ids.index("firebase_remoteconfig_diff") < ids.index(
         "firebase_remoteconfig_publish"
     )
+
+
+def test_multibrand_workflow_confirms_before_publishing():
+    workflow = _load("set-remoteconfig-value-multibrand.yaml")
+    ids = [step["id"] for step in workflow["steps"]]
+
+    assert workflow["params"]["dry_run"] is False
+    # The plan step is where each brand is validated and confirmed; publishing
+    # cannot run before it.
+    assert ids == [
+        "firebase_auth_check",
+        "firebase_select_targets",
+        "firebase_remoteconfig_fanout_plan",
+        "firebase_remoteconfig_fanout_publish",
+    ]

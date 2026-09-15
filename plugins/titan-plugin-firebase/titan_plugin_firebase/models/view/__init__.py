@@ -2,6 +2,8 @@
 
 from .view import (
     UIAdcIdentity,
+    UIFanoutEntry,
+    UIFanoutOutcome,
     UIRemoteConfigChange,
     UIRemoteConfigCondition,
     UIRemoteConfigParameter,
@@ -13,6 +15,8 @@ from .view import (
 
 __all__ = [
     "UIAdcIdentity",
+    "UIFanoutEntry",
+    "UIFanoutOutcome",
     "UIRemoteConfigChange",
     "UIRemoteConfigCondition",
     "UIRemoteConfigParameter",
