@@ -48,6 +48,7 @@ class WorkflowContext:
     jira: Optional[Any] = None
     slack: Optional[Any] = None
     docker: Optional[Any] = None
+    firebase: Optional[Any] = None
 
     # Workflow metadata (set by executor)
     workflow_name: Optional[str] = None
