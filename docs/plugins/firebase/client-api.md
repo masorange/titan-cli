@@ -77,7 +77,7 @@ Read the active Remote Config template for one project.
 **Call:**
 
 ```python
-client.get_remote_config("mm-firebase-yoigo")
+client.get_remote_config("my-firebase-project")
 ```
 
 **Parameters:**
@@ -103,7 +103,7 @@ Check one parameter edit against the live template without publishing anything.
 
 ```python
 client.validate_remote_config_change(
-    "mm-firebase-yoigo",
+    "my-firebase-project",
     "feature_enabled",
     "true",
     "android_prod",
@@ -133,7 +133,7 @@ Apply one change to the template and publish it.
 
 ```python
 client.publish_remote_config_change(
-    "mm-firebase-yoigo",
+    "my-firebase-project",
     change,
     validate_only=True,
 )

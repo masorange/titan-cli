@@ -1,0 +1,28 @@
+name: "Set Firebase Remote Config Value (multi-project)"
+description: "Apply one Remote Config parameter change across several Firebase projects, confirming project by project"
+params:
+  project_ids: ""
+  key: ""
+  value: ""
+  condition: ""
+  dry_run: false
+steps:
+  - id: firebase_auth_check
+    name: "Verify Google credentials"
+    plugin: firebase
+    step: firebase_auth_check
+
+  - id: firebase_select_targets
+    name: "Resolve target projects"
+    plugin: firebase
+    step: firebase_select_targets
+
+  - id: firebase_remoteconfig_fanout_plan
+    name: "Validate the change per project"
+    plugin: firebase
+    step: firebase_remoteconfig_fanout_plan
+
+  - id: firebase_remoteconfig_fanout_publish
+    name: "Publish per project"
+    plugin: firebase
+    step: firebase_remoteconfig_fanout_publish

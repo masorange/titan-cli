@@ -15,7 +15,7 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
     Inputs (from ctx.data):
         firebase_change (UIRemoteConfigChange): From firebase_remoteconfig_set_value.
         firebase_project_id (str): Target project.
-        firebase_target_label (Optional[str]): Brand/environment label.
+        firebase_target_label (Optional[str]): Display label for the project.
 
     Outputs (saved to ctx.data):
         firebase_change_confirmed (bool): Always True when the step succeeds.

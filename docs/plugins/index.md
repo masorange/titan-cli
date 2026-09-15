@@ -19,7 +19,7 @@ Titan ships with six official plugins:
 | **github** | Create PRs with AI descriptions, manage issues, code reviews |
 | **jira** | Search issues, AI-powered analysis, workflow automation |
 | **slack** | Personal Slack auth, workspace summaries, and reusable Slack workflow steps |
-| **firebase** | Read and publish Firebase Remote Config parameters across brands |
+| **firebase** | Read and publish Firebase Remote Config parameters, in one project or many |
 | **docker** | Docker Compose lifecycle management and image build/push workflows |
 
 Enable them per project in `.titan/config.toml`:

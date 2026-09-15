@@ -1,4 +1,4 @@
-"""Firebase project targets: one brand/environment pair resolved to a project."""
+"""A Firebase project a workflow acts on."""
 
 from __future__ import annotations
 
@@ -8,14 +8,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class FirebaseProjectTarget(BaseModel):
-    """A Firebase project resolved for one brand/environment target."""
+    """
+    One Firebase project, with an optional label for display.
+
+    The label exists so a caller that has a better name for a project — a
+    brand, a team, an environment — can have it shown in tables and prompts
+    without this plugin needing to know what that name means.
+    """
 
     project_id: str = Field(..., description="Firebase project ID.")
-    brand: Optional[str] = Field(None, description="Brand owning the project.")
-    environment: Optional[str] = Field(
-        None,
-        description="Logical environment for the project.",
-    )
     label: Optional[str] = Field(None, description="Display label.")
 
     @field_validator("project_id")
@@ -27,10 +28,10 @@ class FirebaseProjectTarget(BaseModel):
             raise ValueError("project_id is required")
         return stripped
 
-    @field_validator("brand", "environment", "label")
+    @field_validator("label")
     @classmethod
-    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
-        """Normalize optional target fields."""
+    def normalize_label(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize the optional display label."""
         if value is None:
             return None
         stripped = value.strip()
@@ -38,10 +39,9 @@ class FirebaseProjectTarget(BaseModel):
 
     @model_validator(mode="after")
     def default_label(self) -> "FirebaseProjectTarget":
-        """Default the display label from brand and environment."""
+        """Fall back to the project ID as its own label."""
         if self.label is None:
-            parts = [part for part in (self.brand, self.environment) if part]
-            self.label = "/".join(parts) or self.project_id
+            self.label = self.project_id
         return self
 
     def reference(self) -> str:

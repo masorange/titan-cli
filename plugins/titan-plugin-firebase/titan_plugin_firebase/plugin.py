@@ -65,12 +65,6 @@ class FirebasePlugin(TitanPlugin):
         properties = schema.get("properties", {})
         preferred_order = [
             "default_project",
-            "brands",
-            "project_id_pattern",
-            "brand_project_overrides",
-            "brand_projects",
-            "brand_projects_layout",
-            "default_environment",
             "quota_project_id",
             "api_base_url",
             "request_timeout",

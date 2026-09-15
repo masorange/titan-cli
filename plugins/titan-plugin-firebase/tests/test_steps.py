@@ -31,9 +31,7 @@ def _ctx(config=None) -> WorkflowContext:
     ctx.textual = MagicMock()
     ctx.firebase = MagicMock()
     ctx.firebase.config = config or FirebasePluginConfig(
-        brands=["yoigo", "guuk"],
-        project_id_pattern="mm-firebase-{brand}",
-        brand_project_overrides={"guuk": "mm-guuk-firebase-prod"},
+        default_project="mm-firebase-dev"
     )
     return ctx
 
@@ -112,39 +110,33 @@ def test_select_target_uses_explicit_project_without_prompting():
     ctx.textual.ask_option.assert_not_called()
 
 
-def test_select_target_resolves_the_chosen_brand():
+def test_select_target_keeps_a_caller_supplied_label():
     ctx = _ctx()
-    ctx.textual.ask_option.return_value = "guuk"
+    ctx.data["project_id"] = "mm-firebase-yoigo"
+    ctx.data["project_label"] = "yoigo"
 
     result = execute_firebase_select_target_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata["firebase_project_id"] == "mm-guuk-firebase-prod"
-    assert result.metadata["firebase_brand"] == "guuk"
+    assert result.metadata["firebase_target_label"] == "yoigo (mm-firebase-yoigo)"
 
 
-def test_select_target_asks_for_the_environment_when_ambiguous():
-    config = FirebasePluginConfig(
-        brand_projects={
-            "pre": {"yoigo": "y-pre"},
-            "pro": {"yoigo": "y-pro"},
-        }
-    )
-    ctx = _ctx(config)
-    ctx.textual.ask_option.side_effect = ["pro", "yoigo"]
+def test_select_target_falls_back_to_the_configured_default():
+    ctx = _ctx()
 
     result = execute_firebase_select_target_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata["firebase_project_id"] == "y-pro"
-    assert result.metadata["firebase_environment"] == "pro"
+    assert result.metadata["firebase_project_id"] == "mm-firebase-dev"
+    # Nothing is asked: this plugin does not own a project catalogue.
+    ctx.textual.ask_option.assert_not_called()
 
 
-def test_select_target_errors_when_nothing_is_configured():
-    ctx = _ctx(FirebasePluginConfig())
-    ctx.textual.ask_option.return_value = None
+def test_select_target_errors_when_nothing_names_a_project():
+    result = execute_firebase_select_target_step(_ctx(FirebasePluginConfig()))
 
-    assert isinstance(execute_firebase_select_target_step(ctx), Error)
+    assert isinstance(result, Error)
+    assert "default_project" in result.message
 
 
 # --- read -------------------------------------------------------------------

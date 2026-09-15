@@ -164,7 +164,7 @@ class UIRemoteConfigPublishResult:
 
 @dataclass(frozen=True)
 class UIFanoutEntry:
-    """One brand's share of a multi-brand change, before anything is published."""
+    """One project's share of a multi-project change, before anything is published."""
 
     target: FirebaseProjectTarget
     change: Optional[UIRemoteConfigChange] = None
@@ -199,7 +199,7 @@ class UIFanoutEntry:
 
 @dataclass(frozen=True)
 class UIFanoutOutcome:
-    """What happened when one brand's change was published."""
+    """What happened when one project's change was published."""
 
     target: FirebaseProjectTarget
     published: Optional["UIRemoteConfigPublishResult"] = None

@@ -1,4 +1,4 @@
-"""Validate one change against every selected brand and pick who gets it."""
+"""Validate one change against every selected project and pick which get it."""
 
 from __future__ import annotations
 
@@ -29,13 +29,12 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     ctx: WorkflowContext,
 ) -> WorkflowResult:
     """
-    Build the per-brand plan for one parameter change.
+    Build the per-project plan for one parameter change.
 
-    Each brand is a separate project with its own template, so the change is
-    validated against every one of them: the parameter may not exist there,
-    the condition may not either, and the value may clash with a different
-    declared type. Brands that cannot take the change are reported, not
-    allowed to sink the rest.
+    Every project has its own template, so the change is validated against
+    each one: the parameter may not exist there, the condition may not either,
+    and the value may clash with a different declared type. Projects that
+    cannot take the change are reported, not allowed to sink the rest.
 
     Requires:
         ctx.firebase: An initialized FirebaseClient.
@@ -51,12 +50,12 @@ def execute_firebase_remoteconfig_fanout_plan_step(
         firebase_fanout_rejected (list[UIFanoutEntry]): Entries left out.
 
     Returns:
-        Success: If at least one brand is selected for publishing.
-        Exit: If no brand can take the change, or the user selects none.
+        Success: If at least one project is selected for publishing.
+        Exit: If no project can take the change, or the user selects none.
         Error: If inputs are missing.
     """
     if ctx.textual:
-        ctx.textual.begin_step("Planificar el cambio por marca")
+        ctx.textual.begin_step("Planificar el cambio por proyecto")
 
     if not ctx.firebase:
         return _fail(ctx, "El plugin de Firebase no está disponible")
@@ -65,7 +64,7 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     if not targets:
         return _fail(
             ctx,
-            "Faltan las marcas. Ejecuta firebase_select_targets antes de "
+            "Faltan los proyectos. Ejecuta firebase_select_targets antes de "
             "este paso.",
         )
 
@@ -79,8 +78,8 @@ def execute_firebase_remoteconfig_fanout_plan_step(
 
     if key is None or value is None:
         # The parameters, their types and the conditions live in the projects,
-        # so the first brand's template is what the prompts are built from.
-        # Every other brand is validated against it afterwards.
+        # so the first target's template is what the prompts are built from.
+        # Every other project is validated against it afterwards.
         asked = _ask_change(ctx, targets[0], key, condition)
         if isinstance(asked, str):
             return _fail(ctx, asked)
@@ -89,10 +88,10 @@ def execute_firebase_remoteconfig_fanout_plan_step(
 
     if ctx.textual:
         ctx.textual.table(
-            headers=["Marca", "Proyecto", "Estado", "Cambio"],
+            headers=["Proyecto", "Estado", "Cambio"],
             rows=describe_plan(entries),
             title=f"Plan para {key}",
-            flex_column=3,
+            flex_column=2,
         )
         counts = plan_summary(entries)
         ctx.textual.dim_text(
@@ -102,15 +101,15 @@ def execute_firebase_remoteconfig_fanout_plan_step(
 
     ready = publishable_entries(entries)
     if not ready:
-        message = f"Ninguna marca necesita el cambio de {key}"
+        message = f"Ningún proyecto necesita el cambio de {key}"
         if ctx.textual:
             ctx.textual.warning_text(message)
             ctx.textual.end_step("skipped")
         return Exit(message)
 
-    chosen = _confirm_brands(ctx, ready)
+    chosen = _confirm_projects(ctx, ready)
     if not chosen:
-        message = "No se seleccionó ninguna marca para publicar"
+        message = "No se seleccionó ningún proyecto para publicar"
         if ctx.textual:
             ctx.textual.warning_text(message)
             ctx.textual.end_step("skipped")
@@ -121,7 +120,7 @@ def execute_firebase_remoteconfig_fanout_plan_step(
         ctx.textual.end_step("success")
 
     return Success(
-        f"{len(chosen)} marcas listas para publicar",
+        f"{len(chosen)} proyectos listos para publicar",
         metadata={
             "firebase_fanout_plan": chosen,
             "firebase_fanout_rejected": rejected,
@@ -225,16 +224,16 @@ def _validate_everywhere(
     return entries
 
 
-def _confirm_brands(
+def _confirm_projects(
     ctx: WorkflowContext,
     ready: list[UIFanoutEntry],
 ) -> list[UIFanoutEntry]:
     """
-    Confirm per brand.
+    Confirm per project.
 
-    A multi-select is the per-brand confirmation: it names every project that
-    will be written and requires a positive choice for each, instead of one
-    blanket yes for ten production projects.
+    A multi-select is the per-project confirmation: it names every project
+    that will be written and requires a positive choice for each, instead of
+    one blanket yes for ten production projects.
     """
     if not ctx.textual:
         return []
@@ -248,7 +247,7 @@ def _confirm_brands(
         for entry in ready
     ]
     selected = ctx.textual.ask_multiselect(
-        "¿En qué marcas publicas el cambio?",
+        "¿En qué proyectos publicas el cambio?",
         options,
     )
     return select_entries(ready, [str(value) for value in selected or []])

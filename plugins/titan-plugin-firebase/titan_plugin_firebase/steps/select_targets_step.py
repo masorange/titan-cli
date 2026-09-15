@@ -1,138 +1,75 @@
-"""Choose several brands at once for a multi-brand change."""
+"""Normalize the list of Firebase projects a multi-project change will touch."""
 
 from __future__ import annotations
 
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
-from titan_cli.ui.tui.widgets import SelectionOption
 
 from ..operations.target_operations import (
     TargetResolutionError,
-    available_brands,
-    available_environments,
-    project_id_for_brand,
+    parse_project_ids,
     resolve_targets,
 )
 
 
 def execute_firebase_select_targets_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Resolve several Firebase projects, one per brand.
+    Resolve several Firebase projects from a caller-supplied list.
+
+    The list comes from outside this plugin, which is the point: a repository
+    that runs one Firebase project per brand owns that mapping and publishes
+    the resolved IDs (and, optionally, the names it prefers to show) before
+    calling this step.
 
     Inputs (from ctx.data):
-        brands (list[str] | str, optional): Brands to target; a comma-separated string is accepted.
-        environment (str, optional): Environment for multi-environment configs.
+        project_ids (list or str, optional): Projects to target; a comma- or space-separated string is accepted.
+        firebase_project_ids (list or str, optional): Same, as published by an earlier step.
+        firebase_project_labels (dict, optional): project_id to label, shown instead of the raw ID.
 
     Outputs (saved to ctx.data):
         firebase_targets (list[FirebaseProjectTarget]): Resolved targets.
-        firebase_environment (Optional[str]): Environment in use.
-        firebase_target_failures (dict[str, str]): Unresolved brands and reasons.
+        firebase_project_ids (list[str]): Normalized, de-duplicated project IDs.
 
     Returns:
-        Success: If at least one target resolved.
-        Error: If nothing is configured, the user cancels, or no brand resolved.
+        Success: If at least one project was named.
+        Error: If the plugin is unavailable or the list is empty.
     """
     if ctx.textual:
-        ctx.textual.begin_step("Seleccionar marcas")
+        ctx.textual.begin_step("Proyectos Firebase")
 
     if not ctx.firebase:
         return _fail(ctx, "El plugin de Firebase no está disponible")
 
-    config = ctx.firebase.config
-    environment = ctx.get("environment") or ctx.get("firebase_environment")
-    if environment is None:
-        environment = _ask_environment(ctx, config)
+    project_ids = parse_project_ids(ctx.get("project_ids")) or parse_project_ids(
+        ctx.get("firebase_project_ids")
+    )
+    labels = ctx.get("firebase_project_labels")
 
-    brands = _requested_brands(ctx)
-    if brands is None:
-        brands = _ask_brands(ctx, config, environment)
-    if not brands:
-        return _fail(ctx, "No se seleccionó ninguna marca")
-
-    targets, failures = resolve_targets(config, brands, environment)
-    if not targets:
-        detail = "; ".join(f"{brand}: {reason}" for brand, reason in failures.items())
-        return _fail(ctx, f"Ninguna marca se pudo resolver. {detail}")
+    try:
+        targets = resolve_targets(
+            project_ids,
+            labels if isinstance(labels, dict) else None,
+        )
+    except TargetResolutionError as exc:
+        return _fail(ctx, str(exc))
 
     if ctx.textual:
         ctx.textual.table(
-            headers=["Marca", "Proyecto"],
-            rows=[[target.brand or "—", target.project_id] for target in targets],
-            title=f"{len(targets)} marcas seleccionadas",
+            headers=["Proyecto", "Etiqueta"],
+            rows=[
+                [target.project_id, target.label or "—"] for target in targets
+            ],
+            title=f"{len(targets)} proyectos",
             flex_column=1,
         )
-        for brand, reason in failures.items():
-            # A brand nobody can resolve must be named, not silently dropped:
-            # the user asked for it.
-            ctx.textual.warning_text(f"{brand}: {reason}")
         ctx.textual.end_step("success")
 
     return Success(
-        f"{len(targets)} marcas seleccionadas",
+        f"{len(targets)} proyectos Firebase",
         metadata={
             "firebase_targets": targets,
-            "firebase_environment": environment,
-            "firebase_target_failures": failures,
+            "firebase_project_ids": [target.project_id for target in targets],
         },
     )
-
-
-def _requested_brands(ctx: WorkflowContext) -> list[str] | None:
-    """Read brands passed as workflow params, if any."""
-    requested = ctx.get("brands") or ctx.get("firebase_brands")
-    if requested is None:
-        return None
-    if isinstance(requested, str):
-        return [part.strip() for part in requested.split(",") if part.strip()]
-    if isinstance(requested, (list, tuple)):
-        return [str(brand).strip() for brand in requested if str(brand).strip()]
-    return None
-
-
-def _ask_environment(ctx: WorkflowContext, config) -> str | None:
-    """Ask for an environment only when the config declares more than one."""
-    environments = available_environments(config)
-    if len(environments) <= 1 or not ctx.textual:
-        return config.default_environment or (
-            environments[0] if environments else None
-        )
-
-    from titan_cli.ui.tui.widgets import OptionItem
-
-    return ctx.textual.ask_option(
-        "¿Qué entorno?",
-        [
-            OptionItem(
-                value=environment,
-                title=environment,
-                description="Entorno declarado en brand_projects",
-            )
-            for environment in environments
-        ],
-    )
-
-
-def _ask_brands(ctx: WorkflowContext, config, environment) -> list[str]:
-    """Multi-select the brands, showing the project each one resolves to."""
-    if not ctx.textual:
-        return []
-
-    brands = available_brands(config, environment)
-    if not brands:
-        return []
-
-    options = []
-    for brand in brands:
-        try:
-            label = f"{brand} → {project_id_for_brand(config, brand, environment)}"
-        except TargetResolutionError:
-            label = f"{brand} (sin proyecto configurado)"
-        options.append(
-            # Nothing is preselected: a fan-out writes to production projects.
-            SelectionOption(value=brand, label=label, selected=False)
-        )
-
-    selected = ctx.textual.ask_multiselect("¿En qué marcas?", options)
-    return [str(brand) for brand in selected or []]
 
 
 def _fail(ctx: WorkflowContext, message: str) -> WorkflowResult:

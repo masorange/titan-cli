@@ -11,7 +11,7 @@
       ]
     },
     {
-      "name": "Project and Brand Selection",
+      "name": "Project Selection",
       "steps": [
         {
           "name": "firebase_select_target",
@@ -19,7 +19,7 @@
         },
         {
           "name": "firebase_select_targets",
-          "summary": "Resolve several Firebase projects, one per brand."
+          "summary": "Resolve several Firebase projects from a caller-supplied list."
         }
       ]
     },
@@ -58,15 +58,15 @@
       ]
     },
     {
-      "name": "Writing Several Brands",
+      "name": "Writing Several Projects",
       "steps": [
         {
           "name": "firebase_remoteconfig_fanout_plan",
-          "summary": "Build the per-brand plan for one parameter change."
+          "summary": "Build the per-project plan for one parameter change."
         },
         {
           "name": "firebase_remoteconfig_fanout_publish",
-          "summary": "Publish the planned change to each selected brand."
+          "summary": "Publish the planned change to each selected project."
         }
       ]
     }
@@ -84,7 +84,7 @@
         ],
         "Inputs (from ctx.data)": [],
         "Outputs (saved to ctx.data)": [
-          "    firebase_account (Optional[str]): Account the credentials belong to.",
+          "    firebase_account (Optional[str]): Service account email, when applicable.",
           "    firebase_credential_kind (str): user, service_account, impersonated, ...",
           "    firebase_credential_is_user (bool): Whether publishes get a real author."
         ],
@@ -96,7 +96,7 @@
       "used_by_workflows": [
         "read-remoteconfig",
         "set-remoteconfig-value",
-        "set-remoteconfig-value-multibrand"
+        "set-remoteconfig-value-multiproject"
       ]
     },
     {
@@ -140,7 +140,7 @@
         "Inputs (from ctx.data)": [
           "    firebase_change (UIRemoteConfigChange): From firebase_remoteconfig_set_value.",
           "    firebase_project_id (str): Target project.",
-          "    firebase_target_label (Optional[str]): Brand/environment label."
+          "    firebase_target_label (Optional[str]): Display label for the project."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_change_confirmed (bool): Always True when the step succeeds."
@@ -157,10 +157,10 @@
     },
     {
       "name": "firebase_remoteconfig_fanout_plan",
-      "group": "Writing Several Brands",
+      "group": "Writing Several Projects",
       "module": "titan_plugin_firebase.steps.fanout_plan_step",
       "function": "execute_firebase_remoteconfig_fanout_plan_step",
-      "summary": "Build the per-brand plan for one parameter change.",
+      "summary": "Build the per-project plan for one parameter change.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
@@ -176,21 +176,21 @@
           "    firebase_fanout_rejected (list[UIFanoutEntry]): Entries left out."
         ],
         "Returns": [
-          "    Success: If at least one brand is selected for publishing.",
-          "    Exit: If no brand can take the change, or the user selects none.",
+          "    Success: If at least one project is selected for publishing.",
+          "    Exit: If no project can take the change, or the user selects none.",
           "    Error: If inputs are missing."
         ]
       },
       "used_by_workflows": [
-        "set-remoteconfig-value-multibrand"
+        "set-remoteconfig-value-multiproject"
       ]
     },
     {
       "name": "firebase_remoteconfig_fanout_publish",
-      "group": "Writing Several Brands",
+      "group": "Writing Several Projects",
       "module": "titan_plugin_firebase.steps.fanout_publish_step",
       "function": "execute_firebase_remoteconfig_fanout_publish_step",
-      "summary": "Publish the planned change to each selected brand.",
+      "summary": "Publish the planned change to each selected project.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
@@ -200,17 +200,17 @@
           "    dry_run (bool, optional): Validate everywhere, publish nothing."
         ],
         "Outputs (saved to ctx.data)": [
-          "    firebase_fanout_outcomes (list[UIFanoutOutcome]): Per-brand results.",
-          "    firebase_fanout_published (int): Brands published.",
-          "    firebase_fanout_failed (int): Brands that failed."
+          "    firebase_fanout_outcomes (list[UIFanoutOutcome]): Per-project results.",
+          "    firebase_fanout_published (int): Projects published.",
+          "    firebase_fanout_failed (int): Projects that failed."
         ],
         "Returns": [
-          "    Success: If at least one brand published (or validated, in a dry run).",
-          "    Error: If the plan is missing or every brand failed."
+          "    Success: If at least one project published (or validated in a dry run).",
+          "    Error: If the plan is missing or every project failed."
         ]
       },
       "used_by_workflows": [
-        "set-remoteconfig-value-multibrand"
+        "set-remoteconfig-value-multiproject"
       ]
     },
     {
@@ -336,26 +336,23 @@
     },
     {
       "name": "firebase_select_target",
-      "group": "Project and Brand Selection",
+      "group": "Project Selection",
       "module": "titan_plugin_firebase.steps.select_target_step",
       "function": "execute_firebase_select_target_step",
       "summary": "Resolve the Firebase project to work on.",
       "docstring_sections": {
         "Requires": [],
         "Inputs (from ctx.data)": [
-          "    project_id (str, optional): Explicit Firebase project ID.",
-          "    brand (str, optional): Brand to resolve through the plugin config.",
-          "    environment (str, optional): Environment for multi-environment configs."
+          "    project_id (str, optional): Firebase project ID to use.",
+          "    project_label (str, optional): Friendlier name to show for it."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_project_id (str): Resolved project ID.",
-          "    firebase_brand (Optional[str]): Brand behind the project, when known.",
-          "    firebase_environment (Optional[str]): Environment, when configured.",
           "    firebase_target_label (str): User-facing reference for the target."
         ],
         "Returns": [
           "    Success: If a project could be resolved.",
-          "    Error: If the plugin is unavailable, the user cancels, or nothing resolves."
+          "    Error: If the plugin is unavailable or nothing names a project."
         ]
       },
       "used_by_workflows": [
@@ -365,28 +362,28 @@
     },
     {
       "name": "firebase_select_targets",
-      "group": "Project and Brand Selection",
+      "group": "Project Selection",
       "module": "titan_plugin_firebase.steps.select_targets_step",
       "function": "execute_firebase_select_targets_step",
-      "summary": "Resolve several Firebase projects, one per brand.",
+      "summary": "Resolve several Firebase projects from a caller-supplied list.",
       "docstring_sections": {
         "Requires": [],
         "Inputs (from ctx.data)": [
-          "    brands (list[str] | str, optional): Brands to target; a comma-separated string is accepted.",
-          "    environment (str, optional): Environment for multi-environment configs."
+          "    project_ids (list or str, optional): Projects to target; a comma- or space-separated string is accepted.",
+          "    firebase_project_ids (list or str, optional): Same, as published by an earlier step.",
+          "    firebase_project_labels (dict, optional): project_id to label, shown instead of the raw ID."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_targets (list[FirebaseProjectTarget]): Resolved targets.",
-          "    firebase_environment (Optional[str]): Environment in use.",
-          "    firebase_target_failures (dict[str, str]): Unresolved brands and reasons."
+          "    firebase_project_ids (list[str]): Normalized, de-duplicated project IDs."
         ],
         "Returns": [
-          "    Success: If at least one target resolved.",
-          "    Error: If nothing is configured, the user cancels, or no brand resolved."
+          "    Success: If at least one project was named.",
+          "    Error: If the plugin is unavailable or the list is empty."
         ]
       },
       "used_by_workflows": [
-        "set-remoteconfig-value-multibrand"
+        "set-remoteconfig-value-multiproject"
       ]
     }
   ]

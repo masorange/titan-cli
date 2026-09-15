@@ -1,8 +1,7 @@
-"""Multi-brand fan-out: plan aggregation, per-brand confirmation, publishing."""
+"""Multi-project fan-out: plan aggregation, per-project confirmation, publishing."""
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Exit, Success
@@ -35,23 +34,16 @@ from titan_plugin_firebase.steps.select_targets_step import (
     execute_firebase_select_targets_step,
 )
 
-BRAND_CONFIG = FirebasePluginConfig(
-    brands=["yoigo", "masmovil", "guuk"],
-    project_id_pattern="mm-firebase-{brand}",
-    brand_project_overrides={"guuk": "mm-guuk-firebase-prod"},
-)
-
-
-def _ctx(config=BRAND_CONFIG) -> WorkflowContext:
+def _ctx(config=None) -> WorkflowContext:
     ctx = WorkflowContext()
     ctx.textual = MagicMock()
     ctx.firebase = MagicMock()
-    ctx.firebase.config = config
+    ctx.firebase.config = config or FirebasePluginConfig()
     return ctx
 
 
-def _target(brand: str, project_id: str) -> FirebaseProjectTarget:
-    return FirebaseProjectTarget(project_id=project_id, brand=brand)
+def _target(label: str, project_id: str) -> FirebaseProjectTarget:
+    return FirebaseProjectTarget(project_id=project_id, label=label)
 
 
 def _change(new_value="true", old_value="false") -> UIRemoteConfigChange:
@@ -97,7 +89,7 @@ def test_plan_summary_counts_by_status():
         ),
     ]
     assert plan_summary(entries) == {"ready": 1, "noop": 1, "error": 1}
-    assert [entry.target.brand for entry in publishable_entries(entries)] == ["yoigo"]
+    assert [entry.target.label for entry in publishable_entries(entries)] == ["yoigo"]
 
 
 def test_entry_detail_explains_each_status():
@@ -130,7 +122,7 @@ def test_select_entries_keeps_plan_order_and_ignores_unknown_ids():
         UIFanoutEntry(target=_target("guuk", "mm-guuk-firebase-prod"), change=_change()),
     ]
     chosen = select_entries(entries, ["mm-guuk-firebase-prod", "mm-firebase-other"])
-    assert [entry.target.brand for entry in chosen] == ["guuk"]
+    assert [entry.target.label for entry in chosen] == ["guuk"]
 
 
 def test_outcome_summary_and_rows():
@@ -154,65 +146,57 @@ def test_describe_plan_rows():
         UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change=_change())
     ]
     assert describe_plan(entries) == [
-        ["yoigo", "mm-firebase-yoigo", "ready", "false -> true"]
+        ["yoigo (mm-firebase-yoigo)", "ready", "false -> true"]
     ]
 
 
 # --- select targets ---------------------------------------------------------
 
 
-def test_select_targets_resolves_the_chosen_brands():
+def test_select_targets_takes_the_project_list_from_a_workflow_param():
     ctx = _ctx()
-    ctx.textual.ask_multiselect.return_value = ["yoigo", "guuk"]
+    ctx.data["project_ids"] = "mm-firebase-yoigo, mm-guuk-firebase-prod"
 
     result = execute_firebase_select_targets_step(ctx)
 
     assert isinstance(result, Success)
-    assert [target.project_id for target in result.metadata["firebase_targets"]] == [
+    assert result.metadata["firebase_project_ids"] == [
         "mm-firebase-yoigo",
         "mm-guuk-firebase-prod",
     ]
 
 
-def test_select_targets_preselects_nothing():
+def test_select_targets_takes_the_list_produced_by_an_earlier_step():
+    # This is the seam another plugin uses: it resolves its own names to
+    # project IDs and publishes them, and this plugin never learns what the
+    # names meant.
     ctx = _ctx()
-    ctx.textual.ask_multiselect.return_value = []
+    ctx.data["firebase_project_ids"] = ["mm-firebase-yoigo"]
+    ctx.data["firebase_project_labels"] = {"mm-firebase-yoigo": "yoigo"}
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    targets = result.metadata["firebase_targets"]
+    assert targets[0].reference() == "yoigo (mm-firebase-yoigo)"
+
+
+def test_select_targets_never_prompts():
+    # The caller chose the projects; this step only normalizes them.
+    ctx = _ctx()
+    ctx.data["project_ids"] = ["mm-firebase-yoigo"]
 
     execute_firebase_select_targets_step(ctx)
 
-    options = ctx.textual.ask_multiselect.call_args.args[1]
-    # A fan-out writes to production projects: nothing is checked by default.
-    assert all(option.selected is False for option in options)
-
-
-def test_select_targets_accepts_a_comma_separated_param():
-    ctx = _ctx()
-    ctx.data["brands"] = "yoigo, guuk"
-
-    result = execute_firebase_select_targets_step(ctx)
-
-    assert isinstance(result, Success)
-    assert len(result.metadata["firebase_targets"]) == 2
     ctx.textual.ask_multiselect.assert_not_called()
+    ctx.textual.ask_option.assert_not_called()
 
 
-def test_select_targets_reports_brands_it_could_not_resolve():
-    ctx = _ctx(FirebasePluginConfig(brand_projects={"pro": {"yoigo": "y-pro"}}))
-    ctx.data["brands"] = ["yoigo", "lebara"]
+def test_select_targets_errors_without_a_project_list():
+    result = execute_firebase_select_targets_step(_ctx())
 
-    result = execute_firebase_select_targets_step(ctx)
-
-    assert isinstance(result, Success)
-    assert [t.project_id for t in result.metadata["firebase_targets"]] == ["y-pro"]
-    assert set(result.metadata["firebase_target_failures"]) == {"lebara"}
-    ctx.textual.warning_text.assert_called_once()
-
-
-def test_select_targets_errors_when_no_brand_resolves():
-    ctx = _ctx(FirebasePluginConfig())
-    ctx.data["brands"] = ["lebara"]
-
-    assert isinstance(execute_firebase_select_targets_step(ctx), Error)
+    assert isinstance(result, Error)
+    assert "firebase_project_ids" in result.message
 
 
 # --- plan -------------------------------------------------------------------
@@ -229,7 +213,7 @@ def _plan_ctx(**data) -> WorkflowContext:
     return ctx
 
 
-def test_plan_validates_every_brand_independently():
+def test_plan_validates_every_project_independently():
     ctx = _plan_ctx()
     ctx.firebase.validate_remote_config_change.side_effect = [
         ClientSuccess(data=_change()),
@@ -240,16 +224,16 @@ def test_plan_validates_every_brand_independently():
     result = execute_firebase_remoteconfig_fanout_plan_step(ctx)
 
     assert isinstance(result, Success)
-    assert [entry.target.brand for entry in result.metadata["firebase_fanout_plan"]] == [
-        "yoigo"
-    ]
-    # The brand that cannot take the change is kept in the report, not dropped.
+    assert [
+        entry.target.label for entry in result.metadata["firebase_fanout_plan"]
+    ] == ["yoigo"]
+    # The project that cannot take the change is kept in the report, not dropped.
     assert any(
         entry.status == "error" for entry in result.metadata["firebase_fanout_rejected"]
     )
 
 
-def test_plan_exits_when_no_brand_needs_the_change():
+def test_plan_exits_when_no_project_needs_the_change():
     ctx = _plan_ctx()
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
         data=_change(new_value="false")
@@ -261,7 +245,7 @@ def test_plan_exits_when_no_brand_needs_the_change():
     ctx.textual.ask_multiselect.assert_not_called()
 
 
-def test_plan_exits_when_the_user_selects_no_brand():
+def test_plan_exits_when_the_user_selects_no_project():
     ctx = _plan_ctx()
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
         data=_change()
@@ -331,7 +315,7 @@ def _publish_ctx(**data) -> WorkflowContext:
     return ctx
 
 
-def test_publish_continues_after_one_brand_fails():
+def test_publish_continues_after_one_project_fails():
     ctx = _publish_ctx()
     ctx.firebase.publish_remote_config_change.side_effect = [
         ClientSuccess(data=_published()),           # yoigo validation
@@ -342,7 +326,7 @@ def test_publish_continues_after_one_brand_fails():
 
     result = execute_firebase_remoteconfig_fanout_publish_step(ctx)
 
-    # Nine good publishes must not be lost because the tenth brand denies it.
+    # Nine good publishes must not be lost because the tenth project denies it.
     assert isinstance(result, Success)
     assert result.metadata["firebase_fanout_published"] == 1
     assert result.metadata["firebase_fanout_failed"] == 1
@@ -350,7 +334,7 @@ def test_publish_continues_after_one_brand_fails():
     assert [outcome.succeeded for outcome in outcomes] == [True, False]
 
 
-def test_publish_validates_each_brand_before_writing_it():
+def test_publish_validates_each_project_before_writing_it():
     ctx = _publish_ctx()
     ctx.firebase.publish_remote_config_change.side_effect = [
         ClientSuccess(data=_published()),
@@ -368,7 +352,7 @@ def test_publish_validates_each_brand_before_writing_it():
     assert flags == [True, False, True, False]
 
 
-def test_publish_skips_a_brand_whose_validation_fails():
+def test_publish_skips_a_project_whose_validation_fails():
     ctx = _publish_ctx()
     ctx.firebase.publish_remote_config_change.side_effect = [
         ClientError(error_message="Param count too large", error_code="BAD_REQUEST"),
@@ -382,11 +366,11 @@ def test_publish_skips_a_brand_whose_validation_fails():
     outcomes = result.metadata["firebase_fanout_outcomes"]
     assert outcomes[0].succeeded is False
     assert "validación" in outcomes[0].error
-    # Three calls, not four: the failed brand was never published.
+    # Three calls, not four: the failed project was never published.
     assert ctx.firebase.publish_remote_config_change.call_count == 3
 
 
-def test_publish_fails_when_every_brand_fails():
+def test_publish_fails_when_every_project_fails():
     ctx = _publish_ctx()
     ctx.firebase.publish_remote_config_change.return_value = ClientError(
         error_message="403", error_code="PERMISSION_DENIED"
@@ -395,7 +379,7 @@ def test_publish_fails_when_every_brand_fails():
     result = execute_firebase_remoteconfig_fanout_publish_step(ctx)
 
     assert isinstance(result, Error)
-    assert "0 marcas publicadas" in result.message
+    assert "0 proyectos publicados" in result.message
 
 
 def test_dry_run_publishes_nothing():
@@ -407,7 +391,7 @@ def test_dry_run_publishes_nothing():
     result = execute_firebase_remoteconfig_fanout_publish_step(ctx)
 
     assert isinstance(result, Success)
-    assert "validadas" in result.message
+    assert "validados" in result.message
     flags = [
         call.kwargs["validate_only"]
         for call in ctx.firebase.publish_remote_config_change.call_args_list

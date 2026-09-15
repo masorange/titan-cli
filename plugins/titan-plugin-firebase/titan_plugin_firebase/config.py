@@ -1,13 +1,20 @@
 """Configuration model for the Firebase plugin.
 
-There is deliberately no credential field here. Authentication is Application
-Default Credentials, so there is nothing for Titan to store, prompt for, or
-protect — see `clients/network/adc_auth.py`.
+Deliberately small. Two things are NOT here:
+
+- A credential. Authentication is Application Default Credentials, so there is
+  nothing for Titan to store, prompt for, or protect.
+- Any notion of a brand, a project naming pattern, or an environment map. This
+  is a generic plugin: it speaks about Firebase projects, and a project ID is
+  either configured as the default or passed in by whoever knows how to
+  produce it. A repository that runs one Firebase project per brand keeps that
+  mapping in its own plugin — it is that repository's vocabulary, not
+  Firebase's — and feeds `firebase_project_ids` to the multi-project steps.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -20,57 +27,17 @@ class FirebasePluginConfig(BaseModel):
 
     default_project: Optional[str] = Field(
         None,
-        description="Firebase project ID used when no brand is selected.",
-        json_schema_extra={"config_scope": "project"},
-    )
-    brands: list[str] = Field(
-        default_factory=list,
         description=(
-            "Brand identifiers this repository publishes to, in display order."
+            "Firebase project ID used when a workflow does not pass one."
         ),
-        json_schema_extra={"config_scope": "project"},
-    )
-    project_id_pattern: Optional[str] = Field(
-        None,
-        description=(
-            "Pattern building a project ID from a brand, e.g. "
-            "'mm-firebase-{brand}'. Placeholders: {brand}, {environment}."
-        ),
-        json_schema_extra={"config_scope": "project"},
-    )
-    brand_project_overrides: Dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Brands whose project ID does not follow project_id_pattern, "
-            "as brand -> project_id."
-        ),
-        json_schema_extra={"config_scope": "project"},
-    )
-    brand_projects: Dict[str, Any] = Field(
-        default_factory=dict,
-        description=(
-            "Explicit project mapping by environment and brand. Shape given by "
-            "brand_projects_layout."
-        ),
-        json_schema_extra={"config_scope": "project"},
-    )
-    brand_projects_layout: Literal["environment_brand", "brand_environment"] = Field(
-        "environment_brand",
-        description=(
-            "Shape used by brand_projects: environment_brand or brand_environment."
-        ),
-        json_schema_extra={"config_scope": "project"},
-    )
-    default_environment: Optional[str] = Field(
-        None,
-        description="Environment used when brand_projects has more than one.",
         json_schema_extra={"config_scope": "project"},
     )
     quota_project_id: Optional[str] = Field(
         None,
         description=(
-            "Project billed for API quota (x-goog-user-project). Defaults to "
-            "the project being read, which is normally what you want."
+            "Project billed for API quota. Defaults to the credential's own "
+            "quota project, or the project being read. Override it when your "
+            "account lacks serviceusage.services.use on that project."
         ),
         json_schema_extra={"config_scope": "project"},
     )
@@ -104,12 +71,7 @@ class FirebasePluginConfig(BaseModel):
             raise ValueError("api_base_url must start with http:// or https://")
         return stripped.rstrip("/")
 
-    @field_validator(
-        "default_project",
-        "default_environment",
-        "project_id_pattern",
-        "quota_project_id",
-    )
+    @field_validator("default_project", "quota_project_id")
     @classmethod
     def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
         """Normalize optional string config values."""
@@ -118,10 +80,10 @@ class FirebasePluginConfig(BaseModel):
         stripped = value.strip()
         return stripped or None
 
-    @field_validator("brands", "oauth_scopes", mode="before")
+    @field_validator("oauth_scopes", mode="before")
     @classmethod
-    def normalize_string_list(cls, value: Any) -> Any:
-        """Accept a single string where a list is expected."""
+    def normalize_scopes(cls, value: Any) -> Any:
+        """Accept a single scope where a list is expected."""
         if value is None:
             return []
         if isinstance(value, str):

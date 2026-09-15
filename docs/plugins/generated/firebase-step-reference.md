@@ -21,7 +21,7 @@ Check that Google Application Default Credentials are usable.
   step: firebase_auth_check
 ```
 
-**Used by built-in workflows:** `read-remoteconfig`, `set-remoteconfig-value`, `set-remoteconfig-value-multibrand`
+**Used by built-in workflows:** `read-remoteconfig`, `set-remoteconfig-value`, `set-remoteconfig-value-multiproject`
 
 **Available to later steps:** `firebase_account`, `firebase_credential_kind`, `firebase_credential_is_user`
 
@@ -35,7 +35,7 @@ Check that Google Application Default Credentials are usable.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `firebase_account` | Optional[str] | Account the credentials belong to. |
+| `firebase_account` | Optional[str] | Service account email, when applicable. |
 | `firebase_credential_kind` | str | user, service_account, impersonated, ... |
 | `firebase_credential_is_user` | bool | Whether publishes get a real author. |
 
@@ -46,7 +46,7 @@ Check that Google Application Default Credentials are usable.
 | `Success` | `firebase_account`, `firebase_credential_kind`, `firebase_credential_is_user` | If credentials resolve and can mint a token. |
 | `Error` | - | If no ADC session exists or it cannot be refreshed. |
 
-## Project and Brand Selection
+## Project Selection
 
 ### `firebase_select_target`
 
@@ -67,35 +67,32 @@ Resolve the Firebase project to work on.
 
 **Used by built-in workflows:** `read-remoteconfig`, `set-remoteconfig-value`
 
-**Available to later steps:** `firebase_project_id`, `firebase_brand`, `firebase_environment`, `firebase_target_label`
+**Available to later steps:** `firebase_project_id`, `firebase_target_label`
 
 **Inputs (from ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `project_id` | str, optional | Explicit Firebase project ID. |
-| `brand` | str, optional | Brand to resolve through the plugin config. |
-| `environment` | str, optional | Environment for multi-environment configs. |
+| `project_id` | str, optional | Firebase project ID to use. |
+| `project_label` | str, optional | Friendlier name to show for it. |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
 | `firebase_project_id` | str | Resolved project ID. |
-| `firebase_brand` | Optional[str] | Brand behind the project, when known. |
-| `firebase_environment` | Optional[str] | Environment, when configured. |
 | `firebase_target_label` | str | User-facing reference for the target. |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_project_id`, `firebase_brand`, `firebase_environment`, `firebase_target_label` | If a project could be resolved. |
-| `Error` | - | If the plugin is unavailable, the user cancels, or nothing resolves. |
+| `Success` | `firebase_project_id`, `firebase_target_label` | If a project could be resolved. |
+| `Error` | - | If the plugin is unavailable or nothing names a project. |
 
 ### `firebase_select_targets`
 
-Resolve several Firebase projects, one per brand.
+Resolve several Firebase projects from a caller-supplied list.
 
 **How to read this contract**
 
@@ -110,31 +107,31 @@ Resolve several Firebase projects, one per brand.
   step: firebase_select_targets
 ```
 
-**Used by built-in workflows:** `set-remoteconfig-value-multibrand`
+**Used by built-in workflows:** `set-remoteconfig-value-multiproject`
 
-**Available to later steps:** `firebase_targets`, `firebase_environment`, `firebase_target_failures`
+**Available to later steps:** `firebase_targets`, `firebase_project_ids`
 
 **Inputs (from ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `brands` | list[str] | str, optional | Brands to target; a comma-separated string is accepted. |
-| `environment` | str, optional | Environment for multi-environment configs. |
+| `project_ids` | list or str, optional | Projects to target; a comma- or space-separated string is accepted. |
+| `firebase_project_ids` | list or str, optional | Same, as published by an earlier step. |
+| `firebase_project_labels` | dict, optional | project_id to label, shown instead of the raw ID. |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
 | `firebase_targets` | list[FirebaseProjectTarget] | Resolved targets. |
-| `firebase_environment` | Optional[str] | Environment in use. |
-| `firebase_target_failures` | dict[str, str] | Unresolved brands and reasons. |
+| `firebase_project_ids` | list[str] | Normalized, de-duplicated project IDs. |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_targets`, `firebase_environment`, `firebase_target_failures` | If at least one target resolved. |
-| `Error` | - | If nothing is configured, the user cancels, or no brand resolved. |
+| `Success` | `firebase_targets`, `firebase_project_ids` | If at least one project was named. |
+| `Error` | - | If the plugin is unavailable or the list is empty. |
 
 ## Reading Remote Config
 
@@ -373,7 +370,7 @@ Render the pending change and ask the user to confirm it.
 |------|------|-------------|
 | `firebase_change` | UIRemoteConfigChange | From firebase_remoteconfig_set_value. |
 | `firebase_project_id` | str | Target project. |
-| `firebase_target_label` | Optional[str] | Brand/environment label. |
+| `firebase_target_label` | Optional[str] | Display label for the project. |
 
 **Outputs (saved to ctx.data)**
 
@@ -440,11 +437,11 @@ Publish one confirmed change, validating it with Firebase first.
 | `Success` | `firebase_published_version`, `firebase_published_author`, `firebase_publish_result` | If Firebase validated (dry run) or published the template. |
 | `Error` | - | If inputs are missing, the change is unconfirmed, or the write fails. |
 
-## Writing Several Brands
+## Writing Several Projects
 
 ### `firebase_remoteconfig_fanout_plan`
 
-Build the per-brand plan for one parameter change.
+Build the per-project plan for one parameter change.
 
 **How to read this contract**
 
@@ -459,7 +456,7 @@ Build the per-brand plan for one parameter change.
   step: firebase_remoteconfig_fanout_plan
 ```
 
-**Used by built-in workflows:** `set-remoteconfig-value-multibrand`
+**Used by built-in workflows:** `set-remoteconfig-value-multiproject`
 
 **Available to later steps:** `firebase_fanout_plan`, `firebase_fanout_rejected`
 
@@ -489,13 +486,13 @@ Build the per-brand plan for one parameter change.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_fanout_plan`, `firebase_fanout_rejected` | If at least one brand is selected for publishing. |
-| `Exit` | - | If no brand can take the change, or the user selects none. |
+| `Success` | `firebase_fanout_plan`, `firebase_fanout_rejected` | If at least one project is selected for publishing. |
+| `Exit` | - | If no project can take the change, or the user selects none. |
 | `Error` | - | If inputs are missing. |
 
 ### `firebase_remoteconfig_fanout_publish`
 
-Publish the planned change to each selected brand.
+Publish the planned change to each selected project.
 
 **How to read this contract**
 
@@ -510,7 +507,7 @@ Publish the planned change to each selected brand.
   step: firebase_remoteconfig_fanout_publish
 ```
 
-**Used by built-in workflows:** `set-remoteconfig-value-multibrand`
+**Used by built-in workflows:** `set-remoteconfig-value-multiproject`
 
 **Available to later steps:** `firebase_fanout_outcomes`, `firebase_fanout_published`, `firebase_fanout_failed`
 
@@ -531,13 +528,13 @@ Publish the planned change to each selected brand.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `firebase_fanout_outcomes` | list[UIFanoutOutcome] | Per-brand results. |
-| `firebase_fanout_published` | int | Brands published. |
-| `firebase_fanout_failed` | int | Brands that failed. |
+| `firebase_fanout_outcomes` | list[UIFanoutOutcome] | Per-project results. |
+| `firebase_fanout_published` | int | Projects published. |
+| `firebase_fanout_failed` | int | Projects that failed. |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_fanout_outcomes`, `firebase_fanout_published`, `firebase_fanout_failed` | If at least one brand published (or validated, in a dry run). |
-| `Error` | - | If the plan is missing or every brand failed. |
+| `Success` | `firebase_fanout_outcomes`, `firebase_fanout_published`, `firebase_fanout_failed` | If at least one project published (or validated in a dry run). |
+| `Error` | - | If the plan is missing or every project failed. |

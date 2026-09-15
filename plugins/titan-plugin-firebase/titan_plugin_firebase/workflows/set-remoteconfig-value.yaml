@@ -1,5 +1,5 @@
 name: "Set Firebase Remote Config Value"
-description: "Change one Remote Config parameter (boolean, string, JSON or number) in a brand's project"
+description: "Change one Remote Config parameter (boolean, string, JSON or number) in one Firebase project"
 params:
   dry_run: false
 steps:

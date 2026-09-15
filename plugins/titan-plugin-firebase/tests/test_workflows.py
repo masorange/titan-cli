@@ -21,7 +21,7 @@ def _load(name: str) -> dict:
     [
         "read-remoteconfig.yaml",
         "set-remoteconfig-value.yaml",
-        "set-remoteconfig-value-multibrand.yaml",
+        "set-remoteconfig-value-multiproject.yaml",
     ],
 )
 def test_every_step_is_registered(name):
@@ -68,13 +68,16 @@ def test_write_workflow_gates_publishing_behind_the_diff():
     )
 
 
-def test_multibrand_workflow_confirms_before_publishing():
-    workflow = _load("set-remoteconfig-value-multibrand.yaml")
+def test_multiproject_workflow_confirms_before_publishing():
+    workflow = _load("set-remoteconfig-value-multiproject.yaml")
     ids = [step["id"] for step in workflow["steps"]]
 
     assert workflow["params"]["dry_run"] is False
-    # The plan step is where each brand is validated and confirmed; publishing
-    # cannot run before it.
+    # project_ids is declared so the workflow is usable on its own; another
+    # plugin can instead publish firebase_project_ids from its own step.
+    assert workflow["params"]["project_ids"] == ""
+    # The plan step is where each project is validated and confirmed;
+    # publishing cannot run before it.
     assert ids == [
         "firebase_auth_check",
         "firebase_select_targets",

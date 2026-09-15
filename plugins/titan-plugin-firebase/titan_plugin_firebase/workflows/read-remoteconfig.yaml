@@ -1,5 +1,5 @@
 name: "Read Firebase Remote Config"
-description: "Read a brand's Remote Config template, its conditions and one parameter"
+description: "Read a Firebase project's Remote Config template, its conditions and one parameter"
 steps:
   - id: firebase_auth_check
     name: "Verify Google credentials"

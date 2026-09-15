@@ -1,7 +1,7 @@
 """
 Shared prompt helpers for the Firebase steps.
 
-Kept in one place because the single-brand and multi-brand flows have to ask
+Kept in one place because the single-project and multi-project flows have to ask
 for the same things the same way: a parameter, a write target, and a value
 whose input shape depends on its type.
 """

@@ -86,16 +86,15 @@ def test_workflows_directory_ships_the_read_and_write_workflows():
     assert {file.name for file in path.glob("*.yaml")} == {
         "read-remoteconfig.yaml",
         "set-remoteconfig-value.yaml",
-        "set-remoteconfig-value-multibrand.yaml",
+        "set-remoteconfig-value-multiproject.yaml",
     }
 
 
 def test_config_schema_leads_with_the_project_fields():
     schema = FirebasePlugin().get_config_schema()
-    assert list(schema["properties"])[:3] == [
+    assert list(schema["properties"])[:2] == [
         "default_project",
-        "brands",
-        "project_id_pattern",
+        "quota_project_id",
     ]
 
 
@@ -107,4 +106,16 @@ def test_config_schema_declares_no_credential_field():
         name
         for name in properties
         if any(word in name for word in ("token", "secret", "password", "client_id"))
+    ]
+
+
+def test_config_schema_declares_no_brand_vocabulary():
+    # The wizard walks this schema. A generic plugin must not interrogate the
+    # user about brands or a project naming scheme; a repository that has one
+    # keeps it in its own plugin and passes project IDs in.
+    properties = FirebasePlugin().get_config_schema()["properties"]
+    assert not [
+        name
+        for name in properties
+        if any(word in name for word in ("brand", "pattern", "environment"))
     ]

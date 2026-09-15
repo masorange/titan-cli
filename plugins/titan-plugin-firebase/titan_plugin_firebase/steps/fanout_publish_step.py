@@ -1,4 +1,4 @@
-"""Publish a confirmed change brand by brand, reporting every outcome."""
+"""Publish a confirmed change project by project, reporting every outcome."""
 
 from __future__ import annotations
 
@@ -15,12 +15,12 @@ def execute_firebase_remoteconfig_fanout_publish_step(
     ctx: WorkflowContext,
 ) -> WorkflowResult:
     """
-    Publish the planned change to each selected brand.
+    Publish the planned change to each selected project.
 
-    Every brand is validated with Firebase and then published on its own, and
-    a failure in one brand does not stop the others: nine successful publishes
+    Every project is validated with Firebase and then published on its own,
+    and a failure in one does not stop the others: nine successful publishes
     must not be lost because the tenth project denies permission. The step
-    reports what each brand did, and fails only if no brand published.
+    reports what each project did, and fails only if none published.
 
     Requires:
         ctx.firebase: An initialized FirebaseClient.
@@ -30,16 +30,16 @@ def execute_firebase_remoteconfig_fanout_publish_step(
         dry_run (bool, optional): Validate everywhere, publish nothing.
 
     Outputs (saved to ctx.data):
-        firebase_fanout_outcomes (list[UIFanoutOutcome]): Per-brand results.
-        firebase_fanout_published (int): Brands published.
-        firebase_fanout_failed (int): Brands that failed.
+        firebase_fanout_outcomes (list[UIFanoutOutcome]): Per-project results.
+        firebase_fanout_published (int): Projects published.
+        firebase_fanout_failed (int): Projects that failed.
 
     Returns:
-        Success: If at least one brand published (or validated, in a dry run).
-        Error: If the plan is missing or every brand failed.
+        Success: If at least one project published (or validated in a dry run).
+        Error: If the plan is missing or every project failed.
     """
     if ctx.textual:
-        ctx.textual.begin_step("Publicar por marca")
+        ctx.textual.begin_step("Publicar por proyecto")
 
     if not ctx.firebase:
         return _fail(ctx, "El plugin de Firebase no está disponible")
@@ -58,14 +58,16 @@ def execute_firebase_remoteconfig_fanout_publish_step(
 
     if ctx.textual:
         ctx.textual.table(
-            headers=["Marca", "Proyecto", "Resultado", "Detalle"],
+            headers=["Proyecto", "Resultado", "Detalle"],
             rows=describe_outcomes(outcomes),
-            title="Resultado por marca",
-            flex_column=3,
+            title="Resultado por proyecto",
+            flex_column=2,
         )
 
-    action = "validadas" if dry_run else "publicadas"
-    message = f"{counts['published']} marcas {action}, {counts['failed']} con error"
+    action = "validados" if dry_run else "publicados"
+    message = (
+        f"{counts['published']} proyectos {action}, {counts['failed']} con error"
+    )
 
     if counts["published"] == 0:
         return _fail(ctx, message)
@@ -92,7 +94,7 @@ def _publish_one(
     entry,
     dry_run: bool,
 ) -> UIFanoutOutcome:
-    """Validate and publish one brand, capturing the failure instead of raising."""
+    """Validate and publish one project, capturing failures instead of raising."""
     validation = _run(
         ctx,
         f"Validando {entry.target.project_id}...",

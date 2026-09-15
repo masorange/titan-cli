@@ -1,11 +1,11 @@
 """
-Aggregating a change across several brands.
+Aggregating a change across several Firebase projects.
 
-Each brand is its own Firebase project with its own template, so the same
-edit can be valid in nine brands and impossible in the tenth — a missing
-parameter, a condition that does not exist there, a value that clashes with a
-different declared type. A fan-out must therefore report per brand and never
-abandon the rest because one failed.
+Every project has its own template, so the same edit can be valid in nine
+projects and impossible in the tenth — a missing parameter, a condition that
+does not exist there, a value that clashes with a different declared type. A
+fan-out must therefore report per project and never abandon the rest because
+one failed.
 
 Pure functions: no context, no UI, no network.
 """
@@ -44,7 +44,7 @@ def select_entries(
 
 
 def outcome_summary(outcomes: Iterable[UIFanoutOutcome]) -> dict[str, int]:
-    """Count published and failed brands."""
+    """Count published and failed projects."""
     published = 0
     failed = 0
     for outcome in outcomes:
@@ -56,24 +56,18 @@ def outcome_summary(outcomes: Iterable[UIFanoutOutcome]) -> dict[str, int]:
 
 
 def describe_plan(entries: Iterable[UIFanoutEntry]) -> list[list[str]]:
-    """Build the rows of the plan table: brand, project, status, detail."""
+    """Build the rows of the plan table: project, status, detail."""
     return [
-        [
-            entry.target.brand or "—",
-            entry.target.project_id,
-            entry.status,
-            entry.detail,
-        ]
+        [entry.target.reference(), entry.status, entry.detail]
         for entry in entries
     ]
 
 
 def describe_outcomes(outcomes: Iterable[UIFanoutOutcome]) -> list[list[str]]:
-    """Build the rows of the result table: brand, project, result, detail."""
+    """Build the rows of the result table: project, result, detail."""
     return [
         [
-            outcome.target.brand or "—",
-            outcome.target.project_id,
+            outcome.target.reference(),
             "ok" if outcome.succeeded else "error",
             outcome.detail,
         ]

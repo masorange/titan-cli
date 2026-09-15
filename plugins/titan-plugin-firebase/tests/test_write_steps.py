@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Exit, Success

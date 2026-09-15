@@ -2,12 +2,12 @@
 
 The Firebase plugin reads and writes Firebase Remote Config: it lists a project's
 parameters and conditions, changes one parameter's value, and applies the same change
-across several brands, each of which is its own Firebase project.
+across several projects.
 
 It exposes:
 
 - a public `FirebaseClient`
-- reusable workflow steps for reading, writing, and multi-brand fan-out
+- reusable workflow steps for reading, writing, and multi-project fan-out
 - three built-in workflows
 
 ## Authentication
@@ -46,48 +46,19 @@ that matters appears on the published version, which the publish step reports ba
 
 ## Configuration
 
-The plugin has no credential fields. Configuration is about which projects a repository
-targets.
+The plugin has no credential fields, and no notion of a brand, a project naming pattern, or
+an environment map. It is generic: it speaks about Firebase projects, and a project ID is
+either configured as the default or passed in.
 
 ```toml
 [plugins.firebase]
 enabled = true
 
 [plugins.firebase.config]
-# Single-project setups
-default_project = "mm-firebase-dev"
-
-# Multi-brand setups: one Firebase project per brand
-brands = ["yoigo", "masmovil", "lebara", "llamaya", "guuk"]
-project_id_pattern = "mm-firebase-{brand}"
-
-[plugins.firebase.config.brand_project_overrides]
-guuk = "mm-guuk-firebase-prod"
+default_project = "my-firebase-project"
 ```
 
-Three sources can name a project, in order of specificity:
-
-1. `brand_projects` — an explicit mapping, for project IDs that follow no rule.
-2. `project_id_pattern` plus `brand_project_overrides` — a naming convention with
-   exceptions.
-3. `default_project` — the single-project case.
-
-`brand_projects` is nested by environment and brand, with the shape given by
-`brand_projects_layout`:
-
-```toml
-[plugins.firebase.config]
-brand_projects_layout = "environment_brand"   # or "brand_environment"
-default_environment = "pro"
-
-[plugins.firebase.config.brand_projects.pre]
-yoigo = "mm-firebase-yoigo-pre"
-
-[plugins.firebase.config.brand_projects.pro]
-yoigo = "mm-firebase-yoigo"
-```
-
-Other options:
+That is the only field most setups need. The rest have working defaults:
 
 | Option | Default | What it does |
 |--------|---------|--------------|
@@ -95,6 +66,32 @@ Other options:
 | `api_base_url` | `https://firebaseremoteconfig.googleapis.com/v1` | Remote Config REST base URL. |
 | `request_timeout` | `30` | HTTP timeout in seconds. |
 | `oauth_scopes` | `["https://www.googleapis.com/auth/cloud-platform"]` | Scopes requested from ADC. |
+
+## Working with several projects
+
+One Firebase project per brand, per team, or per environment is a naming scheme that belongs
+to the repository that has it — not to Firebase, and not here. So the multi-project steps
+take the project list from workflow data rather than from configuration:
+
+- `firebase_project_ids` — the projects to act on, published by an earlier step (or passed
+  to the built-in workflow as the `project_ids` param, comma-separated).
+- `firebase_project_labels` — optional `project_id -> label`, so tables and prompts can show
+  your own vocabulary while this plugin stays unaware of what the names mean.
+
+A plugin that owns such a mapping resolves it and publishes the result:
+
+```python
+return Success(
+    "Projects resolved",
+    metadata={
+        "firebase_project_ids": ["mm-firebase-yoigo", "mm-guuk-firebase-prod"],
+        "firebase_project_labels": {"mm-guuk-firebase-prod": "guuk"},
+    },
+)
+```
+
+Workflows can use steps from any installed plugin, so that step chains directly with
+`firebase_remoteconfig_fanout_plan` and `firebase_remoteconfig_fanout_publish`.
 
 ## Environments are conditions
 
@@ -104,8 +101,9 @@ a value per condition on top of its default value. The plugin reads the conditio
 the template rather than taking a configured list, so what you can target is always what
 the project actually declares.
 
-Separate environments per brand (dev, pre, pro) are therefore separate Firebase
-projects, which is what `brand_projects` and `default_environment` model.
+Separate environments (dev, pre, pro) are therefore separate Firebase projects, and which
+ones exist is the caller's knowledge, not this plugin's — see "Working with several
+projects" above.
 
 ## How writes work
 
