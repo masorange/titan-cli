@@ -238,6 +238,14 @@ def _setup_console_handler(log_level: int, is_dev: bool) -> None:
     for noisy in ("httpx", "httpcore", "openai", "anthropic", "google_genai", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+    # asyncio and keyring write prose through the stdlib logger, so they arrive
+    # with the event name carrying the whole message and no `level` key at all
+    # ("Using selector: EpollSelector", "Loading KWallet"). That is the exact
+    # shape a level-based filter cannot see, and it is the only remaining source
+    # of it now that Titan's own call sites are clean.
+    for noisy in ("asyncio", "keyring"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 def _configure_structlog(is_dev: bool) -> None:
     """

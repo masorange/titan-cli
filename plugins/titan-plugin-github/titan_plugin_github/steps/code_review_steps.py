@@ -2885,11 +2885,26 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
         else:
             summary += f" ({removed} internal duplicate(s) removed)"
     ctx.textual.success_text(summary)
+    # The taxonomy, not just the count: comparing runs, or judging whether a
+    # prompt change helped, needs to know WHAT the model produced. A bare total
+    # cannot distinguish five style nits from five correctness bugs.
+    severities: dict = {}
+    categories: dict = {}
+    for finding in deduped:
+        sev = getattr(finding, "severity", None)
+        cat = getattr(finding, "category", None)
+        sev = getattr(sev, "value", sev)
+        cat = getattr(cat, "value", cat)
+        severities[str(sev)] = severities.get(str(sev), 0) + 1
+        categories[str(cat)] = categories.get(str(cat), 0) + 1
+
     logger.info(
         "findings_deduplicated",
         deduped_findings_count=len(deduped),
         findings_removed_due_to_existing_threads=removed_existing,
         findings_removed_due_to_adjudicated_threads=removed_adjudicated,
+        severities=severities,
+        categories=categories,
     )
     ctx.textual.end_step("success")
     return Success("Findings deduplicated", metadata={"deduped_findings_count": len(deduped)})
@@ -3658,6 +3673,18 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.success_text(
                 f"✓ Review submitted ({event_label}) on PR #{pr_number}"
                 + (f" with {len(comment_actions)} comment(s)" if comment_actions else "")
+            )
+            # The outcome of the whole workflow existed only on screen. Without
+            # it a log can say what the model proposed but never what was
+            # actually posted, which is the half that says whether a review was
+            # any good.
+            logger.info(
+                "review_published",
+                pr_number=pr_number,
+                event=event,
+                inline_comments=len(payload.get("comments") or []),
+                has_body=bool(payload.get("body")),
+                actions_offered=len(comment_actions),
             )
             ctx.textual.end_step("success")
             return Success(f"Review submitted on PR #{pr_number}")
