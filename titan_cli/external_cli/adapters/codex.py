@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -47,6 +47,14 @@ class CodexHeadlessAdapter:
 
     def is_available(self) -> bool:
         return shutil.which("codex") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """Codex publishes neither a listing subcommand nor stable aliases.
+
+        `codex --help` documents `-m/--model` as a free-form string, so the caller falls
+        back to letting the user type the model id.
+        """
+        return []
 
     def execute(
         self,

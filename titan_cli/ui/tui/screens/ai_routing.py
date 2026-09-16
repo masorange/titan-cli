@@ -190,6 +190,16 @@ def installed_clis(
     return names
 
 
+def cli_option_description(cli_name: str, model: Optional[str]) -> str:
+    """The second line of a CLI's row: how it is invoked, and with which model.
+
+    The model is shown even when nothing is pinned, because "CLI default" is itself the
+    answer to the question the row raises - otherwise a blank reads as "unknown" and the
+    user has to open the picker to find out nothing is set.
+    """
+    return f"command: {cli_name} · model: {model or 'CLI default'}"
+
+
 def suggested_cli(installed: Sequence[str], current_default: Optional[str]) -> Optional[str]:
     """
     The CLI to highlight when no default is set yet.
@@ -279,13 +289,27 @@ class SelectProviderTypeModal(ModalScreen[Optional[str]]):
         self.dismiss(None)
 
 
-class QuickCliModal(ModalScreen[Optional[str]]):
+@dataclass(frozen=True)
+class QuickCliResult:
+    """What the quick picker was asked to do with a CLI.
+
+    Two outcomes, not one: the same row answers "run this one" and "run it with this
+    model", and collapsing them into a bare name would leave the caller guessing which
+    was meant.
+    """
+
+    cli_name: str
+    pick_model: bool = False
+
+
+class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
     """
     Quick picker for the global default CLI, reachable from any screen via a keybinding.
 
     The same single choice the AI Configuration screen's CLI section offers, without the
-    navigation: pick a CLI, Enter saves, Escape leaves everything untouched. Dismisses
-    with the chosen CLI command name, or `None` if cancelled.
+    navigation: Enter runs that CLI from now on, `m` opens its model picker instead, and
+    Escape leaves everything untouched. Dismisses with a `QuickCliResult`, or `None` if
+    cancelled.
     """
 
     DEFAULT_CSS = """
@@ -309,12 +333,23 @@ class QuickCliModal(ModalScreen[Optional[str]]):
     }
     """
 
-    BINDINGS = [("escape", "dismiss_modal", "Cancel")]
+    BINDINGS = [
+        ("escape", "dismiss_modal", "Cancel"),
+        ("m", "pick_model", "Model"),
+    ]
 
-    def __init__(self, installed: Sequence[str], *, current: Optional[str], **kwargs):
+    def __init__(
+        self,
+        installed: Sequence[str],
+        *,
+        current: Optional[str],
+        models: Optional[Dict[str, str]] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.installed = list(installed)
         self.current = current if current in self.installed else None
+        self.models = dict(models or {})
 
     def compose(self) -> ComposeResult:
         from titan_cli.external_cli.configs import CLI_REGISTRY
@@ -336,11 +371,11 @@ class QuickCliModal(ModalScreen[Optional[str]]):
                     StyledOption(
                         id=name,
                         title=f"{display_name}{marker}",
-                        description=f"command: {name}",
+                        description=cli_option_description(name, self.models.get(name)),
                     )
                 )
             yield StyledOptionList(*options, id="quick-cli-list")
-            yield DimText("Enter to set it · Esc to cancel.")
+            yield DimText("Enter to set it · M to choose its model · Esc to cancel.")
 
     def on_mount(self) -> None:
         if self.current is None or not self.installed:
@@ -358,7 +393,29 @@ class QuickCliModal(ModalScreen[Optional[str]]):
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_list.id != "quick-cli-list":
             return
-        self.dismiss(event.option.id)
+        if event.option.id is not None:
+            self.dismiss(QuickCliResult(event.option.id))
+
+    def action_pick_model(self) -> None:
+        """Hand the highlighted CLI back for a model choice, without making it default.
+
+        Choosing a model is not choosing the CLI: pinning a model on one you are not
+        switching to is a normal thing to do, and silently making it default as a side
+        effect would change what runs your next workflow.
+        """
+        highlighted = self._highlighted_cli()
+        if highlighted is not None:
+            self.dismiss(QuickCliResult(highlighted, pick_model=True))
+
+    def _highlighted_cli(self) -> Optional[str]:
+        try:
+            option_list = self.query_one(StyledOptionList)
+        except NoMatches:
+            return None
+        index = option_list.highlighted
+        if index is None or not (0 <= index < len(self.installed)):
+            return None
+        return self.installed[index]
 
     def action_dismiss_modal(self) -> None:
         self.dismiss(None)
@@ -501,6 +558,14 @@ class CliDefaultPicker(Container):
             self.sender = sender
             self.value = value
 
+    class ModelRequested(Message):
+        """Sent when the user asks to choose the model for the highlighted CLI."""
+
+        def __init__(self, sender: "CliDefaultPicker", value: str):
+            super().__init__()
+            self.sender = sender
+            self.value = value
+
     DEFAULT_CSS = """
     CliDefaultPicker {
         height: auto;
@@ -525,9 +590,19 @@ class CliDefaultPicker(Container):
     }
     """
 
-    def __init__(self, installed: Sequence[str], *, current: Optional[str], **kwargs):
+    BINDINGS = [("m", "pick_model", "Model")]
+
+    def __init__(
+        self,
+        installed: Sequence[str],
+        *,
+        current: Optional[str],
+        models: Optional[Dict[str, str]] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.installed = list(installed)
+        self.models = dict(models or {})
         # A saved default that is no longer installed must not read as active: the list
         # would mark whatever it falls back to while the status names a CLI that
         # cannot run. Keep the stale name only to explain the warning.
@@ -546,7 +621,7 @@ class CliDefaultPicker(Container):
         yield Static("Which CLI should Titan run?")
         yield DimText(
             "One choice for both uses below - it is the same tool, invoked differently. "
-            "Press Enter to set it."
+            "Press Enter to set it, or M to choose which model it runs."
         )
         yield StyledOptionList(*self._styled_options(), id="cli-default-list")
         yield Static(self._status_text(), id="cli-status")
@@ -572,7 +647,7 @@ class CliDefaultPicker(Container):
                 StyledOption(
                     id=name,
                     title=f"{display_name}{marker}",
-                    description=f"command: {name}",
+                    description=cli_option_description(name, self.models.get(name)),
                 )
             )
         return options
@@ -607,6 +682,29 @@ class CliDefaultPicker(Container):
         if event.option.id is not None:
             self.post_message(self.Changed(self, event.option.id))
 
+    def action_pick_model(self) -> None:
+        """Ask for a model for the highlighted CLI, whether or not it is the default.
+
+        Highlight, not default: pinning a model on a CLI you have not switched to is a
+        normal thing to do, and making the highlight the default as a side effect would
+        change what runs your next workflow.
+        """
+        try:
+            option_list = self.query_one(StyledOptionList)
+        except NoMatches:
+            return
+        index = option_list.highlighted
+        if index is None or not (0 <= index < len(self.installed)):
+            return
+        self.post_message(self.ModelRequested(self, self.installed[index]))
+
+    def set_model(self, cli_name: str, model: Optional[str]) -> None:
+        """Repaint one row's model in place after it was changed."""
+        self.models[cli_name] = model or ""
+        if not model:
+            self.models.pop(cli_name, None)
+        self._repaint_options()
+
     def _status_text(self) -> str:
         if self.stale_current:
             return (
@@ -626,19 +724,24 @@ class CliDefaultPicker(Container):
         )
 
     def set_current(self, cli_name: str) -> None:
-        """
-        Update the status line and the check marker in place after a selection.
-
-        The list itself is not remounted: it is what the user is currently operating, and
-        rebuilding it under them would drop focus mid-keystroke. Only each option's prompt
-        is swapped, which moves the check marker without touching highlight or focus.
-        """
+        """Update the status line and the check marker in place after a selection."""
         self.current = cli_name
         self.stale_current = None
         self.suggestion = None
         self.query_one("#cli-status", Static).update(self._status_text())
+        self._repaint_options()
 
-        option_list = self.query_one(StyledOptionList)
+    def _repaint_options(self) -> None:
+        """Swap each option's prompt without remounting the list.
+
+        The list is what the user is currently operating: rebuilding it under them would
+        drop focus mid-keystroke, so only the rendered prompts change and highlight and
+        focus survive.
+        """
+        try:
+            option_list = self.query_one(StyledOptionList)
+        except NoMatches:
+            return
         for index, option in enumerate(self._styled_options()):
             prompt = f"[bold]{option.title}[/bold]\n[dim]{option.description}[/dim]"
             option_list.replace_option_prompt_at_index(index, prompt)
@@ -649,6 +752,8 @@ __all__ = [
     "TaskRoutingRow",
     "CliDefaultPicker",
     "QuickCliModal",
+    "QuickCliResult",
+    "cli_option_description",
     "SelectProviderTypeModal",
     "build_task_routings",
     "executable_types",

@@ -246,10 +246,11 @@ class TestScreenMounts:
     """
 
     @staticmethod
-    def _config(*, default_cli=None, tasks=None):
+    def _config(*, default_cli=None, tasks=None, cli_models=None):
         config = MagicMock()
         config.config.ai = AIConfig(
             default_cli=default_cli,
+            cli_models=cli_models or {},
             preferences=AIPreferences(
                 tasks={t: AIProviderPreference(provider=p) for t, p in (tasks or {}).items()}
             ),
@@ -508,3 +509,55 @@ class TestScreenMounts:
         assert saved == ["claude"]
         assert "No default set yet" in result["before"]
         assert "Titan will run claude" in result["after"]
+
+
+class TestCliModelsInTheConfigScreen:
+    """The CLI section says which model each CLI runs, and opens a picker for it."""
+
+    @classmethod
+    def _mount_and_press(cls, config, monkeypatch, keys, *, clis=("claude", "gemini")):
+        TestScreenMounts._stub_screen_dependencies(monkeypatch, [], clis)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: AIConfigScreen(config))
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                picker = app.screen.query_one(CliDefaultPicker)
+                option_list = picker.query_one(StyledOptionList)
+                option_list.focus()
+                await pilot.pause()
+                captured["descriptions"] = [
+                    str(option_list.get_option_at_index(i).prompt)
+                    for i in range(option_list.option_count)
+                ]
+                for key in keys:
+                    await pilot.press(key)
+                    await pilot.pause()
+                captured["screen"] = app.screen
+
+        asyncio.run(run())
+        return captured
+
+    def test_each_cli_row_names_the_model_it_will_run(self, monkeypatch):
+        captured = self._mount_and_press(
+            TestScreenMounts._config(default_cli="claude", cli_models={"claude": "opus"}),
+            monkeypatch,
+            keys=[],
+        )
+
+        assert "model: opus" in captured["descriptions"][0]
+        assert "model: CLI default" in captured["descriptions"][1]
+
+    def test_m_opens_the_picker_for_the_highlighted_cli_without_switching_to_it(
+        self, monkeypatch
+    ):
+        from titan_cli.ui.tui.screens.model_picker import SelectModelModal
+
+        config = TestScreenMounts._config(default_cli="claude")
+        config.get_cli_model.return_value = None
+        captured = self._mount_and_press(config, monkeypatch, keys=["down", "m"])
+
+        assert isinstance(captured["screen"], SelectModelModal)
+        assert "gemini" in captured["screen"].subtitle
+        config.set_default_ai_cli.assert_not_called()

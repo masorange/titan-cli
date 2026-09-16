@@ -309,9 +309,11 @@ Supported params:
 - `pre_launch_warning`: optional warning text shown just before the CLI starts
 
 Which CLI runs is **not** a step param. It is the default CLI chosen once in
-**AI Configuration → CLI**, so every workflow uses the same one and nothing is asked
-mid-run. Users can also route this task to `Off` under **AI Configuration → AI per task**,
-in which case the step skips.
+**AI Configuration → CLI** (or with `F2` from any screen), so every workflow uses the same
+one and nothing is asked mid-run. The model that CLI runs with is chosen the same way -
+press `M` on a CLI in either place - and applies to every workflow that reaches it, unless
+a step asks for a specific model itself. Users can also route this task to `Off` under
+**AI Configuration → AI per task**, in which case the step skips.
 
 Behavior:
 

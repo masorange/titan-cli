@@ -24,10 +24,11 @@ class _BlankScreen(Screen):
         yield Static("blank")
 
 
-def _config(default_cli=None):
+def _config(default_cli=None, cli_models=None):
     config = MagicMock()
-    config.config.ai = AIConfig(default_cli=default_cli)
+    config.config.ai = AIConfig(default_cli=default_cli, cli_models=cli_models or {})
     config.get_project_name.return_value = "test-project"
+    config.get_cli_model.side_effect = lambda cli: (cli_models or {}).get(cli)
     return config
 
 
@@ -112,4 +113,56 @@ class TestQuickCliModal:
         captured = self._run(config, monkeypatch, keys=["enter"])
 
         assert captured["closed"]
+        config.set_default_ai_cli.assert_not_called()
+
+
+class TestQuickCliModalModels:
+    """The picker also says, and lets you change, which model each CLI runs."""
+
+    def test_each_row_names_the_model_that_cli_will_run(self, monkeypatch):
+        _stub_availability(monkeypatch, ("claude", "opencode"))
+        captured = {}
+
+        async def run():
+            app = TitanApp(
+                _config(default_cli="claude", cli_models={"claude": "opus"}),
+                initial_screen=lambda: _BlankScreen(),
+            )
+            async with app.run_test() as pilot:
+                await pilot.press("f2")
+                await pilot.pause()
+                option_list = app.screen.query_one(StyledOptionList)
+                captured["prompts"] = [
+                    str(option_list.get_option_at_index(i).prompt) for i in range(2)
+                ]
+
+        asyncio.run(run())
+
+        assert "model: opus" in captured["prompts"][0]
+        # An unpinned CLI says so rather than leaving a blank that reads as "unknown".
+        assert "model: CLI default" in captured["prompts"][1]
+
+    def test_m_opens_the_model_picker_for_the_highlighted_cli(self, monkeypatch):
+        from titan_cli.ui.tui.screens.model_picker import SelectModelModal
+
+        _stub_availability(monkeypatch, ("claude", "opencode"))
+        config = _config(default_cli="claude")
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("down")
+                await pilot.press("m")
+                await pilot.pause()
+                captured["screen"] = app.screen
+                captured["subtitle"] = getattr(app.screen, "subtitle", None)
+
+        asyncio.run(run())
+
+        assert isinstance(captured["screen"], SelectModelModal)
+        assert "opencode" in captured["subtitle"]
+        # Choosing a model for a CLI is not switching to it.
         config.set_default_ai_cli.assert_not_called()

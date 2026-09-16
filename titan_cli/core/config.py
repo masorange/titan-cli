@@ -354,6 +354,7 @@ class TitanConfig:
         ai_cfg = config_data.setdefault("ai", {})
         ai_cfg.setdefault("connections", {})
         ai_cfg.setdefault("default_connection", None)
+        ai_cfg.setdefault("cli_models", {})
         return ai_cfg
 
     def save_ai_connections_config(self, ai_config: dict) -> None:
@@ -436,6 +437,50 @@ class TitanConfig:
         ai_cfg.pop("default_cli", None)
         self.save_ai_connections_config(ai_cfg)
         self._sync_in_memory_default_cli(None)
+
+    def set_cli_model(self, cli_name: str, model: str) -> None:
+        """
+        Pin the model a CLI runs with, for both headless and interactive use.
+
+        Stored per CLI rather than globally because the identifier only means anything to
+        the CLI that accepts it: switching the default CLI must not carry the previous
+        one's model over to a tool that would reject it.
+
+        The identifier is not checked against anything. Only the CLI knows what it takes,
+        and a typo surfaces as that CLI's own error on the next run, naming the model.
+        """
+        ai_cfg = self.get_ai_connections_config()
+        models = ai_cfg.setdefault("cli_models", {})
+        models[cli_name] = model
+        self.save_ai_connections_config(ai_cfg)
+        self._sync_in_memory_cli_models(models)
+
+    def clear_cli_model(self, cli_name: str) -> None:
+        """Stop pinning a model for this CLI, letting it use its own default again."""
+        ai_cfg = self.get_ai_connections_config()
+        models = ai_cfg.setdefault("cli_models", {})
+        models.pop(cli_name, None)
+        self.save_ai_connections_config(ai_cfg)
+        self._sync_in_memory_cli_models(models)
+
+    def get_cli_model(self, cli_name: str) -> Optional[str]:
+        """The model pinned for this CLI, or None to let the CLI choose its own."""
+        if not getattr(self, "config", None) or not self.config.ai:
+            return None
+        return self.config.ai.cli_models.get(cli_name)
+
+    def _sync_in_memory_cli_models(self, models: dict) -> None:
+        """Keep the parsed `self.config.ai.cli_models` in step with what was just written.
+
+        Same reason as `_sync_in_memory_default_cli`: the next workflow step resolves its
+        route off the in-memory config, not off disk.
+        """
+        if not getattr(self, "config", None):
+            return
+        if self.config.ai:
+            self.config.ai.cli_models = dict(models)
+        else:
+            self.config.ai = AIConfig(cli_models=dict(models))
 
     def _sync_in_memory_default_cli(self, cli_name: Optional[str]) -> None:
         """
@@ -787,36 +832,3 @@ class TitanConfig:
     def _project_source_table_empty(self, project_table: dict) -> bool:
         """Return whether a scoped project source block contains meaningful data."""
         return not any(key != "project_path" for key in project_table)
-
-    def get_status_bar_info(self) -> dict:
-        """
-        Get information for the status bar display.
-
-        Returns:
-            A dict with keys: 'ai_info', 'project_name'
-            Values are strings or None if not available.
-        """
-        # Extract AI info
-        ai_info = None
-        if self.config and self.config.ai:
-            ai_config = self.config.ai
-            default_connection_id = ai_config.default_connection
-
-            if (
-                default_connection_id
-                and default_connection_id in ai_config.connections
-            ):
-                connection_config = ai_config.connections[default_connection_id]
-                provider_name = (
-                    connection_config.provider or connection_config.gateway_backend
-                )
-                model = connection_config.default_model or "default"
-                ai_info = f"{provider_name}/{model}"
-
-        # Extract project name from project config
-        project_name = self.get_project_name()
-
-        return {
-            'ai_info': ai_info,
-            'project_name': project_name
-        }

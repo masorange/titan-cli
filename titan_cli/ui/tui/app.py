@@ -8,7 +8,7 @@ from textual.binding import Binding
 
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
-from titan_cli.external_cli.launcher import CLILauncher
+from titan_cli.external_cli.launcher import launcher_for
 from .theme import TITAN_THEME_CSS
 from .screens import MainMenuScreen
 
@@ -38,6 +38,7 @@ class TitanApp(App):
         Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
         Binding("ctrl+shift+c", "toggle_copy_mode", "Copy Mode"),
         Binding("f2", "quick_cli", "AI CLI"),
+        Binding("f3", "quick_model", "AI Model"),
         Binding("?", "help", "Help"),
     ]
 
@@ -91,8 +92,10 @@ class TitanApp(App):
 
         # Suspend the TUI temporarily
         with self.suspend():
-            launcher = CLILauncher(cli_name)
-            exit_code = launcher.launch(prompt=prompt)
+            launcher = launcher_for(cli_name)
+            exit_code = launcher.launch(
+                prompt=prompt, model=self.config.get_cli_model(cli_name)
+            )
 
         # TUI is automatically restored here
         return exit_code
@@ -102,6 +105,7 @@ class TitanApp(App):
         from titan_cli.ai.router.availability import AIAvailabilityChecker
         from titan_cli.core.security import create_broker_factory
         from titan_cli.ui.tui.screens.ai_routing import QuickCliModal, installed_clis
+        from titan_cli.ui.tui.screens.model_picker import open_cli_model_picker
 
         if isinstance(self.screen, QuickCliModal):
             return
@@ -114,13 +118,51 @@ class TitanApp(App):
         )
         current = ai_config.default_cli if ai_config else None
 
-        def on_picked(cli_name) -> None:
-            if not cli_name or cli_name == current:
+        def on_picked(result) -> None:
+            if result is None:
                 return
-            self.config.set_default_ai_cli(cli_name)
-            self.notify(f"Titan will run {cli_name}.")
+            if result.pick_model:
+                open_cli_model_picker(self, self.config, result.cli_name)
+                return
+            if result.cli_name == current:
+                return
+            self.config.set_default_ai_cli(result.cli_name)
+            self.notify(f"Titan will run {result.cli_name}.")
 
-        self.push_screen(QuickCliModal(installed, current=current), callback=on_picked)
+        self.push_screen(
+            QuickCliModal(
+                installed,
+                current=current,
+                models=ai_config.cli_models if ai_config else None,
+            ),
+            callback=on_picked,
+        )
+
+    def action_quick_model(self) -> None:
+        """Open the model picker for the default AI connection, from any screen.
+
+        The connection's counterpart to F2: that key changes which CLI runs, this one
+        changes which model the configured gateway answers with. A CLI's own model is not
+        reached from here - it belongs to a CLI, so it hangs off the CLI picker.
+        """
+        from titan_cli.ui.tui.screens.model_picker import (
+            SelectModelModal,
+            open_connection_model_picker,
+        )
+
+        if isinstance(self.screen, SelectModelModal):
+            return
+
+        ai_config = self.config.config.ai if self.config.config else None
+        connection_id = ai_config.default_connection if ai_config else None
+        if not connection_id:
+            self.notify(
+                "No default AI connection is set. Configure one in AI Configuration.",
+                severity="warning",
+            )
+            return
+
+        open_connection_model_picker(self, self.config, connection_id)
 
     def action_toggle_copy_mode(self) -> None:
         """Toggle copy mode - disables mouse capture to allow text selection."""

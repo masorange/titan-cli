@@ -300,6 +300,19 @@ class AIExecutor:
                     decision=resolution,
                 )
 
+    def _model_for_cli(self, cli: str, model: Optional[str]) -> Optional[str]:
+        """The model this CLI should run with: the caller's override, else the user's.
+
+        A step that asks for a specific model wins - it is asking for something the
+        prompt needs. Everything else honors what the user pinned for that CLI in AI
+        Configuration, and `None` means the CLI picks for itself, as before.
+        """
+        if model is not None:
+            return model
+        if not self.ai_config:
+            return None
+        return self.ai_config.cli_models.get(cli)
+
     def _remote_generator(self, decision: AIRouteDecision) -> AIExecutionResult[Any]:
         client = self.remote_client(decision)
         if client is None:
@@ -350,7 +363,9 @@ class AIExecutor:
 
         return AIExecutionSuccess(
             decision=decision,
-            data=HeadlessGenerator(adapter, cwd=cwd, timeout=timeout, model=model),
+            data=HeadlessGenerator(
+                adapter, cwd=cwd, timeout=timeout, model=self._model_for_cli(cli, model)
+            ),
         )
 
     def remote_client(self, decision: AIRouteDecision) -> Optional[AIClient]:
@@ -575,6 +590,7 @@ class AIExecutor:
             )
 
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+        model = self._model_for_cli(cli, model)
 
         started = time.monotonic()
         try:

@@ -103,6 +103,10 @@ class AIConfig(BaseModel):
         description="Default CLI name, used for both headless and interactive CLI work",
     )
     connections: Dict[str, AIConnectionConfig] = Field(default_factory=dict)
+    cli_models: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Model identifier to run each CLI with, keyed by CLI command name",
+    )
 
     # Neither default is validated against what exists. A default pointing at something that
     # is gone - a connection renamed by hand, a CLI uninstalled - is a real problem, but it is
@@ -111,6 +115,9 @@ class AIConfig(BaseModel):
     # instead reported at resolution time, by name, with the app running and the config screen
     # reachable. (For `default_cli` there is a second reason: the set of known CLIs lives in
     # `titan_cli.external_cli`, which sits above this module in the dependency graph.)
+    #
+    # `cli_models` is unvalidated for a third reason: only the CLI itself knows which model
+    # identifiers it accepts, and one it rejects is its own error message.
 
     @property
     def default(self) -> Optional[str]:

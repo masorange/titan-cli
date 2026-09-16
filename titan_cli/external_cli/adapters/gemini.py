@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -45,6 +45,15 @@ class GeminiHeadlessAdapter:
 
     def is_available(self) -> bool:
         return shutil.which("gemini") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """Gemini CLI publishes neither a listing subcommand nor stable aliases.
+
+        `gemini --help` documents `-m` as a free-form string with no enumeration behind
+        it, so anything returned here would be a guess this adapter cannot keep current.
+        The caller falls back to letting the user type the model id.
+        """
+        return []
 
     def execute(
         self,

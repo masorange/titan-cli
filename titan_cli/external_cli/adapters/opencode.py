@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -88,6 +88,14 @@ class OpenCodeHeadlessAdapter:
 
     def is_available(self) -> bool:
         return shutil.which("opencode") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """`opencode models` prints one qualified `provider/model` id per line."""
+        return [
+            CliModel(line, line)
+            for line in model_listing_lines(["opencode", "models"])
+            if "/" in line and not line.startswith("-")
+        ]
 
     def execute(
         self,

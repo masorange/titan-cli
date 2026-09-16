@@ -8,7 +8,7 @@ and which kind of AI serves each task.
 from typing import Dict, Optional
 
 from textual.app import ComposeResult
-from textual.widgets import Static, LoadingIndicator, OptionList
+from textual.widgets import Static, LoadingIndicator
 from textual.containers import Container, Horizontal, VerticalScroll, Grid
 from textual.binding import Binding
 from textual.screen import ModalScreen
@@ -29,8 +29,6 @@ from titan_cli.ui.tui.widgets import (
     Button,
     SuccessText,
     ErrorText,
-    StyledOptionList,
-    StyledOption,
     TabbedPanel,
     TabPanel,
 )
@@ -309,129 +307,6 @@ class ConfirmInstallDependenciesModal(ModalScreen[bool]):
             self.dismiss(True)
         elif event.button.id == "cancel-install":
             self.dismiss(False)
-
-
-class SelectGatewayModelModal(ModalScreen[str | None]):
-    """Modal for selecting a gateway model from discovered models."""
-
-    DEFAULT_CSS = """
-    SelectGatewayModelModal {
-        align: center middle;
-    }
-
-    #select-model-container {
-        width: 80;
-        height: auto;
-        background: $surface-lighten-1;
-        border: solid $primary;
-        padding: 2;
-    }
-
-    #select-model-content {
-        height: auto;
-        max-height: 20;
-        margin-top: 1;
-    }
-
-    #select-model-buttons {
-        height: auto;
-        align: center middle;
-        margin-top: 2;
-    }
-    """
-
-    def __init__(
-        self,
-        connection_name: str,
-        gateway_client,
-        current_model: str,
-        **kwargs,
-    ):
-        """
-        Args:
-            connection_name: Display name of the gateway connection.
-            gateway_client: An already-authenticated LiteLLMClient; built by
-                the caller through the secret broker so the key never reaches
-                this screen.
-            current_model: The connection's current default model.
-        """
-        super().__init__(**kwargs)
-        self.connection_name = connection_name
-        self.gateway_client = gateway_client
-        self.current_model = current_model
-
-    def compose(self) -> ComposeResult:
-        with Container(id="select-model-container"):
-            yield Static(f"{Icons.AI_CONFIG} Select gateway model")
-            yield DimText(f"Connection: {self.connection_name}")
-            yield Container(id="select-model-content")
-            with Horizontal(id="select-model-buttons"):
-                yield Button("Close", variant="default", id="close-select-model")
-
-    def on_mount(self) -> None:
-        content = self.query_one("#select-model-content", Container)
-        content.mount(LoadingIndicator())
-        content.mount(DimText("Loading models from gateway..."))
-        self.call_after_refresh(self._start_loading)
-
-    def _start_loading(self) -> None:
-        self.run_worker(self._load_models(), exclusive=True)
-
-    async def _load_models(self) -> None:
-        import asyncio
-
-        content = self.query_one("#select-model-content", Container)
-
-        try:
-            models = await asyncio.to_thread(self.gateway_client.list_models)
-
-            content.remove_children()
-
-            if not models:
-                content.mount(ErrorText("No models available from this gateway."))
-                return
-
-            styled_options = [
-                StyledOption(
-                    id=model.id,
-                    title=model.id,
-                    description=model.owned_by or "",
-                )
-                for model in models
-            ]
-
-            option_list = StyledOptionList(*styled_options, id="gateway-model-list")
-            content.mount(
-                DimText("Select the default model for this connection:")
-            )
-            content.mount(option_list)
-
-            current_index = next(
-                (
-                    idx
-                    for idx, model in enumerate(models)
-                    if model.id == self.current_model
-                ),
-                0,
-            )
-            option_list.highlighted = current_index
-            self.call_after_refresh(lambda: option_list.focus())
-
-        except Exception as e:
-            content.remove_children()
-            content.mount(ErrorText("Could not load models from gateway."))
-            content.mount(DimText(str(e)))
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "close-select-model":
-            self.dismiss(None)
-
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
-        if event.option_list.id != "gateway-model-list":
-            return
-        self.dismiss(event.option.id)
 
 
 class ConnectionCard(Container):
@@ -717,7 +592,11 @@ class AIConfigScreen(BaseScreen):
         )
         ai_config = self.config.config.ai if self.config.config else None
         container.mount(
-            CliDefaultPicker(installed, current=ai_config.default_cli if ai_config else None)
+            CliDefaultPicker(
+                installed,
+                current=ai_config.default_cli if ai_config else None,
+                models=ai_config.cli_models if ai_config else None,
+            )
         )
 
     def load_task_routing(self) -> None:
@@ -853,6 +732,21 @@ class AIConfigScreen(BaseScreen):
         """Picking a CLI from the list is the act of setting the default."""
         self.handle_set_default_cli(event.value)
 
+    def on_cli_default_picker_model_requested(
+        self, event: CliDefaultPicker.ModelRequested
+    ) -> None:
+        """Choose which model that CLI runs with."""
+        from .model_picker import open_cli_model_picker
+
+        cli_name = event.value
+        picker = event.sender
+
+        def on_saved() -> None:
+            picker.set_model(cli_name, self.config.get_cli_model(cli_name))
+            self._refresh_status_bar()
+
+        open_cli_model_picker(self.app, self.config, cli_name, on_saved)
+
     def handle_set_default_cli(self, cli_name: str) -> None:
         """
         Set the CLI every CLI-routed task will run.
@@ -907,67 +801,13 @@ class AIConfigScreen(BaseScreen):
 
     def handle_change_model(self, connection_id: str) -> None:
         """Change the default model for an AI connection."""
-        from titan_cli.ai.litellm_client import LiteLLMClient
-        from titan_cli.core.security import create_broker_factory
+        from .model_picker import open_connection_model_picker
 
-        self.config.load()
+        def on_saved() -> None:
+            self.load_sections()
+            self._refresh_status_bar()
 
-        if connection_id not in self.config.config.ai.connections:
-            self.app.notify("Connection not found", severity="error")
-            return
-
-        connection_cfg = self.config.config.ai.connections[connection_id]
-        if connection_cfg.connection_type != AIConnectionType.GATEWAY:
-            self.app.notify(
-                "Model selection from gateway is only available for AI gateways.",
-                severity="warning",
-            )
-            return
-
-        if not connection_cfg.base_url:
-            self.app.notify("Gateway base URL is missing", severity="error")
-            return
-
-        current_model = connection_cfg.default_model or ""
-        # The gateway key crosses into the client constructor inside the
-        # broker call; the modal receives the authenticated client. A gateway
-        # may legitimately have no key (e.g. a local proxy).
-        broker = create_broker_factory(self.config.project_root).for_plugin("core")
-        gateway_client = broker.create_client(
-            f"{connection_id}_api_key",
-            lambda api_key: LiteLLMClient(
-                base_url=connection_cfg.base_url,
-                api_key=api_key,
-            ),
-            required=False,
-        )
-
-        def on_change_model(result: str | None) -> None:
-            if not result:
-                return
-
-            try:
-                self.config.update_ai_connection(
-                    connection_id,
-                    {"default_model": result},
-                )
-                self.load_sections()
-                self._refresh_status_bar()
-                self.app.notify(
-                    f"Default model for '{connection_cfg.name}' updated",
-                    severity="information",
-                )
-            except Exception as e:
-                self.app.notify(f"Failed to update model: {e}", severity="error")
-
-        self.app.push_screen(
-            SelectGatewayModelModal(
-                connection_cfg.name,
-                gateway_client,
-                current_model,
-            ),
-            on_change_model,
-        )
+        open_connection_model_picker(self.app, self.config, connection_id, on_saved)
 
     def handle_delete(self, connection_id: str) -> None:
         """Delete an AI connection."""

@@ -18,6 +18,7 @@ from titan_cli.ai.router import (
 )
 from titan_cli.ai.router.executor import DEFAULT_PREFERRED, AIExecutor
 from titan_cli.core.interrupt import WorkflowAborted
+from titan_cli.core.models import AIConfig
 from titan_cli.ai.router.resolver import AIRouteNeedsInput
 from titan_cli.external_cli.adapters.base import HeadlessResponse
 
@@ -71,9 +72,9 @@ class FakeAdapter:
         return self._response
 
 
-def _executor(resolution, *, headless=("claude",)):
+def _executor(resolution, *, headless=("claude",), ai_config=None):
     """An executor whose resolution is pinned, so tests exercise execution only."""
-    executor = AIExecutor(ai_config=None)
+    executor = AIExecutor(ai_config=ai_config)
     executor.resolver.resolve = lambda **kwargs: resolution  # type: ignore[method-assign]
     executor.availability.available_headless_clis = lambda: [  # type: ignore[method-assign]
         type("Candidate", (), {"identifier": cli, "provider": AIProviderType.CLI_HEADLESS})()
@@ -706,3 +707,72 @@ def test_announce_is_optional():
 
     assert isinstance(result, AIExecutionError)
     assert result.error_code == "AI_DISABLED"
+
+
+# --- the model a CLI runs with --------------------------------------------
+
+
+def test_headless_uses_the_model_pinned_for_that_cli(monkeypatch):
+    """The user's choice in AI Configuration reaches the CLI without the step knowing."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step)
+
+    assert adapter.calls[0]["model"] == "opus"
+
+
+def test_a_step_asking_for_a_model_outranks_the_pinned_one(monkeypatch):
+    """A step that names a model is asking for something its prompt needs."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step, model="haiku")
+
+    assert adapter.calls[0]["model"] == "haiku"
+
+
+def test_a_model_pinned_for_another_cli_is_not_borrowed(monkeypatch):
+    """An identifier only means something to the CLI it was chosen for."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="gemini"),
+        headless=("gemini",),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step)
+
+    assert adapter.calls[0]["model"] is None
+
+
+def test_an_agent_generator_gets_the_pinned_model_too(monkeypatch):
+    """Agents make their own calls, so the choice has to travel with the generator."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: FakeAdapter()
+    )
+
+    result = executor.resolve_generator(policy=declared_step)
+
+    assert isinstance(result, AIExecutionSuccess)
+    assert isinstance(result.data, HeadlessGenerator)
+    assert result.data.model == "opus"

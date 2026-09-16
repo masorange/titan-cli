@@ -106,29 +106,31 @@ class BaseScreen(Screen):
         except Exception:
             pass
 
-        # Get AI info directly from config
-        ai_info = "N/A"
-        if (
-            self.config.config
-            and self.config.config.ai
-            and self.config.config.ai.default_connection
-        ):
-            default_connection_id = self.config.config.ai.default_connection
-            if default_connection_id in self.config.config.ai.connections:
-                connection_cfg = self.config.config.ai.connections[
-                    default_connection_id
-                ]
-                source_name = get_source_display_name(
-                    connection_cfg.provider or connection_cfg.gateway_backend
-                )
-                model = connection_cfg.default_model or "default"
-                ai_info = f"{source_name} / {model}"
+        ai_config = self.config.config.ai if self.config.config else None
+
+        # F3 cell: the default connection and the model it answers with
+        ai_info = "F3 —"
+        if ai_config and ai_config.default_connection in ai_config.connections:
+            connection_cfg = ai_config.connections[ai_config.default_connection]
+            source_name = get_source_display_name(
+                connection_cfg.provider or connection_cfg.gateway_backend
+            )
+            model = connection_cfg.default_model or "default"
+            ai_info = f"F3 {source_name} / {model}"
+
+        # F2 cell: the CLI Titan runs, and the model pinned to it. An unset model reads as
+        # "default" rather than blank - the CLI still has one, Titan just isn't choosing it.
+        cli_info = "F2 —"
+        if ai_config and ai_config.default_cli:
+            cli = ai_config.default_cli
+            cli_info = f"F2 {cli} / {ai_config.cli_models.get(cli) or 'default'}"
 
         # Get project name directly from config
         project_name = self.config.get_project_name() or "N/A"
 
         # Update status bar
         status_bar.git_branch = git_branch
+        status_bar.cli_info = cli_info
         status_bar.ai_info = ai_info
         status_bar.project_name = project_name
 

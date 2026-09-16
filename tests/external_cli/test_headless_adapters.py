@@ -1153,3 +1153,86 @@ class TestHeadlessAdapterRegistry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Model listing ────────────────────────────────────────────────────────────
+
+class TestModelListing(unittest.TestCase):
+    """Each adapter answers "what can you run?" its own way, or says nothing."""
+
+    def _stdout(self, text, returncode=0):
+        return MagicMock(stdout=text, stderr="", returncode=returncode)
+
+    def test_opencode_lists_qualified_ids_from_its_own_subcommand(self):
+        listing = "anthropic/claude-sonnet-5\nopencode/big-pickle\n"
+        with patch("subprocess.run", return_value=self._stdout(listing)) as run:
+            models = OpenCodeHeadlessAdapter().list_models()
+
+        self.assertEqual(run.call_args[0][0], ["opencode", "models"])
+        self.assertEqual(
+            [m.identifier for m in models],
+            ["anthropic/claude-sonnet-5", "opencode/big-pickle"],
+        )
+
+    def test_antigravity_splits_identifier_from_its_human_label(self):
+        listing = "Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\n"
+        with patch("subprocess.run", return_value=self._stdout(listing)):
+            models = AntigravityHeadlessAdapter().list_models()
+
+        self.assertEqual(len(models), 1)
+        self.assertEqual(models[0].identifier, "gemini-3.1-pro-high")
+        self.assertEqual(models[0].label, "Gemini 3.1 Pro (High)")
+
+    def test_grok_keeps_only_the_bulleted_models_not_the_prose_around_them(self):
+        listing = (
+            "You are not authenticated.\n"
+            "Default model: grok-4.6\n"
+            "Available models:\n"
+            "  * grok-4.6 (default)\n"
+            "  * grok-code\n"
+        )
+        with patch("subprocess.run", return_value=self._stdout(listing)):
+            models = GrokHeadlessAdapter().list_models()
+
+        self.assertEqual([m.identifier for m in models], ["grok-4.6", "grok-code"])
+
+    def test_a_failed_listing_is_no_models_rather_than_an_error(self):
+        # A CLI that is not logged in, is offline, or has no such subcommand must leave
+        # the caller with an empty list to fall back from, never an exception.
+        for failure in (
+            self._stdout("boom", returncode=1),
+            subprocess.TimeoutExpired(cmd="opencode", timeout=20),
+            FileNotFoundError("opencode"),
+        ):
+            with self.subTest(failure=failure):
+                side_effect = None if not isinstance(failure, Exception) else failure
+                with patch(
+                    "subprocess.run",
+                    return_value=failure if side_effect is None else None,
+                    side_effect=side_effect,
+                ):
+                    self.assertEqual(OpenCodeHeadlessAdapter().list_models(), [])
+
+    def test_claude_offers_aliases_without_shelling_out(self):
+        with patch("subprocess.run") as run:
+            models = ClaudeHeadlessAdapter().list_models()
+
+        run.assert_not_called()
+        self.assertIn("opus", [m.identifier for m in models])
+        self.assertIn("sonnet", [m.identifier for m in models])
+
+    def test_clis_that_publish_nothing_return_nothing(self):
+        for adapter in (GeminiHeadlessAdapter(), CodexHeadlessAdapter()):
+            with self.subTest(cli=adapter.cli_name):
+                with patch("subprocess.run") as run:
+                    self.assertEqual(adapter.list_models(), [])
+                run.assert_not_called()
+
+    def test_every_registered_adapter_can_be_asked(self):
+        # The picker calls this on whichever CLI the user highlighted, so an adapter that
+        # never implemented it would fail only for that one CLI, at the worst moment.
+        for cli_name in HEADLESS_ADAPTER_REGISTRY:
+            with self.subTest(cli=cli_name):
+                adapter = get_headless_adapter(cli_name)
+                with patch("subprocess.run", return_value=self._stdout("")):
+                    self.assertIsInstance(adapter.list_models(), list)

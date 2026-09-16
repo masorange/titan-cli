@@ -1,0 +1,383 @@
+"""
+The one modal that asks "which model?", wherever that question comes up.
+
+Two very different sources answer it - a gateway's `/models` endpoint and a CLI's own
+idea of what it can run - so the modal takes a loader instead of a source: a callable
+returning the choices, run off the UI thread because both can block on the network.
+
+Typing an identifier is always available, never a fallback for failure alone. No source
+here is authoritative: a gateway lists what it proxies today, a CLI lists what it knew
+when it shipped, and some CLIs list nothing at all. A model this modal has never heard
+of still has to be reachable, so the free-text entry is a first-class option.
+"""
+
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Sequence
+
+from textual.app import ComposeResult
+from textual.containers import Container, Horizontal
+from textual.screen import ModalScreen
+from textual.widgets import Input, LoadingIndicator, OptionList, Static
+
+from titan_cli.ui.tui.icons import Icons
+from titan_cli.ui.tui.widgets import (
+    Button,
+    DimText,
+    ErrorText,
+    StyledOption,
+    StyledOptionList,
+)
+
+# Sentinel option id for "let me type one". Not a model identifier any source can return,
+# so it cannot collide with a real choice.
+CUSTOM_OPTION_ID = "__custom__"
+
+
+@dataclass(frozen=True)
+class ModelChoice:
+    """One model on offer. `identifier` is saved verbatim; `description` is for display."""
+
+    identifier: str
+    description: str = ""
+
+
+ModelLoader = Callable[[], Sequence[ModelChoice]]
+
+
+class SelectModelModal(ModalScreen[Optional[str]]):
+    """
+    Picks a model identifier, from a loaded list or typed by hand.
+
+    Dismisses with the chosen identifier, or `None` if cancelled.
+    """
+
+    DEFAULT_CSS = """
+    SelectModelModal {
+        align: center middle;
+    }
+
+    #select-model-container {
+        width: 80;
+        height: auto;
+        background: $surface-lighten-1;
+        border: solid $primary;
+        padding: 2;
+    }
+
+    #select-model-content {
+        height: auto;
+        max-height: 20;
+        margin-top: 1;
+    }
+
+    #select-model-buttons {
+        height: auto;
+        align: center middle;
+        margin-top: 2;
+    }
+    """
+
+    BINDINGS = [("escape", "dismiss_modal", "Cancel")]
+
+    def __init__(
+        self,
+        title: str,
+        subtitle: str,
+        loader: ModelLoader,
+        *,
+        current: Optional[str] = None,
+        loading_message: str = "Loading models...",
+        empty_message: str = "This source does not publish a model list.",
+        **kwargs,
+    ):
+        """
+        Args:
+            title: Heading for the modal.
+            subtitle: What the choice applies to, e.g. a connection or CLI name.
+            loader: Returns the available models. Called off the UI thread; raising is
+                treated as "could not load", which still leaves the typed entry usable.
+            current: The identifier in force now, highlighted in the list and prefilled
+                in the text entry.
+            loading_message: Shown while the loader runs.
+            empty_message: Shown when the loader returns nothing.
+        """
+        super().__init__(**kwargs)
+        self.modal_title = title
+        self.subtitle = subtitle
+        self.loader = loader
+        self.current = current
+        self.loading_message = loading_message
+        self.empty_message = empty_message
+
+    def compose(self) -> ComposeResult:
+        with Container(id="select-model-container"):
+            yield Static(f"{Icons.AI_CONFIG} {self.modal_title}")
+            yield DimText(self.subtitle)
+            yield Container(id="select-model-content")
+            with Horizontal(id="select-model-buttons"):
+                yield Button("Close", variant="default", id="close-select-model")
+
+    def on_mount(self) -> None:
+        content = self.query_one("#select-model-content", Container)
+        content.mount(LoadingIndicator())
+        content.mount(DimText(self.loading_message))
+        self.call_after_refresh(self._start_loading)
+
+    def _start_loading(self) -> None:
+        self.run_worker(self._load_models(), exclusive=True)
+
+    async def _load_models(self) -> None:
+        import asyncio
+
+        content = self.query_one("#select-model-content", Container)
+
+        error: Optional[str] = None
+        try:
+            models = list(await asyncio.to_thread(self.loader))
+        except Exception as e:
+            models, error = [], str(e)
+
+        content.remove_children()
+
+        if error:
+            content.mount(ErrorText("Could not load the model list."))
+            content.mount(DimText(error))
+        elif not models:
+            content.mount(DimText(self.empty_message))
+
+        if not models:
+            self._mount_custom_entry(content)
+            return
+
+        content.mount(DimText("Select a model:"))
+        option_list = StyledOptionList(*self._options(models), id="model-list")
+        content.mount(option_list)
+
+        current_index = next(
+            (idx for idx, model in enumerate(models) if model.identifier == self.current),
+            0,
+        )
+        option_list.highlighted = current_index
+        self.call_after_refresh(option_list.focus)
+
+    def _options(self, models: Sequence[ModelChoice]) -> List[StyledOption]:
+        options = [
+            StyledOption(
+                id=model.identifier,
+                title=(
+                    f"{model.identifier} {Icons.CHECK}"
+                    if model.identifier == self.current
+                    else model.identifier
+                ),
+                description=model.description,
+            )
+            for model in models
+        ]
+        options.append(
+            StyledOption(
+                id=CUSTOM_OPTION_ID,
+                title="Type a model identifier...",
+                description="For a model this list does not know about",
+            )
+        )
+        return options
+
+    def _mount_custom_entry(self, content: Container) -> None:
+        """Swap the content for a text entry, prefilled with what is in force now."""
+        content.remove_children()
+        content.mount(DimText("Model identifier (Enter to save):"))
+        entry = Input(value=self.current or "", id="model-input")
+        content.mount(entry)
+        self.call_after_refresh(entry.focus)
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if getattr(event.option_list, "id", None) != "model-list":
+            return
+        if event.option.id == CUSTOM_OPTION_ID:
+            self._mount_custom_entry(self.query_one("#select-model-content", Container))
+            return
+        self.dismiss(event.option.id)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        value = event.value.strip()
+        # An emptied field is "leave it alone", not "set the model to nothing": clearing a
+        # pinned model is its own action, and guessing which one was meant here would
+        # silently change the setting the user came to look at.
+        self.dismiss(value or None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close-select-model":
+            self.dismiss(None)
+
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
+
+def cli_model_loader(cli_name: str) -> ModelLoader:
+    """Loader backed by the CLI's own answer to "what can you run?".
+
+    Each adapter decides how to answer - shelling out to a listing subcommand, returning
+    the aliases its help publishes, or returning nothing - so this only has to translate
+    the result. A CLI with no adapter is not an error here: it simply offers nothing, and
+    the modal falls through to the typed entry.
+    """
+
+    def load() -> List[ModelChoice]:
+        from titan_cli.external_cli.adapters import get_headless_adapter
+
+        try:
+            adapter = get_headless_adapter(cli_name)
+        except ValueError:
+            return []
+        return [
+            ModelChoice(model.identifier, model.label)
+            for model in adapter.list_models()
+        ]
+
+    return load
+
+
+def gateway_model_loader(gateway_client) -> ModelLoader:
+    """Loader backed by a gateway's `/models` endpoint.
+
+    Takes an already-authenticated client: the key is the broker's business, and this
+    layer never sees one.
+    """
+
+    def load() -> List[ModelChoice]:
+        if gateway_client is None:
+            return []
+        return [
+            ModelChoice(model.id, model.owned_by or "")
+            for model in gateway_client.list_models()
+        ]
+
+    return load
+
+
+def open_connection_model_picker(app, config, connection_id: str, on_saved=None) -> None:
+    """Ask which model a gateway connection should default to, and save the answer.
+
+    Lives here rather than on a screen because two entry points reach it - the
+    connection card in AI Configuration and the global keybinding - and a second copy of
+    "resolve connection, authenticate, push modal, persist" is a copy that drifts.
+
+    Args:
+        app: The running app, for pushing the modal and notifying.
+        config: TitanConfig, reloaded here so the modal reflects what is on disk.
+        connection_id: The connection whose default model is being set.
+        on_saved: Called after a successful save, for callers that repaint something.
+    """
+    from titan_cli.ai.litellm_client import LiteLLMClient
+    from titan_cli.core.models import AIConnectionType
+    from titan_cli.core.security import create_broker_factory
+
+    config.load()
+
+    connections = config.config.ai.connections if config.config and config.config.ai else {}
+    if connection_id not in connections:
+        app.notify("Connection not found", severity="error")
+        return
+
+    connection_cfg = connections[connection_id]
+    if connection_cfg.connection_type != AIConnectionType.GATEWAY:
+        app.notify(
+            "Only gateway connections publish a model list. "
+            "Set this connection's model in AI Configuration.",
+            severity="warning",
+        )
+        return
+
+    if not connection_cfg.base_url:
+        app.notify("Gateway base URL is missing", severity="error")
+        return
+
+    # The gateway key crosses into the client constructor inside the broker call; the
+    # modal only ever receives the authenticated client. A gateway may legitimately have
+    # no key (e.g. a local proxy).
+    broker = create_broker_factory(config.project_root).for_plugin("core")
+    gateway_client = broker.create_client(
+        f"{connection_id}_api_key",
+        lambda api_key: LiteLLMClient(
+            base_url=connection_cfg.base_url,
+            api_key=api_key,
+        ),
+        required=False,
+    )
+
+    def on_picked(model: Optional[str]) -> None:
+        if not model or model == connection_cfg.default_model:
+            return
+        try:
+            config.update_ai_connection(connection_id, {"default_model": model})
+        except Exception as e:
+            app.notify(f"Failed to update model: {e}", severity="error")
+            return
+        app.notify(f"'{connection_cfg.name}' will use {model}.", severity="information")
+        if on_saved:
+            on_saved()
+
+    app.push_screen(
+        SelectModelModal(
+            "Select gateway model",
+            f"Connection: {connection_cfg.name}",
+            gateway_model_loader(gateway_client),
+            current=connection_cfg.default_model or None,
+            loading_message="Loading models from gateway...",
+            empty_message="This gateway published no models.",
+        ),
+        on_picked,
+    )
+
+
+def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
+    """Ask which model a CLI should run with, and save the answer.
+
+    Args:
+        app: The running app, for pushing the modal and notifying.
+        config: TitanConfig.
+        cli_name: The CLI command name the model is pinned to.
+        on_saved: Called after a successful save, for callers that repaint something.
+    """
+    from titan_cli.external_cli.configs import CLI_REGISTRY
+
+    display_name = CLI_REGISTRY.get(cli_name, {}).get("display_name", cli_name)
+    current = config.get_cli_model(cli_name)
+
+    def on_picked(model: Optional[str]) -> None:
+        if not model or model == current:
+            return
+        try:
+            config.set_cli_model(cli_name, model)
+        except Exception as e:
+            app.notify(f"Failed to set the model: {e}", severity="error")
+            return
+        app.notify(f"{cli_name} will run {model}.", severity="information")
+        if on_saved:
+            on_saved()
+
+    app.push_screen(
+        SelectModelModal(
+            f"Which model should {display_name} run?",
+            f"command: {cli_name}",
+            cli_model_loader(cli_name),
+            current=current,
+            loading_message=f"Asking {cli_name} which models it offers...",
+            empty_message=(
+                f"{display_name} does not publish a model list - type the identifier it "
+                "expects."
+            ),
+        ),
+        on_picked,
+    )
+
+
+__all__ = [
+    "ModelChoice",
+    "SelectModelModal",
+    "CUSTOM_OPTION_ID",
+    "cli_model_loader",
+    "gateway_model_loader",
+    "open_cli_model_picker",
+    "open_connection_model_picker",
+]

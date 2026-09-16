@@ -109,3 +109,40 @@ def test_only_task_scope_is_persisted(config: TitanConfig):
     config.upsert_task_ai_preference("commit_message", {"provider": "remote"})
 
     assert set(_written_preferences(config).keys()) == {"tasks"}
+
+
+def test_a_cli_model_roundtrips_and_can_be_cleared(config: TitanConfig):
+    config.set_cli_model("claude", "opus")
+
+    reloaded = TitanConfig()
+    assert reloaded.config.ai.cli_models == {"claude": "opus"}
+    assert reloaded.get_cli_model("claude") == "opus"
+
+    config.clear_cli_model("claude")
+
+    assert TitanConfig().get_cli_model("claude") is None
+
+
+def test_each_cli_keeps_its_own_model(config: TitanConfig):
+    """An identifier only means something to the CLI that accepts it."""
+    config.set_cli_model("claude", "opus")
+    config.set_cli_model("opencode", "anthropic/claude-sonnet-5")
+
+    assert TitanConfig().config.ai.cli_models == {
+        "claude": "opus",
+        "opencode": "anthropic/claude-sonnet-5",
+    }
+
+
+def test_a_new_cli_model_is_visible_without_reloading(config: TitanConfig):
+    """The next workflow step routes off the in-memory config, not off disk."""
+    config.set_cli_model("claude", "opus")
+
+    assert config.config.ai.cli_models["claude"] == "opus"
+    assert config.get_cli_model("claude") == "opus"
+
+
+def test_an_unpinned_cli_has_no_model(config: TitanConfig):
+    config.set_cli_model("claude", "opus")
+
+    assert config.get_cli_model("gemini") is None

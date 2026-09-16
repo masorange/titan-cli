@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -109,6 +109,22 @@ class GrokHeadlessAdapter:
 
     def is_available(self) -> bool:
         return shutil.which("grok") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """`grok models` prints the available models as `* id` bullets.
+
+        The surrounding lines are prose ("Default model: ...", a sign-in notice), and a
+        signed-out grok lists only its default - which is still the honest answer for
+        that machine, so it is returned as-is rather than treated as a failure.
+        """
+        models: list[CliModel] = []
+        for line in model_listing_lines(["grok", "models"]):
+            if not line.startswith("*"):
+                continue
+            identifier = line.lstrip("*").strip().split()[0]
+            if identifier:
+                models.append(CliModel(identifier, identifier))
+        return models
 
     def execute(
         self,
