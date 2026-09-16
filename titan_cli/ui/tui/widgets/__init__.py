@@ -8,7 +8,6 @@ from .header import HeaderWidget
 from .panel import Panel
 from .panel_container import PanelContainer
 from .table import Table
-from .expandable_list import ExpandableList, ExpandableListItem
 from .json_tree import JsonTree, JsonTreeDetail
 from .button import Button
 from .step_container import StepContainer
@@ -25,6 +24,11 @@ from .wizard import StepStatus, WizardStep, StepIndicator
 from .segmented_switch import SegmentedSwitch, SegmentedSwitchOption
 from .tabs import TabbedPanel, TabPanel
 from .dev_source_path_modal import DevSourcePathModal
+from .collapsible_list import (
+    CollapsibleEntry,
+    build_collapsible_list,
+    escape_markup,
+)
 from .text import (
     Text,
     DimText,
@@ -44,8 +48,6 @@ __all__ = [
     "Panel",
     "PanelContainer",
     "Table",
-    "ExpandableList",
-    "ExpandableListItem",
     "JsonTree",
     "JsonTreeDetail",
     "Button",
@@ -68,6 +70,9 @@ __all__ = [
     "TabbedPanel",
     "TabPanel",
     "DevSourcePathModal",
+    "CollapsibleEntry",
+    "build_collapsible_list",
+    "escape_markup",
     "Text",
     "DimText",
     "BoldText",

@@ -7,7 +7,7 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 """
 
 import threading
-from typing import Optional, List, Any, Iterable
+from typing import Optional, List, Any
 from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
@@ -294,24 +294,37 @@ class TextualComponents:
         )
         self.mount(table_widget)
 
-    def expandable_list(
-        self,
-        items: Iterable[Any],
-        title: str = "",
-    ) -> None:
+    def collapsible_list(self, entries: List[Any], classes: str = "") -> None:
         """
-        Show a list of collapsible rows with detail tables.
+        Show a list of expandable rows: summary line visible, detail on demand.
+
+        Each entry is a `CollapsibleEntry` (import it from
+        `titan_cli.ui.tui.widgets`). A row with no body and no children renders as
+        a plain line instead of a triangle that opens onto nothing. Children of a
+        collapsed row are built the first time it is opened, so a large tree costs
+        nothing until the user asks for it.
 
         Args:
-            items: Iterable of ExpandableListItem instances.
-            title: Optional title shown above the list.
+            entries: List of CollapsibleEntry describing the rows
+            classes: Optional CSS classes for the container
 
         Example:
-            ctx.textual.expandable_list(items, title="Remote Config values")
-        """
-        from titan_cli.ui.tui.widgets import ExpandableList
+            from titan_cli.ui.tui.widgets import CollapsibleEntry
 
-        self.mount(ExpandableList(items, title=title))
+            ctx.textual.collapsible_list([
+                CollapsibleEntry(
+                    title="POST /login",
+                    right="240ms",
+                    body=["status: 200"],
+                    copy_text=raw_payload,
+                    copy_label="response body",
+                    children=[CollapsibleEntry(title="headers", body=[headers])],
+                ),
+                CollapsibleEntry(title="nothing to expand here"),
+            ])
+        """
+        from titan_cli.ui.tui.widgets import build_collapsible_list
+        self.mount(build_collapsible_list(entries, classes=classes))
 
     def dim_text(self, text: str) -> None:
         """

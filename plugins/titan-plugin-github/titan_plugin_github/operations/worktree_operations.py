@@ -8,6 +8,7 @@ These functions wrap git worktree commands without UI dependencies.
 import os
 import shutil
 from typing import Tuple
+from titan_cli.core.logging import best_effort_operation
 from titan_cli.core.result import ClientSuccess, ClientError
 
 
@@ -95,21 +96,22 @@ def clear_stale_worktree(
         full_worktree_path: Absolute path on disk; when empty, the directory
                             removal step is skipped
     """
-    try:
-        git_client.remove_worktree(worktree_path, force=True)
-    except Exception:
-        pass
-
-    if full_worktree_path and os.path.isdir(full_worktree_path):
+    with best_effort_operation():
         try:
-            shutil.rmtree(full_worktree_path)
-        except OSError:
+            git_client.remove_worktree(worktree_path, force=True)
+        except Exception:
             pass
 
-    try:
-        git_client.prune_worktrees()
-    except Exception:
-        pass
+        if full_worktree_path and os.path.isdir(full_worktree_path):
+            try:
+                shutil.rmtree(full_worktree_path)
+            except OSError:
+                pass
+
+        try:
+            git_client.prune_worktrees()
+        except Exception:
+            pass
 
 
 def cleanup_worktree(

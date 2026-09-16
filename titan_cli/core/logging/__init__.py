@@ -19,11 +19,12 @@ Usage:
 """
 
 from .config import setup_logging, get_logger, disable_console_logging
-from .decorators import log_client_operation
+from .decorators import best_effort_operation, log_client_operation
 
 __all__ = [
     "setup_logging",
     "get_logger",
     "disable_console_logging",
     "log_client_operation",
+    "best_effort_operation",
 ]

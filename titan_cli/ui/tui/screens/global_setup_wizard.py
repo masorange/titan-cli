@@ -289,14 +289,14 @@ class GlobalSetupWizardScreen(BaseScreen):
                 """Callback when AI wizard is dismissed."""
                 from titan_cli.core.logging import get_logger
                 logger = get_logger('titan_cli.ui.tui.screens.project_setup_wizard')
-                logger.debug(f"AI wizard complete with result={result}")
+                logger.debug("ai_wizard_completed", result=result)
 
                 # Only proceed if AI was configured successfully
                 if result is True:
-                    logger.debug(f"AI configured successfully, moving to step {self.current_step + 1}")
+                    logger.debug("ai_wizard_configured", next_step=self.current_step + 1)
                     self.load_step(self.current_step + 1)
                 else:
-                    logger.debug("AI wizard cancelled, staying on current step")
+                    logger.debug("ai_wizard_cancelled", step=self.current_step)
                     self.app.notify(
                         "AI configuration is required to use Titan. Please configure an AI connection.",
                         severity="warning"

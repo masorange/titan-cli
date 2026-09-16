@@ -680,9 +680,10 @@ class PRService:
                 return queue_state.is_merge_queue_enabled
             case ClientError(error_message=err):
                 self._logger.warning(
-                    "Merge queue detection failed for PR #%s, merging without a queue check: %s",
-                    pr_number,
-                    err,
+                    "merge_queue_detection_failed",
+                    pr_number=pr_number,
+                    error=err,
+                    consequence="merging_without_queue_check",
                 )
                 return None
 
@@ -710,7 +711,7 @@ class PRService:
             # operation decorator logs this call as a success. Log the reason here or
             # the log says a merge queue request succeeded when it did not.
             self._logger.warning(
-                "Merge queue request failed for PR #%s: %s", pr_number, reason
+                "merge_queue_request_failed", pr_number=pr_number, reason=reason
             )
             network_result = NetworkPRMergeResult(merged=False, message=reason)
             ui_result = from_network_pr_merge_result(network_result)

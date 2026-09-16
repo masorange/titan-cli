@@ -6,7 +6,7 @@ from contextlib import nullcontext
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
-from titan_cli.ui.tui.widgets import ExpandableListItem, JsonTreeDetail
+from titan_cli.ui.tui.widgets import CollapsibleEntry, JsonTree, Table
 
 from ..config import FirebaseConditionGroupConfig
 from ..operations.key_inventory_operations import (
@@ -139,12 +139,12 @@ def execute_firebase_remoteconfig_fanout_list_keys_step(
                 condition_group,
             )
             if value_items:
-                ctx.textual.expandable_list(
+                ctx.textual.dim_text("Valores por proyecto")
+                ctx.textual.collapsible_list(
                     [
-                        _expandable_value_item(item)
+                        _collapsible_value_entry(item)
                         for item in value_items
-                    ],
-                    title="Valores por proyecto",
+                    ]
                 )
             else:
                 ctx.textual.dim_text(
@@ -207,23 +207,27 @@ def _non_empty(values: dict[str, list[str]]) -> dict[str, list[str]]:
     return {key: items for key, items in values.items() if items}
 
 
-def _expandable_value_item(item) -> ExpandableListItem:
-    """Adapt a Firebase value view model to Titan's expandable list widget."""
+def _collapsible_value_entry(item) -> CollapsibleEntry:
+    """Adapt a Firebase value view model to Titan's shared collapsible list."""
     subtitle_parts = [item.project_label]
     if item.description:
         subtitle_parts.append(item.description)
-    return ExpandableListItem(
-        title=item.key,
-        subtitle=" · ".join(subtitle_parts),
-        badge=item.type_label,
-        summary=item.environment_summary,
-        detail_headers=["Entorno", "Valor", "Origen", "Editable"],
-        detail_rows=item.value_rows,
-        detail_flex_column=1,
-        json_details=[
-            JsonTreeDetail(detail.title, detail.value)
-            for detail in item.json_details
-        ],
+    body = [
+        " · ".join(subtitle_parts),
+        Table(
+            headers=["Entorno", "Valor", "Origen", "Editable"],
+            rows=item.value_rows,
+            show_cursor=False,
+            flex_column=1,
+        ),
+    ]
+    body.extend(
+        JsonTree(detail.title, detail.value)
+        for detail in item.json_details
+    )
+    return CollapsibleEntry(
+        title=f"{item.key}  [{item.type_label}]  {item.environment_summary}",
+        body=body,
     )
 
 

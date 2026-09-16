@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Exit, Success
 from titan_cli.engine.context import WorkflowContext
+from titan_cli.ui.tui.widgets import JsonTree, Table
 
 from titan_plugin_firebase.config import FirebasePluginConfig
 from titan_plugin_firebase.models.mappers import map_template
@@ -1045,21 +1046,23 @@ def test_fanout_list_keys_reads_every_project_and_reports_inventory(ui_template)
     ]
     assert ctx.textual.table.call_args_list[0].kwargs["rows"][0][0] == "yoigo"
     assert ctx.textual.table.call_args_list[0].kwargs["rows"][1][0] == "guuk"
-    ctx.textual.expandable_list.assert_called_once()
-    assert ctx.textual.expandable_list.call_args.kwargs["title"] == (
-        "Valores por proyecto"
+    ctx.textual.collapsible_list.assert_called_once()
+    value_entries = ctx.textual.collapsible_list.call_args.args[0]
+    assert value_entries[0].title == (
+        "feature_enabled  [Bool]  default, android_prod"
     )
-    value_items = ctx.textual.expandable_list.call_args.args[0]
-    assert value_items[0].title == "feature_enabled"
-    assert value_items[0].subtitle == "yoigo · Kill switch"
-    assert value_items[0].badge == "Bool"
-    assert value_items[0].summary == "default, android_prod"
-    assert value_items[0].detail_headers == ["Entorno", "Valor", "Origen", "Editable"]
-    assert value_items[0].detail_flex_column == 1
-    assert value_items[0].detail_rows == [
+    assert value_entries[0].body[0] == "yoigo · Kill switch"
+    assert isinstance(value_entries[0].body[1], Table)
+    assert value_entries[0].body[1].flex_column == 1
+    assert value_entries[0].body[1].headers == ["Entorno", "Valor", "Origen", "Editable"]
+    assert value_entries[0].body[1].rows == [
         ["default", "false", "Literal", "si"],
         ["android_prod", "true", "Literal", "si"],
     ]
+    assert any(
+        any(isinstance(body_item, JsonTree) for body_item in entry.body)
+        for entry in value_entries
+    )
 
 
 def test_fanout_list_keys_applies_condition_group_view(ui_template):
@@ -1078,10 +1081,11 @@ def test_fanout_list_keys_applies_condition_group_view(ui_template):
     assert isinstance(result, Success)
     assert result.metadata["firebase_condition_group"] == "android"
     assert result.metadata["firebase_condition_group_label"] == "Android"
-    value_items = ctx.textual.expandable_list.call_args.args[0]
-    assert value_items[0].title == "feature_enabled"
-    assert value_items[0].summary == "default, android_prod"
-    assert value_items[0].detail_rows == [
+    value_entries = ctx.textual.collapsible_list.call_args.args[0]
+    assert value_entries[0].title == (
+        "feature_enabled  [Bool]  default, android_prod"
+    )
+    assert value_entries[0].body[1].rows == [
         ["default", "false", "Literal", "si"],
         ["android_prod", "true", "Literal", "si"],
     ]

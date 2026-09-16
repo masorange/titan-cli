@@ -1,0 +1,36 @@
+name: "Audit Workflow Run"
+description: "Pick a workflow, pick one of its runs, and see how it actually worked: what it processed, what it read, how full its budgets were, and how it compares to its other runs."
+
+steps:
+  - id: log-source
+    name: "Select Log Files"
+    plugin: project
+    step: select_log_source
+
+  - id: workflow
+    name: "Select Workflow"
+    plugin: project
+    step: select_workflow
+    requires:
+      - log_paths
+
+  - id: run
+    name: "Select Run"
+    plugin: project
+    step: select_workflow_run
+    requires:
+      - workflow_run_refs
+
+  - id: audit
+    name: "Audit Workflow Run"
+    plugin: project
+    step: audit_workflow_run
+    requires:
+      - workflow_run
+
+  - id: assess
+    name: "AI Assessment"
+    plugin: project
+    step: ai_assess_workflow_run
+    requires:
+      - workflow_run_profile

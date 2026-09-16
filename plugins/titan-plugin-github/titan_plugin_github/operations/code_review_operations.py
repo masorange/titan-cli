@@ -206,7 +206,11 @@ Example: ["app/src/main/Foo.kt", "lib/Bar.kt"]"""
         valid = [f for f in selected if f in all_paths]
         return valid if valid else all_paths[:MAX_FILES_FOR_REVIEW]
     except Exception as e:
-        logger.warning(f"File selection failed, using first {MAX_FILES_FOR_REVIEW} files: {e}")
+        logger.warning(
+            "file_selection_failed",
+            fallback_files=MAX_FILES_FOR_REVIEW,
+            error=str(e),
+        )
         return all_paths[:MAX_FILES_FOR_REVIEW]
 
 
