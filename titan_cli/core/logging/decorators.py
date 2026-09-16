@@ -5,15 +5,39 @@ Provides decorators to automatically log ClientResult operations
 and other common patterns.
 """
 
+import contextlib
+import contextvars
 import functools
 import time
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Iterator, TypeVar
 
 from titan_cli.core.logging.config import get_logger
 from titan_cli.core.result import ClientSuccess, ClientError
 
 
 F = TypeVar('F', bound=Callable[..., Any])
+
+_best_effort: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "titan_best_effort_operation", default=False
+)
+
+
+@contextlib.contextmanager
+def best_effort_operation() -> Iterator[None]:
+    """
+    Mark client calls in this block as speculative, so a failure logs at debug.
+
+    Only the caller knows an operation is optional. Speculative cleanup that
+    fails is normal control flow, but `log_client_operation` sees the same
+    `ClientError` either way and would report it at error — which is how
+    removing a worktree that was never registered became the only error in an
+    otherwise healthy run, and poisoned every "did this run fail?" check.
+    """
+    token = _best_effort.set(True)
+    try:
+        yield
+    finally:
+        _best_effort.reset(token)
 
 
 def log_client_operation(operation_name: str = None):
@@ -83,7 +107,12 @@ def log_client_operation(operation_name: str = None):
                         )
 
                     case ClientError(error_message=error_message, error_code=error_code, log_level=log_level):
-                        log_fn = logger.warning if log_level == "warning" else logger.error
+                        if _best_effort.get():
+                            log_fn = logger.debug
+                        elif log_level == "warning":
+                            log_fn = logger.warning
+                        else:
+                            log_fn = logger.error
                         log_fn(
                             f"{op_name}_failed",
                             error=error_message,
