@@ -14,6 +14,10 @@
       "name": "Project Selection",
       "steps": [
         {
+          "name": "firebase_projects_list",
+          "summary": "List Firebase projects available to the active Google credentials."
+        },
+        {
           "name": "firebase_select_target",
           "summary": "Resolve the Firebase project to work on."
         },
@@ -29,6 +33,14 @@
         {
           "name": "firebase_remoteconfig_get",
           "summary": "Read the active Remote Config template for one project."
+        },
+        {
+          "name": "firebase_remoteconfig_list_keys",
+          "summary": "List the parameter keys in a Remote Config template."
+        },
+        {
+          "name": "firebase_remoteconfig_fanout_list_keys",
+          "summary": "List and compare Remote Config parameter keys across several projects."
         },
         {
           "name": "firebase_remoteconfig_conditions",
@@ -61,12 +73,32 @@
       "name": "Writing Several Projects",
       "steps": [
         {
+          "name": "firebase_remoteconfig_create_key_plan",
+          "summary": "Build and validate a plan to create one Remote Config key."
+        },
+        {
+          "name": "firebase_remoteconfig_create_key_publish",
+          "summary": "Validate and publish planned Remote Config key creations."
+        },
+        {
+          "name": "firebase_remoteconfig_copy_key",
+          "summary": "Choose one missing Remote Config key and plan where to create it."
+        },
+        {
           "name": "firebase_remoteconfig_fanout_plan",
           "summary": "Build the per-project plan for one parameter change."
         },
         {
           "name": "firebase_remoteconfig_fanout_publish",
           "summary": "Publish the planned change to each selected project."
+        },
+        {
+          "name": "firebase_remoteconfig_sync_plan",
+          "summary": "Build a plan to create several missing Remote Config keys."
+        },
+        {
+          "name": "firebase_remoteconfig_sync_publish",
+          "summary": "Validate and publish planned Remote Config key copies."
         }
       ]
     }

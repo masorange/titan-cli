@@ -14,6 +14,10 @@
       "name": "Project Selection",
       "steps": [
         {
+          "name": "firebase_projects_list",
+          "summary": "List Firebase projects available to the active Google credentials."
+        },
+        {
           "name": "firebase_select_target",
           "summary": "Resolve the Firebase project to work on."
         },
@@ -29,6 +33,14 @@
         {
           "name": "firebase_remoteconfig_get",
           "summary": "Read the active Remote Config template for one project."
+        },
+        {
+          "name": "firebase_remoteconfig_list_keys",
+          "summary": "List the parameter keys in a Remote Config template."
+        },
+        {
+          "name": "firebase_remoteconfig_fanout_list_keys",
+          "summary": "List and compare Remote Config parameter keys across several projects."
         },
         {
           "name": "firebase_remoteconfig_conditions",
@@ -61,12 +73,32 @@
       "name": "Writing Several Projects",
       "steps": [
         {
+          "name": "firebase_remoteconfig_create_key_plan",
+          "summary": "Build and validate a plan to create one Remote Config key."
+        },
+        {
+          "name": "firebase_remoteconfig_create_key_publish",
+          "summary": "Validate and publish planned Remote Config key creations."
+        },
+        {
+          "name": "firebase_remoteconfig_copy_key",
+          "summary": "Choose one missing Remote Config key and plan where to create it."
+        },
+        {
           "name": "firebase_remoteconfig_fanout_plan",
           "summary": "Build the per-project plan for one parameter change."
         },
         {
           "name": "firebase_remoteconfig_fanout_publish",
           "summary": "Publish the planned change to each selected project."
+        },
+        {
+          "name": "firebase_remoteconfig_sync_plan",
+          "summary": "Build a plan to create several missing Remote Config keys."
+        },
+        {
+          "name": "firebase_remoteconfig_sync_publish",
+          "summary": "Validate and publish planned Remote Config key copies."
         }
       ]
     }
@@ -94,9 +126,46 @@
         ]
       },
       "used_by_workflows": [
+        "create-remoteconfig-key",
+        "list-projects",
+        "list-remoteconfig-keys",
+        "list-remoteconfig-keys-multiproject",
         "read-remoteconfig",
         "set-remoteconfig-value",
         "set-remoteconfig-value-multiproject"
+      ]
+    },
+    {
+      "name": "firebase_projects_list",
+      "group": "Project Selection",
+      "module": "titan_plugin_firebase.steps.list_projects_step",
+      "function": "execute_firebase_projects_list_step",
+      "summary": "List Firebase projects available to the active Google credentials.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    project_filter (str, optional): Case-insensitive words used to filter project IDs, names, resource names, or numbers.",
+          "    firebase_project_filter (str, optional): Same filter, as emitted by earlier steps."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_projects (list[UIFirebaseProject]): Projects returned by Firebase Management, enriched with configured metadata when available.",
+          "    firebase_project_ids (list[str]): Project IDs in display order.",
+          "    firebase_project_labels (dict[str, str]): project_id to configured/display label.",
+          "    firebase_project_environments (dict[str, str]): project_id to configured environment.",
+          "    firebase_project_brands (dict[str, str]): project_id to configured brand.",
+          "    firebase_project_group_map (dict[str, list[str]]): project_id to configured groups.",
+          "    firebase_project_catalog_count (int): Total projects before filtering.",
+          "    firebase_project_filter_terms (list[str]): Normalized filter terms that were applied."
+        ],
+        "Returns": [
+          "    Success: If Firebase projects could be listed.",
+          "    Error: If Firebase is unavailable or the project list request fails."
+        ]
+      },
+      "used_by_workflows": [
+        "list-projects"
       ]
     },
     {
@@ -128,6 +197,107 @@
       ]
     },
     {
+      "name": "firebase_remoteconfig_copy_key",
+      "group": "Writing Several Projects",
+      "module": "titan_plugin_firebase.steps.copy_key_step",
+      "function": "execute_firebase_remoteconfig_copy_key_step",
+      "summary": "Choose one missing Remote Config key and plan where to create it.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.",
+          "    firebase_remoteconfig_key_profiles (dict[str, dict]): From firebase_remoteconfig_fanout_list_keys.",
+          "    firebase_remoteconfig_failed_projects (dict[str, str], optional): From firebase_remoteconfig_fanout_list_keys.",
+          "    key (str, optional): Key to copy.",
+          "    firebase_key (str, optional): Key to copy, as emitted by an earlier step.",
+          "    source_project_id (str, optional): Project to copy the key from.",
+          "    firebase_source_project_id (str, optional): Source project emitted by an earlier step.",
+          "    target_project_ids (str | list[str], optional): Missing target projects to create the key in.",
+          "    firebase_target_project_ids (str | list[str], optional): Target projects emitted by an earlier step."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_key (str): Key selected for copying.",
+          "    firebase_copy_source_project_id (str): Project used as the source.",
+          "    firebase_copy_plan (list[UIRemoteConfigKeyCopyPlanEntry]): Entries selected for publishing.",
+          "    firebase_copy_rejected (list[UIRemoteConfigKeyCopyPlanEntry]): Missing destinations left out."
+        ],
+        "Returns": [
+          "    Success: If at least one missing target is selected.",
+          "    Exit: If there are no missing keys or no selected destinations.",
+          "    Error: If inventory, source, or target inputs are invalid."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "firebase_remoteconfig_create_key_plan",
+      "group": "Writing Several Projects",
+      "module": "titan_plugin_firebase.steps.create_key_step",
+      "function": "execute_firebase_remoteconfig_create_key_plan_step",
+      "summary": "Build and validate a plan to create one Remote Config key.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.",
+          "    firebase_remoteconfig_key_profiles (dict[str, dict], optional): From firebase_remoteconfig_fanout_list_keys.",
+          "    firebase_remoteconfig_project_conditions (dict[str, list[dict]], optional): From firebase_remoteconfig_fanout_list_keys.",
+          "    firebase_remoteconfig_failed_projects (dict[str, str], optional): From firebase_remoteconfig_fanout_list_keys.",
+          "    key (str, optional): New parameter key.",
+          "    value_type (str, optional): New parameter type: BOOLEAN, JSON, NUMBER or STRING.",
+          "    default_value (str, optional): Default value to store.",
+          "    conditional_values (dict | str, optional): Condition values as a mapping, JSON object, or condition=value list.",
+          "    description (str, optional): Parameter description.",
+          "    target_project_ids (str | list[str], optional): Projects where the key should be created."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_create_key_plan (list[UIRemoteConfigKeyCreatePlanEntry]): Entries chosen for publishing.",
+          "    firebase_create_key_rejected (list[UIRemoteConfigKeyCreatePlanEntry]): Entries left out.",
+          "    firebase_key (str): Key selected for creation.",
+          "    firebase_value_type (str): Declared value type."
+        ],
+        "Returns": [
+          "    Success: If at least one project is selected for publishing.",
+          "    Exit: If the key already exists everywhere, no target validates, or the user selects none.",
+          "    Error: If inputs are missing or invalid."
+        ]
+      },
+      "used_by_workflows": [
+        "create-remoteconfig-key"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_create_key_publish",
+      "group": "Writing Several Projects",
+      "module": "titan_plugin_firebase.steps.create_key_publish_step",
+      "function": "execute_firebase_remoteconfig_create_key_publish_step",
+      "summary": "Validate and publish planned Remote Config key creations.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_create_key_plan (list[UIRemoteConfigKeyCreatePlanEntry]): From firebase_remoteconfig_create_key_plan.",
+          "    dry_run (bool, optional): Validate everywhere, publish nothing."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_create_key_outcomes (list[UIRemoteConfigKeyCreateOutcome]): Per-project results.",
+          "    firebase_create_key_published (int): Projects published.",
+          "    firebase_create_key_failed (int): Projects that failed."
+        ],
+        "Returns": [
+          "    Success: If at least one project published (or validated in a dry run).",
+          "    Error: If the plan is missing or every project failed."
+        ]
+      },
+      "used_by_workflows": [
+        "create-remoteconfig-key"
+      ]
+    },
+    {
       "name": "firebase_remoteconfig_diff",
       "group": "Writing One Project",
       "module": "titan_plugin_firebase.steps.diff_step",
@@ -156,6 +326,50 @@
       ]
     },
     {
+      "name": "firebase_remoteconfig_fanout_list_keys",
+      "group": "Reading Remote Config",
+      "module": "titan_plugin_firebase.steps.fanout_list_keys_step",
+      "function": "execute_firebase_remoteconfig_fanout_list_keys_step",
+      "summary": "List and compare Remote Config parameter keys and values across projects.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.",
+          "    condition_group (str, optional): Configured condition/value group to display.",
+          "    firebase_condition_group (str, optional): Same group, as emitted by earlier steps."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_remoteconfig_keys (list[str]): All keys seen in at least one project.",
+          "    firebase_remoteconfig_common_keys (list[str]): Keys present in every readable project.",
+          "    firebase_remoteconfig_missing_keys (dict[str, list[str]]): project_id to missing keys.",
+          "    firebase_remoteconfig_key_profiles (dict[str, dict]): Deterministic value-free profile per key, including value sources.",
+          "    firebase_remoteconfig_project_key_values (dict[str, dict]): project_id to key value snapshots, including value_source and editable.",
+          "    firebase_remoteconfig_project_conditions (dict[str, list[dict]]): project_id to template conditions.",
+          "    firebase_remoteconfig_bulk_safe_keys (list[str]): Keys present in every readable project with one stable known type.",
+          "    firebase_remoteconfig_bulk_blocked_keys (dict[str, list[str]]): key to blocker reasons for bulk edits.",
+          "    firebase_remoteconfig_type_conflicts (dict[str, list[str]]): key to observed effective types.",
+          "    firebase_remoteconfig_value_types (list[str]): Effective value types observed.",
+          "    firebase_remoteconfig_declared_value_types (list[str]): Declared value types observed.",
+          "    firebase_remoteconfig_unknown_type_keys (dict[str, list[str]]): project_id to keys whose effective type is UNKNOWN.",
+          "    firebase_remoteconfig_project_key_counts (dict[str, int]): project_id to key count.",
+          "    firebase_remoteconfig_failed_projects (dict[str, str]): project_id to read error.",
+          "    firebase_condition_group (str, optional): Condition group used for the value table view.",
+          "    firebase_condition_group_label (str, optional): Display label for the selected condition group."
+        ],
+        "Returns": [
+          "    Success: If at least one project template could be read.",
+          "    Error: If the plugin is unavailable, targets are missing, or every read fails."
+        ]
+      },
+      "used_by_workflows": [
+        "create-remoteconfig-key",
+        "list-remoteconfig-keys-multiproject",
+        "set-remoteconfig-value-multiproject"
+      ]
+    },
+    {
       "name": "firebase_remoteconfig_fanout_plan",
       "group": "Writing Several Projects",
       "module": "titan_plugin_firebase.steps.fanout_plan_step",
@@ -167,6 +381,9 @@
         ],
         "Inputs (from ctx.data)": [
           "    firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.",
+          "    firebase_remoteconfig_key_profiles (dict[str, dict], optional): From firebase_remoteconfig_fanout_list_keys.",
+          "    firebase_remoteconfig_bulk_safe_keys (list[str], optional): From firebase_remoteconfig_fanout_list_keys.",
+          "    firebase_remoteconfig_failed_projects (dict[str, str], optional): From firebase_remoteconfig_fanout_list_keys.",
           "    key (str): Parameter to change.",
           "    value (str): New value.",
           "    condition (str, optional): Condition to write instead of the default."
@@ -239,8 +456,36 @@
         ]
       },
       "used_by_workflows": [
+        "list-remoteconfig-keys",
         "read-remoteconfig",
         "set-remoteconfig-value"
+      ]
+    },
+    {
+      "name": "firebase_remoteconfig_list_keys",
+      "group": "Reading Remote Config",
+      "module": "titan_plugin_firebase.steps.list_keys_step",
+      "function": "execute_firebase_remoteconfig_list_keys_step",
+      "summary": "List parameter keys and configured values in a Remote Config template.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_remoteconfig_keys (list[str]): Parameter keys in template order.",
+          "    firebase_remoteconfig_key_values (dict[str, dict]): Default and conditional values per key.",
+          "    firebase_remoteconfig_key_count (int): Number of parameter keys."
+        ],
+        "Returns": [
+          "    Success: If the template is present; empty projects return an empty list.",
+          "    Error: If the template is missing."
+        ]
+      },
+      "used_by_workflows": [
+        "list-remoteconfig-keys"
       ]
     },
     {
@@ -278,7 +523,7 @@
       "group": "Reading Remote Config",
       "module": "titan_plugin_firebase.steps.select_key_step",
       "function": "execute_firebase_remoteconfig_select_key_step",
-      "summary": "Choose one Remote Config parameter.",
+      "summary": "Choose one Remote Config parameter while showing its configured values.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
@@ -291,7 +536,8 @@
         "Outputs (saved to ctx.data)": [
           "    firebase_key (str): Selected parameter key.",
           "    firebase_value_type (str): Effective value type of the parameter.",
-          "    firebase_current_value (Optional[str]): Raw current value, None if unset."
+          "    firebase_current_value (Optional[str]): Raw current value, None if unset.",
+          "    firebase_parameter_values (dict): Default and conditional values for the selected key."
         ],
         "Returns": [
           "    Success: If a parameter is selected.",
@@ -335,6 +581,66 @@
       ]
     },
     {
+      "name": "firebase_remoteconfig_sync_plan",
+      "group": "Writing Several Projects",
+      "module": "titan_plugin_firebase.steps.sync_plan_step",
+      "function": "execute_firebase_remoteconfig_sync_plan_step",
+      "summary": "Build a plan to create several missing Remote Config keys.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.",
+          "    firebase_remoteconfig_key_profiles (dict[str, dict]): From firebase_remoteconfig_fanout_list_keys.",
+          "    firebase_remoteconfig_failed_projects (dict[str, str], optional): From firebase_remoteconfig_fanout_list_keys.",
+          "    keys (str | list[str], optional): Keys to synchronize.",
+          "    firebase_keys (str | list[str], optional): Keys emitted by an earlier step.",
+          "    source_project_id (str, optional): Source project used for every selected key when it contains it.",
+          "    firebase_source_project_id (str, optional): Source project emitted by an earlier step.",
+          "    target_project_ids (str | list[str], optional): Missing target projects to create keys in.",
+          "    firebase_target_project_ids (str | list[str], optional): Target projects emitted by an earlier step."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_copy_plan (list[UIRemoteConfigKeyCopyPlanEntry]): Entries selected for publishing.",
+          "    firebase_sync_keys (list[str]): Keys selected for synchronization.",
+          "    firebase_sync_rejected_keys (dict[str, str]): Candidate keys skipped and why."
+        ],
+        "Returns": [
+          "    Success: If at least one copy entry is planned.",
+          "    Exit: If there are no syncable missing keys or no selected destinations.",
+          "    Error: If inventory, source, or target inputs are invalid."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
+      "name": "firebase_remoteconfig_sync_publish",
+      "group": "Writing Several Projects",
+      "module": "titan_plugin_firebase.steps.sync_publish_step",
+      "function": "execute_firebase_remoteconfig_sync_publish_step",
+      "summary": "Validate and publish planned Remote Config key copies.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.firebase: An initialized FirebaseClient."
+        ],
+        "Inputs (from ctx.data)": [
+          "    firebase_copy_plan (list[UIRemoteConfigKeyCopyPlanEntry]): From firebase_remoteconfig_copy_key.",
+          "    dry_run (bool, optional): Validate everywhere, publish nothing."
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    firebase_copy_outcomes (list[UIRemoteConfigKeyCopyOutcome]): Per-project results.",
+          "    firebase_copy_published (int): Projects where the key was copied.",
+          "    firebase_copy_failed (int): Projects that failed."
+        ],
+        "Returns": [
+          "    Success: If at least one project published (or validated in a dry run).",
+          "    Error: If the plan is missing or every project failed."
+        ]
+      },
+      "used_by_workflows": []
+    },
+    {
       "name": "firebase_select_target",
       "group": "Project Selection",
       "module": "titan_plugin_firebase.steps.select_target_step",
@@ -344,11 +650,19 @@
         "Requires": [],
         "Inputs (from ctx.data)": [
           "    project_id (str, optional): Firebase project ID to use.",
-          "    project_label (str, optional): Friendlier name to show for it."
+          "    firebase_project_id (str, optional): Same value, as emitted by earlier steps.",
+          "    project_label (str, optional): Friendlier name to show for it.",
+          "    project_brand (str, optional): Brand metadata supplied by an earlier step.",
+          "    environment (str, optional): Environment metadata supplied by the workflow.",
+          "    firebase_environment (str, optional): Same environment, as emitted by earlier steps.",
+          "    project_filter (str, optional): Case-insensitive words used to filter the TUI project catalogue.",
+          "    firebase_project_filter (str, optional): Same filter, as emitted by earlier steps."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_project_id (str): Resolved project ID.",
-          "    firebase_target_label (str): User-facing reference for the target."
+          "    firebase_target_label (str): User-facing reference for the target.",
+          "    firebase_environment (str, optional): Resolved environment, when known.",
+          "    firebase_project_brand (str, optional): Resolved brand, when known."
         ],
         "Returns": [
           "    Success: If a project could be resolved.",
@@ -356,6 +670,7 @@
         ]
       },
       "used_by_workflows": [
+        "list-remoteconfig-keys",
         "read-remoteconfig",
         "set-remoteconfig-value"
       ]
@@ -371,11 +686,27 @@
         "Inputs (from ctx.data)": [
           "    project_ids (list or str, optional): Projects to target; a comma- or space-separated string is accepted.",
           "    firebase_project_ids (list or str, optional): Same, as published by an earlier step.",
-          "    firebase_project_labels (dict, optional): project_id to label, shown instead of the raw ID."
+          "    firebase_project_labels (dict, optional): project_id to label, shown instead of the raw ID.",
+          "    project_set (str, optional): Configured project set to use when project IDs are absent.",
+          "    firebase_project_set (str, optional): Same project set, as emitted by earlier steps.",
+          "    project_groups (list or str, optional): Configured project groups to keep.",
+          "    firebase_project_groups (list or str, optional): Same groups, as emitted by earlier steps.",
+          "    environment (str, optional): Configured environment(s) to keep, for example dev, pro, or both.",
+          "    firebase_environment (str, optional): Same environment, as emitted by earlier steps.",
+          "    project_filter (str, optional): Case-insensitive words used to filter the TUI project catalogue.",
+          "    firebase_project_filter (str, optional): Same filter, as emitted by earlier steps."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_targets (list[FirebaseProjectTarget]): Resolved targets.",
-          "    firebase_project_ids (list[str]): Normalized, de-duplicated project IDs."
+          "    firebase_project_ids (list[str]): Normalized, de-duplicated project IDs.",
+          "    firebase_project_set (str, optional): Project set used, when resolved from config.",
+          "    firebase_project_groups (list[str], optional): Project groups used, when any.",
+          "    firebase_environment (str, optional): Single resolved environment, when known.",
+          "    firebase_environments (list[str]): Known environments represented by the targets.",
+          "    firebase_environment_filter (list[str], optional): Explicitly selected environment filter, when any.",
+          "    firebase_project_environments (dict[str, str]): project_id to environment.",
+          "    firebase_project_brands (dict[str, str]): project_id to brand.",
+          "    firebase_project_group_map (dict[str, list[str]]): project_id to configured groups."
         ],
         "Returns": [
           "    Success: If at least one project was named.",
@@ -383,6 +714,8 @@
         ]
       },
       "used_by_workflows": [
+        "create-remoteconfig-key",
+        "list-remoteconfig-keys-multiproject",
         "set-remoteconfig-value-multiproject"
       ]
     }

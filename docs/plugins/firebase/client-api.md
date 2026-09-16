@@ -70,6 +70,27 @@ not the person running the workflow — the author of every publish.
 
 ## Reading
 
+### `list_projects()`
+
+List Firebase projects available to the active Google credentials.
+
+**Call:**
+
+```python
+client.list_projects()
+```
+
+**Parameters:**
+
+- No parameters.
+
+**Returns:** `ClientResult[list[UIFirebaseProject]]` — each project includes
+`project_id`, `display_name`, `name`, and `project_number`. The list comes from Firebase
+Management, so it contains Firebase projects rather than generic Google Cloud projects.
+
+**Error codes:** `AUTH_REJECTED` (401), `PERMISSION_DENIED` (403), `API_ERROR`,
+`ADC_UNAVAILABLE`.
+
 ### `get_remote_config(project_id)`
 
 Read the active Remote Config template for one project.
@@ -85,8 +106,9 @@ client.get_remote_config("my-firebase-project")
 - `project_id`: Required Firebase project ID.
 
 **Returns:** `ClientResult[UIRemoteConfigTemplate]` — parameters sorted by key (each with
-its effective type, default value and conditional values), the template's conditions, its
-parameter group names, the active version metadata, and the `etag` a publish needs.
+its effective `RemoteConfigValueType`, default value and conditional values), the
+template's conditions, its parameter group names, the active version metadata, and the
+`etag` a publish needs.
 
 **Error codes:** `AUTH_REJECTED` (401), `PERMISSION_DENIED` (403), `NOT_FOUND` (404),
 `ETAG_CONFLICT` (409), `BAD_REQUEST` (400), `API_ERROR`, `ADC_UNAVAILABLE`.
@@ -122,8 +144,10 @@ client.validate_remote_config_change(
 **Returns:** `ClientResult[UIRemoteConfigChange]` — the value it would replace, the value
 it would store, whether the condition was inheriting the default, and `is_noop`.
 
-**Error codes:** `TEMPLATE_EDIT_ERROR` (unknown parameter or condition), `INVALID_VALUE`
-(value does not match the type), plus the read error codes above.
+**Error codes:** `TEMPLATE_EDIT_ERROR` (unknown parameter or condition, or the target
+value is managed by Firebase personalization, experiments, rollouts, or an unknown future
+value-source field), `INVALID_VALUE` (value does not match the type), plus the read error
+codes above.
 
 ### `publish_remote_config_change(project_id, change, validate_only=False)`
 
@@ -158,4 +182,87 @@ and the change that was applied.
 
 **Error codes:** `MISSING_ETAG` (the read returned none, so publishing would risk
 overwriting another edit), `TEMPLATE_EDIT_ERROR` (the parameter or condition disappeared
-between read and write), plus the read error codes above.
+between read and write, or the live value is no longer a literal/editable value), plus the
+read error codes above.
+
+### `create_remote_config_key(project_id, request, validate_only=False)`
+
+Create one missing Remote Config parameter in a project from typed input.
+
+**Call:**
+
+```python
+client.create_remote_config_key(
+    "my-firebase-project",
+    UIRemoteConfigKeyCreateRequest(
+        key="new_checkout_enabled",
+        value_type=RemoteConfigValueType.BOOLEAN,
+        default_raw_value="true",
+        conditional_raw_values={"android_prod": "false"},
+        description="Controls the new checkout",
+    ),
+    validate_only=True,
+)
+```
+
+**Parameters:**
+
+- `project_id`: Required Firebase project ID.
+- `request`: Required `UIRemoteConfigKeyCreateRequest`, including the new key, declared
+  `RemoteConfigValueType`, default value, optional condition values and optional
+  description.
+- `validate_only`: Optional. When true, Firebase checks the target payload and nothing is
+  published.
+
+**Behavior:** reads the target template and its ETag, builds a new parameter payload,
+adds it only if the key does not already exist, then validates or publishes the whole
+template with `If-Match`. On an ETag conflict it re-reads and retries once. Condition
+values must reference conditions that already exist in the target template.
+
+**Returns:** `ClientResult[UIRemoteConfigKeyCreateResult]` — target project, key, declared
+type, new `etag`, version metadata, whether the request was validate-only, and whether a
+conflict forced a retry.
+
+**Error codes:** `MISSING_ETAG`, `TEMPLATE_EDIT_ERROR` (existing key, malformed template,
+or missing target conditions), `INVALID_VALUE`, plus the read and publish error codes
+above.
+
+### `copy_remote_config_key(source_project_id, target_project_id, key, validate_only=False)`
+
+Copy one missing Remote Config parameter from a source project to a target project.
+
+**Call:**
+
+```python
+client.copy_remote_config_key(
+    "my-source-firebase-project",
+    "my-target-firebase-project",
+    "new_checkout_enabled",
+    validate_only=True,
+)
+```
+
+**Parameters:**
+
+- `source_project_id`: Required Firebase project ID that already contains the key.
+- `target_project_id`: Required Firebase project ID where the key should be created.
+- `key`: Required parameter key. It must exist in the source template and must not already
+  exist in the target template.
+- `validate_only`: Optional. When true, Firebase checks the target payload and nothing is
+  published.
+
+**Behavior:** reads the source template, reads the target template and its ETag, adds the
+source parameter payload to the target without overwriting existing keys, then validates or
+publishes the whole target template with `If-Match`. On a target ETag conflict it re-reads
+and retries once. If the copied parameter references conditional values, every referenced
+condition must already exist in the target template. Parameters containing Firebase-managed
+`personalizationValue`, `experimentValue`, `rolloutValue`, or unknown future value-source
+fields are not copied by this generic operation.
+
+**Returns:** `ClientResult[UIRemoteConfigKeyCopyResult]` — source project, target project,
+key, effective `RemoteConfigValueType`, its Titan display label, new `etag`, version
+metadata, and whether a conflict forced a retry.
+
+**Error codes:** `MISSING_ETAG`, `TEMPLATE_EDIT_ERROR` (missing source key, existing target
+key, malformed payload, or missing target conditions), plus the read and publish error codes
+above.
