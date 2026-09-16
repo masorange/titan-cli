@@ -4,8 +4,14 @@ import pytest
 
 from titan_plugin_firebase.models.values import (
     RemoteConfigValueError,
+    RemoteConfigValueInputMode,
+    RemoteConfigValueSource,
     RemoteConfigValueType,
+    display_value_type,
+    display_value_types,
+    format_value_for_display,
     infer_value_type,
+    normalize_value_source,
     normalize_value_type,
     parse_value,
     serialize_value,
@@ -53,8 +59,41 @@ def test_parse_value(raw, value_type, expected):
 
 def test_normalize_value_type_accepts_unknown_names():
     assert normalize_value_type("BOOLEAN") == T.BOOLEAN
+    assert normalize_value_type("Bool") == T.BOOLEAN
+    assert normalize_value_type("text") == T.STRING
     assert normalize_value_type("something_new") == T.UNKNOWN
     assert normalize_value_type(None) == T.UNKNOWN
+
+
+def test_value_type_enum_carries_ui_metadata():
+    assert T.BOOLEAN.display_label == "Bool"
+    assert T.BOOLEAN.input_mode == RemoteConfigValueInputMode.BOOLEAN_CHOICE
+    assert T.JSON.display_label == "JSON"
+    assert T.JSON.supports_multiline_input is True
+    assert T.JSON.is_structured is True
+    assert T.NUMBER.prompt_hint == "número"
+    assert T.STRING.preserves_whitespace is True
+    assert T.UNKNOWN.is_known is False
+
+
+def test_display_value_types_uses_titan_labels():
+    assert display_value_type("BOOLEAN") == "Bool"
+    assert display_value_types(["BOOLEAN", "STRING", "NOPE"]) == [
+        "Bool",
+        "String",
+        "Unknown",
+    ]
+
+
+def test_value_source_enum_identifies_editable_and_managed_sources():
+    assert normalize_value_source("value") == RemoteConfigValueSource.LITERAL
+    assert (
+        normalize_value_source("experiment_value") == RemoteConfigValueSource.EXPERIMENT
+    )
+    assert RemoteConfigValueSource.LITERAL.is_titan_editable is True
+    assert RemoteConfigValueSource.IN_APP_DEFAULT.is_titan_editable is True
+    assert RemoteConfigValueSource.ROLLOUT.is_firebase_managed is True
+    assert RemoteConfigValueSource.UNKNOWN.is_titan_editable is False
 
 
 @pytest.mark.parametrize(
@@ -99,3 +138,10 @@ def test_serialize_number_validates():
 def test_serialize_string_preserves_whitespace():
     # Leading/trailing spaces can be meaningful in a string parameter.
     assert serialize_value("  hola  ", T.STRING) == "  hola  "
+
+
+def test_format_value_for_display_uses_type_specific_summaries():
+    assert format_value_for_display("TRUE", T.BOOLEAN) == "true"
+    assert format_value_for_display('{ "b": 2 }', T.JSON) == '{"b":2}'
+    assert format_value_for_display(" 42 ", T.NUMBER) == "42"
+    assert format_value_for_display(" hola   mundo ", T.STRING) == "hola mundo"

@@ -5,6 +5,8 @@ from __future__ import annotations
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
 from titan_cli.ui.tui.widgets import OptionItem
 
+from ..operations.key_inventory_operations import parameter_values_to_metadata
+
 # Above this many parameters the flat list stops being navigable, so the step
 # asks for a filter first.
 FILTER_THRESHOLD = 25
@@ -15,7 +17,7 @@ def execute_firebase_remoteconfig_select_key_step(
     ctx: WorkflowContext,
 ) -> WorkflowResult:
     """
-    Choose one Remote Config parameter.
+    Choose one Remote Config parameter while showing its configured values.
 
     Requires:
         ctx.firebase: An initialized FirebaseClient.
@@ -29,6 +31,7 @@ def execute_firebase_remoteconfig_select_key_step(
         firebase_key (str): Selected parameter key.
         firebase_value_type (str): Effective value type of the parameter.
         firebase_current_value (Optional[str]): Raw current value, None if unset.
+        firebase_parameter_values (dict): Default and conditional values for the selected key.
 
     Returns:
         Success: If a parameter is selected.
@@ -124,22 +127,29 @@ def execute_firebase_remoteconfig_select_key_step(
 
 
 def _render_table(ctx, template, candidates, condition) -> None:
-    """Show the candidate parameters and the value for the chosen target."""
+    """Show the candidate parameters and their default/condition values."""
     shown = candidates[:TABLE_PREVIEW_LIMIT]
     target_header = f"Valor ({condition})" if condition else "Valor por defecto"
     ctx.textual.table(
-        headers=["Clave", "Tipo", target_header, "Condiciones"],
+        headers=[
+            "Clave",
+            "Tipo",
+            "Valor por defecto",
+            "Entornos/condiciones",
+            target_header,
+        ],
         rows=[
             [
                 parameter.key,
-                parameter.value_type.value,
+                parameter.type_label,
+                parameter.default_display_value,
+                parameter.conditional_values_summary,
                 _display_for_target(parameter, condition),
-                str(len(parameter.conditional_values)) or "0",
             ]
             for parameter in shown
         ],
         title=f"Parámetros de {template.project_id}",
-        flex_column=2,
+        flex_column=3,
     )
     if len(candidates) > len(shown):
         ctx.textual.dim_text(
@@ -162,7 +172,11 @@ def _display_for_target(parameter, condition) -> str:
 
 def _option_description(parameter, condition) -> str:
     """One-line description for the option list."""
-    parts = [parameter.value_type.value, _display_for_target(parameter, condition)]
+    parts = [
+        parameter.type_label,
+        parameter.value_summary,
+        f"target={_display_for_target(parameter, condition)}",
+    ]
     if parameter.description:
         parts.append(parameter.description)
     return " · ".join(part for part in parts if part)
@@ -173,7 +187,7 @@ def _success(ctx, parameter, condition) -> WorkflowResult:
     value = parameter.value_for(condition)
     if ctx.textual:
         ctx.textual.text(
-            f"{parameter.key} ({parameter.value_type.value}) = "
+            f"{parameter.key} ({parameter.type_label}) = "
             f"{_display_for_target(parameter, condition)}"
         )
         ctx.textual.end_step("success")
@@ -183,5 +197,6 @@ def _success(ctx, parameter, condition) -> WorkflowResult:
             "firebase_key": parameter.key,
             "firebase_value_type": parameter.value_type.value,
             "firebase_current_value": value.raw_value if value else None,
+            "firebase_parameter_values": parameter_values_to_metadata(parameter),
         },
     )

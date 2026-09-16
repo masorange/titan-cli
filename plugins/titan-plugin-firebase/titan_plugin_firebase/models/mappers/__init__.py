@@ -1,5 +1,6 @@
 """Mappers converting network models into view models."""
 
+from .project_mapper import map_project
 from .template_mapper import (
     effective_value_type,
     map_condition,
@@ -11,6 +12,7 @@ from .template_mapper import (
 
 __all__ = [
     "effective_value_type",
+    "map_project",
     "map_condition",
     "map_parameter",
     "map_template",

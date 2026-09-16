@@ -50,7 +50,7 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
                 ["Destino", str(target_label)],
                 ["Parámetro", change.key],
                 ["Valor de", change.target_label],
-                ["Tipo", change.value_type.value],
+                ["Tipo", change.type_label],
                 ["Antes", change.old_raw_value or "(sin valor)"],
                 ["Después", change.new_raw_value],
             ],

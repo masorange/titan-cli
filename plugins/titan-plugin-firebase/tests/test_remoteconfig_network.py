@@ -27,6 +27,56 @@ def test_get_template_returns_payload_and_etag(
     assert call["timeout"] == 7
 
 
+def test_list_projects_pages_through_firebase_management(
+    make_network,
+    make_response,
+    firebase_projects_page,
+):
+    first_page = {
+        "results": [firebase_projects_page["results"][1]],
+        "nextPageToken": "next-page",
+    }
+    second_page = {"results": [firebase_projects_page["results"][0]]}
+    network = make_network(
+        [
+            make_response(200, first_page),
+            make_response(200, second_page),
+        ],
+        management_base_url="https://firebase.example.com/v1beta1",
+    )
+
+    projects = network.list_projects()
+
+    assert [project.project_id for project in projects] == [
+        "mm-firebase-yoigo",
+        "mm-guuk-firebase-prod",
+    ]
+    assert network.fake_session.calls[0]["url"] == (
+        "https://firebase.example.com/v1beta1/projects?pageSize=100"
+    )
+    assert network.fake_session.calls[1]["url"] == (
+        "https://firebase.example.com/v1beta1/projects?pageSize=100&pageToken=next-page"
+    )
+    assert network.fake_session.calls[0]["headers"]["Accept-Encoding"] == "gzip"
+
+
+def test_list_projects_can_use_the_configured_quota_project(
+    make_network,
+    make_response,
+    firebase_projects_page,
+):
+    network = make_network(
+        [make_response(200, firebase_projects_page)],
+        quota_project_id="mm-ragnarok-dev",
+    )
+    network.list_projects()
+
+    assert (
+        network.fake_session.calls[0]["headers"]["x-goog-user-project"]
+        == "mm-ragnarok-dev"
+    )
+
+
 def test_quota_project_override_is_sent(make_network, make_response, template_payload):
     network = make_network(
         [make_response(200, template_payload, {"ETag": "e"})],

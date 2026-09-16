@@ -19,6 +19,10 @@ def _load(name: str) -> dict:
 @pytest.mark.parametrize(
     "name",
     [
+        "create-remoteconfig-key.yaml",
+        "list-projects.yaml",
+        "list-remoteconfig-keys.yaml",
+        "list-remoteconfig-keys-multiproject.yaml",
         "read-remoteconfig.yaml",
         "set-remoteconfig-value.yaml",
         "set-remoteconfig-value-multiproject.yaml",
@@ -43,6 +47,71 @@ def test_read_workflow_structure():
         "firebase_remoteconfig_get",
         "firebase_remoteconfig_conditions",
         "firebase_remoteconfig_select_key",
+    ]
+
+
+def test_list_keys_workflow_is_read_only():
+    workflow = _load("list-remoteconfig-keys.yaml")
+
+    assert workflow["name"] == "List Firebase Remote Config Keys"
+    assert [step["id"] for step in workflow["steps"]] == [
+        "firebase_auth_check",
+        "firebase_select_target",
+        "firebase_remoteconfig_get",
+        "firebase_remoteconfig_list_keys",
+    ]
+
+
+def test_list_projects_workflow_is_read_only():
+    workflow = _load("list-projects.yaml")
+
+    assert workflow["name"] == "List Firebase Projects"
+    assert workflow["params"]["project_filter"] == ""
+    assert [step["id"] for step in workflow["steps"]] == [
+        "firebase_auth_check",
+        "firebase_projects_list",
+    ]
+
+
+def test_multiproject_list_keys_workflow_is_read_only():
+    workflow = _load("list-remoteconfig-keys-multiproject.yaml")
+
+    assert workflow["name"] == "List Firebase Remote Config Keys (multi-project)"
+    assert workflow["params"]["project_ids"] == ""
+    assert workflow["params"]["project_set"] == ""
+    assert workflow["params"]["project_groups"] == ""
+    assert workflow["params"]["environment"] == ""
+    assert workflow["params"]["project_filter"] == ""
+    assert workflow["params"]["condition_group"] == ""
+    assert [step["id"] for step in workflow["steps"]] == [
+        "firebase_auth_check",
+        "firebase_select_targets",
+        "firebase_remoteconfig_fanout_list_keys",
+    ]
+
+
+def test_create_key_workflow_structure():
+    workflow = _load("create-remoteconfig-key.yaml")
+
+    assert workflow["name"] == "Create Firebase Remote Config Key"
+    assert workflow["params"]["project_ids"] == ""
+    assert workflow["params"]["project_set"] == ""
+    assert workflow["params"]["project_groups"] == ""
+    assert workflow["params"]["environment"] == ""
+    assert workflow["params"]["condition_group"] == ""
+    assert workflow["params"]["key"] == ""
+    assert workflow["params"]["value_type"] == ""
+    assert workflow["params"]["default_value"] == ""
+    assert workflow["params"]["conditional_values"] == ""
+    assert workflow["params"]["description"] == ""
+    assert workflow["params"]["target_project_ids"] == ""
+    assert workflow["params"]["dry_run"] is False
+    assert [step["id"] for step in workflow["steps"]] == [
+        "firebase_auth_check",
+        "firebase_select_targets",
+        "firebase_remoteconfig_fanout_list_keys",
+        "firebase_remoteconfig_create_key_plan",
+        "firebase_remoteconfig_create_key_publish",
     ]
 
 
@@ -76,11 +145,17 @@ def test_multiproject_workflow_confirms_before_publishing():
     # project_ids is declared so the workflow is usable on its own; another
     # plugin can instead publish firebase_project_ids from its own step.
     assert workflow["params"]["project_ids"] == ""
-    # The plan step is where each project is validated and confirmed;
-    # publishing cannot run before it.
+    assert workflow["params"]["project_set"] == ""
+    assert workflow["params"]["project_groups"] == ""
+    assert workflow["params"]["environment"] == ""
+    assert workflow["params"]["project_filter"] == ""
+    assert workflow["params"]["condition_group"] == ""
+    # The inventory step establishes deterministic key compatibility before
+    # the plan asks for a value; publishing cannot run before the plan.
     assert ids == [
         "firebase_auth_check",
         "firebase_select_targets",
+        "firebase_remoteconfig_fanout_list_keys",
         "firebase_remoteconfig_fanout_plan",
         "firebase_remoteconfig_fanout_publish",
     ]

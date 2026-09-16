@@ -19,17 +19,25 @@ from ...exceptions import (
     FirebaseApiError,
     FirebaseAuthUnavailableError,
 )
-from ...models.mappers import map_template, map_version
+from ...models.mappers import map_project, map_template, map_version
 from ...models.view import (
     UIAdcIdentity,
+    UIFirebaseProject,
     UIRemoteConfigChange,
+    UIRemoteConfigKeyCopyResult,
+    UIRemoteConfigKeyCreateResult,
+    UIRemoteConfigKeyCreateRequest,
     UIRemoteConfigPublishResult,
     UIRemoteConfigTemplate,
 )
 from ...operations.template_operations import (
     TemplateEditError,
+    add_parameter_to_payload,
     apply_change,
     build_change,
+    build_parameter_payload,
+    effective_value_type_for,
+    parameter_payload,
 )  # build_change is the pure operation; the service method below is validate_change
 from ...models.values import RemoteConfigValueError
 from ..network.adc_auth import ADC_LOGIN_HINT, service_account_env_var_set
@@ -92,6 +100,26 @@ class RemoteConfigService:
         return ClientSuccess(
             data=identity,
             message=message,
+        )
+
+    @log_client_operation("firebase_list_projects")
+    def list_projects(self) -> ClientResult[list[UIFirebaseProject]]:
+        """List Firebase projects available to the active credentials."""
+        try:
+            projects = self._network.list_projects()
+        except FirebaseAuthUnavailableError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="ADC_UNAVAILABLE",
+                details={"login_command": ADC_LOGIN_HINT},
+            )
+        except FirebaseApiError as exc:
+            return _api_error_to_client_error(exc)
+
+        ui_projects = [map_project(project) for project in projects]
+        return ClientSuccess(
+            data=ui_projects,
+            message=f"{len(ui_projects)} proyectos Firebase disponibles",
         )
 
     @log_client_operation("firebase_get_remote_config")
@@ -258,6 +286,233 @@ class RemoteConfigService:
         return ClientSuccess(
             data=change,
             message=f"Cambio validado para {key}",
+        )
+
+    @log_client_operation("firebase_copy_remote_config_key")
+    def copy_key(
+        self,
+        source_project_id,
+        target_project_id,
+        key,
+        *,
+        validate_only: bool = False,
+    ) -> ClientResult[UIRemoteConfigKeyCopyResult]:
+        """
+        Copy one missing Remote Config key from a source project to a target.
+
+        The target template is still published as a whole template guarded by
+        the target ETag. Existing target parameters are never overwritten.
+        """
+        attempt = self._attempt_copy_key(
+            source_project_id,
+            target_project_id,
+            key,
+            validate_only,
+        )
+        if isinstance(attempt, ClientError) and attempt.error_code == "ETAG_CONFLICT":
+            retry = self._attempt_copy_key(
+                source_project_id,
+                target_project_id,
+                key,
+                validate_only,
+            )
+            if isinstance(retry, ClientSuccess):
+                return ClientSuccess(
+                    data=UIRemoteConfigKeyCopyResult(
+                        source_project_id=retry.data.source_project_id,
+                        project_id=retry.data.project_id,
+                        key=retry.data.key,
+                        value_type=retry.data.value_type,
+                        validated_only=retry.data.validated_only,
+                        etag=retry.data.etag,
+                        version=retry.data.version,
+                        retried_after_conflict=True,
+                    ),
+                    message=f"{retry.message} (tras reintentar por ETag)",
+                )
+            return retry
+        return attempt
+
+    def _attempt_copy_key(
+        self,
+        source_project_id: str,
+        target_project_id: str,
+        key: str,
+        validate_only: bool,
+    ) -> ClientResult[UIRemoteConfigKeyCopyResult]:
+        """One source-read plus target read-modify-write cycle."""
+        source_payload, _source_etag, source_error = self.raw_template(
+            source_project_id
+        )
+        if source_error is not None:
+            return source_error
+        target_payload, target_etag, target_error = self.raw_template(target_project_id)
+        if target_error is not None:
+            return target_error
+        if not target_etag:
+            return ClientError(
+                error_message=(
+                    "Firebase no devolvió ETag en la lectura destino, así que "
+                    "no se puede publicar sin riesgo de pisar otros cambios."
+                ),
+                error_code="MISSING_ETAG",
+            )
+
+        try:
+            source_parameter = parameter_payload(source_payload, key)
+            value_type = effective_value_type_for(source_payload, key)
+            updated = add_parameter_to_payload(
+                target_payload,
+                key,
+                source_parameter,
+                version_description=(
+                    f"Titan: copied Remote Config key {key} from {source_project_id}"
+                ),
+            )
+        except TemplateEditError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="TEMPLATE_EDIT_ERROR",
+                log_level="warning",
+            )
+
+        try:
+            template, new_etag = self._network.put_template(
+                target_project_id,
+                updated,
+                etag=target_etag,
+                validate_only=validate_only,
+            )
+        except FirebaseAuthUnavailableError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="ADC_UNAVAILABLE",
+                details={"login_command": ADC_LOGIN_HINT},
+            )
+        except FirebaseApiError as exc:
+            return _api_error_to_client_error(exc)
+
+        result = UIRemoteConfigKeyCopyResult(
+            source_project_id=source_project_id.strip(),
+            project_id=target_project_id.strip(),
+            key=key,
+            value_type=value_type,
+            validated_only=validate_only,
+            etag=new_etag,
+            version=map_version(template.version),
+        )
+        action = "validada" if validate_only else "publicada"
+        return ClientSuccess(
+            data=result,
+            message=f"Clave {key} {action} en {target_project_id}",
+        )
+
+    @log_client_operation("firebase_create_remote_config_key")
+    def create_key(
+        self,
+        project_id,
+        request: UIRemoteConfigKeyCreateRequest,
+        *,
+        validate_only: bool = False,
+    ) -> ClientResult[UIRemoteConfigKeyCreateResult]:
+        """
+        Create one missing Remote Config key in a target project.
+
+        The full template is read and published under its ETag. Existing
+        target parameters are never overwritten.
+        """
+        attempt = self._attempt_create_key(project_id, request, validate_only)
+        if isinstance(attempt, ClientError) and attempt.error_code == "ETAG_CONFLICT":
+            retry = self._attempt_create_key(project_id, request, validate_only)
+            if isinstance(retry, ClientSuccess):
+                return ClientSuccess(
+                    data=UIRemoteConfigKeyCreateResult(
+                        project_id=retry.data.project_id,
+                        key=retry.data.key,
+                        value_type=retry.data.value_type,
+                        validated_only=retry.data.validated_only,
+                        etag=retry.data.etag,
+                        version=retry.data.version,
+                        retried_after_conflict=True,
+                    ),
+                    message=f"{retry.message} (tras reintentar por ETag)",
+                )
+            return retry
+        return attempt
+
+    def _attempt_create_key(
+        self,
+        project_id: str,
+        request: UIRemoteConfigKeyCreateRequest,
+        validate_only: bool,
+    ) -> ClientResult[UIRemoteConfigKeyCreateResult]:
+        """One read-modify-write cycle that adds a new parameter."""
+        payload, etag, error = self.raw_template(project_id)
+        if error is not None:
+            return error
+        if not etag:
+            return ClientError(
+                error_message=(
+                    "Firebase no devolvió ETag en la lectura destino, así que "
+                    "no se puede publicar sin riesgo de pisar otros cambios."
+                ),
+                error_code="MISSING_ETAG",
+            )
+
+        try:
+            new_parameter = build_parameter_payload(
+                request.value_type,
+                request.default_raw_value,
+                conditional_values=request.conditional_raw_values,
+                description=request.description,
+            )
+            updated = add_parameter_to_payload(
+                payload,
+                request.key,
+                new_parameter,
+                version_description=f"Titan: created Remote Config key {request.key}",
+            )
+        except TemplateEditError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="TEMPLATE_EDIT_ERROR",
+                log_level="warning",
+            )
+        except RemoteConfigValueError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="INVALID_VALUE",
+                log_level="warning",
+            )
+
+        try:
+            template, new_etag = self._network.put_template(
+                project_id,
+                updated,
+                etag=etag,
+                validate_only=validate_only,
+            )
+        except FirebaseAuthUnavailableError as exc:
+            return ClientError(
+                error_message=str(exc),
+                error_code="ADC_UNAVAILABLE",
+                details={"login_command": ADC_LOGIN_HINT},
+            )
+        except FirebaseApiError as exc:
+            return _api_error_to_client_error(exc)
+
+        result = UIRemoteConfigKeyCreateResult(
+            project_id=project_id.strip(),
+            key=request.key,
+            value_type=request.value_type,
+            validated_only=validate_only,
+            etag=new_etag,
+            version=map_version(template.version),
+        )
+        action = "validada" if validate_only else "publicada"
+        return ClientSuccess(
+            data=result,
+            message=f"Clave {request.key} {action} en {project_id}",
         )
 
     def raw_template(

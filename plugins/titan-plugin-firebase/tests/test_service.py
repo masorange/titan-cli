@@ -65,6 +65,36 @@ def test_check_auth_reports_the_identity(make_network):
     assert result.data.is_user_credential is True
 
 
+def test_list_projects_returns_ui_models(
+    make_network, make_response, firebase_projects_page
+):
+    service = RemoteConfigService(
+        make_network([make_response(200, firebase_projects_page)])
+    )
+
+    result = service.list_projects()
+
+    assert isinstance(result, ClientSuccess)
+    assert [project.project_id for project in result.data] == [
+        "mm-firebase-yoigo",
+        "mm-guuk-firebase-prod",
+    ]
+    assert result.data[0].display_name == "Yoigo"
+    assert result.data[0].description == "Yoigo · #111"
+
+
+def test_list_projects_errors_are_client_errors(make_network, make_response):
+    service = RemoteConfigService(
+        make_network([make_response(403, {"error": {"message": "denied"}})])
+    )
+
+    result = service.list_projects()
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "PERMISSION_DENIED"
+    assert "denied" in result.error_message
+
+
 def test_raw_template_returns_payload_for_writes(
     make_network, make_response, template_payload
 ):

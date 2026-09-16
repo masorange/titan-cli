@@ -8,11 +8,18 @@ from titan_cli.engine.context import WorkflowContext
 
 from titan_plugin_firebase.config import FirebasePluginConfig
 from titan_plugin_firebase.models.view import UIAdcIdentity
+from titan_plugin_firebase.models.view import UIFirebaseProject
 from titan_plugin_firebase.steps.auth_check_step import (
     execute_firebase_auth_check_step,
 )
 from titan_plugin_firebase.steps.conditions_step import (
     execute_firebase_remoteconfig_conditions_step,
+)
+from titan_plugin_firebase.steps.list_keys_step import (
+    execute_firebase_remoteconfig_list_keys_step,
+)
+from titan_plugin_firebase.steps.list_projects_step import (
+    execute_firebase_projects_list_step,
 )
 from titan_plugin_firebase.steps.remoteconfig_get_step import (
     execute_firebase_remoteconfig_get_step,
@@ -107,6 +114,7 @@ def test_select_target_uses_explicit_project_without_prompting():
     assert isinstance(result, Success)
     assert result.metadata["firebase_project_id"] == "mm-firebase-other"
     ctx.textual.ask_option.assert_not_called()
+    ctx.textual.ask_text.assert_not_called()
 
 
 def test_select_target_keeps_a_caller_supplied_label():
@@ -129,13 +137,235 @@ def test_select_target_falls_back_to_the_configured_default():
     assert result.metadata["firebase_project_id"] == "mm-firebase-dev"
     # Nothing is asked: this plugin does not own a project catalogue.
     ctx.textual.ask_option.assert_not_called()
+    ctx.textual.ask_text.assert_not_called()
 
 
-def test_select_target_errors_when_nothing_names_a_project():
-    result = execute_firebase_select_target_step(_ctx(FirebasePluginConfig()))
+def test_select_target_recovers_metadata_from_configured_project_set():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            default_project="mm-firebase-yoigo-pro",
+            default_project_set="ragnarok_ios",
+            project_sets={
+                "ragnarok_ios": {
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-yoigo-pro",
+                            "label": "Yoigo PRO",
+                            "brand": "Yoigo",
+                            "environment": "PRO",
+                        }
+                    ]
+                }
+            },
+        )
+    )
+
+    result = execute_firebase_select_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_id"] == "mm-firebase-yoigo-pro"
+    assert result.metadata["firebase_target_label"] == (
+        "Yoigo PRO (mm-firebase-yoigo-pro)"
+    )
+    assert result.metadata["firebase_environment"] == "pro"
+    assert result.metadata["firebase_project_brand"] == "Yoigo"
+
+
+def test_select_target_prompts_for_project_when_tui_has_no_default():
+    ctx = _ctx(FirebasePluginConfig())
+    ctx.textual.ask_text.return_value = "mm-firebase-yoigo"
+
+    result = execute_firebase_select_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_id"] == "mm-firebase-yoigo"
+    ctx.textual.ask_text.assert_called_once_with(
+        "Project ID de Firebase:",
+        default="",
+    )
+
+
+def test_select_target_lists_available_projects_before_manual_prompt():
+    ctx = _ctx(FirebasePluginConfig())
+    ctx.firebase.list_projects.return_value = ClientSuccess(
+        data=[
+            UIFirebaseProject(
+                project_id="mm-firebase-yoigo",
+                display_name="Yoigo",
+                name="projects/mm-firebase-yoigo",
+                project_number="111",
+            )
+        ]
+    )
+    ctx.textual.ask_option.return_value = "mm-firebase-yoigo"
+
+    result = execute_firebase_select_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_id"] == "mm-firebase-yoigo"
+    ctx.textual.ask_option.assert_called_once()
+    ctx.textual.ask_text.assert_not_called()
+
+
+def test_select_target_errors_when_tui_project_prompt_is_empty():
+    ctx = _ctx(FirebasePluginConfig())
+    ctx.textual.ask_text.return_value = ""
+
+    result = execute_firebase_select_target_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "project_id" in result.message
+
+
+def test_select_target_errors_when_nothing_names_a_project_without_tui():
+    ctx = _ctx(FirebasePluginConfig())
+    ctx.textual = None
+
+    result = execute_firebase_select_target_step(ctx)
 
     assert isinstance(result, Error)
     assert "default_project" in result.message
+
+
+# --- list projects ----------------------------------------------------------
+
+
+def test_list_projects_publishes_available_firebase_projects():
+    ctx = _ctx()
+    ctx.firebase.list_projects.return_value = ClientSuccess(
+        data=[
+            UIFirebaseProject(
+                project_id="mm-firebase-yoigo",
+                display_name="Yoigo",
+                name="projects/mm-firebase-yoigo",
+                project_number="111",
+            )
+        ]
+    )
+
+    result = execute_firebase_projects_list_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == ["mm-firebase-yoigo"]
+    assert result.metadata["firebase_projects"][0].display_name == "Yoigo"
+    ctx.textual.table.assert_called_once()
+
+
+def test_list_projects_recovers_configured_project_metadata():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            project_sets={
+                "ragnarok_ios": {
+                    "default_environment": "PRO",
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-yoigo",
+                            "label": "Yoigo",
+                            "brand": "Yoigo",
+                            "groups": ["national"],
+                        }
+                    ],
+                }
+            }
+        )
+    )
+    ctx.firebase.list_projects.return_value = ClientSuccess(
+        data=[
+            UIFirebaseProject(
+                project_id="mm-firebase-yoigo",
+                display_name="Firebase Yoigo",
+                name="projects/mm-firebase-yoigo",
+                project_number="111",
+            )
+        ]
+    )
+
+    result = execute_firebase_projects_list_step(ctx)
+
+    assert isinstance(result, Success)
+    project = result.metadata["firebase_projects"][0]
+    assert project.configured_label == "Yoigo"
+    assert project.environment == "pro"
+    assert project.brand == "Yoigo"
+    assert project.groups == ("national",)
+    assert result.metadata["firebase_project_labels"] == {
+        "mm-firebase-yoigo": "Yoigo"
+    }
+    assert result.metadata["firebase_project_environments"] == {
+        "mm-firebase-yoigo": "pro"
+    }
+    assert result.metadata["firebase_project_brands"] == {
+        "mm-firebase-yoigo": "Yoigo"
+    }
+    assert result.metadata["firebase_project_group_map"] == {
+        "mm-firebase-yoigo": ["national"]
+    }
+    rows = ctx.textual.table.call_args.kwargs["rows"]
+    assert rows == [
+        [
+            "mm-firebase-yoigo",
+            "Firebase Yoigo",
+            "Yoigo",
+            "PRO",
+            "Yoigo",
+            "national",
+            "111",
+        ]
+    ]
+
+
+def test_list_projects_can_filter_the_project_catalogue():
+    ctx = _ctx()
+    ctx.data["project_filter"] = "Prepago, National"
+    ctx.firebase.list_projects.return_value = ClientSuccess(
+        data=[
+            UIFirebaseProject(
+                project_id="mm-firebase-lebara",
+                display_name="- Prepago - Lebara",
+                name="projects/mm-firebase-lebara",
+                project_number="111",
+            ),
+            UIFirebaseProject(
+                project_id="mm-firebase-yoigo",
+                display_name="- National Telco - Yoigo",
+                name="projects/mm-firebase-yoigo",
+                project_number="222",
+            ),
+            UIFirebaseProject(
+                project_id="mm-firebase-energy",
+                display_name="- Energia - MasOrange",
+                name="projects/mm-firebase-energy",
+                project_number="333",
+            ),
+        ]
+    )
+
+    result = execute_firebase_projects_list_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == [
+        "mm-firebase-lebara",
+        "mm-firebase-yoigo",
+    ]
+    assert result.metadata["firebase_project_catalog_count"] == 3
+    assert result.metadata["firebase_project_filter_terms"] == [
+        "prepago",
+        "national",
+    ]
+    assert len(ctx.textual.table.call_args.kwargs["rows"]) == 2
+
+
+def test_list_projects_propagates_api_errors():
+    ctx = _ctx()
+    ctx.firebase.list_projects.return_value = ClientError(
+        error_message="permiso denegado",
+        error_code="PERMISSION_DENIED",
+    )
+
+    result = execute_firebase_projects_list_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "permiso denegado" in result.message
 
 
 # --- read -------------------------------------------------------------------
@@ -175,6 +405,99 @@ def test_get_propagates_api_errors():
 
     assert isinstance(result, Error)
     assert "permiso denegado" in result.message
+
+
+# --- list keys --------------------------------------------------------------
+
+
+def test_list_keys_publishes_the_complete_key_inventory(ui_template):
+    ctx = _ctx()
+    ctx.data["firebase_remoteconfig_template"] = ui_template
+
+    result = execute_firebase_remoteconfig_list_keys_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_remoteconfig_keys"] == [
+        "feature_enabled",
+        "legacy_untyped",
+        "welcome_text",
+    ]
+    assert result.metadata["firebase_remoteconfig_key_count"] == 3
+    assert result.metadata["firebase_remoteconfig_key_values"]["feature_enabled"] == {
+        "key": "feature_enabled",
+        "value_type": "BOOLEAN",
+        "type_label": "Bool",
+        "default_value": {
+            "raw_value": "false",
+            "display_value": "false",
+            "value_type": "BOOLEAN",
+            "type_label": "Bool",
+            "use_in_app_default": False,
+            "value_source": "value",
+            "source_label": "Literal",
+            "editable": True,
+        },
+        "conditional_values": {
+            "android_prod": {
+                "raw_value": "true",
+                "display_value": "true",
+                "value_type": "BOOLEAN",
+                "type_label": "Bool",
+                "use_in_app_default": False,
+                "value_source": "value",
+                "source_label": "Literal",
+                "editable": True,
+            }
+        },
+    }
+    ctx.textual.table.assert_called_once()
+    assert ctx.textual.table.call_args.kwargs["headers"] == [
+        "Clave",
+        "Tipo",
+        "Valor por defecto",
+        "Entornos/condiciones",
+    ]
+    assert ctx.textual.table.call_args.kwargs["rows"][0] == [
+        "feature_enabled",
+        "Bool",
+        "false",
+        "android_prod=true",
+    ]
+
+
+def test_list_keys_works_without_tui(ui_template):
+    ctx = _ctx()
+    ctx.textual = None
+    ctx.data["firebase_remoteconfig_template"] = ui_template
+
+    result = execute_firebase_remoteconfig_list_keys_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_remoteconfig_key_count"] == 3
+
+
+def test_list_keys_allows_empty_templates(ui_template):
+    from dataclasses import replace
+
+    ctx = _ctx()
+    ctx.data["firebase_remoteconfig_template"] = replace(ui_template, parameters=[])
+
+    result = execute_firebase_remoteconfig_list_keys_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_remoteconfig_keys"] == []
+    assert result.metadata["firebase_remoteconfig_key_count"] == 0
+    ctx.textual.dim_text.assert_called_once()
+    ctx.textual.table.assert_not_called()
+
+
+def test_list_keys_without_a_template_is_an_error():
+    ctx = _ctx()
+
+    result = execute_firebase_remoteconfig_list_keys_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "firebase_remoteconfig_get" in result.message
 
 
 # --- conditions -------------------------------------------------------------
@@ -250,6 +573,23 @@ def test_select_key_reports_the_current_value_for_the_target(ui_template):
     # The condition overrides the default, so the current value is the
     # conditional one.
     assert result.metadata["firebase_current_value"] == "true"
+    assert (
+        result.metadata["firebase_parameter_values"]["default_value"]["display_value"]
+        == "false"
+    )
+    assert (
+        result.metadata["firebase_parameter_values"]["conditional_values"][
+            "android_prod"
+        ]["display_value"]
+        == "true"
+    )
+    assert ctx.textual.table.call_args.kwargs["headers"] == [
+        "Clave",
+        "Tipo",
+        "Valor por defecto",
+        "Entornos/condiciones",
+        "Valor (android_prod)",
+    ]
 
 
 def test_select_key_reports_none_when_the_condition_has_no_value(ui_template):

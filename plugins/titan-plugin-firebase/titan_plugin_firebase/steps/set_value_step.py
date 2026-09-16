@@ -18,7 +18,8 @@ def execute_firebase_remoteconfig_set_value_step(
 
     Nothing is published here: the step produces a validated change that
     `firebase_remoteconfig_diff` shows and `firebase_remoteconfig_publish`
-    applies.
+    applies. Values managed by Firebase personalization, experiments, rollouts,
+    or unknown future value-source fields are rejected before publishing.
 
     Requires:
         ctx.firebase: An initialized FirebaseClient.

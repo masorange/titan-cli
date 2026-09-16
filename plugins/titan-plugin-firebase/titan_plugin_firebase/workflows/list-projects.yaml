@@ -1,0 +1,14 @@
+name: "List Firebase Projects"
+description: "List Firebase projects available to the active Google credentials"
+params:
+  project_filter: ""
+steps:
+  - id: firebase_auth_check
+    name: "Verify Google credentials"
+    plugin: firebase
+    step: firebase_auth_check
+
+  - id: firebase_projects_list
+    name: "List Firebase projects"
+    plugin: firebase
+    step: firebase_projects_list

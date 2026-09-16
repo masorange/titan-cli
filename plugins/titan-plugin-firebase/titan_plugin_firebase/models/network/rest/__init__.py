@@ -1,5 +1,6 @@
 """REST network models for the Firebase Remote Config API."""
 
+from .projects import NetworkFirebaseProject, NetworkFirebaseProjectsPage
 from .template import (
     NetworkCondition,
     NetworkParameter,
@@ -11,6 +12,8 @@ from .template import (
 
 __all__ = [
     "NetworkCondition",
+    "NetworkFirebaseProject",
+    "NetworkFirebaseProjectsPage",
     "NetworkParameter",
     "NetworkParameterValue",
     "NetworkRemoteConfigTemplate",

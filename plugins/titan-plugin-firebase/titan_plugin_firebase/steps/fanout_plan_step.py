@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import Optional
+from dataclasses import replace
+from typing import Any, Mapping, Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Exit, Success, WorkflowContext, WorkflowResult
 from titan_cli.ui.tui.widgets import SelectionOption
 
 from ..models.view import UIFanoutEntry
+from ..models.values import display_value_types
 from ..operations.fanout_operations import (
     describe_plan,
     plan_summary,
@@ -35,12 +37,19 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     each one: the parameter may not exist there, the condition may not either,
     and the value may clash with a different declared type. Projects that
     cannot take the change are reported, not allowed to sink the rest.
+    Values managed by Firebase personalization, experiments, rollouts, or
+    unknown future value-source fields are not bulk-editable.
+    Targets may span several configured environments when the selection step
+    has explicitly included them; publishing remains per project.
 
     Requires:
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
         firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.
+        firebase_remoteconfig_key_profiles (dict[str, dict], optional): From firebase_remoteconfig_fanout_list_keys.
+        firebase_remoteconfig_bulk_safe_keys (list[str], optional): From firebase_remoteconfig_fanout_list_keys.
+        firebase_remoteconfig_failed_projects (dict[str, str], optional): From firebase_remoteconfig_fanout_list_keys.
         key (str): Parameter to change.
         value (str): New value.
         condition (str, optional): Condition to write instead of the default.
@@ -67,6 +76,10 @@ def execute_firebase_remoteconfig_fanout_plan_step(
             "Faltan los proyectos. Ejecuta firebase_select_targets antes de este paso.",
         )
 
+    inventory_error = _bulk_inventory_error(ctx)
+    if inventory_error is not None:
+        return _fail(ctx, inventory_error)
+
     key = blank_to_none(ctx.get("key")) or blank_to_none(ctx.get("firebase_key"))
     value = blank_to_none(ctx.get("value")) or blank_to_none(
         ctx.get("firebase_new_value")
@@ -74,6 +87,11 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     condition = blank_to_none(ctx.get("condition")) or blank_to_none(
         ctx.get("firebase_condition")
     )
+
+    if key is not None:
+        safety_error = _bulk_safety_error(ctx, str(key))
+        if safety_error is not None:
+            return _fail(ctx, safety_error)
 
     if key is None or value is None:
         # The parameters, their types and the conditions live in the projects,
@@ -155,8 +173,28 @@ def _ask_change(ctx, reference_target, key, condition):
         if not answered:
             return "No se seleccionó ningún destino"
 
+    prompt_template = template
+    if key is None:
+        bulk_safe_keys = _bulk_safe_key_set(ctx)
+        if bulk_safe_keys is not None:
+            safe_parameters = [
+                parameter
+                for parameter in template.parameters
+                if parameter.key in bulk_safe_keys
+            ]
+            if not safe_parameters:
+                return "No hay claves comunes con tipo estable para editar en bulk."
+            hidden = len(template.parameters) - len(safe_parameters)
+            if hidden:
+                ctx.textual.dim_text(
+                    f"{hidden} clave(s) ocultas porque requieren revisión por proyecto."
+                )
+            prompt_template = replace(template, parameters=safe_parameters)
+
     parameter = (
-        template.parameter(key) if key else ask_parameter(ctx, template, condition)
+        prompt_template.parameter(key)
+        if key
+        else ask_parameter(ctx, prompt_template, condition)
     )
     if parameter is None:
         return (
@@ -164,6 +202,9 @@ def _ask_change(ctx, reference_target, key, condition):
             if key
             else "No se seleccionó ningún parámetro"
         )
+    safety_error = _bulk_safety_error(ctx, parameter.key)
+    if safety_error is not None:
+        return safety_error
 
     current = parameter.value_for(condition)
     ctx.textual.dim_text(
@@ -247,6 +288,76 @@ def _confirm_projects(
         options,
     )
     return select_entries(ready, [str(value) for value in selected or []])
+
+
+def _bulk_inventory_error(ctx: WorkflowContext) -> Optional[str]:
+    """Reject bulk planning when an earlier inventory could not read every target."""
+    if ctx.get("firebase_remoteconfig_key_profiles") is None:
+        return None
+    failed_projects = ctx.get("firebase_remoteconfig_failed_projects") or {}
+    if not failed_projects:
+        return None
+    failed_ids = ", ".join(str(project_id) for project_id in sorted(failed_projects))
+    return (
+        "No se puede validar un cambio bulk porque el inventario no pudo leer "
+        f"todos los proyectos: {failed_ids}."
+    )
+
+
+def _bulk_safety_error(ctx: WorkflowContext, key: str) -> Optional[str]:
+    """Return why a key cannot be edited in bulk, or None when it can."""
+    profiles = ctx.get("firebase_remoteconfig_key_profiles")
+    if profiles is None:
+        return None
+    if not isinstance(profiles, Mapping):
+        return "El inventario de claves tiene un formato inesperado."
+
+    profile = profiles.get(key)
+    if not isinstance(profile, Mapping):
+        return (
+            f"La clave '{key}' no aparece en el inventario multi-proyecto. "
+            "Vuelve a listar las claves antes de publicar en bulk."
+        )
+    if profile.get("bulk_safe") is True:
+        return None
+
+    reasons = _bulk_blocker_reasons(profile)
+    detail = ", ".join(reasons) if reasons else "requiere revisión por proyecto"
+    return f"La clave '{key}' no es apta para bulk: {detail}."
+
+
+def _bulk_blocker_reasons(profile: Mapping[str, Any]) -> list[str]:
+    """Translate profile issue codes into user-facing reasons."""
+    issues = {str(issue) for issue in profile.get("issues", []) or []}
+    reasons: list[str] = []
+    if "missing" in issues:
+        missing = ", ".join(
+            str(project_id) for project_id in profile.get("missing_projects", [])
+        )
+        reasons.append(f"falta en {missing}" if missing else "falta en algun proyecto")
+    if "type_conflict" in issues:
+        value_type_values = profile.get("value_types", [])
+        if not isinstance(value_type_values, list):
+            value_type_values = []
+        value_types = " / ".join(display_value_types(value_type_values))
+        reasons.append(
+            f"tipos observados {value_types}" if value_types else "tipos incompatibles"
+        )
+    if "local_type_conflict" in issues:
+        reasons.append("un proyecto tiene valores no tipados mezclados")
+    if "unsupported_value_source" in issues:
+        reasons.append("contiene valores gestionados por Firebase")
+    if "unknown_type" in issues:
+        reasons.append("no tiene un tipo determinista conocido")
+    return reasons
+
+
+def _bulk_safe_key_set(ctx: WorkflowContext) -> Optional[set[str]]:
+    """Return the keys allowed by an earlier inventory, if one exists."""
+    keys = ctx.get("firebase_remoteconfig_bulk_safe_keys")
+    if keys is None:
+        return None
+    return {str(key) for key in keys if str(key).strip()}
 
 
 def _fail(ctx: WorkflowContext, message: str) -> WorkflowResult:

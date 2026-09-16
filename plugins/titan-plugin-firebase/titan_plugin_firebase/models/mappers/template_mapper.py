@@ -52,17 +52,20 @@ def map_value(
 ) -> UIRemoteConfigValue:
     """Map one network value payload to its UI model."""
     use_in_app_default = bool(value.use_in_app_default)
-    display = (
-        "(in-app default)"
-        if use_in_app_default and value.value is None
-        else format_value_for_display(value.value, value_type)
-    )
+    source = value.value_source
+    if not source.is_titan_editable:
+        display = f"({source.display_label})"
+    elif source.is_titan_editable and use_in_app_default and value.value is None:
+        display = "(in-app default)"
+    else:
+        display = format_value_for_display(value.value, value_type)
     return UIRemoteConfigValue(
         raw_value=value.value,
         parsed_value=parse_value(value.value, value_type),
         value_type=value_type,
         use_in_app_default=use_in_app_default,
         display_value=display,
+        source=source,
     )
 
 

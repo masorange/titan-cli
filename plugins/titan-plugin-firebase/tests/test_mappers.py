@@ -2,6 +2,7 @@
 
 from titan_plugin_firebase.models.mappers import map_template
 from titan_plugin_firebase.models.network.rest import NetworkRemoteConfigTemplate
+from titan_plugin_firebase.models.values import RemoteConfigValueSource
 from titan_plugin_firebase.models.values import RemoteConfigValueType as T
 
 
@@ -66,4 +67,53 @@ def test_in_app_default_is_rendered_explicitly():
     )
     parameter = map_template("mm-firebase-yoigo", network, None).parameter("k")
     assert parameter.default_value.use_in_app_default is True
+    assert parameter.default_value.source == RemoteConfigValueSource.IN_APP_DEFAULT
     assert parameter.default_value.display_value == "(in-app default)"
+
+
+def test_managed_remote_config_values_are_rendered_as_managed():
+    network = NetworkRemoteConfigTemplate.model_validate(
+        {
+            "parameters": {
+                "experiment_key": {
+                    "defaultValue": {"experimentValue": {"experimentId": "exp-1"}},
+                    "conditionalValues": {
+                        "android_prod": {"rolloutValue": {"rolloutId": "rollout-1"}}
+                    },
+                    "valueType": "STRING",
+                }
+            }
+        }
+    )
+
+    parameter = map_template("mm-firebase-yoigo", network, None).parameter(
+        "experiment_key"
+    )
+
+    assert parameter.default_value.source == RemoteConfigValueSource.EXPERIMENT
+    assert parameter.default_value.display_value == "(Experiment)"
+    assert (
+        parameter.conditional_values["android_prod"].source
+        == RemoteConfigValueSource.ROLLOUT
+    )
+    assert parameter.conditional_values["android_prod"].display_value == "(Rollout)"
+    assert parameter.has_unsupported_value_source is True
+
+
+def test_future_remote_config_value_sources_are_not_rendered_as_empty():
+    network = NetworkRemoteConfigTemplate.model_validate(
+        {
+            "parameters": {
+                "future_key": {
+                    "defaultValue": {"futureValue": {"id": "future-1"}},
+                    "valueType": "STRING",
+                }
+            }
+        }
+    )
+
+    parameter = map_template("mm-firebase-yoigo", network, None).parameter("future_key")
+
+    assert parameter.default_value.source == RemoteConfigValueSource.UNKNOWN
+    assert parameter.default_value.display_value == "(Unknown)"
+    assert parameter.has_unsupported_value_source is True

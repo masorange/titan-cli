@@ -86,9 +86,27 @@ def identity() -> UIAdcIdentity:
 def plugin_config() -> FirebasePluginConfig:
     """Config shaped like the real multi-brand Android setup."""
     return FirebasePluginConfig(
-        brands=["yoigo", "masmovil", "guuk"],
-        project_id_pattern="mm-firebase-{brand}",
-        brand_project_overrides={"guuk": "mm-guuk-firebase-prod"},
+        default_project_set="mobile_apps",
+        project_sets={
+            "mobile_apps": {
+                "projects": [
+                    {
+                        "project_id": "mm-firebase-yoigo",
+                        "label": "Yoigo",
+                        "brand": "Yoigo",
+                        "environment": "pro",
+                        "groups": ["national"],
+                    },
+                    {
+                        "project_id": "mm-firebase-lebara",
+                        "label": "Lebara",
+                        "brand": "Lebara",
+                        "environment": "pro",
+                        "groups": ["prepago"],
+                    },
+                ]
+            }
+        },
     )
 
 
@@ -116,6 +134,14 @@ def template_payload() -> dict:
     import copy
 
     return copy.deepcopy(_TEMPLATE_PAYLOAD)
+
+
+@pytest.fixture
+def firebase_projects_page() -> dict:
+    """A Firebase Management projects.list response page."""
+    import copy
+
+    return copy.deepcopy(_FIREBASE_PROJECTS_PAGE)
 
 
 @pytest.fixture
@@ -164,4 +190,21 @@ _TEMPLATE_PAYLOAD = {
         "updateType": "INCREMENTAL_UPDATE",
         "description": "cambio previo",
     },
+}
+
+_FIREBASE_PROJECTS_PAGE = {
+    "results": [
+        {
+            "projectId": "mm-firebase-yoigo",
+            "displayName": "Yoigo",
+            "name": "projects/mm-firebase-yoigo",
+            "projectNumber": "111",
+        },
+        {
+            "projectId": "mm-guuk-firebase-prod",
+            "displayName": "Guuk",
+            "name": "projects/mm-guuk-firebase-prod",
+            "projectNumber": "222",
+        },
+    ],
 }

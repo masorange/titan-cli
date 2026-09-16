@@ -12,6 +12,15 @@ from .config import FirebasePluginConfig
 from .exceptions import FirebaseConfigurationError, FirebaseError
 
 
+_PUBLIC_WORKFLOW_NAMES = frozenset(
+    {
+        "create-remoteconfig-key",
+        "list-remoteconfig-keys-multiproject",
+        "set-remoteconfig-value-multiproject",
+    }
+)
+
+
 class FirebasePlugin(TitanPlugin):
     """
     Titan CLI plugin for Firebase Remote Config.
@@ -65,6 +74,11 @@ class FirebasePlugin(TitanPlugin):
         properties = schema.get("properties", {})
         preferred_order = [
             "default_project",
+            "default_project_set",
+            "default_environment",
+            "default_condition_group",
+            "condition_groups",
+            "project_sets",
             "quota_project_id",
             "api_base_url",
             "request_timeout",
@@ -103,14 +117,28 @@ class FirebasePlugin(TitanPlugin):
         from .steps.conditions_step import (
             execute_firebase_remoteconfig_conditions_step,
         )
+        from .steps.copy_key_step import execute_firebase_remoteconfig_copy_key_step
+        from .steps.create_key_publish_step import (
+            execute_firebase_remoteconfig_create_key_publish_step,
+        )
+        from .steps.create_key_step import (
+            execute_firebase_remoteconfig_create_key_plan_step,
+        )
+        from .steps.list_projects_step import execute_firebase_projects_list_step
         from .steps.diff_step import execute_firebase_remoteconfig_diff_step
         from .steps.fanout_plan_step import (
             execute_firebase_remoteconfig_fanout_plan_step,
+        )
+        from .steps.fanout_list_keys_step import (
+            execute_firebase_remoteconfig_fanout_list_keys_step,
         )
         from .steps.fanout_publish_step import (
             execute_firebase_remoteconfig_fanout_publish_step,
         )
         from .steps.publish_step import execute_firebase_remoteconfig_publish_step
+        from .steps.list_keys_step import (
+            execute_firebase_remoteconfig_list_keys_step,
+        )
         from .steps.remoteconfig_get_step import (
             execute_firebase_remoteconfig_get_step,
         )
@@ -122,11 +150,21 @@ class FirebasePlugin(TitanPlugin):
         from .steps.set_value_step import (
             execute_firebase_remoteconfig_set_value_step,
         )
+        from .steps.sync_plan_step import (
+            execute_firebase_remoteconfig_sync_plan_step,
+        )
+        from .steps.sync_publish_step import (
+            execute_firebase_remoteconfig_sync_publish_step,
+        )
 
         return {
             "firebase_auth_check": execute_firebase_auth_check_step,
+            "firebase_projects_list": execute_firebase_projects_list_step,
             "firebase_select_target": execute_firebase_select_target_step,
             "firebase_remoteconfig_get": execute_firebase_remoteconfig_get_step,
+            "firebase_remoteconfig_list_keys": (
+                execute_firebase_remoteconfig_list_keys_step
+            ),
             "firebase_remoteconfig_conditions": (
                 execute_firebase_remoteconfig_conditions_step
             ),
@@ -144,6 +182,22 @@ class FirebasePlugin(TitanPlugin):
             "firebase_remoteconfig_fanout_plan": (
                 execute_firebase_remoteconfig_fanout_plan_step
             ),
+            "firebase_remoteconfig_fanout_list_keys": (
+                execute_firebase_remoteconfig_fanout_list_keys_step
+            ),
+            "firebase_remoteconfig_create_key_plan": (
+                execute_firebase_remoteconfig_create_key_plan_step
+            ),
+            "firebase_remoteconfig_create_key_publish": (
+                execute_firebase_remoteconfig_create_key_publish_step
+            ),
+            "firebase_remoteconfig_copy_key": execute_firebase_remoteconfig_copy_key_step,
+            "firebase_remoteconfig_sync_plan": (
+                execute_firebase_remoteconfig_sync_plan_step
+            ),
+            "firebase_remoteconfig_sync_publish": (
+                execute_firebase_remoteconfig_sync_publish_step
+            ),
             "firebase_remoteconfig_fanout_publish": (
                 execute_firebase_remoteconfig_fanout_publish_step
             ),
@@ -153,3 +207,17 @@ class FirebasePlugin(TitanPlugin):
     def workflows_path(self) -> Optional[Path]:
         """Return the plugin workflows directory."""
         return Path(__file__).parent / "workflows"
+
+    def filter_workflows(self, workflows: list, plugin_config: dict) -> list:
+        """
+        Keep the workflow picker focused on the product-level Firebase actions.
+
+        Lower-level single-project and diagnostic workflows still ship as reusable
+        workflow building blocks and can be executed by name, but they should not
+        crowd the default menu for the multimarca Remote Config use case.
+        """
+        return [
+            workflow
+            for workflow in workflows
+            if workflow.name in _PUBLIC_WORKFLOW_NAMES
+        ]

@@ -1,5 +1,6 @@
-"""Multi-project fan-out: plan aggregation, per-project confirmation, publishing."""
+"""Multi-project fan-out: inventory, plan aggregation, confirmation, publishing."""
 
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 
@@ -8,11 +9,14 @@ from titan_cli.engine import Error, Exit, Success
 from titan_cli.engine.context import WorkflowContext
 
 from titan_plugin_firebase.config import FirebasePluginConfig
+from titan_plugin_firebase.models.mappers import map_template
+from titan_plugin_firebase.models.network.rest import NetworkRemoteConfigTemplate
 from titan_plugin_firebase.models.targets import FirebaseProjectTarget
 from titan_plugin_firebase.models.values import RemoteConfigValueType as T
 from titan_plugin_firebase.models.view import (
     UIFanoutEntry,
     UIFanoutOutcome,
+    UIFirebaseProject,
     UIRemoteConfigChange,
     UIRemoteConfigPublishResult,
     UIRemoteConfigVersion,
@@ -23,6 +27,15 @@ from titan_plugin_firebase.operations.fanout_operations import (
     plan_summary,
     publishable_entries,
     select_entries,
+)
+from titan_plugin_firebase.operations.key_inventory_operations import (
+    build_key_inventory,
+    describe_key_inventory,
+    describe_project_key_value_items,
+    describe_project_key_values,
+)
+from titan_plugin_firebase.steps.fanout_list_keys_step import (
+    execute_firebase_remoteconfig_fanout_list_keys_step,
 )
 from titan_plugin_firebase.steps.fanout_plan_step import (
     execute_firebase_remoteconfig_fanout_plan_step,
@@ -43,8 +56,19 @@ def _ctx(config=None) -> WorkflowContext:
     return ctx
 
 
-def _target(label: str, project_id: str) -> FirebaseProjectTarget:
-    return FirebaseProjectTarget(project_id=project_id, label=label)
+def _target(
+    label: str,
+    project_id: str,
+    *,
+    environment: str | None = None,
+    brand: str | None = None,
+) -> FirebaseProjectTarget:
+    return FirebaseProjectTarget(
+        project_id=project_id,
+        label=label,
+        environment=environment,
+        brand=brand,
+    )
 
 
 def _change(new_value="true", old_value="false") -> UIRemoteConfigChange:
@@ -186,22 +210,948 @@ def test_select_targets_takes_the_list_produced_by_an_earlier_step():
     assert targets[0].reference() == "yoigo (mm-firebase-yoigo)"
 
 
-def test_select_targets_never_prompts():
+def test_select_targets_uses_the_default_project_set_from_config():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            default_project_set="ragnarok_ios",
+            project_sets={
+                "ragnarok_ios": {
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-lebara",
+                            "label": "Lebara",
+                            "brand": "Lebara",
+                            "environment": "pro",
+                            "groups": ["prepago"],
+                        },
+                        {
+                            "project_id": "mm-firebase-yoigo",
+                            "label": "Yoigo",
+                            "brand": "Yoigo",
+                            "environment": "pro",
+                            "groups": ["national"],
+                        },
+                    ]
+                }
+            },
+        )
+    )
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == [
+        "mm-firebase-lebara",
+        "mm-firebase-yoigo",
+    ]
+    assert result.metadata["firebase_project_set"] == "ragnarok_ios"
+    assert result.metadata["firebase_environment"] == "pro"
+    assert result.metadata["firebase_environments"] == ["pro"]
+    assert result.metadata["firebase_project_environments"] == {
+        "mm-firebase-lebara": "pro",
+        "mm-firebase-yoigo": "pro",
+    }
+    assert result.metadata["firebase_project_brands"] == {
+        "mm-firebase-lebara": "Lebara",
+        "mm-firebase-yoigo": "Yoigo",
+    }
+    ctx.textual.ask_text.assert_not_called()
+    ctx.textual.ask_multiselect.assert_not_called()
+
+
+def test_select_targets_filters_the_configured_project_set_by_group():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            default_project_set="ragnarok_ios",
+            project_sets={
+                "ragnarok_ios": {
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-lebara",
+                            "label": "Lebara",
+                            "groups": ["prepago"],
+                        },
+                        {
+                            "project_id": "mm-firebase-yoigo",
+                            "label": "Yoigo",
+                            "groups": ["national"],
+                        },
+                    ]
+                }
+            },
+        )
+    )
+    ctx.data["project_groups"] = "prepago"
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == ["mm-firebase-lebara"]
+    assert result.metadata["firebase_project_groups"] == ["prepago"]
+    ctx.textual.ask_text.assert_not_called()
+    ctx.textual.ask_multiselect.assert_not_called()
+
+
+def test_select_targets_filters_the_configured_project_set_by_environment():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            default_project_set="ragnarok_ios",
+            project_sets={
+                "ragnarok_ios": {
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-yoigo-dev",
+                            "label": "Yoigo DEV",
+                            "brand": "Yoigo",
+                            "environment": "dev",
+                        },
+                        {
+                            "project_id": "mm-firebase-yoigo-pro",
+                            "label": "Yoigo PRO",
+                            "brand": "Yoigo",
+                            "environment": "pro",
+                        },
+                    ]
+                }
+            },
+        )
+    )
+    ctx.data["environment"] = "PRO"
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == ["mm-firebase-yoigo-pro"]
+    assert result.metadata["firebase_environment"] == "pro"
+    assert result.metadata["firebase_environment_filter"] == ["pro"]
+
+
+def test_select_targets_asks_which_environments_to_include():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            default_project_set="ragnarok_ios",
+            project_sets={
+                "ragnarok_ios": {
+                    "default_environment": "pro",
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-yoigo-dev",
+                            "label": "Yoigo DEV",
+                            "brand": "Yoigo",
+                            "environment": "dev",
+                        },
+                        {
+                            "project_id": "mm-firebase-yoigo-pro",
+                            "label": "Yoigo PRO",
+                            "brand": "Yoigo",
+                            "environment": "pro",
+                        },
+                    ]
+                }
+            },
+        )
+    )
+    ctx.textual.ask_multiselect.return_value = ["pro", "dev"]
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == [
+        "mm-firebase-yoigo-dev",
+        "mm-firebase-yoigo-pro",
+    ]
+    assert result.metadata["firebase_environments"] == ["dev", "pro"]
+    assert result.metadata["firebase_environment_filter"] == ["pro", "dev"]
+    assert "firebase_environment" not in result.metadata
+    options = ctx.textual.ask_multiselect.call_args.args[1]
+    assert [(option.value, option.selected) for option in options] == [
+        ("dev", False),
+        ("pro", True),
+    ]
+
+
+def test_select_targets_filters_explicit_project_ids_by_configured_environment():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            default_project_set="ragnarok_ios",
+            project_sets={
+                "ragnarok_ios": {
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-yoigo-dev",
+                            "label": "Yoigo DEV",
+                            "environment": "dev",
+                        },
+                        {
+                            "project_id": "mm-firebase-yoigo-pro",
+                            "label": "Yoigo PRO",
+                            "environment": "pro",
+                        },
+                    ]
+                }
+            },
+        )
+    )
+    ctx.data["project_ids"] = "mm-firebase-yoigo-dev, mm-firebase-yoigo-pro"
+    ctx.data["environment"] = "dev"
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == ["mm-firebase-yoigo-dev"]
+    assert result.metadata["firebase_environment"] == "dev"
+
+
+def test_select_targets_does_not_prompt_when_projects_are_supplied():
     # The caller chose the projects; this step only normalizes them.
     ctx = _ctx()
     ctx.data["project_ids"] = ["mm-firebase-yoigo"]
 
     execute_firebase_select_targets_step(ctx)
 
+    ctx.textual.ask_text.assert_not_called()
     ctx.textual.ask_multiselect.assert_not_called()
     ctx.textual.ask_option.assert_not_called()
 
 
-def test_select_targets_errors_without_a_project_list():
-    result = execute_firebase_select_targets_step(_ctx())
+def test_select_targets_prompts_for_projects_when_tui_has_no_input():
+    ctx = _ctx()
+    ctx.textual.ask_text.return_value = "mm-firebase-yoigo, mm-guuk-firebase-prod"
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == [
+        "mm-firebase-yoigo",
+        "mm-guuk-firebase-prod",
+    ]
+    ctx.textual.ask_text.assert_called_once_with(
+        "Project IDs de Firebase (separados por coma):",
+        default="",
+    )
+
+
+def test_select_targets_lists_available_projects_for_tui_selection():
+    ctx = _ctx()
+    ctx.firebase.list_projects.return_value = ClientSuccess(
+        data=[
+            UIFirebaseProject(
+                project_id="mm-firebase-yoigo",
+                display_name="Yoigo",
+                name="projects/mm-firebase-yoigo",
+                project_number="111",
+            ),
+            UIFirebaseProject(
+                project_id="mm-guuk-firebase-prod",
+                display_name="Guuk",
+                name="projects/mm-guuk-firebase-prod",
+                project_number="222",
+            ),
+        ]
+    )
+    ctx.textual.ask_multiselect.return_value = [
+        "mm-firebase-yoigo",
+        "mm-guuk-firebase-prod",
+    ]
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == [
+        "mm-firebase-yoigo",
+        "mm-guuk-firebase-prod",
+    ]
+    ctx.textual.ask_multiselect.assert_called_once()
+    ctx.textual.ask_text.assert_not_called()
+
+
+def test_select_targets_recovers_config_metadata_after_catalogue_selection():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            project_sets={
+                "ragnarok_ios": {
+                    "default_environment": "PRO",
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-yoigo",
+                            "label": "Yoigo",
+                            "brand": "Yoigo",
+                            "groups": ["national"],
+                        }
+                    ],
+                }
+            }
+        )
+    )
+    ctx.firebase.list_projects.return_value = ClientSuccess(
+        data=[
+            UIFirebaseProject(
+                project_id="mm-firebase-yoigo",
+                display_name="Firebase Yoigo",
+                name="projects/mm-firebase-yoigo",
+                project_number="111",
+            )
+        ]
+    )
+    ctx.textual.ask_multiselect.return_value = ["mm-firebase-yoigo"]
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    target = result.metadata["firebase_targets"][0]
+    assert target.label == "Yoigo"
+    assert target.environment == "pro"
+    assert target.brand == "Yoigo"
+    assert target.groups == ["national"]
+    assert result.metadata["firebase_environment"] == "pro"
+    assert result.metadata["firebase_project_environments"] == {
+        "mm-firebase-yoigo": "pro"
+    }
+
+
+def test_select_targets_filters_the_available_project_catalogue():
+    ctx = _ctx()
+    ctx.data["project_filter"] = "Prepago, National"
+    ctx.firebase.list_projects.return_value = ClientSuccess(
+        data=[
+            UIFirebaseProject(
+                project_id="mm-firebase-lebara",
+                display_name="- Prepago - Lebara",
+                name="projects/mm-firebase-lebara",
+                project_number="111",
+            ),
+            UIFirebaseProject(
+                project_id="mm-firebase-yoigo",
+                display_name="- National Telco - Yoigo",
+                name="projects/mm-firebase-yoigo",
+                project_number="222",
+            ),
+            UIFirebaseProject(
+                project_id="mm-firebase-energy",
+                display_name="- Energia - MasOrange",
+                name="projects/mm-firebase-energy",
+                project_number="333",
+            ),
+        ]
+    )
+    ctx.textual.ask_multiselect.return_value = [
+        "mm-firebase-lebara",
+        "mm-firebase-yoigo",
+    ]
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_project_ids"] == [
+        "mm-firebase-lebara",
+        "mm-firebase-yoigo",
+    ]
+    options = ctx.textual.ask_multiselect.call_args.args[1]
+    assert [option.value for option in options] == [
+        "mm-firebase-lebara",
+        "mm-firebase-yoigo",
+    ]
+
+
+def test_select_targets_errors_when_tui_project_prompt_is_empty():
+    ctx = _ctx()
+    ctx.textual.ask_text.return_value = ""
+
+    result = execute_firebase_select_targets_step(ctx)
 
     assert isinstance(result, Error)
     assert "firebase_project_ids" in result.message
+
+
+def test_select_targets_errors_without_a_project_list_or_tui():
+    ctx = _ctx()
+    ctx.textual = None
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "firebase_project_ids" in result.message
+
+
+# --- key inventory ----------------------------------------------------------
+
+
+def _template_with_feature_as_string(ui_template):
+    feature = ui_template.parameter("feature_enabled")
+    welcome = ui_template.parameter("welcome_text")
+    assert feature is not None
+    assert welcome is not None
+    return replace(
+        ui_template,
+        project_id="mm-guuk-firebase-prod",
+        parameters=[
+            replace(
+                feature,
+                value_type=T.STRING,
+                declared_value_type=T.STRING,
+            ),
+            welcome,
+        ],
+    )
+
+
+def test_key_inventory_finds_missing_keys_and_type_conflicts(ui_template):
+    other_template = _template_with_feature_as_string(ui_template)
+
+    inventory = build_key_inventory(
+        {
+            "mm-firebase-yoigo": ui_template,
+            "mm-guuk-firebase-prod": other_template,
+        }
+    )
+
+    assert inventory.keys == [
+        "feature_enabled",
+        "legacy_untyped",
+        "welcome_text",
+    ]
+    assert inventory.common_keys == ["feature_enabled", "welcome_text"]
+    assert inventory.missing_keys["mm-guuk-firebase-prod"] == ["legacy_untyped"]
+    assert inventory.type_conflicts == {
+        "feature_enabled": ["BOOLEAN", "STRING"],
+    }
+    assert inventory.value_types == ["BOOLEAN", "JSON", "STRING"]
+    assert inventory.bulk_safe_keys == ["welcome_text"]
+    assert inventory.bulk_blocked_keys == {
+        "feature_enabled": ["type_conflict"],
+        "legacy_untyped": ["missing"],
+    }
+    assert inventory.key_profiles["welcome_text"].is_bulk_safe is True
+    assert inventory.key_profiles["welcome_text"].bulk_value_type == "STRING"
+    assert inventory.key_profiles["feature_enabled"].is_bulk_safe is False
+
+    rows = describe_key_inventory(inventory)
+    assert rows[0] == [
+        "feature_enabled",
+        "2/2",
+        "Bool / String",
+        "type conflict",
+    ]
+    assert rows[1] == ["legacy_untyped", "1/2", "JSON", "missing in 1"]
+
+    value_rows = describe_project_key_values(
+        {
+            "mm-firebase-yoigo": ui_template,
+            "mm-guuk-firebase-prod": other_template,
+        },
+        [
+            _target("yoigo", "mm-firebase-yoigo", environment="dev"),
+            _target("guuk", "mm-guuk-firebase-prod", environment="pro"),
+        ],
+    )
+    assert value_rows[0] == [
+        "yoigo",
+        "feature_enabled",
+        "default, android_prod",
+        "Bool · default=false, android_prod=true",
+    ]
+
+
+def test_project_key_value_rows_are_compact_for_table_rendering():
+    template = map_template(
+        "mm-firebase-yoigo",
+        NetworkRemoteConfigTemplate.model_validate(
+            {
+                "parameters": {
+                    "long_value": {
+                        "defaultValue": {
+                            "value": "line one\nline two with a lot of content "
+                            "that should not stretch the inventory table"
+                        },
+                        "conditionalValues": {
+                            "android_prod": {
+                                "value": "android value with enough words to wrap badly"
+                            },
+                            "ios_prod": {
+                                "value": "ios value with enough words to wrap badly"
+                            },
+                            "web_prod": {"value": "web value"},
+                        },
+                        "valueType": "STRING",
+                    }
+                }
+            }
+        ),
+        "etag-1",
+    )
+
+    rows = describe_project_key_values(
+        {"mm-firebase-yoigo": template},
+        [_target("yoigo", "mm-firebase-yoigo", environment="pro")],
+    )
+
+    assert len(rows[0]) == 4
+    assert rows[0][0] == "yoigo"
+    assert rows[0][1] == "long_value"
+    assert rows[0][2] == "default, android_prod, ios_prod, web_prod"
+    assert "\n" not in rows[0][3]
+    assert len(rows[0][3]) <= 96
+    assert "+2 mas" in rows[0][3]
+
+
+def test_project_key_value_rows_can_filter_by_condition_group():
+    template = map_template(
+        "mm-firebase-yoigo",
+        NetworkRemoteConfigTemplate.model_validate(
+            {
+                "parameters": {
+                    "flag": {
+                        "defaultValue": {"value": "false"},
+                        "conditionalValues": {
+                            "Android - Dev": {"value": "true"},
+                            "iOS - Dev": {"value": "false"},
+                        },
+                        "valueType": "BOOLEAN",
+                    }
+                }
+            }
+        ),
+        "etag-1",
+    )
+    condition_group = FirebasePluginConfig(
+        condition_groups={
+            "android": {
+                "label": "Android",
+                "condition_contains": ["Android"],
+            }
+        }
+    ).condition_groups["android"]
+
+    rows = describe_project_key_values(
+        {"mm-firebase-yoigo": template},
+        [_target("yoigo", "mm-firebase-yoigo")],
+        condition_group,
+    )
+
+    assert rows == [
+        [
+            "yoigo",
+            "flag",
+            "default, Android - Dev",
+            "Bool · default=false, Android - Dev=true",
+        ]
+    ]
+
+
+def test_project_key_value_items_include_expandable_value_details():
+    template = map_template(
+        "mm-firebase-yoigo",
+        NetworkRemoteConfigTemplate.model_validate(
+            {
+                "parameters": {
+                    "flag": {
+                        "defaultValue": {"value": "false"},
+                        "conditionalValues": {
+                            "Android - Dev": {"value": "true"},
+                        },
+                        "valueType": "BOOLEAN",
+                        "description": "Activates a feature.",
+                    }
+                }
+            }
+        ),
+        "etag-1",
+    )
+
+    items = describe_project_key_value_items(
+        {"mm-firebase-yoigo": template},
+        [_target("Yoigo", "mm-firebase-yoigo")],
+    )
+
+    assert len(items) == 1
+    assert items[0].project_label == "Yoigo"
+    assert items[0].key == "flag"
+    assert items[0].type_label == "Bool"
+    assert items[0].description == "Activates a feature."
+    assert items[0].environment_summary == "default, Android - Dev"
+    assert items[0].value_rows == [
+        ["default", "false", "Literal", "si"],
+        ["Android - Dev", "true", "Literal", "si"],
+    ]
+
+
+def test_project_key_value_items_expose_json_values_as_tree_details():
+    template = map_template(
+        "mm-firebase-yoigo",
+        NetworkRemoteConfigTemplate.model_validate(
+            {
+                "parameters": {
+                    "deviceDealsConfiguration": {
+                        "defaultValue": {
+                            "value": (
+                                '{"smartphone":["P09718P","P0978M5"],'
+                                '"recommendedGroupIds":["G075DGT"]}'
+                            )
+                        },
+                        "valueType": "JSON",
+                    }
+                }
+            }
+        ),
+        "etag-1",
+    )
+
+    items = describe_project_key_value_items(
+        {"mm-firebase-yoigo": template},
+        [_target("Yoigo", "mm-firebase-yoigo")],
+    )
+
+    assert items[0].value_rows == [
+        [
+            "default",
+            "objeto · 2 claves",
+            "Literal",
+            "si",
+        ]
+    ]
+    assert items[0].json_details[0].title == "default"
+    assert items[0].json_details[0].value == {
+        "recommendedGroupIds": ["G075DGT"],
+        "smartphone": ["P09718P", "P0978M5"],
+    }
+
+
+def test_project_key_value_rows_hide_keys_without_group_values_when_default_is_off():
+    template = map_template(
+        "mm-firebase-yoigo",
+        NetworkRemoteConfigTemplate.model_validate(
+            {
+                "parameters": {
+                    "flag": {
+                        "defaultValue": {"value": "false"},
+                        "conditionalValues": {"iOS - Dev": {"value": "true"}},
+                        "valueType": "BOOLEAN",
+                    }
+                }
+            }
+        ),
+        "etag-1",
+    )
+    condition_group = FirebasePluginConfig(
+        condition_groups={
+            "android": {
+                "include_default": False,
+                "condition_contains": ["Android"],
+            }
+        }
+    ).condition_groups["android"]
+
+    assert (
+        describe_project_key_values(
+            {"mm-firebase-yoigo": template},
+            [_target("yoigo", "mm-firebase-yoigo")],
+            condition_group,
+        )
+        == []
+    )
+
+
+def test_key_inventory_marks_mixed_legacy_values_as_not_bulk_safe():
+    template = map_template(
+        "mm-firebase-yoigo",
+        NetworkRemoteConfigTemplate.model_validate(
+            {
+                "parameters": {
+                    "legacy_mixed": {
+                        "defaultValue": {"value": '{"enabled": true}'},
+                        "conditionalValues": {
+                            "ios_prod": {"value": "plain string"},
+                        },
+                    }
+                }
+            }
+        ),
+        "etag-1",
+    )
+
+    inventory = build_key_inventory({"mm-firebase-yoigo": template})
+
+    profile = inventory.key_profiles["legacy_mixed"]
+    assert profile.value_types == ["UNKNOWN"]
+    assert profile.inferred_value_types == ["JSON", "STRING"]
+    assert profile.issues == ["local_type_conflict", "unknown_type"]
+    assert inventory.bulk_safe_keys == []
+    assert inventory.bulk_blocked_keys == {
+        "legacy_mixed": ["local_type_conflict", "unknown_type"],
+    }
+    assert inventory.unknown_type_keys == {
+        "mm-firebase-yoigo": ["legacy_mixed"],
+    }
+
+
+def test_key_inventory_marks_firebase_managed_values_as_not_bulk_safe():
+    template = map_template(
+        "mm-firebase-yoigo",
+        NetworkRemoteConfigTemplate.model_validate(
+            {
+                "parameters": {
+                    "rollout_key": {
+                        "defaultValue": {"rolloutValue": {"rolloutId": "rollout-1"}},
+                        "valueType": "BOOLEAN",
+                    }
+                }
+            }
+        ),
+        "etag-1",
+    )
+
+    inventory = build_key_inventory({"mm-firebase-yoigo": template})
+
+    profile = inventory.key_profiles["rollout_key"]
+    assert profile.issues == ["unsupported_value_source"]
+    assert profile.is_bulk_safe is False
+    observation = profile.observations["mm-firebase-yoigo"]
+    assert observation.value_sources == ["rolloutValue"]
+    assert observation.unsupported_value_sources == ["rolloutValue"]
+    assert observation.unsupported_value_count == 1
+    assert describe_key_inventory(inventory) == [
+        ["rollout_key", "1/1", "Bool", "managed value"]
+    ]
+
+
+def _inventory_ctx(ui_template, **data) -> WorkflowContext:
+    ctx = _ctx()
+    ctx.data["firebase_targets"] = [
+        _target("yoigo", "mm-firebase-yoigo", environment="dev"),
+        _target("guuk", "mm-guuk-firebase-prod", environment="pro"),
+    ]
+    ctx.data.update(data)
+    ctx.firebase.get_remote_config.side_effect = [
+        ClientSuccess(data=ui_template),
+        ClientSuccess(data=_template_with_feature_as_string(ui_template)),
+    ]
+    return ctx
+
+
+def test_fanout_list_keys_reads_every_project_and_reports_inventory(ui_template):
+    ctx = _inventory_ctx(ui_template)
+
+    result = execute_firebase_remoteconfig_fanout_list_keys_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_remoteconfig_keys"] == [
+        "feature_enabled",
+        "legacy_untyped",
+        "welcome_text",
+    ]
+    assert result.metadata["firebase_remoteconfig_common_keys"] == [
+        "feature_enabled",
+        "welcome_text",
+    ]
+    assert result.metadata["firebase_remoteconfig_missing_keys"] == {
+        "mm-firebase-yoigo": [],
+        "mm-guuk-firebase-prod": ["legacy_untyped"],
+    }
+    assert result.metadata["firebase_remoteconfig_type_conflicts"] == {
+        "feature_enabled": ["BOOLEAN", "STRING"],
+    }
+    assert result.metadata["firebase_remoteconfig_bulk_safe_keys"] == [
+        "welcome_text",
+    ]
+    assert result.metadata["firebase_remoteconfig_bulk_blocked_keys"] == {
+        "feature_enabled": ["type_conflict"],
+        "legacy_untyped": ["missing"],
+    }
+    assert result.metadata["firebase_remoteconfig_key_profiles"]["welcome_text"] == {
+        "key": "welcome_text",
+        "bulk_safe": True,
+        "bulk_value_type": "STRING",
+        "issues": [],
+        "present_projects": ["mm-firebase-yoigo", "mm-guuk-firebase-prod"],
+        "missing_projects": [],
+        "value_types": ["STRING"],
+        "declared_value_types": ["STRING"],
+        "inferred_value_types": ["STRING"],
+        "observations": {
+            "mm-firebase-yoigo": {
+                "project_id": "mm-firebase-yoigo",
+                "key": "welcome_text",
+                "declared_type": "STRING",
+                "inferred_types": ["STRING"],
+                "effective_type": "STRING",
+                "decision": "declared",
+                "value_count": 1,
+                "conditional_value_count": 0,
+                "value_sources": ["value"],
+                "unsupported_value_sources": [],
+                "unsupported_value_count": 0,
+                "local_type_conflict": False,
+            },
+            "mm-guuk-firebase-prod": {
+                "project_id": "mm-guuk-firebase-prod",
+                "key": "welcome_text",
+                "declared_type": "STRING",
+                "inferred_types": ["STRING"],
+                "effective_type": "STRING",
+                "decision": "declared",
+                "value_count": 1,
+                "conditional_value_count": 0,
+                "value_sources": ["value"],
+                "unsupported_value_sources": [],
+                "unsupported_value_count": 0,
+                "local_type_conflict": False,
+            },
+        },
+    }
+    assert result.metadata["firebase_remoteconfig_project_key_values"][
+        "mm-firebase-yoigo"
+    ]["feature_enabled"] == {
+        "key": "feature_enabled",
+        "value_type": "BOOLEAN",
+        "type_label": "Bool",
+        "default_value": {
+            "raw_value": "false",
+            "display_value": "false",
+            "value_type": "BOOLEAN",
+            "type_label": "Bool",
+            "use_in_app_default": False,
+            "value_source": "value",
+            "source_label": "Literal",
+            "editable": True,
+        },
+        "conditional_values": {
+            "android_prod": {
+                "raw_value": "true",
+                "display_value": "true",
+                "value_type": "BOOLEAN",
+                "type_label": "Bool",
+                "use_in_app_default": False,
+                "value_source": "value",
+                "source_label": "Literal",
+                "editable": True,
+            }
+        },
+    }
+    assert result.metadata["firebase_remoteconfig_value_types"] == [
+        "BOOLEAN",
+        "JSON",
+        "STRING",
+    ]
+    assert [call.args[0] for call in ctx.firebase.get_remote_config.call_args_list] == [
+        "mm-firebase-yoigo",
+        "mm-guuk-firebase-prod",
+    ]
+    assert ctx.textual.table.call_count == 2
+    assert ctx.textual.table.call_args_list[0].kwargs["headers"] == [
+        "Etiqueta",
+        "Claves",
+        "Condiciones",
+        "Estado",
+    ]
+    assert ctx.textual.table.call_args_list[0].kwargs["rows"][0][0] == "yoigo"
+    assert ctx.textual.table.call_args_list[0].kwargs["rows"][1][0] == "guuk"
+    ctx.textual.expandable_list.assert_called_once()
+    assert ctx.textual.expandable_list.call_args.kwargs["title"] == (
+        "Valores por proyecto"
+    )
+    value_items = ctx.textual.expandable_list.call_args.args[0]
+    assert value_items[0].title == "feature_enabled"
+    assert value_items[0].subtitle == "yoigo · Kill switch"
+    assert value_items[0].badge == "Bool"
+    assert value_items[0].summary == "default, android_prod"
+    assert value_items[0].detail_headers == ["Entorno", "Valor", "Origen", "Editable"]
+    assert value_items[0].detail_flex_column == 1
+    assert value_items[0].detail_rows == [
+        ["default", "false", "Literal", "si"],
+        ["android_prod", "true", "Literal", "si"],
+    ]
+
+
+def test_fanout_list_keys_applies_condition_group_view(ui_template):
+    ctx = _inventory_ctx(ui_template, condition_group="android")
+    ctx.firebase.config = FirebasePluginConfig(
+        condition_groups={
+            "android": {
+                "label": "Android",
+                "condition_contains": ["android"],
+            }
+        }
+    )
+
+    result = execute_firebase_remoteconfig_fanout_list_keys_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_condition_group"] == "android"
+    assert result.metadata["firebase_condition_group_label"] == "Android"
+    value_items = ctx.textual.expandable_list.call_args.args[0]
+    assert value_items[0].title == "feature_enabled"
+    assert value_items[0].summary == "default, android_prod"
+    assert value_items[0].detail_rows == [
+        ["default", "false", "Literal", "si"],
+        ["android_prod", "true", "Literal", "si"],
+    ]
+    ctx.textual.dim_text.assert_any_call("Vista de valores: Android")
+
+
+def test_fanout_list_keys_rejects_unknown_condition_group(ui_template):
+    ctx = _inventory_ctx(ui_template, condition_group="android")
+    ctx.firebase.config = FirebasePluginConfig(
+        condition_groups={
+            "ios": {
+                "label": "iOS",
+                "condition_contains": ["ios"],
+            }
+        }
+    )
+
+    result = execute_firebase_remoteconfig_fanout_list_keys_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "agrupacion de condiciones" in result.message
+
+
+def test_fanout_list_keys_keeps_partial_read_failures(ui_template):
+    ctx = _ctx()
+    ctx.data["firebase_targets"] = [
+        _target("yoigo", "mm-firebase-yoigo"),
+        _target("guuk", "mm-guuk-firebase-prod"),
+    ]
+    ctx.firebase.get_remote_config.side_effect = [
+        ClientError(error_message="403", error_code="PERMISSION_DENIED"),
+        ClientSuccess(data=ui_template),
+    ]
+
+    result = execute_firebase_remoteconfig_fanout_list_keys_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["firebase_remoteconfig_failed_projects"] == {
+        "mm-firebase-yoigo": "403",
+    }
+    assert result.metadata["firebase_remoteconfig_project_key_counts"] == {
+        "mm-guuk-firebase-prod": 3,
+    }
+    ctx.textual.warning_text.assert_called_once()
+
+
+def test_fanout_list_keys_errors_when_every_read_fails():
+    ctx = _ctx()
+    ctx.data["firebase_targets"] = [
+        _target("yoigo", "mm-firebase-yoigo"),
+        _target("guuk", "mm-guuk-firebase-prod"),
+    ]
+    ctx.firebase.get_remote_config.return_value = ClientError(
+        error_message="403",
+        error_code="PERMISSION_DENIED",
+    )
+
+    result = execute_firebase_remoteconfig_fanout_list_keys_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "ningun proyecto" in result.message
+
+
+def test_fanout_list_keys_requires_targets():
+    ctx = _ctx()
+
+    result = execute_firebase_remoteconfig_fanout_list_keys_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "firebase_select_targets" in result.message
 
 
 # --- plan -------------------------------------------------------------------
@@ -274,6 +1224,34 @@ def test_plan_requires_targets():
     assert "firebase_select_targets" in result.message
 
 
+def test_plan_allows_mixed_known_environments_with_project_confirmation():
+    ctx = _plan_ctx()
+    ctx.data["firebase_targets"] = [
+        _target("yoigo-dev", "mm-firebase-yoigo-dev", environment="dev"),
+        _target("yoigo-pro", "mm-firebase-yoigo-pro", environment="pro"),
+    ]
+    ctx.firebase.validate_remote_config_change.side_effect = [
+        ClientSuccess(data=_change()),
+        ClientSuccess(data=_change()),
+    ]
+    ctx.textual.ask_multiselect.return_value = [
+        "mm-firebase-yoigo-dev",
+        "mm-firebase-yoigo-pro",
+    ]
+
+    result = execute_firebase_remoteconfig_fanout_plan_step(ctx)
+
+    assert isinstance(result, Success)
+    assert [
+        call.args[0]
+        for call in ctx.firebase.validate_remote_config_change.call_args_list
+    ] == ["mm-firebase-yoigo-dev", "mm-firebase-yoigo-pro"]
+    assert [
+        entry.target.environment
+        for entry in result.metadata["firebase_fanout_plan"]
+    ] == ["dev", "pro"]
+
+
 def test_plan_ignores_empty_workflow_params_and_asks(ui_template):
     # The workflow declares key/value/condition with empty defaults, so "" has
     # to mean "ask me", not "write an empty string".
@@ -307,6 +1285,77 @@ def test_plan_fails_when_the_reference_template_cannot_be_read():
 
     assert isinstance(result, Error)
     assert "referencia" in result.message
+
+
+def test_plan_rejects_a_key_blocked_by_the_inventory():
+    ctx = _plan_ctx(key="feature_enabled", value="true")
+    ctx.data["firebase_remoteconfig_key_profiles"] = {
+        "feature_enabled": {
+            "bulk_safe": False,
+            "issues": ["type_conflict"],
+            "value_types": ["BOOLEAN", "STRING"],
+            "missing_projects": [],
+        }
+    }
+    ctx.data["firebase_remoteconfig_failed_projects"] = {}
+
+    result = execute_firebase_remoteconfig_fanout_plan_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "no es apta para bulk" in result.message
+    assert "Bool / String" in result.message
+    ctx.firebase.validate_remote_config_change.assert_not_called()
+
+
+def test_plan_rejects_bulk_when_the_inventory_had_read_failures():
+    ctx = _plan_ctx(key="welcome_text", value="hola")
+    ctx.data["firebase_remoteconfig_key_profiles"] = {
+        "welcome_text": {"bulk_safe": True}
+    }
+    ctx.data["firebase_remoteconfig_failed_projects"] = {"mm-guuk-firebase-prod": "403"}
+
+    result = execute_firebase_remoteconfig_fanout_plan_step(ctx)
+
+    assert isinstance(result, Error)
+    assert "no pudo leer todos los proyectos" in result.message
+    ctx.firebase.validate_remote_config_change.assert_not_called()
+
+
+def test_plan_prompts_only_for_bulk_safe_keys_when_inventory_exists(ui_template):
+    ctx = _plan_ctx(key="", value="", condition="")
+    ctx.data["firebase_remoteconfig_key_profiles"] = {
+        "welcome_text": {"bulk_safe": True},
+        "feature_enabled": {
+            "bulk_safe": False,
+            "issues": ["type_conflict"],
+            "value_types": ["BOOLEAN", "STRING"],
+        },
+    }
+    ctx.data["firebase_remoteconfig_bulk_safe_keys"] = ["welcome_text"]
+    ctx.data["firebase_remoteconfig_failed_projects"] = {}
+    ctx.firebase.get_remote_config.return_value = ClientSuccess(data=ui_template)
+    ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
+        data=_change()
+    )
+    ctx.textual.ask_option.side_effect = ["__default__", "welcome_text"]
+    ctx.textual.ask_text.return_value = "hola nueva"
+    ctx.textual.ask_multiselect.return_value = [
+        "mm-firebase-yoigo",
+        "mm-guuk-firebase-prod",
+    ]
+
+    result = execute_firebase_remoteconfig_fanout_plan_step(ctx)
+
+    assert isinstance(result, Success)
+    assert [
+        call.args[:4]
+        for call in ctx.firebase.validate_remote_config_change.call_args_list
+    ] == [
+        ("mm-firebase-yoigo", "welcome_text", "hola nueva", None),
+        ("mm-guuk-firebase-prod", "welcome_text", "hola nueva", None),
+    ]
+    parameter_options = ctx.textual.ask_option.call_args_list[1].args[1]
+    assert [option.value for option in parameter_options] == ["welcome_text"]
 
 
 # --- publish ----------------------------------------------------------------

@@ -11,12 +11,17 @@ from __future__ import annotations
 import re
 import time
 from typing import Any, Optional, Sequence
+from urllib.parse import urlencode
 
 from titan_cli.core.interrupt import run_interruptible
 from titan_cli.core.logging import get_logger
 
 from ...exceptions import FirebaseApiError
-from ...models.network.rest import NetworkRemoteConfigTemplate
+from ...models.network.rest import (
+    NetworkFirebaseProject,
+    NetworkFirebaseProjectsPage,
+    NetworkRemoteConfigTemplate,
+)
 from .adc_auth import AdcSession, create_adc_session
 
 logger = get_logger(__name__)
@@ -24,6 +29,7 @@ logger = get_logger(__name__)
 # Google Cloud project IDs: 6-30 chars, lowercase letters, digits and hyphens,
 # starting with a letter and not ending with one.
 PROJECT_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+FIREBASE_MANAGEMENT_BASE_URL = "https://firebase.googleapis.com/v1beta1"
 
 
 class RemoteConfigNetwork:
@@ -36,9 +42,11 @@ class RemoteConfigNetwork:
         request_timeout: int = 30,
         scopes: Optional[Sequence[str]] = None,
         quota_project_id: Optional[str] = None,
+        management_base_url: str = FIREBASE_MANAGEMENT_BASE_URL,
         adc_session: Optional[AdcSession] = None,
     ) -> None:
         self.api_base_url = api_base_url.rstrip("/")
+        self.management_base_url = management_base_url.rstrip("/")
         self.request_timeout = request_timeout
         self.scopes = tuple(scopes) if scopes else None
         self.quota_project_id = quota_project_id
@@ -70,6 +78,12 @@ class RemoteConfigNetwork:
     def _template_url(self, project_id: str) -> str:
         return f"{self.api_base_url}/projects/{project_id}/remoteConfig"
 
+    def _management_projects_url(self, page_token: Optional[str] = None) -> str:
+        params = {"pageSize": "100"}
+        if page_token:
+            params["pageToken"] = page_token
+        return f"{self.management_base_url}/projects?{urlencode(params)}"
+
     def _headers(self, project_id: str) -> dict[str, str]:
         # Accept-Encoding is not an optimization here: the API docs require it
         # on every request. Authorization is set by AuthorizedSession.
@@ -82,6 +96,13 @@ class RemoteConfigNetwork:
         headers = {"Accept-Encoding": "gzip"}
         if not self._credential_quota_project():
             headers["x-goog-user-project"] = self.quota_project_id or project_id
+        return headers
+
+    def _management_headers(self) -> dict[str, str]:
+        """Headers for Firebase Management calls that have no target project."""
+        headers = {"Accept-Encoding": "gzip"}
+        if self.quota_project_id and not self._credential_quota_project():
+            headers["x-goog-user-project"] = self.quota_project_id
         return headers
 
     def _credential_quota_project(self) -> Optional[str]:
@@ -129,6 +150,47 @@ class RemoteConfigNetwork:
             duration_ms=duration_ms,
         )
         return template, etag
+
+    def list_projects(self) -> list[NetworkFirebaseProject]:
+        """
+        List Firebase projects the active credentials can access.
+
+        The Firebase Management API returns only Firebase projects, unlike
+        Cloud Resource Manager which lists generic Google Cloud projects.
+        """
+        session = self.adc_session.session
+        projects: list[NetworkFirebaseProject] = []
+        page_token: Optional[str] = None
+
+        while True:
+            url = self._management_projects_url(page_token)
+            started = time.monotonic()
+            response = self._request(
+                lambda: session.get(
+                    url,
+                    headers=self._management_headers(),
+                    timeout=self.request_timeout,
+                ),
+                project_id="firebase-projects",
+            )
+            duration_ms = int((time.monotonic() - started) * 1000)
+
+            if response.status_code != 200:
+                raise self._management_api_error(response, operation="listado")
+
+            page = self._parse_projects_page(response)
+            projects.extend(page.results)
+            logger.debug(
+                "firebase_projects_list_page_ok",
+                project_count=len(page.results),
+                has_next_page=bool(page.next_page_token),
+                duration_ms=duration_ms,
+            )
+            if not page.next_page_token:
+                break
+            page_token = page.next_page_token
+
+        return sorted(projects, key=lambda project: project.project_id)
 
     def put_template(
         self,
@@ -231,6 +293,21 @@ class RemoteConfigNetwork:
             )
         return NetworkRemoteConfigTemplate.model_validate(payload)
 
+    @staticmethod
+    def _parse_projects_page(response) -> NetworkFirebaseProjectsPage:
+        """Parse a Firebase Management projects list page."""
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise FirebaseApiError(
+                "La respuesta de Firebase Management no era JSON valido."
+            ) from exc
+        if not isinstance(payload, dict):
+            raise FirebaseApiError(
+                "La respuesta de Firebase Management no era un objeto JSON."
+            )
+        return NetworkFirebaseProjectsPage.model_validate(payload)
+
     def _api_error(
         self,
         response,
@@ -276,6 +353,40 @@ class RemoteConfigNetwork:
         logger.debug(
             "firebase_remoteconfig_api_error",
             project_id=project_id,
+            status_code=status,
+            operation=operation,
+        )
+        return FirebaseApiError(
+            f"{message}. {detail}",
+            status_code=status,
+            detail=detail,
+        )
+
+    def _management_api_error(
+        self,
+        response,
+        *,
+        operation: str,
+    ) -> FirebaseApiError:
+        """Turn a failed Firebase Management response into an actionable error."""
+        detail = self._extract_error_detail(response)
+        status = response.status_code
+
+        if status == 401:
+            message = (
+                "Firebase rechazó las credenciales (ADC). Vuelve a ejecutar: "
+                "gcloud auth application-default login"
+            )
+        elif status == 403:
+            message = (
+                "Permiso denegado en el listado de proyectos Firebase. "
+                "Necesitas acceso para listar Firebase projects con estas ADC"
+            )
+        else:
+            message = f"El {operation} de proyectos Firebase falló con estado {status}"
+
+        logger.debug(
+            "firebase_management_api_error",
             status_code=status,
             operation=operation,
         )

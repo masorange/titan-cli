@@ -1,5 +1,5 @@
-name: "Set Firebase Remote Config Value (multi-project)"
-description: "Apply one Remote Config parameter change across several Firebase projects, confirming project by project"
+name: "Create Firebase Remote Config Key"
+description: "Create one Remote Config key in selected Firebase projects where it is missing"
 params:
   project_ids: ""
   project_set: ""
@@ -8,8 +8,11 @@ params:
   project_filter: ""
   condition_group: ""
   key: ""
-  value: ""
-  condition: ""
+  value_type: ""
+  default_value: ""
+  conditional_values: ""
+  description: ""
+  target_project_ids: ""
   dry_run: false
 steps:
   - id: firebase_auth_check
@@ -23,16 +26,16 @@ steps:
     step: firebase_select_targets
 
   - id: firebase_remoteconfig_fanout_list_keys
-    name: "Analyze key compatibility"
+    name: "Audit existing keys"
     plugin: firebase
     step: firebase_remoteconfig_fanout_list_keys
 
-  - id: firebase_remoteconfig_fanout_plan
-    name: "Validate the change per project"
+  - id: firebase_remoteconfig_create_key_plan
+    name: "Validate new key per project"
     plugin: firebase
-    step: firebase_remoteconfig_fanout_plan
+    step: firebase_remoteconfig_create_key_plan
 
-  - id: firebase_remoteconfig_fanout_publish
+  - id: firebase_remoteconfig_create_key_publish
     name: "Publish per project"
     plugin: firebase
-    step: firebase_remoteconfig_fanout_publish
+    step: firebase_remoteconfig_create_key_publish

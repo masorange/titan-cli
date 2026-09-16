@@ -37,14 +37,9 @@ def blank_to_none(value: Any) -> Optional[str]:
 
 def normalize_value_type(raw: Any) -> RemoteConfigValueType:
     """Normalize a value type coming from workflow data."""
-    if isinstance(raw, RemoteConfigValueType):
-        return raw
-    if isinstance(raw, str):
-        return RemoteConfigValueType.__members__.get(
-            raw.strip().upper(),
-            RemoteConfigValueType.UNKNOWN,
-        )
-    return RemoteConfigValueType.UNKNOWN
+    from ..models.values import normalize_value_type as normalize_model_value_type
+
+    return normalize_model_value_type(raw)
 
 
 def ask_condition(ctx, template) -> tuple[Optional[str], bool]:
@@ -126,7 +121,7 @@ def ask_parameter(ctx, template, condition: Optional[str]):
 
 def describe_parameter(parameter, condition: Optional[str]) -> str:
     """One-line description of a parameter for the chosen target."""
-    parts = [parameter.value_type.value, display_for_target(parameter, condition)]
+    parts = [parameter.type_label, display_for_target(parameter, condition)]
     if parameter.description:
         parts.append(parameter.description)
     return " · ".join(part for part in parts if part)
@@ -164,7 +159,7 @@ def ask_value(
         )
         return str(chosen) if chosen is not None else None
 
-    if value_type == RemoteConfigValueType.JSON:
+    if value_type.supports_multiline_input:
         # JSON values are routinely multi-line; a single-line input would make
         # anything non-trivial uneditable.
         return ctx.textual.ask_multiline(
@@ -172,8 +167,7 @@ def ask_value(
             default=current,
         )
 
-    hint = "número" if value_type == RemoteConfigValueType.NUMBER else "texto"
     return ctx.textual.ask_text(
-        f"{key} [{target}] — nuevo valor ({hint}):",
+        f"{key} [{target}] — nuevo valor ({value_type.prompt_hint}):",
         default=current,
     )
