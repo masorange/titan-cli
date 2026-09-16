@@ -6,9 +6,18 @@ given, the order in which styling is applied to it, and the choice between a
 collapsible row and a plain line.
 """
 
-from textual.containers import Horizontal, Vertical
+import asyncio
 
-from titan_cli.ui.tui.widgets import CollapsibleEntry, build_collapsible_list, escape_markup
+from textual.app import App, ComposeResult
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Static, Tree
+
+from titan_cli.ui.tui.widgets import (
+    CollapsibleEntry,
+    JsonTree,
+    build_collapsible_list,
+    escape_markup,
+)
 from titan_cli.ui.tui.widgets.collapsible_list import (
     CopyButton,
     ListEntry,
@@ -121,3 +130,42 @@ def test_a_child_inherits_its_parents_body_colour():
     child = collapsible._contents_list[1]
 
     assert child._body_colour == "#ff0000"
+
+
+def test_an_entry_body_can_include_widgets_directly():
+    widget = Static("already built")
+    entry = CollapsibleEntry(title="with widget", body=[widget], expanded=True)
+    collapsible = build_collapsible_list([entry])._pending_children[0]
+
+    assert collapsible._contents_list[0] is widget
+
+
+class _JsonTreeApp(App):
+    def compose(self) -> ComposeResult:
+        yield JsonTree(
+            "default",
+            {
+                "recommendedGroupIds": ["G075DGT"],
+                "smartphone": ["P09718P"],
+            },
+            collapsed=False,
+        )
+
+
+def test_json_tree_mounts_structured_values_as_tree_nodes():
+    captured = {}
+
+    async def run():
+        app = _JsonTreeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            trees = list(app.query(Tree))
+            captured["tree_count"] = len(trees)
+            captured["root_children"] = len(trees[0].root.children)
+
+    asyncio.run(run())
+
+    assert captured == {
+        "tree_count": 1,
+        "root_children": 2,
+    }
