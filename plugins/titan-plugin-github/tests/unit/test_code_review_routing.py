@@ -33,10 +33,15 @@ from titan_plugin_github.steps.code_review_steps import (
 
 
 class _FakeAdapter:
-    """Stand-in for a headless adapter — only its identity matters here."""
+    """Stand-in for a headless adapter — its identity, and what it was called with."""
 
     def __init__(self, cli_name="claude"):
         self.cli_name = cli_name
+        self.calls = []
+
+    def execute(self, prompt, **kwargs):
+        self.calls.append({"prompt": prompt, **kwargs})
+        return None
 
 
 def _executor(
@@ -45,6 +50,7 @@ def _executor(
     default_cli="claude",
     installed=("claude", "gemini"),
     default_connection="work-llm",
+    cli_models=None,
 ) -> AIExecutor:
     """
     A real executor (real resolver) with availability pinned.
@@ -62,6 +68,7 @@ def _executor(
         default_cli=default_cli,
         connections={default_connection: connection} if default_connection else {},
         preferences=AIPreferences(tasks=task_preferences or {}),
+        cli_models=cli_models or {},
     )
     executor = AIExecutor(ai_config=config)
     executor.availability._cache["headless"] = [
@@ -215,3 +222,60 @@ def test_steps_declare_cli_only_and_enforce_it(step, task):
     assert step.ai_policy.task == task
     assert step.ai_policy.executes == [AIProviderType.CLI_HEADLESS]
     assert step.ai_enforces is True
+
+
+# --- the pinned model reaches the CLI -------------------------------------
+
+
+def test_the_resolved_cli_runs_with_the_model_the_user_pinned():
+    """
+    These steps call the adapter themselves, so the executor never gets to inject the
+    model. Resolution wraps it instead - otherwise the setting is silently dropped and
+    the CLI answers with whatever its own default is.
+    """
+    executor = _executor(cli_models={"claude": "haiku"})
+
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter.execute("review this", cwd="/repo", timeout=240)
+
+    assert adapter._adapter.calls[0]["model"] == "haiku"
+
+
+def test_a_model_pinned_for_another_cli_is_not_borrowed():
+    executor = _executor(default_cli="gemini", cli_models={"claude": "haiku"})
+
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter.execute("review this")
+
+    assert adapter._adapter.calls[0]["model"] is None
+
+
+def test_a_caller_naming_a_model_still_wins():
+    executor = _executor(cli_models={"claude": "haiku"})
+
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter.execute("review this", model="opus")
+
+    assert adapter._adapter.calls[0]["model"] == "opus"
+
+
+def test_the_wrapper_is_transparent_for_everything_else():
+    """Call sites read cli_name and the supports_* capabilities straight off it."""
+    executor = _executor(cli_models={"claude": "haiku"})
+
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+
+    assert adapter.cli_name == "claude"
+
+
+@pytest.mark.parametrize(
+    "step",
+    [ai_review_plan, ai_review_findings, verify_findings, ai_thread_resolution],
+)
+def test_every_review_step_gets_the_pinned_model(step):
+    executor = _executor(cli_models={"claude": "haiku"})
+
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), step)
+    adapter.execute("prompt")
+
+    assert adapter._adapter.calls[0]["model"] == "haiku"

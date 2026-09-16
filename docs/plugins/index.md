@@ -81,7 +81,40 @@ path = "/absolute/path/to/local/plugin/repo"
 ```
 
 In `dev_local`, Titan loads the plugin directly from the local repository. In `stable`,
-Titan prepares an isolated local runtime for the pinned commit.
+Titan prepares a local runtime for the pinned commit: a checkout plus a virtualenv with
+the plugin's dependencies.
+
+### Declaring dependencies
+
+A plugin runs inside Titan's own interpreter. Its virtualenv supplies libraries Titan
+does not ship; it does not isolate the plugin, and it never overrides what Titan already
+has:
+
+| The library is... | Which version the plugin gets |
+|---|---|
+| Not shipped by Titan (e.g. `PyJWT`) | The plugin's own, from its runtime |
+| Also shipped by Titan (e.g. `requests`) | Titan's, whatever the plugin pinned |
+
+So pin ranges compatible with what Titan ships. A plugin that needs a conflicting major
+version of a shared library cannot be satisfied today.
+
+**`titan-cli` is a special case: it is the host, not a dependency to install.** Titan is
+already running when it loads your plugin. Declare it as optional, so installing the
+plugin never places a second copy of Titan — and of the official plugins that come with
+it — inside the plugin's runtime:
+
+```toml
+[tool.poetry.dependencies]
+titan-cli = {version = ">=0.9.0,<1.0.0", optional = true, python = ">=3.11"}
+
+[tool.poetry.extras]
+# Only for working on the plugin repo itself: `poetry install --extras host`.
+host = ["titan-cli"]
+```
+
+Keep the declaration, though: the version range is the compatibility contract Titan
+reads before loading your plugin (see below). Removing it does not make your plugin more
+compatible — it just turns the check off.
 
 ## Version compatibility
 

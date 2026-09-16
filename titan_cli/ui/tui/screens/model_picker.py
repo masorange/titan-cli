@@ -330,6 +330,24 @@ def open_connection_model_picker(app, config, connection_id: str, on_saved=None)
     )
 
 
+def _saved_notice(config, cli_name: str, model: str) -> str:
+    """What to say after pinning a model, given whether that CLI is the one Titan runs.
+
+    Choosing a model does not switch the default CLI - that is a separate, deliberate
+    act. But the status bar reports the default and its model, so pinning a model on any
+    other CLI looks like nothing happened. The notice has to close that gap itself, by
+    saying both what was saved and why the bar did not move.
+    """
+    ai_config = config.config.ai if config.config else None
+    default_cli = ai_config.default_cli if ai_config else None
+    if default_cli == cli_name:
+        return f"{cli_name} will run {model}."
+    return (
+        f"{cli_name} will run {model} - but Titan still runs "
+        f"{default_cli or 'no CLI'}. Press Enter on {cli_name} to switch to it."
+    )
+
+
 def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
     """Ask which model a CLI should run with, and save the answer.
 
@@ -352,7 +370,7 @@ def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
         except Exception as e:
             app.notify(f"Failed to set the model: {e}", severity="error")
             return
-        app.notify(f"{cli_name} will run {model}.", severity="information")
+        app.notify(_saved_notice(config, cli_name, model), severity="information")
         if on_saved:
             on_saved()
 

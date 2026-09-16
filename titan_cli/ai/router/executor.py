@@ -300,12 +300,16 @@ class AIExecutor:
                     decision=resolution,
                 )
 
-    def _model_for_cli(self, cli: str, model: Optional[str]) -> Optional[str]:
+    def model_for_cli(self, cli: str, model: Optional[str] = None) -> Optional[str]:
         """The model this CLI should run with: the caller's override, else the user's.
 
         A step that asks for a specific model wins - it is asking for something the
         prompt needs. Everything else honors what the user pinned for that CLI in AI
         Configuration, and `None` means the CLI picks for itself, as before.
+
+        Public because a step that drives a CLI adapter itself still has to honor the
+        same setting, and the only alternative is each such step reaching into the
+        config for a key it would have to spell correctly.
         """
         if model is not None:
             return model
@@ -364,7 +368,7 @@ class AIExecutor:
         return AIExecutionSuccess(
             decision=decision,
             data=HeadlessGenerator(
-                adapter, cwd=cwd, timeout=timeout, model=self._model_for_cli(cli, model)
+                adapter, cwd=cwd, timeout=timeout, model=self.model_for_cli(cli, model)
             ),
         )
 
@@ -590,7 +594,7 @@ class AIExecutor:
             )
 
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-        model = self._model_for_cli(cli, model)
+        model = self.model_for_cli(cli, model)
 
         started = time.monotonic()
         try:

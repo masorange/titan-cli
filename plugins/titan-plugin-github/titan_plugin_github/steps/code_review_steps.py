@@ -948,6 +948,32 @@ def _get_review_diff(
             return ctx.github.get_pr_diff(pr_number), True
 
 
+class _PinnedModelCli:
+    """A headless adapter that always runs with the model the user pinned for it.
+
+    These steps drive the adapter directly rather than through `generate_text`, so the
+    model the user chose in AI Configuration would otherwise never reach the CLI - it
+    is injected by the executor, on a path this file does not take. Wrapping the
+    adapter once, where it is resolved, applies the setting to every call, including
+    the ones a future step adds: forgetting `model=` at a call site is no longer
+    possible, because no call site passes it.
+
+    An explicit `model=` from a caller still wins, matching the executor's own rule.
+    """
+
+    def __init__(self, adapter, model: Optional[str]):
+        self._adapter = adapter
+        self._model = model
+
+    def __getattr__(self, name):
+        """Everything else - cli_name, the supports_* capabilities - is the adapter's."""
+        return getattr(self._adapter, name)
+
+    def execute(self, prompt, **kwargs):
+        kwargs.setdefault("model", self._model)
+        return self._adapter.execute(prompt, **kwargs)
+
+
 def _resolve_headless_adapter(cli_preference: str):
     """Return the first available headless adapter, or None."""
     if cli_preference == "auto":
@@ -984,6 +1010,8 @@ def _resolve_review_adapter(
     """
     router = getattr(ctx, "ai_router", None)
     if router is None:
+        # No façade means no configuration to read either, so there is no pinned model
+        # to honor - the bare adapter is the whole of what is known here.
         return _resolve_headless_adapter("auto"), None, False
 
     resolution = router.resolve(policy=step)
@@ -1004,7 +1032,18 @@ def _resolve_review_adapter(
     if adapter is None:
         return None, f"the configured CLI '{resolution.cli}' is not available", False
 
-    return adapter, None, False
+    model = router.model_for_cli(resolution.cli)
+    # Logged at the decision, not at each call: these steps drive the CLI themselves, so
+    # nothing else in the log says which model they ran with - which is precisely what
+    # made an earlier drop of this setting invisible until someone read the CLI's own
+    # database.
+    logger.info(
+        "review_cli_resolved",
+        step=getattr(step, "__name__", None),
+        cli=resolution.cli,
+        model=model,
+    )
+    return _PinnedModelCli(adapter, model), None, False
 
 
 def _announce_review_adapter(ctx: WorkflowContext, adapter: object) -> None:

@@ -272,7 +272,7 @@ The documentation must show:
 #### Modern Plugin Architecture (2026-02)
 
 **📖 [Complete Plugin Architecture Guide](.claude/docs/plugin-architecture.md)**
-**📖 [Community Plugin Installer](.claude/docs/community-plugins.md)** — installing plugins from git repos
+**📖 [Community Plugin Installer](.claude/docs/community-plugins.md)** — installing plugins from git repos, the dependency rules their authors must follow, and why a plugin's runtime never overrides what Titan already imports
 
 Plugins now follow a **5-layer architecture** for clean separation of concerns:
 

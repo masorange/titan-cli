@@ -262,3 +262,26 @@ class TestCliModelLoader:
 
     def test_a_cli_with_no_adapter_offers_nothing_rather_than_failing(self):
         assert cli_model_loader("not-a-cli")() == []
+
+
+class TestSavedNotice:
+    """What the user is told after pinning a model, given which CLI Titan runs."""
+
+    def _notice(self, default_cli, cli_name):
+        from titan_cli.ui.tui.screens.model_picker import _saved_notice
+
+        return _saved_notice(_config(AIConfig(default_cli=default_cli)), cli_name, "haiku")
+
+    def test_pinning_on_the_default_cli_just_confirms_it(self):
+        assert self._notice("claude", "claude") == "claude will run haiku."
+
+    def test_pinning_on_another_cli_says_which_one_titan_still_runs(self):
+        """Otherwise the status bar does not move and the save looks like it failed."""
+        notice = self._notice("opencode", "claude")
+
+        assert "claude will run haiku" in notice
+        assert "still runs opencode" in notice
+        assert "Enter" in notice
+
+    def test_with_no_default_cli_at_all_it_says_so(self):
+        assert "no CLI" in self._notice(None, "claude")
