@@ -7,7 +7,7 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 """
 
 import threading
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Iterable
 from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
@@ -293,6 +293,25 @@ class TextualComponents:
             flex_column=flex_column,
         )
         self.mount(table_widget)
+
+    def expandable_list(
+        self,
+        items: Iterable[Any],
+        title: str = "",
+    ) -> None:
+        """
+        Show a list of collapsible rows with detail tables.
+
+        Args:
+            items: Iterable of ExpandableListItem instances.
+            title: Optional title shown above the list.
+
+        Example:
+            ctx.textual.expandable_list(items, title="Remote Config values")
+        """
+        from titan_cli.ui.tui.widgets import ExpandableList
+
+        self.mount(ExpandableList(items, title=title))
 
     def dim_text(self, text: str) -> None:
         """
