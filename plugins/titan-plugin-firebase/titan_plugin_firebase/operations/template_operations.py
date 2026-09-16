@@ -12,7 +12,7 @@ Pure functions: no context, no UI, no network.
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from ..models.values import (
     RemoteConfigValueError,
@@ -21,7 +21,7 @@ from ..models.values import (
     normalize_value_type,
     serialize_value,
 )
-from ..models.view import UIRemoteConfigChange
+from ..models.view import UIRemoteConfigChange, UIRemoteConfigChangeSet
 
 
 class TemplateEditError(ValueError):
@@ -118,6 +118,64 @@ def build_change(
     )
 
 
+def build_change_set(
+    payload: dict[str, Any],
+    key: str,
+    new_value: str,
+    conditions: Sequence[Optional[str]],
+) -> UIRemoteConfigChangeSet:
+    """
+    Validate one value against several targets of the same parameter.
+
+    `conditions` carries one entry per target, where None means the
+    parameter's default value. Duplicates are dropped and order is kept, so
+    the diff reads in the order the user picked.
+
+    Raises:
+        TemplateEditError: If the parameter or any condition does not exist.
+        RemoteConfigValueError: If the value does not match the parameter type.
+    """
+    targets: list[Optional[str]] = []
+    for condition in conditions or [None]:
+        if condition not in targets:
+            targets.append(condition)
+
+    changes = tuple(
+        build_change(payload, key, new_value, condition) for condition in targets
+    )
+    return UIRemoteConfigChangeSet(
+        key=key,
+        value_type=changes[0].value_type,
+        new_raw_value=changes[0].new_raw_value,
+        changes=changes,
+    )
+
+
+def apply_change_set(
+    payload: dict[str, Any],
+    change_set: UIRemoteConfigChangeSet,
+    *,
+    version_description: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Return a copy of the template with every target of the set replaced.
+
+    All the targets are applied to one payload, so they publish as a single
+    Remote Config version rather than one per target.
+
+    Raises:
+        TemplateEditError: If the parameter or a condition is gone from the
+            payload (a concurrent edit deleted it).
+    """
+    updated = payload
+    for change in change_set.changes:
+        updated = apply_change(updated, change, version_description=None)
+    updated["version"] = {
+        "description": version_description or change_set.describe()
+    }
+    return updated
+
+
 def apply_change(
     payload: dict[str, Any],
     change: UIRemoteConfigChange,
@@ -211,7 +269,9 @@ __all__ = [
     "RemoteConfigValueError",
     "TemplateEditError",
     "apply_change",
+    "apply_change_set",
     "build_change",
+    "build_change_set",
     "condition_names",
     "current_raw_value",
     "effective_value_type_for",

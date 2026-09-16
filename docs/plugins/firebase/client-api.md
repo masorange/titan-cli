@@ -95,7 +95,7 @@ parameter group names, the active version metadata, and the `etag` a publish nee
 
 ## Writing
 
-### `validate_remote_config_change(project_id, key, new_value, condition=None)`
+### `validate_remote_config_change(project_id, key, new_value, conditions=None)`
 
 Check one parameter edit against the live template without publishing anything.
 
@@ -106,7 +106,7 @@ client.validate_remote_config_change(
     "my-firebase-project",
     "feature_enabled",
     "true",
-    "android_prod",
+    [None, "android_prod"],   # the default value and one condition
 )
 ```
 
@@ -116,16 +116,20 @@ client.validate_remote_config_change(
 - `key`: Required parameter key. Must already exist in the template.
 - `new_value`: Required new value, as text. It is validated against the parameter's
   effective type and normalized (booleans to `true`/`false`, JSON compacted).
-- `condition`: Optional condition name to write instead of the default value. It must
-  already exist in the template.
+- `conditions`: Optional list of targets, one entry per value to write, where `None` means
+  the parameter's default value. Every condition named must already exist in the template;
+  one unknown target invalidates the whole set rather than writing the rest.
 
-**Returns:** `ClientResult[UIRemoteConfigChange]` — the value it would replace, the value
-it would store, whether the condition was inheriting the default, and `is_noop`.
+**Returns:** `ClientResult[UIRemoteConfigChangeSet]` — the value it would store plus one
+`UIRemoteConfigChange` per target (each with the value it replaces, whether that condition
+was inheriting the default, and `is_noop`). The set exposes `pending` (the targets that
+would actually change), `is_noop`, `target_labels`, and `describe()`, which is the version
+description Firebase will show.
 
 **Error codes:** `TEMPLATE_EDIT_ERROR` (unknown parameter or condition), `INVALID_VALUE`
 (value does not match the type), plus the read error codes above.
 
-### `publish_remote_config_change(project_id, change, validate_only=False)`
+### `publish_remote_config_change(project_id, change_set, validate_only=False)`
 
 Apply one change to the template and publish it.
 
@@ -142,19 +146,20 @@ client.publish_remote_config_change(
 **Parameters:**
 
 - `project_id`: Required Firebase project ID.
-- `change`: Required `UIRemoteConfigChange`, normally from
+- `change_set`: Required `UIRemoteConfigChangeSet`, normally from
   `validate_remote_config_change`.
 - `validate_only`: Optional. When true, Firebase checks the payload and nothing is
   published.
 
 **Behavior:** reads the template immediately before writing, so the ETag is fresh; sends
 it as `If-Match`; and on a 409 re-reads and reapplies the change once. A second conflict
-is reported rather than retried. The published version carries a description naming the
-key, the target, and the value before and after.
+is reported rather than retried. Every target in the set is applied to the same payload, so
+a set writing four targets publishes **one** version, not four. The published version
+carries a description naming the key, the value, and the targets that changed.
 
 **Returns:** `ClientResult[UIRemoteConfigPublishResult]` — the new `etag`, the version
 Firebase created (number, author email, origin, type), whether a conflict forced a retry,
-and the change that was applied.
+and the change set that was applied.
 
 **Error codes:** `MISSING_ETAG` (the read returned none, so publishing would risk
 overwriting another edit), `TEMPLATE_EDIT_ERROR` (the parameter or condition disappeared

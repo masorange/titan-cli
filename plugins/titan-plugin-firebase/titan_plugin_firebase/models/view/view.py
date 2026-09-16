@@ -129,6 +129,58 @@ class UIRemoteConfigChange:
 
 
 @dataclass(frozen=True)
+class UIRemoteConfigChangeSet:
+    """
+    One value written to one or more targets of the same parameter.
+
+    A publish replaces the whole template, so writing the same value to the
+    default value and to three conditions is one publish and therefore one
+    Remote Config version — not four. That is why the change set, and not the
+    single change, is the unit the write path carries.
+    """
+
+    key: str
+    value_type: RemoteConfigValueType
+    new_raw_value: str
+    changes: tuple[UIRemoteConfigChange, ...] = ()
+
+    @property
+    def pending(self) -> tuple[UIRemoteConfigChange, ...]:
+        """The changes that would actually alter something."""
+        return tuple(change for change in self.changes if not change.is_noop)
+
+    @property
+    def is_noop(self) -> bool:
+        """Whether publishing this set would alter nothing."""
+        return not self.pending
+
+    @property
+    def target_labels(self) -> list[str]:
+        """Targets this set writes, in selection order."""
+        return [change.target_label for change in self.changes]
+
+    def describe(self, *, max_targets: int = 4) -> str:
+        """
+        One-line summary, published as the Remote Config version description.
+
+        It appears in the version history next to the author, so it names the
+        key, the value, and which targets got it.
+        """
+        pending = self.pending
+        labels = [change.target_label for change in pending]
+        if len(labels) > max_targets:
+            shown = ", ".join(labels[:max_targets])
+            targets = f"{shown} y {len(labels) - max_targets} más"
+        else:
+            targets = ", ".join(labels)
+
+        value = " ".join(self.new_raw_value.split())
+        if len(value) > 80:
+            value = f"{value[:79]}…"
+        return f"Titan: {self.key} = {value} [{targets}]"
+
+
+@dataclass(frozen=True)
 class UIRemoteConfigVersion:
     """Version metadata of a published template."""
 
@@ -153,7 +205,7 @@ class UIRemoteConfigPublishResult:
     validated_only: bool
     etag: Optional[str]
     version: Optional["UIRemoteConfigVersion"]
-    change: Optional[UIRemoteConfigChange] = None
+    change_set: Optional["UIRemoteConfigChangeSet"] = None
     retried_after_conflict: bool = False
 
     @property
@@ -167,7 +219,7 @@ class UIFanoutEntry:
     """One project's share of a multi-project change, before anything is published."""
 
     target: FirebaseProjectTarget
-    change: Optional[UIRemoteConfigChange] = None
+    change_set: Optional["UIRemoteConfigChangeSet"] = None
     error: Optional[str] = None
 
     @property
@@ -175,7 +227,7 @@ class UIFanoutEntry:
         """ready, noop, or error."""
         if self.error is not None:
             return "error"
-        if self.change is None or self.change.is_noop:
+        if self.change_set is None or self.change_set.is_noop:
             return "noop"
         return "ready"
 
@@ -189,12 +241,13 @@ class UIFanoutEntry:
         """One-line explanation for the plan table."""
         if self.error is not None:
             return self.error
-        if self.change is None:
+        if self.change_set is None:
             return "sin cambio"
-        if self.change.is_noop:
-            return f"ya vale {self.change.new_raw_value}"
-        old = self.change.old_raw_value
-        return f"{old if old is not None else '(sin valor)'} -> {self.change.new_raw_value}"
+        if self.change_set.is_noop:
+            return f"ya vale {self.change_set.new_raw_value}"
+        pending = self.change_set.pending
+        targets = ", ".join(change.target_label for change in pending)
+        return f"{len(pending)} destino(s): {targets}"
 
 
 @dataclass(frozen=True)

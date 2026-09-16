@@ -90,12 +90,9 @@ def test_workflows_directory_ships_the_read_and_write_workflows():
     }
 
 
-def test_config_schema_leads_with_the_project_fields():
+def test_config_schema_only_advertises_the_default_project():
     schema = FirebasePlugin().get_config_schema()
-    assert list(schema["properties"])[:2] == [
-        "default_project",
-        "quota_project_id",
-    ]
+    assert list(schema["properties"]) == ["default_project"]
 
 
 def test_config_schema_declares_no_credential_field():

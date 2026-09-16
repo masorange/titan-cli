@@ -104,22 +104,22 @@
       "group": "Reading Remote Config",
       "module": "titan_plugin_firebase.steps.conditions_step",
       "function": "execute_firebase_remoteconfig_conditions_step",
-      "summary": "Show the template's conditions and choose which value a write targets.",
+      "summary": "Choose the targets a write will touch: the default value, conditions, or both.",
       "docstring_sections": {
         "Requires": [
           "    ctx.firebase: An initialized FirebaseClient."
         ],
         "Inputs (from ctx.data)": [
           "    firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get.",
-          "    condition (str, optional): Preselected condition name, or \"default\"."
+          "    condition (str, optional): Preselected target, or several separated by commas."
         ],
         "Outputs (saved to ctx.data)": [
-          "    firebase_condition (Optional[str]): Condition name, None for the default.",
-          "    firebase_condition_label (str): User-facing label for the target."
+          "    firebase_conditions (list): One entry per target; None means the default value.",
+          "    firebase_conditions_label (str): User-facing description of the targets."
         ],
         "Returns": [
-          "    Success: If a target is chosen (or only the default exists).",
-          "    Error: If the template is missing or the user cancels."
+          "    Success: If at least one target is chosen.",
+          "    Error: If the template is missing, a named condition does not exist, or the user cancels."
         ]
       },
       "used_by_workflows": [
@@ -138,7 +138,7 @@
           "    ctx.firebase: An initialized FirebaseClient."
         ],
         "Inputs (from ctx.data)": [
-          "    firebase_change (UIRemoteConfigChange): From firebase_remoteconfig_set_value.",
+          "    firebase_change_set (UIRemoteConfigChangeSet): From firebase_remoteconfig_set_value.",
           "    firebase_project_id (str): Target project.",
           "    firebase_target_label (Optional[str]): Display label for the project."
         ],
@@ -169,7 +169,7 @@
           "    firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.",
           "    key (str): Parameter to change.",
           "    value (str): New value.",
-          "    condition (str, optional): Condition to write instead of the default."
+          "    condition (str, optional): Targets to write, comma-separated; empty means the default value."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_fanout_plan (list[UIFanoutEntry]): Entries chosen to publish.",
@@ -255,7 +255,7 @@
         ],
         "Inputs (from ctx.data)": [
           "    firebase_project_id (str): Target project.",
-          "    firebase_change (UIRemoteConfigChange): The change to publish.",
+          "    firebase_change_set (UIRemoteConfigChangeSet): The change to publish.",
           "    firebase_change_confirmed (bool): Set by `firebase_remoteconfig_diff`.",
           "    dry_run (bool, optional): Validate only, publish nothing."
         ],
@@ -285,13 +285,13 @@
         ],
         "Inputs (from ctx.data)": [
           "    firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get.",
-          "    firebase_condition (Optional[str]): Write target, from firebase_remoteconfig_conditions.",
+          "    firebase_conditions (list, optional): Targets, from firebase_remoteconfig_conditions.",
           "    key (str, optional): Preselected parameter key."
         ],
         "Outputs (saved to ctx.data)": [
           "    firebase_key (str): Selected parameter key.",
           "    firebase_value_type (str): Effective value type of the parameter.",
-          "    firebase_current_value (Optional[str]): Raw current value, None if unset."
+          "    firebase_current_value (Optional[str]): Current value of the first target, None if unset."
         ],
         "Returns": [
           "    Success: If a parameter is selected.",
@@ -316,13 +316,13 @@
         "Inputs (from ctx.data)": [
           "    firebase_project_id (str): Target project.",
           "    firebase_key (str): Parameter to change.",
-          "    firebase_condition (Optional[str]): Condition to write, None for the default.",
+          "    firebase_conditions (list, optional): Targets, from firebase_remoteconfig_conditions.",
           "    firebase_value_type (Optional[str]): Type reported by the read.",
           "    firebase_current_value (Optional[str]): Current raw value.",
           "    value (str, optional): New value, for non-interactive runs."
         ],
         "Outputs (saved to ctx.data)": [
-          "    firebase_change (UIRemoteConfigChange): The validated change.",
+          "    firebase_change_set (UIRemoteConfigChangeSet): The validated change, per target.",
           "    firebase_new_value (str): Exact string that will be stored."
         ],
         "Returns": [

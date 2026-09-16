@@ -13,7 +13,7 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
-        firebase_change (UIRemoteConfigChange): From firebase_remoteconfig_set_value.
+        firebase_change_set (UIRemoteConfigChangeSet): From firebase_remoteconfig_set_value.
         firebase_project_id (str): Target project.
         firebase_target_label (Optional[str]): Display label for the project.
 
@@ -28,8 +28,8 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
     if ctx.textual:
         ctx.textual.begin_step("Revisar el cambio")
 
-    change = ctx.get("firebase_change")
-    if change is None:
+    change_set = ctx.get("firebase_change_set")
+    if change_set is None:
         message = (
             "No hay ningún cambio pendiente. Ejecuta "
             "firebase_remoteconfig_set_value antes de este paso."
@@ -43,28 +43,41 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
     target_label = ctx.get("firebase_target_label") or project_id
 
     if ctx.textual:
+        ctx.textual.text(
+            f"{change_set.key} ({change_set.value_type.value}) = "
+            f"{change_set.new_raw_value} en {target_label}"
+        )
         ctx.textual.table(
-            headers=["Campo", "Valor"],
+            headers=["Destino", "Antes", "Después"],
             rows=[
-                ["Proyecto", str(project_id)],
-                ["Destino", str(target_label)],
-                ["Parámetro", change.key],
-                ["Valor de", change.target_label],
-                ["Tipo", change.value_type.value],
-                ["Antes", change.old_raw_value or "(sin valor)"],
-                ["Después", change.new_raw_value],
+                [
+                    change.target_label,
+                    change.old_raw_value
+                    if change.old_raw_value is not None
+                    else "(sin valor)",
+                    change.new_raw_value if not change.is_noop else "= sin cambio",
+                ]
+                for change in change_set.changes
             ],
             title="Cambio pendiente",
-            flex_column=1,
+            flex_column=2,
         )
-        if change.inherited_from_default:
+        inherited = [
+            change.target_label
+            for change in change_set.pending
+            if change.inherited_from_default
+        ]
+        if inherited:
             ctx.textual.dim_text(
-                "La condición heredaba el valor por defecto; a partir de "
-                "ahora tendrá uno propio."
+                "Estas condiciones heredaban el valor por defecto y a partir "
+                f"de ahora tendrán uno propio: {', '.join(inherited)}"
             )
 
-    if change.is_noop:
-        message = f"{change.key} ya vale {change.new_raw_value}: nada que publicar"
+    if change_set.is_noop:
+        message = (
+            f"{change_set.key} ya vale {change_set.new_raw_value} en todos los "
+            "destinos: nada que publicar"
+        )
         if ctx.textual:
             ctx.textual.warning_text(message)
             ctx.textual.end_step("skipped")
@@ -72,7 +85,8 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
 
     if ctx.textual:
         confirmed = ctx.textual.ask_confirm(
-            f"¿Publicar este cambio en {target_label}?",
+            f"¿Publicar en {len(change_set.pending)} destino(s) de "
+            f"{target_label}?",
             default=False,
         )
         if not confirmed:
@@ -83,6 +97,6 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
         ctx.textual.end_step("success")
 
     return Success(
-        f"Cambio confirmado para {change.key}",
+        f"Cambio confirmado para {change_set.key}",
         metadata={"firebase_change_confirmed": True},
     )

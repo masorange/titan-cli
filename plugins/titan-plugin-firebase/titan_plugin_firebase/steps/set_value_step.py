@@ -26,13 +26,13 @@ def execute_firebase_remoteconfig_set_value_step(
     Inputs (from ctx.data):
         firebase_project_id (str): Target project.
         firebase_key (str): Parameter to change.
-        firebase_condition (Optional[str]): Condition to write, None for the default.
+        firebase_conditions (list, optional): Targets, from firebase_remoteconfig_conditions.
         firebase_value_type (Optional[str]): Type reported by the read.
         firebase_current_value (Optional[str]): Current raw value.
         value (str, optional): New value, for non-interactive runs.
 
     Outputs (saved to ctx.data):
-        firebase_change (UIRemoteConfigChange): The validated change.
+        firebase_change_set (UIRemoteConfigChangeSet): The validated change, per target.
         firebase_new_value (str): Exact string that will be stored.
 
     Returns:
@@ -54,7 +54,10 @@ def execute_firebase_remoteconfig_set_value_step(
             "firebase_remoteconfig_select_key antes de este paso.",
         )
 
-    condition = ctx.get("firebase_condition")
+    targets = ctx.get("firebase_conditions")
+    if not isinstance(targets, (list, tuple)) or not targets:
+        targets = [None]
+    targets = list(targets)
     value_type = normalize_value_type(ctx.get("firebase_value_type"))
     current_value = ctx.get("firebase_current_value")
 
@@ -62,7 +65,13 @@ def execute_firebase_remoteconfig_set_value_step(
     if new_value is None:
         if not ctx.textual:
             return _fail(ctx, "Se necesita la TUI para introducir un valor")
-        new_value = ask_value(ctx, str(key), value_type, current_value, condition)
+        new_value = ask_value(
+            ctx,
+            str(key),
+            value_type,
+            current_value,
+            _targets_label(targets),
+        )
         if new_value is None:
             return _fail(ctx, "No se introdujo ningún valor")
 
@@ -76,32 +85,46 @@ def execute_firebase_remoteconfig_set_value_step(
             str(project_id),
             str(key),
             str(new_value),
-            condition,
+            targets,
         )
 
     match result:
-        case ClientSuccess(data=change):
+        case ClientSuccess(data=change_set):
             if ctx.textual:
                 ctx.textual.text(
-                    f"{change.key} [{change.target_label}] → "
-                    f"{change.new_raw_value}"
+                    f"{change_set.key} = {change_set.new_raw_value} en "
+                    f"{len(change_set.changes)} destino(s)"
                 )
-                if change.creates_conditional_value:
+                created = [
+                    change.target_label
+                    for change in change_set.changes
+                    if change.creates_conditional_value
+                ]
+                if created:
                     ctx.textual.dim_text(
-                        "La condición no tenía valor propio: se creará uno."
+                        "Estas condiciones no tenían valor propio y se creará "
+                        f"uno: {', '.join(created)}"
                     )
                 ctx.textual.end_step("success")
             return Success(
-                f"Valor validado para {change.key}",
+                f"Valor validado para {change_set.key}",
                 metadata={
-                    "firebase_change": change,
-                    "firebase_new_value": change.new_raw_value,
+                    "firebase_change_set": change_set,
+                    "firebase_new_value": change_set.new_raw_value,
                 },
             )
         case ClientError(error_message=error_message):
             return _fail(ctx, error_message)
 
     return _fail(ctx, "Respuesta inesperada al validar el valor")
+
+
+def _targets_label(targets: list) -> str:
+    """Short description of the targets, for the input prompt."""
+    labels = [target or "valor por defecto" for target in targets]
+    if len(labels) <= 2:
+        return ", ".join(labels)
+    return f"{labels[0]} y {len(labels) - 1} destinos más"
 
 
 def _fail(ctx: WorkflowContext, message: str) -> WorkflowResult:

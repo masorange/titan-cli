@@ -11,6 +11,7 @@ from titan_plugin_firebase.config import FirebasePluginConfig
 from titan_plugin_firebase.models.values import RemoteConfigValueType as T
 from titan_plugin_firebase.models.view import (
     UIRemoteConfigChange,
+    UIRemoteConfigChangeSet,
     UIRemoteConfigPublishResult,
     UIRemoteConfigVersion,
 )
@@ -47,6 +48,18 @@ def _change(**overrides) -> UIRemoteConfigChange:
     return UIRemoteConfigChange(**fields)
 
 
+def _change_set(*changes, **overrides) -> UIRemoteConfigChangeSet:
+    changes = changes or (_change(),)
+    fields = {
+        "key": changes[0].key,
+        "value_type": changes[0].value_type,
+        "new_raw_value": changes[0].new_raw_value,
+        "changes": tuple(changes),
+    }
+    fields.update(overrides)
+    return UIRemoteConfigChangeSet(**fields)
+
+
 def _publish_result(**overrides) -> UIRemoteConfigPublishResult:
     fields = {
         "project_id": "mm-firebase-yoigo",
@@ -60,7 +73,7 @@ def _publish_result(**overrides) -> UIRemoteConfigPublishResult:
             update_type="INCREMENTAL_UPDATE",
             description="Titan: feature_enabled [valor por defecto] false -> true",
         ),
-        "change": _change(),
+        "change_set": _change_set(),
         "retried_after_conflict": False,
     }
     fields.update(overrides)
@@ -81,13 +94,16 @@ def test_set_value_asks_with_buttons_for_a_boolean():
     )
     ctx.textual.ask_choice.return_value = "true"
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
-        data=_change()
+        data=_change_set()
     )
 
     result = execute_firebase_remoteconfig_set_value_step(ctx)
 
     assert isinstance(result, Success)
     assert result.metadata["firebase_new_value"] == "true"
+    assert result.metadata["firebase_change_set"].target_labels == [
+        "valor por defecto"
+    ]
     ctx.textual.ask_choice.assert_called_once()
     ctx.textual.ask_text.assert_not_called()
 
@@ -103,7 +119,9 @@ def test_set_value_uses_a_multiline_prompt_for_json():
     )
     ctx.textual.ask_multiline.return_value = '{"a": 2}'
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
-        data=_change(key="config_blob", value_type=T.JSON, new_raw_value='{"a":2}')
+        data=_change_set(
+            _change(key="config_blob", value_type=T.JSON, new_raw_value='{"a":2}')
+        )
     )
 
     result = execute_firebase_remoteconfig_set_value_step(ctx)
@@ -119,7 +137,7 @@ def test_set_value_accepts_a_preset_value_without_prompting():
         {"firebase_key": "feature_enabled", "firebase_value_type": "BOOLEAN", "value": "true"}
     )
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
-        data=_change()
+        data=_change_set()
     )
 
     result = execute_firebase_remoteconfig_set_value_step(ctx)
@@ -128,24 +146,26 @@ def test_set_value_accepts_a_preset_value_without_prompting():
     ctx.textual.ask_choice.assert_not_called()
 
 
-def test_set_value_passes_the_condition_through():
+def test_set_value_passes_the_targets_through():
     ctx = _ctx()
     ctx.data.update(
         {
             "firebase_key": "welcome_text",
             "firebase_value_type": "STRING",
-            "firebase_condition": "android_prod",
+            "firebase_conditions": ["android_prod"],
             "value": "adiós",
         }
     )
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
-        data=_change(
-            key="welcome_text",
-            condition="android_prod",
-            value_type=T.STRING,
-            old_raw_value=None,
-            new_raw_value="adiós",
-            inherited_from_default=True,
+        data=_change_set(
+            _change(
+                key="welcome_text",
+                condition="android_prod",
+                value_type=T.STRING,
+                old_raw_value=None,
+                new_raw_value="adiós",
+                inherited_from_default=True,
+            )
         )
     )
 
@@ -153,7 +173,7 @@ def test_set_value_passes_the_condition_through():
 
     assert isinstance(result, Success)
     ctx.firebase.validate_remote_config_change.assert_called_once_with(
-        "mm-firebase-yoigo", "welcome_text", "adiós", "android_prod"
+        "mm-firebase-yoigo", "welcome_text", "adiós", ["android_prod"]
     )
 
 
@@ -188,7 +208,7 @@ def test_set_value_requires_a_key():
 
 def test_diff_requires_confirmation_before_publishing():
     ctx = _ctx()
-    ctx.data["firebase_change"] = _change()
+    ctx.data["firebase_change_set"] = _change_set()
     ctx.textual.ask_confirm.return_value = True
 
     result = execute_firebase_remoteconfig_diff_step(ctx)
@@ -201,7 +221,7 @@ def test_diff_requires_confirmation_before_publishing():
 
 def test_diff_exits_when_the_user_declines():
     ctx = _ctx()
-    ctx.data["firebase_change"] = _change()
+    ctx.data["firebase_change_set"] = _change_set()
     ctx.textual.ask_confirm.return_value = False
 
     result = execute_firebase_remoteconfig_diff_step(ctx)
@@ -211,7 +231,9 @@ def test_diff_exits_when_the_user_declines():
 
 def test_diff_exits_on_a_noop_without_asking():
     ctx = _ctx()
-    ctx.data["firebase_change"] = _change(old_raw_value="true", new_raw_value="true")
+    ctx.data["firebase_change_set"] = _change_set(
+        _change(old_raw_value="true", new_raw_value="true")
+    )
 
     result = execute_firebase_remoteconfig_diff_step(ctx)
 
@@ -233,7 +255,7 @@ def test_diff_without_a_change_is_an_error():
 def test_publish_validates_before_publishing():
     ctx = _ctx()
     ctx.data.update(
-        {"firebase_change": _change(), "firebase_change_confirmed": True}
+        {"firebase_change_set": _change_set(), "firebase_change_confirmed": True}
     )
     ctx.firebase.publish_remote_config_change.side_effect = [
         ClientSuccess(data=_publish_result(validated_only=True)),
@@ -255,7 +277,7 @@ def test_publish_validates_before_publishing():
 def test_publish_stops_when_validation_fails():
     ctx = _ctx()
     ctx.data.update(
-        {"firebase_change": _change(), "firebase_change_confirmed": True}
+        {"firebase_change_set": _change_set(), "firebase_change_confirmed": True}
     )
     ctx.firebase.publish_remote_config_change.return_value = ClientError(
         error_message="Param count too large",
@@ -272,7 +294,7 @@ def test_publish_stops_when_validation_fails():
 
 def test_publish_refuses_an_unconfirmed_change():
     ctx = _ctx()
-    ctx.data["firebase_change"] = _change()
+    ctx.data["firebase_change_set"] = _change_set()
 
     result = execute_firebase_remoteconfig_publish_step(ctx)
 
@@ -283,7 +305,7 @@ def test_publish_refuses_an_unconfirmed_change():
 
 def test_dry_run_validates_without_confirmation_and_publishes_nothing():
     ctx = _ctx()
-    ctx.data.update({"firebase_change": _change(), "dry_run": True})
+    ctx.data.update({"firebase_change_set": _change_set(), "dry_run": True})
     ctx.firebase.publish_remote_config_change.return_value = ClientSuccess(
         data=_publish_result(validated_only=True, version=None)
     )
@@ -302,7 +324,7 @@ def test_dry_run_validates_without_confirmation_and_publishes_nothing():
 def test_publish_surfaces_a_conflict_retry():
     ctx = _ctx()
     ctx.data.update(
-        {"firebase_change": _change(), "firebase_change_confirmed": True}
+        {"firebase_change_set": _change_set(), "firebase_change_confirmed": True}
     )
     ctx.firebase.publish_remote_config_change.side_effect = [
         ClientSuccess(data=_publish_result(validated_only=True)),
@@ -321,7 +343,7 @@ def test_publish_surfaces_a_conflict_retry():
 def test_publish_reports_an_api_failure():
     ctx = _ctx()
     ctx.data.update(
-        {"firebase_change": _change(), "firebase_change_confirmed": True}
+        {"firebase_change_set": _change_set(), "firebase_change_confirmed": True}
     )
     ctx.firebase.publish_remote_config_change.side_effect = [
         ClientSuccess(data=_publish_result(validated_only=True)),

@@ -16,14 +16,16 @@ def execute_firebase_remoteconfig_publish_step(
 
     The template is read again inside the client immediately before the write,
     so the ETag is fresh even if the user spent time reviewing the diff, and a
-    concurrent publish is retried once instead of overwritten.
+    concurrent publish is retried once instead of overwritten. Every target of
+    the change lands in the same publish, so it is one Remote Config version
+    regardless of how many targets there are.
 
     Requires:
         ctx.firebase: An initialized FirebaseClient.
 
     Inputs (from ctx.data):
         firebase_project_id (str): Target project.
-        firebase_change (UIRemoteConfigChange): The change to publish.
+        firebase_change_set (UIRemoteConfigChangeSet): The change to publish.
         firebase_change_confirmed (bool): Set by `firebase_remoteconfig_diff`.
         dry_run (bool, optional): Validate only, publish nothing.
 
@@ -42,9 +44,9 @@ def execute_firebase_remoteconfig_publish_step(
     if not ctx.firebase:
         return _fail(ctx, "El plugin de Firebase no está disponible")
 
-    change = ctx.get("firebase_change")
+    change_set = ctx.get("firebase_change_set")
     project_id = ctx.get("firebase_project_id") or ctx.get("project_id")
-    if change is None or not project_id:
+    if change_set is None or not project_id:
         return _fail(
             ctx,
             "Falta el cambio o el proyecto. Ejecuta "
@@ -66,7 +68,7 @@ def execute_firebase_remoteconfig_publish_step(
         "Validando la plantilla con Firebase...",
         lambda: ctx.firebase.publish_remote_config_change(
             str(project_id),
-            change,
+            change_set,
             validate_only=True,
         ),
     )
@@ -95,7 +97,7 @@ def execute_firebase_remoteconfig_publish_step(
         f"Publicando en {project_id}...",
         lambda: ctx.firebase.publish_remote_config_change(
             str(project_id),
-            change,
+            change_set,
             validate_only=False,
         ),
     )

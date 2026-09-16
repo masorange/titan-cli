@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Exit, Success, WorkflowContext, WorkflowResult
@@ -17,8 +16,8 @@ from ..operations.fanout_operations import (
     select_entries,
 )
 from .prompts import (
-    ask_condition,
     ask_parameter,
+    ask_targets,
     ask_value,
     blank_to_none,
     display_for_target,
@@ -43,7 +42,7 @@ def execute_firebase_remoteconfig_fanout_plan_step(
         firebase_targets (list[FirebaseProjectTarget]): From firebase_select_targets.
         key (str): Parameter to change.
         value (str): New value.
-        condition (str, optional): Condition to write instead of the default.
+        condition (str, optional): Targets to write, comma-separated; empty means the default value.
 
     Outputs (saved to ctx.data):
         firebase_fanout_plan (list[UIFanoutEntry]): Entries chosen to publish.
@@ -60,8 +59,8 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     if not ctx.firebase:
         return _fail(ctx, "El plugin de Firebase no está disponible")
 
-    targets = ctx.get("firebase_targets")
-    if not targets:
+    project_targets = ctx.get("firebase_targets")
+    if not project_targets:
         return _fail(
             ctx,
             "Faltan los proyectos. Ejecuta firebase_select_targets antes de "
@@ -72,19 +71,19 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     value = blank_to_none(ctx.get("value")) or blank_to_none(
         ctx.get("firebase_new_value")
     )
-    condition = blank_to_none(ctx.get("condition")) or blank_to_none(
-        ctx.get("firebase_condition")
-    )
+    targets = _targets(ctx)
 
     if key is None or value is None:
         # The parameters, their types and the conditions live in the projects,
         # so the first target's template is what the prompts are built from.
         # Every other project is validated against it afterwards.
-        asked = _ask_change(ctx, targets[0], key, condition)
+        asked = _ask_change(ctx, project_targets[0], key, targets)
         if isinstance(asked, str):
             return _fail(ctx, asked)
-        key, value, condition = asked
-    entries = _validate_everywhere(ctx, targets, str(key), str(value), condition)
+        key, value, targets = asked
+    entries = _validate_everywhere(
+        ctx, project_targets, str(key), str(value), targets
+    )
 
     if ctx.textual:
         ctx.textual.table(
@@ -128,11 +127,27 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     )
 
 
-def _ask_change(ctx, reference_target, key, condition):
-    """
-    Ask for the parameter, the target value and the new value interactively.
+def _targets(ctx) -> list:
+    """Write targets from workflow data; None means the default value."""
+    from .prompts import normalize_target
 
-    Returns the (key, value, condition) tuple, or an error message.
+    raw = ctx.get("firebase_conditions") or ctx.get("condition")
+    if isinstance(raw, (list, tuple)) and raw:
+        return [normalize_target(item) for item in raw]
+    if isinstance(raw, str) and raw.strip():
+        return [
+            normalize_target(part)
+            for part in raw.split(",")
+            if part.strip()
+        ]
+    return []
+
+
+def _ask_change(ctx, reference_target, key, targets):
+    """
+    Ask for the parameter, the write targets and the new value interactively.
+
+    Returns the (key, value, targets) tuple, or an error message.
     """
     if not ctx.textual:
         return "Faltan key o value. Pásalos como parámetros del workflow."
@@ -151,13 +166,15 @@ def _ask_change(ctx, reference_target, key, condition):
             )
 
     template = result.data
-    if condition is None:
-        condition, answered = ask_condition(ctx, template)
-        if not answered:
+    if not targets:
+        targets = ask_targets(ctx, template)
+        if not targets:
             return "No se seleccionó ningún destino"
 
     parameter = (
-        template.parameter(key) if key else ask_parameter(ctx, template, condition)
+        template.parameter(key)
+        if key
+        else ask_parameter(ctx, template, targets[0])
     )
     if parameter is None:
         return (
@@ -166,34 +183,34 @@ def _ask_change(ctx, reference_target, key, condition):
             else "No se seleccionó ningún parámetro"
         )
 
-    current = parameter.value_for(condition)
+    current = parameter.value_for(targets[0])
     ctx.textual.dim_text(
         f"En {reference_target.reference()}: "
-        f"{display_for_target(parameter, condition)}"
+        f"{display_for_target(parameter, targets[0])}"
     )
     value = ask_value(
         ctx,
         parameter.key,
         parameter.value_type,
         current.raw_value if current else None,
-        condition,
+        ", ".join(target or "valor por defecto" for target in targets),
     )
     if value is None:
         return "No se introdujo ningún valor"
 
-    return parameter.key, value, condition
+    return parameter.key, value, targets
 
 
 def _validate_everywhere(
     ctx: WorkflowContext,
-    targets,
+    project_targets,
     key: str,
     value: str,
-    condition: Optional[object],
+    targets: list,
 ) -> list[UIFanoutEntry]:
-    """Validate the change against each target, one project at a time."""
+    """Validate the change against each project, one at a time."""
     entries: list[UIFanoutEntry] = []
-    for target in targets:
+    for target in project_targets:
         loading = (
             ctx.textual.loading(f"Validando en {target.project_id}...")
             if ctx.textual
@@ -204,12 +221,14 @@ def _validate_everywhere(
                 target.project_id,
                 key,
                 value,
-                str(condition) if condition else None,
+                targets or [None],
             )
 
         match result:
-            case ClientSuccess(data=change):
-                entries.append(UIFanoutEntry(target=target, change=change))
+            case ClientSuccess(data=change_set):
+                entries.append(
+                    UIFanoutEntry(target=target, change_set=change_set)
+                )
             case ClientError(error_message=error_message):
                 entries.append(
                     UIFanoutEntry(target=target, error=error_message)

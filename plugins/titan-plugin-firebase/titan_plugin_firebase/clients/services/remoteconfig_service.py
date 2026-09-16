@@ -22,15 +22,15 @@ from ...exceptions import (
 from ...models.mappers import map_template, map_version
 from ...models.view import (
     UIAdcIdentity,
-    UIRemoteConfigChange,
+    UIRemoteConfigChangeSet,
     UIRemoteConfigPublishResult,
     UIRemoteConfigTemplate,
 )
 from ...operations.template_operations import (
     TemplateEditError,
-    apply_change,
-    build_change,
-)  # build_change is the pure operation; the service method below is validate_change
+    apply_change_set,
+    build_change_set,
+)
 from ...models.values import RemoteConfigValueError
 from ..network.adc_auth import ADC_LOGIN_HINT, service_account_env_var_set
 from ..network.remoteconfig_network import RemoteConfigNetwork
@@ -122,15 +122,15 @@ class RemoteConfigService:
         return service_account_env_var_set()
 
     @log_client_operation("firebase_publish_remote_config")
-    def publish_change(
+    def publish_change_set(
         self,
         project_id,
-        change,
+        change_set,
         *,
         validate_only: bool = False,
     ) -> ClientResult[UIRemoteConfigPublishResult]:
         """
-        Apply one parameter change and publish (or validate) the template.
+        Apply a change set and publish (or validate) the template.
 
         The read happens here, immediately before the write, so the ETag is as
         fresh as it can be. A conflict means someone published between the two
@@ -139,13 +139,17 @@ class RemoteConfigService:
         described declaratively (key, target, value) rather than as a
         pre-rendered payload.
 
-        `change` and its value are positional on purpose: the logging decorator
-        records keyword arguments, and a parameter value can carry
+        Every target in the set lands in the same publish, so writing one value
+        to the default and to three conditions produces one Remote Config
+        version, not four.
+
+        `change_set` and its value are positional on purpose: the logging
+        decorator records keyword arguments, and a parameter value can carry
         business-sensitive content.
         """
-        attempt = self._attempt_publish(project_id, change, validate_only)
+        attempt = self._attempt_publish(project_id, change_set, validate_only)
         if isinstance(attempt, ClientError) and attempt.error_code == "ETAG_CONFLICT":
-            retry = self._attempt_publish(project_id, change, validate_only)
+            retry = self._attempt_publish(project_id, change_set, validate_only)
             if isinstance(retry, ClientSuccess):
                 return ClientSuccess(
                     data=UIRemoteConfigPublishResult(
@@ -153,7 +157,7 @@ class RemoteConfigService:
                         validated_only=retry.data.validated_only,
                         etag=retry.data.etag,
                         version=retry.data.version,
-                        change=retry.data.change,
+                        change_set=retry.data.change_set,
                         retried_after_conflict=True,
                     ),
                     message=f"{retry.message} (tras reintentar por ETag)",
@@ -164,7 +168,7 @@ class RemoteConfigService:
     def _attempt_publish(
         self,
         project_id: str,
-        change: UIRemoteConfigChange,
+        change_set: UIRemoteConfigChangeSet,
         validate_only: bool,
     ) -> ClientResult[UIRemoteConfigPublishResult]:
         """One read-modify-write cycle."""
@@ -181,7 +185,7 @@ class RemoteConfigService:
             )
 
         try:
-            updated = apply_change(payload, change)
+            updated = apply_change_set(payload, change_set)
         except TemplateEditError as exc:
             return ClientError(
                 error_message=str(exc),
@@ -211,7 +215,7 @@ class RemoteConfigService:
             validated_only=validate_only,
             etag=new_etag,
             version=version,
-            change=change,
+            change_set=change_set,
         )
         message = (
             f"Plantilla validada para {project_id}"
@@ -224,25 +228,32 @@ class RemoteConfigService:
         return ClientSuccess(data=result, message=message)
 
     @log_client_operation("firebase_validate_change")
-    def validate_change(
+    def validate_change_set(
         self,
         project_id,
         key,
         new_value,
-        condition=None,
-    ) -> ClientResult[UIRemoteConfigChange]:
+        conditions=None,
+    ) -> ClientResult[UIRemoteConfigChangeSet]:
         """
         Validate a requested edit against the live template.
 
-        Arguments are positional because the value can be sensitive and the
-        logging decorator would record it as a keyword.
+        `conditions` is a list with one entry per target, where None means the
+        parameter's default value. Arguments are positional because the value
+        can be sensitive and the logging decorator would record it as a
+        keyword.
         """
         payload, _etag, error = self.raw_template(project_id)
         if error is not None:
             return error
 
         try:
-            change = build_change(payload, key, new_value, condition)
+            change_set = build_change_set(
+                payload,
+                key,
+                new_value,
+                conditions if conditions is not None else [None],
+            )
         except TemplateEditError as exc:
             return ClientError(
                 error_message=str(exc),
@@ -257,8 +268,11 @@ class RemoteConfigService:
             )
 
         return ClientSuccess(
-            data=change,
-            message=f"Cambio validado para {key}",
+            data=change_set,
+            message=(
+                f"Cambio validado para {key} en "
+                f"{len(change_set.changes)} destino(s)"
+            ),
         )
 
     def raw_template(

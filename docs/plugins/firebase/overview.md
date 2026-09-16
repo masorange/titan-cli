@@ -58,7 +58,8 @@ enabled = true
 default_project = "my-firebase-project"
 ```
 
-That is the only field most setups need. The rest have working defaults:
+That is also the only field the configuration wizard asks for. The rest have working
+defaults and are set by hand in `.titan/config.toml` when someone actually needs them:
 
 | Option | Default | What it does |
 |--------|---------|--------------|
@@ -96,10 +97,14 @@ Workflows can use steps from any installed plugin, so that step chains directly 
 ## Environments are conditions
 
 Remote Config has no environment concept of its own. What a project has is
-**conditions** — named expressions such as `android_prod` — and each parameter can carry
-a value per condition on top of its default value. The plugin reads the conditions from
-the template rather than taking a configured list, so what you can target is always what
-the project actually declares.
+**conditions** — named expressions such as `Android - Production` — and each parameter can
+carry a value per condition on top of its default value. The plugin reads the conditions
+from the template rather than taking a configured list, so what you can target is always
+what the project actually declares.
+
+A write can target **several of them at once** — the default value, a set of conditions, or
+both. Because a publish replaces the whole template, all of those targets land in a single
+Remote Config version rather than one version each.
 
 Separate environments (dev, pre, pro) are therefore separate Firebase projects, and which
 ones exist is the caller's knowledge, not this plugin's — see "Working with several

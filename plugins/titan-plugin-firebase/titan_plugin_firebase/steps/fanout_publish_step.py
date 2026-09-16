@@ -100,7 +100,7 @@ def _publish_one(
         f"Validando {entry.target.project_id}...",
         lambda: ctx.firebase.publish_remote_config_change(
             entry.target.project_id,
-            entry.change,
+            entry.change_set,
             validate_only=True,
         ),
     )
@@ -119,7 +119,7 @@ def _publish_one(
         f"Publicando en {entry.target.project_id}...",
         lambda: ctx.firebase.publish_remote_config_change(
             entry.target.project_id,
-            entry.change,
+            entry.change_set,
             validate_only=False,
         ),
     )

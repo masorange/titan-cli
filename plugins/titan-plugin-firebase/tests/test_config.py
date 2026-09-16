@@ -43,12 +43,35 @@ def test_no_credential_field():
     ]
 
 
-def test_only_one_field_is_asked_before_the_defaults():
-    # The configuration wizard walks the schema, so field count is UX: a
-    # generic plugin should not interrogate the user about a naming scheme.
-    properties = FirebasePlugin().get_config_schema()["properties"]
-    assert list(properties)[:2] == ["default_project", "quota_project_id"]
-    assert len(properties) == 5
+def test_the_wizard_asks_for_exactly_one_field():
+    # The wizard renders every property the schema advertises, so the schema is
+    # the UX. Only default_project earns a question; everything else has a
+    # working default and would turn "enable Firebase" into an interrogation.
+    assert list(FirebasePlugin().get_config_schema()["properties"]) == [
+        "default_project"
+    ]
+
+
+def test_the_wizard_never_marks_a_field_required():
+    # default_project is optional: a workflow can pass project_id instead.
+    assert FirebasePlugin().get_config_schema()["required"] == []
+
+
+def test_options_left_out_of_the_wizard_still_work_from_the_toml_file():
+    # Narrowing the wizard must not narrow the plugin: these are set by hand in
+    # .titan/config.toml when someone needs them.
+    config = FirebasePluginConfig(
+        quota_project_id="mm-ragnarok-dev",
+        api_base_url="https://example.test/v1",
+        request_timeout=5,
+        oauth_scopes=["https://www.googleapis.com/auth/firebase.remoteconfig"],
+    )
+    assert config.quota_project_id == "mm-ragnarok-dev"
+    assert config.api_base_url == "https://example.test/v1"
+    assert config.request_timeout == 5
+    assert config.oauth_scopes == [
+        "https://www.googleapis.com/auth/firebase.remoteconfig"
+    ]
 
 
 def test_api_base_url_must_be_http():

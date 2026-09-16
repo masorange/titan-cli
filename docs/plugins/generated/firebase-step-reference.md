@@ -187,7 +187,7 @@ Read the active Remote Config template for one project.
 
 ### `firebase_remoteconfig_conditions`
 
-Show the template's conditions and choose which value a write targets.
+Choose the targets a write will touch: the default value, conditions, or both.
 
 **How to read this contract**
 
@@ -204,7 +204,7 @@ Show the template's conditions and choose which value a write targets.
 
 **Used by built-in workflows:** `read-remoteconfig`, `set-remoteconfig-value`
 
-**Available to later steps:** `firebase_condition`, `firebase_condition_label`
+**Available to later steps:** `firebase_conditions`, `firebase_conditions_label`
 
 **Requires**
 
@@ -217,21 +217,21 @@ Show the template's conditions and choose which value a write targets.
 | Name | Type | Description |
 |------|------|-------------|
 | `firebase_remoteconfig_template` | UIRemoteConfigTemplate | From firebase_remoteconfig_get. |
-| `condition` | str, optional | Preselected condition name, or "default". |
+| `condition` | str, optional | Preselected target, or several separated by commas. |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `firebase_condition` | Optional[str] | Condition name, None for the default. |
-| `firebase_condition_label` | str | User-facing label for the target. |
+| `firebase_conditions` | list | One entry per target; None means the default value. |
+| `firebase_conditions_label` | str | User-facing description of the targets. |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_condition`, `firebase_condition_label` | If a target is chosen (or only the default exists). |
-| `Error` | - | If the template is missing or the user cancels. |
+| `Success` | `firebase_conditions`, `firebase_conditions_label` | If at least one target is chosen. |
+| `Error` | - | If the template is missing, a named condition does not exist, or the user cancels. |
 
 ### `firebase_remoteconfig_select_key`
 
@@ -265,7 +265,7 @@ Choose one Remote Config parameter.
 | Name | Type | Description |
 |------|------|-------------|
 | `firebase_remoteconfig_template` | UIRemoteConfigTemplate | From firebase_remoteconfig_get. |
-| `firebase_condition` | Optional[str] | Write target, from firebase_remoteconfig_conditions. |
+| `firebase_conditions` | list, optional | Targets, from firebase_remoteconfig_conditions. |
 | `key` | str, optional | Preselected parameter key. |
 
 **Outputs (saved to ctx.data)**
@@ -274,7 +274,7 @@ Choose one Remote Config parameter.
 |------|------|-------------|
 | `firebase_key` | str | Selected parameter key. |
 | `firebase_value_type` | str | Effective value type of the parameter. |
-| `firebase_current_value` | Optional[str] | Raw current value, None if unset. |
+| `firebase_current_value` | Optional[str] | Current value of the first target, None if unset. |
 
 **Returns**
 
@@ -304,7 +304,7 @@ Ask for the new value of the selected parameter and validate it.
 
 **Used by built-in workflows:** `set-remoteconfig-value`
 
-**Available to later steps:** `firebase_change`, `firebase_new_value`
+**Available to later steps:** `firebase_change_set`, `firebase_new_value`
 
 **Requires**
 
@@ -318,7 +318,7 @@ Ask for the new value of the selected parameter and validate it.
 |------|------|-------------|
 | `firebase_project_id` | str | Target project. |
 | `firebase_key` | str | Parameter to change. |
-| `firebase_condition` | Optional[str] | Condition to write, None for the default. |
+| `firebase_conditions` | list, optional | Targets, from firebase_remoteconfig_conditions. |
 | `firebase_value_type` | Optional[str] | Type reported by the read. |
 | `firebase_current_value` | Optional[str] | Current raw value. |
 | `value` | str, optional | New value, for non-interactive runs. |
@@ -327,14 +327,14 @@ Ask for the new value of the selected parameter and validate it.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `firebase_change` | UIRemoteConfigChange | The validated change. |
+| `firebase_change_set` | UIRemoteConfigChangeSet | The validated change, per target. |
 | `firebase_new_value` | str | Exact string that will be stored. |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `firebase_change`, `firebase_new_value` | If the value is valid for the parameter type. |
+| `Success` | `firebase_change_set`, `firebase_new_value` | If the value is valid for the parameter type. |
 | `Error` | - | If inputs are missing, the value is invalid, or the user cancels. |
 
 ### `firebase_remoteconfig_diff`
@@ -368,7 +368,7 @@ Render the pending change and ask the user to confirm it.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `firebase_change` | UIRemoteConfigChange | From firebase_remoteconfig_set_value. |
+| `firebase_change_set` | UIRemoteConfigChangeSet | From firebase_remoteconfig_set_value. |
 | `firebase_project_id` | str | Target project. |
 | `firebase_target_label` | Optional[str] | Display label for the project. |
 
@@ -418,7 +418,7 @@ Publish one confirmed change, validating it with Firebase first.
 | Name | Type | Description |
 |------|------|-------------|
 | `firebase_project_id` | str | Target project. |
-| `firebase_change` | UIRemoteConfigChange | The change to publish. |
+| `firebase_change_set` | UIRemoteConfigChangeSet | The change to publish. |
 | `firebase_change_confirmed` | bool | Set by `firebase_remoteconfig_diff`. |
 | `dry_run` | bool, optional | Validate only, publish nothing. |
 
@@ -473,7 +473,7 @@ Build the per-project plan for one parameter change.
 | `firebase_targets` | list[FirebaseProjectTarget] | From firebase_select_targets. |
 | `key` | str | Parameter to change. |
 | `value` | str | New value. |
-| `condition` | str, optional | Condition to write instead of the default. |
+| `condition` | str, optional | Targets to write, comma-separated; empty means the default value. |
 
 **Outputs (saved to ctx.data)**
 

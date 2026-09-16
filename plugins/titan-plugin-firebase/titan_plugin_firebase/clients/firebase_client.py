@@ -9,7 +9,7 @@ from titan_cli.core.result import ClientResult
 from ..config import FirebasePluginConfig
 from ..models.view import (
     UIAdcIdentity,
-    UIRemoteConfigChange,
+    UIRemoteConfigChangeSet,
     UIRemoteConfigPublishResult,
     UIRemoteConfigTemplate,
 )
@@ -60,39 +60,42 @@ class FirebaseClient:
         project_id: str,
         key: str,
         new_value: str,
-        condition: Optional[str] = None,
-    ) -> ClientResult[UIRemoteConfigChange]:
+        conditions: Optional[list] = None,
+    ) -> ClientResult[UIRemoteConfigChangeSet]:
         """
         Check one parameter edit against the live template.
 
-        Validates that the parameter and condition exist and that the value
-        matches the parameter's type, and reports the value it would replace.
-        Nothing is published.
+        Validates that the parameter and every condition exist and that the
+        value matches the parameter's type, and reports the value each target
+        would replace. `conditions` holds one entry per target, where None
+        means the parameter's default value. Nothing is published.
         """
-        return self._remote_config.validate_change(
+        return self._remote_config.validate_change_set(
             project_id,
             key,
             new_value,
-            condition,
+            conditions,
         )
 
     def publish_remote_config_change(
         self,
         project_id: str,
-        change: UIRemoteConfigChange,
+        change_set: UIRemoteConfigChangeSet,
         *,
         validate_only: bool = False,
     ) -> ClientResult[UIRemoteConfigPublishResult]:
         """
-        Apply one parameter change to the template and publish it.
+        Apply a change set to the template and publish it.
 
-        Reads the template, replaces exactly that one value, and publishes the
-        whole template under the ETag of that read — retrying once if someone
-        published in between. With `validate_only` Firebase checks the payload
-        and publishes nothing.
+        Reads the template, replaces the value of every target in the set, and
+        publishes the whole template under the ETag of that read — retrying
+        once if someone published in between. Every target lands in the same
+        publish, so it is one Remote Config version regardless of how many
+        targets there are. With `validate_only` Firebase checks the payload and
+        publishes nothing.
         """
-        return self._remote_config.publish_change(
+        return self._remote_config.publish_change_set(
             project_id,
-            change,
+            change_set,
             validate_only=validate_only,
         )

@@ -11,6 +11,14 @@ from .clients.firebase_client import FirebaseClient
 from .config import FirebasePluginConfig
 from .exceptions import FirebaseConfigurationError, FirebaseError
 
+# The only field the configuration wizard asks for. The rest of the model
+# (quota_project_id, api_base_url, request_timeout, oauth_scopes) is honoured
+# when written in .titan/config.toml, but is deliberately not offered: they all
+# have working defaults, and a wizard that walks every field turns "enable
+# Firebase" into a twelve-question interrogation. The wizard renders exactly
+# what this schema advertises, so narrowing it here is the whole mechanism.
+WIZARD_FIELDS = ("default_project",)
+
 
 class FirebasePlugin(TitanPlugin):
     """
@@ -60,29 +68,26 @@ class FirebasePlugin(TitanPlugin):
         return getattr(entry, "config", {}) or {}
 
     def get_config_schema(self) -> dict:
-        """Return the JSON schema for the plugin configuration screen."""
+        """
+        Return the schema the configuration wizard renders.
+
+        Only `WIZARD_FIELDS` is advertised. The other options stay fully
+        supported in `.titan/config.toml` — see `FirebasePluginConfig` — they
+        just do not deserve a question each when every one of them has a
+        working default.
+        """
         schema = FirebasePluginConfig.model_json_schema()
         properties = schema.get("properties", {})
-        preferred_order = [
-            "default_project",
-            "quota_project_id",
-            "api_base_url",
-            "request_timeout",
-            "oauth_scopes",
-        ]
-        ordered = {
+        schema["properties"] = {
             field: properties[field]
-            for field in preferred_order
+            for field in WIZARD_FIELDS
             if field in properties
         }
-        ordered.update(
-            {
-                field: value
-                for field, value in properties.items()
-                if field not in ordered
-            }
-        )
-        schema["properties"] = ordered
+        schema["required"] = [
+            field
+            for field in schema.get("required", [])
+            if field in schema["properties"]
+        ]
         return schema
 
     def is_available(self) -> bool:

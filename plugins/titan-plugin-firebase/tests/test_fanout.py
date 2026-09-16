@@ -14,6 +14,7 @@ from titan_plugin_firebase.models.view import (
     UIFanoutEntry,
     UIFanoutOutcome,
     UIRemoteConfigChange,
+    UIRemoteConfigChangeSet,
     UIRemoteConfigPublishResult,
     UIRemoteConfigVersion,
 )
@@ -56,6 +57,16 @@ def _change(new_value="true", old_value="false") -> UIRemoteConfigChange:
     )
 
 
+def _change_set(new_value="true", old_value="false") -> UIRemoteConfigChangeSet:
+    change = _change(new_value=new_value, old_value=old_value)
+    return UIRemoteConfigChangeSet(
+        key=change.key,
+        value_type=change.value_type,
+        new_raw_value=change.new_raw_value,
+        changes=(change,),
+    )
+
+
 def _published(version="43", retried=False) -> UIRemoteConfigPublishResult:
     return UIRemoteConfigPublishResult(
         project_id="mm-firebase-yoigo",
@@ -69,7 +80,7 @@ def _published(version="43", retried=False) -> UIRemoteConfigPublishResult:
             update_type="INCREMENTAL_UPDATE",
             description=None,
         ),
-        change=_change(),
+        change_set=_change_set(),
         retried_after_conflict=retried,
     )
 
@@ -79,10 +90,10 @@ def _published(version="43", retried=False) -> UIRemoteConfigPublishResult:
 
 def test_plan_summary_counts_by_status():
     entries = [
-        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change=_change()),
+        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change_set=_change_set()),
         UIFanoutEntry(
             target=_target("masmovil", "mm-firebase-masmovil"),
-            change=_change(new_value="false"),
+            change_set=_change_set(new_value="false"),
         ),
         UIFanoutEntry(
             target=_target("guuk", "mm-guuk-firebase-prod"), error="no existe la clave"
@@ -94,32 +105,46 @@ def test_plan_summary_counts_by_status():
 
 def test_entry_detail_explains_each_status():
     ready = UIFanoutEntry(
-        target=_target("yoigo", "mm-firebase-yoigo"), change=_change()
+        target=_target("yoigo", "mm-firebase-yoigo"), change_set=_change_set()
     )
     noop = UIFanoutEntry(
         target=_target("masmovil", "mm-firebase-masmovil"),
-        change=_change(new_value="false"),
+        change_set=_change_set(new_value="false", old_value="false"),
     )
     failed = UIFanoutEntry(
         target=_target("guuk", "mm-guuk-firebase-prod"), error="sin permiso"
     )
-    assert ready.detail == "false -> true"
+    # The detail line summarizes targets now that a change can write several.
+    assert ready.detail == "1 destino(s): valor por defecto"
     assert noop.detail == "ya vale false"
     assert failed.detail == "sin permiso"
 
 
-def test_entry_detail_marks_a_value_that_did_not_exist():
+def test_entry_detail_names_every_target_it_would_write():
+    change = _change()
+    conditional = UIRemoteConfigChange(
+        key="feature_enabled",
+        condition="android_prod",
+        value_type=T.BOOLEAN,
+        old_raw_value=None,
+        new_raw_value="true",
+    )
     entry = UIFanoutEntry(
         target=_target("yoigo", "mm-firebase-yoigo"),
-        change=_change(old_value=None),
+        change_set=UIRemoteConfigChangeSet(
+            key=change.key,
+            value_type=change.value_type,
+            new_raw_value=change.new_raw_value,
+            changes=(change, conditional),
+        ),
     )
-    assert entry.detail == "(sin valor) -> true"
+    assert entry.detail == "2 destino(s): valor por defecto, android_prod"
 
 
 def test_select_entries_keeps_plan_order_and_ignores_unknown_ids():
     entries = [
-        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change=_change()),
-        UIFanoutEntry(target=_target("guuk", "mm-guuk-firebase-prod"), change=_change()),
+        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change_set=_change_set()),
+        UIFanoutEntry(target=_target("guuk", "mm-guuk-firebase-prod"), change_set=_change_set()),
     ]
     chosen = select_entries(entries, ["mm-guuk-firebase-prod", "mm-firebase-other"])
     assert [entry.target.label for entry in chosen] == ["guuk"]
@@ -143,10 +168,10 @@ def test_outcome_detail_flags_a_conflict_retry():
 
 def test_describe_plan_rows():
     entries = [
-        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change=_change())
+        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change_set=_change_set())
     ]
     assert describe_plan(entries) == [
-        ["yoigo (mm-firebase-yoigo)", "ready", "false -> true"]
+        ["yoigo (mm-firebase-yoigo)", "ready", "1 destino(s): valor por defecto"]
     ]
 
 
@@ -216,7 +241,7 @@ def _plan_ctx(**data) -> WorkflowContext:
 def test_plan_validates_every_project_independently():
     ctx = _plan_ctx()
     ctx.firebase.validate_remote_config_change.side_effect = [
-        ClientSuccess(data=_change()),
+        ClientSuccess(data=_change_set()),
         ClientError(error_message="no existe la clave", error_code="TEMPLATE_EDIT_ERROR"),
     ]
     ctx.textual.ask_multiselect.return_value = ["mm-firebase-yoigo"]
@@ -248,7 +273,7 @@ def test_plan_exits_when_no_project_needs_the_change():
 def test_plan_exits_when_the_user_selects_no_project():
     ctx = _plan_ctx()
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
-        data=_change()
+        data=_change_set()
     )
     ctx.textual.ask_multiselect.return_value = []
 
@@ -272,20 +297,19 @@ def test_plan_ignores_empty_workflow_params_and_asks(ui_template):
     # to mean "ask me", not "write an empty string".
     ctx = _plan_ctx(key="", value="", condition="")
     ctx.firebase.get_remote_config.return_value = ClientSuccess(data=ui_template)
-    ctx.textual.ask_option.side_effect = ["__default__", "feature_enabled"]
+    ctx.textual.ask_multiselect.side_effect = [
+        ["__default__"],                             # targets within the template
+        ["mm-firebase-yoigo", "mm-guuk-firebase-prod"],  # projects to publish
+    ]
+    ctx.textual.ask_option.return_value = "feature_enabled"
     ctx.textual.ask_choice.return_value = "true"
     ctx.firebase.validate_remote_config_change.return_value = ClientSuccess(
-        data=_change()
+        data=_change_set()
     )
-    ctx.textual.ask_multiselect.return_value = [
-        "mm-firebase-yoigo",
-        "mm-guuk-firebase-prod",
-    ]
-
     result = execute_firebase_remoteconfig_fanout_plan_step(ctx)
 
     assert isinstance(result, Success)
-    # The first brand's template is the reference the prompts are built from.
+    # The first project's template is the reference the prompts are built from.
     ctx.firebase.get_remote_config.assert_called_once_with("mm-firebase-yoigo")
     assert len(result.metadata["firebase_fanout_plan"]) == 2
 
@@ -308,8 +332,8 @@ def test_plan_fails_when_the_reference_template_cannot_be_read():
 def _publish_ctx(**data) -> WorkflowContext:
     ctx = _ctx()
     ctx.data["firebase_fanout_plan"] = [
-        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change=_change()),
-        UIFanoutEntry(target=_target("guuk", "mm-guuk-firebase-prod"), change=_change()),
+        UIFanoutEntry(target=_target("yoigo", "mm-firebase-yoigo"), change_set=_change_set()),
+        UIFanoutEntry(target=_target("guuk", "mm-guuk-firebase-prod"), change_set=_change_set()),
     ]
     ctx.data.update(data)
     return ctx

@@ -9,7 +9,9 @@ from titan_plugin_firebase.models.values import (
 from titan_plugin_firebase.operations.template_operations import (
     TemplateEditError,
     apply_change,
+    apply_change_set,
     build_change,
+    build_change_set,
     condition_names,
     current_raw_value,
     effective_value_type_for,
@@ -179,3 +181,90 @@ def test_json_change_is_stored_compacted(template_payload):
     change = build_change(template_payload, "legacy_untyped", '{ "b" : 2 }')
     updated = apply_change(template_payload, change)
     assert updated["parameters"]["legacy_untyped"]["defaultValue"]["value"] == '{"b":2}'
+
+
+# --- change sets: one value, several targets, one publish -------------------
+
+
+def test_change_set_carries_one_change_per_target(template_payload):
+    change_set = build_change_set(
+        template_payload, "feature_enabled", "TRUE", [None, "android_prod"]
+    )
+    assert change_set.key == "feature_enabled"
+    assert change_set.new_raw_value == "true"
+    assert change_set.target_labels == ["valor por defecto", "android_prod"]
+
+
+def test_change_set_drops_duplicate_targets(template_payload):
+    change_set = build_change_set(
+        template_payload,
+        "feature_enabled",
+        "true",
+        [None, "android_prod", None, "android_prod"],
+    )
+    assert len(change_set.changes) == 2
+
+
+def test_change_set_defaults_to_the_default_value(template_payload):
+    change_set = build_change_set(template_payload, "feature_enabled", "true", [])
+    assert change_set.target_labels == ["valor por defecto"]
+
+
+def test_change_set_is_a_noop_only_when_every_target_is(template_payload):
+    # android_prod already holds "true"; the default holds "false".
+    mixed = build_change_set(
+        template_payload, "feature_enabled", "true", [None, "android_prod"]
+    )
+    assert mixed.is_noop is False
+    assert [c.target_label for c in mixed.pending] == ["valor por defecto"]
+
+    already = build_change_set(
+        template_payload, "feature_enabled", "true", ["android_prod"]
+    )
+    assert already.is_noop is True
+
+
+def test_change_set_rejects_one_unknown_target(template_payload):
+    # One bad target invalidates the set: the user asked for all of them.
+    with pytest.raises(TemplateEditError):
+        build_change_set(
+            template_payload, "feature_enabled", "true", [None, "ios_beta"]
+        )
+
+
+def test_apply_change_set_writes_every_target_in_one_payload(template_payload):
+    change_set = build_change_set(
+        template_payload, "welcome_text", "adiós", [None, "android_prod"]
+    )
+    updated = apply_change_set(template_payload, change_set)
+
+    parameter = updated["parameters"]["welcome_text"]
+    assert parameter["defaultValue"]["value"] == "adiós"
+    assert parameter["conditionalValues"]["android_prod"]["value"] == "adiós"
+    # Everything else still survives the round trip.
+    assert updated["conditions"] == template_payload["conditions"]
+    assert updated["parameterGroups"] == template_payload["parameterGroups"]
+
+
+def test_apply_change_set_writes_one_version_description(template_payload):
+    change_set = build_change_set(
+        template_payload, "welcome_text", "adiós", [None, "android_prod"]
+    )
+    updated = apply_change_set(template_payload, change_set)
+
+    # One publish, so one description naming the value and its targets.
+    assert set(updated["version"]) == {"description"}
+    assert updated["version"]["description"] == (
+        "Titan: welcome_text = adiós [valor por defecto, android_prod]"
+    )
+
+
+def test_change_set_description_summarizes_many_targets(template_payload):
+    payload = dict(template_payload)
+    payload["conditions"] = [{"name": f"c{i}"} for i in range(6)]
+    payload["parameters"] = {"k": {"defaultValue": {"value": "old"}}}
+    change_set = build_change_set(
+        payload, "k", "new", [f"c{i}" for i in range(6)]
+    )
+    description = change_set.describe(max_targets=4)
+    assert description.startswith("Titan: k = new [c0, c1, c2, c3 y 2 más]")

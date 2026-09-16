@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
+from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, SelectionOption
 
 from ..models.values import RemoteConfigValueType
 
@@ -47,38 +47,62 @@ def normalize_value_type(raw: Any) -> RemoteConfigValueType:
     return RemoteConfigValueType.UNKNOWN
 
 
-def ask_condition(ctx, template) -> tuple[Optional[str], bool]:
-    """
-    Ask which value of a parameter to write: the default or a condition.
+def normalize_target(value: Any) -> Optional[str]:
+    """Map the textual forms of "the default value" to None."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"default", "defaultvalue", DEFAULT_TARGET}:
+        return None
+    return text
 
-    Returns:
-        The condition name (None for the default value) and whether the user
-        answered at all — a cancelled prompt is not the same as choosing the
-        default.
+
+def condition_option_label(condition, *, max_expression: int = 90) -> str:
+    """
+    One-line label for a condition in a selection list.
+
+    The expression is what tells two similarly named conditions apart, so it
+    is kept — collapsed to one line and truncated, because these run long.
+    """
+    expression = condition.display_expression
+    if len(expression) > max_expression:
+        expression = f"{expression[: max_expression - 1]}…"
+    return f"{condition.name} — {expression}"
+
+
+def ask_targets(ctx, template) -> list[Optional[str]]:
+    """
+    Ask which values of a parameter to write: the default, conditions, or both.
+
+    Returns the selected targets (None means the default value), or an empty
+    list if the user cancelled — which is not the same as choosing the default.
     """
     if not template.conditions:
-        return None, True
+        return [None]
 
     options = [
-        OptionItem(
+        SelectionOption(
             value=DEFAULT_TARGET,
-            title="Valor por defecto",
-            description="Se aplica cuando ninguna condición coincide",
+            label="Valor por defecto — se aplica si ninguna condición coincide",
+            selected=False,
         )
     ]
     options.extend(
-        OptionItem(
+        SelectionOption(
             value=condition.name,
-            title=condition.name,
-            description=condition.display_expression,
+            label=condition_option_label(condition),
+            selected=False,
         )
         for condition in template.conditions
     )
 
-    selected = ctx.textual.ask_option("¿Sobre qué valor quieres trabajar?", options)
-    if selected is None:
-        return None, False
-    return (None if selected == DEFAULT_TARGET else str(selected)), True
+    selected = ctx.textual.ask_multiselect(
+        "¿Sobre qué valores quieres escribir?",
+        options,
+    )
+    if not selected:
+        return []
+    return [normalize_target(value) for value in selected]
 
 
 def ask_parameter(ctx, template, condition: Optional[str]):

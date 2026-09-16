@@ -1,5 +1,6 @@
 """Step behaviour: UI orchestration, metadata contracts, and error paths."""
 
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 from titan_cli.core.result import ClientError, ClientSuccess
@@ -181,37 +182,65 @@ def test_get_propagates_api_errors():
 # --- conditions -------------------------------------------------------------
 
 
-def test_conditions_lets_the_user_pick_a_condition(ui_template):
+def test_conditions_lets_the_user_pick_several_targets(ui_template):
     ctx = _ctx()
     ctx.data["firebase_remoteconfig_template"] = ui_template
-    ctx.textual.ask_option.return_value = "android_prod"
+    ctx.textual.ask_multiselect.return_value = ["__default__", "android_prod"]
 
     result = execute_firebase_remoteconfig_conditions_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata["firebase_condition"] == "android_prod"
+    # None is the default value; the rest are condition names.
+    assert result.metadata["firebase_conditions"] == [None, "android_prod"]
+    assert result.metadata["firebase_conditions_label"] == (
+        "valor por defecto, android_prod"
+    )
 
 
-def test_conditions_default_target_is_none(ui_template):
+def test_conditions_presents_a_list_not_a_table(ui_template):
     ctx = _ctx()
     ctx.data["firebase_remoteconfig_template"] = ui_template
-    ctx.textual.ask_option.return_value = "__default__"
+    ctx.textual.ask_multiselect.return_value = ["android_prod"]
+
+    execute_firebase_remoteconfig_conditions_step(ctx)
+
+    # Condition expressions run to several lines each, so a table of them reads
+    # as merged blocks; the selection list carries the expression in the label.
+    ctx.textual.table.assert_not_called()
+    options = ctx.textual.ask_multiselect.call_args.args[1]
+    assert options[0].value == "__default__"
+    assert "app.id ==" in options[1].label
+    assert all(option.selected is False for option in options)
+
+
+def test_conditions_with_no_conditions_uses_the_default_value(ui_template):
+    ctx = _ctx()
+    empty = replace(ui_template, conditions=[])
+    ctx.data["firebase_remoteconfig_template"] = empty
 
     result = execute_firebase_remoteconfig_conditions_step(ctx)
 
-    assert result.metadata["firebase_condition"] is None
-    assert result.metadata["firebase_condition_label"] == "valor por defecto"
+    assert result.metadata["firebase_conditions"] == [None]
+    ctx.textual.ask_multiselect.assert_not_called()
 
 
-def test_conditions_accepts_a_preselected_condition(ui_template):
+def test_conditions_accepts_preselected_targets(ui_template):
     ctx = _ctx()
     ctx.data["firebase_remoteconfig_template"] = ui_template
-    ctx.data["condition"] = "android_prod"
+    ctx.data["condition"] = "default, android_prod"
 
     result = execute_firebase_remoteconfig_conditions_step(ctx)
 
-    assert result.metadata["firebase_condition"] == "android_prod"
-    ctx.textual.ask_option.assert_not_called()
+    assert result.metadata["firebase_conditions"] == [None, "android_prod"]
+    ctx.textual.ask_multiselect.assert_not_called()
+
+
+def test_conditions_exits_when_nothing_is_selected(ui_template):
+    ctx = _ctx()
+    ctx.data["firebase_remoteconfig_template"] = ui_template
+    ctx.textual.ask_multiselect.return_value = []
+
+    assert isinstance(execute_firebase_remoteconfig_conditions_step(ctx), Error)
 
 
 def test_conditions_rejects_a_condition_that_does_not_exist(ui_template):
@@ -237,10 +266,10 @@ def test_conditions_without_a_template_is_an_error():
 # --- select key -------------------------------------------------------------
 
 
-def test_select_key_reports_the_current_value_for_the_target(ui_template):
+def test_select_key_reports_the_current_value_for_the_first_target(ui_template):
     ctx = _ctx()
     ctx.data["firebase_remoteconfig_template"] = ui_template
-    ctx.data["firebase_condition"] = "android_prod"
+    ctx.data["firebase_conditions"] = ["android_prod"]
     ctx.textual.ask_option.return_value = "feature_enabled"
 
     result = execute_firebase_remoteconfig_select_key_step(ctx)
@@ -256,7 +285,7 @@ def test_select_key_reports_the_current_value_for_the_target(ui_template):
 def test_select_key_reports_none_when_the_condition_has_no_value(ui_template):
     ctx = _ctx()
     ctx.data["firebase_remoteconfig_template"] = ui_template
-    ctx.data["firebase_condition"] = "android_prod"
+    ctx.data["firebase_conditions"] = ["android_prod"]
     ctx.data["key"] = "welcome_text"
 
     result = execute_firebase_remoteconfig_select_key_step(ctx)
@@ -273,3 +302,18 @@ def test_select_key_rejects_an_unknown_key(ui_template):
 
     assert isinstance(result, Error)
     assert "nope" in result.message
+
+
+def test_select_key_shows_a_column_per_selected_target(ui_template):
+    ctx = _ctx()
+    ctx.data["firebase_remoteconfig_template"] = ui_template
+    ctx.data["firebase_conditions"] = [None, "android_prod"]
+    ctx.textual.ask_option.return_value = "feature_enabled"
+
+    execute_firebase_remoteconfig_select_key_step(ctx)
+
+    headers = ctx.textual.table.call_args.kwargs["headers"]
+    assert headers == ["Clave", "Tipo", "Por defecto", "android_prod"]
+    rows = ctx.textual.table.call_args.kwargs["rows"]
+    feature_row = next(row for row in rows if row[0] == "feature_enabled")
+    assert feature_row[2:] == ["false", "true"]

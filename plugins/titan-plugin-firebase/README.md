@@ -27,8 +27,9 @@ enabled = true
 default_project = "my-firebase-project"
 ```
 
-`quota_project_id`, `api_base_url`, `request_timeout` and `oauth_scopes` all have
-working defaults.
+`default_project` is the only field the configuration wizard asks for.
+`quota_project_id`, `api_base_url`, `request_timeout` and `oauth_scopes` all have working
+defaults; set them by hand in `.titan/config.toml` if you need to.
 
 ## Several projects
 

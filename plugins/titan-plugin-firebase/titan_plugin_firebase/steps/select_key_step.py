@@ -9,6 +9,7 @@ from titan_cli.ui.tui.widgets import OptionItem
 # asks for a filter first.
 FILTER_THRESHOLD = 25
 TABLE_PREVIEW_LIMIT = 40
+MAX_VALUE_COLUMNS = 3
 
 
 def execute_firebase_remoteconfig_select_key_step(
@@ -22,13 +23,13 @@ def execute_firebase_remoteconfig_select_key_step(
 
     Inputs (from ctx.data):
         firebase_remoteconfig_template (UIRemoteConfigTemplate): From firebase_remoteconfig_get.
-        firebase_condition (Optional[str]): Write target, from firebase_remoteconfig_conditions.
+        firebase_conditions (list, optional): Targets, from firebase_remoteconfig_conditions.
         key (str, optional): Preselected parameter key.
 
     Outputs (saved to ctx.data):
         firebase_key (str): Selected parameter key.
         firebase_value_type (str): Effective value type of the parameter.
-        firebase_current_value (Optional[str]): Raw current value, None if unset.
+        firebase_current_value (Optional[str]): Current value of the first target, None if unset.
 
     Returns:
         Success: If a parameter is selected.
@@ -48,7 +49,8 @@ def execute_firebase_remoteconfig_select_key_step(
             ctx.textual.end_step("error")
         return Error(message)
 
-    condition = ctx.get("firebase_condition")
+    targets = _targets(ctx)
+    condition = targets[0]
     preselected = ctx.get("key") or ctx.get("firebase_key")
 
     if preselected:
@@ -95,7 +97,7 @@ def execute_firebase_remoteconfig_select_key_step(
                 return Error(message)
             candidates = filtered
 
-    _render_table(ctx, template, candidates, condition)
+    _render_table(ctx, template, candidates, targets)
 
     selected = ctx.textual.ask_option(
         "¿Qué parámetro?",
@@ -124,29 +126,49 @@ def execute_firebase_remoteconfig_select_key_step(
     return _success(ctx, parameter, condition)
 
 
-def _render_table(ctx, template, candidates, condition) -> None:
-    """Show the candidate parameters and the value for the chosen target."""
+def _targets(ctx) -> list:
+    """Selected write targets, defaulting to the parameter's default value."""
+    targets = ctx.get("firebase_conditions")
+    if isinstance(targets, (list, tuple)) and targets:
+        return list(targets)
+    return [None]
+
+
+def _render_table(ctx, template, candidates, targets) -> None:
+    """Show the candidate parameters and their value in each chosen target."""
     shown = candidates[:TABLE_PREVIEW_LIMIT]
-    target_header = f"Valor ({condition})" if condition else "Valor por defecto"
+    # One column per target, capped: past a handful the table stops fitting and
+    # the selection list below is the real navigation aid anyway.
+    columns = targets[:MAX_VALUE_COLUMNS]
+    headers = ["Clave", "Tipo"] + [
+        _column_header(target) for target in columns
+    ]
     ctx.textual.table(
-        headers=["Clave", "Tipo", target_header, "Condiciones"],
+        headers=headers,
         rows=[
-            [
-                parameter.key,
-                parameter.value_type.value,
-                _display_for_target(parameter, condition),
-                str(len(parameter.conditional_values)) or "0",
-            ]
+            [parameter.key, parameter.value_type.value]
+            + [_display_for_target(parameter, target) for target in columns]
             for parameter in shown
         ],
         title=f"Parámetros de {template.project_id}",
-        flex_column=2,
+        flex_column=len(headers) - 1,
     )
+    if len(targets) > len(columns):
+        ctx.textual.dim_text(
+            f"Mostrando {len(columns)} de {len(targets)} destinos."
+        )
     if len(candidates) > len(shown):
         ctx.textual.dim_text(
-            f"Mostrando {len(shown)} de {len(candidates)}; la lista de "
-            "selección incluye todos."
+            f"Mostrando {len(shown)} de {len(candidates)} parámetros; la lista "
+            "de selección incluye todos."
         )
+
+
+def _column_header(target) -> str:
+    """Column title for one write target."""
+    if target is None:
+        return "Por defecto"
+    return target if len(target) <= 28 else f"{target[:27]}…"
 
 
 def _display_for_target(parameter, condition) -> str:
