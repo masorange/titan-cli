@@ -294,6 +294,38 @@ class TextualComponents:
         )
         self.mount(table_widget)
 
+    def collapsible_list(self, entries: List[Any], classes: str = "") -> None:
+        """
+        Show a list of expandable rows: summary line visible, detail on demand.
+
+        Each entry is a `CollapsibleEntry` (import it from
+        `titan_cli.ui.tui.widgets`). A row with no body and no children renders as
+        a plain line instead of a triangle that opens onto nothing. Children of a
+        collapsed row are built the first time it is opened, so a large tree costs
+        nothing until the user asks for it.
+
+        Args:
+            entries: List of CollapsibleEntry describing the rows
+            classes: Optional CSS classes for the container
+
+        Example:
+            from titan_cli.ui.tui.widgets import CollapsibleEntry
+
+            ctx.textual.collapsible_list([
+                CollapsibleEntry(
+                    title="POST /login",
+                    right="240ms",
+                    body=["status: 200"],
+                    copy_text=raw_payload,
+                    copy_label="response body",
+                    children=[CollapsibleEntry(title="headers", body=[headers])],
+                ),
+                CollapsibleEntry(title="nothing to expand here"),
+            ])
+        """
+        from titan_cli.ui.tui.widgets import build_collapsible_list
+        self.mount(build_collapsible_list(entries, classes=classes))
+
     def dim_text(self, text: str) -> None:
         """
         Append dim/muted text (uses theme system).

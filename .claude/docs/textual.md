@@ -241,6 +241,47 @@ a floor). Fixing the column width instead of using this would not help — Textu
 `DataTable` crops a fixed-width cell, with no ellipsis, and ignores the extra lines of a
 tall row.
 
+##### `collapsible_list(entries: List[CollapsibleEntry], classes: str = "")`
+A list of expandable rows: one summary line each, detail behind the fold. Use it for
+list+detail content — log events, review findings, anything where the rows are scanned
+and only a few are opened.
+
+```python
+from titan_cli.ui.tui.widgets import CollapsibleEntry, escape_markup
+
+ctx.textual.collapsible_list([
+    CollapsibleEntry(
+        title="POST /login",
+        right="240ms",                        # anchored to the right edge of the row
+        body=[escape_markup(response_body)],  # str, Rich markup, or any Rich renderable
+        copy_text=response_body,              # adds a ⧉ button; omit for no button
+        copy_label="response body",           # named in the "Copied …" confirmation
+        children=[CollapsibleEntry(title="headers", body=[headers])],
+    ),
+    CollapsibleEntry(title="a row with nothing to expand"),  # renders as a plain line
+])
+```
+
+Behaviour worth knowing:
+
+- **Titles fit the row width** and re-fit on resize, with the cut marked by `…`. The title
+  gets every column the `right` block and the copy button do not.
+- **Children of a collapsed row are built when it is first opened.** Building a large tree
+  up front costs thousands of widgets and seconds before the first frame, all for detail
+  that starts hidden.
+- **An entry with no `body` and no `children` renders as a plain line**, not a triangle
+  that opens onto nothing.
+- **`body_colour`** (default `#d8d8d8`) is inherited by children. Body text would otherwise
+  take the output panel's green and read as status rather than as data.
+- **Content from outside must go through `escape_markup()`** — payloads containing
+  `[MOBILE, LANDLINE]` or `[/bold]` otherwise vanish or raise.
+- **Copy uses a local clipboard helper first** (`wl-copy`/`xclip`/`xsel`/`pbcopy`) and OSC 52
+  only as a fallback, since many terminals silently ignore the escape. The notification says
+  which route was taken.
+
+To build the tree without mounting it — to nest it inside your own container — use
+`build_collapsible_list(entries)` from `titan_cli.ui.tui.widgets` and mount it yourself.
+
 ##### `show_diff_stat(formatted_files, formatted_summary, title="Changes summary:", use_panel=False)`
 Renders a formatted `git diff --stat` display. Use alongside `format_diff_stat_display()` from `titan_plugin_git.operations`.
 
