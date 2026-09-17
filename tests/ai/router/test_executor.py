@@ -16,6 +16,7 @@ from titan_cli.ai.router import (
     AITask,
     declare_ai_usage,
 )
+from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.ai.router.executor import DEFAULT_PREFERRED, AIExecutor
 from titan_cli.core.interrupt import WorkflowAborted
 from titan_cli.core.models import AIConfig
@@ -776,3 +777,124 @@ def test_an_agent_generator_gets_the_pinned_model_too(monkeypatch):
     assert isinstance(result, AIExecutionSuccess)
     assert isinstance(result.data, HeadlessGenerator)
     assert result.data.model == "opus"
+
+
+# --- precedence between the decision's model and the call site (D-002) -----
+
+
+def test_the_model_on_the_decision_reaches_the_cli(monkeypatch):
+    """
+    The resolver puts the task's own pin on the decision; the executor must run it.
+
+    This is the end of the per-task model path: without it, a task pinned to a small fast
+    model would silently run on whatever the CLI defaults to.
+    """
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step)
+
+    assert adapter.calls[0]["model"] == "haiku-fast"
+
+
+def test_a_call_site_model_still_outranks_the_task_pin(monkeypatch):
+    """
+    D-002's top rung, and the one that is counter-intuitive.
+
+    A step passing model= is the CODE stating a requirement - the review profile runs
+    exploration cheap and synthesis expensive - not a preference competing with the user's.
+    Fails if the task pin is ever moved above the call site.
+    """
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step, model="opus-for-this-prompt")
+
+    assert adapter.calls[0]["model"] == "opus-for-this-prompt"
+
+
+def test_an_agent_generator_gets_the_decisions_model(monkeypatch):
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: FakeAdapter()
+    )
+
+    result = executor.resolve_generator(policy=declared_step)
+
+    assert isinstance(result, AIExecutionSuccess)
+    assert result.data.model == "haiku-fast"
+
+
+def test_model_for_decision_falls_back_to_the_global_pin():
+    """A decision built by hand must not lose the user's global setting."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+
+    decision = AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude")
+
+    assert executor.model_for_decision(decision) == "opus"
+
+
+def test_route_summary_names_the_model_when_there_is_one():
+    """Once a task can pin a model, the chip saying only 'claude' no longer answers 'did my pin run?'."""
+    from titan_cli.ai.router.executor import route_summary
+
+    with_model = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"
+    )
+    without = AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude")
+
+    assert route_summary(with_model) == "claude / haiku-fast · CLI, automatic"
+    assert route_summary(without) == "claude · CLI, automatic"
+
+
+# --- the session override reaches the run ---------------------------------
+
+
+def test_the_executor_hands_its_session_override_to_the_resolver():
+    """
+    The object, not a copy: the app owns one instance and edits it in place between runs.
+
+    A copy taken at construction would freeze whatever was set when the workflow context
+    was built, which is exactly the moment before the user presses F2.
+    """
+    override = AISessionOverride(cli="codex")
+    executor = AIExecutor(ai_config=AIConfig(), session_override=override)
+
+    assert executor.resolver.session_override is override
+
+    override.cli = "gemini"
+
+    assert executor.resolver.session_override.cli == "gemini"
+
+
+def test_a_call_site_model_outranks_the_session_override(monkeypatch):
+    """D-002's top rung again, this time against the override rather than the pin."""
+    executor = _executor(
+        # What the resolver would produce with a session model set.
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="sonnet-now"),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step, model="opus-for-this-prompt")
+
+    assert adapter.calls[0]["model"] == "opus-for-this-prompt"

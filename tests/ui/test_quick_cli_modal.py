@@ -166,3 +166,91 @@ class TestQuickCliModalModels:
         assert "opencode" in captured["subtitle"]
         # Choosing a model for a CLI is not switching to it.
         config.set_default_ai_cli.assert_not_called()
+
+
+class TestSessionOverrideFromF2:
+    """
+    F2 can also choose a CLI for this session only, writing nothing (air-004, D-003).
+
+    The distinction these pin down is the one the feature exists for: Enter changes what
+    the user decided, S changes only what is running right now.
+    """
+
+    def _run(self, config, monkeypatch, keys, *, clis=("claude", "opencode")):
+        _stub_availability(monkeypatch, clis)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                for key in keys:
+                    await pilot.press(key)
+                    await pilot.pause()
+                captured["override"] = (
+                    app.ai_session_override.cli,
+                    app.ai_session_override.model,
+                )
+                captured["active"] = app.ai_session_override.is_active
+
+        asyncio.run(run())
+        return captured
+
+    def test_s_sets_the_session_cli_without_saving_anything(self, monkeypatch):
+        config = _config(default_cli="claude")
+
+        captured = self._run(config, monkeypatch, keys=["down", "s"])
+
+        assert captured["override"] == ("opencode", None)
+        config.set_default_ai_cli.assert_not_called()
+
+    def test_enter_still_saves_and_leaves_the_session_alone(self, monkeypatch):
+        config = _config(default_cli="claude")
+
+        captured = self._run(config, monkeypatch, keys=["down", "enter"])
+
+        assert captured["active"] is False
+        config.set_default_ai_cli.assert_called_once_with("opencode")
+
+    def test_c_clears_an_active_override(self, monkeypatch):
+        config = _config(default_cli="claude")
+        _stub_availability(monkeypatch, ("claude", "opencode"))
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.ai_session_override.cli = "opencode"
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("c")
+                await pilot.pause()
+                captured["active"] = app.ai_session_override.is_active
+
+        asyncio.run(run())
+
+        assert captured["active"] is False
+
+    def test_the_picker_says_an_override_is_active(self, monkeypatch):
+        """An override nobody can see is one the user forgets is on."""
+        _stub_availability(monkeypatch, ("claude", "opencode"))
+        captured = {}
+
+        async def run():
+            app = TitanApp(_config(default_cli="claude"), initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.ai_session_override.cli = "opencode"
+                await pilot.press("f2")
+                await pilot.pause()
+                captured["text"] = " ".join(
+                    str(w.renderable) for w in app.screen.query(Static)
+                )
+
+        asyncio.run(run())
+
+        assert "Session override active" in captured["text"]
+        assert "opencode" in captured["text"]

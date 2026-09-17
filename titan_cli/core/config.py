@@ -549,6 +549,88 @@ class TitanConfig:
             del prefs["tasks"][task]
             self.save_ai_preferences_config(prefs)
 
+    # --- per-task instance pins ------------------------------------------------
+    #
+    # A pin is a sparse override on top of the global defaults: absent means "inherit".
+    # Each setter touches ONE key and preserves the rest of the task's preference, and each
+    # clear DELETES its key rather than writing an empty value. TOML has no null: unlike
+    # save_ai_connections_config, which filters Nones out, save_ai_preferences_config hands
+    # the dict straight to tomli_w, which raises TypeError on None. So a pin "cleared" to
+    # None does not quietly persist - it makes the save fail outright. Deleting the key is
+    # the only shape that means "inherit again".
+
+    def set_task_ai_cli(self, task: str, cli_name: str, *, provider: Optional[str] = None) -> None:
+        """
+        Pin the CLI that serves this task, overriding the global default.
+
+        Args:
+            task: The AI task key.
+            cli_name: The CLI to pin.
+            provider: Provider kind, used ONLY when the task has no stored preference yet -
+                a pin cannot exist without one, and a CLI pin on a task resolving to a
+                remote provider would be inert. An existing preference keeps its own kind.
+
+        Raises:
+            ValueError: If the task has no stored preference and no `provider` was given.
+        """
+        self._set_task_ai_pin(task, "cli", cli_name, provider=provider)
+
+    def clear_task_ai_cli(self, task: str) -> None:
+        """Stop pinning a CLI for this task; it follows the global default again."""
+        self._clear_task_ai_pin(task, "cli")
+
+    def set_task_ai_model(self, task: str, model: str, *, provider: Optional[str] = None) -> None:
+        """
+        Pin the model this task runs with, overriding the global entry for its CLI.
+
+        An explicit `model=` at the call site still outranks this: see the routing
+        precedence in `titan_cli/ai/router/`.
+        """
+        self._set_task_ai_pin(task, "model", model, provider=provider)
+
+    def clear_task_ai_model(self, task: str) -> None:
+        """Stop pinning a model for this task; it follows the global default again."""
+        self._clear_task_ai_pin(task, "model")
+
+    def _set_task_ai_pin(
+        self, task: str, key: str, value: str, *, provider: Optional[str]
+    ) -> None:
+        """
+        Write one pin key, creating the task's preference if it has none.
+
+        Creating one has a visible consequence worth knowing: the task's provider KIND
+        stops being the step's default and becomes a stored choice, so the config screen
+        will show it as the user's pick. Clearing the pin does not undo that - removing the
+        whole preference (the row's Clear action) does.
+        """
+        prefs = self.get_ai_preferences_config()
+        existing = prefs["tasks"].get(task)
+
+        if existing is None:
+            if not provider:
+                raise ValueError(
+                    f"cannot pin '{key}' for task '{task}': it has no stored preference and "
+                    f"no provider was given to create one"
+                )
+            existing = {"provider": provider}
+            prefs["tasks"][task] = existing
+
+        existing[key] = value
+        self.save_ai_preferences_config(prefs)
+
+    def _clear_task_ai_pin(self, task: str, key: str) -> None:
+        """Delete one pin key, leaving the rest of the preference untouched."""
+        prefs = self.get_ai_preferences_config()
+        existing = prefs["tasks"].get(task)
+        if not existing or key not in existing:
+            return
+        del existing[key]
+        self.save_ai_preferences_config(prefs)
+
+    def get_task_ai_preference(self, task: str) -> Optional[dict]:
+        """The stored preference for a task, or None. Reads the global file."""
+        return self.get_ai_preferences_config()["tasks"].get(task)
+
     def _write_toml(self, path: Path, data: dict) -> None:
         """Write raw TOML data to disk."""
         if not path.parent.exists():

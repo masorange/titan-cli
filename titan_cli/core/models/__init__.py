@@ -136,14 +136,34 @@ class AIConfig(BaseModel):
 
 class AIProviderPreference(BaseModel):
     """
-    A persisted choice of which KIND of provider to use for an AI task.
+    A persisted choice of how an AI task is served: which KIND of provider, and
+    optionally which CLI and model within that kind.
 
-    Only the provider type is stored. Which connection or which CLI serves it is a single
-    global choice (`AIConfig.default_connection` / `AIConfig.default_cli`), so changing the
-    default in one place changes every task that uses that kind of provider.
+    `cli` and `model` are SPARSE overrides: `None` means "inherit the global default"
+    (`AIConfig.default_cli` / `AIConfig.cli_models[cli]`), which is what every task did
+    before they existed. Only a task the user deliberately pinned stops following a change
+    to the global default, so one edit there still moves everything else.
+
+    Which remote CONNECTION serves a `remote` task is deliberately not here: it stays a
+    single global choice (`AIConfig.default_connection`). The need it would answer - "this
+    repository must not use the company gateway" - is per-project, not per-task.
+
+    A pin is not a guarantee: it is resolved through availability like any other instance,
+    so a pinned CLI that is not installed is reported by name and never swapped for another.
     """
 
     provider: str = Field(..., description="AIProviderType value, e.g. 'remote', 'cli_headless'")
+    cli: Optional[str] = Field(
+        None,
+        description="CLI this task pins, overriding AIConfig.default_cli. None inherits.",
+    )
+    model: Optional[str] = Field(
+        None,
+        description=(
+            "Model this task pins for its CLI, overriding AIConfig.cli_models. None inherits. "
+            "An explicit model= at the call site still outranks it."
+        ),
+    )
 
 
 class AIPreferences(BaseModel):

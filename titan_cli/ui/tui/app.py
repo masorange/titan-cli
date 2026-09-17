@@ -6,6 +6,7 @@ Main Textual application for Titan CLI with fixed status bar and theme support.
 from textual.app import App
 from textual.binding import Binding
 
+from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.external_cli.launcher import launcher_for
@@ -63,6 +64,11 @@ class TitanApp(App):
         self.title = "Titan CLI"
         self.sub_title = "Development Tools Orchestrator"
 
+        # What the user chose for this session only, via F2/F3. One mutable instance for
+        # the whole app: every workflow run is handed this object, not a copy, so changing
+        # it between runs takes effect without rebuilding anything. Never persisted.
+        self.ai_session_override = AISessionOverride()
+
     def on_mount(self) -> None:
         """Initialize app and show initial screen."""
         if self._initial_screen is not None:
@@ -101,7 +107,7 @@ class TitanApp(App):
         return exit_code
 
     def action_quick_cli(self) -> None:
-        """Open the quick default-CLI picker from any screen."""
+        """Open the quick CLI picker from any screen."""
         from titan_cli.ai.router.availability import AIAvailabilityChecker
         from titan_cli.core.security import create_broker_factory
         from titan_cli.ui.tui.screens.ai_routing import QuickCliModal, installed_clis
@@ -121,12 +127,24 @@ class TitanApp(App):
         def on_picked(result) -> None:
             if result is None:
                 return
+            if result.clear_session:
+                self.clear_ai_session_override()
+                return
             if result.pick_model:
                 open_cli_model_picker(self, self.config, result.cli_name)
+                return
+            if result.session_only:
+                self.ai_session_override.cli = result.cli_name
+                self.refresh_status_bar()
+                self.notify(
+                    f"{result.cli_name} for this session only - your saved settings are "
+                    f"untouched."
+                )
                 return
             if result.cli_name == current:
                 return
             self.config.set_default_ai_cli(result.cli_name)
+            self.refresh_status_bar()
             self.notify(f"Titan will run {result.cli_name}.")
 
         self.push_screen(
@@ -134,9 +152,33 @@ class TitanApp(App):
                 installed,
                 current=current,
                 models=ai_config.cli_models if ai_config else None,
+                session_override=self.ai_session_override,
             ),
             callback=on_picked,
         )
+
+    def clear_ai_session_override(self) -> None:
+        """Drop the session override so saved configuration applies again."""
+        if not self.ai_session_override.is_active:
+            return
+        self.ai_session_override.clear()
+        self.refresh_status_bar()
+        self.notify("Session override cleared - your saved settings apply again.")
+
+    def refresh_status_bar(self) -> None:
+        """Repaint the current screen's status bar, if it has one.
+
+        The session override is app state with no config write behind it, so nothing else
+        would tell the bar to change - and an override the bar does not show is an
+        override the user will forget is on.
+        """
+        screen = self.screen
+        updater = getattr(screen, "refresh_status_bar", None)
+        if callable(updater):
+            try:
+                updater()
+            except Exception:
+                pass
 
     def action_quick_model(self) -> None:
         """Open the model picker for the default AI connection, from any screen.

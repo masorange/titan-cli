@@ -348,8 +348,51 @@ def _saved_notice(config, cli_name: str, model: str) -> str:
     )
 
 
+def open_model_picker_for_cli(
+    app,
+    cli_name: str,
+    *,
+    on_picked,
+    current: Optional[str] = None,
+    title: Optional[str] = None,
+) -> None:
+    """Ask which model a CLI should run with, and hand the answer to the caller.
+
+    Asking is all this does - where the answer is stored is the caller's business, which
+    is what lets the same picker serve the global pin and a single task's pin. The modal
+    itself is already source-agnostic (a loader callable plus free text); only the
+    destination ever differed.
+
+    Args:
+        app: The running app, for pushing the modal.
+        cli_name: The CLI whose model list is offered.
+        on_picked: Called with the chosen identifier, or None when cancelled or unchanged.
+        current: The model to prefill and mark as current.
+        title: Overrides the default question, for callers pinning something narrower
+            than "what this CLI runs".
+    """
+    from titan_cli.external_cli.configs import CLI_REGISTRY
+
+    display_name = CLI_REGISTRY.get(cli_name, {}).get("display_name", cli_name)
+
+    app.push_screen(
+        SelectModelModal(
+            title or f"Which model should {display_name} run?",
+            f"command: {cli_name}",
+            cli_model_loader(cli_name),
+            current=current,
+            loading_message=f"Asking {cli_name} which models it offers...",
+            empty_message=(
+                f"{display_name} does not publish a model list - type the identifier it "
+                "expects."
+            ),
+        ),
+        on_picked,
+    )
+
+
 def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
-    """Ask which model a CLI should run with, and save the answer.
+    """Ask which model a CLI should run with GLOBALLY, and save the answer.
 
     Args:
         app: The running app, for pushing the modal and notifying.
@@ -357,9 +400,6 @@ def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
         cli_name: The CLI command name the model is pinned to.
         on_saved: Called after a successful save, for callers that repaint something.
     """
-    from titan_cli.external_cli.configs import CLI_REGISTRY
-
-    display_name = CLI_REGISTRY.get(cli_name, {}).get("display_name", cli_name)
     current = config.get_cli_model(cli_name)
 
     def on_picked(model: Optional[str]) -> None:
@@ -374,25 +414,13 @@ def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
         if on_saved:
             on_saved()
 
-    app.push_screen(
-        SelectModelModal(
-            f"Which model should {display_name} run?",
-            f"command: {cli_name}",
-            cli_model_loader(cli_name),
-            current=current,
-            loading_message=f"Asking {cli_name} which models it offers...",
-            empty_message=(
-                f"{display_name} does not publish a model list - type the identifier it "
-                "expects."
-            ),
-        ),
-        on_picked,
-    )
+    open_model_picker_for_cli(app, cli_name, on_picked=on_picked, current=current)
 
 
 __all__ = [
     "ModelChoice",
     "SelectModelModal",
+    "open_model_picker_for_cli",
     "CUSTOM_OPTION_ID",
     "cli_model_loader",
     "gateway_model_loader",

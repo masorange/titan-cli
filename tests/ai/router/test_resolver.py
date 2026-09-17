@@ -17,6 +17,7 @@ from titan_cli.ai.router import (
     AIRouteResolver,
 )
 from titan_cli.ai.router.availability import AIProviderAvailability
+from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.models import (
     AIConfig,
     AIConnectionConfig,
@@ -294,24 +295,177 @@ def test_unknown_provider_value_is_reported_not_silently_replaced(availability):
     assert "commit_message" in decision.reason
 
 
-def test_leftover_instance_keys_in_a_stored_preference_are_ignored(availability):
-    """
-    A preference written before instances moved to global settings must resolve from the
-    global defaults, not from the stale instance it still carries on disk.
-    """
-    preferences = AIPreferences.model_validate(
-        {"tasks": {"commit_message": {"provider": "cli_headless", "cli": "gemini"}}}
+def _pinned_config(
+    task: str,
+    provider: str,
+    *,
+    cli=None,
+    model=None,
+    default_cli: str = "claude",
+    cli_models=None,
+) -> AIConfig:
+    """An AIConfig whose one task preference carries an instance and/or model pin."""
+    config = _config(default_cli=default_cli)
+    config.cli_models = dict(cli_models or {})
+    config.preferences = AIPreferences(
+        tasks={task: AIProviderPreference(provider=provider, cli=cli, model=model)}
     )
-    assert not hasattr(preferences.tasks["commit_message"], "cli")
+    return config
 
-    config = _config(default_cli="claude")
-    config.preferences = preferences
-    resolver = AIRouteResolver(config, availability)
 
-    decision = resolver.resolve(task="commit_message")
+class TestPerTaskInstancePin:
+    """
+    A task may pin the CLI and the model that serve it, as a SPARSE override.
 
-    assert isinstance(decision, AIRouteDecision)
-    assert decision.cli == "claude"
+    This reverses ai_execution_service D-017.1, which stored only the provider kind and
+    dropped any instance key it found (see ai_task_routing D-001). The reversal is bounded:
+    None still means "inherit the global default", so an unpinned task behaves exactly as
+    it did before, and a pin is still resolved through availability - never swapped.
+    """
+
+    def test_a_pinned_cli_beats_the_global_default(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="gemini", default_cli="claude"),
+            FakeAvailability(headless=["claude", "gemini"]),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert isinstance(decision, AIRouteDecision)
+        assert decision.cli == "gemini"
+
+    def test_an_unpinned_task_still_follows_the_global_default(self):
+        """The sparse half of D-001: no pin means today's behavior, unchanged."""
+        config = _pinned_config(
+            "commit_message", "cli_headless", cli="gemini", default_cli="claude"
+        )
+        config.preferences.tasks["slack_summary"] = AIProviderPreference(provider="cli_headless")
+        resolver = AIRouteResolver(
+            config, FakeAvailability(headless=["claude", "gemini", "codex"])
+        )
+
+        assert resolver.resolve(task="commit_message").cli == "gemini"
+        assert resolver.resolve(task="slack_summary").cli == "claude"
+
+        # What F2 does: change the global default. Only the unpinned task moves.
+        config.default_cli = "codex"
+
+        assert resolver.resolve(task="commit_message").cli == "gemini"
+        assert resolver.resolve(task="slack_summary").cli == "codex"
+
+    def test_a_pinned_cli_that_is_gone_is_reported_by_name_not_swapped(self):
+        """D-017's surviving rule: a pin is resolved through availability like any instance."""
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="gemini", default_cli="claude"),
+            FakeAvailability(headless=["claude"]),
+        )
+
+        resolution = resolver.resolve(task="commit_message")
+
+        assert isinstance(resolution, AIRouteNeedsInput)
+        assert "gemini" in resolution.reason
+        assert "not available" in resolution.reason
+
+    def test_a_cli_pin_never_redirects_a_remote_task(self):
+        """D-004: the connection stays global. A stale cli pin must not leak into it."""
+        config = _pinned_config("commit_message", "remote", cli="gemini")
+        resolver = AIRouteResolver(config, FakeAvailability(remote=["work-litellm"]))
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert isinstance(decision, AIRouteDecision)
+        assert decision.connection_id == "work-litellm"
+        assert decision.cli is None
+
+    def test_the_pin_survives_an_interactive_task_too(self):
+        resolver = AIRouteResolver(
+            _pinned_config("generic_assistant", "cli_interactive", cli="gemini"),
+            FakeAvailability(interactive=["claude", "gemini"]),
+        )
+
+        decision = resolver.resolve(task="generic_assistant")
+
+        assert isinstance(decision, AIRouteDecision)
+        assert decision.cli == "gemini"
+
+
+class TestPerTaskModelPin:
+    """
+    The decision names the model that will run, so the log and the on-screen chip can too.
+
+    Precedence inside the resolver (ai_task_routing D-002, lower rungs only - the call-site
+    model= and the session override are the executor's business): task pin > cli_models.
+    """
+
+    def test_the_decision_carries_the_pinned_model(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", model="haiku-fast"),
+            FakeAvailability(headless=["claude"]),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert isinstance(decision, AIRouteDecision)
+        assert decision.cli == "claude"
+        assert decision.model == "haiku-fast"
+
+    def test_the_task_pin_beats_the_global_model_for_that_cli(self):
+        resolver = AIRouteResolver(
+            _pinned_config(
+                "commit_message",
+                "cli_headless",
+                model="haiku-fast",
+                cli_models={"claude": "opus-slow"},
+            ),
+            FakeAvailability(headless=["claude"]),
+        )
+
+        assert resolver.resolve(task="commit_message").model == "haiku-fast"
+
+    def test_without_a_pin_the_decision_carries_the_global_model(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli_models={"claude": "opus-slow"}),
+            FakeAvailability(headless=["claude"]),
+        )
+
+        assert resolver.resolve(task="commit_message").model == "opus-slow"
+
+    def test_the_global_model_follows_the_pinned_cli_not_the_default_cli(self):
+        """A CLI pin changes which cli_models entry applies - they are keyed by CLI."""
+        resolver = AIRouteResolver(
+            _pinned_config(
+                "commit_message",
+                "cli_headless",
+                cli="gemini",
+                default_cli="claude",
+                cli_models={"claude": "opus-slow", "gemini": "flash"},
+            ),
+            FakeAvailability(headless=["claude", "gemini"]),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert decision.cli == "gemini"
+        assert decision.model == "flash"
+
+    def test_nothing_pinned_anywhere_leaves_the_model_unset(self):
+        """None still means 'let the CLI pick', which is what it meant before."""
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless"),
+            FakeAvailability(headless=["claude"]),
+        )
+
+        assert resolver.resolve(task="commit_message").model is None
+
+    def test_a_model_pin_does_not_reach_a_remote_decision(self):
+        """cli_models and a task's model pin are CLI vocabulary; a connection has its own."""
+        config = _pinned_config("commit_message", "remote", model="haiku-fast")
+        resolver = AIRouteResolver(config, FakeAvailability(remote=["work-litellm"]))
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert decision.connection_id == "work-litellm"
+        assert decision.model is None
 
 
 def test_leftover_workflow_scope_in_config_has_no_effect(availability):
@@ -429,3 +583,95 @@ def test_missing_ai_config_needs_input():
 
     assert isinstance(resolution, AIRouteNeedsInput)
     assert resolution.candidates == []
+
+
+class TestSessionOverride:
+    """
+    What the user chose with F2/F3 for this session only (ai_task_routing D-003).
+
+    It sits above a task's pin and the global default, and below an explicit call-site
+    model= (which the executor applies). It overrides INSTANCES, never kinds.
+    """
+
+    def test_the_session_cli_beats_a_task_pin(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="gemini"),
+            FakeAvailability(headless=["claude", "gemini", "codex"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        assert resolver.resolve(task="commit_message").cli == "codex"
+
+    def test_the_session_cli_beats_the_global_default(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", default_cli="claude"),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        assert resolver.resolve(task="commit_message").cli == "codex"
+
+    def test_the_session_model_beats_a_task_pin(self):
+        resolver = AIRouteResolver(
+            _pinned_config(
+                "commit_message",
+                "cli_headless",
+                model="haiku-fast",
+                cli_models={"claude": "opus-slow"},
+            ),
+            FakeAvailability(headless=["claude"]),
+            session_override=AISessionOverride(model="sonnet-now"),
+        )
+
+        assert resolver.resolve(task="commit_message").model == "sonnet-now"
+
+    def test_an_inactive_override_changes_nothing(self):
+        """An empty override must be indistinguishable from having none at all."""
+        config = _pinned_config("commit_message", "cli_headless", cli="gemini", model="flash")
+        availability = FakeAvailability(headless=["claude", "gemini"])
+
+        without = AIRouteResolver(config, availability).resolve(task="commit_message")
+        with_empty = AIRouteResolver(
+            config, availability, session_override=AISessionOverride()
+        ).resolve(task="commit_message")
+
+        assert (without.cli, without.model) == (with_empty.cli, with_empty.model)
+
+    def test_a_session_cli_that_is_gone_is_reported_by_name(self):
+        """Overriding is still choosing an instance, so the no-silent-swap rule applies."""
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless"),
+            FakeAvailability(headless=["claude"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        resolution = resolver.resolve(task="commit_message")
+
+        assert isinstance(resolution, AIRouteNeedsInput)
+        assert "codex" in resolution.reason
+        assert "not available" in resolution.reason
+
+    def test_a_session_cli_never_redirects_a_remote_task(self):
+        """It overrides instances, not kinds: a remote task stays on its connection."""
+        config = _pinned_config("commit_message", "remote")
+        resolver = AIRouteResolver(
+            config,
+            FakeAvailability(remote=["work-litellm"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert isinstance(decision, AIRouteDecision)
+        assert decision.provider == AIProviderType.REMOTE
+        assert decision.connection_id == "work-litellm"
+
+    def test_a_session_override_turns_an_off_task_on_for_nobody(self):
+        """Off is a kind, and kinds are not what this overrides."""
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "off"),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        assert resolver.resolve(task="commit_message").provider == AIProviderType.OFF

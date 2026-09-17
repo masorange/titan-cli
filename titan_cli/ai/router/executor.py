@@ -41,6 +41,7 @@ from .models import (
     AIRoutePolicy,
 )
 from .resolver import AIRouteNeedsInput, AIRouteResolution, AIRouteResolver
+from .session import AISessionOverride
 
 logger = get_logger(__name__)
 
@@ -67,12 +68,20 @@ def route_summary(decision: AIRouteDecision) -> str:
 
     The instance comes first because it is the part that identifies the answer ("claude", the
     connection's name); the kind of provider qualifies it.
+
+    The model is named when the decision carries one, in the same `instance / model` shape
+    the status bar uses. It stops being optional detail once a task can pin its own: "claude"
+    alone no longer tells a user whether the run honored the pin they set.
     """
     if decision.provider == AIProviderType.OFF:
         return "AI is off for this task"
     instance = decision.cli or decision.connection_id
     label = provider_label(decision.provider)
-    return f"{instance} · {label}" if instance else label
+    if not instance:
+        return label
+    if decision.model:
+        return f"{instance} / {decision.model} · {label}"
+    return f"{instance} · {label}"
 
 
 class AIExecutor:
@@ -89,6 +98,7 @@ class AIExecutor:
         ai_config: Optional[AIConfig],
         provider_factory: Optional[Callable] = None,
         secret_broker: Optional[SecretBroker] = None,
+        session_override: Optional[AISessionOverride] = None,
     ):
         """
         Args:
@@ -97,11 +107,14 @@ class AIExecutor:
                 clients — normally `titan_cli.core.security.create_ai_provider`.
             secret_broker: Core-scoped broker the availability checker uses
                 to test key existence without ever reading a value.
+            session_override: The CLI/model the user chose for this session only,
+                normally the app's single mutable instance. Held rather than copied so
+                a change made after this executor was built still applies.
         """
         self.ai_config = ai_config
         self.provider_factory = provider_factory
         self.availability = AIAvailabilityChecker(ai_config, secret_broker)
-        self.resolver = AIRouteResolver(ai_config, self.availability)
+        self.resolver = AIRouteResolver(ai_config, self.availability, session_override)
         self._remote_clients: Dict[str, AIClient] = {}
 
     def resolve(
@@ -144,6 +157,7 @@ class AIExecutor:
                 task=resolved_policy.task,
                 provider=str(resolution.provider),
                 identifier=resolution.cli or resolution.connection_id,
+                model=resolution.model,
                 reason=resolution.reason,
             )
 
@@ -301,21 +315,44 @@ class AIExecutor:
                 )
 
     def model_for_cli(self, cli: str, model: Optional[str] = None) -> Optional[str]:
-        """The model this CLI should run with: the caller's override, else the user's.
+        """The model this CLI should run with GLOBALLY: the caller's override, else the user's.
 
         A step that asks for a specific model wins - it is asking for something the
         prompt needs. Everything else honors what the user pinned for that CLI in AI
         Configuration, and `None` means the CLI picks for itself, as before.
 
-        Public because a step that drives a CLI adapter itself still has to honor the
-        same setting, and the only alternative is each such step reaching into the
-        config for a key it would have to spell correctly.
+        This knows nothing about tasks, so it cannot see a task's own model pin. A caller
+        holding a decision should use `model_for_decision` instead; this stays for callers
+        that have only a CLI name.
         """
         if model is not None:
             return model
         if not self.ai_config:
             return None
         return self.ai_config.cli_models.get(cli)
+
+    def model_for_decision(
+        self, decision: AIRouteDecision, model: Optional[str] = None
+    ) -> Optional[str]:
+        """The model to run this decision with, applying the top rungs of the precedence.
+
+        Highest wins: an explicit call-site `model=`, then the model the resolver already
+        attached to the decision (the task's pin, else the global entry for the resolved
+        CLI). The call site stays on top because a step passing `model=` is the CODE
+        stating a requirement - the review profile picks a cheap model for exploration and
+        an expensive one for synthesis - not a preference competing with the user's.
+
+        The fallback to `model_for_cli` covers a decision built by hand rather than by the
+        resolver, which would otherwise silently lose the user's global setting.
+
+        Public because a step that drives a CLI adapter itself (rather than going through
+        `generate_text`) still has to honor the same setting.
+        """
+        if model is not None:
+            return model
+        if decision.model is not None:
+            return decision.model
+        return self.model_for_cli(decision.cli) if decision.cli else None
 
     def _remote_generator(self, decision: AIRouteDecision) -> AIExecutionResult[Any]:
         client = self.remote_client(decision)
@@ -368,7 +405,7 @@ class AIExecutor:
         return AIExecutionSuccess(
             decision=decision,
             data=HeadlessGenerator(
-                adapter, cwd=cwd, timeout=timeout, model=self.model_for_cli(cli, model)
+                adapter, cwd=cwd, timeout=timeout, model=self.model_for_decision(decision, model)
             ),
         )
 
@@ -594,7 +631,7 @@ class AIExecutor:
             )
 
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-        model = self.model_for_cli(cli, model)
+        model = self.model_for_decision(decision, model)
 
         started = time.monotonic()
         try:

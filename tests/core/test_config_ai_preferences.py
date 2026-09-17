@@ -37,10 +37,14 @@ def test_task_preference_roundtrips_to_disk(config: TitanConfig):
     assert written["tasks"]["commit_message"] == {"provider": "cli_headless"}
 
 
-def test_a_task_preference_stores_only_the_provider_kind(config: TitanConfig):
+def test_a_task_preference_stores_nothing_it_was_not_given(config: TitanConfig):
     """
-    Which CLI or connection runs the task is a global setting, so it must not be copied
-    into every task - one place to change it, not one per task.
+    A preference is sparse: the provider kind alone, unless the user pinned an instance.
+
+    This used to assert that the provider kind was the ONLY thing storable (D-017.1). It
+    now asserts the weaker, still important thing - nothing is written that the caller did
+    not ask for - because a task may pin its own CLI and model (D-001), but an unpinned
+    task must keep inheriting the global defaults rather than freezing a copy of them.
     """
     config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
 
@@ -146,3 +150,123 @@ def test_an_unpinned_cli_has_no_model(config: TitanConfig):
     config.set_cli_model("claude", "opus")
 
     assert config.get_cli_model("gemini") is None
+
+
+class TestPerTaskPins:
+    """
+    Setting and clearing the per-task CLI and model pins (ai_task_routing air-002).
+
+    The rule that shapes all of it: a clear DELETES its key. TOML has no null, and this
+    saver (unlike the connections one) does not filter Nones, so a pin cleared by writing
+    None makes tomli_w raise TypeError - verified, not assumed. Deleting the key is the
+    only shape that means "inherit again".
+    """
+
+    def test_pinning_a_cli_keeps_the_provider_kind(self, config: TitanConfig):
+        config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
+
+        config.set_task_ai_cli("commit_message", "gemini")
+
+        stored = _written_preferences(config)["tasks"]["commit_message"]
+        assert stored == {"provider": "cli_headless", "cli": "gemini"}
+
+    def test_pinning_a_model_keeps_the_cli_pin(self, config: TitanConfig):
+        """Each setter touches one key; they are set independently and must not clobber."""
+        config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
+        config.set_task_ai_cli("commit_message", "gemini")
+
+        config.set_task_ai_model("commit_message", "flash")
+
+        stored = _written_preferences(config)["tasks"]["commit_message"]
+        assert stored == {"provider": "cli_headless", "cli": "gemini", "model": "flash"}
+
+    def test_clearing_a_pin_removes_the_key_rather_than_emptying_it(self, config: TitanConfig):
+        config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
+        config.set_task_ai_cli("commit_message", "gemini")
+        config.set_task_ai_model("commit_message", "flash")
+
+        config.clear_task_ai_cli("commit_message")
+
+        stored = _written_preferences(config)["tasks"]["commit_message"]
+        assert "cli" not in stored
+        assert stored == {"provider": "cli_headless", "model": "flash"}
+
+    def test_a_cleared_pin_stays_cleared_after_a_reload(self, config: TitanConfig):
+        """The failure this guards: a dropped None reading back as the old value."""
+        config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
+        config.set_task_ai_cli("commit_message", "gemini")
+        config.clear_task_ai_cli("commit_message")
+
+        config.load()
+
+        assert config.config.ai.preferences.tasks["commit_message"].cli is None
+
+    def test_clearing_a_pin_that_was_never_set_is_a_no_op(self, config: TitanConfig):
+        config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
+
+        config.clear_task_ai_model("commit_message")
+        config.clear_task_ai_cli("unknown_task")
+
+        assert _written_preferences(config)["tasks"]["commit_message"] == {
+            "provider": "cli_headless"
+        }
+
+    def test_pinning_a_task_with_no_preference_needs_a_provider(self, config: TitanConfig):
+        """A pin cannot exist on its own: the preference it lives in requires a kind."""
+        with pytest.raises(ValueError) as excinfo:
+            config.set_task_ai_cli("commit_message", "gemini")
+
+        assert "commit_message" in str(excinfo.value)
+        assert "no stored preference" in str(excinfo.value)
+
+    def test_pinning_creates_the_preference_when_given_a_provider(self, config: TitanConfig):
+        config.set_task_ai_cli("commit_message", "gemini", provider="cli_headless")
+
+        assert _written_preferences(config)["tasks"]["commit_message"] == {
+            "provider": "cli_headless",
+            "cli": "gemini",
+        }
+
+    def test_an_existing_preference_keeps_its_own_kind(self, config: TitanConfig):
+        """`provider=` is a creation argument, not a way to change the kind sideways."""
+        config.upsert_task_ai_preference("commit_message", {"provider": "cli_interactive"})
+
+        config.set_task_ai_cli("commit_message", "gemini", provider="cli_headless")
+
+        assert _written_preferences(config)["tasks"]["commit_message"]["provider"] == (
+            "cli_interactive"
+        )
+
+    def test_a_pin_is_visible_in_memory_without_reloading(self, config: TitanConfig):
+        """A step resolving a route right after the screen wrote it must see the pin."""
+        config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
+
+        config.set_task_ai_cli("commit_message", "gemini")
+        config.set_task_ai_model("commit_message", "flash")
+
+        pinned = config.config.ai.preferences.tasks["commit_message"]
+        assert (pinned.cli, pinned.model) == ("gemini", "flash")
+
+    def test_pins_are_independent_between_tasks(self, config: TitanConfig):
+        config.set_task_ai_cli("commit_message", "gemini", provider="cli_headless")
+        config.set_task_ai_cli("code_review_findings", "claude", provider="cli_headless")
+
+        tasks = _written_preferences(config)["tasks"]
+        assert tasks["commit_message"]["cli"] == "gemini"
+        assert tasks["code_review_findings"]["cli"] == "claude"
+
+    def test_deleting_the_preference_takes_its_pins_with_it(self, config: TitanConfig):
+        config.set_task_ai_cli("commit_message", "gemini", provider="cli_headless")
+
+        config.delete_task_ai_preference("commit_message")
+
+        assert "commit_message" not in _written_preferences(config)["tasks"]
+
+    def test_get_task_ai_preference_reads_what_was_written(self, config: TitanConfig):
+        config.set_task_ai_model("commit_message", "flash", provider="cli_headless")
+
+        assert config.get_task_ai_preference("commit_message") == {
+            "provider": "cli_headless",
+            "model": "flash",
+        }
+        assert config.get_task_ai_preference("never_configured") is None

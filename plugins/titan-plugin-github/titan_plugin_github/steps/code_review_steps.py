@@ -1032,7 +1032,7 @@ def _resolve_review_adapter(
     if adapter is None:
         return None, f"the configured CLI '{resolution.cli}' is not available", False
 
-    model = router.model_for_cli(resolution.cli)
+    model = router.model_for_decision(resolution)
     # Logged at the decision, not at each call: these steps drive the CLI themselves, so
     # nothing else in the log says which model they ran with - which is precisely what
     # made an earlier drop of this setting invisible until someone read the CLI's own

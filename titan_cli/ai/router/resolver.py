@@ -12,9 +12,11 @@ levels: a runtime override, the user's persisted preference for the task, and
 the step's own declared `preferred` order.
 
 Each of those levels answers only WHICH KIND of provider to use. Which concrete
-connection or CLI serves that kind is a single global setting
-(`AIConfig.default_connection` / `AIConfig.default_cli`), attached here so every
-decision leaves this module naming the instance that will actually run.
+connection or CLI serves that kind comes from the global settings
+(`AIConfig.default_connection` / `AIConfig.default_cli`), unless the task pinned a CLI
+of its own - a sparse override where `None` still means "inherit the global". Either way
+it is attached here, so every decision leaves this module naming the instance, and the
+model, that will actually run.
 """
 
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ from titan_cli.core.models import AIConfig, AIProviderPreference
 from .availability import AIAvailabilityChecker, AIProviderAvailability
 from .enums import AIProviderType
 from .models import AIRouteDecision, AIRoutePolicy
+from .session import AISessionOverride
 
 
 @dataclass
@@ -47,9 +50,23 @@ AIRouteResolution = AIRouteDecision | AIRouteNeedsInput
 class AIRouteResolver:
     """Resolves which provider a task should use, given persisted preferences."""
 
-    def __init__(self, ai_config: Optional[AIConfig], availability: AIAvailabilityChecker):
+    def __init__(
+        self,
+        ai_config: Optional[AIConfig],
+        availability: AIAvailabilityChecker,
+        session_override: Optional[AISessionOverride] = None,
+    ):
+        """
+        Args:
+            ai_config: The AI configuration, or None when AI is unconfigured.
+            availability: Tells which connections and CLIs can actually be used.
+            session_override: What the user chose for this session only (F2/F3). It
+                outranks a task's pin and the global default, but is never persisted and
+                never changes WHICH KIND of provider runs a task.
+        """
         self.ai_config = ai_config
         self.availability = availability
+        self.session_override = session_override
 
     def resolve(
         self,
@@ -66,7 +83,9 @@ class AIRouteResolver:
             refusal = self._guard_executable(runtime_override, policy, task, source="requested")
             if refusal is not None:
                 return refusal
-            return self._decide(runtime_override, reason="runtime override", policy=policy)
+            return self._decide(
+                runtime_override, reason="runtime override", task=task, policy=policy
+            )
 
         preferences = self._preferences()
 
@@ -83,7 +102,9 @@ class AIRouteResolver:
             # what to do, where a generic "nothing resolved" would not.
             first_obstacle: Optional[AIRouteNeedsInput] = None
             for provider in policy.preferred:
-                resolved = self._decide(provider, reason=f"step default '{provider}'", policy=policy)
+                resolved = self._decide(
+                    provider, reason=f"step default '{provider}'", task=task, policy=policy
+                )
                 if isinstance(resolved, AIRouteDecision):
                     return resolved
                 first_obstacle = first_obstacle or resolved
@@ -99,19 +120,21 @@ class AIRouteResolver:
         self,
         provider: AIProviderType,
         reason: str,
+        task: str = "",
         policy: Optional[AIRoutePolicy] = None,
     ) -> AIRouteResolution:
         """
         Turn a provider TYPE into a decision naming the instance that will run it.
 
-        The instance is never part of the choice being made here - it is the single global
-        default for that kind of provider. A missing or uninstalled default is reported by
-        name rather than swapped for whatever else happens to be available.
+        The instance is the global default for that kind of provider, unless the task
+        pinned one of its own. Either way it is resolved the same: a missing or
+        uninstalled instance is reported by name rather than swapped for whatever else
+        happens to be available - that rule is what makes a pin safe to offer.
         """
         if provider == AIProviderType.OFF:
             return AIRouteDecision(provider=provider, reason=reason)
 
-        identifier = self._configured_instance(provider)
+        identifier = self._configured_instance(provider, task)
         if identifier is None:
             return AIRouteNeedsInput(
                 reason=self._missing_instance_reason(provider),
@@ -129,15 +152,61 @@ class AIRouteResolver:
 
         if provider == AIProviderType.REMOTE:
             return AIRouteDecision(provider=provider, connection_id=identifier, reason=reason)
-        return AIRouteDecision(provider=provider, cli=identifier, reason=reason)
+        return AIRouteDecision(
+            provider=provider,
+            cli=identifier,
+            reason=reason,
+            model=self._resolved_model(identifier, task),
+        )
 
-    def _configured_instance(self, provider: AIProviderType) -> Optional[str]:
-        """The global default connection or CLI serving this kind of provider."""
+    def _configured_instance(self, provider: AIProviderType, task: str = "") -> Optional[str]:
+        """
+        The instance serving this kind of provider: the session override, else the task's
+        pin, else the global default.
+
+        Only CLIs can be pinned. A `cli` left on a remote task's preference is inert here
+        rather than an error, because the two are stored side by side and a task whose
+        provider changed from CLI to remote would otherwise start failing on a leftover.
+        """
         if not self.ai_config:
             return None
         if provider == AIProviderType.REMOTE:
             return self.ai_config.default_connection
+
+        if self.session_override and self.session_override.cli:
+            return self.session_override.cli
+
+        pinned = self._task_preference(task)
+        if pinned is not None and pinned.cli:
+            return pinned.cli
         return self.ai_config.default_cli
+
+    def _resolved_model(self, cli: str, task: str) -> Optional[str]:
+        """
+        The model this CLI should run with for this task: the session override, else the
+        task's pin, else the global `cli_models` entry for the CLI that was resolved.
+
+        `None` means the CLI picks for itself. Only an explicit call-site `model=` sits
+        above these, and it is applied by `AIExecutor` - it is not a user setting, so it
+        does not belong in the decision this layer records.
+        """
+        if not self.ai_config:
+            return None
+
+        if self.session_override and self.session_override.model:
+            return self.session_override.model
+
+        pinned = self._task_preference(task)
+        if pinned is not None and pinned.model:
+            return pinned.model
+        return self.ai_config.cli_models.get(cli)
+
+    def _task_preference(self, task: str) -> Optional[AIProviderPreference]:
+        """The persisted preference for a task, if there is one."""
+        preferences = self._preferences()
+        if not preferences or not task:
+            return None
+        return preferences.tasks.get(task)
 
     @staticmethod
     def _instance_noun(provider: AIProviderType) -> str:
@@ -241,7 +310,7 @@ class AIRouteResolver:
         refusal = self._guard_executable(provider, policy, task)
         if refusal is not None:
             return refusal
-        return self._decide(provider, reason=reason, policy=policy)
+        return self._decide(provider, reason=reason, task=task, policy=policy)
 
     def _identifier_available(self, provider: AIProviderType, identifier: str) -> bool:
         """

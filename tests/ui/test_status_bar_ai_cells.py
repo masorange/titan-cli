@@ -96,3 +96,51 @@ def test_the_bar_renders_four_cells():
     cells = _cells(AIConfig(default_cli="claude"))
 
     assert len(cells["rendered"]) == 4
+
+
+class TestSessionOverrideInTheBar:
+    """
+    An active session override takes over the F2 cell and marks itself (air-004, D-003).
+
+    Showing the saved value while something else actually runs would make the bar lie -
+    and this is the only place an override announces itself once the picker is closed.
+    """
+
+    @staticmethod
+    def _cells_with_override(ai_config, *, cli=None, model=None):
+        captured = {}
+
+        async def run():
+            config = _config(ai_config)
+            app = TitanApp(config, initial_screen=lambda: _BarScreen(config))
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.ai_session_override.cli = cli
+                app.ai_session_override.model = model
+                app.refresh_status_bar()
+                await pilot.pause()
+                captured["cli"] = app.screen.query_one(StatusBarWidget).cli_info
+
+        asyncio.run(run())
+        return captured
+
+    def test_an_overridden_cli_replaces_the_saved_one_and_is_starred(self):
+        cells = self._cells_with_override(
+            AIConfig(default_cli="claude", cli_models={"claude": "opus"}), cli="codex"
+        )
+
+        assert cells["cli"] == "F2 codex / default *"
+
+    def test_an_overridden_model_shows_against_the_saved_cli(self):
+        cells = self._cells_with_override(
+            AIConfig(default_cli="claude", cli_models={"claude": "opus"}), model="haiku"
+        )
+
+        assert cells["cli"] == "F2 claude / haiku *"
+
+    def test_no_override_leaves_the_cell_exactly_as_it_was(self):
+        cells = self._cells_with_override(
+            AIConfig(default_cli="claude", cli_models={"claude": "opus"})
+        )
+
+        assert cells["cli"] == "F2 claude / opus"

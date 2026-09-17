@@ -186,7 +186,9 @@ class WorkflowExecutionScreen(BaseScreen):
 
             # Add AI if configured
             ctx_builder.with_ai()
-            ctx_builder.with_ai_router()
+            ctx_builder.with_ai_router(
+                session_override=getattr(app, "ai_session_override", None)
+            )
             ctx_builder.with_titan_config(self.config)
 
             # Add registered plugins to context

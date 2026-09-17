@@ -11,7 +11,7 @@ in the connections grid.
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
@@ -28,6 +28,7 @@ from titan_cli.ai.router.enums import (
 )
 from titan_cli.ai.router.models import AIRouteDecision, AIRoutePolicy
 from titan_cli.ai.router.resolver import AIRouteNeedsInput, AIRouteResolution, AIRouteResolver
+from titan_cli.core.models import AIProviderPreference
 from titan_cli.core.workflows.ai_usage_discovery import (
     DiscoveredAIStep,
     DiscoveredWorkflowAIUsage,
@@ -88,11 +89,27 @@ class TaskRouting:
     resolution: Optional[AIRouteResolution] = None
     has_preference: bool = False
     unenforced_steps: List[str] = field(default_factory=list)
+    pinned_cli: Optional[str] = None
+    pinned_model: Optional[str] = None
 
     @property
     def configurable(self) -> bool:
         """Whether there is anything honest to offer the user for this task."""
         return bool(self.executes)
+
+    @property
+    def can_pin_instance(self) -> bool:
+        """
+        Whether it makes sense to offer this task a CLI and a model of its own.
+
+        Only CLI-served tasks: a remote task's connection is global by design (D-004), so
+        a pin button there would invite a setting that cannot take effect - the same
+        dishonesty the `configurable` check exists to avoid.
+        """
+        return any(
+            provider in self.executes
+            for provider in (AIProviderType.CLI_HEADLESS, AIProviderType.CLI_INTERACTIVE)
+        )
 
     @property
     def needs_setup(self) -> bool:
@@ -141,10 +158,17 @@ def _merged_policy(task: str, steps: Sequence[DiscoveredAIStep]) -> AIRoutePolic
 def build_task_routings(
     usages: Sequence[DiscoveredWorkflowAIUsage],
     resolver: AIRouteResolver,
-    persisted_tasks: Optional[Sequence[str]] = None,
+    preferences: Optional[Mapping[str, AIProviderPreference]] = None,
 ) -> List[TaskRouting]:
-    """Aggregate discovered steps into one entry per task, resolved and ready to render."""
-    persisted = set(persisted_tasks or ())
+    """
+    Aggregate discovered steps into one entry per task, resolved and ready to render.
+
+    `preferences` is the persisted `AIPreferences.tasks` mapping. The rows need the whole
+    preference, not just which tasks have one, because a pinned CLI or model is part of
+    what a row has to state - and a row that shows an instance without saying whether it
+    was pinned or inherited is exactly the staleness confusion pins can cause.
+    """
+    persisted = dict(preferences or {})
     steps_by_task: Dict[str, List[DiscoveredAIStep]] = {}
     workflows_by_task: Dict[str, List[str]] = {}
 
@@ -167,6 +191,8 @@ def build_task_routings(
                 resolution=resolver.resolve(task=task, policy=policy),
                 has_preference=task in persisted,
                 unenforced_steps=[s.step_name for s in steps if not s.enforces],
+                pinned_cli=getattr(persisted.get(task), "cli", None),
+                pinned_model=getattr(persisted.get(task), "model", None),
             )
         )
 
@@ -293,13 +319,16 @@ class SelectProviderTypeModal(ModalScreen[Optional[str]]):
 class QuickCliResult:
     """What the quick picker was asked to do with a CLI.
 
-    Two outcomes, not one: the same row answers "run this one" and "run it with this
-    model", and collapsing them into a bare name would leave the caller guessing which
-    was meant.
+    Several outcomes, not one: the same row answers "run this from now on", "run it with
+    this model", and "run it just for this session". Collapsing them into a bare name
+    would leave the caller guessing which was meant - and the difference between the
+    first and the third is whether anything is written to the user's config at all.
     """
 
     cli_name: str
     pick_model: bool = False
+    session_only: bool = False
+    clear_session: bool = False
 
 
 class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
@@ -336,6 +365,8 @@ class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
     BINDINGS = [
         ("escape", "dismiss_modal", "Cancel"),
         ("m", "pick_model", "Model"),
+        ("s", "use_for_session", "This session"),
+        ("c", "clear_session", "Clear override"),
     ]
 
     def __init__(
@@ -344,12 +375,16 @@ class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
         *,
         current: Optional[str],
         models: Optional[Dict[str, str]] = None,
+        session_override=None,
+        pinned_tasks: Optional[Sequence[str]] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.installed = list(installed)
         self.current = current if current in self.installed else None
         self.models = dict(models or {})
+        self.session_override = session_override
+        self.pinned_tasks = list(pinned_tasks or ())
 
     def compose(self) -> ComposeResult:
         from titan_cli.external_cli.configs import CLI_REGISTRY
@@ -375,7 +410,30 @@ class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
                     )
                 )
             yield StyledOptionList(*options, id="quick-cli-list")
-            yield DimText("Enter to set it · M to choose its model · Esc to cancel.")
+
+            override = self.session_override
+            if override is not None and override.is_active:
+                yield WarningText(
+                    f"{Icons.WARNING} Session override active: {override.describe()}. "
+                    "C to clear it."
+                )
+
+            # Tasks that pin their own CLI will not follow this choice. Saying so here is
+            # what stops the key from looking broken: without it, a pinned task silently
+            # ignoring F2 reads as a bug rather than as the setting the user asked for.
+            if self.pinned_tasks:
+                count = len(self.pinned_tasks)
+                names = ", ".join(self.pinned_tasks[:3])
+                more = f" and {count - 3} more" if count > 3 else ""
+                yield DimText(
+                    f"{count} task{'s' if count != 1 else ''} pin their own CLI and will "
+                    f"not change: {names}{more}."
+                )
+
+            yield DimText(
+                "Enter to set it · S for this session only · M to choose its model · "
+                "Esc to cancel."
+            )
 
     def on_mount(self) -> None:
         if self.current is None or not self.installed:
@@ -407,6 +465,24 @@ class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
         if highlighted is not None:
             self.dismiss(QuickCliResult(highlighted, pick_model=True))
 
+    def action_use_for_session(self) -> None:
+        """Use the highlighted CLI for this session only, writing nothing to config.
+
+        The saved default is what the user decided; this is what they are trying. Keeping
+        them apart is the whole point - otherwise every experiment silently rewrites the
+        configuration it was meant to sidestep.
+        """
+        highlighted = self._highlighted_cli()
+        if highlighted is not None:
+            self.dismiss(QuickCliResult(highlighted, session_only=True))
+
+    def action_clear_session(self) -> None:
+        """Drop any session override, so saved configuration applies again."""
+        override = self.session_override
+        if override is None or not override.is_active:
+            return
+        self.dismiss(QuickCliResult("", clear_session=True))
+
     def _highlighted_cli(self) -> Optional[str]:
         try:
             option_list = self.query_one(StyledOptionList)
@@ -416,6 +492,111 @@ class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
         if index is None or not (0 <= index < len(self.installed)):
             return None
         return self.installed[index]
+
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
+
+# Sentinel option id meaning "stop pinning; follow whatever the global default is".
+# A pin is an override, so removing one has to be expressible in the same picker that
+# sets it - otherwise the only way back is the row's Clear, which also drops the
+# provider kind the user chose.
+TASK_CLI_INHERIT_OPTION = "__inherit__"
+
+
+class SelectTaskCliModal(ModalScreen[Optional[str]]):
+    """
+    Modal for choosing which CLI serves ONE task, overriding the global default.
+
+    Mirrors `QuickCliModal`, which asks the same question for every task at once. Dismisses
+    with a CLI name, with `TASK_CLI_INHERIT_OPTION` to drop the pin, or `None` if cancelled.
+    """
+
+    DEFAULT_CSS = """
+    SelectTaskCliModal {
+        align: center middle;
+    }
+
+    #task-cli-container {
+        width: 74;
+        height: auto;
+        max-height: 26;
+        background: $surface-lighten-1;
+        border: solid $primary;
+        padding: 2;
+    }
+
+    #task-cli-list {
+        height: auto;
+        max-height: 16;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [("escape", "dismiss_modal", "Cancel")]
+
+    def __init__(
+        self,
+        task_label_text: str,
+        installed: Sequence[str],
+        *,
+        pinned: Optional[str] = None,
+        default_cli: Optional[str] = None,
+        models: Optional[Dict[str, str]] = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.task_label_text = task_label_text
+        self.installed = list(installed)
+        self.pinned = pinned
+        self.default_cli = default_cli
+        self.models = dict(models or {})
+
+    def compose(self) -> ComposeResult:
+        from titan_cli.external_cli.configs import CLI_REGISTRY
+
+        with Container(id="task-cli-container"):
+            yield Static(f"{Icons.AI_CONFIG} Which CLI should run {self.task_label_text}?")
+            if not self.installed:
+                yield WarningText(
+                    f"{Icons.WARNING} No supported CLI is installed. "
+                    "Install one and reopen this picker."
+                )
+                yield DimText("Esc to close.")
+                return
+
+            options = [
+                StyledOption(
+                    id=TASK_CLI_INHERIT_OPTION,
+                    title=(
+                        "Follow the default"
+                        + (f" ({self.default_cli})" if self.default_cli else "")
+                        + ("" if self.pinned else f" {Icons.CHECK}")
+                    ),
+                    description=(
+                        "No pin: this task moves with the CLI you set for Titan, "
+                        "including from the quick picker."
+                    ),
+                )
+            ]
+            for name in self.installed:
+                display_name = CLI_REGISTRY.get(name, {}).get("display_name", name)
+                marker = f" {Icons.CHECK}" if name == self.pinned else ""
+                options.append(
+                    StyledOption(
+                        id=name,
+                        title=f"{display_name}{marker}",
+                        description=cli_option_description(name, self.models.get(name)),
+                    )
+                )
+            yield StyledOptionList(*options, id="task-cli-list")
+            yield DimText("Enter to pin it for this task only · Esc to cancel.")
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "task-cli-list":
+            return
+        if event.option.id is not None:
+            self.dismiss(event.option.id)
 
     def action_dismiss_modal(self) -> None:
         self.dismiss(None)
@@ -509,6 +690,13 @@ class TaskRoutingRow(Container):
             yield Button(
                 "Change", variant="primary", id=f"task-change-{widget_key(routing.task)}"
             )
+            if routing.can_pin_instance:
+                yield Button(
+                    "CLI", variant="default", id=f"task-cli-{widget_key(routing.task)}"
+                )
+                yield Button(
+                    "Model", variant="default", id=f"task-model-{widget_key(routing.task)}"
+                )
             if routing.has_preference:
                 yield Button(
                     "Clear", variant="default", id=f"task-clear-{widget_key(routing.task)}"
@@ -527,11 +715,33 @@ class TaskRoutingRow(Container):
             yield SuccessText(
                 f"{Icons.CHECK} {provider_type_label(resolution.provider)}{suffix}  ({origin})"
             )
+            yield from self._instance_lines(resolution)
         elif isinstance(resolution, AIRouteNeedsInput):
             if resolution.candidates:
                 yield WarningText(f"{Icons.WARNING} Needs setup - {resolution.reason}")
             else:
                 yield ErrorText(f"{Icons.ERROR} No AI available - {resolution.reason}")
+
+    def _instance_lines(self, resolution: AIRouteDecision) -> ComposeResult:
+        """
+        Where the CLI and the model came from: this task, or the global default.
+
+        This is the line that keeps pins honest. The resolution above names the instance
+        but not its origin, so without this a user who pinned one task cannot tell why
+        pressing F2 moved some rows and not others - which is the whole failure mode a
+        per-task override introduces.
+        """
+        if not resolution.cli:
+            return
+
+        yield DimText(
+            f"  CLI: {resolution.cli} ({'pinned here' if self.routing.pinned_cli else 'default'})"
+        )
+        if resolution.model:
+            origin = "pinned here" if self.routing.pinned_model else "default for this CLI"
+            yield DimText(f"  Model: {resolution.model} ({origin})")
+        else:
+            yield DimText("  Model: CLI default")
 
     def _usage_summary(self) -> str:
         count = len(self.routing.workflows)

@@ -83,6 +83,20 @@ class BaseScreen(Screen):
             self._update_status_bar(status_bar)
             yield status_bar
 
+    def refresh_status_bar(self) -> None:
+        """Repaint this screen's status bar from current state, if it has one.
+
+        Public counterpart to `_update_status_bar`, for callers holding the screen rather
+        than the widget - the app does this when the session override changes, which is
+        state no config reload would pick up.
+        """
+        if not self.show_status_bar:
+            return
+        try:
+            self._update_status_bar(self.query_one("#status-bar", StatusBarWidget))
+        except Exception:
+            pass
+
     def _update_status_bar(self, status_bar: StatusBarWidget) -> None:
         """
         Update status bar with current config values.
@@ -120,10 +134,21 @@ class BaseScreen(Screen):
 
         # F2 cell: the CLI Titan runs, and the model pinned to it. An unset model reads as
         # "default" rather than blank - the CLI still has one, Titan just isn't choosing it.
+        #
+        # A session override takes the cell over and marks itself with a *, because it
+        # outranks everything saved: showing the saved value while something else runs
+        # would make the bar lie, and an override nobody can see is one they forget is on.
+        override = getattr(self.app, "ai_session_override", None)
         cli_info = "F2 —"
         if ai_config and ai_config.default_cli:
             cli = ai_config.default_cli
             cli_info = f"F2 {cli} / {ai_config.cli_models.get(cli) or 'default'}"
+        if override is not None and override.is_active:
+            cli = override.cli or (ai_config.default_cli if ai_config else None) or "—"
+            model = override.model or (
+                ai_config.cli_models.get(cli) if ai_config and cli else None
+            )
+            cli_info = f"F2 {cli} / {model or 'default'} *"
 
         # Get project name directly from config
         project_name = self.config.get_project_name() or "N/A"
