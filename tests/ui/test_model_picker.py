@@ -71,9 +71,15 @@ def _stub_gateway(monkeypatch, models=("fast-model", "big-model"), error=None):
 
 
 class TestQuickModelShortcut:
-    """F3 changes which model the default connection answers with."""
+    """
+    F3 opens the connection picker; M from there chooses that connection's model.
 
-    def _run(self, config, monkeypatch, keys=()):
+    F3 used to go straight to the model modal. It now mirrors F2 (D-006), so every test
+    here presses f3 then m - the extra keystroke is the point of the change, not an
+    accident of the harness.
+    """
+
+    def _run(self, config, monkeypatch, keys=(), open_model=True):
         captured = {}
 
         async def run():
@@ -85,6 +91,15 @@ class TestQuickModelShortcut:
                 ).append(message)
                 await pilot.press("f3")
                 await pilot.pause()
+                captured["picker"] = app.screen
+                # Read the rendered text while the app is still running: querying a
+                # widget after the test app shuts down finds nothing.
+                captured["picker_text"] = " ".join(
+                    str(w.renderable) for w in app.screen.query(Static)
+                )
+                if open_model:
+                    await pilot.press("m")
+                    await pilot.pause()
                 captured["screen"] = app.screen
                 if isinstance(app.screen, SelectModelModal):
                     # The loader runs in a worker; wait for what it mounts.
@@ -140,14 +155,17 @@ class TestQuickModelShortcut:
 
         config.update_ai_connection.assert_not_called()
 
-    def test_without_a_default_connection_f3_explains_instead_of_opening(self, monkeypatch):
+    def test_with_no_connection_configured_the_picker_says_so(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickConnectionModal
+
         _stub_gateway(monkeypatch)
         config = _config(AIConfig())
 
         captured = self._run(config, monkeypatch)
 
+        assert isinstance(captured["picker"], QuickConnectionModal)
         assert not isinstance(captured["screen"], SelectModelModal)
-        assert any("No default AI connection" in n for n in captured["notices"])
+        assert "No AI connection is configured" in captured["picker_text"]
 
     def test_a_direct_provider_has_no_list_to_show(self, monkeypatch):
         """Only gateways publish one; saying so beats an empty modal."""

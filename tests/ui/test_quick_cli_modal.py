@@ -254,3 +254,192 @@ class TestSessionOverrideFromF2:
 
         assert "Session override active" in captured["text"]
         assert "opencode" in captured["text"]
+
+
+class TestQuickConnectionModal:
+    """
+    F3's picker, which mirrors F2's (D-006): Enter saves, S is this session, C clears.
+
+    Two keys answering the same question of different transports should not have to be
+    learned twice, so what these assert is mostly that the behaviours match.
+    """
+
+    @staticmethod
+    def _config_with_connections(default_connection="work"):
+        from titan_cli.core.models import AIConnectionConfig
+
+        def gateway(name, model):
+            return AIConnectionConfig(
+                name=name,
+                connection_type="gateway",
+                gateway_backend="openai_compatible",
+                base_url="https://gateway.example/v1",
+                default_model=model,
+            )
+
+        config = MagicMock()
+        config.config.ai = AIConfig(
+            default_connection=default_connection,
+            connections={"work": gateway("Work", "gpt-5"), "personal": gateway("Personal", "mini")},
+        )
+        config.get_project_name.return_value = "test-project"
+        return config
+
+    def _run(self, config, keys):
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f3")
+                await pilot.pause()
+                for key in keys:
+                    await pilot.press(key)
+                    await pilot.pause()
+                captured["override"] = (
+                    app.ai_session_override.connection,
+                    app.ai_session_override.model,
+                )
+
+        asyncio.run(run())
+        return captured
+
+    def test_s_sets_the_session_connection_without_saving(self):
+        config = self._config_with_connections()
+
+        captured = self._run(config, keys=["down", "s"])
+
+        assert captured["override"] == ("personal", None)
+        config.set_default_ai_connection.assert_not_called()
+
+    def test_enter_saves_the_default_connection(self):
+        config = self._config_with_connections()
+
+        captured = self._run(config, keys=["down", "enter"])
+
+        assert captured["override"] == (None, None)
+        config.set_default_ai_connection.assert_called_once_with("personal")
+
+    def test_reselecting_the_current_default_saves_nothing(self):
+        config = self._config_with_connections()
+
+        self._run(config, keys=["enter"])
+
+        config.set_default_ai_connection.assert_not_called()
+
+    def test_c_clears_a_session_override_set_from_either_key(self):
+        """One override, two keys: F3 must be able to clear what F2 set."""
+        config = self._config_with_connections()
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.ai_session_override.cli = "codex"
+                await pilot.press("f3")
+                await pilot.pause()
+                await pilot.press("c")
+                await pilot.pause()
+                captured["active"] = app.ai_session_override.is_active
+
+        asyncio.run(run())
+
+        assert captured["active"] is False
+
+
+class TestPinnedTasksAreDisclosed:
+    """
+    A quick picker says which tasks will ignore it (air-005).
+
+    Without this, the failure mode per-task pins introduce is indistinguishable from a
+    broken key: you press F2, the CLI changes, and the workflow you actually care about
+    keeps running the old one because you pinned it weeks ago.
+    """
+
+    @staticmethod
+    def _config_with_pins(**tasks):
+        from titan_cli.core.models import AIPreferences, AIProviderPreference
+
+        config = _config(default_cli="claude")
+        config.config.ai.preferences = AIPreferences(
+            tasks={
+                task: AIProviderPreference(**fields) for task, fields in tasks.items()
+            }
+        )
+        return config
+
+    @staticmethod
+    def _text_after(key, config):
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press(key)
+                await pilot.pause()
+                captured["text"] = " ".join(
+                    str(w.renderable) for w in app.screen.query(Static)
+                )
+
+        asyncio.run(run())
+        return captured["text"]
+
+    def test_f2_names_the_tasks_that_pin_their_own_cli(self, monkeypatch):
+        _stub_availability(monkeypatch, ("claude", "opencode"))
+        config = self._config_with_pins(
+            code_review_plan={"provider": "cli_headless", "cli": "codex"},
+            commit_message={"provider": "cli_headless"},
+        )
+
+        text = self._text_after("f2", config)
+
+        assert "1 task" in text
+        assert "Code review plan" in text
+        # The unpinned one follows F2, so naming it would be a lie.
+        assert "Commit messages" not in text
+
+    def test_f2_says_nothing_when_no_task_pins_a_cli(self, monkeypatch):
+        _stub_availability(monkeypatch, ("claude", "opencode"))
+        config = self._config_with_pins(
+            commit_message={"provider": "cli_headless"},
+        )
+
+        text = self._text_after("f2", config)
+
+        assert "pin their own" not in text
+
+    def test_f2_ignores_connection_pins(self, monkeypatch):
+        """Each key reports only the pins it is actually unable to move."""
+        _stub_availability(monkeypatch, ("claude", "opencode"))
+        config = self._config_with_pins(
+            jira_analysis={"provider": "remote", "connection": "personal"},
+        )
+
+        text = self._text_after("f2", config)
+
+        assert "pin their own" not in text
+
+    def test_f3_names_the_tasks_that_pin_their_own_connection(self, monkeypatch):
+        from titan_cli.core.models import AIConnectionConfig
+
+        config = self._config_with_pins(
+            jira_analysis={"provider": "remote", "connection": "personal"},
+        )
+        config.config.ai.default_connection = "work"
+        config.config.ai.connections = {
+            "work": AIConnectionConfig(
+                name="Work",
+                connection_type="gateway",
+                gateway_backend="openai_compatible",
+                base_url="https://gateway.example/v1",
+                default_model="gpt-5",
+            )
+        }
+
+        text = self._text_after("f3", config)
+
+        assert "1 task" in text
+        assert "Jira issue analysis" in text

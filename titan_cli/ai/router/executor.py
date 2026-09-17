@@ -420,14 +420,21 @@ class AIExecutor:
         if not self.ai_config or not self.provider_factory:
             return None
 
-        cache_key = decision.connection_id or "__default__"
+        # The model is part of the key: two tasks can share a connection and run
+        # different models on it, and a cache keyed by connection alone would hand the
+        # second one the first one's provider.
+        model = self.model_for_decision(decision)
+        cache_key = f"{decision.connection_id or '__default__'}::{model or '__connection__'}"
         cached = self._remote_clients.get(cache_key)
         if cached is not None:
             return cached
 
         try:
             client = AIClient(
-                self.ai_config, self.provider_factory, connection_id=decision.connection_id
+                self.ai_config,
+                self.provider_factory,
+                connection_id=decision.connection_id,
+                model=model,
             )
         except AIConfigurationError as e:
             logger.warning(

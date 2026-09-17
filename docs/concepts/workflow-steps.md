@@ -308,12 +308,12 @@ Supported params:
 - `fail_on_decline`: return `Error` instead of `Skip` if the user declines
 - `pre_launch_warning`: optional warning text shown just before the CLI starts
 
-Which CLI runs is **not** a step param. It is the default CLI chosen once in
-**AI Configuration → CLI** (or with `F2` from any screen), so every workflow uses the same
-one and nothing is asked mid-run. The model that CLI runs with is chosen the same way -
-press `M` on a CLI in either place - and applies to every workflow that reaches it, unless
-a step asks for a specific model itself. Users can also route this task to `Off` under
-**AI Configuration → AI per task**, in which case the step skips.
+Which CLI runs is **not** a step param, and nothing is asked mid-run. By default it is the
+CLI chosen once in **AI Configuration → CLI** (or with `F2` from any screen), with the
+model chosen the same way — press `M` on a CLI in either place. A user who wants this one
+task on a different CLI or model pins it on its row under **AI Configuration → AI per
+task**, and `S` in the `F2` picker overrides both for the current session only. The same
+row routes the task to `Off`, in which case the step skips.
 
 Behavior:
 

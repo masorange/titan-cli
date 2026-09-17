@@ -150,13 +150,16 @@ class AIRouteResolver:
                 candidates=self._candidates(policy),
             )
 
+        model = self._resolved_model(provider, identifier, task)
         if provider == AIProviderType.REMOTE:
-            return AIRouteDecision(provider=provider, connection_id=identifier, reason=reason)
+            return AIRouteDecision(
+                provider=provider,
+                connection_id=identifier,
+                reason=reason,
+                model=model,
+            )
         return AIRouteDecision(
-            provider=provider,
-            cli=identifier,
-            reason=reason,
-            model=self._resolved_model(identifier, task),
+            provider=provider, cli=identifier, reason=reason, model=model
         )
 
     def _configured_instance(self, provider: AIProviderType, task: str = "") -> Optional[str]:
@@ -164,31 +167,42 @@ class AIRouteResolver:
         The instance serving this kind of provider: the session override, else the task's
         pin, else the global default.
 
-        Only CLIs can be pinned. A `cli` left on a remote task's preference is inert here
-        rather than an error, because the two are stored side by side and a task whose
-        provider changed from CLI to remote would otherwise start failing on a leftover.
+        The same three rungs for both kinds - a CLI and a remote connection are the same
+        question asked of different transports. Only the half matching this kind is read,
+        so a `cli` left on a preference that has since become remote (or the reverse) is
+        inert rather than an error.
         """
         if not self.ai_config:
             return None
-        if provider == AIProviderType.REMOTE:
-            return self.ai_config.default_connection
 
-        if self.session_override and self.session_override.cli:
-            return self.session_override.cli
+        remote = provider == AIProviderType.REMOTE
+
+        if self.session_override:
+            overridden = self.session_override.instance_for(remote)
+            if overridden:
+                return overridden
 
         pinned = self._task_preference(task)
-        if pinned is not None and pinned.cli:
-            return pinned.cli
-        return self.ai_config.default_cli
+        if pinned is not None:
+            pinned_instance = pinned.connection if remote else pinned.cli
+            if pinned_instance:
+                return pinned_instance
 
-    def _resolved_model(self, cli: str, task: str) -> Optional[str]:
+        return self.ai_config.default_connection if remote else self.ai_config.default_cli
+
+    def _resolved_model(self, provider: AIProviderType, identifier: str, task: str) -> Optional[str]:
         """
-        The model this CLI should run with for this task: the session override, else the
-        task's pin, else the global `cli_models` entry for the CLI that was resolved.
+        The model the resolved instance should run with: the session override, else the
+        task's pin, else the instance's own global setting.
 
-        `None` means the CLI picks for itself. Only an explicit call-site `model=` sits
-        above these, and it is applied by `AIExecutor` - it is not a user setting, so it
-        does not belong in the decision this layer records.
+        That last rung is the only part that differs by kind, and only because of where
+        the setting lives: a CLI's model is an `AIConfig.cli_models` entry keyed by CLI,
+        while a connection's is `default_model` on the connection itself. Both are "the
+        model this instance runs unless told otherwise".
+
+        `None` means the instance picks for itself. Only an explicit call-site `model=`
+        sits above these, and it is applied by `AIExecutor` - it is not a user setting, so
+        it does not belong in the decision this layer records.
         """
         if not self.ai_config:
             return None
@@ -199,7 +213,11 @@ class AIRouteResolver:
         pinned = self._task_preference(task)
         if pinned is not None and pinned.model:
             return pinned.model
-        return self.ai_config.cli_models.get(cli)
+
+        if provider == AIProviderType.REMOTE:
+            connection = self.ai_config.connections.get(identifier)
+            return getattr(connection, "default_model", None)
+        return self.ai_config.cli_models.get(identifier)
 
     def _task_preference(self, task: str) -> Optional[AIProviderPreference]:
         """The persisted preference for a task, if there is one."""

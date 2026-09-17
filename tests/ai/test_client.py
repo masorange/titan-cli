@@ -3,7 +3,12 @@ from unittest.mock import MagicMock
 
 from titan_cli.ai.client import AIClient
 from titan_cli.ai.exceptions import AIConfigurationError
-from titan_cli.core.models import AIConfig, AIConnectionType, AIProviderConfig
+from titan_cli.core.models import (
+    AIConfig,
+    AIConnectionConfig,
+    AIConnectionType,
+    AIProviderConfig,
+)
 
 
 @pytest.fixture
@@ -121,3 +126,59 @@ def test_aiclient_no_connections_configured():
             ai_config=ai_config_no_connections,
             provider_factory=MagicMock(),
         )
+
+
+class TestModelOverride:
+    """
+    A client may run a connection on a different model without touching stored config.
+
+    This is how a task's pinned model and a session override reach a remote provider.
+    The mechanism is deliberately small: `create_ai_provider` already takes the model
+    from the connection config it is handed, so a copy carrying another one is the whole
+    change - no provider and no `generate()` signature is involved.
+    """
+
+    @staticmethod
+    def _config():
+        return AIConfig(
+            default_connection="work",
+            connections={
+                "work": AIConnectionConfig(
+                    name="Work gateway",
+                    connection_type="gateway",
+                    gateway_backend="openai_compatible",
+                    base_url="https://gateway.example/v1",
+                    default_model="gpt-5",
+                )
+            },
+        )
+
+    def test_the_override_reaches_the_factory(self):
+        seen = {}
+
+        def factory(connection_id, connection_cfg):
+            seen["model"] = connection_cfg.default_model
+            return object()
+
+        AIClient(self._config(), factory, connection_id="work", model="gpt-5-mini").provider
+
+        assert seen["model"] == "gpt-5-mini"
+
+    def test_without_an_override_the_connections_own_model_is_used(self):
+        seen = {}
+
+        def factory(connection_id, connection_cfg):
+            seen["model"] = connection_cfg.default_model
+            return object()
+
+        AIClient(self._config(), factory, connection_id="work").provider
+
+        assert seen["model"] == "gpt-5"
+
+    def test_the_stored_connection_is_never_mutated(self):
+        """The same AIConfig is shared with the rest of the session."""
+        config = self._config()
+
+        AIClient(config, lambda cid, cfg: object(), connection_id="work", model="gpt-5-mini").provider
+
+        assert config.connections["work"].default_model == "gpt-5"

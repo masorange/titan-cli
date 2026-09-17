@@ -37,7 +37,7 @@ from .ai_routing import (
     TASK_CLI_INHERIT_OPTION,
     CliDefaultPicker,
     SelectProviderTypeModal,
-    SelectTaskCliModal,
+    SelectTaskInstanceModal,
     TaskRouting,
     TaskRoutingRow,
     build_task_routings,
@@ -725,63 +725,90 @@ class AIConfigScreen(BaseScreen):
         )
 
     def handle_pin_task_cli(self, task: Optional[str]) -> None:
-        """Pin the CLI that serves one task, or drop the pin so it follows the default."""
+        """Pin the instance serving one task, or drop the pin so it follows the default.
+
+        One handler for both kinds: which of them a task takes is decided by what
+        currently resolves, and a CLI and a connection are the same question asked of
+        different transports (D-006).
+        """
         routing = self._routings.get(task) if task else None
-        if not routing:
+        if not routing or not routing.can_pin_instance:
             return
 
         ai_config = self.config.config.ai if self.config.config else None
-        checker = self._availability()
-        installed = installed_clis(
-            checker.available_headless_clis(), checker.available_interactive_clis()
-        )
+        remote = routing.pins_a_connection
+
+        if remote:
+            choices = SelectTaskInstanceModal.connection_choices(
+                ai_config.connections if ai_config else {}
+            )
+            noun = "connection"
+            default_instance = ai_config.default_connection if ai_config else None
+            empty_message = "No AI connection is configured. Add one and reopen this picker."
+            setter, clearer = self.config.set_task_ai_connection, self.config.clear_task_ai_connection
+        else:
+            checker = self._availability()
+            choices = SelectTaskInstanceModal.cli_choices(
+                installed_clis(
+                    checker.available_headless_clis(), checker.available_interactive_clis()
+                ),
+                ai_config.cli_models if ai_config else None,
+            )
+            noun = "CLI"
+            default_instance = ai_config.default_cli if ai_config else None
+            empty_message = "No supported CLI is installed. Install one and reopen this picker."
+            setter, clearer = self.config.set_task_ai_cli, self.config.clear_task_ai_cli
 
         def on_selected(choice: Optional[str]) -> None:
             if choice is None:
                 return
             try:
                 if choice == TASK_CLI_INHERIT_OPTION:
-                    self.config.clear_task_ai_cli(task)
-                    message = f"{routing.label} follows the default CLI again."
+                    dropped = clearer(task)
+                    message = f"{routing.label} follows the default {noun} again."
                 else:
-                    self.config.set_task_ai_cli(
-                        task, choice, provider=self._provider_for_pin(routing)
-                    )
+                    dropped = setter(task, choice, provider=self._provider_for_pin(routing))
                     message = f"{routing.label} will run on {choice}."
+                if dropped:
+                    # Never silently: the model was chosen for the previous instance and
+                    # would be rejected by this one, but the user still picked it once.
+                    message += f" The pinned {dropped} model no longer applies - pick one."
             except ValueError as e:
                 # The task has no stored preference and none could be inferred - it needs
                 # a provider kind first, which is what Change is for.
                 self.app.notify(str(e), severity="warning")
                 return
             except Exception as e:
-                self.app.notify(f"Failed to save the CLI: {e}", severity="error")
+                self.app.notify(f"Failed to save the {noun}: {e}", severity="error")
                 return
             self.load_sections()
             self.app.notify(message, severity="information")
 
         self.app.push_screen(
-            SelectTaskCliModal(
+            SelectTaskInstanceModal(
                 routing.label,
-                installed,
-                pinned=routing.pinned_cli,
-                default_cli=ai_config.default_cli if ai_config else None,
-                models=ai_config.cli_models if ai_config else None,
+                choices,
+                noun=noun,
+                pinned=routing.pinned_instance,
+                default_instance=default_instance,
+                empty_message=empty_message,
             ),
             on_selected,
         )
 
     def handle_pin_task_model(self, task: Optional[str]) -> None:
-        """Pin the model this task runs with, on whichever CLI serves it."""
-        from .model_picker import open_model_picker_for_cli
+        """Pin the model this task runs with, on whichever instance serves it."""
+        from .model_picker import open_model_picker_for_cli, open_model_picker_for_connection
 
         routing = self._routings.get(task) if task else None
         if not routing:
             return
 
-        cli_name = self._effective_cli(routing)
-        if not cli_name:
+        instance = self._effective_instance(routing)
+        if not instance:
             self.app.notify(
-                "Set a CLI first - for this task or as the default - then choose its model.",
+                "Set a CLI or connection first - for this task or as the default - "
+                "then choose its model.",
                 severity="warning",
             )
             return
@@ -801,26 +828,41 @@ class AIConfigScreen(BaseScreen):
                 return
             self.load_sections()
             self.app.notify(
-                f"{routing.label} will run on {cli_name} / {model}.", severity="information"
+                f"{routing.label} will run on {instance} / {model}.", severity="information"
             )
 
-        open_model_picker_for_cli(
-            self.app,
-            cli_name,
-            title=f"Which model should run {routing.label}?",
-            current=routing.pinned_model or self.config.get_cli_model(cli_name),
-            on_picked=on_picked,
-        )
+        title = f"Which model should run {routing.label}?"
+        if routing.pins_a_connection:
+            open_model_picker_for_connection(
+                self.app,
+                self.config,
+                instance,
+                title=title,
+                current=routing.pinned_model,
+                on_picked=on_picked,
+            )
+        else:
+            open_model_picker_for_cli(
+                self.app,
+                instance,
+                title=title,
+                current=routing.pinned_model or self.config.get_cli_model(instance),
+                on_picked=on_picked,
+            )
 
-    def _effective_cli(self, routing) -> Optional[str]:
-        """The CLI this task runs on today: its own pin, else the global default."""
-        if routing.pinned_cli:
-            return routing.pinned_cli
+    def _effective_instance(self, routing) -> Optional[str]:
+        """The CLI or connection this task runs on today: its own pin, else the default."""
+        if routing.pinned_instance:
+            return routing.pinned_instance
         resolution = routing.resolution
-        if isinstance(resolution, AIRouteDecision) and resolution.cli:
-            return resolution.cli
+        if isinstance(resolution, AIRouteDecision):
+            instance = resolution.connection_id if routing.pins_a_connection else resolution.cli
+            if instance:
+                return instance
         ai_config = self.config.config.ai if self.config.config else None
-        return ai_config.default_cli if ai_config else None
+        if not ai_config:
+            return None
+        return ai_config.default_connection if routing.pins_a_connection else ai_config.default_cli
 
     @staticmethod
     def _provider_for_pin(routing) -> Optional[str]:

@@ -679,7 +679,7 @@ class TestPerTaskPinsInTheConfigScreen:
         ]
 
     def test_the_cli_button_opens_a_task_scoped_picker(self, monkeypatch):
-        from titan_cli.ui.tui.screens.ai_routing import SelectTaskCliModal
+        from titan_cli.ui.tui.screens.ai_routing import SelectTaskInstanceModal
 
         config = self._config_with(
             {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
@@ -690,9 +690,10 @@ class TestPerTaskPinsInTheConfigScreen:
         )
 
         modal = captured["modal"]
-        assert isinstance(modal, SelectTaskCliModal)
+        assert isinstance(modal, SelectTaskInstanceModal)
         assert modal.pinned == "gemini"
-        assert modal.default_cli == "claude"
+        assert modal.default_instance == "claude"
+        assert modal.noun == "CLI"
 
     def test_picking_a_cli_writes_the_task_pin_not_the_global_default(self, monkeypatch):
         """The whole point: this must not be `set_default_ai_cli`."""
@@ -815,7 +816,26 @@ class TestPerTaskPinsInTheConfigScreen:
         ]
         assert _row_text(inherited) == [
             "  CLI: claude (default)",
-            "  Model: opus (default for this CLI)",
+            "  Model: opus (default for this cli)",
+        ]
+
+    def test_a_remote_row_says_connection_where_a_cli_row_says_cli(self):
+        """Same two lines, named for the transport actually serving the task (D-006)."""
+        remote = TaskRouting(
+            task="jira_analysis",
+            label="Jira issue analysis",
+            executes=[AIProviderType.REMOTE],
+            resolution=AIRouteDecision(
+                provider=AIProviderType.REMOTE, connection_id="other-litellm", model="gpt-5-mini"
+            ),
+            has_preference=True,
+            pinned_connection="other-litellm",
+            pinned_model="gpt-5-mini",
+        )
+
+        assert _row_text(remote) == [
+            "  Connection: other-litellm (pinned here)",
+            "  Model: gpt-5-mini (pinned here)",
         ]
 
 

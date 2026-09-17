@@ -144,3 +144,59 @@ class TestSessionOverrideInTheBar:
         )
 
         assert cells["cli"] == "F2 claude / opus"
+
+
+class TestRemoteSessionOverrideInTheBar:
+    """The F3 cell behaves like the F2 one once a connection can be overridden (D-006)."""
+
+    @staticmethod
+    def _cells(ai_config, *, connection=None, model=None, cli=None):
+        captured = {}
+
+        async def run():
+            config = _config(ai_config)
+            app = TitanApp(config, initial_screen=lambda: _BarScreen(config))
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.ai_session_override.connection = connection
+                app.ai_session_override.model = model
+                app.ai_session_override.cli = cli
+                app.refresh_status_bar()
+                await pilot.pause()
+                bar = app.screen.query_one(StatusBarWidget)
+                captured["ai"] = bar.ai_info
+                captured["cli"] = bar.cli_info
+
+        asyncio.run(run())
+        return captured
+
+    @staticmethod
+    def _two_connections():
+        return AIConfig(
+            default_cli="claude",
+            cli_models={"claude": "opus"},
+            default_connection="work",
+            connections={"work": _gateway("gpt-5"), "personal": _gateway("mini")},
+        )
+
+    def test_an_overridden_connection_takes_over_the_f3_cell(self):
+        cells = self._cells(self._two_connections(), connection="personal")
+
+        assert cells["ai"].endswith("/ mini *")
+
+    def test_an_overridden_model_shows_in_the_f3_cell_too(self):
+        cells = self._cells(self._two_connections(), model="gpt-5-mini")
+
+        assert cells["ai"].endswith("/ gpt-5-mini *")
+
+    def test_a_connection_only_override_leaves_the_f2_cell_alone(self):
+        """Each key's cell answers for its own transport; neither claims the other's."""
+        cells = self._cells(self._two_connections(), connection="personal")
+
+        assert cells["cli"] == "F2 claude / opus"
+
+    def test_a_cli_only_override_leaves_the_f3_cell_alone(self):
+        cells = self._cells(self._two_connections(), cli="codex")
+
+        assert cells["ai"].endswith("/ gpt-5")
+        assert "*" not in cells["ai"]

@@ -255,18 +255,31 @@ def gateway_model_loader(gateway_client) -> ModelLoader:
     return load
 
 
-def open_connection_model_picker(app, config, connection_id: str, on_saved=None) -> None:
-    """Ask which model a gateway connection should default to, and save the answer.
+def open_model_picker_for_connection(
+    app,
+    config,
+    connection_id: str,
+    *,
+    on_picked,
+    current: Optional[str] = None,
+    title: Optional[str] = None,
+) -> None:
+    """Ask which model a gateway connection can run, and hand the answer to the caller.
 
-    Lives here rather than on a screen because two entry points reach it - the
-    connection card in AI Configuration and the global keybinding - and a second copy of
-    "resolve connection, authenticate, push modal, persist" is a copy that drifts.
+    The connection counterpart of `open_model_picker_for_cli`: asking is all it does, so
+    the same picker serves the connection's saved default, a task's pin and a session
+    override. Everything before the modal - resolve the connection, refuse a non-gateway,
+    authenticate a client through the broker - is shared, which is the reason this is one
+    function rather than a copy per caller.
 
     Args:
         app: The running app, for pushing the modal and notifying.
-        config: TitanConfig, reloaded here so the modal reflects what is on disk.
-        connection_id: The connection whose default model is being set.
-        on_saved: Called after a successful save, for callers that repaint something.
+        config: TitanConfig, reloaded here so the list reflects what is on disk.
+        connection_id: The connection whose models are offered.
+        on_picked: Called with the chosen identifier, or None when cancelled/unchanged.
+        current: The model to prefill and mark as current.
+        title: Overrides the default question, for callers pinning something narrower
+            than "what this connection defaults to".
     """
     from titan_cli.ai.litellm_client import LiteLLMClient
     from titan_cli.core.models import AIConnectionType
@@ -305,29 +318,50 @@ def open_connection_model_picker(app, config, connection_id: str, on_saved=None)
         required=False,
     )
 
+    app.push_screen(
+        SelectModelModal(
+            title or "Select gateway model",
+            f"Connection: {connection_cfg.name}",
+            gateway_model_loader(gateway_client),
+            current=current if current is not None else (connection_cfg.default_model or None),
+            loading_message="Loading models from gateway...",
+            empty_message="This gateway published no models.",
+        ),
+        on_picked,
+    )
+
+
+def open_connection_model_picker(app, config, connection_id: str, on_saved=None) -> None:
+    """Ask which model a gateway connection should default to, and SAVE the answer.
+
+    Args:
+        app: The running app, for pushing the modal and notifying.
+        config: TitanConfig, reloaded here so the modal reflects what is on disk.
+        connection_id: The connection whose default model is being set.
+        on_saved: Called after a successful save, for callers that repaint something.
+    """
+    # Loaded here as well as inside the shared opener: the value this compares against
+    # has to be the one on disk, or an unchanged pick could read as a change.
+    config.load()
+
+    connections = config.config.ai.connections if config.config and config.config.ai else {}
+    connection_cfg = connections.get(connection_id)
+    previous = connection_cfg.default_model if connection_cfg else None
+    name = connection_cfg.name if connection_cfg else connection_id
+
     def on_picked(model: Optional[str]) -> None:
-        if not model or model == connection_cfg.default_model:
+        if not model or model == previous:
             return
         try:
             config.update_ai_connection(connection_id, {"default_model": model})
         except Exception as e:
             app.notify(f"Failed to update model: {e}", severity="error")
             return
-        app.notify(f"'{connection_cfg.name}' will use {model}.", severity="information")
+        app.notify(f"'{name}' will use {model}.", severity="information")
         if on_saved:
             on_saved()
 
-    app.push_screen(
-        SelectModelModal(
-            "Select gateway model",
-            f"Connection: {connection_cfg.name}",
-            gateway_model_loader(gateway_client),
-            current=connection_cfg.default_model or None,
-            loading_message="Loading models from gateway...",
-            empty_message="This gateway published no models.",
-        ),
-        on_picked,
-    )
+    open_model_picker_for_connection(app, config, connection_id, on_picked=on_picked)
 
 
 def _saved_notice(config, cli_name: str, model: str) -> str:
@@ -421,6 +455,7 @@ __all__ = [
     "ModelChoice",
     "SelectModelModal",
     "open_model_picker_for_cli",
+    "open_model_picker_for_connection",
     "CUSTOM_OPTION_ID",
     "cli_model_loader",
     "gateway_model_loader",

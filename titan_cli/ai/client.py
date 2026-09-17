@@ -54,6 +54,7 @@ class AIClient:
         ai_config: AIConfig,
         provider_factory: Callable[[str, "object"], "AIProvider"],
         connection_id: Optional[str] = None,
+        model: Optional[str] = None,
     ):
         """
         Initialize AI client.
@@ -66,9 +67,16 @@ class AIClient:
                 dereferences the API key inside the security boundary. The
                 client never sees the key itself.
             connection_id: The specific AI connection ID to use. If None, uses the default.
+            model: Overrides the connection's `default_model` for this client only,
+                without touching the stored configuration. This is how a task's pinned
+                model or a session override reaches a remote provider: the factory
+                already takes the model from the connection config it is handed, so a
+                copy carrying a different one is the whole mechanism — no provider and
+                no `generate()` signature changes.
         """
         self.ai_config = ai_config
         self._provider_factory = provider_factory
+        self.model = model
 
         requested_id = connection_id or ai_config.default_connection
 
@@ -108,6 +116,14 @@ class AIClient:
         if not connection_config:
             raise AIConfigurationError(
                 f"AI connection '{self.connection_id}' not found in configuration."
+            )
+
+        if self.model and self.model != connection_config.default_model:
+            # A copy, never the stored object: the same AIConfig is shared with the rest
+            # of the session, and mutating it here would silently re-point every other
+            # reader at a model the user only chose for this task or this run.
+            connection_config = connection_config.model_copy(
+                update={"default_model": self.model}
             )
 
         self._provider = self._provider_factory(self.connection_id, connection_config)

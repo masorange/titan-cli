@@ -59,8 +59,8 @@ default_model = "claude-sonnet-4-5"
 ## AI CLIs
 
 Besides connections, Titan can route work to an AI CLI already installed on your machine
-(Claude Code, Gemini CLI, Codex, OpenCode, Antigravity, Grok). Which one it runs is a
-single global choice, and each CLI can be pinned to a specific model:
+(Claude Code, Gemini CLI, Codex, OpenCode, Antigravity, Grok). One is the global default,
+and each CLI can be pinned to a specific model:
 
 ```toml
 [ai]
@@ -73,12 +73,13 @@ opencode = "anthropic/claude-sonnet-5"
 claude = "opus"
 ```
 
-Both are editable from the TUI without leaving the screen you are on:
+Both are editable from the TUI without leaving the screen you are on. `F2` answers the
+question for CLIs and `F3` for connections, with the same keys inside each picker:
 
-| Key | Changes |
-|---|---|
-| `F2` | Which CLI Titan runs. `M` on a highlighted CLI sets that CLI's model instead |
-| `F3` | The model of the default connection, listed from the gateway |
+| Key | Opens | |
+|---|---|---|
+| `F2` | The CLI picker | `Enter` makes it the default · `S` uses it for this session only · `M` chooses its model · `C` clears a session override |
+| `F3` | The connection picker | the same four |
 
 The status bar shows both, labelled with the key that changes them:
 
@@ -86,9 +87,47 @@ The status bar shows both, labelled with the key that changes them:
  feat/my-branch   F2 opencode / claude-sonnet-5   F3 work-gateway / gpt-5   my-project
 ```
 
+A `*` after a cell means a **session override** is in force there: something you chose
+with `S` for now only, which outranks your saved settings and is forgotten when Titan
+exits. Nothing was written to your config.
+
 Choosing a model for a CLI does **not** switch to it — pinning a model on a CLI you are
 not using is a normal thing to do, and switching silently would change what runs your
-next workflow. The CLI section of AI Configuration offers the same two actions.
+next workflow. The CLI section of AI Configuration offers the same actions.
+
+Each picker also tells you how many tasks pin their own CLI or connection and will
+therefore not follow it, because a task that deliberately ignores `F2` is otherwise
+indistinguishable from a key that did not work.
+
+## Per-task overrides
+
+A task ("commit messages", "code review findings") chooses which KIND of AI serves it —
+a remote connection, an automatic CLI, an interactive CLI, or off — in the **AI per task**
+section of AI Configuration. Each row can also pin the instance and the model that serve
+that one task:
+
+```toml
+[ai.preferences.tasks.code_review_findings]
+provider = "cli_headless"
+cli = "claude"           # instead of default_cli
+model = "opus"           # instead of cli_models.claude
+
+[ai.preferences.tasks.commit_message]
+provider = "cli_headless"
+# no cli, no model: follows the global default, including changes made with F2
+```
+
+A remote task pins `connection` instead of `cli`, and its `model` overrides that
+connection's `default_model`. Pins are **sparse**: anything you leave out is inherited, so
+one edit to the global default still moves every task that has not opted out.
+
+A pin is not a guarantee that something exists. A pinned CLI that is not installed, or a
+connection that was renamed, is reported by name — Titan never quietly runs a different
+one.
+
+**Changing a task's CLI or connection forgets its pinned model**, and says so. A model
+identifier only means something to the instance it was chosen for: `opus` is a Claude
+alias, and carrying it over to Codex would hand it a flag it rejects.
 
 ### Where the model list comes from
 
@@ -105,9 +144,20 @@ and one it rejects is its own error message.
 
 ### Precedence
 
-1. A model the step asks for explicitly — it needs that model for its prompt
-2. The model pinned for the resolved CLI
-3. Nothing: the CLI uses its own default
+Highest wins, for both which instance runs and which model it runs:
+
+1. **What the step asks for explicitly** — a step passing a model needs that model for its
+   prompt (a code review explores on a cheap model and synthesises on an expensive one),
+   so it outranks even a key you just pressed
+2. **A session override** — what you chose with `S` from `F2`/`F3`, for now only
+3. **The task's own pin** — the CLI, connection or model set on its row
+4. **The global default** — `default_cli` / `default_connection`, and the model that
+   belongs to the resolved instance (`cli_models[cli]`, or the connection's
+   `default_model`)
+5. **Nothing**: the CLI or connection uses its own default
+
+If a step you expected to follow `F3` does not, rung 1 is the usual reason. Every AI step
+shows which AI answered it, model included, so you can see which rung won.
 
 Pinned models apply to both uses of a CLI: unattended runs (generating a commit message)
 and interactive sessions Titan launches for you.

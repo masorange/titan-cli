@@ -122,15 +122,25 @@ class BaseScreen(Screen):
 
         ai_config = self.config.config.ai if self.config.config else None
 
-        # F3 cell: the default connection and the model it answers with
+        # F3 cell: the connection that answers, and with which model. A session override
+        # takes it over and marks itself with a *, exactly as it does to the F2 cell.
+        override = getattr(self.app, "ai_session_override", None)
+        connection_id = (ai_config.default_connection if ai_config else None)
+        if override is not None and override.connection:
+            connection_id = override.connection
+
         ai_info = "F3 —"
-        if ai_config and ai_config.default_connection in ai_config.connections:
-            connection_cfg = ai_config.connections[ai_config.default_connection]
+        if ai_config and connection_id in ai_config.connections:
+            connection_cfg = ai_config.connections[connection_id]
             source_name = get_source_display_name(
                 connection_cfg.provider or connection_cfg.gateway_backend
             )
             model = connection_cfg.default_model or "default"
+            if override is not None and override.model:
+                model = override.model
             ai_info = f"F3 {source_name} / {model}"
+            if override is not None and (override.connection or override.model):
+                ai_info = f"{ai_info} *"
 
         # F2 cell: the CLI Titan runs, and the model pinned to it. An unset model reads as
         # "default" rather than blank - the CLI still has one, Titan just isn't choosing it.
@@ -138,12 +148,11 @@ class BaseScreen(Screen):
         # A session override takes the cell over and marks itself with a *, because it
         # outranks everything saved: showing the saved value while something else runs
         # would make the bar lie, and an override nobody can see is one they forget is on.
-        override = getattr(self.app, "ai_session_override", None)
         cli_info = "F2 —"
         if ai_config and ai_config.default_cli:
             cli = ai_config.default_cli
             cli_info = f"F2 {cli} / {ai_config.cli_models.get(cli) or 'default'}"
-        if override is not None and override.is_active:
+        if override is not None and (override.cli or override.model):
             cli = override.cli or (ai_config.default_cli if ai_config else None) or "—"
             model = override.model or (
                 ai_config.cli_models.get(cli) if ai_config and cli else None

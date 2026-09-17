@@ -457,15 +457,21 @@ class TestPerTaskModelPin:
 
         assert resolver.resolve(task="commit_message").model is None
 
-    def test_a_model_pin_does_not_reach_a_remote_decision(self):
-        """cli_models and a task's model pin are CLI vocabulary; a connection has its own."""
-        config = _pinned_config("commit_message", "remote", model="haiku-fast")
+    def test_a_model_pin_reaches_a_remote_decision_too(self):
+        """
+        Written the other way round first, under D-004's asymmetry, and corrected by D-006.
+
+        A model pin is not CLI vocabulary: "run this task on a small model" means the same
+        thing whichever transport answers it, and the only difference is where the
+        instance's own default lives.
+        """
+        config = _pinned_config("commit_message", "remote", model="gpt-5-mini")
         resolver = AIRouteResolver(config, FakeAvailability(remote=["work-litellm"]))
 
         decision = resolver.resolve(task="commit_message")
 
         assert decision.connection_id == "work-litellm"
-        assert decision.model is None
+        assert decision.model == "gpt-5-mini"
 
 
 def test_leftover_workflow_scope_in_config_has_no_effect(availability):
@@ -675,3 +681,189 @@ class TestSessionOverride:
         )
 
         assert resolver.resolve(task="commit_message").provider == AIProviderType.OFF
+
+
+class TestPerTaskRemotePin:
+    """
+    A remote task pins its connection and model the same way a CLI task pins its CLI.
+
+    The two halves were asymmetric in the first cut of this domain (D-004 kept connections
+    global); D-006 made them symmetric because the shapes are the same - an instance, and
+    a model belonging to that instance.
+    """
+
+    @staticmethod
+    def _remote_config(task, *, connection=None, model=None, default_connection="work-litellm"):
+        config = _config(default_connection=default_connection)
+        config.connections["other-litellm"] = _connection("other-litellm")
+        config.preferences = AIPreferences(
+            tasks={task: AIProviderPreference(provider="remote", connection=connection, model=model)}
+        )
+        return config
+
+    def test_a_pinned_connection_beats_the_global_default(self):
+        resolver = AIRouteResolver(
+            self._remote_config("jira_analysis", connection="other-litellm"),
+            FakeAvailability(remote=["work-litellm", "other-litellm"]),
+        )
+
+        decision = resolver.resolve(task="jira_analysis")
+
+        assert isinstance(decision, AIRouteDecision)
+        assert decision.connection_id == "other-litellm"
+
+    def test_a_pinned_connection_that_is_gone_is_reported_by_name(self):
+        resolver = AIRouteResolver(
+            self._remote_config("jira_analysis", connection="other-litellm"),
+            FakeAvailability(remote=["work-litellm"]),
+        )
+
+        resolution = resolver.resolve(task="jira_analysis")
+
+        assert isinstance(resolution, AIRouteNeedsInput)
+        assert "other-litellm" in resolution.reason
+        assert "not available" in resolution.reason
+
+    def test_a_pinned_model_rides_on_a_remote_decision_too(self):
+        resolver = AIRouteResolver(
+            self._remote_config("jira_analysis", model="gpt-5-mini"),
+            FakeAvailability(remote=["work-litellm"]),
+        )
+
+        assert resolver.resolve(task="jira_analysis").model == "gpt-5-mini"
+
+    def test_without_a_pin_the_connections_own_model_is_named(self):
+        """The global rung for remote is the connection's default_model, by symmetry
+        with cli_models being the global rung for a CLI."""
+        config = self._remote_config("jira_analysis")
+        config.connections["work-litellm"].default_model = "gpt-5"
+        resolver = AIRouteResolver(config, FakeAvailability(remote=["work-litellm"]))
+
+        assert resolver.resolve(task="jira_analysis").model == "gpt-5"
+
+    def test_the_model_follows_the_pinned_connection_not_the_default_one(self):
+        config = self._remote_config("jira_analysis", connection="other-litellm")
+        config.connections["work-litellm"].default_model = "gpt-5"
+        config.connections["other-litellm"].default_model = "claude-sonnet"
+        resolver = AIRouteResolver(
+            config, FakeAvailability(remote=["work-litellm", "other-litellm"])
+        )
+
+        decision = resolver.resolve(task="jira_analysis")
+
+        assert (decision.connection_id, decision.model) == ("other-litellm", "claude-sonnet")
+
+    def test_a_connection_pin_never_redirects_a_cli_task(self):
+        config = _config(default_cli="claude")
+        config.preferences = AIPreferences(
+            tasks={
+                "commit_message": AIProviderPreference(
+                    provider="cli_headless", connection="other-litellm"
+                )
+            }
+        )
+        resolver = AIRouteResolver(config, FakeAvailability(headless=["claude"]))
+
+        assert resolver.resolve(task="commit_message").cli == "claude"
+
+
+class TestSessionOverrideForRemote:
+    """F3's half of the session override: same rungs, same rules as F2's (D-006)."""
+
+    @staticmethod
+    def _config_with_two_connections(task="jira_analysis"):
+        config = _config()
+        config.connections["other-litellm"] = _connection("other-litellm")
+        config.connections["work-litellm"].default_model = "gpt-5"
+        config.connections["other-litellm"].default_model = "claude-sonnet"
+        config.preferences = AIPreferences(
+            tasks={task: AIProviderPreference(provider="remote")}
+        )
+        return config
+
+    def test_the_session_connection_beats_the_global_default(self):
+        resolver = AIRouteResolver(
+            self._config_with_two_connections(),
+            FakeAvailability(remote=["work-litellm", "other-litellm"]),
+            session_override=AISessionOverride(connection="other-litellm"),
+        )
+
+        assert resolver.resolve(task="jira_analysis").connection_id == "other-litellm"
+
+    def test_the_session_connection_beats_a_task_pin(self):
+        config = self._config_with_two_connections()
+        config.preferences.tasks["jira_analysis"].connection = "work-litellm"
+        resolver = AIRouteResolver(
+            config,
+            FakeAvailability(remote=["work-litellm", "other-litellm"]),
+            session_override=AISessionOverride(connection="other-litellm"),
+        )
+
+        assert resolver.resolve(task="jira_analysis").connection_id == "other-litellm"
+
+    def test_the_session_model_applies_to_a_remote_task(self):
+        resolver = AIRouteResolver(
+            self._config_with_two_connections(),
+            FakeAvailability(remote=["work-litellm"]),
+            session_override=AISessionOverride(model="gpt-5-mini"),
+        )
+
+        assert resolver.resolve(task="jira_analysis").model == "gpt-5-mini"
+
+    def test_a_session_connection_that_is_gone_is_reported_by_name(self):
+        resolver = AIRouteResolver(
+            self._config_with_two_connections(),
+            FakeAvailability(remote=["work-litellm"]),
+            session_override=AISessionOverride(connection="other-litellm"),
+        )
+
+        resolution = resolver.resolve(task="jira_analysis")
+
+        assert isinstance(resolution, AIRouteNeedsInput)
+        assert "other-litellm" in resolution.reason
+
+
+class TestAModelNeverOutlivesItsInstance:
+    """
+    Found in use 2026-09-17: a task pinned to claude+opus was switched to codex and kept
+    `opus`, so the run would have been `codex -m opus`.
+
+    The CRUD is what forgets the model (`TitanConfig._drop_stale_model`); these cover the
+    session override's half of the same rule.
+    """
+
+    def test_switching_the_session_cli_forgets_the_model(self):
+        override = AISessionOverride(cli="claude", model="opus")
+
+        dropped = override.use_cli("codex")
+
+        assert dropped == "opus"
+        assert (override.cli, override.model) == ("codex", None)
+
+    def test_reselecting_the_same_cli_keeps_the_model(self):
+        override = AISessionOverride(cli="claude", model="opus")
+
+        assert override.use_cli("claude") is None
+        assert override.model == "opus"
+
+    def test_switching_the_session_connection_forgets_the_model(self):
+        override = AISessionOverride(connection="work", model="gpt-5")
+
+        dropped = override.use_connection("personal")
+
+        assert dropped == "gpt-5"
+        assert (override.connection, override.model) == ("personal", None)
+
+    def test_the_resolver_never_sees_a_model_from_another_instance(self):
+        """End to end: the decision names codex and no model, not codex and opus."""
+        override = AISessionOverride(cli="claude", model="opus")
+        override.use_cli("codex")
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless"),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=override,
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.cli, decision.model) == ("codex", None)

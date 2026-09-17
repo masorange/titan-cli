@@ -144,9 +144,10 @@ class AIProviderPreference(BaseModel):
     before they existed. Only a task the user deliberately pinned stops following a change
     to the global default, so one edit there still moves everything else.
 
-    Which remote CONNECTION serves a `remote` task is deliberately not here: it stays a
-    single global choice (`AIConfig.default_connection`). The need it would answer - "this
-    repository must not use the company gateway" - is per-project, not per-task.
+    `cli` and `connection` are the two halves of the same question - which instance - and
+    only the one matching the task's provider kind is read, so a leftover from a kind the
+    task no longer uses is inert rather than an error. `model` serves both: for a CLI it
+    overrides `AIConfig.cli_models[cli]`, for a connection its `default_model`.
 
     A pin is not a guarantee: it is resolved through availability like any other instance,
     so a pinned CLI that is not installed is reported by name and never swapped for another.
@@ -157,11 +158,19 @@ class AIProviderPreference(BaseModel):
         None,
         description="CLI this task pins, overriding AIConfig.default_cli. None inherits.",
     )
+    connection: Optional[str] = Field(
+        None,
+        description=(
+            "Remote connection this task pins, overriding AIConfig.default_connection. "
+            "None inherits."
+        ),
+    )
     model: Optional[str] = Field(
         None,
         description=(
-            "Model this task pins for its CLI, overriding AIConfig.cli_models. None inherits. "
-            "An explicit model= at the call site still outranks it."
+            "Model this task pins for whichever instance serves it - overriding "
+            "AIConfig.cli_models for a CLI, or the connection's default_model for a "
+            "remote. None inherits. An explicit model= at the call site still outranks it."
         ),
     )
 

@@ -181,6 +181,13 @@ class TestPerTaskPins:
         assert stored == {"provider": "cli_headless", "cli": "gemini", "model": "flash"}
 
     def test_clearing_a_pin_removes_the_key_rather_than_emptying_it(self, config: TitanConfig):
+        """
+        The model goes with it - see TestChangingTheInstanceInvalidatesTheModel.
+
+        This test originally asserted `model: flash` survived. It does not: `flash` was
+        chosen for gemini, and clearing the CLI pin sends the task back to whatever the
+        global default is.
+        """
         config.upsert_task_ai_preference("commit_message", {"provider": "cli_headless"})
         config.set_task_ai_cli("commit_message", "gemini")
         config.set_task_ai_model("commit_message", "flash")
@@ -189,7 +196,7 @@ class TestPerTaskPins:
 
         stored = _written_preferences(config)["tasks"]["commit_message"]
         assert "cli" not in stored
-        assert stored == {"provider": "cli_headless", "model": "flash"}
+        assert stored == {"provider": "cli_headless"}
 
     def test_a_cleared_pin_stays_cleared_after_a_reload(self, config: TitanConfig):
         """The failure this guards: a dropped None reading back as the old value."""
@@ -270,3 +277,66 @@ class TestPerTaskPins:
             "model": "flash",
         }
         assert config.get_task_ai_preference("never_configured") is None
+
+
+class TestChangingTheInstanceInvalidatesTheModel:
+    """
+    A pinned model belongs to the instance it was chosen for (found in use, 2026-09-17).
+
+    The user pinned claude + opus on a task, then switched the task to codex, and `opus`
+    stayed - so Titan would have run `codex -m opus`, an identifier codex has never heard
+    of. The global layer never had this bug because `cli_models` is keyed BY CLI; a task's
+    pin stores a bare model with no instance attached, so changing the instance has to
+    invalidate it.
+    """
+
+    def test_switching_the_pinned_cli_drops_the_model(self, config: TitanConfig):
+        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_plan", "claude")
+        config.set_task_ai_model("code_review_plan", "opus")
+
+        config.set_task_ai_cli("code_review_plan", "codex")
+
+        stored = _written_preferences(config)["tasks"]["code_review_plan"]
+        assert stored == {"provider": "cli_headless", "cli": "codex"}
+
+    def test_repinning_the_same_cli_keeps_the_model(self, config: TitanConfig):
+        """Only a CHANGE invalidates it - re-saving the same choice is not a change."""
+        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_plan", "claude")
+        config.set_task_ai_model("code_review_plan", "opus")
+
+        config.set_task_ai_cli("code_review_plan", "claude")
+
+        assert _written_preferences(config)["tasks"]["code_review_plan"]["model"] == "opus"
+
+    def test_clearing_the_cli_pin_drops_the_model_too(self, config: TitanConfig):
+        """Following the global default again is also a change of instance."""
+        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_plan", "claude")
+        config.set_task_ai_model("code_review_plan", "opus")
+
+        config.clear_task_ai_cli("code_review_plan")
+
+        assert _written_preferences(config)["tasks"]["code_review_plan"] == {
+            "provider": "cli_headless"
+        }
+
+    def test_switching_the_pinned_connection_drops_the_model(self, config: TitanConfig):
+        config.upsert_task_ai_preference("jira_analysis", {"provider": "remote"})
+        config.set_task_ai_connection("jira_analysis", "work")
+        config.set_task_ai_model("jira_analysis", "gpt-5")
+
+        config.set_task_ai_connection("jira_analysis", "personal")
+
+        stored = _written_preferences(config)["tasks"]["jira_analysis"]
+        assert stored == {"provider": "remote", "connection": "personal"}
+
+    def test_the_setter_reports_whether_it_dropped_a_model(self, config: TitanConfig):
+        """The UI has to be able to say so; a model vanishing in silence is its own bug."""
+        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_plan", "claude")
+        config.set_task_ai_model("code_review_plan", "opus")
+
+        assert config.set_task_ai_cli("code_review_plan", "codex") == "opus"
+        assert config.set_task_ai_cli("code_review_plan", "gemini") is None

@@ -11,10 +11,10 @@ precedence (ai_task_routing D-002):
 
     call-site model=  >  session override  >  task pin  >  global default
 
-It overrides INSTANCES, never kinds: it can say "use gemini" but not "use a remote
-connection instead of a CLI", which stays a per-task decision made in the config screen.
-A remote connection's model is also out of scope - that model lives inside the provider
-the connection builds, not in anything the router passes along.
+It overrides INSTANCES, never kinds: it can say "use gemini" or "use the other gateway",
+but not "use a remote connection instead of a CLI" - that stays a per-task decision made
+in the config screen. `cli` and `connection` therefore coexist, each applying only to the
+kind it names; `model` applies to whichever instance ends up serving the task.
 """
 
 from dataclasses import dataclass
@@ -32,23 +32,55 @@ class AISessionOverride:
     """
 
     cli: Optional[str] = None
+    connection: Optional[str] = None
     model: Optional[str] = None
 
     @property
     def is_active(self) -> bool:
         """Whether anything is being overridden at all."""
-        return bool(self.cli or self.model)
+        return bool(self.cli or self.connection or self.model)
 
     def clear(self) -> None:
         """Drop the override; saved configuration applies again."""
         self.cli = None
+        self.connection = None
         self.model = None
+
+    def use_cli(self, cli: str) -> Optional[str]:
+        """Override the CLI, forgetting a model chosen for a different one.
+
+        Same rule as a task's pin: a model identifier only means something to the
+        instance it was picked for, so `opus` must not survive a switch to codex.
+        Returns the model it dropped, so the caller can say so.
+        """
+        dropped = self.model if cli != self.cli else None
+        self.cli = cli
+        if dropped:
+            self.model = None
+        return dropped
+
+    def use_connection(self, connection: str) -> Optional[str]:
+        """Override the connection, forgetting a model chosen for a different one."""
+        dropped = self.model if connection != self.connection else None
+        self.connection = connection
+        if dropped:
+            self.model = None
+        return dropped
+
+    def instance_for(self, remote: bool) -> Optional[str]:
+        """The overridden instance for one kind of provider, if there is one.
+
+        A CLI override and a connection override coexist - F2 sets one, F3 the other -
+        and each applies only to the kind it names. Neither can make a task change kind.
+        """
+        return self.connection if remote else self.cli
 
     def describe(self) -> str:
         """A short human summary, for a status line or a notification."""
-        if self.cli and self.model:
-            return f"{self.cli} / {self.model}"
-        return self.cli or self.model or ""
+        instance = self.cli or self.connection
+        if instance and self.model:
+            return f"{instance} / {self.model}"
+        return instance or self.model or ""
 
 
 __all__ = ["AISessionOverride"]

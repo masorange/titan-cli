@@ -965,6 +965,11 @@ class _PinnedModelCli:
         self._adapter = adapter
         self._model = model
 
+    @property
+    def pinned_model(self) -> Optional[str]:
+        """The model this wrapper injects, for the announcement to name it."""
+        return self._model
+
     def __getattr__(self, name):
         """Everything else - cli_name, the supports_* capabilities - is the adapter's."""
         return getattr(self._adapter, name)
@@ -1047,9 +1052,20 @@ def _resolve_review_adapter(
 
 
 def _announce_review_adapter(ctx: WorkflowContext, adapter: object) -> None:
-    """Announce which CLI will run this review step."""
-    if adapter and hasattr(adapter, "cli_name"):
-        ctx.textual.ai_chip(f"CLI, automatic · {adapter.cli_name.value}")
+    """Announce which CLI - and which model - will run this review step.
+
+    These steps drive the adapter themselves, so they announce by hand rather than
+    through the façade's `announce=`. The wording follows `route_summary()` so a review
+    reads the same as every other AI step, and it names the MODEL because a task can now
+    pin one: "claude" alone no longer answers "did my pin run?".
+    """
+    if not adapter or not hasattr(adapter, "cli_name"):
+        return
+    cli = adapter.cli_name.value
+    model = getattr(adapter, "pinned_model", None)
+    ctx.textual.ai_chip(
+        f"{cli} / {model} · CLI, automatic" if model else f"{cli} · CLI, automatic"
+    )
 
 
 # ============================================================================

@@ -110,7 +110,11 @@ class TitanApp(App):
         """Open the quick CLI picker from any screen."""
         from titan_cli.ai.router.availability import AIAvailabilityChecker
         from titan_cli.core.security import create_broker_factory
-        from titan_cli.ui.tui.screens.ai_routing import QuickCliModal, installed_clis
+        from titan_cli.ui.tui.screens.ai_routing import (
+            QuickCliModal,
+            installed_clis,
+            tasks_pinning,
+        )
         from titan_cli.ui.tui.screens.model_picker import open_cli_model_picker
 
         if isinstance(self.screen, QuickCliModal):
@@ -134,11 +138,12 @@ class TitanApp(App):
                 open_cli_model_picker(self, self.config, result.cli_name)
                 return
             if result.session_only:
-                self.ai_session_override.cli = result.cli_name
+                dropped = self.ai_session_override.use_cli(result.cli_name)
                 self.refresh_status_bar()
                 self.notify(
                     f"{result.cli_name} for this session only - your saved settings are "
                     f"untouched."
+                    + (f" Dropped the {dropped} model override." if dropped else "")
                 )
                 return
             if result.cli_name == current:
@@ -153,9 +158,16 @@ class TitanApp(App):
                 current=current,
                 models=ai_config.cli_models if ai_config else None,
                 session_override=self.ai_session_override,
+                pinned_tasks=tasks_pinning(self._task_preferences(), remote=False),
             ),
             callback=on_picked,
         )
+
+    def _task_preferences(self):
+        """The persisted per-task preferences, or None when AI is unconfigured."""
+        ai_config = self.config.config.ai if self.config.config else None
+        preferences = ai_config.preferences if ai_config else None
+        return preferences.tasks if preferences else None
 
     def clear_ai_session_override(self) -> None:
         """Drop the session override so saved configuration applies again."""
@@ -181,30 +193,56 @@ class TitanApp(App):
                 pass
 
     def action_quick_model(self) -> None:
-        """Open the model picker for the default AI connection, from any screen.
+        """Open the quick connection picker from any screen.
 
-        The connection's counterpart to F2: that key changes which CLI runs, this one
-        changes which model the configured gateway answers with. A CLI's own model is not
-        reached from here - it belongs to a CLI, so it hangs off the CLI picker.
+        F2's counterpart for the other transport: that key chooses the CLI and its model,
+        this one the remote connection and its model. Same keys inside (Enter saves, S is
+        this session only, M picks a model, C clears the override), because they answer
+        the same question and should not have to be learned twice (D-006).
         """
-        from titan_cli.ui.tui.screens.model_picker import (
-            SelectModelModal,
-            open_connection_model_picker,
-        )
+        from titan_cli.ui.tui.screens.ai_routing import QuickConnectionModal, tasks_pinning
+        from titan_cli.ui.tui.screens.model_picker import open_connection_model_picker
 
-        if isinstance(self.screen, SelectModelModal):
+        if isinstance(self.screen, QuickConnectionModal):
             return
 
         ai_config = self.config.config.ai if self.config.config else None
-        connection_id = ai_config.default_connection if ai_config else None
-        if not connection_id:
-            self.notify(
-                "No default AI connection is set. Configure one in AI Configuration.",
-                severity="warning",
-            )
-            return
+        connections = ai_config.connections if ai_config else {}
+        current = ai_config.default_connection if ai_config else None
 
-        open_connection_model_picker(self, self.config, connection_id)
+        def on_picked(result) -> None:
+            if result is None:
+                return
+            if result.clear_session:
+                self.clear_ai_session_override()
+                return
+            if result.pick_model:
+                open_connection_model_picker(self, self.config, result.connection_id)
+                return
+            if result.session_only:
+                dropped = self.ai_session_override.use_connection(result.connection_id)
+                self.refresh_status_bar()
+                self.notify(
+                    f"{result.connection_id} for this session only - your saved settings "
+                    f"are untouched."
+                    + (f" Dropped the {dropped} model override." if dropped else "")
+                )
+                return
+            if result.connection_id == current:
+                return
+            self.config.set_default_ai_connection(result.connection_id)
+            self.refresh_status_bar()
+            self.notify(f"Titan will use {result.connection_id}.")
+
+        self.push_screen(
+            QuickConnectionModal(
+                connections,
+                current=current,
+                session_override=self.ai_session_override,
+                pinned_tasks=tasks_pinning(self._task_preferences(), remote=True),
+            ),
+            callback=on_picked,
+        )
 
     def action_toggle_copy_mode(self) -> None:
         """Toggle copy mode - disables mouse capture to allow text selection."""

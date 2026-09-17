@@ -627,9 +627,10 @@ def test_remote_client_caches_per_connection(monkeypatch):
     built = []
 
     class RecordingClient:
-        def __init__(self, ai_config, provider_factory, connection_id=None):
-            built.append(connection_id)
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
             self.connection_id = connection_id
+            self.model = model
 
     monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
     executor = AIExecutor(ai_config=AIConfig(), provider_factory=object())
@@ -640,7 +641,38 @@ def test_remote_client_caches_per_connection(monkeypatch):
 
     assert first is second
     assert third is not first
-    assert built == ["a", "b"]
+    assert built == [("a", None), ("b", None)]
+
+
+def test_remote_clients_with_different_models_are_not_shared(monkeypatch):
+    """
+    Two tasks can share a connection and run different models on it.
+
+    Keyed by connection alone, the second would be handed the first one's provider - and
+    a provider is built with its model baked in, so the pin would silently not apply.
+    """
+    from titan_cli.core.models import AIConfig
+
+    built = []
+
+    class RecordingClient:
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
+            self.connection_id = connection_id
+            self.model = model
+
+    monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
+    executor = AIExecutor(ai_config=AIConfig(), provider_factory=object())
+
+    small = executor.remote_client(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="a", model="mini")
+    )
+    large = executor.remote_client(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="a", model="max")
+    )
+
+    assert small is not large
+    assert built == [("a", "mini"), ("a", "max")]
 
 
 def test_remote_client_without_config_returns_none():
@@ -653,7 +685,7 @@ def test_remote_client_returns_none_when_connection_misconfigured(monkeypatch):
     from titan_cli.ai.exceptions import AIConfigurationError
     from titan_cli.core.models import AIConfig
 
-    def raise_config_error(ai_config, provider_factory, connection_id=None):
+    def raise_config_error(ai_config, provider_factory, connection_id=None, model=None):
         raise AIConfigurationError("no such connection")
 
     monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", raise_config_error)

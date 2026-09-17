@@ -18,6 +18,11 @@ from .plugins.community_sources import PluginChannel
 
 logger = get_logger(__name__)
 
+# Pin keys that name WHICH instance serves a task. Changing one invalidates the task's
+# pinned model, because a model identifier only means something to its own instance.
+_INSTANCE_PIN_KEYS = ("cli", "connection")
+
+
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
 
@@ -559,7 +564,9 @@ class TitanConfig:
     # None does not quietly persist - it makes the save fail outright. Deleting the key is
     # the only shape that means "inherit again".
 
-    def set_task_ai_cli(self, task: str, cli_name: str, *, provider: Optional[str] = None) -> None:
+    def set_task_ai_cli(
+        self, task: str, cli_name: str, *, provider: Optional[str] = None
+    ) -> Optional[str]:
         """
         Pin the CLI that serves this task, overriding the global default.
 
@@ -570,18 +577,49 @@ class TitanConfig:
                 a pin cannot exist without one, and a CLI pin on a task resolving to a
                 remote provider would be inert. An existing preference keeps its own kind.
 
+        Returns:
+            The model pin this dropped, if changing the CLI invalidated one, so the caller
+            can say so. None when nothing was dropped.
+
         Raises:
             ValueError: If the task has no stored preference and no `provider` was given.
         """
-        self._set_task_ai_pin(task, "cli", cli_name, provider=provider)
+        return self._set_task_ai_pin(task, "cli", cli_name, provider=provider)
 
-    def clear_task_ai_cli(self, task: str) -> None:
-        """Stop pinning a CLI for this task; it follows the global default again."""
-        self._clear_task_ai_pin(task, "cli")
+    def clear_task_ai_cli(self, task: str) -> Optional[str]:
+        """Stop pinning a CLI for this task; it follows the global default again.
 
-    def set_task_ai_model(self, task: str, model: str, *, provider: Optional[str] = None) -> None:
+        Returns the model pin this dropped, if any - following the default is also a
+        change of instance.
         """
-        Pin the model this task runs with, overriding the global entry for its CLI.
+        return self._clear_task_ai_pin(task, "cli")
+
+    def set_task_ai_connection(
+        self, task: str, connection_id: str, *, provider: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Pin the remote connection that serves this task, overriding the global default.
+
+        The connection counterpart of `set_task_ai_cli`, with the same creation rule: a
+        pin lives inside a preference, so `provider` is needed when the task has none yet.
+        Returns the model pin this dropped, if any.
+        """
+        return self._set_task_ai_pin(task, "connection", connection_id, provider=provider)
+
+    def clear_task_ai_connection(self, task: str) -> Optional[str]:
+        """Stop pinning a connection for this task; the global default applies again.
+
+        Returns the model pin this dropped, if any.
+        """
+        return self._clear_task_ai_pin(task, "connection")
+
+    def set_task_ai_model(
+        self, task: str, model: str, *, provider: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Pin the model this task runs with, overriding the global entry for whichever
+        instance serves it - `cli_models` for a CLI, the connection's `default_model` for
+        a remote.
 
         An explicit `model=` at the call site still outranks this: see the routing
         precedence in `titan_cli/ai/router/`.
@@ -594,7 +632,7 @@ class TitanConfig:
 
     def _set_task_ai_pin(
         self, task: str, key: str, value: str, *, provider: Optional[str]
-    ) -> None:
+    ) -> Optional[str]:
         """
         Write one pin key, creating the task's preference if it has none.
 
@@ -602,6 +640,8 @@ class TitanConfig:
         stops being the step's default and becomes a stored choice, so the config screen
         will show it as the user's pick. Clearing the pin does not undo that - removing the
         whole preference (the row's Clear action) does.
+
+        Returns the model pin this dropped, if changing the instance invalidated one.
         """
         prefs = self.get_ai_preferences_config()
         existing = prefs["tasks"].get(task)
@@ -615,17 +655,44 @@ class TitanConfig:
             existing = {"provider": provider}
             prefs["tasks"][task] = existing
 
+        changed_instance = key in _INSTANCE_PIN_KEYS and existing.get(key) != value
         existing[key] = value
+        dropped = self._drop_stale_model(existing) if changed_instance else None
         self.save_ai_preferences_config(prefs)
+        return dropped
 
-    def _clear_task_ai_pin(self, task: str, key: str) -> None:
-        """Delete one pin key, leaving the rest of the preference untouched."""
+    def _clear_task_ai_pin(self, task: str, key: str) -> Optional[str]:
+        """
+        Delete one pin key, leaving the rest of the preference untouched.
+
+        Returns the model pin this dropped: clearing an instance pin sends the task back
+        to the global default, which is a change of instance like any other.
+        """
         prefs = self.get_ai_preferences_config()
         existing = prefs["tasks"].get(task)
         if not existing or key not in existing:
-            return
+            return None
         del existing[key]
+        dropped = self._drop_stale_model(existing) if key in _INSTANCE_PIN_KEYS else None
         self.save_ai_preferences_config(prefs)
+        return dropped
+
+    @staticmethod
+    def _drop_stale_model(preference: dict) -> Optional[str]:
+        """
+        Forget a pinned model whose instance just changed, returning what was forgotten.
+
+        A model identifier only means something to the instance it was chosen for: `opus`
+        is a claude alias and codex has never heard of it, so carrying it across would
+        hand the new CLI a flag it rejects. The global layer never needs this because
+        `cli_models` is keyed BY CLI; a task's pin is a bare model, so the invalidation
+        has to be explicit.
+
+        Deliberately blunt: it drops the model even when the new instance might have
+        accepted it. A wrong model is a failed run, while a forgotten one costs one more
+        pick - and the caller is told, so nothing disappears silently.
+        """
+        return preference.pop("model", None)
 
     def get_task_ai_preference(self, task: str) -> Optional[dict]:
         """The stored preference for a task, or None. Reads the global file."""

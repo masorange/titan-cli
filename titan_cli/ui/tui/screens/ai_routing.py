@@ -90,6 +90,7 @@ class TaskRouting:
     has_preference: bool = False
     unenforced_steps: List[str] = field(default_factory=list)
     pinned_cli: Optional[str] = None
+    pinned_connection: Optional[str] = None
     pinned_model: Optional[str] = None
 
     @property
@@ -98,18 +99,37 @@ class TaskRouting:
         return bool(self.executes)
 
     @property
+    def resolved_provider(self) -> Optional[AIProviderType]:
+        """The kind actually serving this task right now, if it resolves at all."""
+        if isinstance(self.resolution, AIRouteDecision):
+            return self.resolution.provider
+        return None
+
+    @property
     def can_pin_instance(self) -> bool:
         """
-        Whether it makes sense to offer this task a CLI and a model of its own.
+        Whether it makes sense to offer this task an instance and a model of its own.
 
-        Only CLI-served tasks: a remote task's connection is global by design (D-004), so
-        a pin button there would invite a setting that cannot take effect - the same
-        dishonesty the `configurable` check exists to avoid.
+        Keyed on the kind that RESOLVES, not on everything the task could run: a pin
+        names a CLI or a connection, and which of those is meaningful depends on what is
+        serving the task today. A task set to `off`, or one that does not resolve, gets
+        nothing - the same rule as `configurable`, one level down.
         """
-        return any(
-            provider in self.executes
-            for provider in (AIProviderType.CLI_HEADLESS, AIProviderType.CLI_INTERACTIVE)
+        return self.resolved_provider in (
+            AIProviderType.REMOTE,
+            AIProviderType.CLI_HEADLESS,
+            AIProviderType.CLI_INTERACTIVE,
         )
+
+    @property
+    def pins_a_connection(self) -> bool:
+        """Whether the instance in effect is a remote connection rather than a CLI."""
+        return self.resolved_provider == AIProviderType.REMOTE
+
+    @property
+    def pinned_instance(self) -> Optional[str]:
+        """The pinned instance for the kind in effect, if there is one."""
+        return self.pinned_connection if self.pins_a_connection else self.pinned_cli
 
     @property
     def needs_setup(self) -> bool:
@@ -192,6 +212,7 @@ def build_task_routings(
                 has_preference=task in persisted,
                 unenforced_steps=[s.step_name for s in steps if not s.enforces],
                 pinned_cli=getattr(persisted.get(task), "cli", None),
+                pinned_connection=getattr(persisted.get(task), "connection", None),
                 pinned_model=getattr(persisted.get(task), "model", None),
             )
         )
@@ -224,6 +245,29 @@ def cli_option_description(cli_name: str, model: Optional[str]) -> str:
     user has to open the picker to find out nothing is set.
     """
     return f"command: {cli_name} · model: {model or 'CLI default'}"
+
+
+def tasks_pinning(preferences, *, remote: bool) -> List[str]:
+    """
+    Human labels of the tasks that pin their own instance, so a quick picker can say so.
+
+    This is what stops F2/F3 from looking broken. A pinned task deliberately ignores the
+    key, and a user who set one pin weeks ago has no way to remember that - they just see
+    a CLI change that did not take.
+
+    Args:
+        preferences: The persisted `AIPreferences.tasks` mapping, or None.
+        remote: True for connection pins (F3), False for CLI pins (F2). Each key only
+            reports the pins it is actually unable to move.
+    """
+    if not preferences:
+        return []
+    field = "connection" if remote else "cli"
+    return sorted(
+        task_label(task)
+        for task, preference in preferences.items()
+        if getattr(preference, field, None)
+    )
 
 
 def suggested_cli(installed: Sequence[str], current_default: Optional[str]) -> Optional[str]:
@@ -504,16 +548,27 @@ class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
 TASK_CLI_INHERIT_OPTION = "__inherit__"
 
 
-class SelectTaskCliModal(ModalScreen[Optional[str]]):
-    """
-    Modal for choosing which CLI serves ONE task, overriding the global default.
+@dataclass(frozen=True)
+class InstanceChoice:
+    """One selectable instance - a CLI or a remote connection - and how it reads."""
 
-    Mirrors `QuickCliModal`, which asks the same question for every task at once. Dismisses
-    with a CLI name, with `TASK_CLI_INHERIT_OPTION` to drop the pin, or `None` if cancelled.
+    identifier: str
+    title: str
+    description: str = ""
+
+
+class SelectTaskInstanceModal(ModalScreen[Optional[str]]):
+    """
+    Modal for choosing which INSTANCE serves ONE task, overriding the global default.
+
+    Instance, not kind: a CLI for a CLI-routed task, a connection for a remote one. The
+    two are the same question asked of different transports (D-006), so they share one
+    modal rather than two that would drift. Dismisses with an identifier, with
+    `TASK_CLI_INHERIT_OPTION` to drop the pin, or `None` if cancelled.
     """
 
     DEFAULT_CSS = """
-    SelectTaskCliModal {
+    SelectTaskInstanceModal {
         align: center middle;
     }
 
@@ -538,29 +593,44 @@ class SelectTaskCliModal(ModalScreen[Optional[str]]):
     def __init__(
         self,
         task_label_text: str,
-        installed: Sequence[str],
+        choices: Sequence[InstanceChoice],
         *,
+        noun: str = "CLI",
         pinned: Optional[str] = None,
-        default_cli: Optional[str] = None,
-        models: Optional[Dict[str, str]] = None,
+        default_instance: Optional[str] = None,
+        empty_message: Optional[str] = None,
         **kwargs,
     ):
+        """
+        Args:
+            task_label_text: The task being configured, for the heading.
+            choices: The instances that can serve it, already rendered for display.
+            noun: What an instance is called here - "CLI" or "connection". Only wording.
+            pinned: The instance currently pinned, marked in the list.
+            default_instance: The global default, named in the inherit option so the user
+                can see what "follow the default" means today.
+            empty_message: Shown instead of the list when nothing is available.
+        """
         super().__init__(**kwargs)
         self.task_label_text = task_label_text
-        self.installed = list(installed)
+        self.choices = list(choices)
+        self.noun = noun
         self.pinned = pinned
-        self.default_cli = default_cli
-        self.models = dict(models or {})
+        self.default_instance = default_instance
+        self.empty_message = empty_message
 
     def compose(self) -> ComposeResult:
-        from titan_cli.external_cli.configs import CLI_REGISTRY
-
         with Container(id="task-cli-container"):
-            yield Static(f"{Icons.AI_CONFIG} Which CLI should run {self.task_label_text}?")
-            if not self.installed:
+            yield Static(
+                f"{Icons.AI_CONFIG} Which {self.noun} should run {self.task_label_text}?"
+            )
+            if not self.choices:
                 yield WarningText(
-                    f"{Icons.WARNING} No supported CLI is installed. "
-                    "Install one and reopen this picker."
+                    f"{Icons.WARNING} "
+                    + (
+                        self.empty_message
+                        or f"No {self.noun} is available. Configure one and reopen this picker."
+                    )
                 )
                 yield DimText("Esc to close.")
                 return
@@ -570,33 +640,221 @@ class SelectTaskCliModal(ModalScreen[Optional[str]]):
                     id=TASK_CLI_INHERIT_OPTION,
                     title=(
                         "Follow the default"
-                        + (f" ({self.default_cli})" if self.default_cli else "")
+                        + (f" ({self.default_instance})" if self.default_instance else "")
                         + ("" if self.pinned else f" {Icons.CHECK}")
                     ),
                     description=(
-                        "No pin: this task moves with the CLI you set for Titan, "
+                        f"No pin: this task moves with the {self.noun} you set for Titan, "
                         "including from the quick picker."
                     ),
                 )
             ]
-            for name in self.installed:
-                display_name = CLI_REGISTRY.get(name, {}).get("display_name", name)
-                marker = f" {Icons.CHECK}" if name == self.pinned else ""
+            for choice in self.choices:
+                marker = f" {Icons.CHECK}" if choice.identifier == self.pinned else ""
                 options.append(
                     StyledOption(
-                        id=name,
-                        title=f"{display_name}{marker}",
-                        description=cli_option_description(name, self.models.get(name)),
+                        id=choice.identifier,
+                        title=f"{choice.title}{marker}",
+                        description=choice.description,
                     )
                 )
             yield StyledOptionList(*options, id="task-cli-list")
             yield DimText("Enter to pin it for this task only · Esc to cancel.")
+
+    @staticmethod
+    def cli_choices(
+        installed: Sequence[str], models: Optional[Dict[str, str]] = None
+    ) -> List[InstanceChoice]:
+        """Installed CLIs, described the way the global CLI section describes them."""
+        from titan_cli.external_cli.configs import CLI_REGISTRY
+
+        pinned_models = dict(models or {})
+        return [
+            InstanceChoice(
+                identifier=name,
+                title=CLI_REGISTRY.get(name, {}).get("display_name", name),
+                description=cli_option_description(name, pinned_models.get(name)),
+            )
+            for name in installed
+        ]
+
+    @staticmethod
+    def connection_choices(connections: Mapping[str, object]) -> List[InstanceChoice]:
+        """Configured remote connections, described by what answers and with which model."""
+        return [
+            InstanceChoice(
+                identifier=connection_id,
+                title=getattr(cfg, "name", connection_id),
+                description=(
+                    f"model: {getattr(cfg, 'default_model', None) or 'connection default'}"
+                ),
+            )
+            for connection_id, cfg in connections.items()
+        ]
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_list.id != "task-cli-list":
             return
         if event.option.id is not None:
             self.dismiss(event.option.id)
+
+    def action_dismiss_modal(self) -> None:
+        self.dismiss(None)
+
+
+@dataclass(frozen=True)
+class QuickConnectionResult:
+    """What the F3 picker was asked to do with a connection. Mirrors `QuickCliResult`."""
+
+    connection_id: str
+    pick_model: bool = False
+    session_only: bool = False
+    clear_session: bool = False
+
+
+class QuickConnectionModal(ModalScreen[Optional["QuickConnectionResult"]]):
+    """
+    Quick picker for the remote connection, reachable from any screen via a keybinding.
+
+    F3's counterpart to F2's `QuickCliModal`, and deliberately the same shape: Enter makes
+    it the default, S uses it for this session only, M opens its model list, C drops the
+    session override, Escape changes nothing. The two keys answer the same question of
+    different transports (D-006), so they should not need to be learned twice.
+    """
+
+    DEFAULT_CSS = """
+    QuickConnectionModal {
+        align: center middle;
+    }
+
+    #quick-connection-container {
+        width: 74;
+        height: auto;
+        max-height: 26;
+        background: $surface-lighten-1;
+        border: solid $primary;
+        padding: 2;
+    }
+
+    #quick-connection-list {
+        height: auto;
+        max-height: 16;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "dismiss_modal", "Cancel"),
+        ("m", "pick_model", "Model"),
+        ("s", "use_for_session", "This session"),
+        ("c", "clear_session", "Clear override"),
+    ]
+
+    def __init__(
+        self,
+        connections: Mapping[str, object],
+        *,
+        current: Optional[str],
+        session_override=None,
+        pinned_tasks: Optional[Sequence[str]] = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.connections = dict(connections)
+        self.ids = list(self.connections)
+        self.current = current if current in self.connections else None
+        self.session_override = session_override
+        self.pinned_tasks = list(pinned_tasks or ())
+
+    def compose(self) -> ComposeResult:
+        with Container(id="quick-connection-container"):
+            yield Static(f"{Icons.AI_CONFIG} Which connection should answer?")
+            if not self.ids:
+                yield WarningText(
+                    f"{Icons.WARNING} No AI connection is configured. "
+                    "Add one in AI Configuration."
+                )
+                yield DimText("Esc to close.")
+                return
+
+            options = []
+            for connection_id in self.ids:
+                cfg = self.connections[connection_id]
+                marker = f" {Icons.CHECK}" if connection_id == self.current else ""
+                options.append(
+                    StyledOption(
+                        id=connection_id,
+                        title=f"{getattr(cfg, 'name', connection_id)}{marker}",
+                        description=(
+                            f"model: {getattr(cfg, 'default_model', None) or 'connection default'}"
+                        ),
+                    )
+                )
+            yield StyledOptionList(*options, id="quick-connection-list")
+
+            override = self.session_override
+            if override is not None and override.is_active:
+                yield WarningText(
+                    f"{Icons.WARNING} Session override active: {override.describe()}. "
+                    "C to clear it."
+                )
+
+            if self.pinned_tasks:
+                count = len(self.pinned_tasks)
+                names = ", ".join(self.pinned_tasks[:3])
+                more = f" and {count - 3} more" if count > 3 else ""
+                yield DimText(
+                    f"{count} task{'s' if count != 1 else ''} pin their own connection and "
+                    f"will not change: {names}{more}."
+                )
+
+            yield DimText(
+                "Enter to set it · S for this session only · M to choose its model · "
+                "Esc to cancel."
+            )
+
+    def on_mount(self) -> None:
+        if self.current is None or not self.ids:
+            return
+        self.call_after_refresh(self._highlight, self.ids.index(self.current))
+
+    def _highlight(self, index: int) -> None:
+        try:
+            self.query_one(StyledOptionList).highlighted = index
+        except NoMatches:
+            return
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "quick-connection-list":
+            return
+        if event.option.id is not None:
+            self.dismiss(QuickConnectionResult(event.option.id))
+
+    def action_pick_model(self) -> None:
+        highlighted = self._highlighted_connection()
+        if highlighted is not None:
+            self.dismiss(QuickConnectionResult(highlighted, pick_model=True))
+
+    def action_use_for_session(self) -> None:
+        highlighted = self._highlighted_connection()
+        if highlighted is not None:
+            self.dismiss(QuickConnectionResult(highlighted, session_only=True))
+
+    def action_clear_session(self) -> None:
+        override = self.session_override
+        if override is None or not override.is_active:
+            return
+        self.dismiss(QuickConnectionResult("", clear_session=True))
+
+    def _highlighted_connection(self) -> Optional[str]:
+        try:
+            option_list = self.query_one(StyledOptionList)
+        except NoMatches:
+            return None
+        index = option_list.highlighted
+        if index is None or not (0 <= index < len(self.ids)):
+            return None
+        return self.ids[index]
 
     def action_dismiss_modal(self) -> None:
         self.dismiss(None)
@@ -692,7 +950,9 @@ class TaskRoutingRow(Container):
             )
             if routing.can_pin_instance:
                 yield Button(
-                    "CLI", variant="default", id=f"task-cli-{widget_key(routing.task)}"
+                    "Connection" if routing.pins_a_connection else "CLI",
+                    variant="default",
+                    id=f"task-cli-{widget_key(routing.task)}",
                 )
                 yield Button(
                     "Model", variant="default", id=f"task-model-{widget_key(routing.task)}"
@@ -731,17 +991,25 @@ class TaskRoutingRow(Container):
         pressing F2 moved some rows and not others - which is the whole failure mode a
         per-task override introduces.
         """
-        if not resolution.cli:
+        instance = resolution.cli or resolution.connection_id
+        if not instance:
             return
 
+        remote = self.routing.pins_a_connection
+        noun = "Connection" if remote else "CLI"
+        pinned_instance = self.routing.pinned_instance
         yield DimText(
-            f"  CLI: {resolution.cli} ({'pinned here' if self.routing.pinned_cli else 'default'})"
+            f"  {noun}: {instance} ({'pinned here' if pinned_instance else 'default'})"
         )
         if resolution.model:
-            origin = "pinned here" if self.routing.pinned_model else "default for this CLI"
+            origin = (
+                "pinned here"
+                if self.routing.pinned_model
+                else f"default for this {noun.lower()}"
+            )
             yield DimText(f"  Model: {resolution.model} ({origin})")
         else:
-            yield DimText("  Model: CLI default")
+            yield DimText(f"  Model: {noun} default")
 
     def _usage_summary(self) -> str:
         count = len(self.routing.workflows)
