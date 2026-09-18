@@ -2993,13 +2993,14 @@ def verify_findings(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No findings eligible for verification")
 
-    adapter, route_note, _ = _resolve_review_adapter(ctx, verify_findings)
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, verify_findings)
     if not adapter:
-        ctx.textual.dim_text(
-            f"{route_note or 'No headless CLI available'} — findings pass unverified."
-        )
+        # Verification shares the code_review_findings preference, so a user who turned
+        # that task off would otherwise read "No CLI available" for a choice they made.
+        reason = _route_failure_reason(route_note, ai_off)
+        ctx.textual.dim_text(f"{reason} — findings pass unverified.")
         ctx.textual.end_step("skip")
-        return Skip("No CLI available for verification")
+        return Skip(f"Verification skipped ({reason})")
 
     _announce_review_adapter(ctx, adapter)
 

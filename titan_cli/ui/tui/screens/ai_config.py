@@ -711,12 +711,14 @@ class AIConfigScreen(BaseScreen):
             if provider is None:
                 return
             try:
-                self.config.upsert_task_ai_preference(task, {"provider": provider})
+                # Merges rather than replaces: re-picking the same kind, or moving
+                # between the two CLI kinds, must not silently drop the task's pins.
+                dropped = self.config.set_task_ai_provider(task, provider)
                 self.load_sections()
-                self.app.notify(
-                    f"{routing.label}: {provider_type_label(AIProviderType(provider))}",
-                    severity="information",
-                )
+                notice = f"{routing.label}: {provider_type_label(AIProviderType(provider))}"
+                if dropped:
+                    notice += f" - the pinned {dropped} model no longer applies."
+                self.app.notify(notice, severity="information")
             except Exception as e:
                 self.app.notify(f"Failed to save preference: {e}", severity="error")
 

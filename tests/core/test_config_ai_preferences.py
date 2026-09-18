@@ -8,6 +8,7 @@ import tomli
 import tomli_w
 
 from titan_cli.core.config import TitanConfig
+from titan_cli.core.models import AIConfig
 
 
 @pytest.fixture
@@ -507,3 +508,39 @@ class TestAHandEditedConfigDoesNotCrashThePicker:
         config.upsert_task_ai_preference("commit_message", {"provider": "off"})
 
         assert _written_preferences(config)["tasks"]["commit_message"] == {"provider": "off"}
+
+
+class TestAProjectOverrideIsNotTrampled:
+    """
+    The in-memory sync must not write a global value over a project's own (review).
+
+    `self.config` is the merged model and `_merge_configs` lets a project's `[ai]` table
+    win, so copying a freshly-saved GLOBAL value onto it made the session use the global
+    one and silently revert on the next `load()` — the same staleness class as
+    `ai-exec-019`, visible to nobody until a workflow ran with the wrong CLI.
+    """
+
+    def test_a_project_default_cli_survives_a_global_save(self, config: TitanConfig):
+        config.project_config = {"ai": {"default_cli": "opencode"}}
+        config.config.ai = AIConfig(default_cli="opencode")
+
+        config.set_default_ai_cli("claude")
+
+        assert config.config.ai.default_cli == "opencode"          # session unchanged
+        assert TitanConfig().config.ai.default_cli == "claude"      # global written
+
+    def test_a_project_cli_models_table_survives_a_global_save(self, config: TitanConfig):
+        config.project_config = {"ai": {"cli_models": {"claude": "sonnet"}}}
+        config.config.ai = AIConfig(cli_models={"claude": "sonnet"})
+
+        config.set_cli_model("claude", "opus")
+
+        assert config.config.ai.cli_models == {"claude": "sonnet"}
+        assert TitanConfig().get_cli_model("claude") == "opus"
+
+    def test_without_a_project_override_the_session_still_updates(self, config: TitanConfig):
+        config.project_config = {}
+
+        config.set_default_ai_cli("claude")
+
+        assert config.config.ai.default_cli == "claude"

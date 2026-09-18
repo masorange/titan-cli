@@ -200,8 +200,15 @@ class TitanConfig:
 
         return None
 
-    def _load_toml(self, path: Optional[Path]) -> dict:
-        """Load TOML file, returning an empty dict on failure."""
+    def _load_toml(self, path: Optional[Path], *, strict: bool = False) -> dict:
+        """Load TOML file, returning an empty dict on failure.
+
+        `strict` raises instead of degrading. Reads can afford to treat an unparseable
+        file as empty - the app still starts - but a WRITE cannot: every save here
+        rebuilds the whole file from what was read, so a momentary syntax error would
+        turn "set a model" into "delete project_sources, favourites and everything else
+        this file held".
+        """
         if not path or not path.exists():
             return {}
 
@@ -209,8 +216,10 @@ class TitanConfig:
             try:
                 return tomli.load(f)
             except tomli.TOMLDecodeError as e:
-                # Wrap the generic exception. Warnings will be handled by CLI commands.
-                _ = ConfigParseError(file_path=str(path), original_exception=e)
+                error = ConfigParseError(file_path=str(path), original_exception=e)
+                if strict:
+                    raise error
+                # Warnings are handled by CLI commands.
                 return {}
 
     def _load_and_migrate_toml(
@@ -218,9 +227,14 @@ class TitanConfig:
         path: Optional[Path],
         migration_manager: MigrationManager,
         write_on_migration: bool = True,
+        strict: bool = False,
     ) -> dict:
-        """Load TOML and normalize it to the current config schema."""
-        raw_config = self._load_toml(path)
+        """Load TOML and normalize it to the current config schema.
+
+        `strict` is forwarded: a caller about to WRITE the file back needs an
+        unparseable one to raise rather than read as empty.
+        """
+        raw_config = self._load_toml(path, strict=strict)
         if not raw_config:
             return {}
 
@@ -487,13 +501,25 @@ class TitanConfig:
             return None
         return self.config.ai.cli_models.get(cli_name)
 
+    def _project_overrides_ai(self, key: str) -> bool:
+        """Whether the PROJECT config supplies this `[ai]` key.
+
+        `self.config` is the merged model, and `_merge_configs` lets a project's `[ai]`
+        table win for everything except connections. Writing a freshly-saved GLOBAL
+        value straight onto the merged model would therefore make the session use the
+        global one and silently revert to the project's on the next `load()` - visible
+        to nobody until a workflow ran with the wrong CLI.
+        """
+        project_ai = (self.project_config or {}).get("ai")
+        return isinstance(project_ai, dict) and key in project_ai
+
     def _sync_in_memory_cli_models(self, models: dict) -> None:
         """Keep the parsed `self.config.ai.cli_models` in step with what was just written.
 
         Same reason as `_sync_in_memory_default_cli`: the next workflow step resolves its
         route off the in-memory config, not off disk.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("cli_models"):
             return
         if self.config.ai:
             self.config.ai.cli_models = dict(models)
@@ -508,7 +534,7 @@ class TitanConfig:
         a workflow step, or the screen repainting its rows - would otherwise keep using the
         previous value until a full reload.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("default_cli"):
             return
         if self.config.ai:
             self.config.ai.default_cli = cli_name
@@ -540,27 +566,33 @@ class TitanConfig:
 
     def save_ai_preferences_config(self, preferences: dict) -> None:
         """Persist global AI preferences without touching AI connections."""
+        # Strict: this rebuilds the entire file from what it reads, so an unparseable
+        # config must raise instead of being silently replaced by `{}` plus `[ai]`.
         config_data = self._load_and_migrate_toml(
             self._global_config_path,
             migration_manager=self.global_migration_manager,
+            strict=True,
         )
         config_data["config_version"] = (
             self.config.config_version if getattr(self, "config", None) else "1.0"
         )
+        # Validated BEFORE the write: this used to happen in the in-memory sync
+        # afterwards, so an invalid payload landed on disk while the caller was told the
+        # save had failed and memory kept the old value.
+        parsed = AIPreferences(**preferences)
         config_data.setdefault("ai", {})["preferences"] = preferences
         self._write_global_config(config_data)
-        self._sync_in_memory_ai_preferences(preferences)
+        self._sync_in_memory_ai_preferences(parsed)
 
-    def _sync_in_memory_ai_preferences(self, preferences: dict) -> None:
+    def _sync_in_memory_ai_preferences(self, parsed: "AIPreferences") -> None:
         """
         Keep the already-parsed `self.config.ai.preferences` in sync with what
         was just persisted to disk, so a caller holding this same TitanConfig
         instance (e.g. a workflow step, in the same process) sees the new
         preference immediately, without needing a full `.load()`.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("preferences"):
             return
-        parsed = AIPreferences(**preferences)
         if self.config.ai:
             self.config.ai.preferences = parsed
         else:
