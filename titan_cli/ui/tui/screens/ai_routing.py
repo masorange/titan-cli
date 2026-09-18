@@ -519,6 +519,7 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         choices: Sequence[InstanceChoice],
         *,
         noun: str = "CLI",
+        remote: bool = False,
         current: Optional[str] = None,
         current_model: Optional[str] = None,
         session_override=None,
@@ -532,6 +533,11 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
             question: The heading, e.g. "Which CLI should Titan run?".
             choices: The instances on offer, already rendered for display.
             noun: "CLI" or "connection". Wording only.
+            remote: Which half of the session override this picker owns. A CLI picker
+                must not report - or offer to clear - a connection override and vice
+                versa: they are set by different keys and shown in different cells, so
+                naming the other one here is information the user cannot act on from
+                where they are standing.
             current: What is in force now, and where the pending selection starts.
             current_model: The model in force for `current`, shown while nothing is pending.
             session_override: The live `AISessionOverride`, to report and to clear.
@@ -544,6 +550,7 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         self.question = question
         self.choices = list(choices)
         self.noun = noun
+        self.remote = remote
         self.current = current
         self.current_model = current_model
         self.session_override = session_override
@@ -572,10 +579,10 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
             yield DimText(self._pending_text(), id="quick-instance-pending")
 
             override = self.session_override
-            if override is not None and override.is_active:
+            if override is not None and override.is_active_for(self.remote):
                 yield WarningText(
-                    f"{Icons.WARNING} Session override active: {override.describe()}. "
-                    "C to clear it."
+                    f"{Icons.WARNING} Session override active: "
+                    f"{override.describe_for(self.remote)}. C to clear it."
                 )
 
             # Tasks pinning their own instance do not follow a SAVE - but `S` still moves
@@ -770,7 +777,7 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
 
     def action_clear_session(self) -> None:
         override = self.session_override
-        if override is None or not override.is_active:
+        if override is None or not override.is_active_for(self.remote):
             return
         self.dismiss(QuickPickResult(clear_session=True))
 

@@ -110,6 +110,34 @@ def _run(config, monkeypatch, key, keys=(), *, press_button=None, before=None):
 
 
 # The two keys, and what each one is expected to write when accepted.
+# Which half of the session override each key owns.
+OVERRIDE_FIELDS = [
+    pytest.param("f2", "cli", "opencode", id="f2-cli"),
+    pytest.param("f3", "connection", "personal", id="f3-connection"),
+]
+
+
+def _picker_text(config, monkeypatch, key, *, before=None) -> str:
+    """Open a picker and return everything it renders as text."""
+    _stub_availability(monkeypatch)
+    captured = {}
+
+    async def run():
+        app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            if before:
+                setattr(app.ai_session_override, before[0], before[1])
+            await pilot.press(key)
+            await pilot.pause()
+            captured["text"] = " ".join(
+                str(w.renderable) for w in app.screen.query(Static)
+            )
+
+    asyncio.run(run())
+    return captured["text"]
+
+
 BOTH_KEYS = [
     pytest.param("f2", "set_default_ai_cli", "opencode", id="f2-cli"),
     pytest.param("f3", "set_default_ai_connection", "personal", id="f3-connection"),
@@ -179,8 +207,8 @@ class TestTheSessionScope:
         getattr(config, writer).assert_not_called()
         assert expected in captured["override"]
 
-    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
-    def test_c_clears_an_active_override(self, key, writer, expected, monkeypatch):
+    @pytest.mark.parametrize("key,field,value", OVERRIDE_FIELDS)
+    def test_c_clears_this_kinds_override(self, key, field, value, monkeypatch):
         config = _config()
 
         captured = _run(
@@ -188,30 +216,63 @@ class TestTheSessionScope:
             monkeypatch,
             key,
             keys=["c"],
-            before=lambda app: setattr(app.ai_session_override, "cli", "opencode"),
+            before=lambda app: setattr(app.ai_session_override, field, value),
         )
 
         assert captured["override"] == (None, None, None, None)
 
-    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
-    def test_an_active_override_is_announced(self, key, writer, expected, monkeypatch):
+    @pytest.mark.parametrize("key,field,value", OVERRIDE_FIELDS)
+    def test_an_active_override_of_this_kind_is_announced(
+        self, key, field, value, monkeypatch
+    ):
+        text = _picker_text(_config(), monkeypatch, key, before=(field, value))
+
+        assert "Session override active" in text
+        assert value in text
+
+
+class TestEachKeyMindsItsOwnOverride:
+    """
+    Found in use 2026-09-18: the connection picker announced "Session override active:
+    codex / gpt-5.6-luna" - a CLI override - and offered to clear it.
+
+    The two halves are set by different keys and shown in different status-bar cells, so
+    naming one from the other's picker reports something the user cannot act on from
+    where they are standing, and clearing it removes a setting they cannot even see.
+    """
+
+    def test_f3_ignores_a_cli_override(self, monkeypatch):
+        text = _picker_text(_config(), monkeypatch, "f3", before=("cli", "opencode"))
+
+        assert "Session override active" not in text
+
+    def test_f2_ignores_a_connection_override(self, monkeypatch):
+        text = _picker_text(_config(), monkeypatch, "f2", before=("connection", "personal"))
+
+        assert "Session override active" not in text
+
+    def test_clearing_from_one_picker_leaves_the_other_kind_alone(self, monkeypatch):
+        """C in the CLI picker must not silently drop the connection override."""
+        config = _config()
         _stub_availability(monkeypatch)
         captured = {}
 
         async def run():
-            app = TitanApp(_config(), initial_screen=lambda: _BlankScreen())
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
             async with app.run_test() as pilot:
                 await pilot.pause()
                 app.ai_session_override.cli = "opencode"
-                await pilot.press(key)
+                app.ai_session_override.connection = "personal"
+                await pilot.press("f2")
                 await pilot.pause()
-                captured["text"] = " ".join(
-                    str(w.renderable) for w in app.screen.query(Static)
-                )
+                await pilot.press("c")
+                await pilot.pause()
+                override = app.ai_session_override
+                captured["state"] = (override.cli, override.connection)
 
         asyncio.run(run())
 
-        assert "Session override active" in captured["text"]
+        assert captured["state"] == (None, "personal")
 
 
 class TestTheHintAndTheDisclosure:

@@ -6,6 +6,8 @@ Main Textual application for Titan CLI with fixed status bar and theme support.
 from textual.app import App
 from textual.binding import Binding
 
+from typing import Optional
+
 from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
@@ -136,6 +138,7 @@ class TitanApp(App):
         self._open_quick_picker(
             question="Which CLI should Titan run?",
             noun="CLI",
+            remote=False,
             choices=cli_choices(installed, models),
             current=current,
             current_model=models.get(current) if current else None,
@@ -178,6 +181,7 @@ class TitanApp(App):
         self._open_quick_picker(
             question="Which connection should answer?",
             noun="connection",
+            remote=True,
             choices=connection_choices(connections),
             current=current,
             current_model=getattr(current_cfg, "default_model", None),
@@ -193,6 +197,7 @@ class TitanApp(App):
         *,
         question,
         noun,
+        remote,
         choices,
         current,
         current_model,
@@ -212,7 +217,7 @@ class TitanApp(App):
             if result is None or not result.changes_anything:
                 return
             if result.clear_session:
-                self.clear_ai_session_override()
+                self.clear_ai_session_override(remote=pinned_tasks_remote)
                 return
             try:
                 if result.session_only:
@@ -230,6 +235,7 @@ class TitanApp(App):
                 question,
                 choices,
                 noun=noun,
+                remote=remote,
                 current=current,
                 current_model=current_model,
                 session_override=self.ai_session_override,
@@ -283,11 +289,22 @@ class TitanApp(App):
         preferences = ai_config.preferences if ai_config else None
         return preferences.tasks if preferences else None
 
-    def clear_ai_session_override(self) -> None:
-        """Drop the session override so saved configuration applies again."""
-        if not self.ai_session_override.is_active:
-            return
-        self.ai_session_override.clear()
+    def clear_ai_session_override(self, *, remote: Optional[bool] = None) -> None:
+        """Drop the session override so saved configuration applies again.
+
+        `remote` scopes it to one transport, which is what a picker asks for: it only
+        reported its own half, so clearing the other from there would remove something
+        the user could not see.
+        """
+        override = self.ai_session_override
+        if remote is None:
+            if not override.is_active:
+                return
+            override.clear()
+        else:
+            if not override.is_active_for(remote):
+                return
+            override.clear_for(remote)
         self.refresh_status_bar()
         self.notify("Session override cleared - your saved settings apply again.")
 

@@ -87,6 +87,32 @@ class AISessionOverride:
         """The overridden model for one kind of provider, if there is one."""
         return self.connection_model if remote else self.cli_model
 
+    def is_active_for(self, remote: bool) -> bool:
+        """Whether THIS kind is overridden. The other kind is not this caller's business."""
+        return bool(self.instance_for(remote) or self.model_for(remote))
+
+    def clear_for(self, remote: bool) -> None:
+        """Drop only this kind's override, leaving the other alone.
+
+        The two are set by different keys and reported in different places, so clearing
+        one from the other's picker would remove a setting the user cannot even see from
+        there.
+        """
+        if remote:
+            self.connection = None
+            self.connection_model = None
+        else:
+            self.cli = None
+            self.cli_model = None
+
+    def describe_for(self, remote: bool) -> str:
+        """A short summary of THIS kind's override only."""
+        instance = self.instance_for(remote)
+        model = self.model_for(remote)
+        if instance and model:
+            return f"{instance} / {model}"
+        return instance or model or ""
+
     def describe(self) -> str:
         """A short human summary, for a status line or a notification.
 
