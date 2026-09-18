@@ -6,14 +6,22 @@ Parses JSONL output to extract the agent's response.
 """
 
 import json
+from pathlib import Path
 import re
 import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+# Codex fetches and etags its own model catalogue into this file. Resolved through a
+# function rather than a constant so the home directory is read at call time, not at
+# import time.
+def codex_models_cache_path() -> Path:
+    """Where Codex CLI keeps the catalogue it maintains for itself."""
+    return Path.home() / ".codex" / "models_cache.json"
 
 
 class CodexHeadlessAdapter:
@@ -47,6 +55,59 @@ class CodexHeadlessAdapter:
 
     def is_available(self) -> bool:
         return shutil.which("codex") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """Codex's own catalogue, read from the cache it maintains.
+
+        There is no listing subcommand - `codex --help` shows none and documents
+        `-m/--model` as a free-form string - but codex fetches its catalogue into
+        `~/.codex/models_cache.json` and keeps it etagged. Reading that is better than a
+        list hardcoded from the published docs, which pins whatever was current when this
+        adapter was written: the docs' `gpt-5.3-codex` was already absent from the install
+        this was written against, whose codex offered the `gpt-5.6-*` family instead.
+
+        `visibility` is honored as a DENY-list: codex marks its internal models
+        (`codex-auto-review`, `gpt-reserve`) as `hide`, and offering those would be
+        wrong - but requiring the positive value would make a future format that drops
+        the key look like a codex with no models at all.
+
+        The file is codex's private format, not a contract, so every failure - missing,
+        unreadable, malformed, or an entry of an unexpected shape - degrades to offering
+        nothing. That is the behaviour this adapter had before, and the modal always lets
+        the user type an identifier, so a codex that has never run costs nothing.
+        """
+        try:
+            payload = json.loads(codex_models_cache_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+
+        entries = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            return []
+
+        models = []
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            # A DENY-list, not an allow-list. The only thing this format guarantees is
+            # that codex marks its internals `hide`; nothing says every offerable entry
+            # carries `visibility == "list"`. Requiring it would turn a dropped key into
+            # "codex has no models", indistinguishable from codex never having run.
+            if entry.get("visibility") == "hide":
+                continue
+            slug = entry.get("slug")
+            # Type-checked, not just truthy: the slug becomes a Textual option id, so a
+            # format change that made it a number or an object would surface as a crash
+            # in the picker rather than as the empty list this whole method promises.
+            if not isinstance(slug, str) or not slug or slug in seen:
+                # Duplicates matter for the same reason the type check does: the slug
+                # becomes a Textual option id, and Textual raises on a repeat.
+                continue
+            seen.add(slug)
+            label = entry.get("description") or entry.get("display_name") or ""
+            models.append(CliModel(slug, label if isinstance(label, str) else ""))
+        return models
 
     def execute(
         self,

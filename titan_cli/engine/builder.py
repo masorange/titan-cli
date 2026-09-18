@@ -86,12 +86,18 @@ class WorkflowContextBuilder:
                 self._ai = None
         return self
 
-    def with_ai_router(self, ai_router: Optional[Any] = None) -> WorkflowContextBuilder:
+    def with_ai_router(
+        self, ai_router: Optional[Any] = None, session_override: Optional[Any] = None
+    ) -> WorkflowContextBuilder:
         """
         Add the AI execution façade steps route their AI calls through.
 
         Args:
             ai_router: Optional AIExecutor instance (auto-created if None)
+            session_override: The `AISessionOverride` the UI is holding, so a CLI or
+                model the user chose for this session only applies to this run. Passed
+                by reference, not copied: the override can change between runs, and the
+                app owns the single instance.
 
         Note:
             `ctx.ai` stays available and unchanged for steps that talk to a
@@ -105,6 +111,7 @@ class WorkflowContextBuilder:
                 self._ai_config,
                 provider_factory=create_ai_provider,
                 secret_broker=create_broker_factory().for_plugin("core"),
+                session_override=session_override,
             )
         return self
 

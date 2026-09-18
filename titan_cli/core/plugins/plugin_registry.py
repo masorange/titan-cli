@@ -20,12 +20,50 @@ from titan_cli.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _extend_import_path(
+    repo_path: Path, dependency_sys_paths: Optional[list[Path]]
+) -> None:
+    """Make a plugin importable without letting it decide what the rest of Titan imports.
+
+    A plugin's dependency directory is a whole venv - for a plugin that depends on
+    `titan-cli`, pip installs Titan itself and every official plugin inside it. One
+    interpreter has one `sys.modules`, so whatever that directory wins gets used by
+    everyone, not just the plugin: putting it first silently replaced official plugins
+    and lazily imported SDKs (anthropic, openai) with a third party's pinned copies,
+    while `titan_cli` itself escaped only because it was already imported. In-process
+    isolation is not on offer here; the only real choice is who wins a collision, and
+    that has to be the application.
+
+    So dependencies go LAST - they fill gaps, never override - while the plugin's own
+    source goes FIRST, which is what makes a dev_local checkout beat an installed copy
+    of the same plugin.
+    """
+    source = str(repo_path)
+    if source in sys.path:
+        sys.path.remove(source)
+    sys.path.insert(0, source)
+
+    for path in dependency_sys_paths or []:
+        entry = str(path)
+        if entry in sys.path:
+            continue
+        sys.path.append(entry)
+
+
 def _load_local_plugin(
     repo_path: Path,
     plugin_name: str,
-    extra_sys_paths: Optional[list[Path]] = None,
+    dependency_sys_paths: Optional[list[Path]] = None,
 ) -> TitanPlugin:
-    """Load a Titan plugin directly from a local repository path."""
+    """Load a Titan plugin directly from a local repository path.
+
+    Args:
+        repo_path: The plugin's own source. Takes precedence over everything, because
+            asking for this plugin from this directory is the whole request.
+        dependency_sys_paths: Where the plugin's third-party dependencies live, e.g. the
+            site-packages of the venv built for a pinned commit. Searched only after
+            everything already importable - see `_extend_import_path`.
+    """
     _reject_reserved_plugin_name(plugin_name)
     pyproject_path = repo_path / "pyproject.toml"
     if not pyproject_path.is_file():
@@ -51,11 +89,7 @@ def _load_local_plugin(
         raise ValueError(f"Invalid entry point for '{plugin_name}': {entry_point}")
 
     package_root = module_name.split(".", 1)[0]
-    sys_paths = [str(path) for path in (extra_sys_paths or [])] + [str(repo_path)]
-    for sys_path_entry in reversed(sys_paths):
-        if sys_path_entry in sys.path:
-            sys.path.remove(sys_path_entry)
-        sys.path.insert(0, sys_path_entry)
+    _extend_import_path(repo_path, dependency_sys_paths)
 
     stale_modules = [
         name for name in list(sys.modules)
@@ -426,7 +460,7 @@ class PluginRegistry:
                 plugin = _load_local_plugin(
                     runtime.paths.source_dir,
                     plugin_name,
-                    extra_sys_paths=[runtime.paths.site_packages],
+                    dependency_sys_paths=[runtime.paths.site_packages],
                 )
                 self._plugins[plugin_name] = plugin
                 self._dev_local_sys_paths.add(str(runtime.paths.site_packages))

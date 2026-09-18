@@ -83,6 +83,20 @@ class BaseScreen(Screen):
             self._update_status_bar(status_bar)
             yield status_bar
 
+    def refresh_status_bar(self) -> None:
+        """Repaint this screen's status bar from current state, if it has one.
+
+        Public counterpart to `_update_status_bar`, for callers holding the screen rather
+        than the widget - the app does this when the session override changes, which is
+        state no config reload would pick up.
+        """
+        if not self.show_status_bar:
+            return
+        try:
+            self._update_status_bar(self.query_one("#status-bar", StatusBarWidget))
+        except Exception:
+            pass
+
     def _update_status_bar(self, status_bar: StatusBarWidget) -> None:
         """
         Update status bar with current config values.
@@ -106,29 +120,51 @@ class BaseScreen(Screen):
         except Exception:
             pass
 
-        # Get AI info directly from config
-        ai_info = "N/A"
-        if (
-            self.config.config
-            and self.config.config.ai
-            and self.config.config.ai.default_connection
-        ):
-            default_connection_id = self.config.config.ai.default_connection
-            if default_connection_id in self.config.config.ai.connections:
-                connection_cfg = self.config.config.ai.connections[
-                    default_connection_id
-                ]
-                source_name = get_source_display_name(
-                    connection_cfg.provider or connection_cfg.gateway_backend
-                )
-                model = connection_cfg.default_model or "default"
-                ai_info = f"{source_name} / {model}"
+        ai_config = self.config.config.ai if self.config.config else None
+
+        # F3 cell: the connection that answers, and with which model. A session override
+        # takes it over and marks itself with a *, exactly as it does to the F2 cell.
+        override = getattr(self.app, "ai_session_override", None)
+        connection_id = (ai_config.default_connection if ai_config else None)
+        if override is not None and override.connection:
+            connection_id = override.connection
+
+        ai_info = "F3: —"
+        if ai_config and connection_id in ai_config.connections:
+            connection_cfg = ai_config.connections[connection_id]
+            source_name = get_source_display_name(
+                connection_cfg.provider or connection_cfg.gateway_backend
+            )
+            model = connection_cfg.default_model or "default"
+            if override is not None and override.connection_model:
+                model = override.connection_model
+            ai_info = f"F3: {source_name} / {model}"
+            if override is not None and (override.connection or override.connection_model):
+                ai_info = f"{ai_info} *"
+
+        # F2 cell: the CLI Titan runs, and the model pinned to it. An unset model reads as
+        # "default" rather than blank - the CLI still has one, Titan just isn't choosing it.
+        #
+        # A session override takes the cell over and marks itself with a *, because it
+        # outranks everything saved: showing the saved value while something else runs
+        # would make the bar lie, and an override nobody can see is one they forget is on.
+        cli_info = "F2: —"
+        if ai_config and ai_config.default_cli:
+            cli = ai_config.default_cli
+            cli_info = f"F2: {cli} / {ai_config.cli_models.get(cli) or 'default'}"
+        if override is not None and (override.cli or override.cli_model):
+            cli = override.cli or (ai_config.default_cli if ai_config else None) or "—"
+            model = override.cli_model or (
+                ai_config.cli_models.get(cli) if ai_config and cli else None
+            )
+            cli_info = f"F2: {cli} / {model or 'default'} *"
 
         # Get project name directly from config
         project_name = self.config.get_project_name() or "N/A"
 
         # Update status bar
         status_bar.git_branch = git_branch
+        status_bar.cli_info = cli_info
         status_bar.ai_info = ai_info
         status_bar.project_name = project_name
 

@@ -7,6 +7,7 @@ Titan interacts only with this generic interface.
 """
 
 import re
+import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Optional
@@ -41,6 +42,53 @@ _QUOTA_PATTERNS = re.compile(
     r"|out of (free )?credits",
     re.IGNORECASE,
 )
+
+
+@dataclass(frozen=True)
+class CliModel:
+    """One model a CLI is willing to run.
+
+    `identifier` is what goes after the CLI's own model flag, verbatim - an alias
+    ("opus"), a bare id ("grok-4.6") or a qualified one ("anthropic/claude-sonnet-5"),
+    whichever that CLI expects. `label` is for display only.
+    """
+
+    identifier: str
+    label: str = ""
+
+
+def model_listing_lines(cmd: list[str], timeout: int = 20) -> list[str]:
+    """Run a CLI's own model-listing command and return its non-empty stdout lines.
+
+    Listing models is a convenience, never a precondition for running one: a CLI that
+    is not logged in, is offline, or has no such subcommand yields an empty list and the
+    caller falls back to letting the user type an identifier. So every failure mode -
+    missing binary, non-zero exit, timeout - is flattened to "nothing to offer" rather
+    than raised.
+    """
+    try:
+        # errors="replace" because text=True decodes with the platform encoding, and a
+        # CLI emitting a stray non-UTF-8 byte would otherwise raise UnicodeDecodeError -
+        # a ValueError, which the handler below does not catch - straight through a
+        # function whose whole contract is that nothing here raises.
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+            # The child must not reach the terminal. This runs under a Textual app, so
+            # a CLI that prompts - not logged in, a pager, a TTY confirmation - would
+            # read the user's keystrokes out from under the TUI and only give up when
+            # the timeout expires. Listing models is never a precondition, so a CLI
+            # that wants input gets EOF and contributes nothing.
+            stdin=subprocess.DEVNULL,
+        )
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return []
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 @dataclass
@@ -111,6 +159,17 @@ class HeadlessCliAdapter(Protocol):
 
     def is_available(self) -> bool:
         """Return True if the CLI is installed and reachable."""
+        ...
+
+    def list_models(self) -> list[CliModel]:
+        """Return the models this CLI offers, or an empty list when it offers none.
+
+        Each CLI answers this its own way, because there is no common mechanism: some
+        have a listing subcommand to shell out to, some publish a stable set of aliases
+        in their own help, and some expose nothing at all. An empty list is a normal
+        answer, not an error - the caller then lets the user type an identifier, which
+        is also the only way to reach a model newer than this adapter knows about.
+        """
         ...
 
     def execute(

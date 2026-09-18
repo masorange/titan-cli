@@ -130,10 +130,67 @@ The runtime manager:
 3. installs the plugin into that isolated environment
 
 The plugin registry then loads the plugin from:
-- the cached source directory
-- the cached `site-packages`
+- the cached source directory, **prepended** to `sys.path`
+- the cached `site-packages`, **appended** to `sys.path`
 
-This gives dependency isolation per `plugin + commit` while still using the current in-process plugin API.
+### Import resolution: the host always wins
+
+That ordering is the whole contract, and it is not symmetric on purpose
+(`_extend_import_path`, plugin_registry.py).
+
+A cached venv is not a sandbox. Plugins run in Titan's interpreter, which has one
+`sys.modules`: whatever a directory wins, it wins for **everyone**, not just for the
+plugin that brought it. So the cached `site-packages` is searched **last** — it fills
+gaps (a library Titan does not ship, e.g. `PyJWT`) and never overrides. The plugin's own
+source is searched **first**, which is what makes a `dev_local` checkout beat an
+installed copy of the same plugin.
+
+The reverse ordering caused a real incident: a community plugin declaring `titan-cli` as
+an ordinary dependency got Titan installed inside its venv, official plugins and AI SDKs
+included. With that directory searched first, every `titan_plugin_*` import in the whole
+application resolved to the plugin's frozen copies, so edits to official plugins were
+silently ignored — for months, under both `titan` and `titan-dev`. The core escaped only
+because `titan_cli` is already in `sys.modules` before any plugin loads, which made the
+symptom look arbitrary: core changes applied, plugin changes did not.
+
+The trade-off is deliberate. A plugin cannot be guaranteed the exact dependency versions
+it was tested against, because granting that means imposing them on the application.
+A plugin that breaks under the host's version is a contained, explainable failure;
+Titan breaking underneath the user is not.
+
+---
+
+## Plugin Dependency Rules
+
+For anyone authoring a community plugin:
+
+**`titan-cli` is the host, never an install dependency.** Titan is already running and
+already imported when it loads the plugin. Declare it as optional so pip never installs
+a second copy:
+
+```toml
+[tool.poetry.dependencies]
+titan-cli = {version = ">=0.9.0,<1.0.0", optional = true, python = ">=3.11"}
+
+[tool.poetry.extras]
+# Only for working on the plugin repo: `poetry install --extras host`.
+host = ["titan-cli"]
+```
+
+Do **not** simply delete the declaration. Titan reads that very constraint to decide
+whether the running version may load the plugin (see Version Compatibility below), and an
+absent requirement silently disables that gate.
+
+Everything else the plugin genuinely needs is declared normally. Two cases:
+
+| The library is... | What happens |
+|---|---|
+| Not shipped by Titan (`PyJWT`) | Loaded from the plugin's cached venv. This is what the venv is for |
+| Also shipped by Titan (`requests`) | Titan's version is used, whatever the plugin pinned |
+
+Pin ranges that are compatible with what Titan ships (`pyproject.toml`, `[tool.poetry.dependencies]`).
+A plugin that needs a conflicting major version of a shared library cannot be satisfied
+in-process today.
 
 ---
 
@@ -199,11 +256,17 @@ This no longer uninstalls a package from Titan's global environment, because `st
 - `~/.titan/community_plugins.toml` is no longer used
 - `community.py` was replaced by `community_sources.py`
 - official plugins can still follow their own global install path; the per-project runtime model here is specifically for community plugins
+- official plugins are immune to the shadowing described under Runtime Layout: they are
+  installed into Titan's own environment (path dependencies in development, bundled
+  packages in the published wheel), never into a separate venv that competes for imports
 
 ---
 
 ## Known Limits
 
 - community plugins still run in-process after being imported
-- dependency isolation is per plugin runtime, but execution is not sandboxed in a subprocess
-- a future architecture could move plugin execution out-of-process if stronger isolation is needed
+- there is no true dependency isolation: the cached venv only supplies what the host
+  lacks, so a plugin needing a different version of a library Titan ships cannot get it
+- execution is not sandboxed in a subprocess
+- a future architecture could move plugin execution out-of-process, which is the only way
+  to give a plugin its own dependency versions without imposing them on Titan

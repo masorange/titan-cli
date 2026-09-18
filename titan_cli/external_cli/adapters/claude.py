@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -45,6 +45,21 @@ class ClaudeHeadlessAdapter:
 
     def is_available(self) -> bool:
         return shutil.which("claude") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """Claude has no listing subcommand; its own --help publishes the aliases.
+
+        Aliases rather than versioned ids on purpose: `claude --help` documents them as
+        "an alias for the latest model", so they keep pointing at the current release
+        instead of pinning whatever was current when this adapter was written. A full
+        name still works - the caller can always type one.
+        """
+        return [
+            CliModel("opus", "Opus - most capable"),
+            CliModel("sonnet", "Sonnet - balanced"),
+            CliModel("haiku", "Haiku - fastest"),
+            CliModel("fable", "Fable"),
+        ]
 
     def execute(
         self,

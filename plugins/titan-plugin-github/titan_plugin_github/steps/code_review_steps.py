@@ -962,6 +962,41 @@ def _get_review_diff(
             return ctx.github.get_pr_diff(pr_number), True
 
 
+class _PinnedModelCli:
+    """A headless adapter that always runs with the model the user pinned for it.
+
+    These steps drive the adapter directly rather than through `generate_text`, so the
+    model the user chose in AI Configuration would otherwise never reach the CLI - it
+    is injected by the executor, on a path this file does not take. Wrapping the
+    adapter once, where it is resolved, applies the setting to every call, including
+    the ones a future step adds: forgetting `model=` at a call site is no longer
+    possible, because no call site passes it.
+
+    An explicit `model=` from a caller still wins, matching the executor's own rule.
+    """
+
+    def __init__(self, adapter, model: Optional[str]):
+        self._adapter = adapter
+        self._model = model
+
+    @property
+    def pinned_model(self) -> Optional[str]:
+        """The model this wrapper injects, for the announcement to name it."""
+        return self._model
+
+    def __getattr__(self, name):
+        """Everything else - cli_name, the supports_* capabilities - is the adapter's."""
+        return getattr(self._adapter, name)
+
+    def execute(self, prompt, **kwargs):
+        # `is None`, not setdefault: the executor's rule is that a call-site model counts
+        # only when it is not None, so a caller forwarding an optional model=None must
+        # mean "no opinion" here too, rather than suppressing the user's pin entirely.
+        if kwargs.get("model") is None:
+            kwargs["model"] = self._model
+        return self._adapter.execute(prompt, **kwargs)
+
+
 def _resolve_headless_adapter(cli_preference: str):
     """Return the first available headless adapter, or None."""
     if cli_preference == "auto":
@@ -998,6 +1033,8 @@ def _resolve_review_adapter(
     """
     router = getattr(ctx, "ai_router", None)
     if router is None:
+        # No façade means no configuration to read either, so there is no pinned model
+        # to honor - the bare adapter is the whole of what is known here.
         return _resolve_headless_adapter("auto"), None, False
 
     resolution = router.resolve(policy=step)
@@ -1018,13 +1055,48 @@ def _resolve_review_adapter(
     if adapter is None:
         return None, f"the configured CLI '{resolution.cli}' is not available", False
 
-    return adapter, None, False
+    model = router.model_for_decision(resolution)
+    # Logged at the decision, not at each call: these steps drive the CLI themselves, so
+    # nothing else in the log says which model they ran with - which is precisely what
+    # made an earlier drop of this setting invisible until someone read the CLI's own
+    # database.
+    logger.info(
+        "review_cli_resolved",
+        step=getattr(step, "__name__", None),
+        cli=resolution.cli,
+        model=model,
+    )
+    return _PinnedModelCli(adapter, model), None, False
+
+
+def _route_failure_reason(route_note: Optional[str], ai_off: bool) -> str:
+    """Why no AI ran, in words that distinguish a choice from a problem.
+
+    `_resolve_review_adapter` returns `ai_off` precisely so a deliberate skip is not
+    reported as a failure. Both of these steps were discarding it and calling everything
+    "no CLI available", which sent a user looking for a misconfiguration they had made
+    on purpose - or hid one they had not.
+    """
+    if ai_off:
+        return "AI is off for this task"
+    return route_note or "no CLI available"
 
 
 def _announce_review_adapter(ctx: WorkflowContext, adapter: object) -> None:
-    """Announce which CLI will run this review step."""
-    if adapter and hasattr(adapter, "cli_name"):
-        ctx.textual.ai_chip(f"CLI, automatic · {adapter.cli_name.value}")
+    """Announce which CLI - and which model - will run this review step.
+
+    These steps drive the adapter themselves, so they announce by hand rather than
+    through the façade's `announce=`. The wording follows `route_summary()` so a review
+    reads the same as every other AI step, and it names the MODEL because a task can now
+    pin one: "claude" alone no longer answers "did my pin run?".
+    """
+    if not adapter or not hasattr(adapter, "cli_name"):
+        return
+    cli = adapter.cli_name.value
+    model = getattr(adapter, "pinned_model", None)
+    ctx.textual.ai_chip(
+        f"{cli} / {model} · CLI, automatic" if model else f"{cli} · CLI, automatic"
+    )
 
 
 # ============================================================================
@@ -1549,7 +1621,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("success")
         return Success("Deterministic review plan built", metadata={"review_plan": fallback})
 
-    adapter, route_note, _ = _resolve_review_adapter(ctx, ai_review_plan)
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_plan)
 
     if not adapter:
         ctx.textual.warning_text(
@@ -1566,7 +1638,14 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text(f"Default plan: {len(fallback.focus_files)} focus files")
         _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
-        return Success("Default review plan used (no CLI available)", metadata={"review_plan": fallback})
+        # The message carries the REAL reason. It used to say "no CLI available"
+        # whatever had happened, so "you turned this task off" and "your configured CLI
+        # is missing" read identically in the run summary - and only one of them is
+        # something to go and fix.
+        return Success(
+            f"Default review plan used ({_route_failure_reason(route_note, ai_off)})",
+            metadata={"review_plan": fallback},
+        )
 
     _announce_review_adapter(ctx, adapter)
 
@@ -2984,13 +3063,14 @@ def verify_findings(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No findings eligible for verification")
 
-    adapter, route_note, _ = _resolve_review_adapter(ctx, verify_findings)
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, verify_findings)
     if not adapter:
-        ctx.textual.dim_text(
-            f"{route_note or 'No headless CLI available'} — findings pass unverified."
-        )
+        # Verification shares the code_review_findings preference, so a user who turned
+        # that task off would otherwise read "No CLI available" for a choice they made.
+        reason = _route_failure_reason(route_note, ai_off)
+        ctx.textual.dim_text(f"{reason} — findings pass unverified.")
         ctx.textual.end_step("skip")
-        return Skip("No CLI available for verification")
+        return Skip(f"Verification skipped ({reason})")
 
     _announce_review_adapter(ctx, adapter)
 
@@ -3878,7 +3958,7 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No thread_review_contexts in context")
 
-    adapter, route_note, _ = _resolve_review_adapter(ctx, ai_thread_resolution)
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_thread_resolution)
 
     if not adapter:
         ctx.textual.warning_text(
@@ -3886,7 +3966,10 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         )
         ctx.data["raw_thread_decisions"] = []
         ctx.textual.end_step("success")
-        return Success("No decisions (no CLI available)", metadata={"raw_thread_decisions": []})
+        return Success(
+            f"No decisions ({_route_failure_reason(route_note, ai_off)})",
+            metadata={"raw_thread_decisions": []},
+        )
 
     _announce_review_adapter(ctx, adapter)
 

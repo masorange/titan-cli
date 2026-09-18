@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -81,6 +81,19 @@ class AntigravityHeadlessAdapter:
 
     def is_available(self) -> bool:
         return shutil.which("agy") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """`agy models` prints `id<TAB>Human label` per model.
+
+        Lines without a tab are progress chatter, not models, so they are dropped.
+        """
+        models: list[CliModel] = []
+        for line in model_listing_lines(["agy", "models"]):
+            if "\t" not in line:
+                continue
+            identifier, _, label = line.partition("\t")
+            models.append(CliModel(identifier.strip(), label.strip()))
+        return models
 
     def execute(
         self,

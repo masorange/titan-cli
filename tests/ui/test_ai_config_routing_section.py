@@ -25,6 +25,7 @@ from titan_cli.ui.tui.widgets import Button, StyledOptionList
 from titan_cli.ui.tui.screens.ai_config import AIConfigScreen
 from titan_cli.ui.tui.screens.ai_routing import (
     CliDefaultPicker,
+    TaskRouting,
     TaskRoutingRow,
     build_task_routings,
     executable_types,
@@ -121,9 +122,51 @@ class TestBuildTaskRoutings:
             )
         ]
 
-        routings = build_task_routings(usages, _StubResolver(), persisted_tasks=["commit_message"])
+        routings = build_task_routings(
+            usages,
+            _StubResolver(),
+            preferences={"commit_message": AIProviderPreference(provider="remote")},
+        )
 
         assert routings[0].has_preference is True
+
+    def test_rows_carry_the_tasks_own_cli_and_model_pins(self):
+        """The row states the pin, so it can say whether an instance was pinned or inherited."""
+        usages = [
+            DiscoveredWorkflowAIUsage(
+                workflow_name="wf",
+                steps=[_step("commit_message", executes=[AIProviderType.CLI_HEADLESS])],
+            )
+        ]
+
+        routings = build_task_routings(
+            usages,
+            _StubResolver(),
+            preferences={
+                "commit_message": AIProviderPreference(
+                    provider="cli_headless", cli="gemini", model="flash"
+                )
+            },
+        )
+
+        assert (routings[0].pinned_cli, routings[0].pinned_model) == ("gemini", "flash")
+
+    def test_an_unpinned_row_carries_no_instance(self):
+        usages = [
+            DiscoveredWorkflowAIUsage(
+                workflow_name="wf",
+                steps=[_step("commit_message", executes=[AIProviderType.CLI_HEADLESS])],
+            )
+        ]
+
+        routings = build_task_routings(
+            usages,
+            _StubResolver(),
+            preferences={"commit_message": AIProviderPreference(provider="cli_headless")},
+        )
+
+        assert routings[0].pinned_cli is None
+        assert routings[0].pinned_model is None
 
     def test_a_declaring_but_not_enforcing_step_is_named(self):
         usages = [
@@ -246,10 +289,11 @@ class TestScreenMounts:
     """
 
     @staticmethod
-    def _config(*, default_cli=None, tasks=None):
+    def _config(*, default_cli=None, tasks=None, cli_models=None):
         config = MagicMock()
         config.config.ai = AIConfig(
             default_cli=default_cli,
+            cli_models=cli_models or {},
             preferences=AIPreferences(
                 tasks={t: AIProviderPreference(provider=p) for t, p in (tasks or {}).items()}
             ),
@@ -258,7 +302,7 @@ class TestScreenMounts:
         return config
 
     @staticmethod
-    def _stub_screen_dependencies(monkeypatch, usages, clis):
+    def _stub_screen_dependencies(monkeypatch, usages, clis, connections=()):
         """Replace discovery and provider probing so a mount needs no machine state."""
         monkeypatch.setattr(
             "titan_cli.ui.tui.screens.ai_config.AIUsageDiscoveryService",
@@ -270,7 +314,12 @@ class TestScreenMounts:
                 pass
 
             def available_remote_connections(self):
-                return []
+                return [
+                    AIProviderAvailability(
+                        provider=AIProviderType.REMOTE, identifier=name
+                    )
+                    for name in connections
+                ]
 
             def available_headless_clis(self):
                 return [
@@ -289,7 +338,7 @@ class TestScreenMounts:
                 ]
 
             def is_provider_available(self, provider):
-                return provider != AIProviderType.REMOTE
+                return provider != AIProviderType.REMOTE or bool(connections)
 
         monkeypatch.setattr(
             "titan_cli.ui.tui.screens.ai_config.AIAvailabilityChecker", _Checker
@@ -403,7 +452,31 @@ class TestScreenMounts:
         )
 
         assert captured["buttons"] == {
-            "commit_message": ["task-change-commit_message", "task-clear-commit_message"]
+            "commit_message": [
+                "task-change-commit_message",
+                "task-cli-commit_message",
+                "task-model-commit_message",
+                "task-clear-commit_message",
+            ]
+        }
+
+    def test_a_remote_only_task_is_offered_no_instance_pins(self, monkeypatch):
+        """D-004: a remote task's connection is global, so pinning it would be inert."""
+        usages = [
+            DiscoveredWorkflowAIUsage(
+                workflow_name="wf",
+                steps=[_step("jira_analysis", executes=[AIProviderType.REMOTE])],
+            )
+        ]
+
+        captured = self._mount(
+            self._config(default_cli="claude", tasks={"jira_analysis": "remote"}),
+            usages,
+            monkeypatch,
+        )
+
+        assert captured["buttons"] == {
+            "jira_analysis": ["task-change-jira_analysis", "task-clear-jira_analysis"]
         }
 
     def test_a_lone_installed_cli_is_suggested_when_no_default_is_set(self, monkeypatch):
@@ -508,3 +581,373 @@ class TestScreenMounts:
         assert saved == ["claude"]
         assert "No default set yet" in result["before"]
         assert "Titan will run claude" in result["after"]
+
+
+class TestCliModelsInTheConfigScreen:
+    """The CLI section says which model each CLI runs, and opens a picker for it."""
+
+    @classmethod
+    def _mount_and_press(cls, config, monkeypatch, keys, *, clis=("claude", "gemini")):
+        TestScreenMounts._stub_screen_dependencies(monkeypatch, [], clis)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: AIConfigScreen(config))
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                picker = app.screen.query_one(CliDefaultPicker)
+                option_list = picker.query_one(StyledOptionList)
+                option_list.focus()
+                await pilot.pause()
+                captured["descriptions"] = [
+                    str(option_list.get_option_at_index(i).prompt)
+                    for i in range(option_list.option_count)
+                ]
+                for key in keys:
+                    await pilot.press(key)
+                    await pilot.pause()
+                captured["screen"] = app.screen
+
+        asyncio.run(run())
+        return captured
+
+    def test_each_cli_row_names_the_model_it_will_run(self, monkeypatch):
+        captured = self._mount_and_press(
+            TestScreenMounts._config(default_cli="claude", cli_models={"claude": "opus"}),
+            monkeypatch,
+            keys=[],
+        )
+
+        assert "model: opus" in captured["descriptions"][0]
+        assert "model: CLI default" in captured["descriptions"][1]
+
+    def test_m_opens_the_picker_for_the_highlighted_cli_without_switching_to_it(
+        self, monkeypatch
+    ):
+        from titan_cli.ui.tui.screens.model_picker import SelectModelModal
+
+        config = TestScreenMounts._config(default_cli="claude")
+        config.get_cli_model.return_value = None
+        captured = self._mount_and_press(config, monkeypatch, keys=["down", "m"])
+
+        assert isinstance(captured["screen"], SelectModelModal)
+        assert "gemini" in captured["screen"].subtitle
+        config.set_default_ai_cli.assert_not_called()
+
+
+class TestPerTaskPinsInTheConfigScreen:
+    """
+    The row composes an instance and a model in ONE form and writes them together
+    (air-014), using the same widget F2 and F3 open.
+
+    Before this, each button was an immediate write: picking a CLI closed and saved,
+    picking a model closed and saved, and Escape after a model left it stored anyway.
+    """
+
+    @staticmethod
+    def _config_with(routing_tasks, *, default_cli="claude"):
+        config = TestScreenMounts._config(default_cli=default_cli)
+        config.config.ai.preferences = AIPreferences(tasks=routing_tasks)
+        config.get_cli_model.return_value = None
+        return config
+
+    @staticmethod
+    def _cli_usage(task="commit_message"):
+        return [
+            DiscoveredWorkflowAIUsage(
+                workflow_name="wf",
+                steps=[_step(task, executes=[AIProviderType.CLI_HEADLESS])],
+            )
+        ]
+
+    @classmethod
+    def _compose(
+        cls, config, usages, monkeypatch, result, *, task="commit_message", connections=()
+    ):
+        """Open the row's form and hand it a composed result."""
+        TestScreenMounts._stub_screen_dependencies(
+            monkeypatch, usages, ("claude", "gemini"), connections
+        )
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: AIConfigScreen(config))
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.screen.handle_pin_task_cli(task)
+                await pilot.pause()
+                captured["modal"] = app.screen_stack[-1]
+                app.screen_stack[-1].dismiss(result)
+                await pilot.pause()
+
+        asyncio.run(run())
+        return captured
+
+    def test_the_form_offers_this_tasks_instances_with_an_inherit_row(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickInstanceModal
+
+        config = self._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
+        )
+
+        captured = self._compose(config, self._cli_usage(), monkeypatch, None)
+
+        modal = captured["modal"]
+        assert isinstance(modal, QuickInstanceModal)
+        assert modal.current == "gemini"
+        assert modal.noun == "CLI"
+        # A per-task pin is persistent by definition, so no session scope here.
+        assert modal.allow_session is False
+        assert "Follow the default" in modal.inherit_label
+
+    def test_accepting_an_instance_writes_the_task_pin_not_the_global_default(
+        self, monkeypatch
+    ):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = self._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless")}
+        )
+
+        self._compose(
+            config, self._cli_usage(), monkeypatch, QuickPickResult(instance="gemini")
+        )
+
+        config.set_task_ai_cli.assert_called_once_with(
+            "commit_message", "gemini", provider="cli_headless"
+        )
+        config.set_default_ai_cli.assert_not_called()
+
+    def test_the_inherit_row_clears_the_pin(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = self._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
+        )
+
+        self._compose(
+            config, self._cli_usage(), monkeypatch, QuickPickResult(clear_instance=True)
+        )
+
+        config.clear_task_ai_cli.assert_called_once_with("commit_message")
+        config.set_task_ai_cli.assert_not_called()
+
+    def test_cancelling_writes_nothing(self, monkeypatch):
+        config = self._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
+        )
+
+        self._compose(config, self._cli_usage(), monkeypatch, None)
+
+        config.set_task_ai_cli.assert_not_called()
+        config.set_task_ai_model.assert_not_called()
+
+    def test_an_instance_and_a_model_are_written_together(self, monkeypatch):
+        """One write pass, so there is no half-applied state to clean up afterwards."""
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = self._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless")}
+        )
+
+        self._compose(
+            config,
+            self._cli_usage(),
+            monkeypatch,
+            QuickPickResult(instance="gemini", model="flash"),
+        )
+
+        config.set_task_ai_cli.assert_called_once_with(
+            "commit_message", "gemini", provider="cli_headless"
+        )
+        config.set_task_ai_model.assert_called_once_with(
+            "commit_message", "flash", provider="cli_headless"
+        )
+
+    def test_the_model_can_finally_be_unpinned(self, monkeypatch):
+        """`clear_task_ai_model` existed since air-002 with no path in the UI calling it."""
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = self._config_with(
+            {
+                "commit_message": AIProviderPreference(
+                    provider="cli_headless", cli="gemini", model="flash"
+                )
+            }
+        )
+
+        self._compose(
+            config, self._cli_usage(), monkeypatch, QuickPickResult(clear_model=True)
+        )
+
+        config.clear_task_ai_model.assert_called_once_with("commit_message")
+
+    def test_a_remote_only_task_is_offered_connections(self, monkeypatch):
+        config = self._config_with(
+            {"jira_analysis": AIProviderPreference(provider="remote")}
+        )
+        config.config.ai.default_connection = "work"
+        usages = [
+            DiscoveredWorkflowAIUsage(
+                workflow_name="wf",
+                steps=[_step("jira_analysis", executes=[AIProviderType.REMOTE])],
+            )
+        ]
+
+        captured = self._compose(
+            config, usages, monkeypatch, None, task="jira_analysis", connections=("work",)
+        )
+
+        assert captured["modal"].noun == "connection"
+        assert captured["modal"].remote is True
+
+    def test_a_row_says_whether_its_instance_was_pinned_or_inherited(self):
+        """
+        Without this the user cannot tell why F2 moved some rows and not others - the
+        failure mode a per-task override introduces.
+        """
+        pinned = TaskRouting(
+            task="commit_message",
+            label="Commit messages",
+            executes=[AIProviderType.CLI_HEADLESS],
+            resolution=AIRouteDecision(
+                provider=AIProviderType.CLI_HEADLESS,
+                cli="gemini",
+                model="flash",
+                instance_origin="pinned",
+                model_origin="pinned",
+            ),
+            has_preference=True,
+            pinned_cli="gemini",
+            pinned_model="flash",
+        )
+        inherited = TaskRouting(
+            task="slack_summary",
+            label="Slack summaries",
+            executes=[AIProviderType.CLI_HEADLESS],
+            resolution=AIRouteDecision(
+                provider=AIProviderType.CLI_HEADLESS,
+                cli="claude",
+                model="opus",
+                instance_origin="default",
+                model_origin="default",
+            ),
+            has_preference=True,
+        )
+
+        assert _row_text(pinned) == [
+            "  CLI: gemini (pinned here)",
+            "  Model: flash (pinned here)",
+        ]
+        assert _row_text(inherited) == [
+            "  CLI: claude (default)",
+            "  Model: opus (default for this cli)",
+        ]
+
+    def test_a_remote_row_says_connection_where_a_cli_row_says_cli(self):
+        """Same two lines, named for the transport actually serving the task (D-006)."""
+        remote = TaskRouting(
+            task="jira_analysis",
+            label="Jira issue analysis",
+            executes=[AIProviderType.REMOTE],
+            resolution=AIRouteDecision(
+                provider=AIProviderType.REMOTE,
+                connection_id="other-litellm",
+                model="gpt-5-mini",
+                instance_origin="pinned",
+                model_origin="pinned",
+            ),
+            has_preference=True,
+            pinned_connection="other-litellm",
+            pinned_model="gpt-5-mini",
+        )
+
+        assert _row_text(remote) == [
+            "  Connection: other-litellm (pinned here)",
+            "  Model: gpt-5-mini (pinned here)",
+        ]
+
+    def test_a_session_override_is_not_reported_as_a_pin(self):
+        """
+        The labels are read off the decision, not re-derived from the preference.
+
+        With a session override active the resolver serves something the task never
+        pinned, and the row used to call it "pinned here" - claiming a setting the user
+        had not made, in the line whose whole job is saying where a value came from.
+        """
+        overridden = TaskRouting(
+            task="commit_message",
+            label="Commit messages",
+            executes=[AIProviderType.CLI_HEADLESS],
+            resolution=AIRouteDecision(
+                provider=AIProviderType.CLI_HEADLESS,
+                cli="codex",
+                model="gpt-5.6-terra",
+                instance_origin="session",
+                model_origin="default",
+            ),
+            has_preference=True,
+            pinned_cli="claude",
+            pinned_model="opus",
+        )
+
+        assert _row_text(overridden) == [
+            "  CLI: codex (this session)",
+            "  Model: gpt-5.6-terra (default for this cli)",
+        ]
+
+
+class TestPinningAModelPinsItsInstance:
+    """
+    D-010, from the review's body findings.
+
+    You never choose a model in the abstract on this screen: the list offered is the one
+    belonging to whatever serves the task right now. Storing only the model loses the
+    half of the intent that says which instance it was for.
+    """
+
+    def test_a_model_on_an_unpinned_task_pins_the_instance_too(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = TestPerTaskPinsInTheConfigScreen._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless")}
+        )
+
+        TestPerTaskPinsInTheConfigScreen._compose(
+            config,
+            TestPerTaskPinsInTheConfigScreen._cli_usage(),
+            monkeypatch,
+            QuickPickResult(model="flash"),
+        )
+
+        config.set_task_ai_cli.assert_called_once_with(
+            "commit_message", "claude", provider="cli_headless"
+        )
+        config.set_task_ai_model.assert_called_once()
+
+    def test_a_task_that_already_pins_one_is_left_alone(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = TestPerTaskPinsInTheConfigScreen._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
+        )
+
+        TestPerTaskPinsInTheConfigScreen._compose(
+            config,
+            TestPerTaskPinsInTheConfigScreen._cli_usage(),
+            monkeypatch,
+            QuickPickResult(model="flash"),
+        )
+
+        config.set_task_ai_cli.assert_not_called()
+        config.set_task_ai_model.assert_called_once()
+
+
+def _row_text(routing):
+    """The CLI/model origin lines a row renders, as plain strings."""
+    row = TaskRoutingRow(routing)
+    return [
+        str(widget.renderable)
+        for widget in row._instance_lines(routing.resolution)
+    ]
+

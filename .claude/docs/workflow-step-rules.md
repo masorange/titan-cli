@@ -81,11 +81,36 @@ Runtime rules:
 - Pattern-match the result and handle `AIExecutionError(error_code="AI_DISABLED")` as a
   `Skip` — the user turned the task off; that is not an error.
 - Model/effort/timeout are call-site parameters (`generate_text(model=..., timeout=...)`),
-  never something a step reads from preferences.
+  never something a step reads from preferences. **Pass `model=` only when the prompt needs
+  that specific model.** It sits at the top of the precedence chain, above everything the
+  user can set:
+
+  1. your `model=` — 2. a session override (`S` from F2/F3) — 3. the task's own pin —
+  4. the global default for the resolved instance — 5. the instance's own default
+
+  This holds on **both** transports. It did not always: the remote branch dropped an
+  explicit `model=` in silence, so the same step honoured it on a CLI route and ignored
+  it on a connection — and which route runs is the user's setting, not yours.
+
+  It ranks there because a step naming a model is stating a requirement (a review explores
+  cheap and synthesises expensive), not expressing a taste. The cost is that an
+  unnecessary `model=` silently overrules a key the user just pressed, so passing one you
+  do not need is worse than it looks.
+- A step that drives a CLI adapter itself — its own batching, timeouts or structured
+  output — must still honor that setting. Resolve the adapter through a helper that wraps
+  it with `ctx.ai_router.model_for_decision(decision)` once, rather than passing `model=`
+  at each call site: the review steps did the latter, forgot it at every site, and ran
+  months of reviews on the CLI's default model while the UI reported the user's choice
+  (`_PinnedModelCli`, code_review_steps.py). Use `model_for_decision`, not
+  `model_for_cli`: the latter knows only about the global setting and cannot see a task's
+  own pin.
 - Pass `announce=ctx.textual.ai_chip` so the run shows which AI served the task. A user
   watching a workflow should be able to notice the wrong one without reading the log —
-  that is what prompts them to change it. Skip it only where your own output already
-  names the provider.
+  that is what prompts them to change it. This stopped being optional once a task can pin
+  its own CLI and model: the announcement is how a user finds out which of the five rungs
+  above actually won. If your step announces by hand (because it drives its adapter
+  itself), match `route_summary()`'s wording — `instance / model · kind` — and include the
+  model.
 
 ## Secrets In Steps
 

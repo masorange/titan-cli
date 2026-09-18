@@ -16,8 +16,10 @@ from titan_cli.ai.router import (
     AITask,
     declare_ai_usage,
 )
+from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.ai.router.executor import DEFAULT_PREFERRED, AIExecutor
 from titan_cli.core.interrupt import WorkflowAborted
+from titan_cli.core.models import AIConfig
 from titan_cli.ai.router.resolver import AIRouteNeedsInput
 from titan_cli.external_cli.adapters.base import HeadlessResponse
 
@@ -71,9 +73,9 @@ class FakeAdapter:
         return self._response
 
 
-def _executor(resolution, *, headless=("claude",)):
+def _executor(resolution, *, headless=("claude",), ai_config=None):
     """An executor whose resolution is pinned, so tests exercise execution only."""
-    executor = AIExecutor(ai_config=None)
+    executor = AIExecutor(ai_config=ai_config)
     executor.resolver.resolve = lambda **kwargs: resolution  # type: ignore[method-assign]
     executor.availability.available_headless_clis = lambda: [  # type: ignore[method-assign]
         type("Candidate", (), {"identifier": cli, "provider": AIProviderType.CLI_HEADLESS})()
@@ -171,7 +173,7 @@ def test_remote_success_returns_generated_content():
         AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work-litellm")
     )
     client = FakeAIClient()
-    executor.remote_client = lambda decision: client  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: client  # type: ignore[method-assign]
 
     result = executor.generate_text(
         "write a commit message",
@@ -190,7 +192,7 @@ def test_remote_success_returns_generated_content():
 
 def test_remote_exception_becomes_execution_failed():
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE))
-    executor.remote_client = lambda decision: FakeAIClient(error=RuntimeError("429 rate limited"))  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: FakeAIClient(error=RuntimeError("429 rate limited"))  # type: ignore[method-assign]
 
     result = executor.generate_text("prompt", policy=declared_step)
 
@@ -202,7 +204,7 @@ def test_remote_exception_becomes_execution_failed():
 def test_remote_empty_response_is_execution_failed():
     """A blank answer is a failure, not an empty AIExecutionSuccess."""
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE))
-    executor.remote_client = lambda decision: FakeAIClient(  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: FakeAIClient(  # type: ignore[method-assign]
         response=AIResponse(content="   \n", model="fake-model")
     )
 
@@ -215,7 +217,7 @@ def test_remote_empty_response_is_execution_failed():
 
 def test_remote_without_usable_client_is_provider_unavailable():
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE))
-    executor.remote_client = lambda decision: None  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: None  # type: ignore[method-assign]
 
     result = executor.generate_text("prompt", policy=declared_step)
 
@@ -516,7 +518,7 @@ def test_resolve_generator_returns_the_configured_connection():
     decision = AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work-litellm")
     executor = _executor(decision)
     client = FakeAIClient()
-    executor.remote_client = lambda d: client  # type: ignore[method-assign]
+    executor.remote_client = lambda d, model=None: client  # type: ignore[method-assign]
 
     result = executor.resolve_generator(policy=declared_step)
 
@@ -566,7 +568,7 @@ def test_resolve_generator_refuses_an_interactive_cli():
 
 def test_resolve_generator_reports_unusable_connection():
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="gone"))
-    executor.remote_client = lambda d: None  # type: ignore[method-assign]
+    executor.remote_client = lambda d, model=None: None  # type: ignore[method-assign]
 
     result = executor.resolve_generator(policy=declared_step)
 
@@ -625,9 +627,10 @@ def test_remote_client_caches_per_connection(monkeypatch):
     built = []
 
     class RecordingClient:
-        def __init__(self, ai_config, provider_factory, connection_id=None):
-            built.append(connection_id)
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
             self.connection_id = connection_id
+            self.model = model
 
     monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
     executor = AIExecutor(ai_config=AIConfig(), provider_factory=object())
@@ -638,7 +641,38 @@ def test_remote_client_caches_per_connection(monkeypatch):
 
     assert first is second
     assert third is not first
-    assert built == ["a", "b"]
+    assert built == [("a", None), ("b", None)]
+
+
+def test_remote_clients_with_different_models_are_not_shared(monkeypatch):
+    """
+    Two tasks can share a connection and run different models on it.
+
+    Keyed by connection alone, the second would be handed the first one's provider - and
+    a provider is built with its model baked in, so the pin would silently not apply.
+    """
+    from titan_cli.core.models import AIConfig
+
+    built = []
+
+    class RecordingClient:
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
+            self.connection_id = connection_id
+            self.model = model
+
+    monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
+    executor = AIExecutor(ai_config=AIConfig(), provider_factory=object())
+
+    small = executor.remote_client(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="a", model="mini")
+    )
+    large = executor.remote_client(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="a", model="max")
+    )
+
+    assert small is not large
+    assert built == [("a", "mini"), ("a", "max")]
 
 
 def test_remote_client_without_config_returns_none():
@@ -651,7 +685,7 @@ def test_remote_client_returns_none_when_connection_misconfigured(monkeypatch):
     from titan_cli.ai.exceptions import AIConfigurationError
     from titan_cli.core.models import AIConfig
 
-    def raise_config_error(ai_config, provider_factory, connection_id=None):
+    def raise_config_error(ai_config, provider_factory, connection_id=None, model=None):
         raise AIConfigurationError("no such connection")
 
     monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", raise_config_error)
@@ -706,3 +740,310 @@ def test_announce_is_optional():
 
     assert isinstance(result, AIExecutionError)
     assert result.error_code == "AI_DISABLED"
+
+
+# --- the model a CLI runs with --------------------------------------------
+
+
+def test_headless_uses_the_model_pinned_for_that_cli(monkeypatch):
+    """The user's choice in AI Configuration reaches the CLI without the step knowing."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step)
+
+    assert adapter.calls[0]["model"] == "opus"
+
+
+def test_a_step_asking_for_a_model_outranks_the_pinned_one(monkeypatch):
+    """A step that names a model is asking for something its prompt needs."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step, model="haiku")
+
+    assert adapter.calls[0]["model"] == "haiku"
+
+
+def test_a_model_pinned_for_another_cli_is_not_borrowed(monkeypatch):
+    """An identifier only means something to the CLI it was chosen for."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="gemini"),
+        headless=("gemini",),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step)
+
+    assert adapter.calls[0]["model"] is None
+
+
+def test_an_agent_generator_gets_the_pinned_model_too(monkeypatch):
+    """Agents make their own calls, so the choice has to travel with the generator."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: FakeAdapter()
+    )
+
+    result = executor.resolve_generator(policy=declared_step)
+
+    assert isinstance(result, AIExecutionSuccess)
+    assert isinstance(result.data, HeadlessGenerator)
+    assert result.data.model == "opus"
+
+
+# --- precedence between the decision's model and the call site (D-002) -----
+
+
+def test_the_model_on_the_decision_reaches_the_cli(monkeypatch):
+    """
+    The resolver puts the task's own pin on the decision; the executor must run it.
+
+    This is the end of the per-task model path: without it, a task pinned to a small fast
+    model would silently run on whatever the CLI defaults to.
+    """
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step)
+
+    assert adapter.calls[0]["model"] == "haiku-fast"
+
+
+def test_a_call_site_model_still_outranks_the_task_pin(monkeypatch):
+    """
+    D-002's top rung, and the one that is counter-intuitive.
+
+    A step passing model= is the CODE stating a requirement - the review profile runs
+    exploration cheap and synthesis expensive - not a preference competing with the user's.
+    Fails if the task pin is ever moved above the call site.
+    """
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step, model="opus-for-this-prompt")
+
+    assert adapter.calls[0]["model"] == "opus-for-this-prompt"
+
+
+def test_an_agent_generator_gets_the_decisions_model(monkeypatch):
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: FakeAdapter()
+    )
+
+    result = executor.resolve_generator(policy=declared_step)
+
+    assert isinstance(result, AIExecutionSuccess)
+    assert result.data.model == "haiku-fast"
+
+
+def test_model_for_decision_falls_back_to_the_global_pin():
+    """A decision built by hand must not lose the user's global setting."""
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude"),
+        ai_config=AIConfig(cli_models={"claude": "opus"}),
+    )
+
+    decision = AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude")
+
+    assert executor.model_for_decision(decision) == "opus"
+
+
+def test_route_summary_names_where_each_part_came_from():
+    """The chip answers "why is it using that?", which names alone cannot."""
+    from titan_cli.ai.router.executor import route_summary
+
+    agreed = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS,
+        cli="claude",
+        model="haiku",
+        instance_origin="pinned",
+        model_origin="pinned",
+    )
+    assert route_summary(agreed) == "claude / haiku · CLI, automatic · pinned"
+
+
+def test_route_summary_labels_the_parts_separately_when_they_disagree():
+    """One label for both would be false exactly when the answer is interesting."""
+    from titan_cli.ai.router.executor import route_summary
+
+    mixed = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS,
+        cli="codex",
+        model="gpt-5.6-terra",
+        instance_origin="session",
+        model_origin="default",
+    )
+    assert route_summary(mixed) == (
+        "codex (session) / gpt-5.6-terra (default) · CLI, automatic"
+    )
+
+
+def test_a_call_site_model_is_announced_as_step():
+    """
+    The rung no key can override, and therefore the one worth naming.
+
+    The resolver cannot know about `model=`; announcing its decision unchanged would
+    name a model that is not the one about to run.
+    """
+    from titan_cli.ai.router.executor import route_summary
+
+    executor = AIExecutor(ai_config=None)
+    resolved = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS,
+        cli="claude",
+        model="haiku",
+        instance_origin="pinned",
+        model_origin="pinned",
+    )
+
+    announced = executor.announced_decision(resolved, "opus")
+
+    assert (announced.model, announced.model_origin) == ("opus", "step")
+    assert "(step)" in route_summary(announced)
+    # The unchanged case must not be relabelled.
+    assert executor.announced_decision(resolved, None) is resolved
+
+
+def test_route_summary_names_the_model_when_there_is_one():
+    """Once a task can pin a model, the chip saying only 'claude' no longer answers 'did my pin run?'."""
+    from titan_cli.ai.router.executor import route_summary
+
+    with_model = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS, cli="claude", model="haiku-fast"
+    )
+    without = AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude")
+
+    assert route_summary(with_model) == "claude / haiku-fast · CLI, automatic"
+    assert route_summary(without) == "claude · CLI, automatic"
+
+
+# --- the session override reaches the run ---------------------------------
+
+
+def test_the_executor_hands_its_session_override_to_the_resolver():
+    """
+    The object, not a copy: the app owns one instance and edits it in place between runs.
+
+    A copy taken at construction would freeze whatever was set when the workflow context
+    was built, which is exactly the moment before the user presses F2.
+    """
+    override = AISessionOverride(cli="codex")
+    executor = AIExecutor(ai_config=AIConfig(), session_override=override)
+
+    assert executor.resolver.session_override is override
+
+    override.cli = "gemini"
+
+    assert executor.resolver.session_override.cli == "gemini"
+
+
+def test_a_call_site_model_outranks_the_session_override(monkeypatch):
+    """D-002's top rung again, this time against the override rather than the pin."""
+    executor = _executor(
+        # What the resolver would produce with a session model set.
+        AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="claude", model="sonnet-now"),
+    )
+    adapter = FakeAdapter()
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter
+    )
+
+    executor.generate_text("hello", policy=declared_step, model="opus-for-this-prompt")
+
+    assert adapter.calls[0]["model"] == "opus-for-this-prompt"
+
+
+# --- the remote branch honours a call-site model too (review, body finding) ---
+
+
+def test_a_call_site_model_reaches_a_remote_connection(monkeypatch):
+    """
+    It used to be dropped in silence, and only on this branch.
+
+    Which branch runs is the USER's routing choice, not the step's, so the same step
+    honoured its requested model on a CLI route and ignored it on a remote one - with
+    nothing in the announcement or the log saying so. That contradicts the precedence
+    documented on `model_for_decision` itself.
+    """
+    from titan_cli.core.models import AIConfig
+
+    built = []
+
+    class RecordingClient:
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
+            self.connection_id = connection_id
+
+        def generate(self, messages, max_tokens=None, temperature=None):
+            return type("R", (), {"content": "ok", "model": model_of(built)})()
+
+    def model_of(rows):
+        return rows[-1][1]
+
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work", model="gpt-5"),
+        ai_config=AIConfig(),
+    )
+    executor.provider_factory = object()
+    monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
+
+    executor.generate_text("hello", policy=declared_step, model="gpt-5-mini")
+
+    assert built == [("work", "gpt-5-mini")]
+
+
+def test_an_agent_generator_on_a_remote_route_honours_it_too(monkeypatch):
+    from titan_cli.core.models import AIConfig
+
+    built = []
+
+    class RecordingClient:
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
+            self.connection_id = connection_id
+
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work", model="gpt-5"),
+        ai_config=AIConfig(),
+    )
+    executor.provider_factory = object()
+    monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
+
+    executor.resolve_generator(policy=declared_step, model="gpt-5-mini")
+
+    assert built == [("work", "gpt-5-mini")]

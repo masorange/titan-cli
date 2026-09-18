@@ -1151,5 +1151,319 @@ class TestHeadlessAdapterRegistry(unittest.TestCase):
         self.assertIsNot(a1, a2)
 
 
+# ── Model listing ────────────────────────────────────────────────────────────
+
+class TestModelListing(unittest.TestCase):
+    """Each adapter answers "what can you run?" its own way, or says nothing."""
+
+    def _stdout(self, text, returncode=0):
+        return MagicMock(stdout=text, stderr="", returncode=returncode)
+
+    def test_opencode_lists_qualified_ids_from_its_own_subcommand(self):
+        listing = "anthropic/claude-sonnet-5\nopencode/big-pickle\n"
+        with patch("subprocess.run", return_value=self._stdout(listing)) as run:
+            models = OpenCodeHeadlessAdapter().list_models()
+
+        self.assertEqual(run.call_args[0][0], ["opencode", "models"])
+        self.assertEqual(
+            [m.identifier for m in models],
+            ["anthropic/claude-sonnet-5", "opencode/big-pickle"],
+        )
+
+    def test_antigravity_splits_identifier_from_its_human_label(self):
+        listing = "Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\n"
+        with patch("subprocess.run", return_value=self._stdout(listing)):
+            models = AntigravityHeadlessAdapter().list_models()
+
+        self.assertEqual(len(models), 1)
+        self.assertEqual(models[0].identifier, "gemini-3.1-pro-high")
+        self.assertEqual(models[0].label, "Gemini 3.1 Pro (High)")
+
+    def test_grok_keeps_only_the_bulleted_models_not_the_prose_around_them(self):
+        listing = (
+            "You are not authenticated.\n"
+            "Default model: grok-4.6\n"
+            "Available models:\n"
+            "  * grok-4.6 (default)\n"
+            "  * grok-code\n"
+        )
+        with patch("subprocess.run", return_value=self._stdout(listing)):
+            models = GrokHeadlessAdapter().list_models()
+
+        self.assertEqual([m.identifier for m in models], ["grok-4.6", "grok-code"])
+
+    def test_a_failed_listing_is_no_models_rather_than_an_error(self):
+        # A CLI that is not logged in, is offline, or has no such subcommand must leave
+        # the caller with an empty list to fall back from, never an exception.
+        for failure in (
+            self._stdout("boom", returncode=1),
+            subprocess.TimeoutExpired(cmd="opencode", timeout=20),
+            FileNotFoundError("opencode"),
+        ):
+            with self.subTest(failure=failure):
+                side_effect = None if not isinstance(failure, Exception) else failure
+                with patch(
+                    "subprocess.run",
+                    return_value=failure if side_effect is None else None,
+                    side_effect=side_effect,
+                ):
+                    self.assertEqual(OpenCodeHeadlessAdapter().list_models(), [])
+
+    def test_claude_offers_aliases_without_shelling_out(self):
+        with patch("subprocess.run") as run:
+            models = ClaudeHeadlessAdapter().list_models()
+
+        run.assert_not_called()
+        self.assertIn("opus", [m.identifier for m in models])
+        self.assertIn("sonnet", [m.identifier for m in models])
+
+    def test_a_cli_that_publishes_nothing_returns_nothing(self):
+        """Gemini alone now: codex reads its own cache file (see TestCodexModelListing).
+
+        Codex used to belong here, and leaving it would have made this test depend on
+        whether the machine running it happens to have a populated ~/.codex.
+        """
+        with patch("subprocess.run") as run:
+            self.assertEqual(GeminiHeadlessAdapter().list_models(), [])
+        run.assert_not_called()
+
+    def test_codex_reads_its_cache_without_shelling_out(self):
+        # The cache path is patched, not just subprocess: `codex_models_cache_path()`
+        # reads Path.home() at call time, so without this the test depends on whether
+        # the machine running it happens to have a populated ~/.codex.
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with patch.object(codex_module, "codex_models_cache_path", lambda: Path("/nope")):
+            with patch("subprocess.run") as run:
+                CodexHeadlessAdapter().list_models()
+        run.assert_not_called()
+
+    def test_every_registered_adapter_can_be_asked(self):
+        # The picker calls this on whichever CLI the user highlighted, so an adapter that
+        # never implemented it would fail only for that one CLI, at the worst moment.
+        for cli_name in HEADLESS_ADAPTER_REGISTRY:
+            with self.subTest(cli=cli_name):
+                adapter = get_headless_adapter(cli_name)
+                with patch("subprocess.run", return_value=self._stdout("")):
+                    self.assertIsInstance(adapter.list_models(), list)
+
+
+class TestCodexModelListing:
+    """
+    Codex publishes its catalogue in a cache file it maintains itself (air-011).
+
+    It has no listing subcommand - `codex --help` shows none and documents `-m/--model` as
+    a free-form string - so this adapter used to offer nothing and every user typed the
+    identifier by hand. It does keep `~/.codex/models_cache.json`, fetched and etagged by
+    codex, which is a better source than a list hardcoded from the docs: on the machine
+    this was written for, the docs' `gpt-5.3-codex` was not among the models the install
+    actually offered.
+    """
+
+    @staticmethod
+    def _cache(tmp_path, payload):
+        path = tmp_path / "models_cache.json"
+        path.write_text(json.dumps(payload))
+        return path
+
+    def _models(self, monkeypatch, path):
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        monkeypatch.setattr(codex_module, "codex_models_cache_path", lambda: path)
+        return codex_module.CodexHeadlessAdapter().list_models()
+
+    def test_listed_models_are_offered_with_their_description(self, tmp_path, monkeypatch):
+        path = self._cache(
+            tmp_path,
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.6-terra",
+                        "display_name": "GPT-5.6-Terra",
+                        "description": "Balanced agentic coding model.",
+                        "visibility": "list",
+                    }
+                ]
+            },
+        )
+
+        models = self._models(monkeypatch, path)
+
+        assert [(m.identifier, m.label) for m in models] == [
+            ("gpt-5.6-terra", "Balanced agentic coding model.")
+        ]
+
+    def test_hidden_models_are_not_offered(self, tmp_path, monkeypatch):
+        """`codex-auto-review` and `gpt-reserve` are codex's own internals, not choices."""
+        path = self._cache(
+            tmp_path,
+            {
+                "models": [
+                    {"slug": "gpt-5.6-sol", "visibility": "list"},
+                    {"slug": "codex-auto-review", "visibility": "hide"},
+                ]
+            },
+        )
+
+        assert [m.identifier for m in self._models(monkeypatch, path)] == ["gpt-5.6-sol"]
+
+    def test_a_missing_cache_offers_nothing_rather_than_failing(self, tmp_path, monkeypatch):
+        """Codex may never have run. Typing an id by hand still works, as it does today."""
+        assert self._models(monkeypatch, tmp_path / "absent.json") == []
+
+    def test_a_corrupt_cache_offers_nothing_rather_than_failing(self, tmp_path, monkeypatch):
+        path = tmp_path / "models_cache.json"
+        path.write_text("{ not json")
+
+        assert self._models(monkeypatch, path) == []
+
+    def test_an_unexpected_shape_is_skipped_entry_by_entry(self, tmp_path, monkeypatch):
+        """The file is codex's private format, not a contract: parse defensively."""
+        path = self._cache(
+            tmp_path,
+            {
+                "models": [
+                    "not-a-dict",
+                    {"display_name": "No slug", "visibility": "list"},
+                    {"slug": "gpt-5.5", "visibility": "list"},
+                ]
+            },
+        )
+
+        assert [m.identifier for m in self._models(monkeypatch, path)] == ["gpt-5.5"]
+
+    def test_the_label_falls_back_to_the_display_name(self, tmp_path, monkeypatch):
+        path = self._cache(
+            tmp_path,
+            {"models": [{"slug": "gpt-5.5", "display_name": "GPT-5.5", "visibility": "list"}]},
+        )
+
+        assert self._models(monkeypatch, path)[0].label == "GPT-5.5"
+
+
+class TestListingIsDecodeSafe(unittest.TestCase):
+    """
+    A CLI emitting non-UTF-8 must not raise through `model_listing_lines` (review).
+
+    `text=True` decodes with the platform encoding, so a stray byte raises
+    UnicodeDecodeError - a ValueError, which the old handler did not catch - through a
+    function whose entire contract is that every failure flattens to "nothing to offer".
+    """
+
+    def test_the_subprocess_is_asked_to_replace_undecodable_bytes(self):
+        from titan_cli.external_cli.adapters.base import model_listing_lines
+
+        with patch("subprocess.run") as run:
+            run.return_value = MagicMock(stdout="a\nb\n", returncode=0)
+            model_listing_lines(["x", "models"])
+
+        self.assertEqual(run.call_args.kwargs.get("errors"), "replace")
+
+    def test_a_decode_error_still_yields_nothing(self):
+        from titan_cli.external_cli.adapters.base import model_listing_lines
+
+        error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        with patch("subprocess.run", side_effect=error):
+            self.assertEqual(model_listing_lines(["x", "models"]), [])
+
+
+class TestCodexSlugIsTypeChecked(unittest.TestCase):
+    """A slug becomes a Textual option id, so a non-string must be skipped, not crash."""
+
+    def test_a_non_string_slug_is_skipped(self):
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _Path(tmp) / "models_cache.json"
+            path.write_text(
+                _json.dumps(
+                    {
+                        "models": [
+                            {"slug": 5, "visibility": "list"},
+                            {"slug": "gpt-5.5", "visibility": "list"},
+                        ]
+                    }
+                )
+            )
+            with patch.object(codex_module, "codex_models_cache_path", lambda: path):
+                models = codex_module.CodexHeadlessAdapter().list_models()
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.5"])
+
+
+class TestCodexListingDegradesRatherThanDisappearing(unittest.TestCase):
+    """
+    `visibility` is read as a DENY-list (review, 2026-09-18).
+
+    The only thing codex's private format guarantees is that its internals are marked
+    `hide`. Requiring the positive `list` value would turn a future format that drops
+    the key into "codex has no models" - indistinguishable from codex never having run.
+    """
+
+    @staticmethod
+    def _models(payload):
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _Path(tmp) / "models_cache.json"
+            path.write_text(_json.dumps(payload))
+            with patch.object(codex_module, "codex_models_cache_path", lambda: path):
+                return codex_module.CodexHeadlessAdapter().list_models()
+
+    def test_an_entry_without_a_visibility_key_is_still_offered(self):
+        models = self._models({"models": [{"slug": "gpt-6", "description": "new"}]})
+
+        self.assertEqual([m.identifier for m in models], ["gpt-6"])
+
+    def test_hidden_entries_are_still_excluded(self):
+        models = self._models(
+            {
+                "models": [
+                    {"slug": "gpt-5.6-sol", "visibility": "list"},
+                    {"slug": "codex-auto-review", "visibility": "hide"},
+                ]
+            }
+        )
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.6-sol"])
+
+    def test_a_repeated_slug_is_offered_once(self):
+        """The slug is a Textual option id, and Textual raises on a duplicate."""
+        models = self._models(
+            {"models": [{"slug": "gpt-5.5"}, {"slug": "gpt-5.5"}, {"slug": "gpt-6"}]}
+        )
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.5", "gpt-6"])
+
+
+
+
+class TestListingCannotStealTheTerminal(unittest.TestCase):
+    """
+    A CLI that prompts must not read the TUI's keystrokes (review, 2026-09-18).
+
+    This runs under Textual, so a child inheriting stdin - a CLI that is not logged in,
+    or opens a pager - swallows the user's typing and only relents at the 20s timeout.
+    Listing models is explicitly "never a precondition", so the child gets EOF.
+    """
+
+    def test_stdin_is_closed_for_the_child(self):
+        from titan_cli.external_cli.adapters.base import model_listing_lines
+
+        with patch("subprocess.run") as run:
+            run.return_value = MagicMock(stdout="", returncode=0)
+            model_listing_lines(["grok", "models"])
+
+        self.assertEqual(run.call_args.kwargs.get("stdin"), subprocess.DEVNULL)
+
+
 if __name__ == "__main__":
     unittest.main()

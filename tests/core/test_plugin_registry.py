@@ -1,4 +1,5 @@
 # tests/core/test_plugin_registry.py
+import sys
 from unittest.mock import MagicMock
 
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
@@ -867,3 +868,90 @@ def test_load_plugin_imports_a_disabled_plugin_on_demand(mocker):
     assert plugin is not None
     assert not plugin._initialized
     assert registry.get_plugin_version("disabled_demand") == "9.9.9"
+
+
+# ---------------------------------------------------------------------------
+# A plugin's dependencies must not decide what the rest of Titan imports
+# ---------------------------------------------------------------------------
+
+
+def _restore_sys_path(entries):
+    for entry in entries:
+        while entry in sys.path:
+            sys.path.remove(entry)
+
+
+def test_plugin_dependencies_never_shadow_an_already_importable_package(tmp_path):
+    """
+    A plugin venv that carries its own copy of a package Titan already has must lose.
+
+    A plugin depending on `titan-cli` gets Titan and every official plugin installed
+    inside its venv. One interpreter has one `sys.modules`, so a dependency directory
+    searched first does not isolate the plugin - it replaces what everyone else imports.
+    """
+    plugin_dir = tmp_path / "plugin_repo"
+    _write_sample_plugin(plugin_dir)
+
+    host_packages = tmp_path / "host-packages"
+    host_packages.mkdir()
+    (host_packages / "shared_lib.py").write_text("ORIGIN = 'host'", encoding="utf-8")
+
+    plugin_packages = tmp_path / "plugin-packages"
+    plugin_packages.mkdir()
+    (plugin_packages / "shared_lib.py").write_text("ORIGIN = 'plugin'", encoding="utf-8")
+
+    sys.path.insert(0, str(host_packages))
+    try:
+        _load_local_plugin(plugin_dir, "sample", dependency_sys_paths=[plugin_packages])
+        import shared_lib
+
+        assert shared_lib.ORIGIN == "host"
+    finally:
+        sys.modules.pop("shared_lib", None)
+        sys.modules.pop("sample_plugin", None)
+        sys.modules.pop("sample_plugin.plugin", None)
+        _restore_sys_path([str(host_packages), str(plugin_packages), str(plugin_dir)])
+
+
+def test_plugin_dependencies_still_fill_gaps(tmp_path):
+    """Losing collisions is not the same as being ignored: unique deps must still load."""
+    plugin_dir = tmp_path / "plugin_repo"
+    _write_sample_plugin(plugin_dir)
+
+    plugin_packages = tmp_path / "plugin-packages"
+    plugin_packages.mkdir()
+    (plugin_packages / "only_in_plugin_venv.py").write_text("VALUE = 42", encoding="utf-8")
+
+    try:
+        _load_local_plugin(plugin_dir, "sample", dependency_sys_paths=[plugin_packages])
+        import only_in_plugin_venv
+
+        assert only_in_plugin_venv.VALUE == 42
+    finally:
+        sys.modules.pop("only_in_plugin_venv", None)
+        sys.modules.pop("sample_plugin", None)
+        sys.modules.pop("sample_plugin.plugin", None)
+        _restore_sys_path([str(plugin_packages), str(plugin_dir)])
+
+
+def test_the_plugins_own_source_still_wins_over_an_installed_copy(tmp_path):
+    """What dev_local is for: edits in the checkout beat a copy installed elsewhere."""
+    plugin_dir = tmp_path / "plugin_repo"
+    _write_sample_plugin(plugin_dir)
+
+    installed = tmp_path / "installed"
+    (installed / "sample_plugin").mkdir(parents=True)
+    (installed / "sample_plugin" / "__init__.py").write_text("", encoding="utf-8")
+    (installed / "sample_plugin" / "plugin.py").write_text(
+        "raise AssertionError('the installed copy was imported')", encoding="utf-8"
+    )
+
+    sys.path.insert(0, str(installed))
+    try:
+        plugin = _load_local_plugin(plugin_dir, "sample")
+
+        assert plugin.name == "sample"
+    finally:
+        sys.modules.pop("sample_plugin", None)
+        sys.modules.pop("sample_plugin.plugin", None)
+        _restore_sys_path([str(installed), str(plugin_dir)])

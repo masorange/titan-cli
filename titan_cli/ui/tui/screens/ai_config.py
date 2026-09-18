@@ -8,7 +8,7 @@ and which kind of AI serves each task.
 from typing import Dict, Optional
 
 from textual.app import ComposeResult
-from textual.widgets import Static, LoadingIndicator, OptionList
+from textual.widgets import Static, LoadingIndicator
 from textual.containers import Container, Horizontal, VerticalScroll, Grid
 from textual.binding import Binding
 from textual.screen import ModalScreen
@@ -19,6 +19,7 @@ from titan_cli.ai.constants import (
 )
 from titan_cli.ai.router.availability import AIAvailabilityChecker
 from titan_cli.ai.router.enums import AIProviderType
+from titan_cli.ai.router.models import AIRouteDecision
 from titan_cli.ai.router.resolver import AIRouteResolver
 from titan_cli.core.models import AIConnectionType
 from titan_cli.core.workflows.ai_usage_discovery import AIUsageDiscoveryService
@@ -29,14 +30,15 @@ from titan_cli.ui.tui.widgets import (
     Button,
     SuccessText,
     ErrorText,
-    StyledOptionList,
-    StyledOption,
     TabbedPanel,
     TabPanel,
 )
 from .ai_routing import (
+    cli_choices,
+    connection_choices,
     CliDefaultPicker,
     SelectProviderTypeModal,
+    QuickInstanceModal,
     TaskRouting,
     TaskRoutingRow,
     build_task_routings,
@@ -309,129 +311,6 @@ class ConfirmInstallDependenciesModal(ModalScreen[bool]):
             self.dismiss(True)
         elif event.button.id == "cancel-install":
             self.dismiss(False)
-
-
-class SelectGatewayModelModal(ModalScreen[str | None]):
-    """Modal for selecting a gateway model from discovered models."""
-
-    DEFAULT_CSS = """
-    SelectGatewayModelModal {
-        align: center middle;
-    }
-
-    #select-model-container {
-        width: 80;
-        height: auto;
-        background: $surface-lighten-1;
-        border: solid $primary;
-        padding: 2;
-    }
-
-    #select-model-content {
-        height: auto;
-        max-height: 20;
-        margin-top: 1;
-    }
-
-    #select-model-buttons {
-        height: auto;
-        align: center middle;
-        margin-top: 2;
-    }
-    """
-
-    def __init__(
-        self,
-        connection_name: str,
-        gateway_client,
-        current_model: str,
-        **kwargs,
-    ):
-        """
-        Args:
-            connection_name: Display name of the gateway connection.
-            gateway_client: An already-authenticated LiteLLMClient; built by
-                the caller through the secret broker so the key never reaches
-                this screen.
-            current_model: The connection's current default model.
-        """
-        super().__init__(**kwargs)
-        self.connection_name = connection_name
-        self.gateway_client = gateway_client
-        self.current_model = current_model
-
-    def compose(self) -> ComposeResult:
-        with Container(id="select-model-container"):
-            yield Static(f"{Icons.AI_CONFIG} Select gateway model")
-            yield DimText(f"Connection: {self.connection_name}")
-            yield Container(id="select-model-content")
-            with Horizontal(id="select-model-buttons"):
-                yield Button("Close", variant="default", id="close-select-model")
-
-    def on_mount(self) -> None:
-        content = self.query_one("#select-model-content", Container)
-        content.mount(LoadingIndicator())
-        content.mount(DimText("Loading models from gateway..."))
-        self.call_after_refresh(self._start_loading)
-
-    def _start_loading(self) -> None:
-        self.run_worker(self._load_models(), exclusive=True)
-
-    async def _load_models(self) -> None:
-        import asyncio
-
-        content = self.query_one("#select-model-content", Container)
-
-        try:
-            models = await asyncio.to_thread(self.gateway_client.list_models)
-
-            content.remove_children()
-
-            if not models:
-                content.mount(ErrorText("No models available from this gateway."))
-                return
-
-            styled_options = [
-                StyledOption(
-                    id=model.id,
-                    title=model.id,
-                    description=model.owned_by or "",
-                )
-                for model in models
-            ]
-
-            option_list = StyledOptionList(*styled_options, id="gateway-model-list")
-            content.mount(
-                DimText("Select the default model for this connection:")
-            )
-            content.mount(option_list)
-
-            current_index = next(
-                (
-                    idx
-                    for idx, model in enumerate(models)
-                    if model.id == self.current_model
-                ),
-                0,
-            )
-            option_list.highlighted = current_index
-            self.call_after_refresh(lambda: option_list.focus())
-
-        except Exception as e:
-            content.remove_children()
-            content.mount(ErrorText("Could not load models from gateway."))
-            content.mount(DimText(str(e)))
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "close-select-model":
-            self.dismiss(None)
-
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
-        if event.option_list.id != "gateway-model-list":
-            return
-        self.dismiss(event.option.id)
 
 
 class ConnectionCard(Container):
@@ -717,7 +596,11 @@ class AIConfigScreen(BaseScreen):
         )
         ai_config = self.config.config.ai if self.config.config else None
         container.mount(
-            CliDefaultPicker(installed, current=ai_config.default_cli if ai_config else None)
+            CliDefaultPicker(
+                installed,
+                current=ai_config.default_cli if ai_config else None,
+                models=ai_config.cli_models if ai_config else None,
+            )
         )
 
     def load_task_routing(self) -> None:
@@ -740,7 +623,7 @@ class AIConfigScreen(BaseScreen):
                 for routing in build_task_routings(
                     discovery.discover_all(),
                     resolver,
-                    persisted_tasks=list(preferences.tasks) if preferences else [],
+                    preferences=preferences.tasks if preferences else None,
                 )
             }
         except Exception as e:
@@ -782,6 +665,10 @@ class AIConfigScreen(BaseScreen):
             self.handle_change_task_provider(self._task_of(event.button))
         elif button_id.startswith("task-clear-"):
             self.handle_clear_task_provider(self._task_of(event.button))
+        elif button_id.startswith("task-cli-"):
+            self.handle_pin_task_cli(self._task_of(event.button))
+        elif button_id.startswith("task-model-"):
+            self.handle_pin_task_model(self._task_of(event.button))
         elif (
             button_id.startswith("set-default-")
             or button_id.startswith("change-model-")
@@ -824,12 +711,14 @@ class AIConfigScreen(BaseScreen):
             if provider is None:
                 return
             try:
-                self.config.upsert_task_ai_preference(task, {"provider": provider})
+                # Merges rather than replaces: re-picking the same kind, or moving
+                # between the two CLI kinds, must not silently drop the task's pins.
+                dropped = self.config.set_task_ai_provider(task, provider)
                 self.load_sections()
-                self.app.notify(
-                    f"{routing.label}: {provider_type_label(AIProviderType(provider))}",
-                    severity="information",
-                )
+                notice = f"{routing.label}: {provider_type_label(AIProviderType(provider))}"
+                if dropped:
+                    notice += f" - the pinned {dropped} model no longer applies."
+                self.app.notify(notice, severity="information")
             except Exception as e:
                 self.app.notify(f"Failed to save preference: {e}", severity="error")
 
@@ -837,6 +726,170 @@ class AIConfigScreen(BaseScreen):
             SelectProviderTypeModal(f"AI for {routing.label}", routing.executes),
             on_selected,
         )
+
+    def handle_pin_task_cli(self, task: Optional[str], *, pick_model: bool = False) -> None:
+        """Compose this task's instance and model in one form, then write both at once.
+
+        The same widget F2 and F3 open, minus the session scope - a per-task pin is
+        persistent by definition - plus a "follow the default" row, which is the only way
+        to undo a pin without the row's Clear taking the provider kind with it.
+
+        One handler for both transports: which one a task takes is decided by what
+        currently resolves (D-006).
+        """
+        from .model_picker import open_model_picker_for_cli, open_model_picker_for_connection
+
+        routing = self._routings.get(task) if task else None
+        if not routing or not routing.can_pin_instance:
+            return
+
+        ai_config = self.config.config.ai if self.config.config else None
+        remote = routing.pins_a_connection
+
+        if remote:
+            choices = connection_choices(ai_config.connections if ai_config else {})
+            noun = "connection"
+            default_instance = ai_config.default_connection if ai_config else None
+            empty_message = "No AI connection is configured. Add one and reopen this picker."
+            set_instance = self.config.set_task_ai_connection
+            clear_instance = self.config.clear_task_ai_connection
+        else:
+            checker = self._availability()
+            choices = cli_choices(
+                installed_clis(
+                    checker.available_headless_clis(), checker.available_interactive_clis()
+                ),
+                ai_config.cli_models if ai_config else None,
+            )
+            noun = "CLI"
+            default_instance = ai_config.default_cli if ai_config else None
+            empty_message = "No supported CLI is installed. Install one and reopen this picker."
+            set_instance = self.config.set_task_ai_cli
+            clear_instance = self.config.clear_task_ai_cli
+
+        def open_picker(instance, current_model, on_picked) -> None:
+            title = f"Which model should run {routing.label}?"
+            if remote:
+                open_model_picker_for_connection(
+                    self.app,
+                    self.config,
+                    instance,
+                    title=title,
+                    current=current_model,
+                    on_picked=on_picked,
+                    allow_clear=True,
+                )
+            else:
+                open_model_picker_for_cli(
+                    self.app, instance, title=title, current=current_model,
+                    on_picked=on_picked, allow_clear=True,
+                )
+
+        def on_composed(result) -> None:
+            if result is None or not result.changes_anything:
+                return
+            provider = self._provider_for_pin(routing)
+            dropped = None
+            try:
+                if result.clear_instance:
+                    dropped = clear_instance(task)
+                elif result.instance:
+                    dropped = set_instance(task, result.instance, provider=provider)
+                if result.clear_model:
+                    self.config.clear_task_ai_model(task)
+                elif result.model:
+                    # D-010: a model pin carries its instance, so pin that too when the
+                    # task was following the default.
+                    if not result.instance and not routing.pinned_instance:
+                        set_instance(
+                            task, self._effective_instance(routing), provider=provider
+                        )
+                    self.config.set_task_ai_model(task, result.model, provider=provider)
+            except ValueError as e:
+                self.app.notify(str(e), severity="warning")
+                return
+            except Exception as e:
+                self.app.notify(f"Failed to save: {e}", severity="error")
+                return
+            self.load_sections()
+            self.app.notify(
+                self._pin_notice(routing, result, noun, dropped=dropped),
+                severity="information",
+            )
+
+        modal = QuickInstanceModal(
+            f"Which {noun} should run {routing.label}?",
+            choices,
+            noun=noun,
+            remote=remote,
+            current=routing.pinned_instance,
+            current_model=routing.pinned_model,
+            open_model_picker=open_picker,
+            empty_message=empty_message,
+            allow_session=False,
+            inherit_label=(
+                "Follow the default"
+                + (f" ({default_instance})" if default_instance else "")
+            ),
+        )
+        self.app.push_screen(modal, on_composed)
+        if pick_model and routing.pinned_instance or pick_model and default_instance:
+            self.app.call_after_refresh(modal.action_pick_model)
+
+    def handle_pin_task_model(self, task: Optional[str]) -> None:
+        """Same form, opened straight onto its model step.
+
+        The row keeps two buttons because the model is worth advertising, but they are
+        two doors into one composition rather than two separate writes.
+        """
+        self.handle_pin_task_cli(task, pick_model=True)
+
+    @staticmethod
+    def _pin_notice(routing, result, noun: str, *, dropped: Optional[str] = None) -> str:
+        """What happened, including a model pin the instance change invalidated.
+
+        The setters return that precisely so it can be said out loud; swallowing it made
+        the notice read "will run on codex" while the user's pinned model quietly went.
+        """
+        if result.clear_instance:
+            notice = f"{routing.label} follows the default {noun} again."
+        else:
+            parts = [p for p in (result.instance, result.model) if p]
+            if result.clear_model and not parts:
+                notice = f"{routing.label} uses its {noun}'s own model again."
+            else:
+                notice = f"{routing.label} will run on {' / '.join(parts)}."
+        if dropped and not result.model:
+            notice += f" The pinned {dropped} model no longer applies."
+        return notice
+
+    def _effective_instance(self, routing) -> Optional[str]:
+        """The CLI or connection this task runs on today: its own pin, else the default."""
+        if routing.pinned_instance:
+            return routing.pinned_instance
+        resolution = routing.resolution
+        if isinstance(resolution, AIRouteDecision):
+            instance = resolution.connection_id if routing.pins_a_connection else resolution.cli
+            if instance:
+                return instance
+        ai_config = self.config.config.ai if self.config.config else None
+        if not ai_config:
+            return None
+        return ai_config.default_connection if routing.pins_a_connection else ai_config.default_cli
+
+    @staticmethod
+    def _provider_for_pin(routing) -> Optional[str]:
+        """
+        The provider kind to create a preference with, when a pin is the first thing set.
+
+        Taken from what currently resolves, so pinning a CLI on an unconfigured task
+        records the kind that was already in effect rather than inventing one. None when
+        nothing resolves - the CRUD then refuses and the user is told to pick a kind first.
+        """
+        resolution = routing.resolution
+        if isinstance(resolution, AIRouteDecision):
+            return str(resolution.provider)
+        return None
 
     def handle_clear_task_provider(self, task: Optional[str]) -> None:
         """Drop a task preference so the step's own default applies again."""
@@ -853,6 +906,24 @@ class AIConfigScreen(BaseScreen):
         """Picking a CLI from the list is the act of setting the default."""
         self.handle_set_default_cli(event.value)
 
+    def on_cli_default_picker_model_requested(
+        self, event: CliDefaultPicker.ModelRequested
+    ) -> None:
+        """Choose which model that CLI runs with."""
+        from .model_picker import open_cli_model_picker
+
+        cli_name = event.value
+        picker = event.sender
+
+        def on_saved() -> None:
+            picker.set_model(cli_name, self.config.get_cli_model(cli_name))
+            # Task rows quote this model as "default for this CLI", so they go stale the
+            # moment it changes.
+            self.load_task_routing()
+            self._refresh_status_bar()
+
+        open_cli_model_picker(self.app, self.config, cli_name, on_saved)
+
     def handle_set_default_cli(self, cli_name: str) -> None:
         """
         Set the CLI every CLI-routed task will run.
@@ -865,6 +936,10 @@ class AIConfigScreen(BaseScreen):
             self.config.set_default_ai_cli(cli_name)
             self.query_one(CliDefaultPicker).set_current(cli_name)
             self.load_task_routing()
+            # The F2 cell is rendered from default_cli, and nothing else here tells it
+            # to change - it kept naming the old CLI until the screen was resumed. The
+            # model-change path already did this.
+            self._refresh_status_bar()
         except Exception as e:
             self.app.notify(f"Failed to set default CLI: {e}", severity="error")
 
@@ -907,67 +982,13 @@ class AIConfigScreen(BaseScreen):
 
     def handle_change_model(self, connection_id: str) -> None:
         """Change the default model for an AI connection."""
-        from titan_cli.ai.litellm_client import LiteLLMClient
-        from titan_cli.core.security import create_broker_factory
+        from .model_picker import open_connection_model_picker
 
-        self.config.load()
+        def on_saved() -> None:
+            self.load_sections()
+            self._refresh_status_bar()
 
-        if connection_id not in self.config.config.ai.connections:
-            self.app.notify("Connection not found", severity="error")
-            return
-
-        connection_cfg = self.config.config.ai.connections[connection_id]
-        if connection_cfg.connection_type != AIConnectionType.GATEWAY:
-            self.app.notify(
-                "Model selection from gateway is only available for AI gateways.",
-                severity="warning",
-            )
-            return
-
-        if not connection_cfg.base_url:
-            self.app.notify("Gateway base URL is missing", severity="error")
-            return
-
-        current_model = connection_cfg.default_model or ""
-        # The gateway key crosses into the client constructor inside the
-        # broker call; the modal receives the authenticated client. A gateway
-        # may legitimately have no key (e.g. a local proxy).
-        broker = create_broker_factory(self.config.project_root).for_plugin("core")
-        gateway_client = broker.create_client(
-            f"{connection_id}_api_key",
-            lambda api_key: LiteLLMClient(
-                base_url=connection_cfg.base_url,
-                api_key=api_key,
-            ),
-            required=False,
-        )
-
-        def on_change_model(result: str | None) -> None:
-            if not result:
-                return
-
-            try:
-                self.config.update_ai_connection(
-                    connection_id,
-                    {"default_model": result},
-                )
-                self.load_sections()
-                self._refresh_status_bar()
-                self.app.notify(
-                    f"Default model for '{connection_cfg.name}' updated",
-                    severity="information",
-                )
-            except Exception as e:
-                self.app.notify(f"Failed to update model: {e}", severity="error")
-
-        self.app.push_screen(
-            SelectGatewayModelModal(
-                connection_cfg.name,
-                gateway_client,
-                current_model,
-            ),
-            on_change_model,
-        )
+        open_connection_model_picker(self.app, self.config, connection_id, on_saved)
 
     def handle_delete(self, connection_id: str) -> None:
         """Delete an AI connection."""
