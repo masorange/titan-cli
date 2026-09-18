@@ -22,6 +22,10 @@ logger = get_logger(__name__)
 # pinned model, because a model identifier only means something to its own instance.
 _INSTANCE_PIN_KEYS = ("cli", "connection")
 
+# Which transport each instance pin belongs to, so touching the inert one leaves the
+# other's model alone.
+_TRANSPORT_OF_PIN = {"cli": "cli", "connection": "remote"}
+
 
 def _transport_of(provider: Optional[str]) -> str:
     """Which instance a provider kind is served by: a CLI, a connection, or nothing.
@@ -382,6 +386,10 @@ class TitanConfig:
         config_data = self._load_and_migrate_toml(
             self._global_config_path,
             migration_manager=self.global_migration_manager,
+            # Strict for the same reason as the preferences saver: what this returns is
+            # what gets written back, so an unparseable file must raise instead of
+            # being replaced by `{}` plus whatever section is being saved.
+            strict=True,
         )
         ai_cfg = config_data.setdefault("ai", {})
         ai_cfg.setdefault("connections", {})
@@ -560,8 +568,15 @@ class TitanConfig:
         if not isinstance(prefs, dict):
             prefs = {}
             ai_cfg["preferences"] = prefs
-        if not isinstance(prefs.get("tasks"), dict):
+        tasks = prefs.get("tasks")
+        if not isinstance(tasks, dict):
             prefs["tasks"] = {}
+        else:
+            # One level deeper than the comment used to promise: a hand-edited
+            # `tasks.commit = "claude"` passed the table check and then raised
+            # AttributeError inside `_set_task_ai_pin`, before AIPreferences could
+            # reject it.
+            prefs["tasks"] = {k: v for k, v in tasks.items() if isinstance(v, dict)}
         return prefs
 
     def save_ai_preferences_config(self, preferences: dict) -> None:
@@ -744,7 +759,15 @@ class TitanConfig:
             existing = {"provider": provider}
             prefs["tasks"][task] = existing
 
-        changed_instance = key in _INSTANCE_PIN_KEYS and existing.get(key) != value
+        # Only when the pin being touched is the one that actually serves this task:
+        # a `cli` pin on a remote task is inert (see AIProviderPreference), so it never
+        # owned the model it would otherwise invalidate - and the caller would be told
+        # about a change the user did not make.
+        changed_instance = (
+            key in _INSTANCE_PIN_KEYS
+            and existing.get(key) != value
+            and _transport_of(existing.get("provider")) == _TRANSPORT_OF_PIN[key]
+        )
         existing[key] = value
         dropped = self._drop_stale_model(existing) if changed_instance else None
         self.save_ai_preferences_config(prefs)
@@ -762,7 +785,12 @@ class TitanConfig:
         if not existing or key not in existing:
             return None
         del existing[key]
-        dropped = self._drop_stale_model(existing) if key in _INSTANCE_PIN_KEYS else None
+        dropped = (
+            self._drop_stale_model(existing)
+            if key in _INSTANCE_PIN_KEYS
+            and _transport_of(existing.get("provider")) == _TRANSPORT_OF_PIN[key]
+            else None
+        )
         self.save_ai_preferences_config(prefs)
         return dropped
 

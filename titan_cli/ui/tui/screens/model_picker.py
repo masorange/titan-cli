@@ -167,6 +167,7 @@ class SelectModelModal(ModalScreen[Optional[str]]):
 
         try:
             content.mount(DimText("Select a model:"))
+            models = self._deduplicated(models)
             options = self._options(models)
             option_list = StyledOptionList(*options, id="model-list")
             content.mount(option_list)
@@ -193,12 +194,19 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         option_list.highlighted = current_index
         self.call_after_refresh(option_list.focus)
 
-    def _options(self, models: Sequence[ModelChoice]) -> List[StyledOption]:
-        # De-duplicated: identifiers are unfiltered CLI stdout lines or gateway ids, and
-        # Textual raises DuplicateID on a repeat - which would surface as an empty modal
-        # rather than as the list minus one row.
+    @staticmethod
+    def _deduplicated(models: Sequence[ModelChoice]) -> List[ModelChoice]:
+        """Identifiers are raw CLI stdout or gateway ids, so repeats are expected.
+
+        Done ONCE and used for both the rows and the highlight index: de-duplicating
+        inside `_options` alone left the index counting a list the screen did not show,
+        so the check mark and the highlight landed on different rows and Enter returned
+        a model the user had not selected.
+        """
         seen: set = set()
-        models = [m for m in models if not (m.identifier in seen or seen.add(m.identifier))]
+        return [m for m in models if not (m.identifier in seen or seen.add(m.identifier))]
+
+    def _options(self, models: Sequence[ModelChoice]) -> List[StyledOption]:
         options: List[StyledOption] = [
             StyledOption(
                 id=model.identifier,

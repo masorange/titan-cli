@@ -1151,10 +1151,6 @@ class TestHeadlessAdapterRegistry(unittest.TestCase):
         self.assertIsNot(a1, a2)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # ── Model listing ────────────────────────────────────────────────────────────
 
 class TestModelListing(unittest.TestCase):
@@ -1232,8 +1228,14 @@ class TestModelListing(unittest.TestCase):
         run.assert_not_called()
 
     def test_codex_reads_its_cache_without_shelling_out(self):
-        with patch("subprocess.run") as run:
-            CodexHeadlessAdapter().list_models()
+        # The cache path is patched, not just subprocess: `codex_models_cache_path()`
+        # reads Path.home() at call time, so without this the test depends on whether
+        # the machine running it happens to have a populated ~/.codex.
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with patch.object(codex_module, "codex_models_cache_path", lambda: Path("/nope")):
+            with patch("subprocess.run") as run:
+                CodexHeadlessAdapter().list_models()
         run.assert_not_called()
 
     def test_every_registered_adapter_can_be_asked(self):
@@ -1440,3 +1442,28 @@ class TestCodexListingDegradesRatherThanDisappearing(unittest.TestCase):
         )
 
         self.assertEqual([m.identifier for m in models], ["gpt-5.5", "gpt-6"])
+
+
+
+
+class TestListingCannotStealTheTerminal(unittest.TestCase):
+    """
+    A CLI that prompts must not read the TUI's keystrokes (review, 2026-09-18).
+
+    This runs under Textual, so a child inheriting stdin - a CLI that is not logged in,
+    or opens a pager - swallows the user's typing and only relents at the 20s timeout.
+    Listing models is explicitly "never a precondition", so the child gets EOF.
+    """
+
+    def test_stdin_is_closed_for_the_child(self):
+        from titan_cli.external_cli.adapters.base import model_listing_lines
+
+        with patch("subprocess.run") as run:
+            run.return_value = MagicMock(stdout="", returncode=0)
+            model_listing_lines(["grok", "models"])
+
+        self.assertEqual(run.call_args.kwargs.get("stdin"), subprocess.DEVNULL)
+
+
+if __name__ == "__main__":
+    unittest.main()

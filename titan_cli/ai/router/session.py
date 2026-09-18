@@ -41,6 +41,14 @@ class AISessionOverride:
     connection: Optional[str] = None
     connection_model: Optional[str] = None
 
+    # Which instance each model was chosen FOR. Without it the guard cannot tell "same
+    # instance, keep the model" from "different instance, drop it" whenever the model
+    # was picked before any instance was named - and either answer is wrong half the
+    # time. A bare model with no owner is the shape both this module and the resolver's
+    # rung guard exist to prevent.
+    _cli_model_for: Optional[str] = None
+    _connection_model_for: Optional[str] = None
+
     @property
     def is_active(self) -> bool:
         """Whether anything is being overridden at all."""
@@ -50,8 +58,20 @@ class AISessionOverride:
         """Drop the override; saved configuration applies again."""
         self.cli = None
         self.cli_model = None
+        self._cli_model_for = None
         self.connection = None
         self.connection_model = None
+        self._connection_model_for = None
+
+    def set_cli_model(self, cli: Optional[str], model: Optional[str]) -> None:
+        """Record a session model together with the CLI it was chosen for."""
+        self.cli_model = model
+        self._cli_model_for = cli if model else None
+
+    def set_connection_model(self, connection: Optional[str], model: Optional[str]) -> None:
+        """Record a session model together with the connection it was chosen for."""
+        self.connection_model = model
+        self._connection_model_for = connection if model else None
 
     def use_cli(self, cli: str) -> Optional[str]:
         """Override the CLI, forgetting a model chosen for a different one.
@@ -61,25 +81,36 @@ class AISessionOverride:
         connection's own model is untouched - it was never about this CLI.
         Returns the model it dropped, so the caller can say so.
         """
-        # `self.cli is not None` matters: a model-only override leaves the instance
-        # unset, and comparing "claude" against None would read as a switch and throw
-        # away the model the user had just chosen for that very CLI.
-        dropped = self.cli_model if (self.cli is not None and cli != self.cli) else None
-        self.cli = cli
+        # Compared against the instance the MODEL was chosen for, not against the
+        # currently overridden one: a model-only override leaves `cli` unset, so
+        # comparing with it either drops a model chosen for this very CLI or keeps one
+        # chosen for another, depending on which way the guard leans.
+        owner = self._cli_model_for or self.cli
+        dropped = self.cli_model if (owner is not None and cli != owner) else None
+        # Cleared BEFORE the new instance is published: the resolver reads this object
+        # from the workflow thread while F2/F3 mutate it from the UI thread, and its
+        # instance and model reads are separated by an availability probe - so the
+        # other order leaves a real window of new-CLI-with-old-model.
         if dropped:
             self.cli_model = None
+            self._cli_model_for = None
+        self.cli = cli
+        if self.cli_model and self._cli_model_for is None:
+            self._cli_model_for = cli
         return dropped
 
     def use_connection(self, connection: str) -> Optional[str]:
         """Override the connection, forgetting a model chosen for a different one."""
+        owner = self._connection_model_for or self.connection
         dropped = (
-            self.connection_model
-            if (self.connection is not None and connection != self.connection)
-            else None
+            self.connection_model if (owner is not None and connection != owner) else None
         )
-        self.connection = connection
         if dropped:
             self.connection_model = None
+            self._connection_model_for = None
+        self.connection = connection
+        if self.connection_model and self._connection_model_for is None:
+            self._connection_model_for = connection
         return dropped
 
     def instance_for(self, remote: bool) -> Optional[str]:
@@ -108,9 +139,11 @@ class AISessionOverride:
         if remote:
             self.connection = None
             self.connection_model = None
+            self._connection_model_for = None
         else:
             self.cli = None
             self.cli_model = None
+            self._cli_model_for = None
 
     def describe_for(self, remote: bool) -> str:
         """A short summary of THIS kind's override only."""

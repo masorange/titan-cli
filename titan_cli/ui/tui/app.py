@@ -289,16 +289,19 @@ class TitanApp(App):
                 dropped = override.use_connection(result.instance)
             else:
                 dropped = override.use_cli(result.instance)
+        instance = result.instance or (
+            override.connection if remote else override.cli
+        )
         if result.clear_model:
             if remote:
-                override.connection_model = None
+                override.set_connection_model(instance, None)
             else:
-                override.cli_model = None
+                override.set_cli_model(instance, None)
         elif result.model:
             if remote:
-                override.connection_model = result.model
+                override.set_connection_model(instance, result.model)
             else:
-                override.cli_model = result.model
+                override.set_cli_model(instance, result.model)
         return None if result.model else dropped
 
     @staticmethod

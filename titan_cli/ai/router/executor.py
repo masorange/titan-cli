@@ -236,7 +236,11 @@ class AIExecutor:
         if isinstance(resolution, AIRouteNeedsInput):
             return self._needs_input_error(resolution)
 
-        self._announce(announce, self.announced_decision(resolution, model))
+        # Narrowed once and reused: announcing a corrected decision while dispatching
+        # and RETURNING the resolver's would leave `result.decision.model` naming a
+        # model that did not run.
+        resolution = self.announced_decision(resolution, model)
+        self._announce(announce, resolution)
 
         match resolution.provider:
             case AIProviderType.OFF:
@@ -310,7 +314,11 @@ class AIExecutor:
         if isinstance(resolution, AIRouteNeedsInput):
             return self._needs_input_error(resolution)
 
-        self._announce(announce, self.announced_decision(resolution, model))
+        # Narrowed once and reused: announcing a corrected decision while dispatching
+        # and RETURNING the resolver's would leave `result.decision.model` naming a
+        # model that did not run.
+        resolution = self.announced_decision(resolution, model)
+        self._announce(announce, resolution)
 
         match resolution.provider:
             case AIProviderType.OFF:
