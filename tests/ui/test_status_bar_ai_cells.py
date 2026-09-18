@@ -73,8 +73,8 @@ def test_both_cells_name_the_key_that_changes_them():
         )
     )
 
-    assert cells["cli"] == "F2 claude / opus"
-    assert cells["ai"].startswith("F3 ")
+    assert cells["cli"] == "F2: claude / opus"
+    assert cells["ai"].startswith("F3: ")
     assert "gpt-5" in cells["ai"]
 
 
@@ -82,14 +82,14 @@ def test_an_unpinned_cli_model_reads_as_the_clis_own_default():
     """The CLI still has a model; Titan just isn't the one choosing it."""
     cells = _cells(AIConfig(default_cli="gemini"))
 
-    assert cells["cli"] == "F2 gemini / default"
+    assert cells["cli"] == "F2: gemini / default"
 
 
 def test_nothing_configured_shows_a_dash_rather_than_a_stale_name():
     cells = _cells(AIConfig())
 
-    assert cells["cli"] == "F2 —"
-    assert cells["ai"] == "F3 —"
+    assert cells["cli"] == "F2: —"
+    assert cells["ai"] == "F3: —"
 
 
 def test_the_bar_renders_four_cells():
@@ -129,21 +129,21 @@ class TestSessionOverrideInTheBar:
             AIConfig(default_cli="claude", cli_models={"claude": "opus"}), cli="codex"
         )
 
-        assert cells["cli"] == "F2 codex / default *"
+        assert cells["cli"] == "F2: codex / default *"
 
     def test_an_overridden_model_shows_against_the_saved_cli(self):
         cells = self._cells_with_override(
             AIConfig(default_cli="claude", cli_models={"claude": "opus"}), model="haiku"
         )
 
-        assert cells["cli"] == "F2 claude / haiku *"
+        assert cells["cli"] == "F2: claude / haiku *"
 
     def test_no_override_leaves_the_cell_exactly_as_it_was(self):
         cells = self._cells_with_override(
             AIConfig(default_cli="claude", cli_models={"claude": "opus"})
         )
 
-        assert cells["cli"] == "F2 claude / opus"
+        assert cells["cli"] == "F2: claude / opus"
 
 
 class TestRemoteSessionOverrideInTheBar:
@@ -193,7 +193,7 @@ class TestRemoteSessionOverrideInTheBar:
         """Each key's cell answers for its own transport; neither claims the other's."""
         cells = self._cells(self._two_connections(), connection="personal")
 
-        assert cells["cli"] == "F2 claude / opus"
+        assert cells["cli"] == "F2: claude / opus"
 
     def test_a_cli_only_override_leaves_the_f3_cell_alone(self):
         cells = self._cells(self._two_connections(), cli="codex")

@@ -129,7 +129,7 @@ class BaseScreen(Screen):
         if override is not None and override.connection:
             connection_id = override.connection
 
-        ai_info = "F3 —"
+        ai_info = "F3: —"
         if ai_config and connection_id in ai_config.connections:
             connection_cfg = ai_config.connections[connection_id]
             source_name = get_source_display_name(
@@ -138,7 +138,7 @@ class BaseScreen(Screen):
             model = connection_cfg.default_model or "default"
             if override is not None and override.connection_model:
                 model = override.connection_model
-            ai_info = f"F3 {source_name} / {model}"
+            ai_info = f"F3: {source_name} / {model}"
             if override is not None and (override.connection or override.connection_model):
                 ai_info = f"{ai_info} *"
 
@@ -148,16 +148,16 @@ class BaseScreen(Screen):
         # A session override takes the cell over and marks itself with a *, because it
         # outranks everything saved: showing the saved value while something else runs
         # would make the bar lie, and an override nobody can see is one they forget is on.
-        cli_info = "F2 —"
+        cli_info = "F2: —"
         if ai_config and ai_config.default_cli:
             cli = ai_config.default_cli
-            cli_info = f"F2 {cli} / {ai_config.cli_models.get(cli) or 'default'}"
+            cli_info = f"F2: {cli} / {ai_config.cli_models.get(cli) or 'default'}"
         if override is not None and (override.cli or override.cli_model):
             cli = override.cli or (ai_config.default_cli if ai_config else None) or "—"
             model = override.cli_model or (
                 ai_config.cli_models.get(cli) if ai_config and cli else None
             )
-            cli_info = f"F2 {cli} / {model or 'default'} *"
+            cli_info = f"F2: {cli} / {model or 'default'} *"
 
         # Get project name directly from config
         project_name = self.config.get_project_name() or "N/A"

@@ -84,7 +84,7 @@ question for CLIs and `F3` for connections, with the same keys inside each picke
 The status bar shows both, labelled with the key that changes them:
 
 ```text
- feat/my-branch   F2 opencode / claude-sonnet-5   F3 work-gateway / gpt-5   my-project
+ feat/my-branch   F2: opencode / claude-sonnet-5   F3: work-gateway / gpt-5   my-project
 ```
 
 A `*` after a cell means a **session override** is in force there: something you chose
