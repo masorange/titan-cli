@@ -1,5 +1,6 @@
 # core/config.py
 from copy import deepcopy
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -21,6 +22,10 @@ logger = get_logger(__name__)
 # Pin keys that name WHICH instance serves a task. Changing one invalidates the task's
 # pinned model, because a model identifier only means something to its own instance.
 _INSTANCE_PIN_KEYS = ("cli", "connection")
+
+# How many `workflows.last_used` entries a project keeps. The map only feeds a nine-slot
+# launcher, so anything past this is dead weight in a file that is never pruned by hand.
+_MAX_LAST_USED_ENTRIES = 20
 
 
 def _transport_of(provider: Optional[str]) -> str:
@@ -989,6 +994,81 @@ class TitanConfig:
 
         self._write_global_config(config_data)
         return is_now_favorite
+
+    def get_workflow_last_used(self) -> dict:
+        """Return {workflow name: ISO-8601 UTC timestamp} of runs for the active project.
+
+        Nothing is cleaned on read. A name whose workflow is not currently discoverable
+        belongs to a plugin the user may re-enable, so the caller skips it rather than this
+        deleting a record that would become valid again.
+        """
+        workflows = self._get_project_workflows_table()
+        last_used = workflows.get("last_used")
+        if not isinstance(last_used, dict):
+            return {}
+        return {
+            name: value
+            for name, value in last_used.items()
+            if isinstance(name, str) and isinstance(value, str)
+        }
+
+    def record_workflow_run(self, name: str, *, now: Optional[datetime] = None) -> None:
+        """Record that a workflow has just been run, for the active project.
+
+        Scoped exactly like favorites: the same `workflows` table under the project's
+        `project_sources` key, which is a hash of the resolved project path. Two projects
+        holding a workflow of the same name therefore never see each other's runs.
+        """
+        timestamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.get("project_sources")
+        if not isinstance(project_sources, dict):
+            project_sources = {}
+            config_data["project_sources"] = project_sources
+
+        project_key = self._find_project_source_scope_key(project_sources) or self._get_project_source_scope_key()
+        project_table = project_sources.get(project_key)
+        if not isinstance(project_table, dict):
+            project_table = {}
+            project_sources[project_key] = project_table
+        project_table["project_path"] = str((self._project_root or Path.cwd()).resolve())
+
+        workflows = project_table.get("workflows")
+        if not isinstance(workflows, dict):
+            workflows = {}
+            project_table["workflows"] = workflows
+
+        stored = workflows.get("last_used")
+        last_used = {
+            existing: value
+            for existing, value in (stored.items() if isinstance(stored, dict) else ())
+            if isinstance(existing, str) and isinstance(value, str)
+        }
+        last_used[name] = timestamp
+
+        # Most recent first, then truncate. ISO-8601 UTC sorts lexicographically, so
+        # comparing the strings is a real chronological comparison.
+        workflows["last_used"] = dict(
+            sorted(last_used.items(), key=lambda item: item[1], reverse=True)[
+                :_MAX_LAST_USED_ENTRIES
+            ]
+        )
+
+        self._write_global_config(config_data)
+
+    def _get_project_workflows_table(self) -> dict:
+        """Return the active project's `workflows` table from the global config on disk."""
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.get("project_sources")
+        if not isinstance(project_sources, dict):
+            return {}
+        project_key = self._find_project_source_scope_key(project_sources)
+        project_table = project_sources.get(project_key) if project_key else None
+        if not isinstance(project_table, dict):
+            return {}
+        workflows = project_table.get("workflows")
+        return workflows if isinstance(workflows, dict) else {}
 
     def _get_project_source_scope_key(self) -> str:
         """Return the global-config key used to scope local plugin overrides per project."""

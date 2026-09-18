@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 import tomli
 import tomli_w
 from pathlib import Path
@@ -1265,3 +1266,249 @@ def test_favorite_workflows_isolated_between_projects(tmp_path: Path, monkeypatc
         assert config_b.is_favorite_workflow("create-pr") is False
     finally:
         os.chdir(original_cwd)
+
+
+def _isolated_global_config(tmp_path: Path, monkeypatch, initial: dict = None) -> Path:
+    """Point TitanConfig at a throwaway global config and return its path."""
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(initial if initial is not None else {}, f)
+
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.setattr(TitanConfig, "_find_project_config", lambda self, path: None)
+    return global_config_path
+
+
+def _at(config_dir: Path):
+    """Build a TitanConfig as if Titan had been launched from the given directory."""
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(config_dir)
+        return TitanConfig()
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_get_workflow_last_used_empty_when_no_config(tmp_path: Path, monkeypatch, mocker):
+    """No project_sources entry in the global config means no recorded runs."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _isolated_global_config(tmp_path, monkeypatch)
+
+    assert _at(project_dir).get_workflow_last_used() == {}
+
+
+def test_record_workflow_run_persists_a_timestamp(tmp_path: Path, monkeypatch, mocker):
+    """A recorded run round-trips through TOML, scoped to the project that ran it."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    global_config_path = _isolated_global_config(tmp_path, monkeypatch)
+
+    config_instance = _at(project_dir)
+    config_instance.record_workflow_run(
+        "release-notes", now=datetime(2026, 9, 18, 10, 22, tzinfo=timezone.utc)
+    )
+
+    assert config_instance.get_workflow_last_used() == {"release-notes": "2026-09-18T10:22:00Z"}
+
+    with open(global_config_path, "rb") as f:
+        data = tomli.load(f)
+    project_table = data["project_sources"][_project_scope_key(project_dir)]
+    assert project_table["workflows"]["last_used"] == {"release-notes": "2026-09-18T10:22:00Z"}
+    assert project_table["project_path"] == str(project_dir.resolve())
+
+
+def test_record_workflow_run_preserves_favorites(tmp_path: Path, monkeypatch, mocker):
+    """Recording a run must not clobber the favorites list sharing its `workflows` table."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _isolated_global_config(
+        tmp_path,
+        monkeypatch,
+        {
+            "project_sources": {
+                _project_scope_key(project_dir): {
+                    "project_path": str(project_dir.resolve()),
+                    "workflows": {"favorites": ["review-pr", "commit"]},
+                }
+            }
+        },
+    )
+
+    config_instance = _at(project_dir)
+    config_instance.record_workflow_run("release-notes")
+
+    assert config_instance.get_favorite_workflows() == ["review-pr", "commit"]
+    assert "release-notes" in config_instance.get_workflow_last_used()
+
+
+def test_toggle_favorite_workflow_preserves_last_used(tmp_path: Path, monkeypatch, mocker):
+    """The reverse direction: starring a workflow must not drop the recorded runs beside it.
+
+    `toggle_favorite_workflow` pops the whole `workflows` table once it looks empty, so a
+    `last_used` map living in that table is exactly what that cleanup could take with it.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _isolated_global_config(
+        tmp_path,
+        monkeypatch,
+        {
+            "project_sources": {
+                _project_scope_key(project_dir): {
+                    "project_path": str(project_dir.resolve()),
+                    "workflows": {
+                        "favorites": ["review-pr"],
+                        "last_used": {"release-notes": "2026-09-18T10:22:00Z"},
+                    },
+                }
+            }
+        },
+    )
+
+    config_instance = _at(project_dir)
+    # Un-favoriting the only favorite empties the favorites list, which is the path that
+    # triggers the `workflows` cleanup.
+    assert config_instance.toggle_favorite_workflow("review-pr") is False
+
+    assert config_instance.get_favorite_workflows() == []
+    assert config_instance.get_workflow_last_used() == {"release-notes": "2026-09-18T10:22:00Z"}
+
+
+def test_record_workflow_run_keeps_only_the_most_recent_entries(tmp_path: Path, monkeypatch, mocker):
+    """The map is capped on write, dropping the oldest runs rather than growing forever."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _isolated_global_config(tmp_path, monkeypatch)
+
+    config_instance = _at(project_dir)
+    for minute in range(25):
+        config_instance.record_workflow_run(
+            f"workflow-{minute:02d}", now=datetime(2026, 9, 18, 10, minute, tzinfo=timezone.utc)
+        )
+
+    recorded = config_instance.get_workflow_last_used()
+    assert len(recorded) == 20
+    # The 20 newest survive; the five oldest are gone.
+    assert "workflow-24" in recorded
+    assert "workflow-05" in recorded
+    assert "workflow-04" not in recorded
+    assert "workflow-00" not in recorded
+
+
+def test_record_workflow_run_updates_an_existing_entry_without_growing(tmp_path: Path, monkeypatch, mocker):
+    """Re-running a workflow moves its timestamp instead of adding a second entry."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _isolated_global_config(tmp_path, monkeypatch)
+
+    config_instance = _at(project_dir)
+    config_instance.record_workflow_run(
+        "release-notes", now=datetime(2026, 9, 18, 10, 0, tzinfo=timezone.utc)
+    )
+    config_instance.record_workflow_run(
+        "release-notes", now=datetime(2026, 9, 18, 11, 30, tzinfo=timezone.utc)
+    )
+
+    assert config_instance.get_workflow_last_used() == {"release-notes": "2026-09-18T11:30:00Z"}
+
+
+def test_workflow_last_used_isolated_between_projects(tmp_path: Path, monkeypatch, mocker):
+    """Running a workflow name in one project must not record it for a same-named workflow elsewhere.
+
+    This is the hazard the feature was questioned on: different projects expose different
+    workflows, so a shared `last_used` map would surface one project's runs in another.
+    The per-project scope key makes that impossible by construction.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_a = tmp_path / "project_a"
+    project_b = tmp_path / "project_b"
+    project_a.mkdir()
+    project_b.mkdir()
+    _isolated_global_config(tmp_path, monkeypatch)
+
+    _at(project_a).record_workflow_run("create-pr")
+
+    assert _at(project_b).get_workflow_last_used() == {}
+    assert "create-pr" in _at(project_a).get_workflow_last_used()
+
+
+def test_record_workflow_run_preserves_other_global_config_sections(tmp_path: Path, monkeypatch, mocker):
+    """Recording a run must not clobber unrelated global config sections."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    global_config_path = _isolated_global_config(
+        tmp_path,
+        monkeypatch,
+        {"ai": {"default_connection": "default", "cli_models": {"claude": "opus"}}},
+    )
+
+    _at(project_dir).record_workflow_run("release-notes")
+
+    with open(global_config_path, "rb") as f:
+        data = tomli.load(f)
+    assert data["ai"]["default_connection"] == "default"
+    assert data["ai"]["cli_models"]["claude"] == "opus"
+
+
+def test_record_workflow_run_handles_a_name_that_is_not_a_bare_toml_key(tmp_path: Path, monkeypatch, mocker):
+    """A workflow name comes from a filename, so it can contain dots and spaces.
+
+    Those are not bare TOML keys, and an unquoted dotted key would be written as a nested
+    table rather than as a name - silently turning one record into a different shape.
+    """
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _isolated_global_config(tmp_path, monkeypatch)
+
+    config_instance = _at(project_dir)
+    config_instance.record_workflow_run(
+        "my.workflow v2", now=datetime(2026, 9, 18, 10, 0, tzinfo=timezone.utc)
+    )
+
+    assert config_instance.get_workflow_last_used() == {"my.workflow v2": "2026-09-18T10:00:00Z"}
+
+
+def test_get_workflow_last_used_skips_entries_that_are_not_timestamps(tmp_path: Path, monkeypatch, mocker):
+    """A hand-edited config must not break the reader; unusable entries are ignored."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _isolated_global_config(
+        tmp_path,
+        monkeypatch,
+        {
+            "project_sources": {
+                _project_scope_key(project_dir): {
+                    "project_path": str(project_dir.resolve()),
+                    "workflows": {
+                        "last_used": {
+                            "release-notes": "2026-09-18T10:22:00Z",
+                            "broken": 12345,
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    assert _at(project_dir).get_workflow_last_used() == {"release-notes": "2026-09-18T10:22:00Z"}
