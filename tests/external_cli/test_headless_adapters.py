@@ -1221,12 +1221,20 @@ class TestModelListing(unittest.TestCase):
         self.assertIn("opus", [m.identifier for m in models])
         self.assertIn("sonnet", [m.identifier for m in models])
 
-    def test_clis_that_publish_nothing_return_nothing(self):
-        for adapter in (GeminiHeadlessAdapter(), CodexHeadlessAdapter()):
-            with self.subTest(cli=adapter.cli_name):
-                with patch("subprocess.run") as run:
-                    self.assertEqual(adapter.list_models(), [])
-                run.assert_not_called()
+    def test_a_cli_that_publishes_nothing_returns_nothing(self):
+        """Gemini alone now: codex reads its own cache file (see TestCodexModelListing).
+
+        Codex used to belong here, and leaving it would have made this test depend on
+        whether the machine running it happens to have a populated ~/.codex.
+        """
+        with patch("subprocess.run") as run:
+            self.assertEqual(GeminiHeadlessAdapter().list_models(), [])
+        run.assert_not_called()
+
+    def test_codex_reads_its_cache_without_shelling_out(self):
+        with patch("subprocess.run") as run:
+            CodexHeadlessAdapter().list_models()
+        run.assert_not_called()
 
     def test_every_registered_adapter_can_be_asked(self):
         # The picker calls this on whichever CLI the user highlighted, so an adapter that
@@ -1236,3 +1244,96 @@ class TestModelListing(unittest.TestCase):
                 adapter = get_headless_adapter(cli_name)
                 with patch("subprocess.run", return_value=self._stdout("")):
                     self.assertIsInstance(adapter.list_models(), list)
+
+
+class TestCodexModelListing:
+    """
+    Codex publishes its catalogue in a cache file it maintains itself (air-011).
+
+    It has no listing subcommand - `codex --help` shows none and documents `-m/--model` as
+    a free-form string - so this adapter used to offer nothing and every user typed the
+    identifier by hand. It does keep `~/.codex/models_cache.json`, fetched and etagged by
+    codex, which is a better source than a list hardcoded from the docs: on the machine
+    this was written for, the docs' `gpt-5.3-codex` was not among the models the install
+    actually offered.
+    """
+
+    @staticmethod
+    def _cache(tmp_path, payload):
+        path = tmp_path / "models_cache.json"
+        path.write_text(json.dumps(payload))
+        return path
+
+    def _models(self, monkeypatch, path):
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        monkeypatch.setattr(codex_module, "codex_models_cache_path", lambda: path)
+        return codex_module.CodexHeadlessAdapter().list_models()
+
+    def test_listed_models_are_offered_with_their_description(self, tmp_path, monkeypatch):
+        path = self._cache(
+            tmp_path,
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.6-terra",
+                        "display_name": "GPT-5.6-Terra",
+                        "description": "Balanced agentic coding model.",
+                        "visibility": "list",
+                    }
+                ]
+            },
+        )
+
+        models = self._models(monkeypatch, path)
+
+        assert [(m.identifier, m.label) for m in models] == [
+            ("gpt-5.6-terra", "Balanced agentic coding model.")
+        ]
+
+    def test_hidden_models_are_not_offered(self, tmp_path, monkeypatch):
+        """`codex-auto-review` and `gpt-reserve` are codex's own internals, not choices."""
+        path = self._cache(
+            tmp_path,
+            {
+                "models": [
+                    {"slug": "gpt-5.6-sol", "visibility": "list"},
+                    {"slug": "codex-auto-review", "visibility": "hide"},
+                ]
+            },
+        )
+
+        assert [m.identifier for m in self._models(monkeypatch, path)] == ["gpt-5.6-sol"]
+
+    def test_a_missing_cache_offers_nothing_rather_than_failing(self, tmp_path, monkeypatch):
+        """Codex may never have run. Typing an id by hand still works, as it does today."""
+        assert self._models(monkeypatch, tmp_path / "absent.json") == []
+
+    def test_a_corrupt_cache_offers_nothing_rather_than_failing(self, tmp_path, monkeypatch):
+        path = tmp_path / "models_cache.json"
+        path.write_text("{ not json")
+
+        assert self._models(monkeypatch, path) == []
+
+    def test_an_unexpected_shape_is_skipped_entry_by_entry(self, tmp_path, monkeypatch):
+        """The file is codex's private format, not a contract: parse defensively."""
+        path = self._cache(
+            tmp_path,
+            {
+                "models": [
+                    "not-a-dict",
+                    {"display_name": "No slug", "visibility": "list"},
+                    {"slug": "gpt-5.5", "visibility": "list"},
+                ]
+            },
+        )
+
+        assert [m.identifier for m in self._models(monkeypatch, path)] == ["gpt-5.5"]
+
+    def test_the_label_falls_back_to_the_display_name(self, tmp_path, monkeypatch):
+        path = self._cache(
+            tmp_path,
+            {"models": [{"slug": "gpt-5.5", "display_name": "GPT-5.5", "visibility": "list"}]},
+        )
+
+        assert self._models(monkeypatch, path)[0].label == "GPT-5.5"

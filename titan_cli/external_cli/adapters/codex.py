@@ -6,6 +6,7 @@ Parses JSONL output to extract the agent's response.
 """
 
 import json
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -14,6 +15,13 @@ from typing import Any, Optional
 from .base import CliModel, HeadlessResponse, SupportedCLI
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+# Codex fetches and etags its own model catalogue into this file. Resolved through a
+# function rather than a constant so the home directory is read at call time, not at
+# import time.
+def codex_models_cache_path() -> Path:
+    """Where Codex CLI keeps the catalogue it maintains for itself."""
+    return Path.home() / ".codex" / "models_cache.json"
 
 
 class CodexHeadlessAdapter:
@@ -49,12 +57,42 @@ class CodexHeadlessAdapter:
         return shutil.which("codex") is not None
 
     def list_models(self) -> list[CliModel]:
-        """Codex publishes neither a listing subcommand nor stable aliases.
+        """Codex's own catalogue, read from the cache it maintains.
 
-        `codex --help` documents `-m/--model` as a free-form string, so the caller falls
-        back to letting the user type the model id.
+        There is no listing subcommand - `codex --help` shows none and documents
+        `-m/--model` as a free-form string - but codex fetches its catalogue into
+        `~/.codex/models_cache.json` and keeps it etagged. Reading that is better than a
+        list hardcoded from the published docs, which pins whatever was current when this
+        adapter was written: the docs' `gpt-5.3-codex` was already absent from the install
+        this was written against, whose codex offered the `gpt-5.6-*` family instead.
+
+        `visibility` is honored: codex marks its internal models (`codex-auto-review`,
+        `gpt-reserve`) as `hide`, and offering those as a choice would be wrong.
+
+        The file is codex's private format, not a contract, so every failure - missing,
+        unreadable, malformed, or an entry of an unexpected shape - degrades to offering
+        nothing. That is the behaviour this adapter had before, and the modal always lets
+        the user type an identifier, so a codex that has never run costs nothing.
         """
-        return []
+        try:
+            payload = json.loads(codex_models_cache_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+
+        entries = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            return []
+
+        models = []
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("visibility") != "list":
+                continue
+            slug = entry.get("slug")
+            if not slug:
+                continue
+            label = entry.get("description") or entry.get("display_name") or ""
+            models.append(CliModel(slug, label))
+        return models
 
     def execute(
         self,
