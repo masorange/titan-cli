@@ -31,7 +31,7 @@ class ChecklistManager:
         config_path = self._checklist_path()
         if not config_path or not config_path.exists():
             checklist = [item.model_copy(deep=True) for item in DEFAULT_REVIEW_CHECKLIST]
-            logger.debug(
+            logger.info(
                 "review_checklist_resolved",
                 source="default",
                 path=str(config_path) if config_path else None,
@@ -60,7 +60,7 @@ class ChecklistManager:
             )
             for item in checklist_file.items
         ]
-        logger.debug(
+        logger.info(
             "review_checklist_resolved",
             source="project",
             path=str(config_path),

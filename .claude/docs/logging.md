@@ -26,12 +26,17 @@ Titan CLI uses [structlog](https://www.structlog.org/) for structured logging wi
 ├── titan.log.1     ← Rotated (older)
 ├── titan.log.2     ← Rotated (older)
 ├── titan.log.3     ← Rotated (older)
-└── titan.log.4     ← Rotated (oldest, will be deleted on next rotation)
+├── titan.log.4     ← Rotated (older)
+└── titan.log.5     ← Rotated (oldest, will be deleted on next rotation)
 ```
 
 **Rotation policy:**
 - Each file max: 10 MB
-- Total retention: 5 files (50 MB)
+- Total retention: 6 files (60 MB) — `backupCount=5` keeps five rotated files
+  *plus* the live one
+- How far that reaches: measured 2026-09-15, a full Review PR run costs ~195 KB
+  at DEBUG and ~26 KB at INFO, and 4.7 MB held four days of real mixed use, so
+  the set spans roughly 50 days in development and far longer in production
 - Format: JSON (structured)
 
 **When a user reports an error, ask them to share:**
@@ -185,6 +190,37 @@ logger.info("Commit created")  # No context
 logger.error(f"API error: {e}")  # String formatting loses structure
 ```
 
+### Run Correlation (`run`)
+
+Every line emitted while a workflow is executing carries a short `run` id,
+bound once per top-level run by `TextualWorkflowExecutor.execute()` and added
+to every record by structlog's `merge_contextvars`. Nested workflows inherit
+the parent's id, so one user action stays one run.
+
+**Always group by `run` before drawing any conclusion from a log.** Cancelling
+a workflow pops the screen but cannot stop a worker thread parked in an AI
+call, so an abandoned run keeps logging while the user starts another — two
+runs then interleave with identical event names. Before this field existed
+they were genuinely indistinguishable: in one measured session an abandoned
+run's `ai_response_received` landed thirteen seconds *after* the next run's
+`workflow_started`. Steps need do nothing to participate.
+
+### Lifecycle Events
+
+The executor brackets every run, so steps should not log these themselves:
+
+| Event | When |
+|---|---|
+| `workflow_started` | a run begins (`workflow`, `source`, `total_steps`, `is_nested`) |
+| `workflow_completed` | normal end, `status=success` or `exited` |
+| `workflow_failed` | a step returned `Error` with `on_error: fail` |
+| `workflow_cancelled_by_user` | the user left the screen; the run may still be logging |
+| `workflow_aborted_on_app_exit` | the app closed while a step was blocked |
+| `step_started` / `step_success` / `step_skipped` / `step_failed` | per step |
+
+A run that ends with none of the terminal events was killed outright — that is
+the one case the log cannot narrate.
+
 ### Log Levels
 
 Use appropriate levels:
@@ -272,6 +308,23 @@ The decorator automatically logs:
 - `{op_name}_success` at INFO (with message, result_type, duration)
 - `{op_name}_failed` at ERROR/WARNING (with error, error_code, duration)
 - `{op_name}_exception` at ERROR with stack trace
+
+**Speculative calls:** wrap a call whose failure is normal control flow in
+`best_effort_operation()` and the decorator drops that `_failed` line to DEBUG.
+Only the caller knows an operation is optional — the service returns the same
+`ClientError` either way. Without it, cleanup that worked exactly as designed
+shows up as the only error in a healthy run, which poisons the first question
+anyone asks a log.
+
+```python
+from titan_cli.core.logging import best_effort_operation
+
+# Removing a worktree that may never have been registered: a failure here is
+# expected, and the caller proceeds to create it regardless.
+with best_effort_operation():
+    git_client.remove_worktree(path, force=True)
+    git_client.prune_worktrees()
+```
 
 ```python
 # ✅ GOOD
@@ -535,6 +588,18 @@ grep '^{' ~/.local/state/titan/logs/titan.log | jq -r '.event' | sort | uniq -c 
 
 # Errors grouped by module
 grep '"level": "error"' ~/.local/state/titan/logs/titan.log | jq -r '.logger_name' | sort | uniq -c
+
+# Runs in the file, newest last — start here, not with a bare event grep
+grep '^{' ~/.local/state/titan/logs/titan.log \
+  | jq -r 'select(.event=="workflow_started") | "\(.run)  \(.timestamp)  \(.workflow)"'
+
+# Everything belonging to ONE run (two runs can interleave; see Run Correlation)
+grep '^{' ~/.local/state/titan/logs/titan.log | jq -c 'select(.run=="<run id>")'
+
+# Runs that never reached a terminal event — killed, not merely slow
+grep '^{' ~/.local/state/titan/logs/titan.log \
+  | jq -r 'select(.run) | "\(.run) \(.event)"' \
+  | awk '$2=="workflow_started"{s[$1]} /workflow_(completed|failed|cancelled_by_user|aborted_on_app_exit)/{delete s[$1]} END{for(r in s) print r}'
 ```
 
 ---
@@ -555,7 +620,8 @@ titan.log.1 (10 MB)     ← Old titan.log renamed
 titan.log.2 (10 MB)     ← Previous .1
 titan.log.3 (10 MB)     ← Previous .2
 titan.log.4 (10 MB)     ← Previous .3
-(previous .4 deleted)   ← Oldest file removed
+titan.log.5 (10 MB)     ← Previous .4
+(previous .5 deleted)   ← Oldest file removed
 ```
 
 ### Manual Cleanup

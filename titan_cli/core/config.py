@@ -27,10 +27,7 @@ _INSTANCE_PIN_KEYS = ("cli", "connection")
 # other's model alone.
 _TRANSPORT_OF_PIN = {"cli": "cli", "connection": "remote"}
 
-# How many `workflows.last_used` entries a project keeps. The map only feeds a nine-slot
-# launcher, so anything past this is dead weight in a file that is never pruned by hand.
 _MAX_LAST_USED_ENTRIES = 20
-
 
 def _transport_of(provider: Optional[str]) -> str:
     """Which instance a provider kind is served by: a CLI, a connection, or nothing.

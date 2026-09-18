@@ -173,7 +173,7 @@ class PRAgent(BaseAIAgent):
                                                 untracked_info += f"# - {file}\n"
                                             diff = diff + untracked_info if diff else untracked_info
                                     case ClientError(error_message=err):
-                                        logger.error(f"Failed to get unstaged diff: {err}")
+                                        logger.error("get_unstaged_diff_failed", error=err)
                                         diff = None
                             else:
                                 diff_result = self.git.get_staged_diff()
@@ -181,7 +181,7 @@ class PRAgent(BaseAIAgent):
                                     case ClientSuccess(data=diff):
                                         pass  # diff is now extracted
                                     case ClientError(error_message=err):
-                                        logger.error(f"Failed to get staged diff: {err}")
+                                        logger.error("get_staged_diff_failed", error=err)
                                         diff = None
 
                             if diff:
@@ -191,7 +191,7 @@ class PRAgent(BaseAIAgent):
                                     commit_message = commit_result.message
                                     total_tokens += commit_result.tokens_used
                                 except Exception as e:
-                                    logger.warning(f"Failed to generate commit message: {e}")
+                                    logger.warning("commit_message_generation_failed", error=str(e))
                                     commit_message = None
 
                                 # Get staged files
@@ -199,15 +199,15 @@ class PRAgent(BaseAIAgent):
                                     staged_files = status.staged_files
 
                         except Exception as e:
-                            logger.error(f"Failed to get git diff: {e}")
+                            logger.error("get_diff_failed", error=str(e))
                             # Continue with PR analysis even if commit analysis failed
 
                 case ClientError(error_message=err):
-                    logger.error(f"Failed to get git status: {err}")
+                    logger.error("get_status_failed", error=err)
                     # Continue with graceful fallback
 
         except Exception as e:
-            logger.error(f"Failed to get git status: {e}")
+            logger.error("get_status_failed", error=str(e))
             # Continue with graceful fallback
 
         # 2. Analyze branch for PR (with error handling)
@@ -249,17 +249,17 @@ class PRAgent(BaseAIAgent):
                                 pr_status = PRStatus.OK
 
                         except Exception as e:
-                            logger.error(f"Failed to generate PR description: {e}")
+                            logger.error("pr_description_generation_failed", error=str(e))
                             pr_status = PRStatus.GENERATION_FAILED
                             pr_error = str(e)
 
                 case _:
-                    logger.error("Failed to get branch commits or diff")
+                    logger.error("branch_commits_or_diff_unavailable")
                     pr_status = PRStatus.SOURCE_DATA_FAILED
                     pr_error = "Failed to get branch commits or diff."
 
         except Exception as e:
-            logger.error(f"Failed to analyze branch for PR: {e}")
+            logger.error("branch_analysis_failed", error=str(e))
             pr_status = PRStatus.SOURCE_DATA_FAILED
             pr_error = str(e)
 
@@ -332,7 +332,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
         try:
             response = self.generate(request)
         except Exception as e:
-            logger.error(f"AI generation failed for commit message: {e}")
+            logger.error("ai_generation_failed", task="commit_message", error=str(e))
             raise
 
         # Parse response
@@ -434,7 +434,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
         try:
             response = self.generate(request)
         except Exception as e:
-            logger.error(f"AI generation failed for PR description: {e}")
+            logger.error("ai_generation_failed", task="pr_description", error=str(e))
             raise
 
         title, body = self._clean_pr_fields(response.parsed)
