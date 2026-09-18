@@ -104,6 +104,7 @@ class WorkflowExecutionScreen(BaseScreen):
         self.workflow_name = workflow_name
         self.workflow: Optional[ParsedWorkflow] = None
         self._worker: Optional[Worker] = None
+        self._executor = None
         self._original_cwd = os.getcwd()
         self._should_auto_back = False  # Flag to trigger auto-back when worker finishes
 
@@ -224,6 +225,9 @@ class WorkflowExecutionScreen(BaseScreen):
                 workflow_registry=self.config.workflows,
                 message_target=self  # Pass self to receive messages
             )
+            # The cancel handler runs on the UI thread, where the run id
+            # contextvar bound inside the worker is not visible.
+            self._executor = executor
 
             # Execute workflow (this is synchronous and may take time)
             executor.execute(self.workflow, execution_context)
@@ -231,7 +235,16 @@ class WorkflowExecutionScreen(BaseScreen):
         except WorkflowAborted:
             # The app closed while a step was blocked in an AI call or prompt.
             # There is no UI left to report to; just let this thread die.
-            logger.info("workflow_aborted_on_app_exit", workflow_name=self.workflow_name)
+            # `workflow=`, not `workflow_name=`: every other workflow lifecycle
+            # event keys the run by `workflow`, so a different name here made
+            # aborted runs unattributable — they grouped under a single empty
+            # name in any per-workflow report. Also carries the display name
+            # the other events use, with the slug kept alongside it.
+            logger.info(
+                "workflow_aborted_on_app_exit",
+                workflow=getattr(self.workflow, "name", None) or self.workflow_name,
+                workflow_slug=self.workflow_name,
+            )
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
             self._output(f"\n[red]{Icons.ERROR} Workflow failed: {e}[/red]")
             self._output("[dim]Press ESC or Q to return[/dim]")
@@ -375,6 +388,16 @@ class WorkflowExecutionScreen(BaseScreen):
         """Cancel workflow execution and go back."""
         # Cancel worker if running
         if self._worker and self._worker.state == WorkerState.RUNNING:
+            # A cancelled run is the one case that ends without any terminal
+            # event: cancel() cannot stop a thread parked in an AI call, so the
+            # run keeps logging steps after the user has left the screen. This
+            # marks where the user let go, which is also the only way to tell an
+            # abandoned run from one whose log simply ends.
+            logger.info(
+                "workflow_cancelled_by_user",
+                workflow=getattr(self.workflow, "name", None) or self.workflow_name,
+                run=getattr(self._executor, "run_id", None),
+            )
             # Try to cancel, but don't wait for it to finish
             # The worker thread may be blocked, so we just move on
             try:

@@ -23,6 +23,11 @@ from .wizard import StepStatus, WizardStep, StepIndicator
 from .segmented_switch import SegmentedSwitch, SegmentedSwitchOption
 from .tabs import TabbedPanel, TabPanel
 from .dev_source_path_modal import DevSourcePathModal
+from .collapsible_list import (
+    CollapsibleEntry,
+    build_collapsible_list,
+    escape_markup,
+)
 from .text import (
     Text,
     DimText,
@@ -62,6 +67,9 @@ __all__ = [
     "TabbedPanel",
     "TabPanel",
     "DevSourcePathModal",
+    "CollapsibleEntry",
+    "build_collapsible_list",
+    "escape_markup",
     "Text",
     "DimText",
     "BoldText",

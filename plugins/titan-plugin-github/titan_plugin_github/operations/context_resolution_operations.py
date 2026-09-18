@@ -124,7 +124,7 @@ def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
         if file_path.exists() and file_path.is_file():
             return file_path.read_text(encoding="utf-8", errors="replace")
     except (OSError, ValueError) as e:
-        logger.debug("Could not read %s: %s", path, e)
+        logger.debug("file_read_failed", path=path, error=str(e))
     return None
 
 
@@ -215,9 +215,10 @@ def build_review_context_package(
 
     if len(plan.extra_context_requests) > 1:
         logger.info(
-            "extra_context_requests_trimmed: planned=%d kept=1 dropped=%d",
-            len(plan.extra_context_requests),
-            len(plan.extra_context_requests) - 1,
+            "extra_context_requests_trimmed",
+            planned=len(plan.extra_context_requests),
+            kept=1,
+            dropped=len(plan.extra_context_requests) - 1,
         )
 
     related_files = resolve_context_requests(
@@ -305,9 +306,10 @@ def _resolve_file_context(
         # Content on disk is not provably this PR's revision; hunks come from the diff
         # itself and are always correct.
         logger.debug(
-            "file_read_not_allowed: path=%s requested_mode=%s → hunks_only",
-            file_plan.path,
-            desired_mode,
+            "file_read_not_allowed",
+            path=file_plan.path,
+            requested_mode=desired_mode,
+            applied_mode="hunks_only",
         )
         desired_mode = FileReadMode.HUNKS_ONLY
 

@@ -5,8 +5,10 @@ Workflow executor specifically designed for Textual TUI.
 Emits Textual messages instead of using Rich UI components.
 """
 import time
+import uuid
 from typing import Any, Dict, Optional
 
+import structlog
 from textual.message import Message
 
 from titan_cli.core.interrupt import WorkflowAborted, abort_requested
@@ -129,6 +131,9 @@ class TextualWorkflowExecutor:
         # ctx.secret_broker. The vault stays inside the factory; neither the
         # executor nor the context ever holds it.
         self._broker_factory = create_broker_factory()
+        # Set when a top-level run starts; the screen reads it so a user
+        # cancellation can be logged against the run it cancelled.
+        self.run_id: Optional[str] = None
 
     def _post_message(self, message: Message) -> None:
         """Post a message to the target if available."""
@@ -159,7 +164,7 @@ class TextualWorkflowExecutor:
         params_override: Optional[Dict[str, Any]] = None
     ) -> WorkflowResult:
         """
-        Execute the given ParsedWorkflow.
+        Execute the given ParsedWorkflow, tagging every log line with a run id.
 
         Args:
             workflow: The workflow to execute
@@ -169,6 +174,27 @@ class TextualWorkflowExecutor:
         Returns:
             WorkflowResult indicating success or failure
         """
+        # Without this tag a log cannot say which run a line belongs to. A
+        # cancelled run keeps executing in its worker thread while the user
+        # starts another, so two runs interleave in the file with identical
+        # event names and no way to separate them. Nested workflows share the
+        # parent's id so the whole tree stays one run.
+        if ctx._workflow_stack:
+            return self._execute_tagged(workflow, ctx, params_override)
+
+        self.run_id = uuid.uuid4().hex[:8]
+        token = structlog.contextvars.bind_contextvars(run=self.run_id)
+        try:
+            return self._execute_tagged(workflow, ctx, params_override)
+        finally:
+            structlog.contextvars.reset_contextvars(**token)
+
+    def _execute_tagged(
+        self,
+        workflow: ParsedWorkflow,
+        ctx: WorkflowContext,
+        params_override: Optional[Dict[str, Any]] = None
+    ) -> WorkflowResult:
         # Inject Textual components into context if message_target is available
         if self._message_target and hasattr(self._message_target, 'app'):
             try:

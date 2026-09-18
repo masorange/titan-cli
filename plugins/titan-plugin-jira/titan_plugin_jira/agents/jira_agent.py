@@ -140,7 +140,7 @@ class JiraAgent(BaseAIAgent):
             IssueAnalysis with complete analysis (gracefully handles errors)
         """
         if not self.jira:
-            logger.error("JiraClient not available for issue analysis")
+            logger.error("jira_client_unavailable", operation="issue_analysis")
             return IssueAnalysis()
 
         # Reset token tracker for this analysis
@@ -169,7 +169,7 @@ class JiraAgent(BaseAIAgent):
                 case ClientSuccess(data=issue):
                     pass  # Continue with issue
                 case ClientError(error_message=err):
-                    logger.error(f"Failed to get issue {issue_key}: {err}")
+                    logger.error("get_issue_failed", issue_key=issue_key, error=err)
                     return IssueAnalysis()
 
             # 2. Analyze requirements (with AI error handling)
@@ -189,7 +189,7 @@ class JiraAgent(BaseAIAgent):
                         success=True
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to extract requirements: {e}")
+                    logger.warning("requirements_extraction_failed", error=str(e))
                     self.token_tracker.record_usage(
                         OperationType.REQUIREMENTS_EXTRACTION,
                         0,
@@ -215,7 +215,7 @@ class JiraAgent(BaseAIAgent):
                         success=True
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to analyze risks: {e}")
+                    logger.warning("risk_analysis_failed", error=str(e))
                     self.token_tracker.record_usage(
                         OperationType.RISK_ANALYSIS,
                         0,
@@ -238,7 +238,7 @@ class JiraAgent(BaseAIAgent):
                         success=True
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to detect dependencies: {e}")
+                    logger.warning("dependency_detection_failed", error=str(e))
                     self.token_tracker.record_usage(
                         OperationType.DEPENDENCY_DETECTION,
                         0,
@@ -261,7 +261,7 @@ class JiraAgent(BaseAIAgent):
                         success=True
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to suggest subtasks: {e}")
+                    logger.warning("subtask_suggestion_failed", error=str(e))
                     self.token_tracker.record_usage(
                         OperationType.SUBTASK_SUGGESTION,
                         0,
@@ -271,7 +271,7 @@ class JiraAgent(BaseAIAgent):
                     )
 
         except Exception as e:
-            logger.error(f"Failed to get issue {issue_key}: {e}")
+            logger.error("get_issue_failed", issue_key=issue_key, error=str(e))
             # Return empty analysis on complete failure
 
         return IssueAnalysis(
@@ -338,26 +338,29 @@ class JiraAgent(BaseAIAgent):
         try:
             response = self.generate(request)
         except Exception as e:
-            logger.error(f"AI generation failed for requirements extraction: {e}")
+            logger.error("ai_generation_failed", task="requirements_extraction", error=str(e))
             raise
 
         # Debug: Log AI response if debug enabled
         if self.config.enable_debug_output:
-            logger.info("=" * 80)
-            logger.info("AI RESPONSE FOR REQUIREMENTS EXTRACTION:")
-            logger.info(response.content)
-            logger.info("=" * 80)
+            logger.info(
+                "ai_response_debug",
+                task="requirements_extraction",
+                response=response.content,
+            )
 
         # Parse response
         result = dict(response.parsed)
 
         # Debug: Log parsing result if debug enabled
         if self.config.enable_debug_output:
-            logger.info("PARSED RESULT:")
-            logger.info(f"  Functional: {len(result.get('functional', []))} items")
-            logger.info(f"  Non-functional: {len(result.get('non_functional', []))} items")
-            logger.info(f"  Acceptance criteria: {len(result.get('acceptance_criteria', []))} items")
-            logger.info(f"  Technical approach: {result.get('technical_approach') is not None}")
+            logger.info(
+                "requirements_parsed",
+                functional=len(result.get("functional", [])),
+                non_functional=len(result.get("non_functional", [])),
+                acceptance_criteria=len(result.get("acceptance_criteria", [])),
+                has_technical_approach=result.get("technical_approach") is not None,
+            )
 
         result["tokens_used"] = response.tokens_used
 
@@ -403,7 +406,7 @@ class JiraAgent(BaseAIAgent):
             result["tokens_used"] = response.tokens_used
             return result
         except Exception as e:
-            logger.error(f"AI generation failed for risk analysis: {e}")
+            logger.error("ai_generation_failed", task="risk_analysis", error=str(e))
             raise
 
     def _detect_dependencies(self, issue) -> Dict[str, Any]:
@@ -445,7 +448,7 @@ class JiraAgent(BaseAIAgent):
             result["tokens_used"] = response.tokens_used
             return result
         except Exception as e:
-            logger.error(f"AI generation failed for dependency detection: {e}")
+            logger.error("ai_generation_failed", task="dependency_detection", error=str(e))
             raise
 
     def _suggest_subtasks(self, issue) -> Dict[str, Any]:
@@ -490,7 +493,7 @@ class JiraAgent(BaseAIAgent):
                 "tokens_used": response.tokens_used,
             }
         except Exception as e:
-            logger.error(f"AI generation failed for subtask suggestion: {e}")
+            logger.error("ai_generation_failed", task="subtask_suggestion", error=str(e))
             raise
 
     def generate_comment(self, issue_key: str, comment_context: str) -> Optional[str]:
@@ -505,7 +508,7 @@ class JiraAgent(BaseAIAgent):
             Generated comment text or None on failure
         """
         if not self.jira:
-            logger.error("JiraClient not available")
+            logger.error("jira_client_unavailable")
             return None
 
         try:
@@ -516,7 +519,7 @@ class JiraAgent(BaseAIAgent):
                 case ClientSuccess(data=issue):
                     pass  # Continue with issue
                 case ClientError(error_message=err):
-                    logger.error(f"Failed to get issue {issue_key}: {err}")
+                    logger.error("get_issue_failed", issue_key=issue_key, error=err)
                     return None
 
             description = issue.description or ""
@@ -558,7 +561,7 @@ class JiraAgent(BaseAIAgent):
             return comment or None
 
         except Exception as e:
-            logger.error(f"Failed to generate comment: {e}")
+            logger.error("comment_generation_failed", error=str(e))
             return None
 
     @staticmethod

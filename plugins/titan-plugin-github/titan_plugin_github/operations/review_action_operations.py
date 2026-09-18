@@ -169,7 +169,7 @@ def build_review_action_payload(
     # context diff may use extended context (-U20) whose extra context lines GitHub
     # rejects with 422 "line could not be resolved".
     valid_lines = {p: set(ls) for p, ls in manager.get_all_publishable_lines().items()} if manager else {}
-    logger.debug(
+    logger.info(
         "build_review_payload_start",
         action_count=len(actions),
         files_in_diff=len(valid_lines),
@@ -243,10 +243,14 @@ def build_review_action_payload(
     if general_parts:
         payload["body"] = "\n\n---\n\n".join(general_parts)
 
-    logger.debug("build_review_payload_complete",
+    logger.info(
+        "build_review_payload_complete",
         commit_sha=commit_sha,
         inline_comment_count=len(inline_comments),
         general_comment_count=len(general_parts),
+    )
+    logger.debug(
+        "build_review_payload_detail",
         inline_comments_details=[
             {"path": c.get("path"), "line": c.get("line"), "has_body": len(c.get("body", "")) > 0}
             for c in inline_comments
