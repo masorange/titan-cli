@@ -1026,3 +1026,86 @@ class TestTheSessionModelIsPerKind:
 
         assert "codex" in override.describe()
         assert "work-litellm" in override.describe()
+
+
+class TestReselectingTheSameInstanceKeepsItsModel:
+    """
+    A session override that names the instance already pinned is not a change of
+    instance, so it must not invalidate the model (review, 2026-09-18).
+
+    `_instance_and_rung` reported `_RUNG_SESSION` for any session instance, including an
+    identical one, which made `_resolved_model` skip the pin's rung and drop the model.
+    The direct analogue of `AISessionOverride.use_cli`'s "re-selecting the same CLI keeps
+    the model", which existed on the override and not in the resolver.
+    """
+
+    def test_a_session_cli_equal_to_the_pin_keeps_the_pinned_model(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="claude", model="opus"),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=AISessionOverride(cli="claude"),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.cli, decision.model) == ("claude", "opus")
+
+    def test_a_session_connection_equal_to_the_pin_keeps_the_pinned_model(self):
+        config = _config()
+        config.preferences = AIPreferences(
+            tasks={
+                "jira_analysis": AIProviderPreference(
+                    provider="remote", connection="work-litellm", model="gpt-5-mini"
+                )
+            }
+        )
+        resolver = AIRouteResolver(
+            config,
+            FakeAvailability(remote=["work-litellm"]),
+            session_override=AISessionOverride(connection="work-litellm"),
+        )
+
+        decision = resolver.resolve(task="jira_analysis")
+
+        assert decision.model == "gpt-5-mini"
+
+    def test_a_session_model_on_the_same_instance_still_wins(self):
+        """The session is still the higher rung when it actually says something."""
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="claude", model="opus"),
+            FakeAvailability(headless=["claude"]),
+            session_override=AISessionOverride(cli="claude", cli_model="haiku"),
+        )
+
+        assert resolver.resolve(task="commit_message").model == "haiku"
+
+
+class TestAModelOnlySessionOverride:
+    """
+    A session override can hold a model with no instance, and the guard has to notice.
+
+    `use_cli` compared the incoming CLI against `self.cli`, which is None in that state,
+    so picking the very CLI the model had been chosen for read as a switch and threw the
+    model away - and the caller was not told, because the drop was reported and ignored.
+    """
+
+    def test_naming_an_instance_for_the_first_time_keeps_the_model(self):
+        override = AISessionOverride(cli_model="haiku")
+
+        dropped = override.use_cli("claude")
+
+        assert dropped is None
+        assert (override.cli, override.cli_model) == ("claude", "haiku")
+
+    def test_the_same_applies_to_connections(self):
+        override = AISessionOverride(connection_model="qwen-coder")
+
+        dropped = override.use_connection("work-litellm")
+
+        assert dropped is None
+        assert override.connection_model == "qwen-coder"
+
+    def test_a_real_switch_still_drops_and_reports(self):
+        override = AISessionOverride(cli="claude", cli_model="opus")
+
+        assert override.use_cli("codex") == "opus"

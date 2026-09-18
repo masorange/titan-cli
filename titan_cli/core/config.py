@@ -521,9 +521,21 @@ class TitanConfig:
             self._global_config_path,
             migration_manager=self.global_migration_manager,
         )
-        ai_cfg = config_data.setdefault("ai", {})
-        prefs = ai_cfg.setdefault("preferences", {})
-        prefs.setdefault("tasks", {})
+        # Normalized at every level rather than assumed: this is a hand-editable TOML
+        # file, so `ai`, `preferences` or `tasks` can be a string or a list after an
+        # edit or a half-applied migration, and `setdefault` on one would raise
+        # AttributeError deep inside the model picker. The favourites path in this same
+        # file already guards this way.
+        ai_cfg = config_data.get("ai")
+        if not isinstance(ai_cfg, dict):
+            ai_cfg = {}
+            config_data["ai"] = ai_cfg
+        prefs = ai_cfg.get("preferences")
+        if not isinstance(prefs, dict):
+            prefs = {}
+            ai_cfg["preferences"] = prefs
+        if not isinstance(prefs.get("tasks"), dict):
+            prefs["tasks"] = {}
         return prefs
 
     def save_ai_preferences_config(self, preferences: dict) -> None:

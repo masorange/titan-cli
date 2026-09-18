@@ -193,16 +193,25 @@ class AIRouteResolver:
 
         remote = provider == AIProviderType.REMOTE
 
+        pinned = self._task_preference(task)
+        pinned_instance = None
+        if pinned is not None:
+            pinned_instance = pinned.connection if remote else pinned.cli
+
         if self.session_override:
             overridden = self.session_override.instance_for(remote)
             if overridden:
+                # Naming the instance that is already pinned is not a CHANGE of
+                # instance, so the pin's rung still owns the model. Reporting the
+                # session rung here would make `_resolved_model` skip the pin and drop a
+                # model the user never moved away from - the resolver's version of the
+                # rule `use_cli` already applied to the override itself.
+                if overridden == pinned_instance:
+                    return overridden, self._RUNG_TASK_PIN
                 return overridden, self._RUNG_SESSION
 
-        pinned = self._task_preference(task)
-        if pinned is not None:
-            pinned_instance = pinned.connection if remote else pinned.cli
-            if pinned_instance:
-                return pinned_instance, self._RUNG_TASK_PIN
+        if pinned_instance:
+            return pinned_instance, self._RUNG_TASK_PIN
 
         default = (
             self.ai_config.default_connection if remote else self.ai_config.default_cli

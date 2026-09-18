@@ -165,18 +165,40 @@ class SelectModelModal(ModalScreen[Optional[str]]):
             self._mount_custom_entry(content, keep=True)
             return
 
-        content.mount(DimText("Select a model:"))
-        option_list = StyledOptionList(*self._options(models), id="model-list")
-        content.mount(option_list)
+        try:
+            content.mount(DimText("Select a model:"))
+            options = self._options(models)
+            option_list = StyledOptionList(*options, id="model-list")
+            content.mount(option_list)
+        except Exception:
+            # Mounting is inside the guard too: identifiers come from CLI stdout or a
+            # gateway, so a surprise there must still fall through to the typed entry
+            # rather than leaving an empty modal with no way forward.
+            content.remove_children()
+            content.mount(ErrorText("Could not show the model list."))
+            self._mount_custom_entry(content, keep=True)
+            return
 
         current_index = next(
             (idx for idx, model in enumerate(models) if model.identifier == self.current),
-            0,
+            None,
         )
+        if current_index is None:
+            # A CURRENT model that the list does not contain - a newer one, a hand-typed
+            # id, a renamed alias. Highlighting the first row would put a reflexive
+            # Enter on a model the user never chose, with the check mark nowhere in
+            # sight, so the typed entry is the honest landing spot. With no current
+            # model there is nothing to overwrite, and the first row is fine.
+            current_index = len(options) - 1 if self.current else 0
         option_list.highlighted = current_index
         self.call_after_refresh(option_list.focus)
 
     def _options(self, models: Sequence[ModelChoice]) -> List[StyledOption]:
+        # De-duplicated: identifiers are unfiltered CLI stdout lines or gateway ids, and
+        # Textual raises DuplicateID on a repeat - which would surface as an empty modal
+        # rather than as the list minus one row.
+        seen: set = set()
+        models = [m for m in models if not (m.identifier in seen or seen.add(m.identifier))]
         options: List[StyledOption] = [
             StyledOption(
                 id=model.identifier,
@@ -234,6 +256,11 @@ class SelectModelModal(ModalScreen[Optional[str]]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
+        # The sentinels are unreachable from a list, but not from free text: typing
+        # "__default__" would be read as "unpin" and quietly do the opposite of pinning.
+        if value in (CUSTOM_OPTION_ID, DEFAULT_OPTION_ID):
+            self.notify(f"'{value}' is reserved - type the model identifier itself.")
+            return
         # An emptied field is "leave it alone", not "set the model to nothing": clearing a
         # pinned model is its own action, and guessing which one was meant here would
         # silently change the setting the user came to look at.
@@ -426,7 +453,7 @@ def open_model_picker_for_cli(
     on_picked,
     current: Optional[str] = None,
     title: Optional[str] = None,
-    allow_clear: bool = True,
+    allow_clear: bool = False,
 ) -> None:
     """Ask which model a CLI should run with, and hand the answer to the caller.
 
@@ -438,7 +465,10 @@ def open_model_picker_for_cli(
     Args:
         app: The running app, for pushing the modal.
         cli_name: The CLI whose model list is offered.
-        on_picked: Called with the chosen identifier, or None when cancelled or unchanged.
+        on_picked: Called with the chosen identifier, `None` when cancelled, or
+            `DEFAULT_OPTION_ID` when `allow_clear` is set and the user asked to unpin.
+            That sentinel is NOT a model identifier - a caller that forwards it blindly
+            will pin the literal string and later run `--model __default__`.
         current: The model to prefill and mark as current.
         title: Overrides the default question, for callers pinning something narrower
             than "what this CLI runs".
@@ -500,7 +530,11 @@ def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
         if on_saved:
             on_saved()
 
-    open_model_picker_for_cli(app, cli_name, on_picked=on_picked, current=current)
+    # Opted in because this caller translates the sentinel into clear_cli_model; the
+    # default is off so a caller written against the plain docstring cannot pin it.
+    open_model_picker_for_cli(
+        app, cli_name, on_picked=on_picked, current=current, allow_clear=True
+    )
 
 
 __all__ = [

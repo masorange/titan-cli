@@ -1391,3 +1391,52 @@ class TestCodexSlugIsTypeChecked(unittest.TestCase):
                 models = codex_module.CodexHeadlessAdapter().list_models()
 
         self.assertEqual([m.identifier for m in models], ["gpt-5.5"])
+
+
+class TestCodexListingDegradesRatherThanDisappearing(unittest.TestCase):
+    """
+    `visibility` is read as a DENY-list (review, 2026-09-18).
+
+    The only thing codex's private format guarantees is that its internals are marked
+    `hide`. Requiring the positive `list` value would turn a future format that drops
+    the key into "codex has no models" - indistinguishable from codex never having run.
+    """
+
+    @staticmethod
+    def _models(payload):
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _Path(tmp) / "models_cache.json"
+            path.write_text(_json.dumps(payload))
+            with patch.object(codex_module, "codex_models_cache_path", lambda: path):
+                return codex_module.CodexHeadlessAdapter().list_models()
+
+    def test_an_entry_without_a_visibility_key_is_still_offered(self):
+        models = self._models({"models": [{"slug": "gpt-6", "description": "new"}]})
+
+        self.assertEqual([m.identifier for m in models], ["gpt-6"])
+
+    def test_hidden_entries_are_still_excluded(self):
+        models = self._models(
+            {
+                "models": [
+                    {"slug": "gpt-5.6-sol", "visibility": "list"},
+                    {"slug": "codex-auto-review", "visibility": "hide"},
+                ]
+            }
+        )
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.6-sol"])
+
+    def test_a_repeated_slug_is_offered_once(self):
+        """The slug is a Textual option id, and Textual raises on a duplicate."""
+        models = self._models(
+            {"models": [{"slug": "gpt-5.5"}, {"slug": "gpt-5.5"}, {"slug": "gpt-6"}]}
+        )
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.5", "gpt-6"])

@@ -61,7 +61,10 @@ class AISessionOverride:
         connection's own model is untouched - it was never about this CLI.
         Returns the model it dropped, so the caller can say so.
         """
-        dropped = self.cli_model if cli != self.cli else None
+        # `self.cli is not None` matters: a model-only override leaves the instance
+        # unset, and comparing "claude" against None would read as a switch and throw
+        # away the model the user had just chosen for that very CLI.
+        dropped = self.cli_model if (self.cli is not None and cli != self.cli) else None
         self.cli = cli
         if dropped:
             self.cli_model = None
@@ -69,7 +72,11 @@ class AISessionOverride:
 
     def use_connection(self, connection: str) -> Optional[str]:
         """Override the connection, forgetting a model chosen for a different one."""
-        dropped = self.connection_model if connection != self.connection else None
+        dropped = (
+            self.connection_model
+            if (self.connection is not None and connection != self.connection)
+            else None
+        )
         self.connection = connection
         if dropped:
             self.connection_model = None

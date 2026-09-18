@@ -379,12 +379,31 @@ class TestClearPathsKeepTheLiveConfigInSync:
             "opencode": "anthropic/claude-sonnet-5"
         }
 
-    def test_setting_a_task_model_reports_what_it_dropped(self, config: TitanConfig):
-        """`set_task_ai_model` is annotated to return it; it used to return None always."""
+    def test_replacing_a_model_pin_drops_nothing_and_reports_nothing(
+        self, config: TitanConfig
+    ):
+        """
+        Only an INSTANCE change invalidates a model, so replacing one reports nothing.
+
+        This test used to be called "reports what it dropped" while asserting `is None`
+        — which is what the setter returns unconditionally, since `"model"` is not in
+        `_INSTANCE_PIN_KEYS`. It passed whether or not any reporting existed and
+        documented a guarantee the code does not make.
+        """
         config.set_task_ai_cli("commit_message", "claude", provider="cli_headless")
         config.set_task_ai_model("commit_message", "opus")
 
         assert config.set_task_ai_model("commit_message", "haiku") is None
+        assert _written_preferences(config)["tasks"]["commit_message"]["model"] == "haiku"
+
+    def test_clearing_an_instance_pin_reports_the_model_it_invalidated(
+        self, config: TitanConfig
+    ):
+        """The clear path has the same contract as the set path, and no test had it."""
+        config.set_task_ai_cli("code_review_plan", "claude", provider="cli_headless")
+        config.set_task_ai_model("code_review_plan", "opus")
+
+        assert config.clear_task_ai_cli("code_review_plan") == "opus"
 
 
 class TestChangingTheKindKeepsWhatStillMakesSense:
@@ -449,5 +468,42 @@ class TestChangingTheKindKeepsWhatStillMakesSense:
 
     def test_a_task_with_no_preference_gets_one(self, config: TitanConfig):
         config.set_task_ai_provider("commit_message", "off")
+
+        assert _written_preferences(config)["tasks"]["commit_message"] == {"provider": "off"}
+
+
+class TestAHandEditedConfigDoesNotCrashThePicker:
+    """
+    `~/.titan/config.toml` is editable by hand, so every level has to be checked.
+
+    A string where a table was expected used to raise AttributeError out of
+    `setdefault`, surfacing as a crash in the model picker rather than as a config
+    problem.
+    """
+
+    @staticmethod
+    def _write(raw: dict):
+        with open(TitanConfig.GLOBAL_CONFIG, "wb") as f:
+            tomli_w.dump(raw, f)
+
+    def test_a_non_table_ai_section_is_normalized(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": "broken"})
+
+        assert config.get_ai_preferences_config() == {"tasks": {}}
+
+    def test_a_non_table_preferences_section_is_normalized(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": {"preferences": ["nope"]}})
+
+        assert config.get_ai_preferences_config() == {"tasks": {}}
+
+    def test_a_non_table_tasks_section_is_normalized(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": {"preferences": {"tasks": "nope"}}})
+
+        assert config.get_ai_preferences_config()["tasks"] == {}
+
+    def test_writing_still_works_afterwards(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": {"preferences": "broken"}})
+
+        config.upsert_task_ai_preference("commit_message", {"provider": "off"})
 
         assert _written_preferences(config)["tasks"]["commit_message"] == {"provider": "off"}

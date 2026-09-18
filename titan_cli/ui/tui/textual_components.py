@@ -1031,7 +1031,7 @@ class TextualComponents:
                 exit_code = launcher.launch(
                     prompt=prompt,
                     cwd=cwd,
-                    model=self.app.config.get_cli_model(cli_name),
+                    model=self.app.model_for_cli(cli_name),
                 )
                 result_container["exit_code"] = exit_code
 

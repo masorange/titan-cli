@@ -10,6 +10,7 @@ from typing import Optional
 
 from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.config import TitanConfig
+from titan_cli.core.logging import get_logger
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.external_cli.launcher import launcher_for
 from .theme import TITAN_THEME_CSS
@@ -102,11 +103,27 @@ class TitanApp(App):
         with self.suspend():
             launcher = launcher_for(cli_name)
             exit_code = launcher.launch(
-                prompt=prompt, model=self.config.get_cli_model(cli_name)
+                prompt=prompt, model=self.model_for_cli(cli_name)
             )
 
         # TUI is automatically restored here
         return exit_code
+
+    def model_for_cli(self, cli_name: str) -> Optional[str]:
+        """The model this CLI should run with, session override included.
+
+        `config.get_cli_model` sees only the persisted global pin. A session override
+        outranks it everywhere else - the resolver honours it and the status bar
+        advertises it - so reading the config directly here made a session-only model
+        show as active while never reaching the CLI that was launched.
+        """
+        override = self.ai_session_override.model_for(remote=False)
+        if override and (
+            self.ai_session_override.cli is None
+            or self.ai_session_override.cli == cli_name
+        ):
+            return override
+        return self.config.get_cli_model(cli_name)
 
     def action_quick_cli(self) -> None:
         """Open the quick CLI picker from any screen."""
@@ -123,7 +140,8 @@ class TitanApp(App):
 
         def open_picker(instance, current_model, on_picked) -> None:
             open_model_picker_for_cli(
-                self, instance, current=current_model, on_picked=on_picked
+                self, instance, current=current_model, on_picked=on_picked,
+                allow_clear=True,
             )
 
         def apply(result) -> None:
@@ -210,7 +228,10 @@ class TitanApp(App):
         """Push the shared quick picker and route its one result to the right writer."""
         from titan_cli.ui.tui.screens.ai_routing import QuickInstanceModal, tasks_pinning
 
-        if isinstance(self.screen, QuickInstanceModal):
+        # The whole stack, not just the top: while the model picker this modal pushes
+        # is on top, `self.screen` is that picker, so F2/F3 would stack a second
+        # composer over it whose callbacks still write into the first one's state.
+        if any(isinstance(s, QuickInstanceModal) for s in self.screen_stack):
             return
 
         def on_picked(result) -> None:
@@ -219,16 +240,23 @@ class TitanApp(App):
             if result.clear_session:
                 self.clear_ai_session_override(remote=pinned_tasks_remote)
                 return
+            dropped = None
             try:
                 if result.session_only:
-                    use_for_session(result)
+                    dropped = use_for_session(result)
                 else:
                     apply(result)
             except Exception as e:
-                self.notify(f"Could not apply that: {e}", severity="error")
+                # `apply` can make two writes, so a failure on the second leaves the
+                # first persisted: the bar has to be repainted either way, and the
+                # wording must not claim the whole change was rejected.
+                self.refresh_status_bar()
+                self.notify(
+                    f"Only part of that could be applied: {e}", severity="error"
+                )
                 return
             self.refresh_status_bar()
-            self.notify(self._quick_picker_notice(result, noun))
+            self.notify(self._quick_picker_notice(result, noun, dropped=dropped))
 
         self.push_screen(
             QuickInstanceModal(
@@ -248,14 +276,19 @@ class TitanApp(App):
             callback=on_picked,
         )
 
-    def _apply_session(self, result, *, remote: bool) -> None:
-        """Hold the composition for this session only, writing nothing."""
+    def _apply_session(self, result, *, remote: bool) -> Optional[str]:
+        """Hold the composition for this session only, writing nothing.
+
+        Returns a model override the instance change invalidated, so the caller can say
+        so rather than letting it vanish.
+        """
         override = self.ai_session_override
+        dropped = None
         if result.instance:
             if remote:
-                override.use_connection(result.instance)
+                dropped = override.use_connection(result.instance)
             else:
-                override.use_cli(result.instance)
+                dropped = override.use_cli(result.instance)
         if result.clear_model:
             if remote:
                 override.connection_model = None
@@ -266,14 +299,20 @@ class TitanApp(App):
                 override.connection_model = result.model
             else:
                 override.cli_model = result.model
+        return None if result.model else dropped
 
     @staticmethod
-    def _quick_picker_notice(result, noun: str) -> str:
+    def _quick_picker_notice(result, noun: str, *, dropped: Optional[str] = None) -> str:
         parts = [p for p in (result.instance, result.model) if p]
         what = " / ".join(parts) if parts else f"the {noun}'s own default"
-        if result.session_only:
-            return f"{what} for this session only - your saved settings are untouched."
-        return f"Saved: {what}."
+        notice = (
+            f"{what} for this session only - your saved settings are untouched."
+            if result.session_only
+            else f"Saved: {what}."
+        )
+        if dropped:
+            notice += f" Dropped the {dropped} model override."
+        return notice
 
     def _availability_checker(self):
         from titan_cli.ai.router.availability import AIAvailabilityChecker
@@ -321,7 +360,10 @@ class TitanApp(App):
             try:
                 updater()
             except Exception:
-                pass
+                # Never fatal - a stale bar must not take the app down - but not silent
+                # either: a bar that stops updating is exactly what this method exists
+                # to prevent, and a bare pass leaves no trace of it happening.
+                get_logger(__name__).debug("status_bar_refresh_failed", exc_info=True)
 
     def action_toggle_copy_mode(self) -> None:
         """Toggle copy mode - disables mouse capture to allow text selection."""

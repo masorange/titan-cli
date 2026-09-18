@@ -66,8 +66,10 @@ class CodexHeadlessAdapter:
         adapter was written: the docs' `gpt-5.3-codex` was already absent from the install
         this was written against, whose codex offered the `gpt-5.6-*` family instead.
 
-        `visibility` is honored: codex marks its internal models (`codex-auto-review`,
-        `gpt-reserve`) as `hide`, and offering those as a choice would be wrong.
+        `visibility` is honored as a DENY-list: codex marks its internal models
+        (`codex-auto-review`, `gpt-reserve`) as `hide`, and offering those would be
+        wrong - but requiring the positive value would make a future format that drops
+        the key look like a codex with no models at all.
 
         The file is codex's private format, not a contract, so every failure - missing,
         unreadable, malformed, or an entry of an unexpected shape - degrades to offering
@@ -84,15 +86,25 @@ class CodexHeadlessAdapter:
             return []
 
         models = []
+        seen: set[str] = set()
         for entry in entries:
-            if not isinstance(entry, dict) or entry.get("visibility") != "list":
+            if not isinstance(entry, dict):
+                continue
+            # A DENY-list, not an allow-list. The only thing this format guarantees is
+            # that codex marks its internals `hide`; nothing says every offerable entry
+            # carries `visibility == "list"`. Requiring it would turn a dropped key into
+            # "codex has no models", indistinguishable from codex never having run.
+            if entry.get("visibility") == "hide":
                 continue
             slug = entry.get("slug")
             # Type-checked, not just truthy: the slug becomes a Textual option id, so a
             # format change that made it a number or an object would surface as a crash
             # in the picker rather than as the empty list this whole method promises.
-            if not isinstance(slug, str) or not slug:
+            if not isinstance(slug, str) or not slug or slug in seen:
+                # Duplicates matter for the same reason the type check does: the slug
+                # becomes a Textual option id, and Textual raises on a repeat.
                 continue
+            seen.add(slug)
             label = entry.get("description") or entry.get("display_name") or ""
             models.append(CliModel(slug, label if isinstance(label, str) else ""))
         return models

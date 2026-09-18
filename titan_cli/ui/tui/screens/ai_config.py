@@ -780,18 +780,19 @@ class AIConfigScreen(BaseScreen):
             else:
                 open_model_picker_for_cli(
                     self.app, instance, title=title, current=current_model,
-                    on_picked=on_picked,
+                    on_picked=on_picked, allow_clear=True,
                 )
 
         def on_composed(result) -> None:
             if result is None or not result.changes_anything:
                 return
             provider = self._provider_for_pin(routing)
+            dropped = None
             try:
                 if result.clear_instance:
-                    clear_instance(task)
+                    dropped = clear_instance(task)
                 elif result.instance:
-                    set_instance(task, result.instance, provider=provider)
+                    dropped = set_instance(task, result.instance, provider=provider)
                 if result.clear_model:
                     self.config.clear_task_ai_model(task)
                 elif result.model:
@@ -809,7 +810,10 @@ class AIConfigScreen(BaseScreen):
                 self.app.notify(f"Failed to save: {e}", severity="error")
                 return
             self.load_sections()
-            self.app.notify(self._pin_notice(routing, result, noun), severity="information")
+            self.app.notify(
+                self._pin_notice(routing, result, noun, dropped=dropped),
+                severity="information",
+            )
 
         modal = QuickInstanceModal(
             f"Which {noun} should run {routing.label}?",
@@ -839,13 +843,23 @@ class AIConfigScreen(BaseScreen):
         self.handle_pin_task_cli(task, pick_model=True)
 
     @staticmethod
-    def _pin_notice(routing, result, noun: str) -> str:
+    def _pin_notice(routing, result, noun: str, *, dropped: Optional[str] = None) -> str:
+        """What happened, including a model pin the instance change invalidated.
+
+        The setters return that precisely so it can be said out loud; swallowing it made
+        the notice read "will run on codex" while the user's pinned model quietly went.
+        """
         if result.clear_instance:
-            return f"{routing.label} follows the default {noun} again."
-        parts = [p for p in (result.instance, result.model) if p]
-        if result.clear_model and not parts:
-            return f"{routing.label} uses its {noun}'s own model again."
-        return f"{routing.label} will run on {' / '.join(parts)}."
+            notice = f"{routing.label} follows the default {noun} again."
+        else:
+            parts = [p for p in (result.instance, result.model) if p]
+            if result.clear_model and not parts:
+                notice = f"{routing.label} uses its {noun}'s own model again."
+            else:
+                notice = f"{routing.label} will run on {' / '.join(parts)}."
+        if dropped and not result.model:
+            notice += f" The pinned {dropped} model no longer applies."
+        return notice
 
     def _effective_instance(self, routing) -> Optional[str]:
         """The CLI or connection this task runs on today: its own pin, else the default."""
