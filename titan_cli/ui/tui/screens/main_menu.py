@@ -1,19 +1,32 @@
 """
 Main Menu Screen
 
-The primary navigation screen for Titan TUI.
+The home screen: a quick-launch grid of workflows, plus the keys that reach everything else.
+
+It used to be a three-row menu, which rendered three options as peers when they are not:
+Workflows is why you opened Titan, while Plugin Management and AI Configuration are monthly
+setup - and the daily half of AI configuration already lives on F2/F3 with its own status-bar
+cells. So the body belongs to the workflows and those two demote to keys.
 """
 
 import asyncio
+from typing import List
 
 from textual.app import ComposeResult
-from textual.widgets import OptionList
-from textual.widgets.option_list import Option
-from textual.containers import Container
+from textual.binding import Binding
+from textual.containers import Container, Grid, Horizontal, VerticalScroll
+from textual.css.query import NoMatches
+from textual.widgets import Static
 
 from titan_cli import __version__
+from titan_cli.core.workflows import (
+    DEFAULT_SLOT_COUNT,
+    QuickLaunchService,
+    QuickLaunchSlot,
+)
+from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import StatusBarWidget
+from titan_cli.ui.tui.widgets import Button, StatusBarWidget, WorkflowCard
 from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
     PluginChannel,
@@ -25,17 +38,24 @@ from .base import BaseScreen
 from .ai_config import AIConfigScreen
 from .plugin_management import PluginManagementScreen
 
+# Width a card needs before another one fits beside it. The column count is derived from
+# this on resize; the SET of cards never is - a grid whose contents changed with the window
+# would remap the number keys under the user's fingers.
+CARD_TARGET_WIDTH = 38
+MAX_COLUMNS = 4
+# Horizontal space #home-body's padding takes out of the screen width.
+HOME_BODY_GUTTER = 8
+
+
 class MainMenuScreen(BaseScreen):
     """
-    Main menu screen with navigation options.
+    Home screen.
 
-    Displays the primary actions available in Titan:
-    - Project Management
-    - Workflows
-    - Plugin Management
-    - AI Configuration
-    - Switch Project
-    - Exit
+    Body: up to nine workflow cards, launchable by their number key. Favorites come first
+    and carry a star; the rest of the slots are filled so the grid is never ragged.
+
+    Footer row: the three things the old menu held, as keys - `w` workflows, `p` plugins,
+    `a` AI.
     """
 
     def __init__(self, config, **kwargs):
@@ -46,93 +66,200 @@ class MainMenuScreen(BaseScreen):
             show_back=False,
             **kwargs
         )
+        self._slots: List[QuickLaunchSlot] = []
+        # Discovery is cached so a screen resume does not rescan every workflow YAML;
+        # config.load() builds a fresh WorkflowRegistry on every transition, so the
+        # registry's own cache cannot be relied on here.
+        self._workflows = None
+        self._favorite_names: List[str] = []
 
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("escape", "quit", "Quit"),
+        Binding("w", "open_workflows", "Workflows"),
+        Binding("p", "open_plugins", "Plugins"),
+        Binding("a", "open_ai_config", "AI"),
+    ] + [
+        Binding(str(number), f"launch_slot({number})", show=False)
+        for number in range(1, DEFAULT_SLOT_COUNT + 1)
     ]
 
     CSS = """
-    MainMenuScreen {
+    #home-body {
+        height: 1fr;
+        padding: 1 3 0 3;
+    }
+
+    #home-section-title {
+        text-style: bold;
+        color: $primary;
+        margin: 0 0 1 1;
+    }
+
+    #home-grid {
+        grid-size: 3;
+        grid-rows: 9;
+        /* Row and column gutter, so the cards breathe instead of sharing borders. */
+        grid-gutter: 1 2;
+        height: auto;
+    }
+
+    #home-hint {
+        color: $text-muted;
+        margin-top: 1;
+    }
+
+    #home-actions {
+        height: auto;
+        padding: 1 3 1 3;
+    }
+
+    /* Real buttons rather than chips. A Chip is content-width by design - it exists to
+       annotate a step's output - so three of them read as a caption strip under the grid
+       instead of as the way out of this screen. These span the row and match the cards'
+       weight. */
+    #home-actions Button {
+        width: 1fr;
+        margin: 0 1 0 0;
+    }
+
+    #home-empty {
+        height: 1fr;
         align: center middle;
     }
 
-    #menu-container {
-        width: 70%;
-        height: 1fr;
-        background: $surface-lighten-1;
-        border: solid $primary;
-        margin: 1;
-        padding: 1 0;
-    }
-
-    #menu-title {
+    #home-empty-message {
+        width: auto;
         text-align: center;
-        color: $primary;
-        text-style: bold;
-        margin-bottom: 1;
     }
-
-    OptionList {
-        height: auto;
-        border: none;
-        background: $surface-lighten-1;
-    }
-
-    OptionList:focus {
-        border: none;
-        background: $surface-lighten-1;
-    }
-
-    OptionList > .option-list--option {
-        padding: 1 2;
-        background: $surface-lighten-1;
-        border-left: none;
-    }
-
-    OptionList > .option-list--option-highlighted {
-        background: $primary;
-        border-left: none;
-    }
-
-    OptionList:focus > .option-list--option {
-        border-left: none;
-    }
-
-    OptionList:focus > .option-list--option-highlighted {
-        border-left: none;
-    }
-
     """
 
     def compose_content(self) -> ComposeResult:
-        """Compose the main menu content."""
-        with Container(id="menu-container"):
+        """Compose the home screen.
 
-            # Build menu options
-            options = []
+        Workflows are read synchronously: measured at 30-67 ms against a 1.1-1.6 s startup
+        across three projects, which is not worth a worker and the complexity it brings.
+        """
+        self._slots = self._build_slots()
 
-            # Only show Workflows if there are enabled plugins
-            installed_plugins = self.config.registry.list_installed()
-            enabled_plugins = [
-                p for p in installed_plugins if self.config.is_plugin_enabled(p)
-            ]
-            if enabled_plugins:
-                options.append(Option(f"{Icons.WORKFLOW} Workflows", id="run_workflow"))
+        if not self._workflows:
+            # Nothing to launch at all - the only honest thing to offer is the screen that
+            # fixes it. A grid with no cards would read as a failed load.
+            with Container(id="home-empty"):
+                yield Static(
+                    f"{Icons.PLUGIN}  No plugins are enabled for this project\n\n"
+                    "[dim]Enable Git, GitHub or Jira to start running workflows.[/dim]",
+                    id="home-empty-message",
+                )
+            with Horizontal(id="home-actions"):
+                yield self._action_button(
+                    Icons.PLUGIN, "p", "Manage plugins", variant="primary"
+                )
+                yield self._action_button(Icons.AI_CONFIG, "a", "AI")
+            return
 
-            options.extend(
-                [
-                    Option(f"{Icons.PLUGIN} Plugin Management", id="plugin_management"),
-                    Option(f"{Icons.AI_CONFIG}  AI Configuration", id="ai_config"),
-                ]
+        has_favorites = any(slot.is_favorite for slot in self._slots)
+        with VerticalScroll(id="home-body"):
+            # The title is what keeps a filled grid honest: a user must never mistake
+            # suggestions for favorites they think they starred.
+            yield Static(
+                f"{Icons.STAR} Favorites" if has_favorites
+                else f"{Icons.WORKFLOW} Suggested",
+                id="home-section-title",
             )
+            with Grid(id="home-grid"):
+                for slot in self._slots:
+                    yield self._card_for(slot)
+            if not has_favorites:
+                yield Static(
+                    f"[dim]{Icons.STAR} Press [/dim]f[dim] while running a workflow to "
+                    f"star it, and it will take a slot here.[/dim]",
+                    id="home-hint",
+                )
 
-            yield OptionList(*options)
+        with Horizontal(id="home-actions"):
+            # Workflows is the primary: it is the one a user reaches for, and the other
+            # two are monthly setup.
+            yield self._action_button(
+                Icons.WORKFLOW, "w", "All workflows", variant="primary"
+            )
+            yield self._action_button(Icons.PLUGIN, "p", "Plugins")
+            yield self._action_button(Icons.AI_CONFIG, "a", "AI")
+
+    def _action_button(self, icon: str, key: str, label: str, variant: str = "default") -> Button:
+        """One action, sized and weighted to be seen, with its key shown on it.
+
+        `w` as plain text beside the label read as the first word of "w All workflows",
+        so the key is bracketed - it is a shortcut, not part of the name.
+        """
+        # The bracket is escaped: a Button label is markup, so a bare `[w]` is parsed as
+        # a tag and silently disappears - the same hazard the card descriptions have.
+        button = Button(
+            f"{icon}  {label}  \\[{key}]",
+            variant=variant,
+            id=f"home-action-{key}",
+        )
+        button.tooltip = f"Press {key}"
+        return button
+
+    def _build_slots(self) -> List[QuickLaunchSlot]:
+        """Read what the grid needs and choose the slots."""
+        if self._workflows is None:
+            self._workflows = self.config.workflows.discover()
+        self._favorite_names = self.config.get_favorite_workflows()
+        return QuickLaunchService.build_slots(
+            self._workflows,
+            self._favorite_names,
+            self.config.get_workflow_last_used(),
+        )
+
+    def _card_for(self, slot: QuickLaunchSlot) -> WorkflowCard:
+        """Build the card for one slot."""
+        workflow = slot.workflow
+        return WorkflowCard(
+            workflow_name=workflow.name,
+            title=workflow.title or workflow.name.replace("-", " ").capitalize(),
+            group=WorkflowFilterService.detect_plugin_name(workflow),
+            description=workflow.description or "",
+            key=slot.key,
+            is_favorite=slot.is_favorite,
+        )
 
     def on_mount(self) -> None:
         for message in self.config.get_plugin_sync_events():
             self.app.notify(message, severity="information", timeout=6)
+        self._reflow_grid()
+        self._focus_first_card()
         self.run_worker(self._check_plugin_updates(), exclusive=False)
+
+    def on_resize(self) -> None:
+        """Reflow the columns. The set of cards is deliberately untouched (D-003)."""
+        self._reflow_grid()
+
+    def _reflow_grid(self) -> None:
+        """Fit as many columns as the width allows, without changing what is shown.
+
+        Assigning the column count unconditionally would relayout, which emits another
+        Resize, which lands back here - so the write is guarded on the value changing.
+        """
+        try:
+            grid = self.query_one("#home-grid", Grid)
+        except NoMatches:
+            return
+        # Measured against the SCREEN, not the grid's container. The container's width
+        # depends on whether the scrollbar is showing, which depends on the grid's height,
+        # which depends on the column count computed here - a loop that never settles and
+        # surfaces as "widgets did not finish processing pending messages".
+        available = self.size.width - HOME_BODY_GUTTER
+        columns = max(1, min(MAX_COLUMNS, available // CARD_TARGET_WIDTH))
+        if grid.styles.grid_size_columns != columns:
+            grid.styles.grid_size_columns = columns
+
+    def _focus_first_card(self) -> None:
+        """Put the cursor on the first card, so Enter means something immediately."""
+        cards = list(self.query(WorkflowCard))
+        if cards:
+            cards[0].focus()
 
     async def _check_plugin_updates(self) -> None:
         records = self._get_project_stable_records()
@@ -171,54 +298,56 @@ class MainMenuScreen(BaseScreen):
             )
         return records
 
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        """Handle menu option selection."""
-        action = event.option.id
+    def on_workflow_card_selected(self, message: WorkflowCard.Selected) -> None:
+        """A card was chosen - run its workflow."""
+        self.execute_workflow(message.workflow_name)
 
-        if action == "exit":
-            self.app.exit()
-        elif action == "projects":
-            self.handle_projects_action()
-        elif action == "run_workflow":
-            self.handle_workflow_action()
-        elif action == "plugin_management":
-            self.handle_plugin_management_action()
-        elif action == "ai_config":
-            self.handle_ai_config_action()
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """An action button was pressed or clicked."""
+        actions = {
+            "home-action-w": self.action_open_workflows,
+            "home-action-p": self.action_open_plugins,
+            "home-action-a": self.action_open_ai_config,
+        }
+        action = actions.get(event.button.id)
+        if action is not None:
+            action()
 
-    def handle_projects_action(self) -> None:
-        """Handle Project Management action."""
-        self.app.notify("Project management - Coming soon!")
+    def action_launch_slot(self, number: int) -> None:
+        """Launch the workflow on the given number key."""
+        for slot in self._slots:
+            if slot.key == number:
+                self.execute_workflow(slot.workflow.name)
+                return
 
-    def handle_workflow_action(self) -> None:
-        """Handle Workflows action."""
+    def execute_workflow(self, workflow_name: str) -> None:
+        """Open the execution screen for a workflow."""
+        from .workflow_execution import WorkflowExecutionScreen
+
+        self.app.push_screen(WorkflowExecutionScreen(self.config, workflow_name))
+
+    def action_open_workflows(self) -> None:
+        """Open the full workflow list."""
         from .workflows import WorkflowsScreen
 
         self.app.push_screen(WorkflowsScreen(self.config))
 
-    def handle_plugin_management_action(self) -> None:
-        """Handle Plugin Management action."""
+    def action_open_plugins(self) -> None:
+        """Open plugin management."""
         self.app.push_screen(PluginManagementScreen(self.config))
 
-    def handle_ai_config_action(self) -> None:
-        """Handle AI Configuration action."""
+    def action_open_ai_config(self) -> None:
+        """Open AI configuration."""
         def on_ai_config_closed(result) -> None:
-            """Callback when AI config screen is closed."""
-            # Refresh status bar with latest config
+            """Refresh the status bar with whatever the screen changed."""
             try:
-                # Reload config from disk
                 self.config.load()
-
                 status_bar = self.query_one("#status-bar", StatusBarWidget)
                 self._update_status_bar(status_bar)
             except Exception as e:
                 self.app.notify(f"Error refreshing status bar: {e}", severity="error")
 
         self.app.push_screen(AIConfigScreen(self.config), callback=on_ai_config_closed)
-
-    def handle_switch_project_action(self) -> None:
-        """Handle Switch Project action."""
-        self.app.notify("Switch project - Coming soon!")
 
     def action_quit(self) -> None:
         """Quit the application."""
