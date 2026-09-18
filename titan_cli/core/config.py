@@ -23,6 +23,19 @@ logger = get_logger(__name__)
 _INSTANCE_PIN_KEYS = ("cli", "connection")
 
 
+def _transport_of(provider: Optional[str]) -> str:
+    """Which instance a provider kind is served by: a CLI, a connection, or nothing.
+
+    The two CLI kinds share one - `claude` and `claude -p` are the same binary - so
+    moving between them keeps the CLI's model, while crossing to a connection does not.
+    """
+    if provider in ("cli_headless", "cli_interactive"):
+        return "cli"
+    if provider == "remote":
+        return "remote"
+    return "none"
+
+
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
 
@@ -563,6 +576,38 @@ class TitanConfig:
     # the dict straight to tomli_w, which raises TypeError on None. So a pin "cleared" to
     # None does not quietly persist - it makes the save fail outright. Deleting the key is
     # the only shape that means "inherit again".
+
+    def set_task_ai_provider(self, task: str, provider: str) -> Optional[str]:
+        """
+        Change which KIND of provider serves a task, keeping the pins that still apply.
+
+        This used to be a whole-record replace, which dropped the task's `cli`,
+        `connection` and `model` every time - including when the user re-picked the kind
+        the task already had.
+
+        What survives follows from what a pin belongs to. An INSTANCE pin belongs to a
+        transport: while the other kind is in effect it is simply inert, and keeping it
+        means switching back finds it still there. A MODEL belongs to whichever instance
+        serves the task, so a change of transport invalidates it - the same rule as
+        `_drop_stale_model`, one level up.
+
+        Returns:
+            The model pin this dropped, if the transport changed, so the caller can say so.
+        """
+        prefs = self.get_ai_preferences_config()
+        existing = prefs["tasks"].get(task)
+
+        if existing is None:
+            prefs["tasks"][task] = {"provider": provider}
+            self.save_ai_preferences_config(prefs)
+            return None
+
+        dropped = None
+        if _transport_of(existing.get("provider")) != _transport_of(provider):
+            dropped = existing.pop("model", None)
+        existing["provider"] = provider
+        self.save_ai_preferences_config(prefs)
+        return dropped
 
     def set_task_ai_cli(
         self, task: str, cli_name: str, *, provider: Optional[str] = None

@@ -173,7 +173,7 @@ def test_remote_success_returns_generated_content():
         AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work-litellm")
     )
     client = FakeAIClient()
-    executor.remote_client = lambda decision: client  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: client  # type: ignore[method-assign]
 
     result = executor.generate_text(
         "write a commit message",
@@ -192,7 +192,7 @@ def test_remote_success_returns_generated_content():
 
 def test_remote_exception_becomes_execution_failed():
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE))
-    executor.remote_client = lambda decision: FakeAIClient(error=RuntimeError("429 rate limited"))  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: FakeAIClient(error=RuntimeError("429 rate limited"))  # type: ignore[method-assign]
 
     result = executor.generate_text("prompt", policy=declared_step)
 
@@ -204,7 +204,7 @@ def test_remote_exception_becomes_execution_failed():
 def test_remote_empty_response_is_execution_failed():
     """A blank answer is a failure, not an empty AIExecutionSuccess."""
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE))
-    executor.remote_client = lambda decision: FakeAIClient(  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: FakeAIClient(  # type: ignore[method-assign]
         response=AIResponse(content="   \n", model="fake-model")
     )
 
@@ -217,7 +217,7 @@ def test_remote_empty_response_is_execution_failed():
 
 def test_remote_without_usable_client_is_provider_unavailable():
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE))
-    executor.remote_client = lambda decision: None  # type: ignore[method-assign]
+    executor.remote_client = lambda decision, model=None: None  # type: ignore[method-assign]
 
     result = executor.generate_text("prompt", policy=declared_step)
 
@@ -518,7 +518,7 @@ def test_resolve_generator_returns_the_configured_connection():
     decision = AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work-litellm")
     executor = _executor(decision)
     client = FakeAIClient()
-    executor.remote_client = lambda d: client  # type: ignore[method-assign]
+    executor.remote_client = lambda d, model=None: client  # type: ignore[method-assign]
 
     result = executor.resolve_generator(policy=declared_step)
 
@@ -568,7 +568,7 @@ def test_resolve_generator_refuses_an_interactive_cli():
 
 def test_resolve_generator_reports_unusable_connection():
     executor = _executor(AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="gone"))
-    executor.remote_client = lambda d: None  # type: ignore[method-assign]
+    executor.remote_client = lambda d, model=None: None  # type: ignore[method-assign]
 
     result = executor.resolve_generator(policy=declared_step)
 
@@ -930,3 +930,64 @@ def test_a_call_site_model_outranks_the_session_override(monkeypatch):
     executor.generate_text("hello", policy=declared_step, model="opus-for-this-prompt")
 
     assert adapter.calls[0]["model"] == "opus-for-this-prompt"
+
+
+# --- the remote branch honours a call-site model too (review, body finding) ---
+
+
+def test_a_call_site_model_reaches_a_remote_connection(monkeypatch):
+    """
+    It used to be dropped in silence, and only on this branch.
+
+    Which branch runs is the USER's routing choice, not the step's, so the same step
+    honoured its requested model on a CLI route and ignored it on a remote one - with
+    nothing in the announcement or the log saying so. That contradicts the precedence
+    documented on `model_for_decision` itself.
+    """
+    from titan_cli.core.models import AIConfig
+
+    built = []
+
+    class RecordingClient:
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
+            self.connection_id = connection_id
+
+        def generate(self, messages, max_tokens=None, temperature=None):
+            return type("R", (), {"content": "ok", "model": model_of(built)})()
+
+    def model_of(rows):
+        return rows[-1][1]
+
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work", model="gpt-5"),
+        ai_config=AIConfig(),
+    )
+    executor.provider_factory = object()
+    monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
+
+    executor.generate_text("hello", policy=declared_step, model="gpt-5-mini")
+
+    assert built == [("work", "gpt-5-mini")]
+
+
+def test_an_agent_generator_on_a_remote_route_honours_it_too(monkeypatch):
+    from titan_cli.core.models import AIConfig
+
+    built = []
+
+    class RecordingClient:
+        def __init__(self, ai_config, provider_factory, connection_id=None, model=None):
+            built.append((connection_id, model))
+            self.connection_id = connection_id
+
+    executor = _executor(
+        AIRouteDecision(provider=AIProviderType.REMOTE, connection_id="work", model="gpt-5"),
+        ai_config=AIConfig(),
+    )
+    executor.provider_factory = object()
+    monkeypatch.setattr("titan_cli.ai.router.executor.AIClient", RecordingClient)
+
+    executor.resolve_generator(policy=declared_step, model="gpt-5-mini")
+
+    assert built == [("work", "gpt-5-mini")]

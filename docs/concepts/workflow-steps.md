@@ -309,8 +309,8 @@ Supported params:
 - `pre_launch_warning`: optional warning text shown just before the CLI starts
 
 Which CLI runs is **not** a step param, and nothing is asked mid-run. By default it is the
-CLI chosen once in **AI Configuration → CLI** (or with `F2` from any screen), with the
-model chosen the same way — press `M` on a CLI in either place. A user who wants this one
+CLI chosen once in **AI Configuration → CLI** (or with `F2` from any screen, where `M`
+picks its model in the same pass and nothing is written until you accept). A user who wants this one
 task on a different CLI or model pins it on its row under **AI Configuration → AI per
 task**, and `S` in the `F2` picker overrides both for the current session only. The same
 row routes the task to `Off`, in which case the step skips.

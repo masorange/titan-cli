@@ -426,13 +426,20 @@ class QuickPickResult:
 
     instance: Optional[str] = None
     model: Optional[str] = None
+    clear_instance: bool = False
     clear_model: bool = False
     session_only: bool = False
     clear_session: bool = False
 
     @property
     def changes_anything(self) -> bool:
-        return bool(self.instance or self.model or self.clear_model or self.clear_session)
+        return bool(
+            self.instance
+            or self.model
+            or self.clear_instance
+            or self.clear_model
+            or self.clear_session
+        )
 
 
 # What the modal calls to ask for a model, given the instance it is composing for. The
@@ -509,6 +516,8 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
         ("m", "pick_model", "Model"),
+        # Both are no-ops when `allow_session` is False rather than being removed: a
+        # binding list cannot vary per instance, and the actions guard themselves.
         ("s", "use_for_session", "This session"),
         ("c", "clear_session", "Clear override"),
     ]
@@ -526,6 +535,8 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         pinned_tasks: Optional[Sequence[str]] = None,
         open_model_picker: Optional[OpenModelPicker] = None,
         empty_message: Optional[str] = None,
+        allow_session: bool = True,
+        inherit_label: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -545,6 +556,12 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
                 mistaken for broken when they do not follow a Save.
             open_model_picker: How to ask for a model. Keeps config out of this widget.
             empty_message: Shown instead of the list when nothing is available.
+            allow_session: Offer the session scope. False for a per-task pin, which is
+                persistent by definition - there is no "just for now" version of it, so
+                the form has two actions there instead of three.
+            inherit_label: When given, the list opens with an option that means "stop
+                pinning; follow the default". Only a per-task pin has something to
+                inherit FROM; the global picker is the default.
         """
         super().__init__(**kwargs)
         self.question = question
@@ -557,6 +574,8 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         self.pinned_tasks = list(pinned_tasks or ())
         self.open_model_picker = open_model_picker
         self.empty_message = empty_message
+        self.allow_session = allow_session
+        self.inherit_label = inherit_label
 
         self.pending_instance = current
         self.pending_model: Optional[str] = None
@@ -598,14 +617,18 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
                     id="quick-instance-pinned",
                 )
 
+            session_hint = " · S for this session only" if self.allow_session else ""
             yield DimText(
-                "Enter to choose · M for its model · S for this session only · "
+                f"Enter to choose · M for its model{session_hint} · "
                 "Esc to cancel. Nothing is saved until you accept.",
                 id="quick-instance-hint",
             )
             with Horizontal(id="quick-instance-buttons"):
                 yield Button("Cancel", variant="default", id="quick-instance-cancel")
-                yield Button("This session", variant="default", id="quick-instance-session")
+                if self.allow_session:
+                    yield Button(
+                        "This session", variant="default", id="quick-instance-session"
+                    )
                 yield Button("Save", variant="primary", id="quick-instance-save")
 
     def _options(self) -> List[StyledOption]:
@@ -615,6 +638,21 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         to see what Save is about to do before pressing it.
         """
         options = []
+        if self.inherit_label:
+            inherit_marks = ""
+            if self.current is None:
+                inherit_marks += f" {Icons.CHECK}"
+            if self.pending_instance is TASK_CLI_INHERIT_OPTION:
+                inherit_marks += " (selected)"
+            options.append(
+                StyledOption(
+                    id=TASK_CLI_INHERIT_OPTION,
+                    title=f"{self.inherit_label}{inherit_marks}",
+                    description=(
+                        f"No pin: this task moves with the {self.noun} you set for Titan."
+                    ),
+                )
+            )
         for choice in self.choices:
             marks = ""
             if choice.identifier == self.current:
@@ -643,17 +681,24 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         )
         if not self._has_changes():
             return f"Currently: {instance or '—'} / {model or 'default'}"
+        if self.pending_instance is TASK_CLI_INHERIT_OPTION:
+            return (
+                f"Will apply: follow the default {self.noun}"
+                "  —  Save to keep it, S for this session only"
+                if self.allow_session
+                else f"Will apply: follow the default {self.noun}"
+            )
         # No model of its own reads as "its own default", never as "unchanged": the
         # question the line answers is what will run, and that instance running its own
         # default IS the answer.
-        return (
-            f"Will apply: {instance or '—'} / {model or f'{self.noun} default'}"
-            "  —  Save to keep it, S for this session only"
+        scope = (
+            "  —  Save to keep it, S for this session only" if self.allow_session else ""
         )
+        return f"Will apply: {instance or '—'} / {model or f'{self.noun} default'}{scope}"
 
     def _model_of(self, instance: Optional[str]) -> Optional[str]:
         """The model that instance runs today, as the list itself reports it."""
-        if not instance:
+        if not instance or instance is TASK_CLI_INHERIT_OPTION:
             return None
         for choice in self.choices:
             if choice.identifier == instance:
@@ -719,7 +764,11 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
     def action_pick_model(self) -> None:
         """Ask for a model for the pending instance, and come back here with it."""
         instance = self._highlighted_instance() or self.pending_instance
-        if not instance or self.open_model_picker is None:
+        if (
+            not instance
+            or instance is TASK_CLI_INHERIT_OPTION
+            or self.open_model_picker is None
+        ):
             return
         if instance != self.pending_instance:
             self.pending_instance = instance
@@ -743,13 +792,21 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         except NoMatches:
             return None
         index = option_list.highlighted
-        if index is None or not (0 <= index < len(self.choices)):
+        if index is None:
+            return None
+        if self.inherit_label:
+            if index == 0:
+                return TASK_CLI_INHERIT_OPTION
+            index -= 1
+        if not (0 <= index < len(self.choices)):
             return None
         return self.choices[index].identifier
 
     # --- accepting ---------------------------------------------------------
 
     def _result(self, *, session_only: bool) -> QuickPickResult:
+        if self.pending_instance is TASK_CLI_INHERIT_OPTION:
+            return QuickPickResult(clear_instance=True, session_only=session_only)
         return QuickPickResult(
             instance=(
                 self.pending_instance
@@ -767,17 +824,22 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
     def action_use_for_session(self) -> None:
         """Apply the composition for this session only, writing nothing.
 
+        Refused where there is no session scope: a per-task pin is persistent by
+        definition, so "just for now" would have nowhere to live.
+
         Unlike Save this is worth doing even with nothing changed: "run the current
         default, but only until I close Titan" is not a thing to express, so an untouched
         `S` is treated as choosing what is highlighted.
         """
+        if not self.allow_session:
+            return
         if not self._has_changes() and self._highlighted_instance():
             self.pending_instance = self._highlighted_instance()
         self.dismiss(self._result(session_only=True))
 
     def action_clear_session(self) -> None:
         override = self.session_override
-        if override is None or not override.is_active_for(self.remote):
+        if not self.allow_session or override is None or not override.is_active_for(self.remote):
             return
         self.dismiss(QuickPickResult(clear_session=True))
 
@@ -791,121 +853,6 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
             self.action_use_for_session()
         elif event.button.id == "quick-instance-cancel":
             self.action_cancel()
-
-
-class SelectTaskInstanceModal(ModalScreen[Optional[str]]):
-    """
-    Modal for choosing which INSTANCE serves ONE task, overriding the global default.
-
-    Instance, not kind: a CLI for a CLI-routed task, a connection for a remote one. The
-    two are the same question asked of different transports (D-006), so they share one
-    modal rather than two that would drift. Dismisses with an identifier, with
-    `TASK_CLI_INHERIT_OPTION` to drop the pin, or `None` if cancelled.
-    """
-
-    DEFAULT_CSS = """
-    SelectTaskInstanceModal {
-        align: center middle;
-    }
-
-    #task-cli-container {
-        width: 74;
-        height: auto;
-        max-height: 26;
-        background: $surface-lighten-1;
-        border: solid $primary;
-        padding: 2;
-    }
-
-    #task-cli-list {
-        height: auto;
-        max-height: 16;
-        margin-top: 1;
-    }
-    """
-
-    BINDINGS = [("escape", "dismiss_modal", "Cancel")]
-
-    def __init__(
-        self,
-        task_label_text: str,
-        choices: Sequence[InstanceChoice],
-        *,
-        noun: str = "CLI",
-        pinned: Optional[str] = None,
-        default_instance: Optional[str] = None,
-        empty_message: Optional[str] = None,
-        **kwargs,
-    ):
-        """
-        Args:
-            task_label_text: The task being configured, for the heading.
-            choices: The instances that can serve it, already rendered for display.
-            noun: What an instance is called here - "CLI" or "connection". Only wording.
-            pinned: The instance currently pinned, marked in the list.
-            default_instance: The global default, named in the inherit option so the user
-                can see what "follow the default" means today.
-            empty_message: Shown instead of the list when nothing is available.
-        """
-        super().__init__(**kwargs)
-        self.task_label_text = task_label_text
-        self.choices = list(choices)
-        self.noun = noun
-        self.pinned = pinned
-        self.default_instance = default_instance
-        self.empty_message = empty_message
-
-    def compose(self) -> ComposeResult:
-        with Container(id="task-cli-container"):
-            yield Static(
-                f"{Icons.AI_CONFIG} Which {self.noun} should run {self.task_label_text}?"
-            )
-            if not self.choices:
-                yield WarningText(
-                    f"{Icons.WARNING} "
-                    + (
-                        self.empty_message
-                        or f"No {self.noun} is available. Configure one and reopen this picker."
-                    )
-                )
-                yield DimText("Esc to close.")
-                return
-
-            options = [
-                StyledOption(
-                    id=TASK_CLI_INHERIT_OPTION,
-                    title=(
-                        "Follow the default"
-                        + (f" ({self.default_instance})" if self.default_instance else "")
-                        + ("" if self.pinned else f" {Icons.CHECK}")
-                    ),
-                    description=(
-                        f"No pin: this task moves with the {self.noun} you set for Titan, "
-                        "including from the quick picker."
-                    ),
-                )
-            ]
-            for choice in self.choices:
-                marker = f" {Icons.CHECK}" if choice.identifier == self.pinned else ""
-                options.append(
-                    StyledOption(
-                        id=choice.identifier,
-                        title=f"{choice.title}{marker}",
-                        description=choice.description,
-                    )
-                )
-            yield StyledOptionList(*options, id="task-cli-list")
-            yield DimText("Enter to pin it for this task only · Esc to cancel.")
-
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option_list.id != "task-cli-list":
-            return
-        if event.option.id is not None:
-            self.dismiss(event.option.id)
-
-    def action_dismiss_modal(self) -> None:
-        self.dismiss(None)
 
 
 class TaskRoutingRow(Container):
@@ -1291,7 +1238,6 @@ __all__ = [
     "InstanceChoice",
     "cli_choices",
     "connection_choices",
-    "SelectTaskInstanceModal",
     "TASK_CLI_INHERIT_OPTION",
     "tasks_pinning",
     "cli_option_description",

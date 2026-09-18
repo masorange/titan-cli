@@ -34,12 +34,11 @@ from titan_cli.ui.tui.widgets import (
     TabPanel,
 )
 from .ai_routing import (
-    TASK_CLI_INHERIT_OPTION,
     cli_choices,
     connection_choices,
     CliDefaultPicker,
     SelectProviderTypeModal,
-    SelectTaskInstanceModal,
+    QuickInstanceModal,
     TaskRouting,
     TaskRoutingRow,
     build_task_routings,
@@ -726,13 +725,18 @@ class AIConfigScreen(BaseScreen):
             on_selected,
         )
 
-    def handle_pin_task_cli(self, task: Optional[str]) -> None:
-        """Pin the instance serving one task, or drop the pin so it follows the default.
+    def handle_pin_task_cli(self, task: Optional[str], *, pick_model: bool = False) -> None:
+        """Compose this task's instance and model in one form, then write both at once.
 
-        One handler for both kinds: which of them a task takes is decided by what
-        currently resolves, and a CLI and a connection are the same question asked of
-        different transports (D-006).
+        The same widget F2 and F3 open, minus the session scope - a per-task pin is
+        persistent by definition - plus a "follow the default" row, which is the only way
+        to undo a pin without the row's Clear taking the provider kind with it.
+
+        One handler for both transports: which one a task takes is decided by what
+        currently resolves (D-006).
         """
+        from .model_picker import open_model_picker_for_cli, open_model_picker_for_connection
+
         routing = self._routings.get(task) if task else None
         if not routing or not routing.can_pin_instance:
             return
@@ -741,13 +745,12 @@ class AIConfigScreen(BaseScreen):
         remote = routing.pins_a_connection
 
         if remote:
-            choices = connection_choices(
-                ai_config.connections if ai_config else {}
-            )
+            choices = connection_choices(ai_config.connections if ai_config else {})
             noun = "connection"
             default_instance = ai_config.default_connection if ai_config else None
             empty_message = "No AI connection is configured. Add one and reopen this picker."
-            setter, clearer = self.config.set_task_ai_connection, self.config.clear_task_ai_connection
+            set_instance = self.config.set_task_ai_connection
+            clear_instance = self.config.clear_task_ai_connection
         else:
             checker = self._availability()
             choices = cli_choices(
@@ -759,98 +762,90 @@ class AIConfigScreen(BaseScreen):
             noun = "CLI"
             default_instance = ai_config.default_cli if ai_config else None
             empty_message = "No supported CLI is installed. Install one and reopen this picker."
-            setter, clearer = self.config.set_task_ai_cli, self.config.clear_task_ai_cli
+            set_instance = self.config.set_task_ai_cli
+            clear_instance = self.config.clear_task_ai_cli
 
-        def on_selected(choice: Optional[str]) -> None:
-            if choice is None:
+        def open_picker(instance, current_model, on_picked) -> None:
+            title = f"Which model should run {routing.label}?"
+            if remote:
+                open_model_picker_for_connection(
+                    self.app,
+                    self.config,
+                    instance,
+                    title=title,
+                    current=current_model,
+                    on_picked=on_picked,
+                    allow_clear=True,
+                )
+            else:
+                open_model_picker_for_cli(
+                    self.app, instance, title=title, current=current_model,
+                    on_picked=on_picked,
+                )
+
+        def on_composed(result) -> None:
+            if result is None or not result.changes_anything:
                 return
+            provider = self._provider_for_pin(routing)
             try:
-                if choice == TASK_CLI_INHERIT_OPTION:
-                    dropped = clearer(task)
-                    message = f"{routing.label} follows the default {noun} again."
-                else:
-                    dropped = setter(task, choice, provider=self._provider_for_pin(routing))
-                    message = f"{routing.label} will run on {choice}."
-                if dropped:
-                    # Never silently: the model was chosen for the previous instance and
-                    # would be rejected by this one, but the user still picked it once.
-                    message += f" The pinned {dropped} model no longer applies - pick one."
+                if result.clear_instance:
+                    clear_instance(task)
+                elif result.instance:
+                    set_instance(task, result.instance, provider=provider)
+                if result.clear_model:
+                    self.config.clear_task_ai_model(task)
+                elif result.model:
+                    # D-010: a model pin carries its instance, so pin that too when the
+                    # task was following the default.
+                    if not result.instance and not routing.pinned_instance:
+                        set_instance(
+                            task, self._effective_instance(routing), provider=provider
+                        )
+                    self.config.set_task_ai_model(task, result.model, provider=provider)
             except ValueError as e:
-                # The task has no stored preference and none could be inferred - it needs
-                # a provider kind first, which is what Change is for.
                 self.app.notify(str(e), severity="warning")
                 return
             except Exception as e:
-                self.app.notify(f"Failed to save the {noun}: {e}", severity="error")
+                self.app.notify(f"Failed to save: {e}", severity="error")
                 return
             self.load_sections()
-            self.app.notify(message, severity="information")
+            self.app.notify(self._pin_notice(routing, result, noun), severity="information")
 
-        self.app.push_screen(
-            SelectTaskInstanceModal(
-                routing.label,
-                choices,
-                noun=noun,
-                pinned=routing.pinned_instance,
-                default_instance=default_instance,
-                empty_message=empty_message,
+        modal = QuickInstanceModal(
+            f"Which {noun} should run {routing.label}?",
+            choices,
+            noun=noun,
+            remote=remote,
+            current=routing.pinned_instance,
+            current_model=routing.pinned_model,
+            open_model_picker=open_picker,
+            empty_message=empty_message,
+            allow_session=False,
+            inherit_label=(
+                "Follow the default"
+                + (f" ({default_instance})" if default_instance else "")
             ),
-            on_selected,
         )
+        self.app.push_screen(modal, on_composed)
+        if pick_model and routing.pinned_instance or pick_model and default_instance:
+            self.app.call_after_refresh(modal.action_pick_model)
 
     def handle_pin_task_model(self, task: Optional[str]) -> None:
-        """Pin the model this task runs with, on whichever instance serves it."""
-        from .model_picker import open_model_picker_for_cli, open_model_picker_for_connection
+        """Same form, opened straight onto its model step.
 
-        routing = self._routings.get(task) if task else None
-        if not routing:
-            return
+        The row keeps two buttons because the model is worth advertising, but they are
+        two doors into one composition rather than two separate writes.
+        """
+        self.handle_pin_task_cli(task, pick_model=True)
 
-        instance = self._effective_instance(routing)
-        if not instance:
-            self.app.notify(
-                "Set a CLI or connection first - for this task or as the default - "
-                "then choose its model.",
-                severity="warning",
-            )
-            return
-
-        def on_picked(model: Optional[str]) -> None:
-            if not model or model == routing.pinned_model:
-                return
-            try:
-                self.config.set_task_ai_model(
-                    task, model, provider=self._provider_for_pin(routing)
-                )
-            except ValueError as e:
-                self.app.notify(str(e), severity="warning")
-                return
-            except Exception as e:
-                self.app.notify(f"Failed to save the model: {e}", severity="error")
-                return
-            self.load_sections()
-            self.app.notify(
-                f"{routing.label} will run on {instance} / {model}.", severity="information"
-            )
-
-        title = f"Which model should run {routing.label}?"
-        if routing.pins_a_connection:
-            open_model_picker_for_connection(
-                self.app,
-                self.config,
-                instance,
-                title=title,
-                current=routing.pinned_model,
-                on_picked=on_picked,
-            )
-        else:
-            open_model_picker_for_cli(
-                self.app,
-                instance,
-                title=title,
-                current=routing.pinned_model or self.config.get_cli_model(instance),
-                on_picked=on_picked,
-            )
+    @staticmethod
+    def _pin_notice(routing, result, noun: str) -> str:
+        if result.clear_instance:
+            return f"{routing.label} follows the default {noun} again."
+        parts = [p for p in (result.instance, result.model) if p]
+        if result.clear_model and not parts:
+            return f"{routing.label} uses its {noun}'s own model again."
+        return f"{routing.label} will run on {' / '.join(parts)}."
 
     def _effective_instance(self, routing) -> Optional[str]:
         """The CLI or connection this task runs on today: its own pin, else the default."""
@@ -906,6 +901,9 @@ class AIConfigScreen(BaseScreen):
 
         def on_saved() -> None:
             picker.set_model(cli_name, self.config.get_cli_model(cli_name))
+            # Task rows quote this model as "default for this CLI", so they go stale the
+            # moment it changes.
+            self.load_task_routing()
             self._refresh_status_bar()
 
         open_cli_model_picker(self.app, self.config, cli_name, on_saved)
@@ -922,6 +920,10 @@ class AIConfigScreen(BaseScreen):
             self.config.set_default_ai_cli(cli_name)
             self.query_one(CliDefaultPicker).set_current(cli_name)
             self.load_task_routing()
+            # The F2 cell is rendered from default_cli, and nothing else here tells it
+            # to change - it kept naming the old CLI until the screen was resumed. The
+            # model-change path already did this.
+            self._refresh_status_bar()
         except Exception as e:
             self.app.notify(f"Failed to set default CLI: {e}", severity="error")
 

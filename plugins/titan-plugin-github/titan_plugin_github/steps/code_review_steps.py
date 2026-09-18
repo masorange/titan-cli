@@ -1055,6 +1055,19 @@ def _resolve_review_adapter(
     return _PinnedModelCli(adapter, model), None, False
 
 
+def _route_failure_reason(route_note: Optional[str], ai_off: bool) -> str:
+    """Why no AI ran, in words that distinguish a choice from a problem.
+
+    `_resolve_review_adapter` returns `ai_off` precisely so a deliberate skip is not
+    reported as a failure. Both of these steps were discarding it and calling everything
+    "no CLI available", which sent a user looking for a misconfiguration they had made
+    on purpose - or hid one they had not.
+    """
+    if ai_off:
+        return "AI is off for this task"
+    return route_note or "no CLI available"
+
+
 def _announce_review_adapter(ctx: WorkflowContext, adapter: object) -> None:
     """Announce which CLI - and which model - will run this review step.
 
@@ -1578,7 +1591,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("success")
         return Success("Deterministic review plan built", metadata={"review_plan": fallback})
 
-    adapter, route_note, _ = _resolve_review_adapter(ctx, ai_review_plan)
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_plan)
 
     if not adapter:
         ctx.textual.warning_text(
@@ -1595,7 +1608,14 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text(f"Default plan: {len(fallback.focus_files)} focus files")
         _show_review_plan_summary(ctx, fallback)
         ctx.textual.end_step("success")
-        return Success("Default review plan used (no CLI available)", metadata={"review_plan": fallback})
+        # The message carries the REAL reason. It used to say "no CLI available"
+        # whatever had happened, so "you turned this task off" and "your configured CLI
+        # is missing" read identically in the run summary - and only one of them is
+        # something to go and fix.
+        return Success(
+            f"Default review plan used ({_route_failure_reason(route_note, ai_off)})",
+            metadata={"review_plan": fallback},
+        )
 
     _announce_review_adapter(ctx, adapter)
 
@@ -3855,7 +3875,7 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No thread_review_contexts in context")
 
-    adapter, route_note, _ = _resolve_review_adapter(ctx, ai_thread_resolution)
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_thread_resolution)
 
     if not adapter:
         ctx.textual.warning_text(
@@ -3863,7 +3883,10 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         )
         ctx.data["raw_thread_decisions"] = []
         ctx.textual.end_step("success")
-        return Success("No decisions (no CLI available)", metadata={"raw_thread_decisions": []})
+        return Success(
+            f"No decisions ({_route_failure_reason(route_note, ai_off)})",
+            metadata={"raw_thread_decisions": []},
+        )
 
     _announce_review_adapter(ctx, adapter)
 

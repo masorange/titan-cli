@@ -302,7 +302,7 @@ class TestScreenMounts:
         return config
 
     @staticmethod
-    def _stub_screen_dependencies(monkeypatch, usages, clis):
+    def _stub_screen_dependencies(monkeypatch, usages, clis, connections=()):
         """Replace discovery and provider probing so a mount needs no machine state."""
         monkeypatch.setattr(
             "titan_cli.ui.tui.screens.ai_config.AIUsageDiscoveryService",
@@ -314,7 +314,12 @@ class TestScreenMounts:
                 pass
 
             def available_remote_connections(self):
-                return []
+                return [
+                    AIProviderAvailability(
+                        provider=AIProviderType.REMOTE, identifier=name
+                    )
+                    for name in connections
+                ]
 
             def available_headless_clis(self):
                 return [
@@ -333,7 +338,7 @@ class TestScreenMounts:
                 ]
 
             def is_provider_available(self, provider):
-                return provider != AIProviderType.REMOTE
+                return provider != AIProviderType.REMOTE or bool(connections)
 
         monkeypatch.setattr(
             "titan_cli.ui.tui.screens.ai_config.AIAvailabilityChecker", _Checker
@@ -632,42 +637,19 @@ class TestCliModelsInTheConfigScreen:
 
 class TestPerTaskPinsInTheConfigScreen:
     """
-    The row is where a task's own CLI and model are set (ai_task_routing air-003).
+    The row composes an instance and a model in ONE form and writes them together
+    (air-014), using the same widget F2 and F3 open.
 
-    What these pin down is not the picker plumbing but the two things the design can get
-    wrong: writing through the per-task setters rather than the global ones, and saying on
-    screen whether an instance was pinned here or inherited.
+    Before this, each button was an immediate write: picking a CLI closed and saved,
+    picking a model closed and saved, and Escape after a model left it stored anyway.
     """
 
     @staticmethod
-    def _config_with(routing_tasks, *, default_cli="claude", resolution=None):
+    def _config_with(routing_tasks, *, default_cli="claude"):
         config = TestScreenMounts._config(default_cli=default_cli)
         config.config.ai.preferences = AIPreferences(tasks=routing_tasks)
         config.get_cli_model.return_value = None
         return config
-
-    @classmethod
-    def _mount_and_press_row_button(cls, config, usages, monkeypatch, button_prefix):
-        """Mount the screen and press one of a task row's buttons, returning the screen."""
-        TestScreenMounts._stub_screen_dependencies(monkeypatch, usages, ("claude", "gemini"))
-        captured = {}
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: AIConfigScreen(config))
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                row = app.screen.query(TaskRoutingRow).first()
-                button = next(
-                    b for b in row.query(Button) if (b.id or "").startswith(button_prefix)
-                )
-                button.press()
-                await pilot.pause()
-                captured["screen"] = app.screen
-                captured["app"] = app
-                captured["modal"] = app.screen_stack[-1]
-
-        asyncio.run(run())
-        return captured
 
     @staticmethod
     def _cli_usage(task="commit_message"):
@@ -678,111 +660,146 @@ class TestPerTaskPinsInTheConfigScreen:
             )
         ]
 
-    def test_the_cli_button_opens_a_task_scoped_picker(self, monkeypatch):
-        from titan_cli.ui.tui.screens.ai_routing import SelectTaskInstanceModal
-
-        config = self._config_with(
-            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
-        )
-
-        captured = self._mount_and_press_row_button(
-            config, self._cli_usage(), monkeypatch, "task-cli-"
-        )
-
-        modal = captured["modal"]
-        assert isinstance(modal, SelectTaskInstanceModal)
-        assert modal.pinned == "gemini"
-        assert modal.default_instance == "claude"
-        assert modal.noun == "CLI"
-
-    def test_picking_a_cli_writes_the_task_pin_not_the_global_default(self, monkeypatch):
-        """The whole point: this must not be `set_default_ai_cli`."""
-        config = self._config_with(
-            {"commit_message": AIProviderPreference(provider="cli_headless")}
-        )
+    @classmethod
+    def _compose(
+        cls, config, usages, monkeypatch, result, *, task="commit_message", connections=()
+    ):
+        """Open the row's form and hand it a composed result."""
         TestScreenMounts._stub_screen_dependencies(
-            monkeypatch, self._cli_usage(), ("claude", "gemini")
+            monkeypatch, usages, ("claude", "gemini"), connections
         )
+        captured = {}
 
         async def run():
             app = TitanApp(config, initial_screen=lambda: AIConfigScreen(config))
             async with app.run_test() as pilot:
                 await pilot.pause()
-                app.screen.handle_pin_task_cli("commit_message")
+                app.screen.handle_pin_task_cli(task)
                 await pilot.pause()
-                app.screen_stack[-1].dismiss("gemini")
+                captured["modal"] = app.screen_stack[-1]
+                app.screen_stack[-1].dismiss(result)
                 await pilot.pause()
 
         asyncio.run(run())
+        return captured
+
+    def test_the_form_offers_this_tasks_instances_with_an_inherit_row(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickInstanceModal
+
+        config = self._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
+        )
+
+        captured = self._compose(config, self._cli_usage(), monkeypatch, None)
+
+        modal = captured["modal"]
+        assert isinstance(modal, QuickInstanceModal)
+        assert modal.current == "gemini"
+        assert modal.noun == "CLI"
+        # A per-task pin is persistent by definition, so no session scope here.
+        assert modal.allow_session is False
+        assert "Follow the default" in modal.inherit_label
+
+    def test_accepting_an_instance_writes_the_task_pin_not_the_global_default(
+        self, monkeypatch
+    ):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = self._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless")}
+        )
+
+        self._compose(
+            config, self._cli_usage(), monkeypatch, QuickPickResult(instance="gemini")
+        )
 
         config.set_task_ai_cli.assert_called_once_with(
             "commit_message", "gemini", provider="cli_headless"
         )
         config.set_default_ai_cli.assert_not_called()
 
-    def test_choosing_follow_the_default_clears_the_pin(self, monkeypatch):
-        from titan_cli.ui.tui.screens.ai_routing import TASK_CLI_INHERIT_OPTION
+    def test_the_inherit_row_clears_the_pin(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
 
         config = self._config_with(
             {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
         )
-        TestScreenMounts._stub_screen_dependencies(
-            monkeypatch, self._cli_usage(), ("claude", "gemini")
+
+        self._compose(
+            config, self._cli_usage(), monkeypatch, QuickPickResult(clear_instance=True)
         )
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: AIConfigScreen(config))
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                app.screen.handle_pin_task_cli("commit_message")
-                await pilot.pause()
-                app.screen_stack[-1].dismiss(TASK_CLI_INHERIT_OPTION)
-                await pilot.pause()
-
-        asyncio.run(run())
 
         config.clear_task_ai_cli.assert_called_once_with("commit_message")
         config.set_task_ai_cli.assert_not_called()
 
-    def test_the_model_button_asks_the_cli_that_serves_this_task(self, monkeypatch):
-        """A pinned CLI decides whose model list is offered - not the global default's."""
-        from titan_cli.ui.tui.screens.model_picker import SelectModelModal
-
+    def test_cancelling_writes_nothing(self, monkeypatch):
         config = self._config_with(
             {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
         )
 
-        captured = self._mount_and_press_row_button(
-            config, self._cli_usage(), monkeypatch, "task-model-"
-        )
+        self._compose(config, self._cli_usage(), monkeypatch, None)
 
-        modal = captured["modal"]
-        assert isinstance(modal, SelectModelModal)
-        assert "command: gemini" in modal.subtitle
+        config.set_task_ai_cli.assert_not_called()
+        config.set_task_ai_model.assert_not_called()
 
-    def test_picking_a_model_writes_the_task_pin_not_the_global_one(self, monkeypatch):
+    def test_an_instance_and_a_model_are_written_together(self, monkeypatch):
+        """One write pass, so there is no half-applied state to clean up afterwards."""
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
         config = self._config_with(
-            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
-        )
-        TestScreenMounts._stub_screen_dependencies(
-            monkeypatch, self._cli_usage(), ("claude", "gemini")
+            {"commit_message": AIProviderPreference(provider="cli_headless")}
         )
 
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: AIConfigScreen(config))
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                app.screen.handle_pin_task_model("commit_message")
-                await pilot.pause()
-                app.screen_stack[-1].dismiss("flash")
-                await pilot.pause()
+        self._compose(
+            config,
+            self._cli_usage(),
+            monkeypatch,
+            QuickPickResult(instance="gemini", model="flash"),
+        )
 
-        asyncio.run(run())
-
+        config.set_task_ai_cli.assert_called_once_with(
+            "commit_message", "gemini", provider="cli_headless"
+        )
         config.set_task_ai_model.assert_called_once_with(
             "commit_message", "flash", provider="cli_headless"
         )
-        config.set_cli_model.assert_not_called()
+
+    def test_the_model_can_finally_be_unpinned(self, monkeypatch):
+        """`clear_task_ai_model` existed since air-002 with no path in the UI calling it."""
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = self._config_with(
+            {
+                "commit_message": AIProviderPreference(
+                    provider="cli_headless", cli="gemini", model="flash"
+                )
+            }
+        )
+
+        self._compose(
+            config, self._cli_usage(), monkeypatch, QuickPickResult(clear_model=True)
+        )
+
+        config.clear_task_ai_model.assert_called_once_with("commit_message")
+
+    def test_a_remote_only_task_is_offered_connections(self, monkeypatch):
+        config = self._config_with(
+            {"jira_analysis": AIProviderPreference(provider="remote")}
+        )
+        config.config.ai.default_connection = "work"
+        usages = [
+            DiscoveredWorkflowAIUsage(
+                workflow_name="wf",
+                steps=[_step("jira_analysis", executes=[AIProviderType.REMOTE])],
+            )
+        ]
+
+        captured = self._compose(
+            config, usages, monkeypatch, None, task="jira_analysis", connections=("work",)
+        )
+
+        assert captured["modal"].noun == "connection"
+        assert captured["modal"].remote is True
 
     def test_a_row_says_whether_its_instance_was_pinned_or_inherited(self):
         """
@@ -839,6 +856,52 @@ class TestPerTaskPinsInTheConfigScreen:
         ]
 
 
+class TestPinningAModelPinsItsInstance:
+    """
+    D-010, from the review's body findings.
+
+    You never choose a model in the abstract on this screen: the list offered is the one
+    belonging to whatever serves the task right now. Storing only the model loses the
+    half of the intent that says which instance it was for.
+    """
+
+    def test_a_model_on_an_unpinned_task_pins_the_instance_too(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = TestPerTaskPinsInTheConfigScreen._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless")}
+        )
+
+        TestPerTaskPinsInTheConfigScreen._compose(
+            config,
+            TestPerTaskPinsInTheConfigScreen._cli_usage(),
+            monkeypatch,
+            QuickPickResult(model="flash"),
+        )
+
+        config.set_task_ai_cli.assert_called_once_with(
+            "commit_message", "claude", provider="cli_headless"
+        )
+        config.set_task_ai_model.assert_called_once()
+
+    def test_a_task_that_already_pins_one_is_left_alone(self, monkeypatch):
+        from titan_cli.ui.tui.screens.ai_routing import QuickPickResult
+
+        config = TestPerTaskPinsInTheConfigScreen._config_with(
+            {"commit_message": AIProviderPreference(provider="cli_headless", cli="gemini")}
+        )
+
+        TestPerTaskPinsInTheConfigScreen._compose(
+            config,
+            TestPerTaskPinsInTheConfigScreen._cli_usage(),
+            monkeypatch,
+            QuickPickResult(model="flash"),
+        )
+
+        config.set_task_ai_cli.assert_not_called()
+        config.set_task_ai_model.assert_called_once()
+
+
 def _row_text(routing):
     """The CLI/model origin lines a row renders, as plain strings."""
     row = TaskRoutingRow(routing)
@@ -846,3 +909,4 @@ def _row_text(routing):
         str(widget.renderable)
         for widget in row._instance_lines(routing.resolution)
     ]
+

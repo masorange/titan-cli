@@ -333,3 +333,172 @@ class TestSavedNotice:
 
     def test_with_no_default_cli_at_all_it_says_so(self):
         assert "no CLI" in self._notice(None, "claude")
+
+
+class TestTheSavingWrappers:
+    """
+    The two openers that PERSIST what the picker returns (air-015).
+
+    `open_cli_model_picker` had no test asserting it saves anything — a gap the review
+    flagged on 2026-09-16 and the reason the sentinel bug below survived being written.
+    Everything else goes through the composing form, which holds its answer instead.
+    """
+
+    @staticmethod
+    def _pick(opener, model, **kwargs):
+        """Run an opener, capture the modal it pushes, and hand it `model`."""
+        pushed = {}
+
+        class _App:
+            def push_screen(self, screen, callback=None):
+                pushed["screen"] = screen
+                if callback:
+                    callback(model)
+
+            def notify(self, message, severity="information"):
+                pushed.setdefault("notices", []).append(message)
+
+        opener(_App(), **kwargs)
+        return pushed
+
+    def test_choosing_a_model_pins_it_for_that_cli(self):
+        from titan_cli.ui.tui.screens.model_picker import open_cli_model_picker
+
+        config = MagicMock()
+        config.get_cli_model.return_value = None
+        config.config.ai = AIConfig(default_cli="claude")
+
+        self._pick(open_cli_model_picker, "opus", config=config, cli_name="claude")
+
+        config.set_cli_model.assert_called_once_with("claude", "opus")
+
+    def test_re_choosing_the_same_model_saves_nothing(self):
+        from titan_cli.ui.tui.screens.model_picker import open_cli_model_picker
+
+        config = MagicMock()
+        config.get_cli_model.return_value = "opus"
+        config.config.ai = AIConfig(default_cli="claude")
+
+        self._pick(open_cli_model_picker, "opus", config=config, cli_name="claude")
+
+        config.set_cli_model.assert_not_called()
+
+    def test_cancelling_saves_nothing(self):
+        from titan_cli.ui.tui.screens.model_picker import open_cli_model_picker
+
+        config = MagicMock()
+        config.get_cli_model.return_value = None
+        config.config.ai = AIConfig(default_cli="claude")
+
+        self._pick(open_cli_model_picker, None, config=config, cli_name="claude")
+
+        config.set_cli_model.assert_not_called()
+
+    def test_the_unpin_option_clears_rather_than_saving_the_sentinel(self):
+        """
+        `DEFAULT_OPTION_ID` is an instruction, not a model identifier.
+
+        This opener was written before the option existed and passes whatever comes back
+        straight to `set_cli_model`, which would have pinned the literal `__default__`
+        and then handed it to the CLI as `--model __default__`.
+        """
+        from titan_cli.ui.tui.screens.model_picker import (
+            DEFAULT_OPTION_ID,
+            open_cli_model_picker,
+        )
+
+        config = MagicMock()
+        config.get_cli_model.return_value = "opus"
+        config.config.ai = AIConfig(default_cli="claude")
+
+        self._pick(open_cli_model_picker, DEFAULT_OPTION_ID, config=config, cli_name="claude")
+
+        config.clear_cli_model.assert_called_once_with("claude")
+        config.set_cli_model.assert_not_called()
+
+    def test_a_failed_save_is_reported_and_not_announced_as_success(self):
+        from titan_cli.ui.tui.screens.model_picker import open_cli_model_picker
+
+        config = MagicMock()
+        config.get_cli_model.return_value = None
+        config.config.ai = AIConfig(default_cli="claude")
+        config.set_cli_model.side_effect = OSError("disk full")
+
+        pushed = self._pick(
+            open_cli_model_picker, "opus", config=config, cli_name="claude"
+        )
+
+        assert any("Failed to set the model" in n for n in pushed["notices"])
+        assert not any("will run opus" in n for n in pushed["notices"])
+
+
+class TestTheConnectionSavingWrapper:
+    """
+    `open_connection_model_picker` is the connection half of the same seam.
+
+    The asking is shared with the task-level path; only the destination differs, so what
+    is worth pinning here is the persistence, not the modal.
+    """
+
+    @staticmethod
+    def _pick(monkeypatch, model, *, current="gpt-5"):
+        from titan_cli.ui.tui.screens import model_picker
+
+        config = MagicMock()
+        config.config.ai = AIConfig(
+            default_connection="work",
+            connections={"work": _gateway_connection(model=current)},
+        )
+        notices = []
+
+        class _App:
+            def notify(self, message, severity="information"):
+                notices.append(message)
+
+        monkeypatch.setattr(
+            model_picker,
+            "open_model_picker_for_connection",
+            lambda app, cfg, cid, *, on_picked, **kw: on_picked(model),
+        )
+        model_picker.open_connection_model_picker(_App(), config, "work")
+        return config, notices
+
+    def test_choosing_a_model_saves_it_on_the_connection(self, monkeypatch):
+        config, _ = self._pick(monkeypatch, "fast-model")
+
+        config.update_ai_connection.assert_called_once_with(
+            "work", {"default_model": "fast-model"}
+        )
+
+    def test_re_choosing_the_connections_own_model_saves_nothing(self, monkeypatch):
+        config, _ = self._pick(monkeypatch, "gpt-5")
+
+        config.update_ai_connection.assert_not_called()
+
+    def test_cancelling_saves_nothing(self, monkeypatch):
+        config, _ = self._pick(monkeypatch, None)
+
+        config.update_ai_connection.assert_not_called()
+
+    def test_a_failed_save_is_reported(self, monkeypatch):
+        from titan_cli.ui.tui.screens import model_picker
+
+        config = MagicMock()
+        config.config.ai = AIConfig(
+            default_connection="work", connections={"work": _gateway_connection()}
+        )
+        config.update_ai_connection.side_effect = OSError("disk full")
+        notices = []
+
+        class _App:
+            def notify(self, message, severity="information"):
+                notices.append(message)
+
+        monkeypatch.setattr(
+            model_picker,
+            "open_model_picker_for_connection",
+            lambda app, cfg, cid, *, on_picked, **kw: on_picked("fast-model"),
+        )
+        model_picker.open_connection_model_picker(_App(), config, "work")
+
+        assert any("Failed to update model" in n for n in notices)

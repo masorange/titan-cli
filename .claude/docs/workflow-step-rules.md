@@ -88,6 +88,10 @@ Runtime rules:
   1. your `model=` — 2. a session override (`S` from F2/F3) — 3. the task's own pin —
   4. the global default for the resolved instance — 5. the instance's own default
 
+  This holds on **both** transports. It did not always: the remote branch dropped an
+  explicit `model=` in silence, so the same step honoured it on a CLI route and ignored
+  it on a connection — and which route runs is the user's setting, not yours.
+
   It ranks there because a step naming a model is stating a requirement (a review explores
   cheap and synthesises expensive), not expressing a taste. The cost is that an
   unnecessary `model=` silently overrules a key the user just pressed, so passing one you

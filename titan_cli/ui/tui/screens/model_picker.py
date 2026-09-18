@@ -479,12 +479,24 @@ def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
     def on_picked(model: Optional[str]) -> None:
         if not model or model == current:
             return
+        # DEFAULT_OPTION_ID is an instruction, not an identifier. Passing it through
+        # would pin the literal "__default__" and then hand it to the CLI as
+        # `--model __default__`.
+        clearing = model == DEFAULT_OPTION_ID
         try:
-            config.set_cli_model(cli_name, model)
+            if clearing:
+                config.clear_cli_model(cli_name)
+            else:
+                config.set_cli_model(cli_name, model)
         except Exception as e:
             app.notify(f"Failed to set the model: {e}", severity="error")
             return
-        app.notify(_saved_notice(config, cli_name, model), severity="information")
+        app.notify(
+            f"{cli_name} will use its own default model."
+            if clearing
+            else _saved_notice(config, cli_name, model),
+            severity="information",
+        )
         if on_saved:
             on_saved()
 

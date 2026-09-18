@@ -385,3 +385,69 @@ class TestClearPathsKeepTheLiveConfigInSync:
         config.set_task_ai_model("commit_message", "opus")
 
         assert config.set_task_ai_model("commit_message", "haiku") is None
+
+
+class TestChangingTheKindKeepsWhatStillMakesSense:
+    """
+    `[Change]` used to replace the whole preference, dropping cli/connection/model with
+    no notice — even when the user re-picked the kind it already had (review, 2026-09-18).
+
+    What survives follows from D-010: an instance pin belongs to its transport and is
+    simply inert while another kind is in effect, but a MODEL belongs to whichever
+    instance serves the task, so a change of transport invalidates it.
+    """
+
+    def test_re_picking_the_same_kind_changes_nothing(self, config: TitanConfig):
+        config.set_task_ai_cli("commit_message", "gemini", provider="cli_headless")
+        config.set_task_ai_model("commit_message", "flash")
+
+        dropped = config.set_task_ai_provider("commit_message", "cli_headless")
+
+        assert dropped is None
+        assert _written_preferences(config)["tasks"]["commit_message"] == {
+            "provider": "cli_headless",
+            "cli": "gemini",
+            "model": "flash",
+        }
+
+    def test_moving_between_the_two_cli_kinds_keeps_the_cli_and_its_model(
+        self, config: TitanConfig
+    ):
+        """Same binary, invoked differently - `claude` vs `claude -p`."""
+        config.set_task_ai_cli("generic_assistant", "gemini", provider="cli_headless")
+        config.set_task_ai_model("generic_assistant", "flash")
+
+        dropped = config.set_task_ai_provider("generic_assistant", "cli_interactive")
+
+        assert dropped is None
+        assert _written_preferences(config)["tasks"]["generic_assistant"] == {
+            "provider": "cli_interactive",
+            "cli": "gemini",
+            "model": "flash",
+        }
+
+    def test_switching_transport_drops_the_model_and_says_so(self, config: TitanConfig):
+        config.set_task_ai_cli("jira_analysis", "gemini", provider="cli_headless")
+        config.set_task_ai_model("jira_analysis", "flash")
+
+        dropped = config.set_task_ai_provider("jira_analysis", "remote")
+
+        assert dropped == "flash"
+        assert _written_preferences(config)["tasks"]["jira_analysis"] == {
+            "provider": "remote",
+            "cli": "gemini",
+        }
+
+    def test_the_other_transports_pin_survives_to_be_used_again(self, config: TitanConfig):
+        """An inert pin is not a wrong one: switch back and it is still there."""
+        config.set_task_ai_cli("jira_analysis", "gemini", provider="cli_headless")
+        config.set_task_ai_provider("jira_analysis", "remote")
+
+        config.set_task_ai_provider("jira_analysis", "cli_headless")
+
+        assert _written_preferences(config)["tasks"]["jira_analysis"]["cli"] == "gemini"
+
+    def test_a_task_with_no_preference_gets_one(self, config: TitanConfig):
+        config.set_task_ai_provider("commit_message", "off")
+
+        assert _written_preferences(config)["tasks"]["commit_message"] == {"provider": "off"}

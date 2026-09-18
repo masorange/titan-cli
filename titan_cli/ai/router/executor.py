@@ -233,6 +233,7 @@ class AIExecutor:
                     system_prompt=system_prompt,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    model=model,
                 )
             case AIProviderType.CLI_HEADLESS:
                 return self._generate_headless(
@@ -300,7 +301,7 @@ class AIExecutor:
                     decision=resolution,
                 )
             case AIProviderType.REMOTE:
-                return self._remote_generator(resolution)
+                return self._remote_generator(resolution, model)
             case AIProviderType.CLI_HEADLESS:
                 return self._headless_generator(resolution, cwd=cwd, timeout=timeout, model=model)
             case _:
@@ -354,8 +355,10 @@ class AIExecutor:
             return decision.model
         return self.model_for_cli(decision.cli) if decision.cli else None
 
-    def _remote_generator(self, decision: AIRouteDecision) -> AIExecutionResult[Any]:
-        client = self.remote_client(decision)
+    def _remote_generator(
+        self, decision: AIRouteDecision, model: Optional[str] = None
+    ) -> AIExecutionResult[Any]:
+        client = self.remote_client(decision, model)
         if client is None:
             return AIExecutionError(
                 error_message=(
@@ -409,13 +412,22 @@ class AIExecutor:
             ),
         )
 
-    def remote_client(self, decision: AIRouteDecision) -> Optional[AIClient]:
+    def remote_client(
+        self, decision: AIRouteDecision, model: Optional[str] = None
+    ) -> Optional[AIClient]:
         """
-        Return an `AIClient` for a remote decision, cached per connection.
+        Return an `AIClient` for a remote decision, cached per connection and model.
 
         Steps that hand a client to an agent (rather than generating text
         themselves) use this to honor the connection the user picked. Returns
         `None` if a client cannot be built for it.
+
+        Args:
+            decision: The resolved route.
+            model: A call-site override, ranked by `model_for_decision` like anywhere
+                else. Without it this branch silently ran the connection's own model
+                while the CLI branch honored the request - and which branch runs is the
+                user's routing choice, not the step's.
         """
         if not self.ai_config or not self.provider_factory:
             return None
@@ -423,7 +435,7 @@ class AIExecutor:
         # The model is part of the key: two tasks can share a connection and run
         # different models on it, and a cache keyed by connection alone would hand the
         # second one the first one's provider.
-        model = self.model_for_decision(decision)
+        model = self.model_for_decision(decision, model)
         cache_key = f"{decision.connection_id or '__default__'}::{model or '__connection__'}"
         cached = self._remote_clients.get(cache_key)
         if cached is not None:
@@ -538,8 +550,9 @@ class AIExecutor:
         system_prompt: Optional[str],
         max_tokens: Optional[int],
         temperature: Optional[float],
+        model: Optional[str] = None,
     ) -> AIExecutionResult[str]:
-        client = self.remote_client(decision)
+        client = self.remote_client(decision, model)
         if client is None:
             return AIExecutionError(
                 error_message=(

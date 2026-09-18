@@ -73,13 +73,31 @@ opencode = "anthropic/claude-sonnet-5"
 claude = "opus"
 ```
 
-Both are editable from the TUI without leaving the screen you are on. `F2` answers the
-question for CLIs and `F3` for connections, with the same keys inside each picker:
+Both are editable from the TUI without leaving the screen you are on: `F2` opens the
+picker loaded with CLIs, `F3` with connections. It is the same picker — they are the same
+question asked of different transports — so the keys are the same in both.
 
-| Key | Opens | |
-|---|---|---|
-| `F2` | The CLI picker | `Enter` makes it the default · `S` uses it for this session only · `M` chooses its model · `C` clears a session override |
-| `F3` | The connection picker | the same four |
+It is a **form**: choosing a row selects it, and **nothing is written until you accept**.
+
+| Key | Does |
+|---|---|
+| `Enter` | Select the highlighted row. The modal stays open and focus moves to **Save** |
+| `M` | Choose that row's model, then come back here with it pending |
+| `Save` | Apply what you composed — the instance, the model, or both |
+| `S` | Apply the same, **for this session only**, writing nothing |
+| `C` | Clear an active session override |
+| `Esc` | Cancel. Nothing is written, the model included |
+
+The line above the buttons says what accepting would do, and for how long:
+
+```text
+Will apply: codex / gpt-5.6-terra  —  Save to keep it, S for this session only
+```
+
+Because the model is part of the composition, you can set a CLI **and** its model in one
+pass — and apply both to the session only, which is the one way to try a model without
+writing it down. Choosing another row forgets a model you had picked for the previous
+one: a model identifier only means something to the instance it was chosen for.
 
 The status bar shows both, labelled with the key that changes them:
 
@@ -89,15 +107,18 @@ The status bar shows both, labelled with the key that changes them:
 
 A `*` after a cell means a **session override** is in force there: something you chose
 with `S` for now only, which outranks your saved settings and is forgotten when Titan
-exits. Nothing was written to your config.
+exits. Nothing was written to your config. Each key reports and clears only its own
+half — `F3` will not tell you about a CLI override, because you could not act on it
+from there.
 
-Choosing a model for a CLI does **not** switch to it — pinning a model on a CLI you are
-not using is a normal thing to do, and switching silently would change what runs your
-next workflow. The CLI section of AI Configuration offers the same actions.
+Each picker also tells you how many tasks pin their own CLI or connection and so will not
+follow a **Save** — though `S` still reaches them, because a session override outranks a
+pin. A task that deliberately ignores `F2` is otherwise indistinguishable from a key that
+did not work.
 
-Each picker also tells you how many tasks pin their own CLI or connection and will
-therefore not follow it, because a task that deliberately ignores `F2` is otherwise
-indistinguishable from a key that did not work.
+To change a CLI's model without switching to that CLI, use the CLI section of **AI
+Configuration**: `F2` answers "what runs now", and accepting there applies the row you
+selected.
 
 ## Per-task overrides
 
@@ -120,6 +141,12 @@ provider = "cli_headless"
 A remote task pins `connection` instead of `cli`, and its `model` overrides that
 connection's `default_model`. Pins are **sparse**: anything you leave out is inherited, so
 one edit to the global default still moves every task that has not opted out.
+
+The row's **CLI**/**Connection** and **Model** buttons open the same form `F2` and `F3`
+use, minus the session scope — a task pin is permanent by definition — plus a **Follow the
+default** row, which is how you undo a pin without the row's **Clear** taking the provider
+kind with it. Pinning a model also pins the instance it was chosen for, because the list
+you were offered was that instance's.
 
 A pin is not a guarantee that something exists. A pinned CLI that is not installed, or a
 connection that was renamed, is reported by name — Titan never quietly runs a different
