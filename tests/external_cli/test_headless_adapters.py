@@ -1151,10 +1151,6 @@ class TestHeadlessAdapterRegistry(unittest.TestCase):
         self.assertIsNot(a1, a2)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # ── Model listing ────────────────────────────────────────────────────────────
 
 class TestModelListing(unittest.TestCase):
@@ -1232,8 +1228,14 @@ class TestModelListing(unittest.TestCase):
         run.assert_not_called()
 
     def test_codex_reads_its_cache_without_shelling_out(self):
-        with patch("subprocess.run") as run:
-            CodexHeadlessAdapter().list_models()
+        # The cache path is patched, not just subprocess: `codex_models_cache_path()`
+        # reads Path.home() at call time, so without this the test depends on whether
+        # the machine running it happens to have a populated ~/.codex.
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with patch.object(codex_module, "codex_models_cache_path", lambda: Path("/nope")):
+            with patch("subprocess.run") as run:
+                CodexHeadlessAdapter().list_models()
         run.assert_not_called()
 
     def test_every_registered_adapter_can_be_asked(self):
@@ -1391,3 +1393,77 @@ class TestCodexSlugIsTypeChecked(unittest.TestCase):
                 models = codex_module.CodexHeadlessAdapter().list_models()
 
         self.assertEqual([m.identifier for m in models], ["gpt-5.5"])
+
+
+class TestCodexListingDegradesRatherThanDisappearing(unittest.TestCase):
+    """
+    `visibility` is read as a DENY-list (review, 2026-09-18).
+
+    The only thing codex's private format guarantees is that its internals are marked
+    `hide`. Requiring the positive `list` value would turn a future format that drops
+    the key into "codex has no models" - indistinguishable from codex never having run.
+    """
+
+    @staticmethod
+    def _models(payload):
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _Path(tmp) / "models_cache.json"
+            path.write_text(_json.dumps(payload))
+            with patch.object(codex_module, "codex_models_cache_path", lambda: path):
+                return codex_module.CodexHeadlessAdapter().list_models()
+
+    def test_an_entry_without_a_visibility_key_is_still_offered(self):
+        models = self._models({"models": [{"slug": "gpt-6", "description": "new"}]})
+
+        self.assertEqual([m.identifier for m in models], ["gpt-6"])
+
+    def test_hidden_entries_are_still_excluded(self):
+        models = self._models(
+            {
+                "models": [
+                    {"slug": "gpt-5.6-sol", "visibility": "list"},
+                    {"slug": "codex-auto-review", "visibility": "hide"},
+                ]
+            }
+        )
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.6-sol"])
+
+    def test_a_repeated_slug_is_offered_once(self):
+        """The slug is a Textual option id, and Textual raises on a duplicate."""
+        models = self._models(
+            {"models": [{"slug": "gpt-5.5"}, {"slug": "gpt-5.5"}, {"slug": "gpt-6"}]}
+        )
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.5", "gpt-6"])
+
+
+
+
+class TestListingCannotStealTheTerminal(unittest.TestCase):
+    """
+    A CLI that prompts must not read the TUI's keystrokes (review, 2026-09-18).
+
+    This runs under Textual, so a child inheriting stdin - a CLI that is not logged in,
+    or opens a pager - swallows the user's typing and only relents at the 20s timeout.
+    Listing models is explicitly "never a precondition", so the child gets EOF.
+    """
+
+    def test_stdin_is_closed_for_the_child(self):
+        from titan_cli.external_cli.adapters.base import model_listing_lines
+
+        with patch("subprocess.run") as run:
+            run.return_value = MagicMock(stdout="", returncode=0)
+            model_listing_lines(["grok", "models"])
+
+        self.assertEqual(run.call_args.kwargs.get("stdin"), subprocess.DEVNULL)
+
+
+if __name__ == "__main__":
+    unittest.main()

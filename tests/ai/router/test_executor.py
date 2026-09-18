@@ -883,6 +883,62 @@ def test_model_for_decision_falls_back_to_the_global_pin():
     assert executor.model_for_decision(decision) == "opus"
 
 
+def test_route_summary_names_where_each_part_came_from():
+    """The chip answers "why is it using that?", which names alone cannot."""
+    from titan_cli.ai.router.executor import route_summary
+
+    agreed = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS,
+        cli="claude",
+        model="haiku",
+        instance_origin="pinned",
+        model_origin="pinned",
+    )
+    assert route_summary(agreed) == "claude / haiku · CLI, automatic · pinned"
+
+
+def test_route_summary_labels_the_parts_separately_when_they_disagree():
+    """One label for both would be false exactly when the answer is interesting."""
+    from titan_cli.ai.router.executor import route_summary
+
+    mixed = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS,
+        cli="codex",
+        model="gpt-5.6-terra",
+        instance_origin="session",
+        model_origin="default",
+    )
+    assert route_summary(mixed) == (
+        "codex (session) / gpt-5.6-terra (default) · CLI, automatic"
+    )
+
+
+def test_a_call_site_model_is_announced_as_step():
+    """
+    The rung no key can override, and therefore the one worth naming.
+
+    The resolver cannot know about `model=`; announcing its decision unchanged would
+    name a model that is not the one about to run.
+    """
+    from titan_cli.ai.router.executor import route_summary
+
+    executor = AIExecutor(ai_config=None)
+    resolved = AIRouteDecision(
+        provider=AIProviderType.CLI_HEADLESS,
+        cli="claude",
+        model="haiku",
+        instance_origin="pinned",
+        model_origin="pinned",
+    )
+
+    announced = executor.announced_decision(resolved, "opus")
+
+    assert (announced.model, announced.model_origin) == ("opus", "step")
+    assert "(step)" in route_summary(announced)
+    # The unchanged case must not be relabelled.
+    assert executor.announced_decision(resolved, None) is resolved
+
+
 def test_route_summary_names_the_model_when_there_is_one():
     """Once a task can pin a model, the chip saying only 'claude' no longer answers 'did my pin run?'."""
     from titan_cli.ai.router.executor import route_summary

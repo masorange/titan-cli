@@ -29,7 +29,7 @@ from typing import List, Optional
 from titan_cli.core.models import AIConfig, AIProviderPreference
 
 from .availability import AIAvailabilityChecker, AIProviderAvailability
-from .enums import AIProviderType
+from .enums import AIProviderType, AIRouteOrigin
 from .models import AIRouteDecision, AIRoutePolicy
 from .session import AISessionOverride
 
@@ -154,16 +154,21 @@ class AIRouteResolver:
                 candidates=self._candidates(policy),
             )
 
-        model = self._resolved_model(provider, identifier, task, instance_rung)
+        model, model_rung = self._resolved_model(provider, identifier, task, instance_rung)
+        origins = {
+            "instance_origin": self._RUNG_ORIGINS.get(instance_rung),
+            "model_origin": self._RUNG_ORIGINS.get(model_rung) if model else None,
+        }
         if provider == AIProviderType.REMOTE:
             return AIRouteDecision(
                 provider=provider,
                 connection_id=identifier,
                 reason=reason,
                 model=model,
+                **origins,
             )
         return AIRouteDecision(
-            provider=provider, cli=identifier, reason=reason, model=model
+            provider=provider, cli=identifier, reason=reason, model=model, **origins
         )
 
     def _configured_instance(self, provider: AIProviderType, task: str = "") -> Optional[str]:
@@ -176,6 +181,12 @@ class AIRouteResolver:
     _RUNG_SESSION = 0
     _RUNG_TASK_PIN = 1
     _RUNG_GLOBAL = 2
+
+    _RUNG_ORIGINS = {
+        _RUNG_SESSION: AIRouteOrigin.SESSION,
+        _RUNG_TASK_PIN: AIRouteOrigin.PINNED,
+        _RUNG_GLOBAL: AIRouteOrigin.DEFAULT,
+    }
 
     def _instance_and_rung(
         self, provider: AIProviderType, task: str
@@ -193,16 +204,25 @@ class AIRouteResolver:
 
         remote = provider == AIProviderType.REMOTE
 
+        pinned = self._task_preference(task)
+        pinned_instance = None
+        if pinned is not None:
+            pinned_instance = pinned.connection if remote else pinned.cli
+
         if self.session_override:
             overridden = self.session_override.instance_for(remote)
             if overridden:
+                # Naming the instance that is already pinned is not a CHANGE of
+                # instance, so the pin's rung still owns the model. Reporting the
+                # session rung here would make `_resolved_model` skip the pin and drop a
+                # model the user never moved away from - the resolver's version of the
+                # rule `use_cli` already applied to the override itself.
+                if overridden == pinned_instance:
+                    return overridden, self._RUNG_TASK_PIN
                 return overridden, self._RUNG_SESSION
 
-        pinned = self._task_preference(task)
-        if pinned is not None:
-            pinned_instance = pinned.connection if remote else pinned.cli
-            if pinned_instance:
-                return pinned_instance, self._RUNG_TASK_PIN
+        if pinned_instance:
+            return pinned_instance, self._RUNG_TASK_PIN
 
         default = (
             self.ai_config.default_connection if remote else self.ai_config.default_cli
@@ -211,7 +231,7 @@ class AIRouteResolver:
 
     def _resolved_model(
         self, provider: AIProviderType, identifier: str, task: str, instance_rung: int
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], Optional[int]]:
         """
         The model the resolved instance should run with, never taken from below it.
 
@@ -234,24 +254,26 @@ class AIRouteResolver:
         setting, so it does not belong in the decision this layer records.
         """
         if not self.ai_config:
-            return None
+            return None, None
 
         remote = provider == AIProviderType.REMOTE
 
         if self.session_override and instance_rung >= self._RUNG_SESSION:
             session_model = self.session_override.model_for(remote)
             if session_model:
-                return session_model
+                return session_model, self._RUNG_SESSION
 
         if instance_rung >= self._RUNG_TASK_PIN:
             pinned = self._task_preference(task)
             if pinned is not None and pinned.model:
-                return pinned.model
+                return pinned.model, self._RUNG_TASK_PIN
 
         if remote:
             connection = self.ai_config.connections.get(identifier)
-            return getattr(connection, "default_model", None)
-        return self.ai_config.cli_models.get(identifier)
+            model = getattr(connection, "default_model", None)
+        else:
+            model = self.ai_config.cli_models.get(identifier)
+        return model, (self._RUNG_GLOBAL if model else None)
 
     def _task_preference(self, task: str) -> Optional[AIProviderPreference]:
         """The persisted preference for a task, if there is one."""

@@ -23,6 +23,7 @@ from textual.widgets import OptionList, Static
 from titan_cli.ai.router.availability import AIProviderAvailability
 from titan_cli.ai.router.enums import (
     AIProviderType,
+    AIRouteOrigin,
     provider_description,
     provider_label,
 )
@@ -642,7 +643,7 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
             inherit_marks = ""
             if self.current is None:
                 inherit_marks += f" {Icons.CHECK}"
-            if self.pending_instance is TASK_CLI_INHERIT_OPTION:
+            if self.pending_instance == TASK_CLI_INHERIT_OPTION:
                 inherit_marks += " (selected)"
             options.append(
                 StyledOption(
@@ -681,7 +682,7 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         )
         if not self._has_changes():
             return f"Currently: {instance or '—'} / {model or 'default'}"
-        if self.pending_instance is TASK_CLI_INHERIT_OPTION:
+        if self.pending_instance == TASK_CLI_INHERIT_OPTION:
             return (
                 f"Will apply: follow the default {self.noun}"
                 "  —  Save to keep it, S for this session only"
@@ -698,8 +699,13 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
 
     def _model_of(self, instance: Optional[str]) -> Optional[str]:
         """The model that instance runs today, as the list itself reports it."""
-        if not instance or instance is TASK_CLI_INHERIT_OPTION:
+        if not instance or instance == TASK_CLI_INHERIT_OPTION:
             return None
+        # `current_model` first: in the per-task flow the choices carry each instance's
+        # GLOBAL model while current_model is the task's own pin, so letting the loop
+        # win showed the global one and pre-selected the wrong row in the picker.
+        if instance == self.current and self.current_model:
+            return self.current_model
         for choice in self.choices:
             if choice.identifier == instance:
                 return choice.model
@@ -731,7 +737,14 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
             return
         identifiers = [c.identifier for c in self.choices]
         if self.current in identifiers:
-            self.call_after_refresh(self._highlight, identifiers.index(self.current))
+            index = identifiers.index(self.current)
+            # The inherit row sits at index 0 when present, so the list index runs one
+            # ahead of the choice index. `_highlighted_instance` compensated for that
+            # and this did not, which left `M` opening the model picker for the wrong
+            # instance on a per-task pin.
+            if self.inherit_label:
+                index += 1
+            self.call_after_refresh(self._highlight, index)
 
     def _highlight(self, index: int) -> None:
         try:
@@ -766,7 +779,7 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
         instance = self._highlighted_instance() or self.pending_instance
         if (
             not instance
-            or instance is TASK_CLI_INHERIT_OPTION
+            or instance == TASK_CLI_INHERIT_OPTION
             or self.open_model_picker is None
         ):
             return
@@ -805,7 +818,7 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
     # --- accepting ---------------------------------------------------------
 
     def _result(self, *, session_only: bool) -> QuickPickResult:
-        if self.pending_instance is TASK_CLI_INHERIT_OPTION:
+        if self.pending_instance == TASK_CLI_INHERIT_OPTION:
             return QuickPickResult(clear_instance=True, session_only=session_only)
         return QuickPickResult(
             instance=(
@@ -853,6 +866,21 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
             self.action_use_for_session()
         elif event.button.id == "quick-instance-cancel":
             self.action_cancel()
+
+
+def _origin_label(origin: Optional[str], *, noun: Optional[str] = None) -> str:
+    """How a row names where a resolved value came from.
+
+    Wordier than the enum on purpose: a row is read at rest, not mid-run, so "pinned
+    here" and "this session" say more than "pinned" and "session" would.
+    """
+    if origin == AIRouteOrigin.PINNED:
+        return "pinned here"
+    if origin == AIRouteOrigin.SESSION:
+        return "this session"
+    if origin == AIRouteOrigin.STEP:
+        return "asked for by the step"
+    return f"default for this {noun.lower()}" if noun else "default"
 
 
 class TaskRoutingRow(Container):
@@ -992,17 +1020,16 @@ class TaskRoutingRow(Container):
 
         remote = self.routing.pins_a_connection
         noun = "Connection" if remote else "CLI"
-        pinned_instance = self.routing.pinned_instance
-        yield DimText(
-            f"  {noun}: {instance} ({'pinned here' if pinned_instance else 'default'})"
-        )
+        # Read off the DECISION, never re-derived from the stored preference: with a
+        # session override active the resolver is serving something the task never
+        # pinned, and labelling it "pinned here" claimed a setting the user did not
+        # make - while the model, skipped by the rung guard, was labelled the same way.
+        yield DimText(f"  {noun}: {instance} ({_origin_label(resolution.instance_origin)})")
         if resolution.model:
-            origin = (
-                "pinned here"
-                if self.routing.pinned_model
-                else f"default for this {noun.lower()}"
+            yield DimText(
+                f"  Model: {resolution.model} "
+                f"({_origin_label(resolution.model_origin, noun=noun)})"
             )
-            yield DimText(f"  Model: {resolution.model} ({origin})")
         else:
             yield DimText(f"  Model: {noun} default")
 

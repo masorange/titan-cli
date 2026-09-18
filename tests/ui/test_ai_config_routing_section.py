@@ -811,7 +811,11 @@ class TestPerTaskPinsInTheConfigScreen:
             label="Commit messages",
             executes=[AIProviderType.CLI_HEADLESS],
             resolution=AIRouteDecision(
-                provider=AIProviderType.CLI_HEADLESS, cli="gemini", model="flash"
+                provider=AIProviderType.CLI_HEADLESS,
+                cli="gemini",
+                model="flash",
+                instance_origin="pinned",
+                model_origin="pinned",
             ),
             has_preference=True,
             pinned_cli="gemini",
@@ -822,7 +826,11 @@ class TestPerTaskPinsInTheConfigScreen:
             label="Slack summaries",
             executes=[AIProviderType.CLI_HEADLESS],
             resolution=AIRouteDecision(
-                provider=AIProviderType.CLI_HEADLESS, cli="claude", model="opus"
+                provider=AIProviderType.CLI_HEADLESS,
+                cli="claude",
+                model="opus",
+                instance_origin="default",
+                model_origin="default",
             ),
             has_preference=True,
         )
@@ -843,7 +851,11 @@ class TestPerTaskPinsInTheConfigScreen:
             label="Jira issue analysis",
             executes=[AIProviderType.REMOTE],
             resolution=AIRouteDecision(
-                provider=AIProviderType.REMOTE, connection_id="other-litellm", model="gpt-5-mini"
+                provider=AIProviderType.REMOTE,
+                connection_id="other-litellm",
+                model="gpt-5-mini",
+                instance_origin="pinned",
+                model_origin="pinned",
             ),
             has_preference=True,
             pinned_connection="other-litellm",
@@ -853,6 +865,35 @@ class TestPerTaskPinsInTheConfigScreen:
         assert _row_text(remote) == [
             "  Connection: other-litellm (pinned here)",
             "  Model: gpt-5-mini (pinned here)",
+        ]
+
+    def test_a_session_override_is_not_reported_as_a_pin(self):
+        """
+        The labels are read off the decision, not re-derived from the preference.
+
+        With a session override active the resolver serves something the task never
+        pinned, and the row used to call it "pinned here" - claiming a setting the user
+        had not made, in the line whose whole job is saying where a value came from.
+        """
+        overridden = TaskRouting(
+            task="commit_message",
+            label="Commit messages",
+            executes=[AIProviderType.CLI_HEADLESS],
+            resolution=AIRouteDecision(
+                provider=AIProviderType.CLI_HEADLESS,
+                cli="codex",
+                model="gpt-5.6-terra",
+                instance_origin="session",
+                model_origin="default",
+            ),
+            has_preference=True,
+            pinned_cli="claude",
+            pinned_model="opus",
+        )
+
+        assert _row_text(overridden) == [
+            "  CLI: codex (this session)",
+            "  Model: gpt-5.6-terra (default for this cli)",
         ]
 
 

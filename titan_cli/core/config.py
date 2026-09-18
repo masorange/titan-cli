@@ -23,6 +23,10 @@ logger = get_logger(__name__)
 # pinned model, because a model identifier only means something to its own instance.
 _INSTANCE_PIN_KEYS = ("cli", "connection")
 
+# Which transport each instance pin belongs to, so touching the inert one leaves the
+# other's model alone.
+_TRANSPORT_OF_PIN = {"cli": "cli", "connection": "remote"}
+
 # How many `workflows.last_used` entries a project keeps. The map only feeds a nine-slot
 # launcher, so anything past this is dead weight in a file that is never pruned by hand.
 _MAX_LAST_USED_ENTRIES = 20
@@ -205,8 +209,15 @@ class TitanConfig:
 
         return None
 
-    def _load_toml(self, path: Optional[Path]) -> dict:
-        """Load TOML file, returning an empty dict on failure."""
+    def _load_toml(self, path: Optional[Path], *, strict: bool = False) -> dict:
+        """Load TOML file, returning an empty dict on failure.
+
+        `strict` raises instead of degrading. Reads can afford to treat an unparseable
+        file as empty - the app still starts - but a WRITE cannot: every save here
+        rebuilds the whole file from what was read, so a momentary syntax error would
+        turn "set a model" into "delete project_sources, favourites and everything else
+        this file held".
+        """
         if not path or not path.exists():
             return {}
 
@@ -214,8 +225,10 @@ class TitanConfig:
             try:
                 return tomli.load(f)
             except tomli.TOMLDecodeError as e:
-                # Wrap the generic exception. Warnings will be handled by CLI commands.
-                _ = ConfigParseError(file_path=str(path), original_exception=e)
+                error = ConfigParseError(file_path=str(path), original_exception=e)
+                if strict:
+                    raise error
+                # Warnings are handled by CLI commands.
                 return {}
 
     def _load_and_migrate_toml(
@@ -223,9 +236,14 @@ class TitanConfig:
         path: Optional[Path],
         migration_manager: MigrationManager,
         write_on_migration: bool = True,
+        strict: bool = False,
     ) -> dict:
-        """Load TOML and normalize it to the current config schema."""
-        raw_config = self._load_toml(path)
+        """Load TOML and normalize it to the current config schema.
+
+        `strict` is forwarded: a caller about to WRITE the file back needs an
+        unparseable one to raise rather than read as empty.
+        """
+        raw_config = self._load_toml(path, strict=strict)
         if not raw_config:
             return {}
 
@@ -373,6 +391,10 @@ class TitanConfig:
         config_data = self._load_and_migrate_toml(
             self._global_config_path,
             migration_manager=self.global_migration_manager,
+            # Strict for the same reason as the preferences saver: what this returns is
+            # what gets written back, so an unparseable file must raise instead of
+            # being replaced by `{}` plus whatever section is being saved.
+            strict=True,
         )
         ai_cfg = config_data.setdefault("ai", {})
         ai_cfg.setdefault("connections", {})
@@ -492,13 +514,25 @@ class TitanConfig:
             return None
         return self.config.ai.cli_models.get(cli_name)
 
+    def _project_overrides_ai(self, key: str) -> bool:
+        """Whether the PROJECT config supplies this `[ai]` key.
+
+        `self.config` is the merged model, and `_merge_configs` lets a project's `[ai]`
+        table win for everything except connections. Writing a freshly-saved GLOBAL
+        value straight onto the merged model would therefore make the session use the
+        global one and silently revert to the project's on the next `load()` - visible
+        to nobody until a workflow ran with the wrong CLI.
+        """
+        project_ai = (self.project_config or {}).get("ai")
+        return isinstance(project_ai, dict) and key in project_ai
+
     def _sync_in_memory_cli_models(self, models: dict) -> None:
         """Keep the parsed `self.config.ai.cli_models` in step with what was just written.
 
         Same reason as `_sync_in_memory_default_cli`: the next workflow step resolves its
         route off the in-memory config, not off disk.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("cli_models"):
             return
         if self.config.ai:
             self.config.ai.cli_models = dict(models)
@@ -513,7 +547,7 @@ class TitanConfig:
         a workflow step, or the screen repainting its rows - would otherwise keep using the
         previous value until a full reload.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("default_cli"):
             return
         if self.config.ai:
             self.config.ai.default_cli = cli_name
@@ -526,34 +560,59 @@ class TitanConfig:
             self._global_config_path,
             migration_manager=self.global_migration_manager,
         )
-        ai_cfg = config_data.setdefault("ai", {})
-        prefs = ai_cfg.setdefault("preferences", {})
-        prefs.setdefault("tasks", {})
+        # Normalized at every level rather than assumed: this is a hand-editable TOML
+        # file, so `ai`, `preferences` or `tasks` can be a string or a list after an
+        # edit or a half-applied migration, and `setdefault` on one would raise
+        # AttributeError deep inside the model picker. The favourites path in this same
+        # file already guards this way.
+        ai_cfg = config_data.get("ai")
+        if not isinstance(ai_cfg, dict):
+            ai_cfg = {}
+            config_data["ai"] = ai_cfg
+        prefs = ai_cfg.get("preferences")
+        if not isinstance(prefs, dict):
+            prefs = {}
+            ai_cfg["preferences"] = prefs
+        tasks = prefs.get("tasks")
+        if not isinstance(tasks, dict):
+            prefs["tasks"] = {}
+        else:
+            # One level deeper than the comment used to promise: a hand-edited
+            # `tasks.commit = "claude"` passed the table check and then raised
+            # AttributeError inside `_set_task_ai_pin`, before AIPreferences could
+            # reject it.
+            prefs["tasks"] = {k: v for k, v in tasks.items() if isinstance(v, dict)}
         return prefs
 
     def save_ai_preferences_config(self, preferences: dict) -> None:
         """Persist global AI preferences without touching AI connections."""
+        # Strict: this rebuilds the entire file from what it reads, so an unparseable
+        # config must raise instead of being silently replaced by `{}` plus `[ai]`.
         config_data = self._load_and_migrate_toml(
             self._global_config_path,
             migration_manager=self.global_migration_manager,
+            strict=True,
         )
         config_data["config_version"] = (
             self.config.config_version if getattr(self, "config", None) else "1.0"
         )
+        # Validated BEFORE the write: this used to happen in the in-memory sync
+        # afterwards, so an invalid payload landed on disk while the caller was told the
+        # save had failed and memory kept the old value.
+        parsed = AIPreferences(**preferences)
         config_data.setdefault("ai", {})["preferences"] = preferences
         self._write_global_config(config_data)
-        self._sync_in_memory_ai_preferences(preferences)
+        self._sync_in_memory_ai_preferences(parsed)
 
-    def _sync_in_memory_ai_preferences(self, preferences: dict) -> None:
+    def _sync_in_memory_ai_preferences(self, parsed: "AIPreferences") -> None:
         """
         Keep the already-parsed `self.config.ai.preferences` in sync with what
         was just persisted to disk, so a caller holding this same TitanConfig
         instance (e.g. a workflow step, in the same process) sees the new
         preference immediately, without needing a full `.load()`.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("preferences"):
             return
-        parsed = AIPreferences(**preferences)
         if self.config.ai:
             self.config.ai.preferences = parsed
         else:
@@ -705,7 +764,15 @@ class TitanConfig:
             existing = {"provider": provider}
             prefs["tasks"][task] = existing
 
-        changed_instance = key in _INSTANCE_PIN_KEYS and existing.get(key) != value
+        # Only when the pin being touched is the one that actually serves this task:
+        # a `cli` pin on a remote task is inert (see AIProviderPreference), so it never
+        # owned the model it would otherwise invalidate - and the caller would be told
+        # about a change the user did not make.
+        changed_instance = (
+            key in _INSTANCE_PIN_KEYS
+            and existing.get(key) != value
+            and _transport_of(existing.get("provider")) == _TRANSPORT_OF_PIN[key]
+        )
         existing[key] = value
         dropped = self._drop_stale_model(existing) if changed_instance else None
         self.save_ai_preferences_config(prefs)
@@ -723,7 +790,12 @@ class TitanConfig:
         if not existing or key not in existing:
             return None
         del existing[key]
-        dropped = self._drop_stale_model(existing) if key in _INSTANCE_PIN_KEYS else None
+        dropped = (
+            self._drop_stale_model(existing)
+            if key in _INSTANCE_PIN_KEYS
+            and _transport_of(existing.get("provider")) == _TRANSPORT_OF_PIN[key]
+            else None
+        )
         self.save_ai_preferences_config(prefs)
         return dropped
 

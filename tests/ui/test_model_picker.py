@@ -164,6 +164,10 @@ class TestQuickModelShortcut:
                 await pilot.pause()
                 for _ in range(6):
                     await pilot.pause()
+                # `home` first: this connection's current model is not one the gateway
+                # publishes, so the highlight deliberately starts on "type one" rather
+                # than on a model the user never chose.
+                await pilot.press("home")
                 await pilot.press("enter")
                 await pilot.pause()
                 app.screen.query_one("#quick-instance-save", Button).press()

@@ -72,7 +72,17 @@ def model_listing_lines(cmd: list[str], timeout: int = 20) -> list[str]:
         # a ValueError, which the handler below does not catch - straight through a
         # function whose whole contract is that nothing here raises.
         result = subprocess.run(
-            cmd, capture_output=True, text=True, errors="replace", timeout=timeout
+            cmd,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+            # The child must not reach the terminal. This runs under a Textual app, so
+            # a CLI that prompts - not logged in, a pager, a TTY confirmation - would
+            # read the user's keystrokes out from under the TUI and only give up when
+            # the timeout expires. Listing models is never a precondition, so a CLI
+            # that wants input gets EOF and contributes nothing.
+            stdin=subprocess.DEVNULL,
         )
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return []

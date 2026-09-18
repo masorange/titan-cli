@@ -8,6 +8,7 @@ import tomli
 import tomli_w
 
 from titan_cli.core.config import TitanConfig
+from titan_cli.core.models import AIConfig
 
 
 @pytest.fixture
@@ -379,12 +380,31 @@ class TestClearPathsKeepTheLiveConfigInSync:
             "opencode": "anthropic/claude-sonnet-5"
         }
 
-    def test_setting_a_task_model_reports_what_it_dropped(self, config: TitanConfig):
-        """`set_task_ai_model` is annotated to return it; it used to return None always."""
+    def test_replacing_a_model_pin_drops_nothing_and_reports_nothing(
+        self, config: TitanConfig
+    ):
+        """
+        Only an INSTANCE change invalidates a model, so replacing one reports nothing.
+
+        This test used to be called "reports what it dropped" while asserting `is None`
+        — which is what the setter returns unconditionally, since `"model"` is not in
+        `_INSTANCE_PIN_KEYS`. It passed whether or not any reporting existed and
+        documented a guarantee the code does not make.
+        """
         config.set_task_ai_cli("commit_message", "claude", provider="cli_headless")
         config.set_task_ai_model("commit_message", "opus")
 
         assert config.set_task_ai_model("commit_message", "haiku") is None
+        assert _written_preferences(config)["tasks"]["commit_message"]["model"] == "haiku"
+
+    def test_clearing_an_instance_pin_reports_the_model_it_invalidated(
+        self, config: TitanConfig
+    ):
+        """The clear path has the same contract as the set path, and no test had it."""
+        config.set_task_ai_cli("code_review_plan", "claude", provider="cli_headless")
+        config.set_task_ai_model("code_review_plan", "opus")
+
+        assert config.clear_task_ai_cli("code_review_plan") == "opus"
 
 
 class TestChangingTheKindKeepsWhatStillMakesSense:
@@ -451,3 +471,76 @@ class TestChangingTheKindKeepsWhatStillMakesSense:
         config.set_task_ai_provider("commit_message", "off")
 
         assert _written_preferences(config)["tasks"]["commit_message"] == {"provider": "off"}
+
+
+class TestAHandEditedConfigDoesNotCrashThePicker:
+    """
+    `~/.titan/config.toml` is editable by hand, so every level has to be checked.
+
+    A string where a table was expected used to raise AttributeError out of
+    `setdefault`, surfacing as a crash in the model picker rather than as a config
+    problem.
+    """
+
+    @staticmethod
+    def _write(raw: dict):
+        with open(TitanConfig.GLOBAL_CONFIG, "wb") as f:
+            tomli_w.dump(raw, f)
+
+    def test_a_non_table_ai_section_is_normalized(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": "broken"})
+
+        assert config.get_ai_preferences_config() == {"tasks": {}}
+
+    def test_a_non_table_preferences_section_is_normalized(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": {"preferences": ["nope"]}})
+
+        assert config.get_ai_preferences_config() == {"tasks": {}}
+
+    def test_a_non_table_tasks_section_is_normalized(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": {"preferences": {"tasks": "nope"}}})
+
+        assert config.get_ai_preferences_config()["tasks"] == {}
+
+    def test_writing_still_works_afterwards(self, config: TitanConfig):
+        self._write({"config_version": "1.0", "ai": {"preferences": "broken"}})
+
+        config.upsert_task_ai_preference("commit_message", {"provider": "off"})
+
+        assert _written_preferences(config)["tasks"]["commit_message"] == {"provider": "off"}
+
+
+class TestAProjectOverrideIsNotTrampled:
+    """
+    The in-memory sync must not write a global value over a project's own (review).
+
+    `self.config` is the merged model and `_merge_configs` lets a project's `[ai]` table
+    win, so copying a freshly-saved GLOBAL value onto it made the session use the global
+    one and silently revert on the next `load()` — the same staleness class as
+    `ai-exec-019`, visible to nobody until a workflow ran with the wrong CLI.
+    """
+
+    def test_a_project_default_cli_survives_a_global_save(self, config: TitanConfig):
+        config.project_config = {"ai": {"default_cli": "opencode"}}
+        config.config.ai = AIConfig(default_cli="opencode")
+
+        config.set_default_ai_cli("claude")
+
+        assert config.config.ai.default_cli == "opencode"          # session unchanged
+        assert TitanConfig().config.ai.default_cli == "claude"      # global written
+
+    def test_a_project_cli_models_table_survives_a_global_save(self, config: TitanConfig):
+        config.project_config = {"ai": {"cli_models": {"claude": "sonnet"}}}
+        config.config.ai = AIConfig(cli_models={"claude": "sonnet"})
+
+        config.set_cli_model("claude", "opus")
+
+        assert config.config.ai.cli_models == {"claude": "sonnet"}
+        assert TitanConfig().get_cli_model("claude") == "opus"
+
+    def test_without_a_project_override_the_session_still_updates(self, config: TitanConfig):
+        config.project_config = {}
+
+        config.set_default_ai_cli("claude")
+
+        assert config.config.ai.default_cli == "claude"

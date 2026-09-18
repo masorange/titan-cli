@@ -18,6 +18,7 @@ to a different provider.
 """
 
 import time
+from dataclasses import replace
 from typing import Any, Callable, Dict, Optional, Union
 
 from titan_cli.ai.client import AIClient
@@ -32,7 +33,7 @@ from titan_cli.external_cli.adapters import get_headless_adapter
 
 from .availability import AIAvailabilityChecker
 from .declaration import get_declared_ai_policy
-from .enums import AIProviderType, provider_label
+from .enums import AIProviderType, AIRouteOrigin, provider_label
 from .models import (
     AIExecutionError,
     AIExecutionResult,
@@ -79,9 +80,26 @@ def route_summary(decision: AIRouteDecision) -> str:
     label = provider_label(decision.provider)
     if not instance:
         return label
+
+    # Where each part came from, because "why is it using that?" is the question a chip
+    # cannot answer with names alone - and the answer is sometimes `step`, which no key
+    # the user pressed can override.
+    same = (
+        decision.instance_origin
+        and decision.instance_origin == decision.model_origin
+    )
+    if decision.model and same:
+        return f"{instance} / {decision.model} · {label} · {decision.instance_origin}"
     if decision.model:
-        return f"{instance} / {decision.model} · {label}"
-    return f"{instance} · {label}"
+        return (
+            f"{instance}{_origin_suffix(decision.instance_origin)} / "
+            f"{decision.model}{_origin_suffix(decision.model_origin)} · {label}"
+        )
+    return f"{instance}{_origin_suffix(decision.instance_origin)} · {label}"
+
+
+def _origin_suffix(origin: Optional[str]) -> str:
+    return f" ({origin})" if origin else ""
 
 
 class AIExecutor:
@@ -158,6 +176,8 @@ class AIExecutor:
                 provider=str(resolution.provider),
                 identifier=resolution.cli or resolution.connection_id,
                 model=resolution.model,
+                instance_origin=resolution.instance_origin,
+                model_origin=resolution.model_origin,
                 reason=resolution.reason,
             )
 
@@ -216,6 +236,10 @@ class AIExecutor:
         if isinstance(resolution, AIRouteNeedsInput):
             return self._needs_input_error(resolution)
 
+        # Narrowed once and reused: announcing a corrected decision while dispatching
+        # and RETURNING the resolver's would leave `result.decision.model` naming a
+        # model that did not run.
+        resolution = self.announced_decision(resolution, model)
         self._announce(announce, resolution)
 
         match resolution.provider:
@@ -290,6 +314,10 @@ class AIExecutor:
         if isinstance(resolution, AIRouteNeedsInput):
             return self._needs_input_error(resolution)
 
+        # Narrowed once and reused: announcing a corrected decision while dispatching
+        # and RETURNING the resolver's would leave `result.decision.model` naming a
+        # model that did not run.
+        resolution = self.announced_decision(resolution, model)
         self._announce(announce, resolution)
 
         match resolution.provider:
@@ -331,6 +359,21 @@ class AIExecutor:
         if not self.ai_config:
             return None
         return self.ai_config.cli_models.get(cli)
+
+    @staticmethod
+    def announced_decision(
+        decision: AIRouteDecision, model: Optional[str]
+    ) -> AIRouteDecision:
+        """The decision as the user should see it, once a call-site model is applied.
+
+        The resolver cannot know about `model=`: it is the step's own requirement, and
+        it outranks every rung the resolver ranked. Announcing the resolver's decision
+        unchanged would name a model that is not the one about to run, and hide the only
+        origin a user cannot change from the UI.
+        """
+        if model is None or model == decision.model:
+            return decision
+        return replace(decision, model=model, model_origin=AIRouteOrigin.STEP)
 
     def model_for_decision(
         self, decision: AIRouteDecision, model: Optional[str] = None

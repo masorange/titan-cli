@@ -669,3 +669,96 @@ class TestRefreshingTheListKeepsEveryRowItself:
             assert f"command: {identifier}" in prompt, (
                 f"row {identifier!r} is painted with another row's text: {prompt!r}"
             )
+
+
+class TestTheReviewsSecondRound:
+    """Defects the 2026-09-18 review found in the redesign itself (air-017)."""
+
+    def test_the_inherit_row_does_not_shift_the_initial_highlight(self, monkeypatch):
+        """
+        `M` opened the model picker for the wrong instance on a per-task pin.
+
+        `_options()` puts the inherit row at index 0, so the list index runs one ahead
+        of the choice index; `_highlighted_instance` compensated and `on_mount` did not.
+        """
+        from titan_cli.ui.tui.screens.ai_routing import (
+            InstanceChoice,
+            QuickInstanceModal,
+        )
+
+        captured = {}
+
+        async def run():
+            app = TitanApp(_config(), initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                modal = QuickInstanceModal(
+                    "Which CLI?",
+                    [InstanceChoice("claude", "Claude"), InstanceChoice("codex", "Codex")],
+                    current="codex",
+                    allow_session=False,
+                    inherit_label="Follow the default (claude)",
+                )
+                app.push_screen(modal)
+                await pilot.pause()
+                await pilot.pause()
+                captured["highlighted"] = modal._highlighted_instance()
+
+        asyncio.run(run())
+
+        assert captured["highlighted"] == "codex"
+
+    def test_a_second_picker_cannot_be_stacked_over_the_model_step(self, monkeypatch):
+        """
+        The guard only checked the topmost screen.
+
+        While the model picker is on top, `self.screen` is that picker, so F2 passed the
+        guard and stacked a second composer whose callbacks still wrote into the first.
+        """
+        from titan_cli.ui.tui.screens.ai_routing import QuickInstanceModal
+
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(_config(), initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                captured["composers"] = sum(
+                    isinstance(s, QuickInstanceModal) for s in app.screen_stack
+                )
+
+        asyncio.run(run())
+
+        assert captured["composers"] == 1
+
+    def test_a_session_model_reaches_a_launched_cli(self, monkeypatch):
+        """
+        It was advertised in the status bar and never passed to the CLI.
+
+        `launch_external_cli` re-read the persisted global pin, so a session-only model
+        showed as active while the launched CLI ran something else.
+        """
+        config = _config(cli_models={"claude": "opus"})
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.ai_session_override.cli = "claude"
+                app.ai_session_override.cli_model = "haiku"
+                captured["model"] = app.model_for_cli("claude")
+                captured["other"] = app.model_for_cli("codex")
+
+        asyncio.run(run())
+
+        assert captured["model"] == "haiku"
+        # An override for one CLI must not follow you to another.
+        assert captured["other"] != "haiku"
