@@ -1109,3 +1109,70 @@ class TestAModelOnlySessionOverride:
         override = AISessionOverride(cli="claude", cli_model="opus")
 
         assert override.use_cli("codex") == "opus"
+
+
+class TestTheDecisionSaysWhereEachPartCameFrom:
+    """
+    A decision names its origins, so a run can say WHY it is using what it is using.
+
+    Per part, not per decision: the instance and the model are resolved by rung
+    independently (D-008), so `codex` from a session override with `opus` from the
+    global setting is a normal state and one label for both would be false.
+    """
+
+    def test_a_pin_is_reported_as_pinned(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="gemini", model="flash"),
+            FakeAvailability(headless=["claude", "gemini"]),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.instance_origin, decision.model_origin) == ("pinned", "pinned")
+
+    def test_the_global_default_is_reported_as_default(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli_models={"claude": "haiku"}),
+            FakeAvailability(headless=["claude"]),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.instance_origin, decision.model_origin) == ("default", "default")
+
+    def test_a_session_override_is_reported_as_session(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless"),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=AISessionOverride(cli="codex", cli_model="gpt-5.6-terra"),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.instance_origin, decision.model_origin) == ("session", "session")
+
+    def test_the_two_parts_can_disagree(self):
+        """The case a single label would lie about."""
+        resolver = AIRouteResolver(
+            _pinned_config(
+                "commit_message", "cli_headless", cli_models={"codex": "gpt-5.6-terra"}
+            ),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert decision.instance_origin == "session"
+        assert decision.model_origin == "default"
+
+    def test_a_model_with_no_pin_anywhere_has_no_origin(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless"),
+            FakeAvailability(headless=["claude"]),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert decision.model is None
+        assert decision.model_origin is None
