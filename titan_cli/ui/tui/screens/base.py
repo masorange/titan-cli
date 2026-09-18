@@ -136,10 +136,10 @@ class BaseScreen(Screen):
                 connection_cfg.provider or connection_cfg.gateway_backend
             )
             model = connection_cfg.default_model or "default"
-            if override is not None and override.model:
-                model = override.model
+            if override is not None and override.connection_model:
+                model = override.connection_model
             ai_info = f"F3 {source_name} / {model}"
-            if override is not None and (override.connection or override.model):
+            if override is not None and (override.connection or override.connection_model):
                 ai_info = f"{ai_info} *"
 
         # F2 cell: the CLI Titan runs, and the model pinned to it. An unset model reads as
@@ -152,9 +152,9 @@ class BaseScreen(Screen):
         if ai_config and ai_config.default_cli:
             cli = ai_config.default_cli
             cli_info = f"F2 {cli} / {ai_config.cli_models.get(cli) or 'default'}"
-        if override is not None and (override.cli or override.model):
+        if override is not None and (override.cli or override.cli_model):
             cli = override.cli or (ai_config.default_cli if ai_config else None) or "—"
-            model = override.model or (
+            model = override.cli_model or (
                 ai_config.cli_models.get(cli) if ai_config and cli else None
             )
             cli_info = f"F2 {cli} / {model or 'default'} *"

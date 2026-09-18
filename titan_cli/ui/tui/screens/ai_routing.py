@@ -11,7 +11,7 @@ in the connections grid.
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Mapping, Optional, Sequence
+from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
@@ -34,6 +34,7 @@ from titan_cli.core.workflows.ai_usage_discovery import (
     DiscoveredWorkflowAIUsage,
 )
 from titan_cli.ui.tui.icons import Icons
+from titan_cli.ui.tui.screens.model_picker import DEFAULT_OPTION_ID
 from titan_cli.ui.tui.widgets import (
     Button,
     DimText,
@@ -359,188 +360,6 @@ class SelectProviderTypeModal(ModalScreen[Optional[str]]):
         self.dismiss(None)
 
 
-@dataclass(frozen=True)
-class QuickCliResult:
-    """What the quick picker was asked to do with a CLI.
-
-    Several outcomes, not one: the same row answers "run this from now on", "run it with
-    this model", and "run it just for this session". Collapsing them into a bare name
-    would leave the caller guessing which was meant - and the difference between the
-    first and the third is whether anything is written to the user's config at all.
-    """
-
-    cli_name: str
-    pick_model: bool = False
-    session_only: bool = False
-    clear_session: bool = False
-
-
-class QuickCliModal(ModalScreen[Optional["QuickCliResult"]]):
-    """
-    Quick picker for the global default CLI, reachable from any screen via a keybinding.
-
-    The same single choice the AI Configuration screen's CLI section offers, without the
-    navigation: Enter runs that CLI from now on, `m` opens its model picker instead, and
-    Escape leaves everything untouched. Dismisses with a `QuickCliResult`, or `None` if
-    cancelled.
-    """
-
-    DEFAULT_CSS = """
-    QuickCliModal {
-        align: center middle;
-    }
-
-    #quick-cli-container {
-        width: 74;
-        height: auto;
-        max-height: 26;
-        background: $surface-lighten-1;
-        border: solid $primary;
-        padding: 2;
-    }
-
-    #quick-cli-list {
-        height: auto;
-        max-height: 16;
-        margin-top: 1;
-    }
-    """
-
-    BINDINGS = [
-        ("escape", "dismiss_modal", "Cancel"),
-        ("m", "pick_model", "Model"),
-        ("s", "use_for_session", "This session"),
-        ("c", "clear_session", "Clear override"),
-    ]
-
-    def __init__(
-        self,
-        installed: Sequence[str],
-        *,
-        current: Optional[str],
-        models: Optional[Dict[str, str]] = None,
-        session_override=None,
-        pinned_tasks: Optional[Sequence[str]] = None,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.installed = list(installed)
-        self.current = current if current in self.installed else None
-        self.models = dict(models or {})
-        self.session_override = session_override
-        self.pinned_tasks = list(pinned_tasks or ())
-
-    def compose(self) -> ComposeResult:
-        from titan_cli.external_cli.configs import CLI_REGISTRY
-
-        with Container(id="quick-cli-container"):
-            yield Static(f"{Icons.AI_CONFIG} Which CLI should Titan run?")
-            if not self.installed:
-                yield WarningText(
-                    f"{Icons.WARNING} No supported CLI is installed. "
-                    "Install one and reopen this picker."
-                )
-                yield DimText("Esc to close.")
-                return
-            options = []
-            for name in self.installed:
-                display_name = CLI_REGISTRY.get(name, {}).get("display_name", name)
-                marker = f" {Icons.CHECK}" if name == self.current else ""
-                options.append(
-                    StyledOption(
-                        id=name,
-                        title=f"{display_name}{marker}",
-                        description=cli_option_description(name, self.models.get(name)),
-                    )
-                )
-            yield StyledOptionList(*options, id="quick-cli-list")
-
-            override = self.session_override
-            if override is not None and override.is_active:
-                yield WarningText(
-                    f"{Icons.WARNING} Session override active: {override.describe()}. "
-                    "C to clear it."
-                )
-
-            # Tasks that pin their own CLI will not follow this choice. Saying so here is
-            # what stops the key from looking broken: without it, a pinned task silently
-            # ignoring F2 reads as a bug rather than as the setting the user asked for.
-            if self.pinned_tasks:
-                count = len(self.pinned_tasks)
-                names = ", ".join(self.pinned_tasks[:3])
-                more = f" and {count - 3} more" if count > 3 else ""
-                yield DimText(
-                    f"{count} task{'s' if count != 1 else ''} pin their own CLI and will "
-                    f"not change: {names}{more}."
-                )
-
-            yield DimText(
-                "Enter to set it · S for this session only · M to choose its model · "
-                "Esc to cancel."
-            )
-
-    def on_mount(self) -> None:
-        if self.current is None or not self.installed:
-            return
-        index = self.installed.index(self.current)
-        self.call_after_refresh(self._highlight, index)
-
-    def _highlight(self, index: int) -> None:
-        try:
-            option_list = self.query_one(StyledOptionList)
-        except NoMatches:
-            return
-        option_list.highlighted = index
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option_list.id != "quick-cli-list":
-            return
-        if event.option.id is not None:
-            self.dismiss(QuickCliResult(event.option.id))
-
-    def action_pick_model(self) -> None:
-        """Hand the highlighted CLI back for a model choice, without making it default.
-
-        Choosing a model is not choosing the CLI: pinning a model on one you are not
-        switching to is a normal thing to do, and silently making it default as a side
-        effect would change what runs your next workflow.
-        """
-        highlighted = self._highlighted_cli()
-        if highlighted is not None:
-            self.dismiss(QuickCliResult(highlighted, pick_model=True))
-
-    def action_use_for_session(self) -> None:
-        """Use the highlighted CLI for this session only, writing nothing to config.
-
-        The saved default is what the user decided; this is what they are trying. Keeping
-        them apart is the whole point - otherwise every experiment silently rewrites the
-        configuration it was meant to sidestep.
-        """
-        highlighted = self._highlighted_cli()
-        if highlighted is not None:
-            self.dismiss(QuickCliResult(highlighted, session_only=True))
-
-    def action_clear_session(self) -> None:
-        """Drop any session override, so saved configuration applies again."""
-        override = self.session_override
-        if override is None or not override.is_active:
-            return
-        self.dismiss(QuickCliResult("", clear_session=True))
-
-    def _highlighted_cli(self) -> Optional[str]:
-        try:
-            option_list = self.query_one(StyledOptionList)
-        except NoMatches:
-            return None
-        index = option_list.highlighted
-        if index is None or not (0 <= index < len(self.installed)):
-            return None
-        return self.installed[index]
-
-    def action_dismiss_modal(self) -> None:
-        self.dismiss(None)
-
-
 # Sentinel option id meaning "stop pinning; follow whatever the global default is".
 # A pin is an override, so removing one has to be expressible in the same picker that
 # sets it - otherwise the only way back is the row's Clear, which also drops the
@@ -550,11 +369,421 @@ TASK_CLI_INHERIT_OPTION = "__inherit__"
 
 @dataclass(frozen=True)
 class InstanceChoice:
-    """One selectable instance - a CLI or a remote connection - and how it reads."""
+    """One selectable instance - a CLI or a remote connection - and how it reads.
+
+    `model` is the one that instance runs today. It rides along because a picker showing
+    "codex / haiku" after you highlight codex - haiku being claude's model - is the same
+    class of mistake the routing layer spent D-007 and D-008 removing, and it cannot be
+    avoided by a widget that only knows the CURRENT instance's model.
+    """
 
     identifier: str
     title: str
     description: str = ""
+    model: Optional[str] = None
+
+
+def cli_choices(
+    installed: Sequence[str], models: Optional[Dict[str, str]] = None
+) -> List[InstanceChoice]:
+    """Installed CLIs, described the way the global CLI section describes them."""
+    from titan_cli.external_cli.configs import CLI_REGISTRY
+
+    pinned_models = dict(models or {})
+    return [
+        InstanceChoice(
+            identifier=name,
+            title=CLI_REGISTRY.get(name, {}).get("display_name", name),
+            description=cli_option_description(name, pinned_models.get(name)),
+            model=pinned_models.get(name),
+        )
+        for name in installed
+    ]
+
+
+def connection_choices(connections: Mapping[str, object]) -> List[InstanceChoice]:
+    """Configured remote connections, described by what answers and with which model."""
+    return [
+        InstanceChoice(
+            identifier=connection_id,
+            title=getattr(cfg, "name", connection_id),
+            description=(
+                f"model: {getattr(cfg, 'default_model', None) or 'connection default'}"
+            ),
+            model=getattr(cfg, "default_model", None),
+        )
+        for connection_id, cfg in connections.items()
+    ]
+
+
+@dataclass(frozen=True)
+class QuickPickResult:
+    """What the quick picker was composed into, and what scope to apply it at.
+
+    Every field is a change the user actually made: `None` means "leave this alone", so a
+    result that changes nothing is possible and means exactly that.
+    """
+
+    instance: Optional[str] = None
+    model: Optional[str] = None
+    clear_model: bool = False
+    session_only: bool = False
+    clear_session: bool = False
+
+    @property
+    def changes_anything(self) -> bool:
+        return bool(self.instance or self.model or self.clear_model or self.clear_session)
+
+
+# What the modal calls to ask for a model, given the instance it is composing for. The
+# modal knows nothing about config, brokers or gateways; the caller supplies this.
+#   (instance, current_model, on_picked) -> None
+OpenModelPicker = Callable[[str, Optional[str], Callable[[Optional[str]], None]], None]
+
+
+class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
+    """
+    The quick picker behind F2 and F3: one component, two vocabularies.
+
+    F2 loads it with CLIs and F3 with remote connections. They are the same question asked
+    of different transports, so they are the same widget - a change to one IS a change to
+    both, which is the only way the two keys stay honest about each other (domain symmetry
+    rule, D-006).
+
+    It is a FORM, not a list that acts on the first keystroke. Choosing a row marks a
+    pending selection and moves focus to Save; `M` asks for a model and comes back here
+    rather than closing and writing; Cancel writes nothing, the model included. The scope
+    is the LAST decision rather than the first: Save persists, `S` applies the same
+    composition for this session only. That ordering is what makes a session-scoped model
+    expressible at all (D-009).
+    """
+
+    DEFAULT_CSS = """
+    QuickInstanceModal {
+        align: center middle;
+    }
+
+    #quick-instance-container {
+        width: 78;
+        height: auto;
+        /* Bounded by the viewport, not by a fixed number of rows: the list gives up
+           space first, so the pending line and the hint - the only things that explain
+           what the keys do - are never what gets clipped. A fixed max-height hid them
+           exactly when there was most to say. `vh` rather than `%`, which resolves
+           against the centred screen and left dead space below the buttons. */
+        max-height: 90vh;
+        background: $surface-lighten-1;
+        border: solid $primary;
+        padding: 2;
+    }
+
+    #quick-instance-list {
+        height: auto;
+        max-height: 55vh;
+        margin-top: 1;
+    }
+
+    #quick-instance-pending {
+        margin-top: 1;
+    }
+
+    #quick-instance-pinned {
+        margin-top: 1;
+    }
+
+    #quick-instance-hint {
+        margin-top: 1;
+    }
+
+    #quick-instance-buttons {
+        height: auto;
+        align: right middle;
+        margin-top: 1;
+    }
+
+    #quick-instance-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("m", "pick_model", "Model"),
+        ("s", "use_for_session", "This session"),
+        ("c", "clear_session", "Clear override"),
+    ]
+
+    def __init__(
+        self,
+        question: str,
+        choices: Sequence[InstanceChoice],
+        *,
+        noun: str = "CLI",
+        current: Optional[str] = None,
+        current_model: Optional[str] = None,
+        session_override=None,
+        pinned_tasks: Optional[Sequence[str]] = None,
+        open_model_picker: Optional[OpenModelPicker] = None,
+        empty_message: Optional[str] = None,
+        **kwargs,
+    ):
+        """
+        Args:
+            question: The heading, e.g. "Which CLI should Titan run?".
+            choices: The instances on offer, already rendered for display.
+            noun: "CLI" or "connection". Wording only.
+            current: What is in force now, and where the pending selection starts.
+            current_model: The model in force for `current`, shown while nothing is pending.
+            session_override: The live `AISessionOverride`, to report and to clear.
+            pinned_tasks: Tasks that pin their own instance, named so the key is not
+                mistaken for broken when they do not follow a Save.
+            open_model_picker: How to ask for a model. Keeps config out of this widget.
+            empty_message: Shown instead of the list when nothing is available.
+        """
+        super().__init__(**kwargs)
+        self.question = question
+        self.choices = list(choices)
+        self.noun = noun
+        self.current = current
+        self.current_model = current_model
+        self.session_override = session_override
+        self.pinned_tasks = list(pinned_tasks or ())
+        self.open_model_picker = open_model_picker
+        self.empty_message = empty_message
+
+        self.pending_instance = current
+        self.pending_model: Optional[str] = None
+        self.model_touched = False
+
+    # --- rendering ---------------------------------------------------------
+
+    def compose(self) -> ComposeResult:
+        with Container(id="quick-instance-container"):
+            yield Static(f"{Icons.AI_CONFIG} {self.question}")
+            if not self.choices:
+                yield WarningText(
+                    f"{Icons.WARNING} "
+                    + (self.empty_message or f"No {self.noun} is available.")
+                )
+                yield DimText("Esc to close.")
+                return
+
+            yield StyledOptionList(*self._options(), id="quick-instance-list")
+            yield DimText(self._pending_text(), id="quick-instance-pending")
+
+            override = self.session_override
+            if override is not None and override.is_active:
+                yield WarningText(
+                    f"{Icons.WARNING} Session override active: {override.describe()}. "
+                    "C to clear it."
+                )
+
+            # Tasks pinning their own instance do not follow a SAVE - but `S` still moves
+            # them, because a session override outranks a pin (D-008). Saying "will not
+            # change" flatly would be a lie in the one line written to prevent one.
+            if self.pinned_tasks:
+                count = len(self.pinned_tasks)
+                names = ", ".join(self.pinned_tasks[:3])
+                more = f" and {count - 3} more" if count > 3 else ""
+                yield DimText(
+                    f"{count} task{'s' if count != 1 else ''} pin their own {self.noun} and "
+                    f"will not follow a save: {names}{more}. S still applies to them.",
+                    id="quick-instance-pinned",
+                )
+
+            yield DimText(
+                "Enter to choose · M for its model · S for this session only · "
+                "Esc to cancel. Nothing is saved until you accept.",
+                id="quick-instance-hint",
+            )
+            with Horizontal(id="quick-instance-buttons"):
+                yield Button("Cancel", variant="default", id="quick-instance-cancel")
+                yield Button("This session", variant="default", id="quick-instance-session")
+                yield Button("Save", variant="primary", id="quick-instance-save")
+
+    def _options(self) -> List[StyledOption]:
+        """One row per instance, marking what is SAVED and what is PENDING apart.
+
+        Two different facts that a single check mark would blur: the user has to be able
+        to see what Save is about to do before pressing it.
+        """
+        options = []
+        for choice in self.choices:
+            marks = ""
+            if choice.identifier == self.current:
+                marks += f" {Icons.CHECK}"
+            if choice.identifier == self.pending_instance != self.current:
+                marks += " (selected)"
+            options.append(
+                StyledOption(
+                    id=choice.identifier,
+                    title=f"{choice.title}{marks}",
+                    description=choice.description,
+                )
+            )
+        return options
+
+    def _pending_text(self) -> str:
+        """One line naming what accepting would do, and for how long.
+
+        The scope has to be here and not only on the buttons: "Will apply: codex / haiku"
+        reads the same whether it is about to be written to disk or held until the app
+        closes, and those are very different things to do by accident.
+        """
+        instance = self.pending_instance or self.current
+        model = (
+            self.pending_model if self.model_touched else self._model_of(instance)
+        )
+        if not self._has_changes():
+            return f"Currently: {instance or '—'} / {model or 'default'}"
+        # No model of its own reads as "its own default", never as "unchanged": the
+        # question the line answers is what will run, and that instance running its own
+        # default IS the answer.
+        return (
+            f"Will apply: {instance or '—'} / {model or f'{self.noun} default'}"
+            "  —  Save to keep it, S for this session only"
+        )
+
+    def _model_of(self, instance: Optional[str]) -> Optional[str]:
+        """The model that instance runs today, as the list itself reports it."""
+        if not instance:
+            return None
+        for choice in self.choices:
+            if choice.identifier == instance:
+                return choice.model
+        return self.current_model if instance == self.current else None
+
+    def _has_changes(self) -> bool:
+        return self.pending_instance != self.current or self.model_touched
+
+    def _refresh(self) -> None:
+        try:
+            option_list = self.query_one("#quick-instance-list", StyledOptionList)
+            pending = self.query_one("#quick-instance-pending", DimText)
+        except NoMatches:
+            return
+        # Prompts are replaced IN PLACE rather than the list being rebuilt. A
+        # clear_options() + add cycle leaves Textual painting stale lines - rows render
+        # with another row's text while their ids stay correct, which is the worst shape
+        # for it because nothing downstream disagrees with the screen. CliDefaultPicker
+        # already repaints this way for the same reason; the row set never changes here,
+        # only its markers, so there is nothing to rebuild.
+        for index, option in enumerate(self._options()):
+            option_list.replace_option_prompt_at_index(
+                index, f"[bold]{option.title}[/bold]\n[dim]{option.description}[/dim]"
+            )
+        pending.update(self._pending_text())
+
+    def on_mount(self) -> None:
+        if self.current is None or not self.choices:
+            return
+        identifiers = [c.identifier for c in self.choices]
+        if self.current in identifiers:
+            self.call_after_refresh(self._highlight, identifiers.index(self.current))
+
+    def _highlight(self, index: int) -> None:
+        try:
+            self.query_one("#quick-instance-list", StyledOptionList).highlighted = index
+        except NoMatches:
+            return
+
+    # --- composing ---------------------------------------------------------
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if getattr(event.option_list, "id", None) != "quick-instance-list":
+            return
+        if event.option.id is None:
+            return
+        if event.option.id != self.pending_instance:
+            # A model belongs to the instance it was chosen for, so choosing another
+            # instance forgets it - the same rule the config and the session override
+            # both follow (D-007).
+            self.pending_model = None
+            self.model_touched = False
+        self.pending_instance = event.option.id
+        self._refresh()
+        # Move to Save so the choice is still one Enter away, now with the consequence
+        # visible on screen first.
+        try:
+            self.query_one("#quick-instance-save", Button).focus()
+        except NoMatches:
+            pass
+
+    def action_pick_model(self) -> None:
+        """Ask for a model for the pending instance, and come back here with it."""
+        instance = self._highlighted_instance() or self.pending_instance
+        if not instance or self.open_model_picker is None:
+            return
+        if instance != self.pending_instance:
+            self.pending_instance = instance
+            self.pending_model = None
+            self.model_touched = False
+
+        current = self.pending_model if self.model_touched else self._model_of(instance)
+
+        def on_picked(model: Optional[str]) -> None:
+            if model is None:
+                return
+            self.pending_model = None if model == DEFAULT_OPTION_ID else model
+            self.model_touched = True
+            self._refresh()
+
+        self.open_model_picker(instance, current, on_picked)
+
+    def _highlighted_instance(self) -> Optional[str]:
+        try:
+            option_list = self.query_one("#quick-instance-list", StyledOptionList)
+        except NoMatches:
+            return None
+        index = option_list.highlighted
+        if index is None or not (0 <= index < len(self.choices)):
+            return None
+        return self.choices[index].identifier
+
+    # --- accepting ---------------------------------------------------------
+
+    def _result(self, *, session_only: bool) -> QuickPickResult:
+        return QuickPickResult(
+            instance=(
+                self.pending_instance
+                if self.pending_instance != self.current or session_only
+                else None
+            ),
+            model=self.pending_model if self.model_touched else None,
+            clear_model=self.model_touched and self.pending_model is None,
+            session_only=session_only,
+        )
+
+    def action_accept(self) -> None:
+        self.dismiss(self._result(session_only=False) if self._has_changes() else None)
+
+    def action_use_for_session(self) -> None:
+        """Apply the composition for this session only, writing nothing.
+
+        Unlike Save this is worth doing even with nothing changed: "run the current
+        default, but only until I close Titan" is not a thing to express, so an untouched
+        `S` is treated as choosing what is highlighted.
+        """
+        if not self._has_changes() and self._highlighted_instance():
+            self.pending_instance = self._highlighted_instance()
+        self.dismiss(self._result(session_only=True))
+
+    def action_clear_session(self) -> None:
+        override = self.session_override
+        if override is None or not override.is_active:
+            return
+        self.dismiss(QuickPickResult(clear_session=True))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "quick-instance-save":
+            self.action_accept()
+        elif event.button.id == "quick-instance-session":
+            self.action_use_for_session()
+        elif event.button.id == "quick-instance-cancel":
+            self.action_cancel()
 
 
 class SelectTaskInstanceModal(ModalScreen[Optional[str]]):
@@ -661,200 +890,12 @@ class SelectTaskInstanceModal(ModalScreen[Optional[str]]):
             yield StyledOptionList(*options, id="task-cli-list")
             yield DimText("Enter to pin it for this task only · Esc to cancel.")
 
-    @staticmethod
-    def cli_choices(
-        installed: Sequence[str], models: Optional[Dict[str, str]] = None
-    ) -> List[InstanceChoice]:
-        """Installed CLIs, described the way the global CLI section describes them."""
-        from titan_cli.external_cli.configs import CLI_REGISTRY
-
-        pinned_models = dict(models or {})
-        return [
-            InstanceChoice(
-                identifier=name,
-                title=CLI_REGISTRY.get(name, {}).get("display_name", name),
-                description=cli_option_description(name, pinned_models.get(name)),
-            )
-            for name in installed
-        ]
-
-    @staticmethod
-    def connection_choices(connections: Mapping[str, object]) -> List[InstanceChoice]:
-        """Configured remote connections, described by what answers and with which model."""
-        return [
-            InstanceChoice(
-                identifier=connection_id,
-                title=getattr(cfg, "name", connection_id),
-                description=(
-                    f"model: {getattr(cfg, 'default_model', None) or 'connection default'}"
-                ),
-            )
-            for connection_id, cfg in connections.items()
-        ]
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_list.id != "task-cli-list":
             return
         if event.option.id is not None:
             self.dismiss(event.option.id)
-
-    def action_dismiss_modal(self) -> None:
-        self.dismiss(None)
-
-
-@dataclass(frozen=True)
-class QuickConnectionResult:
-    """What the F3 picker was asked to do with a connection. Mirrors `QuickCliResult`."""
-
-    connection_id: str
-    pick_model: bool = False
-    session_only: bool = False
-    clear_session: bool = False
-
-
-class QuickConnectionModal(ModalScreen[Optional["QuickConnectionResult"]]):
-    """
-    Quick picker for the remote connection, reachable from any screen via a keybinding.
-
-    F3's counterpart to F2's `QuickCliModal`, and deliberately the same shape: Enter makes
-    it the default, S uses it for this session only, M opens its model list, C drops the
-    session override, Escape changes nothing. The two keys answer the same question of
-    different transports (D-006), so they should not need to be learned twice.
-    """
-
-    DEFAULT_CSS = """
-    QuickConnectionModal {
-        align: center middle;
-    }
-
-    #quick-connection-container {
-        width: 74;
-        height: auto;
-        max-height: 26;
-        background: $surface-lighten-1;
-        border: solid $primary;
-        padding: 2;
-    }
-
-    #quick-connection-list {
-        height: auto;
-        max-height: 16;
-        margin-top: 1;
-    }
-    """
-
-    BINDINGS = [
-        ("escape", "dismiss_modal", "Cancel"),
-        ("m", "pick_model", "Model"),
-        ("s", "use_for_session", "This session"),
-        ("c", "clear_session", "Clear override"),
-    ]
-
-    def __init__(
-        self,
-        connections: Mapping[str, object],
-        *,
-        current: Optional[str],
-        session_override=None,
-        pinned_tasks: Optional[Sequence[str]] = None,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.connections = dict(connections)
-        self.ids = list(self.connections)
-        self.current = current if current in self.connections else None
-        self.session_override = session_override
-        self.pinned_tasks = list(pinned_tasks or ())
-
-    def compose(self) -> ComposeResult:
-        with Container(id="quick-connection-container"):
-            yield Static(f"{Icons.AI_CONFIG} Which connection should answer?")
-            if not self.ids:
-                yield WarningText(
-                    f"{Icons.WARNING} No AI connection is configured. "
-                    "Add one in AI Configuration."
-                )
-                yield DimText("Esc to close.")
-                return
-
-            options = []
-            for connection_id in self.ids:
-                cfg = self.connections[connection_id]
-                marker = f" {Icons.CHECK}" if connection_id == self.current else ""
-                options.append(
-                    StyledOption(
-                        id=connection_id,
-                        title=f"{getattr(cfg, 'name', connection_id)}{marker}",
-                        description=(
-                            f"model: {getattr(cfg, 'default_model', None) or 'connection default'}"
-                        ),
-                    )
-                )
-            yield StyledOptionList(*options, id="quick-connection-list")
-
-            override = self.session_override
-            if override is not None and override.is_active:
-                yield WarningText(
-                    f"{Icons.WARNING} Session override active: {override.describe()}. "
-                    "C to clear it."
-                )
-
-            if self.pinned_tasks:
-                count = len(self.pinned_tasks)
-                names = ", ".join(self.pinned_tasks[:3])
-                more = f" and {count - 3} more" if count > 3 else ""
-                yield DimText(
-                    f"{count} task{'s' if count != 1 else ''} pin their own connection and "
-                    f"will not change: {names}{more}."
-                )
-
-            yield DimText(
-                "Enter to set it · S for this session only · M to choose its model · "
-                "Esc to cancel."
-            )
-
-    def on_mount(self) -> None:
-        if self.current is None or not self.ids:
-            return
-        self.call_after_refresh(self._highlight, self.ids.index(self.current))
-
-    def _highlight(self, index: int) -> None:
-        try:
-            self.query_one(StyledOptionList).highlighted = index
-        except NoMatches:
-            return
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option_list.id != "quick-connection-list":
-            return
-        if event.option.id is not None:
-            self.dismiss(QuickConnectionResult(event.option.id))
-
-    def action_pick_model(self) -> None:
-        highlighted = self._highlighted_connection()
-        if highlighted is not None:
-            self.dismiss(QuickConnectionResult(highlighted, pick_model=True))
-
-    def action_use_for_session(self) -> None:
-        highlighted = self._highlighted_connection()
-        if highlighted is not None:
-            self.dismiss(QuickConnectionResult(highlighted, session_only=True))
-
-    def action_clear_session(self) -> None:
-        override = self.session_override
-        if override is None or not override.is_active:
-            return
-        self.dismiss(QuickConnectionResult("", clear_session=True))
-
-    def _highlighted_connection(self) -> Optional[str]:
-        try:
-            option_list = self.query_one(StyledOptionList)
-        except NoMatches:
-            return None
-        index = option_list.highlighted
-        if index is None or not (0 <= index < len(self.ids)):
-            return None
-        return self.ids[index]
 
     def action_dismiss_modal(self) -> None:
         self.dismiss(None)
@@ -1202,11 +1243,20 @@ class CliDefaultPicker(Container):
         )
 
     def set_current(self, cli_name: str) -> None:
-        """Update the status line and the check marker in place after a selection."""
+        """Update the status line and the check marker in place after a selection.
+
+        Guarded like `_highlight` and `_repaint_options`, and for the same two reasons:
+        this runs from a posted-message handler, so the screen may have replaced the
+        picker by the time it lands, and `#cli-status` does not exist at all when no CLI
+        is installed.
+        """
         self.current = cli_name
         self.stale_current = None
         self.suggestion = None
-        self.query_one("#cli-status", Static).update(self._status_text())
+        try:
+            self.query_one("#cli-status", Static).update(self._status_text())
+        except NoMatches:
+            return
         self._repaint_options()
 
     def _repaint_options(self) -> None:
@@ -1229,8 +1279,14 @@ __all__ = [
     "TaskRouting",
     "TaskRoutingRow",
     "CliDefaultPicker",
-    "QuickCliModal",
-    "QuickCliResult",
+    "QuickInstanceModal",
+    "QuickPickResult",
+    "InstanceChoice",
+    "cli_choices",
+    "connection_choices",
+    "SelectTaskInstanceModal",
+    "TASK_CLI_INHERIT_OPTION",
+    "tasks_pinning",
     "cli_option_description",
     "SelectProviderTypeModal",
     "build_task_routings",

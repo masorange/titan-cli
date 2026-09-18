@@ -1,22 +1,29 @@
 """
-Tests for the F2 quick default-CLI picker.
+The quick picker behind F2 and F3.
 
-Mounts the real app, presses the real keys. Synchronous wrappers around asyncio.run,
-matching the repo's other screen-mount tests.
+One component serves both keys - F2 loads it with CLIs, F3 with remote connections - so
+most of what matters here is asserted for BOTH, parameterized over the key. That is not
+thoroughness for its own sake: the two used to be near-copies, and the whole point of
+merging them is that a change to one cannot quietly miss the other.
+
+It is a form: choosing a row marks a pending selection and writes nothing. Nothing is
+persisted until Save, `S` applies the same composition for the session only, and Cancel
+leaves everything - the model included - untouched.
 """
 
 import asyncio
 from unittest.mock import MagicMock
 
+import pytest
 from textual.screen import Screen
 from textual.widgets import Static
 
 from titan_cli.ai.router.availability import AIProviderAvailability
 from titan_cli.ai.router.enums import AIProviderType
-from titan_cli.core.models import AIConfig
+from titan_cli.core.models import AIConfig, AIConnectionConfig
 from titan_cli.ui.tui.app import TitanApp
-from titan_cli.ui.tui.screens.ai_routing import QuickCliModal
-from titan_cli.ui.tui.widgets import StyledOptionList
+from titan_cli.ui.tui.screens.ai_routing import QuickInstanceModal
+from titan_cli.ui.tui.widgets import Button, StyledOptionList
 
 
 class _BlankScreen(Screen):
@@ -24,227 +31,179 @@ class _BlankScreen(Screen):
         yield Static("blank")
 
 
-def _config(default_cli=None, cli_models=None):
+def _gateway(name, model):
+    return AIConnectionConfig(
+        name=name,
+        connection_type="gateway",
+        gateway_backend="openai_compatible",
+        base_url="https://gateway.example/v1",
+        default_model=model,
+    )
+
+
+def _config(*, default_cli="claude", cli_models=None, default_connection="work"):
     config = MagicMock()
-    config.config.ai = AIConfig(default_cli=default_cli, cli_models=cli_models or {})
+    config.config.ai = AIConfig(
+        default_cli=default_cli,
+        cli_models=cli_models or {},
+        default_connection=default_connection,
+        connections={"work": _gateway("Work", "gpt-5"), "personal": _gateway("Personal", "mini")},
+    )
     config.get_project_name.return_value = "test-project"
     config.get_cli_model.side_effect = lambda cli: (cli_models or {}).get(cli)
     return config
 
 
-def _stub_availability(monkeypatch, clis):
+def _stub_availability(monkeypatch, clis=("claude", "opencode")):
     class _Checker:
         def __init__(self, *args, **kwargs):
             pass
 
         def available_headless_clis(self):
             return [
-                AIProviderAvailability(provider=AIProviderType.CLI_HEADLESS, identifier=name)
-                for name in clis
+                AIProviderAvailability(provider=AIProviderType.CLI_HEADLESS, identifier=n)
+                for n in clis
             ]
 
         def available_interactive_clis(self):
             return [
-                AIProviderAvailability(
-                    provider=AIProviderType.CLI_INTERACTIVE, identifier=name
-                )
-                for name in clis
+                AIProviderAvailability(provider=AIProviderType.CLI_INTERACTIVE, identifier=n)
+                for n in clis
             ]
 
     monkeypatch.setattr("titan_cli.ai.router.availability.AIAvailabilityChecker", _Checker)
     monkeypatch.setattr(
-        "titan_cli.core.security.create_broker_factory",
-        lambda root: MagicMock(),
+        "titan_cli.core.security.create_broker_factory", lambda root: MagicMock()
     )
 
 
-class TestQuickCliModal:
+def _run(config, monkeypatch, key, keys=(), *, press_button=None, before=None):
+    """Open the picker with `key`, press `keys`, optionally click a button."""
+    _stub_availability(monkeypatch)
+    captured = {}
 
-    def _run(self, config, monkeypatch, keys, *, clis=("claude", "opencode")):
-        _stub_availability(monkeypatch, clis)
-        captured = {}
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
-            async with app.run_test() as pilot:
+    async def run():
+        app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            if before:
+                before(app)
+            await pilot.press(key)
+            await pilot.pause()
+            captured["opened"] = isinstance(app.screen, QuickInstanceModal)
+            for k in keys:
+                await pilot.press(k)
                 await pilot.pause()
-                await pilot.press("f2")
+            if press_button and isinstance(app.screen, QuickInstanceModal):
+                app.screen.query_one(f"#{press_button}", Button).press()
                 await pilot.pause()
-                captured["opened"] = isinstance(app.screen, QuickCliModal)
-                if captured["opened"]:
-                    captured["listed"] = list(app.screen.installed)
-                    option_list = app.screen.query_one(StyledOptionList)
-                    captured["highlighted"] = option_list.highlighted
-                for key in keys:
-                    await pilot.press(key)
-                    await pilot.pause()
-                captured["closed"] = not isinstance(app.screen, QuickCliModal)
+            captured["screen"] = app.screen
+            captured["override"] = (
+                app.ai_session_override.cli,
+                app.ai_session_override.cli_model,
+                app.ai_session_override.connection,
+                app.ai_session_override.connection_model,
+            )
 
-        asyncio.run(run())
-        return captured
+    asyncio.run(run())
+    return captured
 
-    def test_f2_opens_the_picker_listing_installed_clis(self, monkeypatch):
-        captured = self._run(_config(), monkeypatch, keys=["escape"])
+
+# The two keys, and what each one is expected to write when accepted.
+BOTH_KEYS = [
+    pytest.param("f2", "set_default_ai_cli", "opencode", id="f2-cli"),
+    pytest.param("f3", "set_default_ai_connection", "personal", id="f3-connection"),
+]
+
+
+class TestNothingIsWrittenUntilYouAccept:
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_choosing_a_row_marks_it_without_saving(self, key, writer, expected, monkeypatch):
+        config = _config()
+
+        captured = _run(config, monkeypatch, key, keys=["down", "enter"])
 
         assert captured["opened"]
-        assert captured["listed"] == ["claude", "opencode"]
+        assert isinstance(captured["screen"], QuickInstanceModal)  # still open
+        getattr(config, writer).assert_not_called()
 
-    def test_the_saved_default_starts_highlighted(self, monkeypatch):
-        captured = self._run(_config(default_cli="opencode"), monkeypatch, keys=["escape"])
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_accepting_writes_the_marked_choice(self, key, writer, expected, monkeypatch):
+        config = _config()
 
-        assert captured["highlighted"] == 1
+        _run(
+            config, monkeypatch, key, keys=["down", "enter"],
+            press_button="quick-instance-save",
+        )
 
-    def test_selecting_a_cli_saves_it_and_closes(self, monkeypatch):
-        config = _config(default_cli="claude")
-        captured = self._run(config, monkeypatch, keys=["down", "enter"])
+        getattr(config, writer).assert_called_once_with(expected)
 
-        assert captured["closed"]
-        config.set_default_ai_cli.assert_called_once_with("opencode")
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_cancelling_writes_nothing(self, key, writer, expected, monkeypatch):
+        config = _config()
 
-    def test_escape_closes_without_saving(self, monkeypatch):
-        config = _config(default_cli="claude")
-        captured = self._run(config, monkeypatch, keys=["escape"])
+        _run(
+            config, monkeypatch, key, keys=["down", "enter"],
+            press_button="quick-instance-cancel",
+        )
 
-        assert captured["closed"]
-        config.set_default_ai_cli.assert_not_called()
+        getattr(config, writer).assert_not_called()
 
-    def test_reselecting_the_current_default_saves_nothing(self, monkeypatch):
-        config = _config(default_cli="claude")
-        captured = self._run(config, monkeypatch, keys=["enter"])
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_escape_writes_nothing(self, key, writer, expected, monkeypatch):
+        config = _config()
 
-        assert captured["closed"]
-        config.set_default_ai_cli.assert_not_called()
+        _run(config, monkeypatch, key, keys=["down", "enter", "escape"])
+
+        getattr(config, writer).assert_not_called()
+
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_accepting_without_choosing_anything_writes_nothing(
+        self, key, writer, expected, monkeypatch
+    ):
+        """The pending selection starts at what is in force, so Save is a real no-op."""
+        config = _config()
+
+        _run(config, monkeypatch, key, press_button="quick-instance-save")
+
+        getattr(config, writer).assert_not_called()
 
 
-class TestQuickCliModalModels:
-    """The picker also says, and lets you change, which model each CLI runs."""
+class TestTheSessionScope:
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_s_applies_without_writing(self, key, writer, expected, monkeypatch):
+        config = _config()
 
-    def test_each_row_names_the_model_that_cli_will_run(self, monkeypatch):
-        _stub_availability(monkeypatch, ("claude", "opencode"))
+        captured = _run(config, monkeypatch, key, keys=["down", "enter", "s"])
+
+        getattr(config, writer).assert_not_called()
+        assert expected in captured["override"]
+
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_c_clears_an_active_override(self, key, writer, expected, monkeypatch):
+        config = _config()
+
+        captured = _run(
+            config,
+            monkeypatch,
+            key,
+            keys=["c"],
+            before=lambda app: setattr(app.ai_session_override, "cli", "opencode"),
+        )
+
+        assert captured["override"] == (None, None, None, None)
+
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_an_active_override_is_announced(self, key, writer, expected, monkeypatch):
+        _stub_availability(monkeypatch)
         captured = {}
 
         async def run():
-            app = TitanApp(
-                _config(default_cli="claude", cli_models={"claude": "opus"}),
-                initial_screen=lambda: _BlankScreen(),
-            )
-            async with app.run_test() as pilot:
-                await pilot.press("f2")
-                await pilot.pause()
-                option_list = app.screen.query_one(StyledOptionList)
-                captured["prompts"] = [
-                    str(option_list.get_option_at_index(i).prompt) for i in range(2)
-                ]
-
-        asyncio.run(run())
-
-        assert "model: opus" in captured["prompts"][0]
-        # An unpinned CLI says so rather than leaving a blank that reads as "unknown".
-        assert "model: CLI default" in captured["prompts"][1]
-
-    def test_m_opens_the_model_picker_for_the_highlighted_cli(self, monkeypatch):
-        from titan_cli.ui.tui.screens.model_picker import SelectModelModal
-
-        _stub_availability(monkeypatch, ("claude", "opencode"))
-        config = _config(default_cli="claude")
-        captured = {}
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
-            async with app.run_test() as pilot:
-                await pilot.press("f2")
-                await pilot.pause()
-                await pilot.press("down")
-                await pilot.press("m")
-                await pilot.pause()
-                captured["screen"] = app.screen
-                captured["subtitle"] = getattr(app.screen, "subtitle", None)
-
-        asyncio.run(run())
-
-        assert isinstance(captured["screen"], SelectModelModal)
-        assert "opencode" in captured["subtitle"]
-        # Choosing a model for a CLI is not switching to it.
-        config.set_default_ai_cli.assert_not_called()
-
-
-class TestSessionOverrideFromF2:
-    """
-    F2 can also choose a CLI for this session only, writing nothing (air-004, D-003).
-
-    The distinction these pin down is the one the feature exists for: Enter changes what
-    the user decided, S changes only what is running right now.
-    """
-
-    def _run(self, config, monkeypatch, keys, *, clis=("claude", "opencode")):
-        _stub_availability(monkeypatch, clis)
-        captured = {}
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                await pilot.press("f2")
-                await pilot.pause()
-                for key in keys:
-                    await pilot.press(key)
-                    await pilot.pause()
-                captured["override"] = (
-                    app.ai_session_override.cli,
-                    app.ai_session_override.model,
-                )
-                captured["active"] = app.ai_session_override.is_active
-
-        asyncio.run(run())
-        return captured
-
-    def test_s_sets_the_session_cli_without_saving_anything(self, monkeypatch):
-        config = _config(default_cli="claude")
-
-        captured = self._run(config, monkeypatch, keys=["down", "s"])
-
-        assert captured["override"] == ("opencode", None)
-        config.set_default_ai_cli.assert_not_called()
-
-    def test_enter_still_saves_and_leaves_the_session_alone(self, monkeypatch):
-        config = _config(default_cli="claude")
-
-        captured = self._run(config, monkeypatch, keys=["down", "enter"])
-
-        assert captured["active"] is False
-        config.set_default_ai_cli.assert_called_once_with("opencode")
-
-    def test_c_clears_an_active_override(self, monkeypatch):
-        config = _config(default_cli="claude")
-        _stub_availability(monkeypatch, ("claude", "opencode"))
-        captured = {}
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            app = TitanApp(_config(), initial_screen=lambda: _BlankScreen())
             async with app.run_test() as pilot:
                 await pilot.pause()
                 app.ai_session_override.cli = "opencode"
-                await pilot.press("f2")
-                await pilot.pause()
-                await pilot.press("c")
-                await pilot.pause()
-                captured["active"] = app.ai_session_override.is_active
-
-        asyncio.run(run())
-
-        assert captured["active"] is False
-
-    def test_the_picker_says_an_override_is_active(self, monkeypatch):
-        """An override nobody can see is one the user forgets is on."""
-        _stub_availability(monkeypatch, ("claude", "opencode"))
-        captured = {}
-
-        async def run():
-            app = TitanApp(_config(default_cli="claude"), initial_screen=lambda: _BlankScreen())
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                app.ai_session_override.cli = "opencode"
-                await pilot.press("f2")
+                await pilot.press(key)
                 await pilot.pause()
                 captured["text"] = " ".join(
                     str(w.renderable) for w in app.screen.query(Static)
@@ -253,129 +212,17 @@ class TestSessionOverrideFromF2:
         asyncio.run(run())
 
         assert "Session override active" in captured["text"]
-        assert "opencode" in captured["text"]
 
 
-class TestQuickConnectionModal:
-    """
-    F3's picker, which mirrors F2's (D-006): Enter saves, S is this session, C clears.
-
-    Two keys answering the same question of different transports should not have to be
-    learned twice, so what these assert is mostly that the behaviours match.
-    """
-
-    @staticmethod
-    def _config_with_connections(default_connection="work"):
-        from titan_cli.core.models import AIConnectionConfig
-
-        def gateway(name, model):
-            return AIConnectionConfig(
-                name=name,
-                connection_type="gateway",
-                gateway_backend="openai_compatible",
-                base_url="https://gateway.example/v1",
-                default_model=model,
-            )
-
-        config = MagicMock()
-        config.config.ai = AIConfig(
-            default_connection=default_connection,
-            connections={"work": gateway("Work", "gpt-5"), "personal": gateway("Personal", "mini")},
-        )
-        config.get_project_name.return_value = "test-project"
-        return config
-
-    def _run(self, config, keys):
+class TestTheHintAndTheDisclosure:
+    @pytest.mark.parametrize("key,writer,expected", BOTH_KEYS)
+    def test_the_hint_explains_the_keys(self, key, writer, expected, monkeypatch):
+        """It used to be clipped by a fixed max-height exactly when there was most to say."""
+        _stub_availability(monkeypatch)
         captured = {}
 
         async def run():
-            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                await pilot.press("f3")
-                await pilot.pause()
-                for key in keys:
-                    await pilot.press(key)
-                    await pilot.pause()
-                captured["override"] = (
-                    app.ai_session_override.connection,
-                    app.ai_session_override.model,
-                )
-
-        asyncio.run(run())
-        return captured
-
-    def test_s_sets_the_session_connection_without_saving(self):
-        config = self._config_with_connections()
-
-        captured = self._run(config, keys=["down", "s"])
-
-        assert captured["override"] == ("personal", None)
-        config.set_default_ai_connection.assert_not_called()
-
-    def test_enter_saves_the_default_connection(self):
-        config = self._config_with_connections()
-
-        captured = self._run(config, keys=["down", "enter"])
-
-        assert captured["override"] == (None, None)
-        config.set_default_ai_connection.assert_called_once_with("personal")
-
-    def test_reselecting_the_current_default_saves_nothing(self):
-        config = self._config_with_connections()
-
-        self._run(config, keys=["enter"])
-
-        config.set_default_ai_connection.assert_not_called()
-
-    def test_c_clears_a_session_override_set_from_either_key(self):
-        """One override, two keys: F3 must be able to clear what F2 set."""
-        config = self._config_with_connections()
-        captured = {}
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                app.ai_session_override.cli = "codex"
-                await pilot.press("f3")
-                await pilot.pause()
-                await pilot.press("c")
-                await pilot.pause()
-                captured["active"] = app.ai_session_override.is_active
-
-        asyncio.run(run())
-
-        assert captured["active"] is False
-
-
-class TestPinnedTasksAreDisclosed:
-    """
-    A quick picker says which tasks will ignore it (air-005).
-
-    Without this, the failure mode per-task pins introduce is indistinguishable from a
-    broken key: you press F2, the CLI changes, and the workflow you actually care about
-    keeps running the old one because you pinned it weeks ago.
-    """
-
-    @staticmethod
-    def _config_with_pins(**tasks):
-        from titan_cli.core.models import AIPreferences, AIProviderPreference
-
-        config = _config(default_cli="claude")
-        config.config.ai.preferences = AIPreferences(
-            tasks={
-                task: AIProviderPreference(**fields) for task, fields in tasks.items()
-            }
-        )
-        return config
-
-    @staticmethod
-    def _text_after(key, config):
-        captured = {}
-
-        async def run():
-            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            app = TitanApp(_config(), initial_screen=lambda: _BlankScreen())
             async with app.run_test() as pilot:
                 await pilot.pause()
                 await pilot.press(key)
@@ -385,61 +232,379 @@ class TestPinnedTasksAreDisclosed:
                 )
 
         asyncio.run(run())
+
+        assert "S for this session only" in captured["text"]
+        assert "Nothing is saved until you accept" in captured["text"]
+
+    def test_pinned_tasks_are_named_without_claiming_s_skips_them(self, monkeypatch):
+        """
+        A session override outranks a pin (D-008), so "will not change" was a lie.
+
+        This line exists to stop the key looking broken; saying the wrong thing in it is
+        worse than saying nothing.
+        """
+        from titan_cli.core.models import AIPreferences, AIProviderPreference
+
+        config = _config()
+        config.config.ai.preferences = AIPreferences(
+            tasks={
+                "code_review_plan": AIProviderPreference(provider="cli_headless", cli="codex")
+            }
+        )
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                captured["text"] = " ".join(
+                    str(w.renderable) for w in app.screen.query(Static)
+                )
+
+        asyncio.run(run())
+
+        assert "will not follow a save" in captured["text"]
+        assert "S still applies to them" in captured["text"]
+
+
+class TestComposingAModel:
+    def test_m_opens_the_model_picker_and_comes_back(self, monkeypatch):
+        """It used to close everything and save; the model is now part of the composition."""
+        from titan_cli.ui.tui.screens.model_picker import SelectModelModal
+
+        config = _config()
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                captured["picker"] = isinstance(app.screen, SelectModelModal)
+                app.screen.dismiss("haiku")
+                await pilot.pause()
+                captured["back"] = isinstance(app.screen, QuickInstanceModal)
+                captured["pending"] = app.screen.pending_model
+                captured["saved_yet"] = config.set_cli_model.called
+
+        asyncio.run(run())
+
+        assert captured["picker"]
+        assert captured["back"]
+        assert captured["pending"] == "haiku"
+        assert captured["saved_yet"] is False
+
+    def test_the_model_is_written_only_on_accept(self, monkeypatch):
+        config = _config()
+        _stub_availability(monkeypatch)
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                app.screen.dismiss("haiku")
+                await pilot.pause()
+                app.screen.query_one("#quick-instance-save", Button).press()
+                await pilot.pause()
+
+        asyncio.run(run())
+
+        config.set_cli_model.assert_called_once_with("claude", "haiku")
+
+    def test_choosing_another_instance_forgets_the_pending_model(self, monkeypatch):
+        """A model belongs to the instance it was chosen for (D-007)."""
+        config = _config()
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                app.screen.dismiss("haiku")
+                await pilot.pause()
+                app.screen.query_one(StyledOptionList).focus()
+                await pilot.press("down")
+                await pilot.press("enter")
+                await pilot.pause()
+                captured["pending_model"] = app.screen.pending_model
+                captured["touched"] = app.screen.model_touched
+
+        asyncio.run(run())
+
+        assert captured["pending_model"] is None
+        assert captured["touched"] is False
+
+    def test_a_session_model_is_finally_expressible(self, monkeypatch):
+        """
+        `AISessionOverride.cli_model` had no way in before this: `M` saved globally and
+        closed, so the resolver read a field nothing could write.
+        """
+        config = _config()
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                app.screen.dismiss("haiku")
+                await pilot.pause()
+                app.screen.query_one("#quick-instance-session", Button).press()
+                await pilot.pause()
+                captured["override"] = (
+                    app.ai_session_override.cli,
+                    app.ai_session_override.cli_model,
+                )
+
+        asyncio.run(run())
+
+        assert captured["override"] == ("claude", "haiku")
+        config.set_cli_model.assert_not_called()
+
+
+class TestComposingBothForTheSession:
+    """
+    The whole point of the form, in one flow: pick an instance, pick its model, then
+    choose the scope — and have the scope apply to BOTH.
+
+    Before the form this was impossible in one pass: `M` saved the model globally and
+    closed the picker, so "run codex on haiku, just for today" required two visits and
+    left a permanent write behind.
+    """
+
+    @staticmethod
+    def _compose(config, monkeypatch, *, final_key):
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("down")      # highlight the other CLI
+                await pilot.press("enter")     # mark it; focus moves to Save
+                await pilot.pause()
+                await pilot.press("m")         # ask for its model
+                await pilot.pause()
+                app.screen.dismiss("haiku")    # the picker hands it back
+                await pilot.pause()
+                await pilot.press(final_key)   # choose the scope
+                await pilot.pause()
+                override = app.ai_session_override
+                captured["override"] = (override.cli, override.cli_model)
+                captured["closed"] = not isinstance(app.screen, QuickInstanceModal)
+
+        asyncio.run(run())
+        return captured
+
+    def test_s_applies_the_instance_and_its_model_together(self, monkeypatch):
+        config = _config()
+
+        captured = self._compose(config, monkeypatch, final_key="s")
+
+        assert captured["override"] == ("opencode", "haiku")
+        assert captured["closed"]
+        config.set_default_ai_cli.assert_not_called()
+        config.set_cli_model.assert_not_called()
+
+    def test_the_keyboard_path_still_reaches_save(self, monkeypatch):
+        """`m` and `s` must keep working once focus has moved off the list to Save."""
+        config = _config()
+
+        captured = self._compose(config, monkeypatch, final_key="enter")
+
+        assert captured["closed"]
+        config.set_default_ai_cli.assert_called_once_with("opencode")
+        config.set_cli_model.assert_called_once_with("opencode", "haiku")
+        assert captured["override"] == (None, None)
+
+
+class TestThePendingLineStatesTheScope:
+    """
+    "Will apply: X / Y" reads the same whether it is about to be written to disk or held
+    until the app closes. The two accepts are labelled on the buttons, but the line above
+    them is where the eye goes, so it says which is which.
+    """
+
+    @staticmethod
+    def _pending_text(config, monkeypatch, keys):
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                for k in keys:
+                    await pilot.press(k)
+                    await pilot.pause()
+                captured["text"] = str(
+                    app.screen.query_one("#quick-instance-pending", Static).renderable
+                )
+
+        asyncio.run(run())
         return captured["text"]
 
-    def test_f2_names_the_tasks_that_pin_their_own_cli(self, monkeypatch):
-        _stub_availability(monkeypatch, ("claude", "opencode"))
-        config = self._config_with_pins(
-            code_review_plan={"provider": "cli_headless", "cli": "codex"},
-            commit_message={"provider": "cli_headless"},
-        )
+    def test_with_nothing_changed_it_states_what_is_in_force(self, monkeypatch):
+        text = self._pending_text(_config(cli_models={"claude": "haiku"}), monkeypatch, [])
 
-        text = self._text_after("f2", config)
+        assert "Currently: claude / haiku" in text
+        # No scope wording when there is nothing to accept.
+        assert "S for this session" not in text
 
-        assert "1 task" in text
-        assert "Code review plan" in text
-        # The unpinned one follows F2, so naming it would be a lie.
-        assert "Commit messages" not in text
+    def test_a_pending_change_names_both_scopes(self, monkeypatch):
+        text = self._pending_text(_config(), monkeypatch, ["down", "enter"])
 
-    def test_f2_says_nothing_when_no_task_pins_a_cli(self, monkeypatch):
-        _stub_availability(monkeypatch, ("claude", "opencode"))
-        config = self._config_with_pins(
-            commit_message={"provider": "cli_headless"},
-        )
+        assert "Will apply: opencode" in text
+        assert "Save to keep it" in text
+        assert "S for this session only" in text
 
-        text = self._text_after("f2", config)
 
-        assert "pin their own" not in text
+class TestThePendingModelBelongsToThePendingInstance:
+    """
+    Found in use 2026-09-18: marking codex still read "Will apply: codex / haiku".
 
-    def test_f2_ignores_connection_pins(self, monkeypatch):
-        """Each key reports only the pins it is actually unable to move."""
-        _stub_availability(monkeypatch, ("claude", "opencode"))
-        config = self._config_with_pins(
-            jira_analysis={"provider": "remote", "connection": "personal"},
-        )
+    `haiku` was claude's pinned model, and the line was resolving it from the CURRENT
+    instance instead of the marked one. Same class of mistake the routing layer removed in
+    D-007 and D-008 - a model shown against an instance it was never chosen for - only
+    here it misleads before anything is written rather than after.
+    """
 
-        text = self._text_after("f2", config)
+    @staticmethod
+    def _pending_after(keys, monkeypatch, cli_models):
+        _stub_availability(monkeypatch)
+        captured = {}
 
-        assert "pin their own" not in text
-
-    def test_f3_names_the_tasks_that_pin_their_own_connection(self, monkeypatch):
-        from titan_cli.core.models import AIConnectionConfig
-
-        config = self._config_with_pins(
-            jira_analysis={"provider": "remote", "connection": "personal"},
-        )
-        config.config.ai.default_connection = "work"
-        config.config.ai.connections = {
-            "work": AIConnectionConfig(
-                name="Work",
-                connection_type="gateway",
-                gateway_backend="openai_compatible",
-                base_url="https://gateway.example/v1",
-                default_model="gpt-5",
+        async def run():
+            app = TitanApp(
+                _config(cli_models=cli_models), initial_screen=lambda: _BlankScreen()
             )
-        }
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                for k in keys:
+                    await pilot.press(k)
+                    await pilot.pause()
+                captured["text"] = str(
+                    app.screen.query_one("#quick-instance-pending", Static).renderable
+                )
 
-        text = self._text_after("f3", config)
+        asyncio.run(run())
+        return captured["text"]
 
-        assert "1 task" in text
-        assert "Jira issue analysis" in text
+    def test_marking_another_instance_drops_the_previous_ones_model(self, monkeypatch):
+        text = self._pending_after(
+            ["down", "enter"], monkeypatch, {"claude": "haiku"}
+        )
+
+        assert "opencode" in text
+        assert "haiku" not in text
+
+    def test_it_shows_the_marked_instances_own_model(self, monkeypatch):
+        text = self._pending_after(
+            ["down", "enter"], monkeypatch, {"claude": "haiku", "opencode": "qwen"}
+        )
+
+        assert "opencode / qwen" in text
+
+    def test_an_instance_with_no_model_says_it_runs_its_own_default(self, monkeypatch):
+        text = self._pending_after(["down", "enter"], monkeypatch, {"claude": "haiku"})
+
+        assert "opencode / CLI default" in text
+
+    def test_the_model_picker_prefills_from_the_marked_instance(self, monkeypatch):
+        """`M` after marking codex must offer codex's model, not claude's."""
+
+        _stub_availability(monkeypatch)
+        captured = {}
+
+        async def run():
+            app = TitanApp(
+                _config(cli_models={"claude": "haiku", "opencode": "qwen"}),
+                initial_screen=lambda: _BlankScreen(),
+            )
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("down")
+                await pilot.press("enter")
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                captured["current"] = app.screen.current
+
+        asyncio.run(run())
+
+        assert captured["current"] == "qwen"
+
+
+class TestRefreshingTheListKeepsEveryRowItself:
+    """
+    Found in use 2026-09-18: after marking a row, a later row rendered another CLI's text.
+
+    The id underneath stayed right - hovering reported the real one - so only the painted
+    prompt was wrong, which is the worst shape for this bug: the list lies and nothing
+    downstream disagrees.
+    """
+
+    def test_every_row_still_carries_its_own_title_after_a_selection(self, monkeypatch):
+        """
+        Data-level only, and that is worth stating: the ids and prompts were ALREADY
+        right while the screen showed otherwise, so this cannot see the paint bug. It
+        guards the neighbouring regression - a rebuild that reorders or drops rows - and
+        the paint itself is handled by not rebuilding at all.
+        """
+        _stub_availability(monkeypatch, clis=("claude", "gemini", "codex", "opencode", "agy"))
+        captured = {}
+
+        async def run():
+            app = TitanApp(_config(), initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f2")
+                await pilot.pause()
+                await pilot.press("down")
+                await pilot.press("down")
+                await pilot.press("enter")     # mark codex; repaints the list
+                await pilot.pause()
+                option_list = app.screen.query_one(StyledOptionList)
+                captured["rows"] = [
+                    (
+                        option_list.get_option_at_index(i).id,
+                        str(option_list.get_option_at_index(i).prompt),
+                    )
+                    for i in range(option_list.option_count)
+                ]
+
+        asyncio.run(run())
+
+        for identifier, prompt in captured["rows"]:
+            assert f"command: {identifier}" in prompt, (
+                f"row {identifier!r} is painted with another row's text: {prompt!r}"
+            )

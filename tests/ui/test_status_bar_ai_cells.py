@@ -116,7 +116,7 @@ class TestSessionOverrideInTheBar:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 app.ai_session_override.cli = cli
-                app.ai_session_override.model = model
+                app.ai_session_override.cli_model = model
                 app.refresh_status_bar()
                 await pilot.pause()
                 captured["cli"] = app.screen.query_one(StatusBarWidget).cli_info
@@ -159,7 +159,7 @@ class TestRemoteSessionOverrideInTheBar:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 app.ai_session_override.connection = connection
-                app.ai_session_override.model = model
+                app.ai_session_override.connection_model = model
                 app.ai_session_override.cli = cli
                 app.refresh_status_bar()
                 await pilot.pause()

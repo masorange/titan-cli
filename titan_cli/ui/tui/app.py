@@ -108,60 +108,174 @@ class TitanApp(App):
 
     def action_quick_cli(self) -> None:
         """Open the quick CLI picker from any screen."""
-        from titan_cli.ai.router.availability import AIAvailabilityChecker
-        from titan_cli.core.security import create_broker_factory
-        from titan_cli.ui.tui.screens.ai_routing import (
-            QuickCliModal,
-            installed_clis,
-            tasks_pinning,
-        )
-        from titan_cli.ui.tui.screens.model_picker import open_cli_model_picker
-
-        if isinstance(self.screen, QuickCliModal):
-            return
+        from titan_cli.ui.tui.screens.ai_routing import cli_choices, installed_clis
+        from titan_cli.ui.tui.screens.model_picker import open_model_picker_for_cli
 
         ai_config = self.config.config.ai if self.config.config else None
-        broker = create_broker_factory(self.config.project_root).for_plugin("core")
-        checker = AIAvailabilityChecker(ai_config, broker)
+        checker = self._availability_checker()
         installed = installed_clis(
             checker.available_headless_clis(), checker.available_interactive_clis()
         )
         current = ai_config.default_cli if ai_config else None
+        models = ai_config.cli_models if ai_config else {}
+
+        def open_picker(instance, current_model, on_picked) -> None:
+            open_model_picker_for_cli(
+                self, instance, current=current_model, on_picked=on_picked
+            )
+
+        def apply(result) -> None:
+            if result.instance and result.instance != current:
+                self.config.set_default_ai_cli(result.instance)
+            target = result.instance or current
+            if result.clear_model and target:
+                self.config.clear_cli_model(target)
+            elif result.model and target:
+                self.config.set_cli_model(target, result.model)
+
+        self._open_quick_picker(
+            question="Which CLI should Titan run?",
+            noun="CLI",
+            choices=cli_choices(installed, models),
+            current=current,
+            current_model=models.get(current) if current else None,
+            pinned_tasks_remote=False,
+            empty_message="No supported CLI is installed. Install one and reopen this picker.",
+            open_picker=open_picker,
+            apply=apply,
+            use_for_session=lambda result: self._apply_session(result, remote=False),
+        )
+
+    def action_quick_model(self) -> None:
+        """Open the quick connection picker from any screen.
+
+        The same widget F2 opens, loaded with connections instead of CLIs: they are the
+        same question asked of different transports, so a change to one is a change to
+        both by construction rather than by remembering.
+        """
+        from titan_cli.ui.tui.screens.ai_routing import connection_choices
+        from titan_cli.ui.tui.screens.model_picker import open_model_picker_for_connection
+
+        ai_config = self.config.config.ai if self.config.config else None
+        connections = ai_config.connections if ai_config else {}
+        current = ai_config.default_connection if ai_config else None
+        current_cfg = connections.get(current) if current else None
+
+        def open_picker(instance, current_model, on_picked) -> None:
+            open_model_picker_for_connection(
+                self, self.config, instance, current=current_model, on_picked=on_picked
+            )
+
+        def apply(result) -> None:
+            if result.instance and result.instance != current:
+                self.config.set_default_ai_connection(result.instance)
+            target = result.instance or current
+            # No clear_model branch: a connection REQUIRES a default_model, so the picker
+            # does not offer to unpin one (see SelectModelModal.allow_clear).
+            if result.model and target:
+                self.config.update_ai_connection(target, {"default_model": result.model})
+
+        self._open_quick_picker(
+            question="Which connection should answer?",
+            noun="connection",
+            choices=connection_choices(connections),
+            current=current,
+            current_model=getattr(current_cfg, "default_model", None),
+            pinned_tasks_remote=True,
+            empty_message="No AI connection is configured. Add one in AI Configuration.",
+            open_picker=open_picker,
+            apply=apply,
+            use_for_session=lambda result: self._apply_session(result, remote=True),
+        )
+
+    def _open_quick_picker(
+        self,
+        *,
+        question,
+        noun,
+        choices,
+        current,
+        current_model,
+        pinned_tasks_remote,
+        empty_message,
+        open_picker,
+        apply,
+        use_for_session,
+    ) -> None:
+        """Push the shared quick picker and route its one result to the right writer."""
+        from titan_cli.ui.tui.screens.ai_routing import QuickInstanceModal, tasks_pinning
+
+        if isinstance(self.screen, QuickInstanceModal):
+            return
 
         def on_picked(result) -> None:
-            if result is None:
+            if result is None or not result.changes_anything:
                 return
             if result.clear_session:
                 self.clear_ai_session_override()
                 return
-            if result.pick_model:
-                open_cli_model_picker(self, self.config, result.cli_name)
+            try:
+                if result.session_only:
+                    use_for_session(result)
+                else:
+                    apply(result)
+            except Exception as e:
+                self.notify(f"Could not apply that: {e}", severity="error")
                 return
-            if result.session_only:
-                dropped = self.ai_session_override.use_cli(result.cli_name)
-                self.refresh_status_bar()
-                self.notify(
-                    f"{result.cli_name} for this session only - your saved settings are "
-                    f"untouched."
-                    + (f" Dropped the {dropped} model override." if dropped else "")
-                )
-                return
-            if result.cli_name == current:
-                return
-            self.config.set_default_ai_cli(result.cli_name)
             self.refresh_status_bar()
-            self.notify(f"Titan will run {result.cli_name}.")
+            self.notify(self._quick_picker_notice(result, noun))
 
         self.push_screen(
-            QuickCliModal(
-                installed,
+            QuickInstanceModal(
+                question,
+                choices,
+                noun=noun,
                 current=current,
-                models=ai_config.cli_models if ai_config else None,
+                current_model=current_model,
                 session_override=self.ai_session_override,
-                pinned_tasks=tasks_pinning(self._task_preferences(), remote=False),
+                pinned_tasks=tasks_pinning(
+                    self._task_preferences(), remote=pinned_tasks_remote
+                ),
+                open_model_picker=open_picker,
+                empty_message=empty_message,
             ),
             callback=on_picked,
         )
+
+    def _apply_session(self, result, *, remote: bool) -> None:
+        """Hold the composition for this session only, writing nothing."""
+        override = self.ai_session_override
+        if result.instance:
+            if remote:
+                override.use_connection(result.instance)
+            else:
+                override.use_cli(result.instance)
+        if result.clear_model:
+            if remote:
+                override.connection_model = None
+            else:
+                override.cli_model = None
+        elif result.model:
+            if remote:
+                override.connection_model = result.model
+            else:
+                override.cli_model = result.model
+
+    @staticmethod
+    def _quick_picker_notice(result, noun: str) -> str:
+        parts = [p for p in (result.instance, result.model) if p]
+        what = " / ".join(parts) if parts else f"the {noun}'s own default"
+        if result.session_only:
+            return f"{what} for this session only - your saved settings are untouched."
+        return f"Saved: {what}."
+
+    def _availability_checker(self):
+        from titan_cli.ai.router.availability import AIAvailabilityChecker
+        from titan_cli.core.security import create_broker_factory
+
+        ai_config = self.config.config.ai if self.config.config else None
+        broker = create_broker_factory(self.config.project_root).for_plugin("core")
+        return AIAvailabilityChecker(ai_config, broker)
 
     def _task_preferences(self):
         """The persisted per-task preferences, or None when AI is unconfigured."""
@@ -191,58 +305,6 @@ class TitanApp(App):
                 updater()
             except Exception:
                 pass
-
-    def action_quick_model(self) -> None:
-        """Open the quick connection picker from any screen.
-
-        F2's counterpart for the other transport: that key chooses the CLI and its model,
-        this one the remote connection and its model. Same keys inside (Enter saves, S is
-        this session only, M picks a model, C clears the override), because they answer
-        the same question and should not have to be learned twice (D-006).
-        """
-        from titan_cli.ui.tui.screens.ai_routing import QuickConnectionModal, tasks_pinning
-        from titan_cli.ui.tui.screens.model_picker import open_connection_model_picker
-
-        if isinstance(self.screen, QuickConnectionModal):
-            return
-
-        ai_config = self.config.config.ai if self.config.config else None
-        connections = ai_config.connections if ai_config else {}
-        current = ai_config.default_connection if ai_config else None
-
-        def on_picked(result) -> None:
-            if result is None:
-                return
-            if result.clear_session:
-                self.clear_ai_session_override()
-                return
-            if result.pick_model:
-                open_connection_model_picker(self, self.config, result.connection_id)
-                return
-            if result.session_only:
-                dropped = self.ai_session_override.use_connection(result.connection_id)
-                self.refresh_status_bar()
-                self.notify(
-                    f"{result.connection_id} for this session only - your saved settings "
-                    f"are untouched."
-                    + (f" Dropped the {dropped} model override." if dropped else "")
-                )
-                return
-            if result.connection_id == current:
-                return
-            self.config.set_default_ai_connection(result.connection_id)
-            self.refresh_status_bar()
-            self.notify(f"Titan will use {result.connection_id}.")
-
-        self.push_screen(
-            QuickConnectionModal(
-                connections,
-                current=current,
-                session_override=self.ai_session_override,
-                pinned_tasks=tasks_pinning(self._task_preferences(), remote=True),
-            ),
-            callback=on_picked,
-        )
 
     def action_toggle_copy_mode(self) -> None:
         """Toggle copy mode - disables mouse capture to allow text selection."""

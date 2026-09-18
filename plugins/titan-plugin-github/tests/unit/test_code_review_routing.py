@@ -279,3 +279,55 @@ def test_every_review_step_gets_the_pinned_model(step):
     adapter.execute("prompt")
 
     assert adapter._adapter.calls[0]["model"] == "haiku"
+
+
+class TestPinnedModelCliSemantics:
+    """
+    An explicit `model=None` means "no opinion", exactly as it does in the executor.
+
+    These steps drive the adapter themselves, so this wrapper is the only thing carrying
+    the user's model. `setdefault` treated a forwarded `model=None` - the shape a call
+    site passing an optional profile model would produce - as a decision, and suppressed
+    the pin entirely.
+    """
+
+    @staticmethod
+    def _wrapped(pin):
+        from titan_plugin_github.steps.code_review_steps import _PinnedModelCli
+
+        class _Adapter:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, prompt, **kwargs):
+                self.calls.append(kwargs)
+                return "ok"
+
+        adapter = _Adapter()
+        return _PinnedModelCli(adapter, pin), adapter
+
+    def test_no_call_site_model_uses_the_pin(self):
+        wrapper, adapter = self._wrapped("opus")
+
+        wrapper.execute("prompt")
+
+        assert adapter.calls[0]["model"] == "opus"
+
+    def test_an_explicit_none_does_not_suppress_the_pin(self):
+        wrapper, adapter = self._wrapped("opus")
+
+        wrapper.execute("prompt", model=None)
+
+        assert adapter.calls[0]["model"] == "opus"
+
+    def test_a_real_call_site_model_still_wins(self):
+        wrapper, adapter = self._wrapped("opus")
+
+        wrapper.execute("prompt", model="haiku")
+
+        assert adapter.calls[0]["model"] == "haiku"
+
+    def test_the_pin_is_exposed_for_the_announcement(self):
+        wrapper, _ = self._wrapped("opus")
+
+        assert wrapper.pinned_model == "opus"

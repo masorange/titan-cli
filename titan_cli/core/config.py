@@ -624,7 +624,7 @@ class TitanConfig:
         An explicit `model=` at the call site still outranks this: see the routing
         precedence in `titan_cli/ai/router/`.
         """
-        self._set_task_ai_pin(task, "model", model, provider=provider)
+        return self._set_task_ai_pin(task, "model", model, provider=provider)
 
     def clear_task_ai_model(self, task: str) -> None:
         """Stop pinning a model for this task; it follows the global default again."""

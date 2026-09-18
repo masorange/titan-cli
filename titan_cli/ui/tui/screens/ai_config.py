@@ -35,6 +35,8 @@ from titan_cli.ui.tui.widgets import (
 )
 from .ai_routing import (
     TASK_CLI_INHERIT_OPTION,
+    cli_choices,
+    connection_choices,
     CliDefaultPicker,
     SelectProviderTypeModal,
     SelectTaskInstanceModal,
@@ -739,7 +741,7 @@ class AIConfigScreen(BaseScreen):
         remote = routing.pins_a_connection
 
         if remote:
-            choices = SelectTaskInstanceModal.connection_choices(
+            choices = connection_choices(
                 ai_config.connections if ai_config else {}
             )
             noun = "connection"
@@ -748,7 +750,7 @@ class AIConfigScreen(BaseScreen):
             setter, clearer = self.config.set_task_ai_connection, self.config.clear_task_ai_connection
         else:
             checker = self._availability()
-            choices = SelectTaskInstanceModal.cli_choices(
+            choices = cli_choices(
                 installed_clis(
                     checker.available_headless_clis(), checker.available_interactive_clis()
                 ),

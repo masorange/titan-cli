@@ -626,7 +626,7 @@ class TestSessionOverride:
                 cli_models={"claude": "opus-slow"},
             ),
             FakeAvailability(headless=["claude"]),
-            session_override=AISessionOverride(model="sonnet-now"),
+            session_override=AISessionOverride(cli_model="sonnet-now"),
         )
 
         assert resolver.resolve(task="commit_message").model == "sonnet-now"
@@ -805,7 +805,7 @@ class TestSessionOverrideForRemote:
         resolver = AIRouteResolver(
             self._config_with_two_connections(),
             FakeAvailability(remote=["work-litellm"]),
-            session_override=AISessionOverride(model="gpt-5-mini"),
+            session_override=AISessionOverride(connection_model="gpt-5-mini"),
         )
 
         assert resolver.resolve(task="jira_analysis").model == "gpt-5-mini"
@@ -833,30 +833,30 @@ class TestAModelNeverOutlivesItsInstance:
     """
 
     def test_switching_the_session_cli_forgets_the_model(self):
-        override = AISessionOverride(cli="claude", model="opus")
+        override = AISessionOverride(cli="claude", cli_model="opus")
 
         dropped = override.use_cli("codex")
 
         assert dropped == "opus"
-        assert (override.cli, override.model) == ("codex", None)
+        assert (override.cli, override.cli_model) == ("codex", None)
 
     def test_reselecting_the_same_cli_keeps_the_model(self):
-        override = AISessionOverride(cli="claude", model="opus")
+        override = AISessionOverride(cli="claude", cli_model="opus")
 
         assert override.use_cli("claude") is None
-        assert override.model == "opus"
+        assert override.cli_model == "opus"
 
     def test_switching_the_session_connection_forgets_the_model(self):
-        override = AISessionOverride(connection="work", model="gpt-5")
+        override = AISessionOverride(connection="work", connection_model="gpt-5")
 
         dropped = override.use_connection("personal")
 
         assert dropped == "gpt-5"
-        assert (override.connection, override.model) == ("personal", None)
+        assert (override.connection, override.connection_model) == ("personal", None)
 
     def test_the_resolver_never_sees_a_model_from_another_instance(self):
         """End to end: the decision names codex and no model, not codex and opus."""
-        override = AISessionOverride(cli="claude", model="opus")
+        override = AISessionOverride(cli="claude", cli_model="opus")
         override.use_cli("codex")
         resolver = AIRouteResolver(
             _pinned_config("commit_message", "cli_headless"),
@@ -867,3 +867,162 @@ class TestAModelNeverOutlivesItsInstance:
         decision = resolver.resolve(task="commit_message")
 
         assert (decision.cli, decision.model) == ("codex", None)
+
+
+class TestTheModelFollowsTheInstanceRung:
+    """
+    A model may never come from a rung BELOW the one that supplied the instance (D-008).
+
+    Found by Titan's own Review PR on #272. The two guards written against exactly this
+    each cover one side - `use_cli()` clears only the session's model, `_drop_stale_model`
+    only fires on a config write - so neither caught a mismatch created at resolution time.
+
+    The global layer is the one exception, and the reason is the same one that kept it free
+    of this bug all along: its models are keyed BY INSTANCE (`cli_models[cli]`, a
+    connection's own `default_model`), so they cannot be read for the wrong one.
+    """
+
+    def test_a_session_cli_does_not_inherit_the_task_pins_model(self):
+        """The reported case: claude+opus pinned, session switched to codex -> `codex -m opus`."""
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="claude", model="opus"),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert decision.cli == "codex"
+        assert decision.model is None
+
+    def test_a_session_cli_falls_back_to_that_clis_own_global_model(self):
+        """Dropping the pin's model does not mean dropping the instance's own setting."""
+        resolver = AIRouteResolver(
+            _pinned_config(
+                "commit_message",
+                "cli_headless",
+                cli="claude",
+                model="opus",
+                cli_models={"claude": "opus", "codex": "gpt-5.6-terra"},
+            ),
+            FakeAvailability(headless=["claude", "codex"]),
+            session_override=AISessionOverride(cli="codex"),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.cli, decision.model) == ("codex", "gpt-5.6-terra")
+
+    def test_a_session_connection_does_not_inherit_the_task_pins_model(self):
+        config = _config()
+        config.connections["other-litellm"] = _connection("other-litellm")
+        config.preferences = AIPreferences(
+            tasks={
+                "jira_analysis": AIProviderPreference(
+                    provider="remote", connection="work-litellm", model="gpt-5-mini"
+                )
+            }
+        )
+        resolver = AIRouteResolver(
+            config,
+            FakeAvailability(remote=["work-litellm", "other-litellm"]),
+            session_override=AISessionOverride(connection="other-litellm"),
+        )
+
+        decision = resolver.resolve(task="jira_analysis")
+
+        assert decision.connection_id == "other-litellm"
+        assert decision.model is None
+
+    def test_a_model_only_pin_still_applies_over_the_global_instance(self):
+        """
+        A pin with a model and no instance means "whatever runs this, use this model".
+
+        That shape is in live use (a remote task pinning only a model), and the instance
+        comes from a LOWER rung than the model, which the rule allows: the danger is a
+        model from below, not from above.
+        """
+        config = _config()
+        config.connections["work-litellm"].default_model = "claude-opus-5"
+        config.preferences = AIPreferences(
+            tasks={"pr_description": AIProviderPreference(provider="remote", model="qwen-coder")}
+        )
+        resolver = AIRouteResolver(config, FakeAvailability(remote=["work-litellm"]))
+
+        decision = resolver.resolve(task="pr_description")
+
+        assert (decision.connection_id, decision.model) == ("work-litellm", "qwen-coder")
+
+    def test_a_session_model_without_a_session_instance_still_applies(self):
+        """Also from above: "run whatever you would, but on this model"."""
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli="claude", model="opus"),
+            FakeAvailability(headless=["claude"]),
+            session_override=AISessionOverride(cli_model="haiku"),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.cli, decision.model) == ("claude", "haiku")
+
+
+class TestTheSessionModelIsPerKind:
+    """
+    A CLI model and a connection model are different vocabularies and must not cross.
+
+    `_configured_instance` was always careful to read only the matching half via
+    `instance_for()`; the model was a single shared field, so it crossed both ways: a CLI
+    identifier could land on a gateway decision, and setting a CLI could clear a model that
+    had been chosen for a connection.
+    """
+
+    def test_a_cli_model_never_reaches_a_remote_decision(self):
+        config = _config()
+        config.preferences = AIPreferences(
+            tasks={"jira_analysis": AIProviderPreference(provider="remote")}
+        )
+        config.connections["work-litellm"].default_model = "gpt-5"
+        resolver = AIRouteResolver(
+            config,
+            FakeAvailability(remote=["work-litellm"]),
+            session_override=AISessionOverride(cli="codex", cli_model="gpt-5.6-terra"),
+        )
+
+        decision = resolver.resolve(task="jira_analysis")
+
+        assert (decision.connection_id, decision.model) == ("work-litellm", "gpt-5")
+
+    def test_a_connection_model_never_reaches_a_cli_decision(self):
+        resolver = AIRouteResolver(
+            _pinned_config("commit_message", "cli_headless", cli_models={"claude": "haiku"}),
+            FakeAvailability(headless=["claude"]),
+            session_override=AISessionOverride(
+                connection="work-litellm", connection_model="qwen-coder"
+            ),
+        )
+
+        decision = resolver.resolve(task="commit_message")
+
+        assert (decision.cli, decision.model) == ("claude", "haiku")
+
+    def test_setting_a_cli_leaves_a_connection_model_alone(self):
+        """The two overrides coexist by design, so one must not invalidate the other's model."""
+        override = AISessionOverride(connection="work-litellm", connection_model="qwen-coder")
+
+        override.use_cli("codex")
+
+        assert override.connection_model == "qwen-coder"
+
+    def test_setting_a_cli_still_forgets_the_previous_clis_model(self):
+        override = AISessionOverride(cli="claude", cli_model="opus")
+
+        dropped = override.use_cli("codex")
+
+        assert dropped == "opus"
+        assert override.cli_model is None
+
+    def test_describe_reports_both_overrides(self):
+        override = AISessionOverride(cli="codex", connection="work-litellm")
+
+        assert "codex" in override.describe()
+        assert "work-litellm" in override.describe()

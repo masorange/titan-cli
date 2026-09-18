@@ -1337,3 +1337,57 @@ class TestCodexModelListing:
         )
 
         assert self._models(monkeypatch, path)[0].label == "GPT-5.5"
+
+
+class TestListingIsDecodeSafe(unittest.TestCase):
+    """
+    A CLI emitting non-UTF-8 must not raise through `model_listing_lines` (review).
+
+    `text=True` decodes with the platform encoding, so a stray byte raises
+    UnicodeDecodeError - a ValueError, which the old handler did not catch - through a
+    function whose entire contract is that every failure flattens to "nothing to offer".
+    """
+
+    def test_the_subprocess_is_asked_to_replace_undecodable_bytes(self):
+        from titan_cli.external_cli.adapters.base import model_listing_lines
+
+        with patch("subprocess.run") as run:
+            run.return_value = MagicMock(stdout="a\nb\n", returncode=0)
+            model_listing_lines(["x", "models"])
+
+        self.assertEqual(run.call_args.kwargs.get("errors"), "replace")
+
+    def test_a_decode_error_still_yields_nothing(self):
+        from titan_cli.external_cli.adapters.base import model_listing_lines
+
+        error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        with patch("subprocess.run", side_effect=error):
+            self.assertEqual(model_listing_lines(["x", "models"]), [])
+
+
+class TestCodexSlugIsTypeChecked(unittest.TestCase):
+    """A slug becomes a Textual option id, so a non-string must be skipped, not crash."""
+
+    def test_a_non_string_slug_is_skipped(self):
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+
+        from titan_cli.external_cli.adapters import codex as codex_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _Path(tmp) / "models_cache.json"
+            path.write_text(
+                _json.dumps(
+                    {
+                        "models": [
+                            {"slug": 5, "visibility": "list"},
+                            {"slug": "gpt-5.5", "visibility": "list"},
+                        ]
+                    }
+                )
+            )
+            with patch.object(codex_module, "codex_models_cache_path", lambda: path):
+                models = codex_module.CodexHeadlessAdapter().list_models()
+
+        self.assertEqual([m.identifier for m in models], ["gpt-5.5"])

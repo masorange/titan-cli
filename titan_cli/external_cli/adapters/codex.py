@@ -88,10 +88,13 @@ class CodexHeadlessAdapter:
             if not isinstance(entry, dict) or entry.get("visibility") != "list":
                 continue
             slug = entry.get("slug")
-            if not slug:
+            # Type-checked, not just truthy: the slug becomes a Textual option id, so a
+            # format change that made it a number or an object would surface as a crash
+            # in the picker rather than as the empty list this whole method promises.
+            if not isinstance(slug, str) or not slug:
                 continue
             label = entry.get("description") or entry.get("display_name") or ""
-            models.append(CliModel(slug, label))
+            models.append(CliModel(slug, label if isinstance(label, str) else ""))
         return models
 
     def execute(

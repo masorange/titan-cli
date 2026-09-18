@@ -13,10 +13,14 @@ the step's own declared `preferred` order.
 
 Each of those levels answers only WHICH KIND of provider to use. Which concrete
 connection or CLI serves that kind comes from the global settings
-(`AIConfig.default_connection` / `AIConfig.default_cli`), unless the task pinned a CLI
-of its own - a sparse override where `None` still means "inherit the global". Either way
-it is attached here, so every decision leaves this module naming the instance, and the
-model, that will actually run.
+(`AIConfig.default_connection` / `AIConfig.default_cli`), unless a higher rung - the
+task's own pin, or the session override - supplies one. Either way it is attached here,
+so every decision leaves this module naming the instance, and the model, that will
+actually run.
+
+Instance and model are resolved TOGETHER, by rung: a bare model identifier may never be
+read for an instance that a higher rung chose, or a task pinned to claude+opus would
+answer a session switch to codex with `codex -m opus`.
 """
 
 from dataclasses import dataclass, field
@@ -134,7 +138,7 @@ class AIRouteResolver:
         if provider == AIProviderType.OFF:
             return AIRouteDecision(provider=provider, reason=reason)
 
-        identifier = self._configured_instance(provider, task)
+        identifier, instance_rung = self._instance_and_rung(provider, task)
         if identifier is None:
             return AIRouteNeedsInput(
                 reason=self._missing_instance_reason(provider),
@@ -150,7 +154,7 @@ class AIRouteResolver:
                 candidates=self._candidates(policy),
             )
 
-        model = self._resolved_model(provider, identifier, task)
+        model = self._resolved_model(provider, identifier, task, instance_rung)
         if provider == AIProviderType.REMOTE:
             return AIRouteDecision(
                 provider=provider,
@@ -163,9 +167,21 @@ class AIRouteResolver:
         )
 
     def _configured_instance(self, provider: AIProviderType, task: str = "") -> Optional[str]:
+        """The instance serving this kind of provider, ignoring which rung supplied it."""
+        return self._instance_and_rung(provider, task)[0]
+
+    # Rungs, highest first. The number is what keeps a model from riding an instance it
+    # was never chosen for: a model may come from the rung that supplied the instance or
+    # from one ABOVE it, never from below.
+    _RUNG_SESSION = 0
+    _RUNG_TASK_PIN = 1
+    _RUNG_GLOBAL = 2
+
+    def _instance_and_rung(
+        self, provider: AIProviderType, task: str
+    ) -> tuple[Optional[str], int]:
         """
-        The instance serving this kind of provider: the session override, else the task's
-        pin, else the global default.
+        The instance serving this kind of provider, and which rung it came from.
 
         The same three rungs for both kinds - a CLI and a remote connection are the same
         question asked of different transports. Only the half matching this kind is read,
@@ -173,48 +189,66 @@ class AIRouteResolver:
         inert rather than an error.
         """
         if not self.ai_config:
-            return None
+            return None, self._RUNG_GLOBAL
 
         remote = provider == AIProviderType.REMOTE
 
         if self.session_override:
             overridden = self.session_override.instance_for(remote)
             if overridden:
-                return overridden
+                return overridden, self._RUNG_SESSION
 
         pinned = self._task_preference(task)
         if pinned is not None:
             pinned_instance = pinned.connection if remote else pinned.cli
             if pinned_instance:
-                return pinned_instance
+                return pinned_instance, self._RUNG_TASK_PIN
 
-        return self.ai_config.default_connection if remote else self.ai_config.default_cli
+        default = (
+            self.ai_config.default_connection if remote else self.ai_config.default_cli
+        )
+        return default, self._RUNG_GLOBAL
 
-    def _resolved_model(self, provider: AIProviderType, identifier: str, task: str) -> Optional[str]:
+    def _resolved_model(
+        self, provider: AIProviderType, identifier: str, task: str, instance_rung: int
+    ) -> Optional[str]:
         """
-        The model the resolved instance should run with: the session override, else the
-        task's pin, else the instance's own global setting.
+        The model the resolved instance should run with, never taken from below it.
 
-        That last rung is the only part that differs by kind, and only because of where
-        the setting lives: a CLI's model is an `AIConfig.cli_models` entry keyed by CLI,
-        while a connection's is `default_model` on the connection itself. Both are "the
-        model this instance runs unless told otherwise".
+        A session model and a task's pinned model are BARE identifiers: they name a model
+        with no instance attached, so reading one for an instance that a higher rung
+        chose produces pairs like `codex -m opus` - a claude alias handed to codex. Hence
+        the rung guard, and hence `instance_rung`.
+
+        The global layer is exempt and always serves as the fallback, for the same reason
+        it never had this bug: its models are keyed BY INSTANCE (`cli_models[cli]`, a
+        connection's own `default_model`), so they cannot be read for the wrong one.
+
+        A model from ABOVE the instance's rung is honored on purpose. "Whatever runs this
+        task, use this model" is a real instruction - a task pinning only a model, or a
+        session naming one without naming an instance - and the user gave it knowing what
+        would serve the task.
 
         `None` means the instance picks for itself. Only an explicit call-site `model=`
-        sits above these, and it is applied by `AIExecutor` - it is not a user setting, so
-        it does not belong in the decision this layer records.
+        sits above all of this, and it is applied by `AIExecutor` - it is not a user
+        setting, so it does not belong in the decision this layer records.
         """
         if not self.ai_config:
             return None
 
-        if self.session_override and self.session_override.model:
-            return self.session_override.model
+        remote = provider == AIProviderType.REMOTE
 
-        pinned = self._task_preference(task)
-        if pinned is not None and pinned.model:
-            return pinned.model
+        if self.session_override and instance_rung >= self._RUNG_SESSION:
+            session_model = self.session_override.model_for(remote)
+            if session_model:
+                return session_model
 
-        if provider == AIProviderType.REMOTE:
+        if instance_rung >= self._RUNG_TASK_PIN:
+            pinned = self._task_preference(task)
+            if pinned is not None and pinned.model:
+                return pinned.model
+
+        if remote:
             connection = self.ai_config.connections.get(identifier)
             return getattr(connection, "default_model", None)
         return self.ai_config.cli_models.get(identifier)

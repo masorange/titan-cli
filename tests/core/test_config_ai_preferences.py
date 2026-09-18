@@ -340,3 +340,48 @@ class TestChangingTheInstanceInvalidatesTheModel:
 
         assert config.set_task_ai_cli("code_review_plan", "codex") == "opus"
         assert config.set_task_ai_cli("code_review_plan", "gemini") is None
+
+
+class TestClearPathsKeepTheLiveConfigInSync:
+    """
+    Clearing must update the in-memory model too, not only the file (review, 2026-09-18).
+
+    The existing clear tests re-read through a fresh `TitanConfig()`, so they pass whether
+    or not the clear path syncs. `TitanConfig` lives for the whole session: if the sync
+    were dropped, a step resolving a route right after would keep using the stale pin and
+    nothing would fail.
+    """
+
+    def test_clearing_a_cli_model_is_visible_without_a_reload(self, config: TitanConfig):
+        config.set_cli_model("claude", "opus")
+
+        config.clear_cli_model("claude")
+
+        assert config.get_cli_model("claude") is None            # same instance
+        assert TitanConfig().get_cli_model("claude") is None      # and on disk
+
+    def test_clearing_the_default_cli_is_visible_without_a_reload(self, config: TitanConfig):
+        config.set_default_ai_cli("claude")
+
+        config.clear_default_ai_cli()
+
+        assert config.config.ai.default_cli is None
+        assert TitanConfig().config.ai.default_cli is None
+
+    def test_clearing_one_clis_model_leaves_the_others(self, config: TitanConfig):
+        """The regression this guards would silently unpin every CLI at once."""
+        config.set_cli_model("claude", "opus")
+        config.set_cli_model("opencode", "anthropic/claude-sonnet-5")
+
+        config.clear_cli_model("claude")
+
+        assert TitanConfig().config.ai.cli_models == {
+            "opencode": "anthropic/claude-sonnet-5"
+        }
+
+    def test_setting_a_task_model_reports_what_it_dropped(self, config: TitanConfig):
+        """`set_task_ai_model` is annotated to return it; it used to return None always."""
+        config.set_task_ai_cli("commit_message", "claude", provider="cli_headless")
+        config.set_task_ai_model("commit_message", "opus")
+
+        assert config.set_task_ai_model("commit_message", "haiku") is None

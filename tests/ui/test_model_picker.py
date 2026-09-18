@@ -133,13 +133,43 @@ class TestQuickModelShortcut:
         assert isinstance(captured["screen"], SelectModelModal)
         assert any("fast-model" in option for option in captured["options"])
 
-    def test_choosing_a_model_saves_it_on_the_connection(self, monkeypatch):
+    def test_choosing_a_model_saves_it_only_once_the_picker_is_accepted(self, monkeypatch):
+        """
+        The model is now part of a composition, not an immediate write (D-009).
+
+        This test used to end at `enter` in the model list. That keystroke no longer
+        saves anything: it hands the model back to the quick picker, which holds it until
+        the user accepts - which is the point of the change, since Escape used to leave
+        the model written.
+        """
+        from titan_cli.ui.tui.widgets import Button
+
         _stub_gateway(monkeypatch)
         config = _config(
             AIConfig(default_connection="work", connections={"work": _gateway_connection()})
         )
 
         self._run(config, monkeypatch, keys=["enter"])
+
+        config.update_ai_connection.assert_not_called()
+
+        # Re-run, this time accepting after the model comes back.
+        async def run():
+            app = TitanApp(config, initial_screen=lambda: _BlankScreen())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("f3")
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                for _ in range(6):
+                    await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                app.screen.query_one("#quick-instance-save", Button).press()
+                await pilot.pause()
+
+        asyncio.run(run())
 
         config.update_ai_connection.assert_called_once_with(
             "work", {"default_model": "fast-model"}
@@ -156,14 +186,14 @@ class TestQuickModelShortcut:
         config.update_ai_connection.assert_not_called()
 
     def test_with_no_connection_configured_the_picker_says_so(self, monkeypatch):
-        from titan_cli.ui.tui.screens.ai_routing import QuickConnectionModal
+        from titan_cli.ui.tui.screens.ai_routing import QuickInstanceModal
 
         _stub_gateway(monkeypatch)
         config = _config(AIConfig())
 
         captured = self._run(config, monkeypatch)
 
-        assert isinstance(captured["picker"], QuickConnectionModal)
+        assert isinstance(captured["picker"], QuickInstanceModal)
         assert not isinstance(captured["screen"], SelectModelModal)
         assert "No AI connection is configured" in captured["picker_text"]
 

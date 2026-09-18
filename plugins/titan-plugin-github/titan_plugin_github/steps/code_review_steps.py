@@ -975,7 +975,11 @@ class _PinnedModelCli:
         return getattr(self._adapter, name)
 
     def execute(self, prompt, **kwargs):
-        kwargs.setdefault("model", self._model)
+        # `is None`, not setdefault: the executor's rule is that a call-site model counts
+        # only when it is not None, so a caller forwarding an optional model=None must
+        # mean "no opinion" here too, rather than suppressing the user's pin entirely.
+        if kwargs.get("model") is None:
+            kwargs["model"] = self._model
         return self._adapter.execute(prompt, **kwargs)
 
 

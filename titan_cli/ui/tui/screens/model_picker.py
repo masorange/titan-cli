@@ -28,9 +28,13 @@ from titan_cli.ui.tui.widgets import (
     StyledOptionList,
 )
 
-# Sentinel option id for "let me type one". Not a model identifier any source can return,
-# so it cannot collide with a real choice.
+# Sentinel option ids. Neither is a model identifier any source can return, so they
+# cannot collide with a real choice.
 CUSTOM_OPTION_ID = "__custom__"
+# "stop pinning a model; let the CLI or connection use its own". Until this existed there
+# was no way anywhere in the UI to undo a model pin: an emptied text field means "leave it
+# alone" on purpose, so clearing needed an action of its own.
+DEFAULT_OPTION_ID = "__default__"
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,8 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         current: Optional[str] = None,
         loading_message: str = "Loading models...",
         empty_message: str = "This source does not publish a model list.",
+        instance_noun: str = "CLI",
+        allow_clear: bool = False,
         **kwargs,
     ):
         """
@@ -100,6 +106,14 @@ class SelectModelModal(ModalScreen[Optional[str]]):
                 in the text entry.
             loading_message: Shown while the loader runs.
             empty_message: Shown when the loader returns nothing.
+            instance_noun: What owns the model here - "CLI" or "connection" - used only
+                in the wording of the unpin option.
+            allow_clear: Offer "use its own default", which dismisses with
+                `DEFAULT_OPTION_ID`. Opt-in rather than inferred from `current`, because
+                it is not always meaningful: a CLI with no model picks one itself, but a
+                remote connection REQUIRES a default_model (create_ai_provider refuses
+                without it), so clearing one globally would break it. A task's pin can
+                always be cleared - it falls back to the instance's own setting.
         """
         super().__init__(**kwargs)
         self.modal_title = title
@@ -108,6 +122,8 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         self.current = current
         self.loading_message = loading_message
         self.empty_message = empty_message
+        self.instance_noun = instance_noun
+        self.allow_clear = allow_clear
 
     def compose(self) -> ComposeResult:
         with Container(id="select-model-container"):
@@ -146,7 +162,7 @@ class SelectModelModal(ModalScreen[Optional[str]]):
             content.mount(DimText(self.empty_message))
 
         if not models:
-            self._mount_custom_entry(content)
+            self._mount_custom_entry(content, keep=True)
             return
 
         content.mount(DimText("Select a model:"))
@@ -161,7 +177,7 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         self.call_after_refresh(option_list.focus)
 
     def _options(self, models: Sequence[ModelChoice]) -> List[StyledOption]:
-        options = [
+        options: List[StyledOption] = [
             StyledOption(
                 id=model.identifier,
                 title=(
@@ -173,6 +189,17 @@ class SelectModelModal(ModalScreen[Optional[str]]):
             )
             for model in models
         ]
+        # Both meta-actions go AFTER the models, and the order matters for more than
+        # taste: the highlight is computed as an index into `models`, so anything
+        # prepended here would silently point it at the wrong row.
+        if self.allow_clear and self.current:
+            options.append(
+                StyledOption(
+                    id=DEFAULT_OPTION_ID,
+                    title=f"Use the {self.instance_noun}'s own default",
+                    description=f"Stop pinning {self.current}",
+                )
+            )
         options.append(
             StyledOption(
                 id=CUSTOM_OPTION_ID,
@@ -182,9 +209,16 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         )
         return options
 
-    def _mount_custom_entry(self, content: Container) -> None:
-        """Swap the content for a text entry, prefilled with what is in force now."""
-        content.remove_children()
+    def _mount_custom_entry(self, content: Container, *, keep: bool = False) -> None:
+        """Mount the text entry, prefilled with what is in force now.
+
+        `keep` leaves whatever is already on screen in place. The no-list path mounts an
+        explanation first - "could not load", or the source's empty message - and clearing
+        the content here wiped it before it was ever rendered, leaving a bare input with
+        no hint that discovery had failed.
+        """
+        if not keep:
+            content.remove_children()
         content.mount(DimText("Model identifier (Enter to save):"))
         entry = Input(value=self.current or "", id="model-input")
         content.mount(entry)
@@ -263,6 +297,7 @@ def open_model_picker_for_connection(
     on_picked,
     current: Optional[str] = None,
     title: Optional[str] = None,
+    allow_clear: bool = False,
 ) -> None:
     """Ask which model a gateway connection can run, and hand the answer to the caller.
 
@@ -326,6 +361,8 @@ def open_model_picker_for_connection(
             current=current if current is not None else (connection_cfg.default_model or None),
             loading_message="Loading models from gateway...",
             empty_message="This gateway published no models.",
+            instance_noun="connection",
+            allow_clear=allow_clear,
         ),
         on_picked,
     )
@@ -389,6 +426,7 @@ def open_model_picker_for_cli(
     on_picked,
     current: Optional[str] = None,
     title: Optional[str] = None,
+    allow_clear: bool = True,
 ) -> None:
     """Ask which model a CLI should run with, and hand the answer to the caller.
 
@@ -420,6 +458,8 @@ def open_model_picker_for_cli(
                 f"{display_name} does not publish a model list - type the identifier it "
                 "expects."
             ),
+            instance_noun="CLI",
+            allow_clear=allow_clear,
         ),
         on_picked,
     )
@@ -452,6 +492,7 @@ def open_cli_model_picker(app, config, cli_name: str, on_saved=None) -> None:
 
 
 __all__ = [
+    "DEFAULT_OPTION_ID",
     "ModelChoice",
     "SelectModelModal",
     "open_model_picker_for_cli",

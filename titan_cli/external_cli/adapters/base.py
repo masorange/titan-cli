@@ -67,8 +67,14 @@ def model_listing_lines(cmd: list[str], timeout: int = 20) -> list[str]:
     than raised.
     """
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except (subprocess.TimeoutExpired, OSError):
+        # errors="replace" because text=True decodes with the platform encoding, and a
+        # CLI emitting a stray non-UTF-8 byte would otherwise raise UnicodeDecodeError -
+        # a ValueError, which the handler below does not catch - straight through a
+        # function whose whole contract is that nothing here raises.
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, errors="replace", timeout=timeout
+        )
+    except (subprocess.TimeoutExpired, OSError, ValueError):
         return []
     if result.returncode != 0:
         return []
