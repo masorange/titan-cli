@@ -55,7 +55,7 @@ On first launch, two setup wizards run automatically:
 1. **Global setup** — Configure AI connections. This is optional and can be skipped.
 2. **Project setup** — Choose a project name and enable the plugins you want (Git, GitHub, Jira).
 
-After setup, the main menu appears and you're ready to run workflows.
+After setup, the home screen appears with a grid of workflows you can launch by number — see [Quick Start](quick-start.md#the-home-screen).
 
 ---
 

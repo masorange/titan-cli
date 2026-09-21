@@ -10,7 +10,7 @@ cells. So the body belongs to the workflows and those two demote to keys.
 """
 
 import asyncio
-from typing import List
+from typing import Dict, List
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -75,7 +75,14 @@ class MainMenuScreen(BaseScreen):
         # config.load() builds a fresh WorkflowRegistry on every transition, so the
         # registry's own cache cannot be relied on here.
         self._workflows = None
+        # What the grid currently on screen was built FROM. A resume compares against
+        # these rather than rebuilding: on_screen_resume fires on every transition, and
+        # re-running discover() there is precisely the startup cost O-001 was about.
         self._favorite_names: List[str] = []
+        self._last_used: Dict[str, str] = {}
+        # Set when something that can change the workflow SET (not just its order) has
+        # happened, so the cached discovery is dropped instead of trusted.
+        self._discovery_dirty = False
 
     BINDINGS = [
         ("q", "quit", "Quit"),
@@ -181,12 +188,16 @@ class MainMenuScreen(BaseScreen):
             with Grid(id="home-grid"):
                 for slot in self._slots:
                     yield self._card_for(slot)
-            if not has_favorites:
-                yield Static(
-                    f"[dim]{Icons.STAR} Press [/dim]f[dim] while running a workflow to "
-                    f"star it, and it will take a slot here.[/dim]",
-                    id="home-hint",
-                )
+            # Mounted in both states and hidden when it does not apply: a refresh
+            # after a star toggle then only flips `display`, instead of mounting and
+            # unmounting a widget in the middle of a rebuild.
+            hint = Static(
+                f"[dim]{Icons.STAR} Press [/dim]f[dim] while running a workflow to "
+                f"star it, and it will take a slot here.[/dim]",
+                id="home-hint",
+            )
+            hint.display = not has_favorites
+            yield hint
 
         with Grid(id="home-actions"):
             # Workflows is the primary: it is the one a user reaches for, and the other
@@ -218,10 +229,11 @@ class MainMenuScreen(BaseScreen):
         if self._workflows is None:
             self._workflows = self.config.workflows.discover()
         self._favorite_names = self.config.get_favorite_workflows()
+        self._last_used = self.config.get_workflow_last_used()
         return QuickLaunchService.build_slots(
             self._workflows,
             self._favorite_names,
-            self.config.get_workflow_last_used(),
+            self._last_used,
         )
 
     def _card_for(self, slot: QuickLaunchSlot) -> WorkflowCard:
@@ -267,6 +279,61 @@ class MainMenuScreen(BaseScreen):
         columns = max(1, min(MAX_COLUMNS, available // CARD_TARGET_WIDTH))
         if grid.styles.grid_size_columns != columns:
             grid.styles.grid_size_columns = columns
+
+    async def on_screen_resume(self) -> None:
+        """Bring the grid up to date, but only when something it depends on changed.
+
+        This fires on EVERY screen transition and the base class already reloads the
+        config here, so the naive version - rebuilding unconditionally - would re-run
+        discover() each time the user backs out of any screen. Favorites and last_used
+        are two cheap reads of the file the base class has just reloaded; discovery is
+        not, so it is reused unless it is known to be stale.
+        """
+        super().on_screen_resume()
+
+        if self._discovery_dirty:
+            # The set of workflows itself may have changed (a plugin was enabled or
+            # disabled), which can also flip the body between its three states - so the
+            # body is composed again rather than refilled.
+            self._discovery_dirty = False
+            self._workflows = None
+            self.refresh(recompose=True)
+            return
+
+        if (
+            self.config.get_favorite_workflows() == self._favorite_names
+            and self.config.get_workflow_last_used() == self._last_used
+        ):
+            return
+
+        await self._refresh_grid()
+
+    async def _refresh_grid(self) -> None:
+        """Refill the grid from the cached discovery, keeping the body's state honest.
+
+        Awaited rather than fire-and-forget: removing and mounting in the same tick
+        without waiting leaves the old cards in the tree while the new ones arrive.
+        """
+        try:
+            grid = self.query_one("#home-grid", Grid)
+            title = self.query_one("#home-section-title", Static)
+            hint = self.query_one("#home-hint", Static)
+        except NoMatches:
+            # The onboarding body has no grid; it only changes when discovery does,
+            # which is the _discovery_dirty path above.
+            return
+
+        self._slots = self._build_slots()
+        has_favorites = any(slot.is_favorite for slot in self._slots)
+        title.update(
+            f"{Icons.STAR} Favorites" if has_favorites else f"{Icons.WORKFLOW} Suggested"
+        )
+        hint.display = not has_favorites
+
+        await grid.remove_children()
+        await grid.mount_all([self._card_for(slot) for slot in self._slots])
+        self._reflow_grid()
+        self._focus_first_card()
 
     def _reflow_actions(self) -> None:
         """Wrap the action row the same way the cards wrap, down to one per line.
@@ -365,7 +432,12 @@ class MainMenuScreen(BaseScreen):
         self.app.push_screen(WorkflowsScreen(self.config))
 
     def action_open_plugins(self) -> None:
-        """Open plugin management."""
+        """Open plugin management.
+
+        Enabling or disabling a plugin changes which workflows exist, so the cached
+        discovery this screen holds is marked stale for the resume that follows.
+        """
+        self._discovery_dirty = True
         self.app.push_screen(PluginManagementScreen(self.config))
 
     def action_open_ai_config(self) -> None:

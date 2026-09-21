@@ -138,6 +138,19 @@ class WorkflowExecutionScreen(BaseScreen):
                 self._output("[dim]Press ESC or Q to return[/dim]")
                 return
 
+            # Recorded only once the workflow is known to exist, so a mistyped or
+            # removed name cannot earn a slot on the home screen. A failure to write
+            # the timestamp must never take the run down with it - the ordering of a
+            # launcher grid is not worth a failed workflow.
+            try:
+                self.config.record_workflow_run(self.workflow_name)
+            except Exception as exc:
+                logger.warning(
+                    "workflow_last_used_not_recorded",
+                    workflow=self.workflow_name,
+                    error=str(exc),
+                )
+
             self._update_header_title(f"{Icons.WORKFLOW} {self.workflow.name}")
             self._update_description(self.workflow.description or "")
 
