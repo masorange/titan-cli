@@ -89,7 +89,7 @@ List and compare Remote Config parameter keys and values across several Firebase
 | `project_groups` | `""` | Optional group tags, comma-separated, used to inspect only part of the configured project set. |
 | `environment` | `""` | Optional environment such as `dev` or `pro`, used to inspect only matching configured projects. |
 | `project_filter` | `""` | Optional case-insensitive words used to reduce the TUI project catalogue before choosing projects. For example, `Prepago, National`. |
-| `condition_group` | `""` | Optional configured Remote Config condition group used to filter the value table, such as `android` or `ios`. |
+| `condition_group` | `""` | Optional configured Remote Config condition group used to filter the values in each key comparison, such as `android` or `ios`. |
 
 ### Default flow
 
@@ -110,7 +110,8 @@ List and compare Remote Config parameter keys and values across several Firebase
 - read-only: nothing in this workflow writes
 - projects are read one by one, so a failure in one project is reported without discarding
   the projects that were read successfully
-- values are displayed per project as compact, type-aware summaries
+- every key has one expandable cross-project comparison with compact, type-aware values
+- structured JSON values are available as nested trees below their project and condition
 - the inventory builds deterministic type profiles, using the declared `valueType` when
   present and all explicit stored values for legacy keys without one
 - values managed by Firebase personalization, experiments, rollouts, or future unknown

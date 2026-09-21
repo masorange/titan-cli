@@ -171,11 +171,14 @@ For a read-only inventory, chain the same project-selection step with
 union of keys, keys present in every readable project, keys missing per project,
 deterministic value-type profiles, bulk-safe keys, and type conflicts between projects.
 It also displays each key's default value and condition-specific values per project, so
-multi-brand drift can be reviewed before planning a write. The value table shows each
-key's value per Remote Config environment/condition (`default`, `android_prod`,
-`ios_prod`, or whatever the template declares) in each selected project. Pass
-`condition_group=android` or configure `default_condition_group` to focus that table on
-one named value view.
+multi-brand drift can be reviewed before planning a write. One expandable comparison
+per key combines its coverage, type status, and every selected project's value per
+Remote Config environment/condition (`default`, `android_prod`, `ios_prod`, or whatever
+the template declares). The configured project environment (`DEV`, `PRO`, or the
+repository's own vocabulary) appears in a separate column, including for projects where
+the key is missing. Structured JSON values open as nested trees. Pass
+`condition_group=android` or configure `default_condition_group` to focus the comparison
+on one named value view.
 
 For creating new keys, use `create-remoteconfig-key`. It selects the configured project
 set or explicit project IDs, audits which projects already have the key, asks for the

@@ -6,13 +6,14 @@ from contextlib import nullcontext
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
-from titan_cli.ui.tui.widgets import CollapsibleEntry, JsonTree, Table
+from titan_cli.ui.tui.widgets import CollapsibleEntry, Table, build_json_entry
 
 from ..config import FirebaseConditionGroupConfig
+from ..messages import msg
 from ..operations.key_inventory_operations import (
+    RemoteConfigKeyComparisonItem,
     build_key_inventory,
-    describe_key_inventory,
-    describe_project_key_value_items,
+    describe_key_comparison_items,
     describe_project_inventory,
     key_profiles_to_metadata,
     project_conditions_to_metadata,
@@ -62,23 +63,25 @@ def execute_firebase_remoteconfig_fanout_list_keys_step(
         Error: If the plugin is unavailable, targets are missing, or every read fails.
     """
     if ctx.textual:
-        ctx.textual.begin_step("Inventariar claves por proyecto")
+        ctx.textual.begin_step(msg.Inventory.STEP_TITLE)
 
     if not ctx.firebase:
-        return _fail(ctx, "El plugin de Firebase no esta disponible")
+        return _fail(ctx, msg.Inventory.PLUGIN_UNAVAILABLE)
 
     targets = ctx.get("firebase_targets")
     if not targets:
         return _fail(
             ctx,
-            "Faltan los proyectos. Ejecuta firebase_select_targets antes de este paso.",
+            msg.Inventory.TARGETS_REQUIRED,
         )
 
     templates = {}
     failed_projects: dict[str, str] = {}
     for target in targets:
         loading = (
-            ctx.textual.loading(f"Leyendo {target.project_id}...")
+            ctx.textual.loading(
+                msg.Inventory.READING_PROJECT.format(project_id=target.project_id)
+            )
             if ctx.textual
             else nullcontext()
         )
@@ -91,12 +94,10 @@ def execute_firebase_remoteconfig_fanout_list_keys_step(
             case ClientError(error_message=error_message):
                 failed_projects[target.project_id] = error_message
             case _:
-                failed_projects[target.project_id] = (
-                    "Respuesta inesperada al leer Remote Config"
-                )
+                failed_projects[target.project_id] = msg.Inventory.UNEXPECTED_RESPONSE
 
     if not templates:
-        return _fail(ctx, "No se pudo leer ningun proyecto de Firebase.")
+        return _fail(ctx, msg.Inventory.NO_READABLE_PROJECTS)
 
     inventory = build_key_inventory(templates)
     try:
@@ -107,72 +108,84 @@ def execute_firebase_remoteconfig_fanout_list_keys_step(
     if ctx.textual:
         if failed_projects:
             ctx.textual.warning_text(
-                f"{len(failed_projects)} proyecto(s) no se pudieron leer."
+                msg.Inventory.PROJECT_READ_FAILURES.format(
+                    count=len(failed_projects)
+                )
             )
-        if condition_group_name and condition_group:
-            ctx.textual.dim_text(
-                f"Vista de valores: {_condition_group_label(condition_group_name, condition_group)}"
-            )
-        elif ctx.firebase.config.condition_groups:
-            ctx.textual.dim_text(
-                "Vistas de valores configuradas: "
-                f"{', '.join(sorted(ctx.firebase.config.condition_groups))}."
-            )
-        ctx.textual.table(
-            headers=["Etiqueta", "Claves", "Condiciones", "Estado"],
-            rows=describe_project_inventory(targets, inventory, failed_projects),
-            title="Remote Config por proyecto",
-            flex_column=0,
-            show_cursor=False,
-        )
-        if inventory.keys:
             ctx.textual.table(
-                headers=["Clave", "Proyectos", "Tipo", "Estado"],
-                rows=describe_key_inventory(inventory),
-                title=f"{len(inventory.keys)} claves unicas",
+                headers=list(msg.Inventory.READ_STATUS_HEADERS),
+                rows=describe_project_inventory(targets, inventory, failed_projects),
+                title=msg.Inventory.READ_STATUS_TITLE,
                 flex_column=0,
                 show_cursor=False,
             )
-            value_items = describe_project_key_value_items(
+        if condition_group_name and condition_group:
+            ctx.textual.dim_text(
+                msg.Inventory.VALUE_VIEW.format(
+                    label=_condition_group_label(condition_group_name, condition_group)
+                )
+            )
+        elif ctx.firebase.config.condition_groups:
+            ctx.textual.dim_text(
+                msg.Inventory.CONFIGURED_VALUE_VIEWS.format(
+                    groups=", ".join(sorted(ctx.firebase.config.condition_groups))
+                )
+            )
+        ctx.textual.dim_text(
+            _inventory_summary(
+                readable_projects=len(templates),
+                selected_projects=len(targets),
+                unique_keys=len(inventory.keys),
+                common_keys=len(inventory.common_keys),
+                conflict_keys=len(inventory.type_conflicts),
+            )
+        )
+        if inventory.keys:
+            comparison_items = describe_key_comparison_items(
                 templates,
                 targets,
+                inventory,
                 condition_group,
+                failed_projects,
             )
-            if value_items:
-                ctx.textual.dim_text("Valores por proyecto")
+            if comparison_items:
+                ctx.textual.dim_text(msg.Inventory.KEYS_AND_VALUES)
                 ctx.textual.collapsible_list(
                     [
-                        _collapsible_value_entry(item)
-                        for item in value_items
+                        _collapsible_key_entry(item)
+                        for item in comparison_items
                     ]
                 )
             else:
-                ctx.textual.dim_text(
-                    "No hay valores para la vista de condiciones seleccionada."
-                )
+                ctx.textual.dim_text(msg.Inventory.NO_VALUES_IN_VIEW)
         else:
-            ctx.textual.dim_text("Los proyectos leidos no tienen claves.")
+            ctx.textual.dim_text(msg.Inventory.NO_KEYS)
         if inventory.type_conflicts:
             ctx.textual.warning_text(
-                f"{len(inventory.type_conflicts)} clave(s) tienen conflictos de tipo."
+                msg.Inventory.TYPE_CONFLICT_WARNING.format(
+                    count=len(inventory.type_conflicts)
+                )
             )
         blocked_count = len(inventory.bulk_blocked_keys)
         if blocked_count:
             ctx.textual.dim_text(
-                f"{len(inventory.bulk_safe_keys)} clave(s) aptas para bulk; "
-                f"{blocked_count} requieren revisión por proyecto."
+                msg.Inventory.BULK_SUMMARY.format(
+                    safe=len(inventory.bulk_safe_keys),
+                    blocked=blocked_count,
+                )
             )
         unknown_count = sum(len(keys) for keys in inventory.unknown_type_keys.values())
         if unknown_count:
             ctx.textual.warning_text(
-                f"{unknown_count} clave(s) tienen tipo efectivo UNKNOWN."
+                msg.Inventory.UNKNOWN_TYPE_WARNING.format(count=unknown_count)
             )
         ctx.textual.end_step("success")
 
     return Success(
-        (
-            f"{len(inventory.keys)} claves unicas; "
-            f"{len(inventory.common_keys)} comunes en {inventory.project_count} proyectos"
+        msg.Inventory.SUCCESS.format(
+            unique=len(inventory.keys),
+            common=len(inventory.common_keys),
+            projects=inventory.project_count,
         ),
         metadata={
             "firebase_remoteconfig_keys": inventory.keys,
@@ -207,27 +220,54 @@ def _non_empty(values: dict[str, list[str]]) -> dict[str, list[str]]:
     return {key: items for key, items in values.items() if items}
 
 
-def _collapsible_value_entry(item) -> CollapsibleEntry:
-    """Adapt a Firebase value view model to Titan's shared collapsible list."""
-    subtitle_parts = [item.project_label]
-    if item.description:
-        subtitle_parts.append(item.description)
+def _collapsible_key_entry(
+    item: RemoteConfigKeyComparisonItem,
+) -> CollapsibleEntry:
+    """Adapt one cross-project key comparison to Titan's collapsible list."""
     body = [
-        " · ".join(subtitle_parts),
+        *item.description_lines,
         Table(
-            headers=["Entorno", "Valor", "Origen", "Editable"],
+            headers=list(msg.Inventory.VALUE_HEADERS),
             rows=item.value_rows,
             show_cursor=False,
-            flex_column=1,
+            flex_column=3,
         ),
     ]
-    body.extend(
-        JsonTree(detail.title, detail.value)
-        for detail in item.json_details
-    )
     return CollapsibleEntry(
-        title=f"{item.key}  [{item.type_label}]  {item.environment_summary}",
+        title=f"{item.key}  [{item.type_label}]",
+        right=(
+            f"{item.present_count}/{item.project_count} · {item.status_label}"
+        ),
         body=body,
+        children=[
+            build_json_entry(detail.title, detail.value)
+            for detail in item.json_details
+        ],
+        style="warning" if item.has_issues else None,
+    )
+
+
+def _inventory_summary(
+    *,
+    readable_projects: int,
+    selected_projects: int,
+    unique_keys: int,
+    common_keys: int,
+    conflict_keys: int,
+) -> str:
+    """Render the compact health summary shown before the unified key list."""
+    conflict_label = (
+        msg.Inventory.TYPE_CONFLICT
+        if conflict_keys == 1
+        else msg.Inventory.TYPE_CONFLICT_PLURAL
+    )
+    return msg.Inventory.SUMMARY.format(
+        readable=readable_projects,
+        selected=selected_projects,
+        unique=unique_keys,
+        common=common_keys,
+        conflicts=conflict_keys,
+        conflict_label=conflict_label,
     )
 
 

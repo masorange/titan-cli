@@ -5,6 +5,8 @@ from __future__ import annotations
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
 from titan_cli.ui.tui.widgets import SelectionOption
 
+from ..messages import msg
+from ..models.targets import FirebaseProjectTarget
 from ..operations.target_operations import (
     ProjectSetResolution,
     TargetResolutionError,
@@ -139,19 +141,10 @@ def execute_firebase_select_targets_step(ctx: WorkflowContext) -> WorkflowResult
 
     if ctx.textual:
         ctx.textual.table(
-            headers=["Proyecto", "Etiqueta", "Entorno", "Marca", "Grupos"],
-            rows=[
-                [
-                    target.project_id,
-                    target.label or "—",
-                    target.environment.upper() if target.environment else "—",
-                    target.brand or "—",
-                    ", ".join(target.groups) if target.groups else "—",
-                ]
-                for target in targets
-            ],
+            headers=list(msg.Targets.SUMMARY_HEADERS),
+            rows=_brand_rows(targets),
             title=f"{len(targets)} proyectos",
-            flex_column=1,
+            flex_column=0,
         )
         environments = target_environments(targets)
         if len(environments) > 1:
@@ -209,6 +202,33 @@ def _environment_filter_from_context(ctx: WorkflowContext) -> list[str]:
     if names:
         return names
     return parse_environment_names(ctx.get("firebase_environment"))
+
+
+def _brand_rows(targets: list[FirebaseProjectTarget]) -> list[list[str]]:
+    """Group selected targets for the compact project overview table."""
+    rows_by_brand: dict[str, dict[str, list[str]]] = {}
+    for target in targets:
+        brand = target.brand or target.label or "—"
+        row = rows_by_brand.setdefault(
+            brand,
+            {"environments": [], "groups": []},
+        )
+        if target.environment:
+            environment = target.environment.upper()
+            if environment not in row["environments"]:
+                row["environments"].append(environment)
+        for group in target.groups:
+            if group not in row["groups"]:
+                row["groups"].append(group)
+
+    return [
+        [
+            brand,
+            ", ".join(values["environments"]) if values["environments"] else "—",
+            ", ".join(values["groups"]) if values["groups"] else "—",
+        ]
+        for brand, values in rows_by_brand.items()
+    ]
 
 
 def _ask_environment_filter(

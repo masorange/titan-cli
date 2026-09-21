@@ -3,11 +3,12 @@
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+from rich.text import Text
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.engine import Error, Exit, Success
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.ui.tui.widgets import JsonTree, Table
+from titan_cli.ui.tui.widgets import Table
 
 from titan_plugin_firebase.config import FirebasePluginConfig
 from titan_plugin_firebase.models.mappers import map_template
@@ -31,6 +32,7 @@ from titan_plugin_firebase.operations.fanout_operations import (
 )
 from titan_plugin_firebase.operations.key_inventory_operations import (
     build_key_inventory,
+    describe_key_comparison_items,
     describe_key_inventory,
     describe_project_key_value_items,
     describe_project_key_values,
@@ -258,6 +260,53 @@ def test_select_targets_uses_the_default_project_set_from_config():
     }
     ctx.textual.ask_text.assert_not_called()
     ctx.textual.ask_multiselect.assert_not_called()
+
+
+def test_select_targets_summarizes_visible_targets_by_brand_and_environments():
+    ctx = _ctx(
+        FirebasePluginConfig(
+            default_project_set="ragnarok_ios",
+            project_sets={
+                "ragnarok_ios": {
+                    "projects": [
+                        {
+                            "project_id": "mm-firebase-yoigo-dev",
+                            "label": "Yoigo DEV",
+                            "brand": "Yoigo",
+                            "environment": "dev",
+                            "groups": ["national"],
+                        },
+                        {
+                            "project_id": "mm-firebase-yoigo-pro",
+                            "label": "Yoigo PRO",
+                            "brand": "Yoigo",
+                            "environment": "pro",
+                            "groups": ["national"],
+                        },
+                        {
+                            "project_id": "mm-firebase-lebara",
+                            "label": "Lebara",
+                            "brand": "Lebara",
+                            "environment": "pro",
+                            "groups": ["prepago"],
+                        },
+                    ]
+                }
+            },
+        )
+    )
+    ctx.textual.ask_multiselect.return_value = ["dev", "pro"]
+
+    result = execute_firebase_select_targets_step(ctx)
+
+    assert isinstance(result, Success)
+    table = ctx.textual.table.call_args.kwargs
+    assert table["headers"] == ["Marca", "Entornos", "Grupo"]
+    assert table["rows"] == [
+        ["Yoigo", "DEV, PRO", "national"],
+        ["Lebara", "PRO", "prepago"],
+    ]
+    assert table["flex_column"] == 0
 
 
 def test_select_targets_filters_the_configured_project_set_by_group():
@@ -817,6 +866,91 @@ def test_project_key_value_items_expose_json_values_as_tree_details():
     }
 
 
+def test_key_comparison_items_merge_inventory_and_values_by_key(ui_template):
+    other_template = _template_with_feature_as_string(ui_template)
+    templates = {
+        "mm-firebase-yoigo": ui_template,
+        "mm-guuk-firebase-prod": other_template,
+    }
+    items = describe_key_comparison_items(
+        templates,
+        [
+            _target(
+                "Yoigo",
+                "mm-firebase-yoigo",
+                environment="pro",
+                brand="Yoigo",
+            ),
+            _target(
+                "Guuk",
+                "mm-guuk-firebase-prod",
+                environment="pro",
+                brand="Guuk",
+            ),
+        ],
+        build_key_inventory(templates),
+    )
+
+    assert [item.key for item in items] == [
+        "feature_enabled",
+        "legacy_untyped",
+        "welcome_text",
+    ]
+    feature = items[0]
+    assert feature.type_label == "Bool / String"
+    assert feature.present_count == 2
+    assert feature.project_count == 2
+    assert feature.status_label == "conflicto de tipo"
+    assert feature.has_issues is True
+    assert feature.description_lines == ["Kill switch"]
+    assert feature.value_rows == [
+        ["Yoigo", "PRO", "default", "false", "Literal", "si"],
+        ["", "", "android_prod", "true", "Literal", "si"],
+        ["Guuk", "PRO", "default", "false", "Literal", "si"],
+        ["", "", "android_prod", "true", "Literal", "si"],
+    ]
+
+    legacy = items[1]
+    assert legacy.status_label == "falta en 1"
+    assert legacy.value_rows == [
+        ["Yoigo", "PRO", "default", "objeto · 1 clave", "Literal", "si"],
+        ["Guuk", "PRO", "—", "No existe", "—", "—"],
+    ]
+    assert legacy.json_details[0].title == "Yoigo · default"
+    assert legacy.json_details[0].value == {"a": 1}
+
+
+def test_key_comparison_items_disambiguate_same_brand_project_environments(
+    ui_template,
+):
+    dev_template = replace(ui_template, project_id="mm-firebase-yoigo-dev")
+    templates = {
+        "mm-firebase-yoigo": ui_template,
+        "mm-firebase-yoigo-dev": dev_template,
+    }
+    items = describe_key_comparison_items(
+        templates,
+        [
+            _target(
+                "Yoigo PRO",
+                "mm-firebase-yoigo",
+                environment="pro",
+                brand="Yoigo",
+            ),
+            _target(
+                "Yoigo DEV",
+                "mm-firebase-yoigo-dev",
+                environment="dev",
+                brand="Yoigo",
+            ),
+        ],
+        build_key_inventory(templates),
+    )
+
+    assert items[0].value_rows[0][:2] == ["Yoigo", "PRO"]
+    assert items[0].value_rows[2][:2] == ["Yoigo", "DEV"]
+
+
 def test_project_key_value_rows_hide_keys_without_group_values_when_default_is_off():
     template = map_template(
         "mm-firebase-yoigo",
@@ -1037,32 +1171,40 @@ def test_fanout_list_keys_reads_every_project_and_reports_inventory(ui_template)
         "mm-firebase-yoigo",
         "mm-guuk-firebase-prod",
     ]
-    assert ctx.textual.table.call_count == 2
-    assert ctx.textual.table.call_args_list[0].kwargs["headers"] == [
-        "Etiqueta",
-        "Claves",
-        "Condiciones",
-        "Estado",
-    ]
-    assert ctx.textual.table.call_args_list[0].kwargs["rows"][0][0] == "yoigo"
-    assert ctx.textual.table.call_args_list[0].kwargs["rows"][1][0] == "guuk"
+    ctx.textual.table.assert_not_called()
+    ctx.textual.dim_text.assert_any_call(
+        "2/2 proyectos leidos · 3 claves unicas · 2 comunes · "
+        "1 conflicto de tipo"
+    )
+    ctx.textual.dim_text.assert_any_call("Claves y valores")
     ctx.textual.collapsible_list.assert_called_once()
     value_entries = ctx.textual.collapsible_list.call_args.args[0]
-    assert value_entries[0].title == (
-        "feature_enabled  [Bool]  default, android_prod"
-    )
-    assert value_entries[0].body[0] == "yoigo · Kill switch"
+    assert len(value_entries) == 3
+    assert value_entries[0].title == "feature_enabled  [Bool / String]"
+    assert value_entries[0].right == "2/2 · conflicto de tipo"
+    assert value_entries[0].style == "warning"
+    assert value_entries[0].body[0] == "Kill switch"
     assert isinstance(value_entries[0].body[1], Table)
-    assert value_entries[0].body[1].flex_column == 1
-    assert value_entries[0].body[1].headers == ["Entorno", "Valor", "Origen", "Editable"]
-    assert value_entries[0].body[1].rows == [
-        ["default", "false", "Literal", "si"],
-        ["android_prod", "true", "Literal", "si"],
+    assert value_entries[0].body[1].flex_column == 3
+    assert value_entries[0].body[1].headers == [
+        "Marca",
+        "Entorno",
+        "Condicion",
+        "Valor",
+        "Origen",
+        "Editable",
     ]
-    assert any(
-        any(isinstance(body_item, JsonTree) for body_item in entry.body)
-        for entry in value_entries
-    )
+    assert value_entries[0].body[1].rows == [
+        ["yoigo", "DEV", "default", "false", "Literal", "si"],
+        ["", "", "android_prod", "true", "Literal", "si"],
+        ["guuk", "PRO", "default", "false", "Literal", "si"],
+        ["", "", "android_prod", "true", "Literal", "si"],
+    ]
+    assert value_entries[1].title == "legacy_untyped  [JSON]"
+    assert value_entries[1].right == "1/2 · falta en 1"
+    assert value_entries[1].children[0].title == "yoigo · default"
+    assert isinstance(value_entries[1].children[0].body[0], Text)
+    assert value_entries[1].children[0].body[0].plain == "a  1"
 
 
 def test_fanout_list_keys_applies_condition_group_view(ui_template):
@@ -1082,12 +1224,12 @@ def test_fanout_list_keys_applies_condition_group_view(ui_template):
     assert result.metadata["firebase_condition_group"] == "android"
     assert result.metadata["firebase_condition_group_label"] == "Android"
     value_entries = ctx.textual.collapsible_list.call_args.args[0]
-    assert value_entries[0].title == (
-        "feature_enabled  [Bool]  default, android_prod"
-    )
+    assert value_entries[0].title == "feature_enabled  [Bool / String]"
     assert value_entries[0].body[1].rows == [
-        ["default", "false", "Literal", "si"],
-        ["android_prod", "true", "Literal", "si"],
+        ["yoigo", "DEV", "default", "false", "Literal", "si"],
+        ["", "", "android_prod", "true", "Literal", "si"],
+        ["guuk", "PRO", "default", "false", "Literal", "si"],
+        ["", "", "android_prod", "true", "Literal", "si"],
     ]
     ctx.textual.dim_text.assert_any_call("Vista de valores: Android")
 
@@ -1130,6 +1272,17 @@ def test_fanout_list_keys_keeps_partial_read_failures(ui_template):
         "mm-guuk-firebase-prod": 3,
     }
     ctx.textual.warning_text.assert_called_once()
+    assert ctx.textual.table.call_args.kwargs["title"] == "Estado de lectura"
+    entries = ctx.textual.collapsible_list.call_args.args[0]
+    assert entries[0].right == "1/2 · 1 sin leer"
+    assert entries[0].body[-1].rows[0] == [
+        "yoigo",
+        "—",
+        "—",
+        "No leido",
+        "—",
+        "—",
+    ]
 
 
 def test_fanout_list_keys_errors_when_every_read_fails():

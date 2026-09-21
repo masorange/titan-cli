@@ -81,7 +81,8 @@ Use these steps to read a template and navigate it.
 - `firebase_remoteconfig_fanout_list_keys`: read several projects in series and report the
   union of keys, keys present in every readable project, missing keys per project,
   deterministic type profiles, bulk-safe keys, observed value types, and type conflicts,
-  plus each key's default and condition-specific values per project
+  plus one expandable cross-project comparison for each key's default and
+  condition-specific values
 - `firebase_remoteconfig_conditions`: list the template's conditions and choose the write
   target — the parameter's default value, or one condition
 - `firebase_remoteconfig_select_key`: browse the parameters with their current value for

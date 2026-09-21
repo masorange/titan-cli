@@ -8,7 +8,11 @@ from .header import HeaderWidget
 from .panel import Panel
 from .panel_container import PanelContainer
 from .table import Table
-from .json_tree import JsonTree, JsonTreeDetail
+from .json_tree import (
+    JsonTree,
+    JsonTreeDetail,
+    build_json_entry,
+)
 from .button import Button
 from .step_container import StepContainer
 from .multiline_input import MultilineInput
@@ -50,6 +54,7 @@ __all__ = [
     "Table",
     "JsonTree",
     "JsonTreeDetail",
+    "build_json_entry",
     "Button",
     "StepContainer",
     "MultilineInput",

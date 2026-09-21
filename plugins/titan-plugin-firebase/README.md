@@ -127,10 +127,14 @@ the default menu.
 
 For inventory work, use `list-remoteconfig-keys-multiproject`: it reads the
 selected projects one by one, shows key presence, deterministic type profiles,
-bulk-safe keys, type conflicts, and each key's value per Remote Config
+bulk-safe keys, type conflicts, and one expandable comparison per key. Each
+comparison contains the value that every project has for each Remote Config
 environment/condition (`default`, `android_prod`, `ios_prod`, or whatever the
-template declares) in each project. Pass `condition_group=android` or configure
-`default_condition_group` to focus that value table on one configured view.
+template declares). The configured project environment (`DEV`, `PRO`, or the
+repository's own vocabulary) is shown separately from that Remote Config
+condition, including when the key is missing. Structured JSON values open as
+nested trees. Pass `condition_group=android` or configure
+`default_condition_group` to focus the comparison on one configured view.
 
 Titan normalizes Firebase value types into `RemoteConfigValueType`: `Bool`,
 `JSON`, `Number`, `String` and `Unknown` for display. The underlying workflow

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from ..config import FirebaseConditionGroupConfig
+from ..messages import msg
 from ..models.targets import FirebaseProjectTarget
 from ..models.values import (
     RemoteConfigValueSource,
@@ -181,6 +182,21 @@ class RemoteConfigProjectKeyValueJsonDetail:
     value: Any
 
 
+@dataclass(frozen=True)
+class RemoteConfigKeyComparisonItem:
+    """Expandable comparison of one key across every selected project."""
+
+    key: str
+    type_label: str
+    present_count: int
+    project_count: int
+    status_label: str
+    has_issues: bool
+    description_lines: list[str]
+    value_rows: list[list[str]]
+    json_details: list[RemoteConfigProjectKeyValueJsonDetail]
+
+
 def build_key_inventory(
     templates: Mapping[str, UIRemoteConfigTemplate],
 ) -> RemoteConfigKeyInventory:
@@ -266,25 +282,27 @@ def describe_project_inventory(
     failed_projects: Mapping[str, str],
 ) -> list[list[str]]:
     """Build rows for the per-project inventory table."""
+    target_list = list(targets)
+    target_labels = _comparison_target_labels(target_list)
     rows: list[list[str]] = []
-    for target in targets:
+    for target in target_list:
         error = failed_projects.get(target.project_id)
         if error is not None:
             rows.append(
                 [
-                    _target_label(target),
+                    target_labels[target.project_id],
                     "-",
                     "-",
-                    f"error: {error}",
+                    msg.Inventory.STATUS_ERROR.format(error=error),
                 ]
             )
             continue
         rows.append(
             [
-                _target_label(target),
+                target_labels[target.project_id],
                 str(inventory.project_key_counts.get(target.project_id, 0)),
                 str(inventory.project_condition_counts.get(target.project_id, 0)),
-                "ok",
+                msg.Inventory.STATUS_OK,
             ]
         )
     return rows
@@ -320,6 +338,119 @@ def describe_key_inventory(inventory: RemoteConfigKeyInventory) -> list[list[str
             ]
         )
     return rows
+
+
+def describe_key_comparison_items(
+    templates: Mapping[str, UIRemoteConfigTemplate],
+    targets: Iterable[FirebaseProjectTarget],
+    inventory: RemoteConfigKeyInventory,
+    condition_group: FirebaseConditionGroupConfig | None = None,
+    failed_projects: Mapping[str, str] | None = None,
+) -> list[RemoteConfigKeyComparisonItem]:
+    """Build one key-centric comparison item across all selected projects."""
+    target_list = list(targets)
+    failures = failed_projects or {}
+    target_labels = _comparison_target_labels(target_list)
+    parameters_by_project = {
+        project_id: {parameter.key: parameter for parameter in template.parameters}
+        for project_id, template in templates.items()
+    }
+    items: list[RemoteConfigKeyComparisonItem] = []
+
+    for key in inventory.keys:
+        profile = inventory.key_profiles[key]
+        value_rows: list[list[str]] = []
+        json_details: list[RemoteConfigProjectKeyValueJsonDetail] = []
+        descriptions: list[tuple[str, str | None]] = []
+
+        for target in target_list:
+            project_label = target_labels[target.project_id]
+            project_environment = (
+                target.environment.upper() if target.environment else "—"
+            )
+            if target.project_id in failures:
+                value_rows.append(
+                    [
+                        project_label,
+                        project_environment,
+                        "—",
+                        msg.Inventory.VALUE_UNREAD,
+                        "—",
+                        "—",
+                    ]
+                )
+                continue
+
+            parameter = parameters_by_project.get(target.project_id, {}).get(key)
+            if parameter is None:
+                value_rows.append(
+                    [
+                        project_label,
+                        project_environment,
+                        "—",
+                        msg.Inventory.VALUE_MISSING,
+                        "—",
+                        "—",
+                    ]
+                )
+                continue
+
+            descriptions.append((project_label, parameter.description))
+            slots = _parameter_value_slots(parameter, condition_group)
+            if not slots:
+                value_rows.append(
+                    [
+                        project_label,
+                        project_environment,
+                        "—",
+                        msg.Inventory.VALUE_NOT_IN_VIEW,
+                        "—",
+                        "—",
+                    ]
+                )
+                continue
+
+            for index, (environment, value) in enumerate(slots):
+                value_rows.append(
+                    [
+                        project_label if index == 0 else "",
+                        project_environment if index == 0 else "",
+                        environment,
+                        _value_table_display(value),
+                        value.source_label,
+                        (
+                            msg.Inventory.EDITABLE_YES
+                            if value.is_titan_editable
+                            else msg.Inventory.EDITABLE_NO
+                        ),
+                    ]
+                )
+                parsed_json = _json_detail_value(value)
+                if parsed_json is not None:
+                    json_details.append(
+                        RemoteConfigProjectKeyValueJsonDetail(
+                            title=f"{project_label} · {environment}",
+                            value=parsed_json,
+                        )
+                    )
+
+        status_parts = _comparison_status_parts(profile, failures)
+        types = profile.value_types or [RemoteConfigValueType.UNKNOWN.value]
+        items.append(
+            RemoteConfigKeyComparisonItem(
+                key=key,
+                type_label=" / ".join(display_value_types(types)),
+                present_count=len(profile.present_projects),
+                project_count=len(target_list),
+                status_label=", ".join(status_parts) or msg.Inventory.STATUS_OK,
+                has_issues=bool(status_parts),
+                description_lines=_comparison_description_lines(descriptions),
+                value_rows=value_rows,
+                json_details=json_details,
+            )
+        )
+
+    return items
 
 
 def describe_project_key_values(
@@ -396,8 +527,93 @@ def describe_project_key_value_items(
 
 
 def _target_label(target: FirebaseProjectTarget) -> str:
-    """Render the configured label as the primary inventory identity."""
-    return target.label or target.project_id
+    """Render the configured brand as the primary inventory identity."""
+    return target.brand or target.label or target.project_id
+
+
+def _comparison_target_labels(
+    targets: Iterable[FirebaseProjectTarget],
+) -> dict[str, str]:
+    """Use brand names, adding the configured label only for true duplicates."""
+    target_list = list(targets)
+    base_labels = {
+        target.project_id: target.brand or target.label or target.project_id
+        for target in target_list
+    }
+    identity_counts = {
+        (base_labels[target.project_id], target.environment): sum(
+            1
+            for candidate in target_list
+            if (
+                base_labels[candidate.project_id],
+                candidate.environment,
+            )
+            == (base_labels[target.project_id], target.environment)
+        )
+        for target in target_list
+    }
+    labels: dict[str, str] = {}
+    for target in target_list:
+        label = base_labels[target.project_id]
+        identity = (label, target.environment)
+        if (
+            identity_counts[identity] > 1
+            and target.label
+            and target.label != label
+        ):
+            label = f"{label} · {target.label}"
+        labels[target.project_id] = label
+    return labels
+
+
+def _comparison_status_parts(
+    profile: RemoteConfigKeyProfile,
+    failed_projects: Mapping[str, str],
+) -> list[str]:
+    """Translate profile blockers into compact labels for the key header."""
+    parts: list[str] = []
+    if "type_conflict" in profile.issues:
+        parts.append(msg.Inventory.STATUS_TYPE_CONFLICT)
+    if "local_type_conflict" in profile.issues:
+        parts.append(msg.Inventory.STATUS_MIXED_VALUES)
+    if "unsupported_value_source" in profile.issues:
+        parts.append(msg.Inventory.STATUS_NOT_EDITABLE)
+    if "unknown_type" in profile.issues:
+        parts.append(msg.Inventory.STATUS_UNKNOWN_TYPE)
+    if profile.missing_projects:
+        parts.append(
+            msg.Inventory.STATUS_MISSING.format(
+                count=len(profile.missing_projects)
+            )
+        )
+    if failed_projects:
+        parts.append(
+            msg.Inventory.STATUS_UNREAD.format(count=len(failed_projects))
+        )
+    return parts
+
+
+def _comparison_description_lines(
+    descriptions: Iterable[tuple[str, str | None]],
+) -> list[str]:
+    """Show one shared description or identify project-specific differences."""
+    entries = list(descriptions)
+    distinct = list(
+        dict.fromkeys(description for _label, description in entries if description)
+    )
+    if not distinct:
+        return []
+    if len(distinct) == 1 and all(
+        description in (None, distinct[0]) for _label, description in entries
+    ):
+        return [distinct[0]]
+    return [
+        msg.Inventory.DESCRIPTIONS_DIFFER,
+        *[
+            f"{label}: {description or '—'}"
+            for label, description in entries
+        ],
+    ]
 
 
 def _parameter_environments(
