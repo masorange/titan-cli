@@ -90,12 +90,10 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
 
     CARD_GRID_ID = "home-grid"
 
-    # Textual's default AUTO_FOCUS of "*" focuses the first focusable widget when the screen
+    # Textual's default AUTO_FOCUS of "*" focuses the first focusable widget once the screen
     # becomes active, which happens AFTER on_mount - so it silently overrode
-    # `_focus_first_card()` and left the focus on the scrollable body. The cards were never
-    # focused on arrival, which meant Enter did nothing until the user pressed Tab, and the
-    # arrows scrolled the container instead of moving between cards. None hands the choice
-    # back to `_focus_first_card()`.
+    # `_focus_first_card()`. None hands that choice back, so the focus lands on the first
+    # CARD rather than on whatever comes first in the DOM.
     AUTO_FOCUS = None
 
     BINDINGS = [
@@ -191,7 +189,16 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             return
 
         has_favorites = any(slot.is_favorite for slot in self._slots)
-        with VerticalScroll(id="home-body"):
+        body = VerticalScroll(id="home-body")
+        # A scrollable container is focusable by default, and on this screen it kept WINNING
+        # the focus: no card was ever focused on arrival. Two consequences, both found by
+        # driving the real app and both invisible under `App.run_test()`, where the explicit
+        # focus did stick - Enter did nothing until the user pressed Tab, and the arrow keys
+        # scrolled the body instead of moving between cards, because the body sits closer to
+        # the focus than the screen does. The cards are the only thing here worth focusing,
+        # so the container comes out of the focus cycle entirely.
+        body.can_focus = False
+        with body:
             # One neutral title, never a claim about where the cards came from. Titling
             # the grid '⭐ Favorites' whenever ANY card was starred was the opposite of
             # honest in the normal case: one favorite and eight fillers all sat under a
@@ -267,7 +274,9 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             self.app.notify(message, severity="information", timeout=6)
         self._reflow_grid()
         self._reflow_actions()
-        self._focus_first_card()
+        # After the first refresh: setting it mid-mount is what let a later focus overwrite
+        # it without a trace.
+        self.call_after_refresh(self._focus_first_card)
         self.run_worker(self._check_plugin_updates(), exclusive=False)
 
     def on_resize(self) -> None:

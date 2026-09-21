@@ -149,7 +149,10 @@ class TitanConfig:
         initialization failures, so a credential stored since the last attempt
         gets a fresh try.
         """
-        fingerprint = self._compute_plugin_fingerprint(merged)
+        fingerprint = self._compute_plugin_fingerprint(
+            merged,
+            self._get_project_source_scope_data().get("plugins", {}),
+        )
 
         if not force and fingerprint == self._plugin_fingerprint:
             logger.debug("plugin_registry_reused")
@@ -163,15 +166,36 @@ class TitanConfig:
         logger.debug("plugin_registry_rebuilt", forced=force)
 
     @staticmethod
-    def _compute_plugin_fingerprint(merged: dict) -> str:
+    def _compute_plugin_fingerprint(
+        merged: dict,
+        source_overrides: Optional[dict] = None,
+    ) -> str:
         """
         Everything the built registry depends on, as one comparable value.
 
-        Two inputs: the `[plugins.*]` configuration (which plugins are enabled
-        and how each is configured) and the set of installed entry points (so a
-        plugin installed or removed mid-session is noticed). Enumerating entry
-        points costs a few milliseconds against the second a rebuild costs, which
-        is what makes checking cheaper than assuming.
+        Three inputs: the `[plugins.*]` configuration (which plugins are enabled
+        and how each is configured), the set of installed entry points (so a
+        plugin installed or removed mid-session is noticed), and the per-project
+        plugin source overrides from the user's config. Enumerating entry points
+        costs a few milliseconds against the second a rebuild costs, which is
+        what makes checking cheaper than assuming.
+
+        The source overrides are here because they decide WHICH COPY of a
+        plugin's code gets imported, and they live somewhere `merged` cannot
+        see. Switching a plugin from `stable` to `dev_local` writes to
+        `[project_sources.<key>.plugins.<name>.source]` in the user's config,
+        deliberately not to the project file the team shares - and `merged` is
+        the global-plus-project merge, which does not include that table. So the
+        fingerprint could not tell the two channels apart, the registry was
+        reused, `prepare()` never re-applied the override, and the already
+        imported stable module kept serving until Titan was restarted. The screen
+        read the effective source and correctly said "Develop" while the old code
+        ran; neither half was lying, they read different places.
+
+        Only the `plugins` sub-block of that table is included, never the whole
+        thing: the same per-project table also holds `workflows.favorites` and
+        `workflows.last_used`, and hashing those would rebuild the entire plugin
+        registry every time a workflow ran.
 
         A credential a plugin reads while initializing is deliberately NOT here -
         secrets live outside the config files and hashing them to compare would
@@ -184,7 +208,11 @@ class TitanConfig:
         installed = sorted(ep.name for ep in entry_points(group="titan.plugins"))
 
         payload = json.dumps(
-            {"plugins": plugins_config, "installed": installed},
+            {
+                "plugins": plugins_config,
+                "installed": installed,
+                "source_overrides": source_overrides or {},
+            },
             sort_keys=True,
             default=str,
         )
