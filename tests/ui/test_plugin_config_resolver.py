@@ -52,3 +52,16 @@ def test_resolve_plugin_config_screen_falls_back_to_generic_wizard() -> None:
 
     assert isinstance(screen, PluginConfigWizardScreen)
     assert screen.plugin_name == "sample"
+
+
+def test_generic_plugin_config_wizard_skips_hidden_schema_fields() -> None:
+    config = MagicMock()
+    screen = PluginConfigWizardScreen(config, "sample")
+    screen.properties = {
+        "oauth_client_id": {"type": "string"},
+        "access_token": {"type": "string", "ui_hidden": True},
+    }
+
+    screen._build_steps()
+
+    assert [step["id"] for step in screen.steps] == ["oauth_client_id", "review"]
