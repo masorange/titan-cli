@@ -23,7 +23,7 @@ After launch you land on the home screen: a grid of up to **nine workflow cards*
 launchable by pressing its number.
 
 ```
-⭐ Favorites
+⚡ Quick launch
 
 ╭─ ⭐ 1 ──────────────╮  ╭─ ⭐ 2 ──────────────╮  ╭─ 3 ─────────────────╮
 │ Review PR          │  │ Commit with AI     │  │ Create Pull Request │
@@ -59,12 +59,12 @@ Slots are filled in this order, skipping anything already placed:
    one per group per pass, alphabetically — so a plugin with twenty workflows cannot crowd out
    the rest.
 
-The title above the grid tells you which of these you are looking at:
+A card carrying a **⭐** is one you starred; the rest are suggestions Titan picked for you.
+That star is the only thing that distinguishes them — the heading above the grid deliberately
+says nothing about where the cards came from, because on a typical grid they come from both.
 
-- **⭐ Favorites** — at least one card is a workflow you starred.
-- **⚡ Suggested** — you have no favorites yet, so every card is a suggestion.
-- If no plugins are enabled there is no grid at all, just a prompt to open plugin management
-  with `p`.
+If no plugins are enabled there is no grid at all, just a prompt to open plugin management
+with `p`.
 
 ### Starring a workflow
 

@@ -49,6 +49,9 @@ HOME_BODY_GUTTER = 8
 # truncation, so the row stacks instead of shrinking. Its labels are shorter than a
 # card's body, hence the smaller target.
 ACTION_TARGET_WIDTH = 24
+# The grid's heading. Deliberately says nothing about where the cards came from: a
+# heading cannot be true of a mixed grid, and the per-card star already is.
+SECTION_TITLE = f"{Icons.WORKFLOW} Quick launch"
 
 
 class MainMenuScreen(BaseScreen):
@@ -178,13 +181,13 @@ class MainMenuScreen(BaseScreen):
 
         has_favorites = any(slot.is_favorite for slot in self._slots)
         with VerticalScroll(id="home-body"):
-            # The title is what keeps a filled grid honest: a user must never mistake
-            # suggestions for favorites they think they starred.
-            yield Static(
-                f"{Icons.STAR} Favorites" if has_favorites
-                else f"{Icons.WORKFLOW} Suggested",
-                id="home-section-title",
-            )
+            # One neutral title, never a claim about where the cards came from. Titling
+            # the grid '⭐ Favorites' whenever ANY card was starred was the opposite of
+            # honest in the normal case: one favorite and eight fillers all sat under a
+            # heading that said the user had chosen them. The per-card star already
+            # carries that distinction, card by card, and it is the only place it is
+            # true.
+            yield Static(SECTION_TITLE, id="home-section-title")
             with Grid(id="home-grid"):
                 for slot in self._slots:
                     yield self._card_for(slot)
@@ -261,6 +264,10 @@ class MainMenuScreen(BaseScreen):
         self._reflow_grid()
         self._reflow_actions()
 
+    def _column_count(self, width: int) -> int:
+        """How many card columns fit in `width`."""
+        return max(1, min(MAX_COLUMNS, (width - HOME_BODY_GUTTER) // CARD_TARGET_WIDTH))
+
     def _reflow_grid(self) -> None:
         """Fit as many columns as the width allows, without changing what is shown.
 
@@ -275,8 +282,7 @@ class MainMenuScreen(BaseScreen):
         # depends on whether the scrollbar is showing, which depends on the grid's height,
         # which depends on the column count computed here - a loop that never settles and
         # surfaces as "widgets did not finish processing pending messages".
-        available = self.size.width - HOME_BODY_GUTTER
-        columns = max(1, min(MAX_COLUMNS, available // CARD_TARGET_WIDTH))
+        columns = self._column_count(self.size.width)
         if grid.styles.grid_size_columns != columns:
             grid.styles.grid_size_columns = columns
 
@@ -316,7 +322,6 @@ class MainMenuScreen(BaseScreen):
         """
         try:
             grid = self.query_one("#home-grid", Grid)
-            title = self.query_one("#home-section-title", Static)
             hint = self.query_one("#home-hint", Static)
         except NoMatches:
             # The onboarding body has no grid; it only changes when discovery does,
@@ -325,9 +330,8 @@ class MainMenuScreen(BaseScreen):
 
         self._slots = self._build_slots()
         has_favorites = any(slot.is_favorite for slot in self._slots)
-        title.update(
-            f"{Icons.STAR} Favorites" if has_favorites else f"{Icons.WORKFLOW} Suggested"
-        )
+        # The title is constant; only the hint reacts, and only to having no favorites
+        # at all - which is the one thing a neutral heading can no longer say.
         hint.display = not has_favorites
 
         await grid.remove_children()

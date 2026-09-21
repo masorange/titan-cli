@@ -19,10 +19,19 @@ from titan_cli.ui.tui.icons import Icons
 from .collapsible_list import escape_markup
 
 
-# How many rows of the fixed-height card the description gets. The budget in characters
-# is derived from this and the card's REAL width, because a fixed character count cannot
-# know it: 110 characters is untouched prose in one column and two clipped lines in four.
+# How many rows of the fixed-height card the description gets WHEN THE TITLE FITS ON ONE
+# LINE. The budget in characters is derived from this and the card's REAL width, because a
+# fixed character count cannot know it: 110 characters is untouched prose in one column and
+# two clipped lines in four.
 DESCRIPTION_ROWS = 2
+
+# Rows available inside the card: `height: 9` less its 2 border rows and 2 padding rows.
+# The description gets whatever the title does not take, so a title that wraps costs the
+# description a line instead of pushing it out of the box unclipped.
+CARD_CONTENT_ROWS = 5
+
+# The group line, plus the blank line between it and the description.
+_ROWS_BEFORE_DESCRIPTION = 2
 
 
 class WorkflowCard(Static):
@@ -121,8 +130,9 @@ class WorkflowCard(Static):
         title = escape_markup(self.card_title)
         group = escape_markup(self.group)
         body = f"[bold]{title}[/bold]\n[dim]{group}[/dim]"
-        if self.description:
-            body = f"{body}\n\n{escape_markup(self._clipped_description())}"
+        clipped = self._clipped_description()
+        if clipped:
+            body = f"{body}\n\n{escape_markup(clipped)}"
         return body
 
     def _clipped_description(self) -> str:
@@ -141,19 +151,40 @@ class WorkflowCard(Static):
             # __init__ too. Before the first layout there is none; on_resize re-renders
             # once there is.
             width = 0
-        if not width:
+        if not width or not self.description:
             return self.description
+
+        rows = self._description_rows(width)
+        if rows <= 0:
+            # A title long enough to eat the whole card leaves nothing to say; showing a
+            # fragment of the description would just be the bottom border cutting a word.
+            return ""
 
         lines = textwrap.wrap(self.description, width=width)
-        if len(lines) <= DESCRIPTION_ROWS:
+        if len(lines) <= rows:
             return self.description
 
-        kept = lines[:DESCRIPTION_ROWS]
+        kept = lines[:rows]
         last = kept[-1]
         if len(last) + 1 > width:
             last = last[: width - 1].rstrip()
         kept[-1] = f"{last}…"
         return "\n".join(kept)
+
+    def _description_rows(self, width: int) -> int:
+        """Rows left for the description once the title has taken what it needs.
+
+        The card's height is fixed, so this is the whole reason a long title does not
+        silently cost the description its last line: found live at 44 columns, where
+        'Commit with AI, Linter and Tests' wrapped to two lines and the description was
+        cut mid-word by the bottom border, with no ellipsis, while a one-line title on
+        the card beside it clipped correctly.
+        """
+        title_lines = len(textwrap.wrap(self.card_title, width=width)) or 1
+        return min(
+            DESCRIPTION_ROWS,
+            CARD_CONTENT_ROWS - title_lines - _ROWS_BEFORE_DESCRIPTION,
+        )
 
     def on_resize(self) -> None:
         """Re-budget the description against the new width, at most once per width.
