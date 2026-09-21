@@ -14,7 +14,7 @@ from typing import List
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Grid, Horizontal, VerticalScroll
+from textual.containers import Container, Grid, VerticalScroll
 from textual.css.query import NoMatches
 from textual.widgets import Static
 
@@ -45,6 +45,10 @@ CARD_TARGET_WIDTH = 38
 MAX_COLUMNS = 4
 # Horizontal space #home-body's padding takes out of the screen width.
 HOME_BODY_GUTTER = 8
+# Same idea for the action row: a button whose label is squeezed below this reads as
+# truncation, so the row stacks instead of shrinking. Its labels are shorter than a
+# card's body, hence the smaller target.
+ACTION_TARGET_WIDTH = 24
 
 
 class MainMenuScreen(BaseScreen):
@@ -109,9 +113,16 @@ class MainMenuScreen(BaseScreen):
         margin-top: 1;
     }
 
+    /* A Grid, not a Horizontal, for the same reason the cards are one: on a narrow
+       terminal three buttons side by side shrink until their labels truncate. The column
+       count is recomputed on resize and drops to 1, stacking them the way the cards
+       stack. */
     #home-actions {
         height: auto;
         padding: 1 3 1 3;
+        grid-size: 3;
+        grid-rows: 3;
+        grid-gutter: 1 2;
     }
 
     /* Real buttons rather than chips. A Chip is content-width by design - it exists to
@@ -120,7 +131,7 @@ class MainMenuScreen(BaseScreen):
        weight. */
     #home-actions Button {
         width: 1fr;
-        margin: 0 1 0 0;
+        margin: 0;
     }
 
     #home-empty {
@@ -151,7 +162,7 @@ class MainMenuScreen(BaseScreen):
                     "[dim]Enable Git, GitHub or Jira to start running workflows.[/dim]",
                     id="home-empty-message",
                 )
-            with Horizontal(id="home-actions"):
+            with Grid(id="home-actions"):
                 yield self._action_button(
                     Icons.PLUGIN, "p", "Manage plugins", variant="primary"
                 )
@@ -177,7 +188,7 @@ class MainMenuScreen(BaseScreen):
                     id="home-hint",
                 )
 
-        with Horizontal(id="home-actions"):
+        with Grid(id="home-actions"):
             # Workflows is the primary: it is the one a user reaches for, and the other
             # two are monthly setup.
             yield self._action_button(
@@ -229,12 +240,14 @@ class MainMenuScreen(BaseScreen):
         for message in self.config.get_plugin_sync_events():
             self.app.notify(message, severity="information", timeout=6)
         self._reflow_grid()
+        self._reflow_actions()
         self._focus_first_card()
         self.run_worker(self._check_plugin_updates(), exclusive=False)
 
     def on_resize(self) -> None:
         """Reflow the columns. The set of cards is deliberately untouched (D-003)."""
         self._reflow_grid()
+        self._reflow_actions()
 
     def _reflow_grid(self) -> None:
         """Fit as many columns as the width allows, without changing what is shown.
@@ -254,6 +267,25 @@ class MainMenuScreen(BaseScreen):
         columns = max(1, min(MAX_COLUMNS, available // CARD_TARGET_WIDTH))
         if grid.styles.grid_size_columns != columns:
             grid.styles.grid_size_columns = columns
+
+    def _reflow_actions(self) -> None:
+        """Wrap the action row the same way the cards wrap, down to one per line.
+
+        Guarded on the value changing for the same reason `_reflow_grid` is: an
+        unconditional style write relayouts, which emits another Resize, which lands
+        back here.
+        """
+        try:
+            actions = self.query_one("#home-actions", Grid)
+        except NoMatches:
+            return
+        buttons = len(actions.query(Button))
+        if not buttons:
+            return
+        available = self.size.width - HOME_BODY_GUTTER
+        columns = max(1, min(buttons, available // ACTION_TARGET_WIDTH))
+        if actions.styles.grid_size_columns != columns:
+            actions.styles.grid_size_columns = columns
 
     def _focus_first_card(self) -> None:
         """Put the cursor on the first card, so Enter means something immediately."""
