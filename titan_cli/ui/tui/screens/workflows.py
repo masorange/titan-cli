@@ -34,7 +34,10 @@ class WorkflowsScreen(BaseScreen):
         ("q", "go_back", "Back"),
         ("left", "focus_plugins", "Plugins"),
         ("right", "focus_workflows", "Workflows"),
-        ("tab", "focus_next", "Next Panel"),
+        # `("tab", "focus_next", "Next Panel")` used to be here. It resolved to nothing -
+        # `Screen` has no `action_focus_next` - and by declaring it the screen SHADOWED
+        # Textual's own working `app.focus_next`, so Tab was advertised in the footer and
+        # did less than if the line had never been written.
     ]
 
     def __init__(self, config):

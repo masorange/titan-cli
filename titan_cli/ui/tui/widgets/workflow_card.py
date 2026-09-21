@@ -51,6 +51,15 @@ class WorkflowCard(Static):
 
     BINDINGS = [
         Binding("enter", "launch", "Launch", show=False),
+        # The arrows live HERE, on the focused widget, and not on the screen. A card sits
+        # inside a VerticalScroll, which binds all four arrows to scrolling and is closer to
+        # the focus than the screen is - so screen-level arrow bindings never fired at all.
+        # Declaring them priority on the screen would have worked and would also have stolen
+        # the arrows from every other widget on it, a text input included.
+        Binding("left", "move('left')", "Left", show=False),
+        Binding("right", "move('right')", "Right", show=False),
+        Binding("up", "move('up')", "Up", show=False),
+        Binding("down", "move('down')", "Down", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -81,6 +90,28 @@ class WorkflowCard(Static):
         def __init__(self, workflow_name: str) -> None:
             super().__init__()
             self.workflow_name = workflow_name
+
+    class Move(Message):
+        """Sent when an arrow key asks for the focus to move off this card.
+
+        The card says which way was pressed and which card it is; where the focus lands
+        depends on the grid's shape, which only the screen knows.
+
+        The sending card is carried EXPLICITLY. `Message.control` defaults to `None` and
+        `_sender` turned out to be the App rather than the widget, so a handler that
+        identified the card through either of those silently did nothing - it found no
+        match and returned.
+        """
+
+        def __init__(self, direction: str, card: "WorkflowCard") -> None:
+            super().__init__()
+            self.direction = direction
+            self.card = card
+
+        @property
+        def control(self) -> "WorkflowCard":
+            """The card that sent it, per Textual's convention for this attribute."""
+            return self.card
 
     def __init__(
         self,
@@ -202,6 +233,10 @@ class WorkflowCard(Static):
             return
         self._rendered_width = width
         self.update(self._render_body())
+
+    def action_move(self, direction: str) -> None:
+        """Ask the screen to move the focus."""
+        self.post_message(self.Move(direction, self))
 
     def action_launch(self) -> None:
         """Ask the screen to launch this workflow."""

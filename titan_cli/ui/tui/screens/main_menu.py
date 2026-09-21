@@ -34,6 +34,7 @@ from titan_cli.core.plugins.community_sources import (
     check_for_updates,
 )
 from .base import BaseScreen
+from .card_grid import CardGridNavigationMixin
 
 from .ai_config import AIConfigScreen
 from .plugin_management import PluginManagementScreen
@@ -54,7 +55,7 @@ ACTION_TARGET_WIDTH = 24
 SECTION_TITLE = f"{Icons.WORKFLOW} Quick launch"
 
 
-class MainMenuScreen(BaseScreen):
+class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
     """
     Home screen.
 
@@ -86,6 +87,16 @@ class MainMenuScreen(BaseScreen):
         # Set when something that can change the workflow SET (not just its order) has
         # happened, so the cached discovery is dropped instead of trusted.
         self._discovery_dirty = False
+
+    CARD_GRID_ID = "home-grid"
+
+    # Textual's default AUTO_FOCUS of "*" focuses the first focusable widget when the screen
+    # becomes active, which happens AFTER on_mount - so it silently overrode
+    # `_focus_first_card()` and left the focus on the scrollable body. The cards were never
+    # focused on arrival, which meant Enter did nothing until the user pressed Tab, and the
+    # arrows scrolled the container instead of moving between cards. None hands the choice
+    # back to `_focus_first_card()`.
+    AUTO_FOCUS = None
 
     BINDINGS = [
         ("q", "quit", "Quit"),
