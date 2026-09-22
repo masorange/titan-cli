@@ -34,6 +34,7 @@ CARD_CONTENT_ROWS = 5
 _ROWS_BEFORE_DESCRIPTION = 2
 
 
+
 class WorkflowCard(Static):
     """
     A focusable card that launches one workflow.
@@ -152,15 +153,17 @@ class WorkflowCard(Static):
         """Title, group, a blank line, then the description.
 
         The blank line is load-bearing: the title, the group and the description are three
-        different kinds of information, and run together they read as one paragraph.
+        different kinds of information, and run together they read as one paragraph - the
+        user's word for a version without it was "apelmazado".
 
         Titles and descriptions come out of workflow YAML, so they are escaped: a
         description containing `[something]` would otherwise be eaten as markup, or raise
         and take the whole card render down with it.
         """
-        title = escape_markup(self.card_title)
-        group = escape_markup(self.group)
-        body = f"[bold]{title}[/bold]\n[dim]{group}[/dim]"
+        body = (
+            f"[bold]{escape_markup(self.card_title)}[/bold]\n"
+            f"[dim]{escape_markup(self.group)}[/dim]"
+        )
         clipped = self._clipped_description()
         if clipped:
             body = f"{body}\n\n{escape_markup(clipped)}"

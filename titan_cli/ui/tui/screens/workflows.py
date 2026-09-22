@@ -3,9 +3,10 @@ Workflows Screen
 
 Screen for listing and executing workflows.
 """
-from typing import List
+from typing import List, Optional
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.widgets import Static, OptionList
 from textual.widgets.option_list import Option, OptionDoesNotExist
 from textual.containers import Container
@@ -17,6 +18,7 @@ from titan_cli.core.workflows.workflow_sources import WorkflowInfo
 from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import StyledOption
+from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
 from .base import BaseScreen
 
 class WorkflowsScreen(BaseScreen):
@@ -34,6 +36,7 @@ class WorkflowsScreen(BaseScreen):
         ("q", "go_back", "Back"),
         ("left", "focus_plugins", "Plugins"),
         ("right", "focus_workflows", "Workflows"),
+        Binding("f", "toggle_favorite", "Favorite"),
         # `("tab", "focus_next", "Next Panel")` used to be here. It resolved to nothing -
         # `Screen` has no `action_focus_next` - and by declaring it the screen SHADOWED
         # Textual's own working `app.focus_next`, so Tab was advertised in the footer and
@@ -103,8 +106,13 @@ class WorkflowsScreen(BaseScreen):
         padding: 1;
     }
 
+    /* A percentage with bounds. At 20% alone a 50-column terminal gave the rail ten
+       columns and rendered "All Plugins" down it one letter per row; the ceiling keeps it
+       from eating a wide screen. */
     #left-panel {
         width: 20%;
+        min-width: 20;
+        max-width: 30;
         height: 100%;
         border: round $primary;
         border-title-align: center;
@@ -209,8 +217,14 @@ class WorkflowsScreen(BaseScreen):
                 title=display_title,
                 description=wf_info.description
             )
-            # Convert StyledOption to Option with markup
-            prompt = f"[bold]{styled_opt.title}[/bold]\n[dim]{styled_opt.description}[/dim]"
+            # Escaped, because both halves come out of workflow YAML straight into a
+            # markup string. Unescaped this is not a rendering nicety: a description
+            # containing a stray `[/bold]` raises MarkupError and takes the whole screen
+            # down, so one malformed workflow file made the list unopenable.
+            prompt = (
+                f"[bold]{escape_markup(styled_opt.title)}[/bold]\n"
+                f"[dim]{escape_markup(styled_opt.description or '')}[/dim]"
+            )
             options.append(Option(prompt, id=styled_opt.id))
 
         return options if options else [Option("No workflows found", id="none", disabled=True)]
@@ -278,6 +292,42 @@ class WorkflowsScreen(BaseScreen):
     def action_go_back(self) -> None:
         """Go back to main menu."""
         self.app.pop_screen()
+
+    def action_toggle_favorite(self) -> None:
+        """Star or unstar the highlighted workflow, without running it.
+
+        Until now `f` existed only on the execution screen, so starring a workflow meant
+        launching it first - on the one screen that shows the stars and sorts by them.
+        """
+        workflow_name = self._highlighted_workflow_name()
+        if workflow_name is None:
+            return
+
+        try:
+            self.config.toggle_favorite_workflow(workflow_name)
+        except Exception as exc:
+            self.notify(f"Could not save favorite: {exc}", severity="error")
+            return
+
+        # Re-sorts from `_base_workflows`, the pristine discovery order, so a toggle never
+        # compounds on a previous sort - and it keeps the cursor on the same workflow
+        # across the rebuild, which matters most here because starring MOVES the row.
+        self.refresh_favorites()
+
+    def _highlighted_workflow_name(self) -> Optional[str]:
+        """The workflow under the cursor, or None when there is nothing to act on."""
+        try:
+            workflow_list = self.query_one("#workflow-list", OptionList)
+        except NoMatches:
+            return None
+        if workflow_list.highlighted is None:
+            return None
+        try:
+            option = workflow_list.get_option_at_index(workflow_list.highlighted)
+        except OptionDoesNotExist:
+            return None
+        # The placeholder row when a filter matches nothing.
+        return option.id if option.id != "none" else None
 
     def action_focus_plugins(self) -> None:
         """Focus on the plugins panel."""
