@@ -28,15 +28,20 @@ def mock_env():
 
 @pytest.fixture
 def mock_keyring():
-    with patch('keyring.get_password') as mock_get, \
-         patch('keyring.set_password') as mock_set, \
-         patch('keyring.delete_password') as mock_delete:
+    with (
+        patch("keyring.get_password") as mock_get,
+        patch("keyring.set_password") as mock_set,
+        patch("keyring.delete_password") as mock_delete,
+    ):
         yield mock_get, mock_set, mock_delete
 
 
 # --- Project secrets stay out of os.environ ---
 
-def test_project_secrets_loaded_in_memory_not_environ(tmp_project_path, mock_env, mock_keyring):
+
+def test_project_secrets_loaded_in_memory_not_environ(
+    tmp_project_path, mock_env, mock_keyring
+):
     secrets_file = tmp_project_path / ".titan" / "secrets.env"
     secrets_file.write_text("MY_TOKEN='tok_value'\n")
 
@@ -53,6 +58,7 @@ def test_no_project_secrets_file(tmp_project_path, mock_env, mock_keyring):
 
 
 # --- get cascade ---
+
 
 def test_get_from_env(mock_env, mock_keyring):
     os.environ["MY_ENV_SECRET"] = "env_value"
@@ -106,6 +112,7 @@ def test_get_priority_project_over_keyring(tmp_project_path, mock_env, mock_keyr
 
 # --- redaction on dereference ---
 
+
 def test_get_registers_value_in_redaction(mock_env, mock_keyring):
     mock_keyring[0].return_value = "super_secret_value"
     sm = SecretManager()
@@ -116,6 +123,7 @@ def test_get_registers_value_in_redaction(mock_env, mock_keyring):
 
 
 # --- set ---
+
 
 def test_set_user_scope(mock_keyring):
     sm = SecretManager()
@@ -157,7 +165,9 @@ def test_set_project_scope_update_secret(tmp_project_path):
     assert "EXISTING_SECRET='old_value'" not in content
 
 
-def test_set_project_scope_visible_without_reload(tmp_project_path, mock_env, mock_keyring):
+def test_set_project_scope_visible_without_reload(
+    tmp_project_path, mock_env, mock_keyring
+):
     mock_keyring[0].return_value = None
     sm = SecretManager(project_path=tmp_project_path)
     sm.set("fresh_secret", "fresh_value", scope="project")
@@ -173,6 +183,7 @@ def test_set_project_scope_creates_dir_if_not_exists(tmp_path):
 
 
 # --- scope="env" is gone ---
+
 
 def test_set_env_scope_removed(mock_env):
     sm = SecretManager()
@@ -190,6 +201,7 @@ def test_delete_env_scope_removed(mock_env):
 
 
 # --- delete ---
+
 
 def test_delete_user_scope(mock_keyring):
     sm = SecretManager()
@@ -225,12 +237,21 @@ def test_delete_project_scope_secret_not_found(tmp_project_path):
 # --- Lazy namespace migration: reads that miss under a scoped service name
 # --- fall back to the legacy ones and move the entry to its new home.
 
+
 @pytest.fixture
 def keyring_store(mock_env):
     store = {}
-    with patch('keyring.get_password', side_effect=lambda ns, k: store.get((ns, k))), \
-         patch('keyring.set_password', side_effect=lambda ns, k, v: store.__setitem__((ns, k), v)), \
-         patch('keyring.delete_password', side_effect=lambda ns, k: store.pop((ns, k), None)):
+    with (
+        patch("keyring.get_password", side_effect=lambda ns, k: store.get((ns, k))),
+        patch(
+            "keyring.set_password",
+            side_effect=lambda ns, k, v: store.__setitem__((ns, k), v),
+        ),
+        patch(
+            "keyring.delete_password",
+            side_effect=lambda ns, k: store.pop((ns, k), None),
+        ),
+    ):
         yield store
 
 
@@ -269,9 +290,11 @@ def test_migration_write_failure_still_returns_value(mock_env, tmp_path):
     def get_password(ns, k):
         return "sk-legacy" if ns == "titan" else None
 
-    with patch('keyring.get_password', side_effect=get_password), \
-         patch('keyring.set_password', side_effect=RuntimeError("read-only backend")), \
-         patch('keyring.delete_password') as mock_delete:
+    with (
+        patch("keyring.get_password", side_effect=get_password),
+        patch("keyring.set_password", side_effect=RuntimeError("read-only backend")),
+        patch("keyring.delete_password") as mock_delete,
+    ):
         sm = SecretManager(project_path=tmp_path)
         assert sm.get("k", namespace="titan.core") == "sk-legacy"
         # The failed write must not delete the only copy.
@@ -291,8 +314,10 @@ def test_scoped_delete_sweeps_legacy_namespaces(keyring_store, tmp_path):
 
 # --- Fixes from the PR #261 review round ---
 
+
 def test_legacy_fallback_continues_past_a_failing_namespace(mock_env, tmp_path):
     """One legacy namespace raising must not hide a key stored in the next."""
+
     def get_password(ns, k):
         if ns == "titan.core":
             return None
@@ -300,9 +325,11 @@ def test_legacy_fallback_continues_past_a_failing_namespace(mock_env, tmp_path):
             raise RuntimeError("backend hiccup")
         return "sk-from-ragnarok" if ns == "ragnarok" else None
 
-    with patch('keyring.get_password', side_effect=get_password), \
-         patch('keyring.set_password'), \
-         patch('keyring.delete_password'):
+    with (
+        patch("keyring.get_password", side_effect=get_password),
+        patch("keyring.set_password"),
+        patch("keyring.delete_password"),
+    ):
         sm = SecretManager(project_path=tmp_path)
         assert sm.get("k", namespace="titan.core") == "sk-from-ragnarok"
 
@@ -315,9 +342,11 @@ def test_project_secrets_file_is_owner_only(tmp_project_path, mock_env, mock_key
     assert mode == 0o600
 
 
-def test_project_secret_round_trip_with_special_characters(tmp_project_path, mock_env, mock_keyring):
+def test_project_secret_round_trip_with_special_characters(
+    tmp_project_path, mock_env, mock_keyring
+):
     """Quotes, backslashes and newlines must survive set() -> file -> get()."""
-    nasty = "it's a \"secret\" with \\slashes\\ and\na newline"
+    nasty = 'it\'s a "secret" with \\slashes\\ and\na newline'
     sm = SecretManager(project_path=tmp_project_path)
     sm.set("nasty_token", nasty, scope="project")
 
@@ -326,7 +355,9 @@ def test_project_secret_round_trip_with_special_characters(tmp_project_path, moc
     assert fresh.get("nasty_token") == nasty
 
 
-def test_project_secret_update_keeps_single_line_entry(tmp_project_path, mock_env, mock_keyring):
+def test_project_secret_update_keeps_single_line_entry(
+    tmp_project_path, mock_env, mock_keyring
+):
     sm = SecretManager(project_path=tmp_project_path)
     sm.set("token", "first", scope="project")
     sm.set("token", "second", scope="project")
@@ -341,6 +372,7 @@ def test_project_secret_update_keeps_single_line_entry(tmp_project_path, mock_en
 
 
 # --- Fixes from the PR #261 second review round ---
+
 
 def test_dollar_sequences_survive_round_trip(tmp_project_path, mock_env, mock_keyring):
     """`${...}` inside a secret is part of the secret, not env interpolation."""
@@ -376,7 +408,9 @@ def test_export_style_entry_updates_in_place(tmp_project_path, mock_env, mock_ke
     sm.set("api_token", "new-value", scope="project")
 
     lines = [
-        line for line in secrets_file.read_text().splitlines() if "API_TOKEN" in line.upper()
+        line
+        for line in secrets_file.read_text().splitlines()
+        if "API_TOKEN" in line.upper()
     ]
     assert len(lines) == 1
 
@@ -386,14 +420,17 @@ def test_export_style_entry_updates_in_place(tmp_project_path, mock_env, mock_ke
 
 def test_scoped_keyring_error_still_reaches_legacy_fallback(mock_env, tmp_path):
     """A transient failure on the scoped read must not skip the legacy lookup."""
+
     def get_password(ns, k):
         if ns == "titan.core":
             raise RuntimeError("backend hiccup")
         return "sk-legacy-copy" if ns == "titan" else None
 
-    with patch('keyring.get_password', side_effect=get_password), \
-         patch('keyring.set_password'), \
-         patch('keyring.delete_password'):
+    with (
+        patch("keyring.get_password", side_effect=get_password),
+        patch("keyring.set_password"),
+        patch("keyring.delete_password"),
+    ):
         sm = SecretManager(project_path=tmp_path)
         assert sm.get("k", namespace="titan.core") == "sk-legacy-copy"
 
@@ -401,13 +438,53 @@ def test_scoped_keyring_error_still_reaches_legacy_fallback(mock_env, tmp_path):
 def test_resolve_reports_origin(tmp_project_path, mock_env, mock_keyring):
     os.environ["FROM_ENV"] = "env-value"
     (tmp_project_path / ".titan" / "secrets.env").write_text("FROM_FILE='file-value'\n")
-    mock_keyring[0].side_effect = lambda ns, k: "kr-value" if k == "from_keyring" else None
+    mock_keyring[0].side_effect = (
+        lambda ns, k: "kr-value" if k == "from_keyring" else None
+    )
 
     sm = SecretManager(project_path=tmp_project_path)
     assert sm.resolve("from_env") == ("env-value", "env")
     assert sm.resolve("from_file") == ("file-value", "project")
     assert sm.resolve("from_keyring") == ("kr-value", "keyring")
     assert sm.resolve("missing", namespace="titan") == (None, None)
+
+
+def test_resolve_env_reads_exact_env_without_cascade(mock_env, mock_keyring):
+    os.environ["ACCESS_TOKEN"] = " env-token "
+    mock_keyring[0].return_value = "keyring-token"
+
+    sm = SecretManager()
+
+    assert sm.resolve_env("access_token") == "env-token"
+    mock_keyring[0].assert_not_called()
+
+
+def test_get_from_scope_reads_one_writable_scope(
+    tmp_project_path, mock_env, mock_keyring
+):
+    (tmp_project_path / ".titan" / "secrets.env").write_text("TOKEN='project-token'\n")
+    mock_keyring[0].return_value = "user-token"
+
+    sm = SecretManager(project_path=tmp_project_path)
+
+    assert sm.get_from_scope("token", scope="project") == "project-token"
+    assert (
+        sm.get_from_scope(
+            "token",
+            namespace="titan.plugins.firebase",
+            scope="user",
+        )
+        == "user-token"
+    )
+    mock_keyring[0].assert_called_once_with("titan.plugins.firebase", "token")
+
+
+def test_get_from_scope_propagates_keyring_read_errors(mock_env, mock_keyring):
+    mock_keyring[0].side_effect = RuntimeError("keyring unavailable")
+    sm = SecretManager()
+
+    with pytest.raises(RuntimeError, match="keyring unavailable"):
+        sm.get_from_scope("token", scope="user")
 
 
 def test_set_registers_value_for_redaction(tmp_project_path, mock_env, mock_keyring):
@@ -419,7 +496,10 @@ def test_set_registers_value_for_redaction(tmp_project_path, mock_env, mock_keyr
 
 # --- Fixes from the PR #261 third review round ---
 
-def test_append_to_file_without_trailing_newline(tmp_project_path, mock_env, mock_keyring):
+
+def test_append_to_file_without_trailing_newline(
+    tmp_project_path, mock_env, mock_keyring
+):
     secrets_file = tmp_project_path / ".titan" / "secrets.env"
     secrets_file.write_text('OTHER="a"')  # no trailing newline
 
@@ -444,7 +524,9 @@ def test_update_removes_duplicate_definitions(tmp_project_path, mock_env, mock_k
     assert secrets_file.read_text().count("GITHUB_TOKEN") == 1
 
 
-def test_lowercase_without_export_can_be_deleted(tmp_project_path, mock_env, mock_keyring):
+def test_lowercase_without_export_can_be_deleted(
+    tmp_project_path, mock_env, mock_keyring
+):
     mock_keyring[0].return_value = None
     secrets_file = tmp_project_path / ".titan" / "secrets.env"
     secrets_file.write_text("github_token='abc-value'\n")
@@ -480,7 +562,10 @@ def test_scoped_delete_does_not_sweep_legacy_it_never_owned(keyring_store, tmp_p
 
 # --- Fixes from the PR #261 fourth review round ---
 
-def test_resolve_priority_when_same_key_everywhere(tmp_project_path, mock_env, mock_keyring):
+
+def test_resolve_priority_when_same_key_everywhere(
+    tmp_project_path, mock_env, mock_keyring
+):
     os.environ["SHARED"] = "env-wins"
     (tmp_project_path / ".titan" / "secrets.env").write_text("SHARED='from-file'\n")
     mock_keyring[0].return_value = "from-keyring"
@@ -489,7 +574,9 @@ def test_resolve_priority_when_same_key_everywhere(tmp_project_path, mock_env, m
     assert sm.resolve("shared") == ("env-wins", "env")
 
 
-def test_vault_stores_blank_values_brokers_are_the_guard(tmp_project_path, mock_env, mock_keyring):
+def test_vault_stores_blank_values_brokers_are_the_guard(
+    tmp_project_path, mock_env, mock_keyring
+):
     """Pinned semantics: the vault (inside the boundary) does not validate
     values — the broker's store/prompt paths are where blanks are rejected.
     A blank read back from the keyring is treated as absent."""
@@ -513,7 +600,9 @@ def test_default_project_path_is_cwd(tmp_path, mock_env, mock_keyring, monkeypat
     assert sm.get("cwd_key") == "cwd-value"
 
 
-def test_delete_project_scope_keeps_memory_if_file_write_fails(tmp_project_path, mock_env, mock_keyring):
+def test_delete_project_scope_keeps_memory_if_file_write_fails(
+    tmp_project_path, mock_env, mock_keyring
+):
     secrets_file = tmp_project_path / ".titan" / "secrets.env"
     secrets_file.write_text("TOKEN='value'\n")
     sm = SecretManager(project_path=tmp_project_path)
@@ -529,7 +618,10 @@ def test_delete_project_scope_keeps_memory_if_file_write_fails(tmp_project_path,
 
 # --- Fifth review round ---
 
-def test_blank_value_at_higher_level_falls_through(tmp_project_path, mock_env, mock_keyring):
+
+def test_blank_value_at_higher_level_falls_through(
+    tmp_project_path, mock_env, mock_keyring
+):
     """A blank env/project value means 'unset' — the cascade keeps going."""
     os.environ["TOKEN"] = "   "
     (tmp_project_path / ".titan" / "secrets.env").write_text("TOKEN=''\n")

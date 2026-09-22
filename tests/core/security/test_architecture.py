@@ -1,8 +1,8 @@
 """
 Architecture test for the secrets trust boundary.
 
-Only `titan_cli/core/security/` may touch raw secret strings: `keyring`, the
-private vault (`titan_cli.core.security._vault`), and the retired
+Only the private `SecretManager` vault may touch the OS keyring. The private
+vault (`titan_cli.core.security._vault`) and the retired
 `titan_cli.core.secrets` location are banned outright everywhere else. The
 migration ratchet that used to live here has fully tightened — the shim and
 its shrink-only allowlist are gone; these tests keep anyone from quietly
@@ -17,8 +17,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 SECURITY_PACKAGE = "titan_cli/core/security"
+VAULT_FILE = "titan_cli/core/security/_vault.py"
 VAULT_MODULE = "titan_cli.core.security._vault"
 LEGACY_MODULE = "titan_cli.core.secrets"
+
 
 def _production_files():
     """Every production .py file: titan_cli/ plus each plugin's package dir."""
@@ -46,7 +48,9 @@ def _imported_modules(path: Path):
     """Yield absolute dotted module names imported by the file."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     module = _module_name(path)
-    package_parts = module.split(".")[:-1] if not _is_package_init(path) else module.split(".")
+    package_parts = (
+        module.split(".")[:-1] if not _is_package_init(path) else module.split(".")
+    )
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -79,28 +83,26 @@ def _importers_of(target_prefixes):
     importers = set()
     for path in _production_files():
         for imported in _imported_modules(path):
-            if any(imported == t or imported.startswith(f"{t}.") for t in target_prefixes):
+            if any(
+                imported == t or imported.startswith(f"{t}.") for t in target_prefixes
+            ):
                 importers.add(_rel(path))
                 break
     return importers
 
 
 def test_keyring_only_imported_inside_security_boundary():
-    offenders = {
-        f for f in _importers_of({"keyring"})
-        if not f.startswith(SECURITY_PACKAGE)
-    }
+    offenders = {f for f in _importers_of({"keyring"}) if f != VAULT_FILE}
     assert offenders == set(), (
-        f"keyring may only be imported inside {SECURITY_PACKAGE}/. "
-        f"Offenders: {sorted(offenders)}. Use the SecretBroker / session "
-        f"factories instead of talking to the keyring directly."
+        f"keyring may only be imported by {VAULT_FILE}. Offenders: "
+        f"{sorted(offenders)}. Use the SecretManager, SecretBroker, or "
+        f"session factories instead of talking to the keyring directly."
     )
 
 
 def test_vault_only_imported_inside_security_boundary():
     offenders = {
-        f for f in _importers_of({VAULT_MODULE})
-        if not f.startswith(SECURITY_PACKAGE)
+        f for f in _importers_of({VAULT_MODULE}) if not f.startswith(SECURITY_PACKAGE)
     }
     assert offenders == set(), (
         f"The private vault ({VAULT_MODULE}) may only be imported inside "

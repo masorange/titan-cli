@@ -150,6 +150,47 @@ class SecretManager:
 
         return None, None
 
+    def resolve_env(self, key: str) -> Optional[str]:
+        """
+        Resolve one environment variable without falling through the cascade.
+
+        This exists for internal boundary adapters that need to honor an
+        explicit env-var configuration separately from normal secret keys.
+        """
+        value = os.environ.get(key)
+        if value is None and key.upper() != key:
+            value = os.environ.get(key.upper())
+        if value is None or not value.strip():
+            return None
+        register_secret(value)
+        return value.strip()
+
+    def get_from_scope(
+        self,
+        key: str,
+        namespace: str = "titan",
+        scope: ScopeType = "user",
+    ) -> Optional[str]:
+        """
+        Read exactly one writable scope without cascade fallback.
+
+        Delete paths use this as a postcondition check: returning through the
+        normal cascade would confuse "the user-scope key was deleted" with
+        "a project/env value still shadows it".
+        """
+        if scope == "project":
+            value = self._project_secrets.get(key.upper())
+        elif scope == "user":
+            value = keyring.get_password(namespace, key)
+        else:
+            raise ValueError(
+                f"Unknown secret scope {scope!r}. Valid scopes: 'user', 'project'."
+            )
+        if value is None or not value.strip():
+            return None
+        register_secret(value)
+        return value
+
     def _get_legacy_and_migrate(self, key: str, namespace: str) -> Optional[str]:
         """Look `key` up under the legacy service names; copy to `namespace` on a hit."""
         for legacy in LEGACY_NAMESPACES:
@@ -171,11 +212,7 @@ class SecretManager:
         return None
 
     def set(
-        self,
-        key: str,
-        value: str,
-        namespace: str = "titan",
-        scope: ScopeType = "user"
+        self, key: str, value: str, namespace: str = "titan", scope: ScopeType = "user"
     ):
         """
         Set secret
@@ -285,7 +322,9 @@ class SecretManager:
                 with open(secrets_file, "r") as f:
                     lines = f.readlines()
 
-                filtered = [line for line in lines if not _line_defines_key(line, key_upper)]
+                filtered = [
+                    line for line in lines if not _line_defines_key(line, key_upper)
+                ]
 
                 with open(secrets_file, "w") as f:
                     f.writelines(filtered)
