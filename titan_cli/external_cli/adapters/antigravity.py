@@ -12,7 +12,14 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
-from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
+from .base import (
+    CliModel,
+    CliUsage,
+    HeadlessResponse,
+    SupportedCLI,
+    _as_int,
+    model_listing_lines,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -106,9 +113,13 @@ class AntigravityHeadlessAdapter:
         model: Optional[str] = None,
     ) -> HeadlessResponse:
         self._ensure_read_permissions()
-        cmd = ["agy"]
+        # --output-format json on EVERY call: the envelope is the only place agy
+        # reports `usage`, so requesting it only alongside a schema left plain-text
+        # calls with no token figure at all. Verified 2026-09-22 that the envelope is
+        # emitted without `--json-schema`.
+        cmd = ["agy", "--output-format", "json"]
         if json_schema is not None:
-            cmd += ["--output-format", "json", "--json-schema", json.dumps(json_schema)]
+            cmd += ["--json-schema", json.dumps(json_schema)]
         if effort is not None:
             cmd += ["--effort", effort]
         if model is not None:
@@ -138,13 +149,7 @@ class AntigravityHeadlessAdapter:
                 exit_code=127,
             )
 
-        if json_schema is None:
-            return HeadlessResponse(
-                stdout=self._sanitize(result.stdout),
-                stderr=result.stderr.strip(),
-                exit_code=result.returncode,
-            )
-        return self._parse_structured_result(result)
+        return self._parse_envelope(result, expect_structured=json_schema is not None)
 
     def _ensure_read_permissions(self) -> None:
         """Provision read-only allow-rules into agy's settings before each run.
@@ -185,22 +190,34 @@ class AntigravityHeadlessAdapter:
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return
 
-    def _parse_structured_result(self, result: subprocess.CompletedProcess) -> HeadlessResponse:
-        """Unwrap the `--output-format json` envelope for a structured-output call.
+    def _parse_envelope(
+        self, result: subprocess.CompletedProcess, *, expect_structured: bool
+    ) -> HeadlessResponse:
+        """Unwrap the `--output-format json` envelope, which every call now receives.
 
-        On success the schema-validated answer is under `structured_output`; this
-        becomes stdout as compact JSON so downstream parsing sees no surrounding
-        prose. Falls back to the envelope's `response` text if no structured
-        output was produced.
+        With a schema the validated answer is under `structured_output` and becomes
+        stdout as compact JSON so downstream parsing sees no surrounding prose; it falls
+        back to the envelope's `response` text when no structured output was produced.
+        Without a schema, `response` IS the answer.
+
+        The envelope is also the only place agy reports `usage`, so it is read even on
+        the error path - a failed turn still consumed tokens.
         """
         stderr = result.stderr.strip()
         try:
             envelope = json.loads(result.stdout)
         except json.JSONDecodeError:
-            return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
+            envelope = None
 
         if not isinstance(envelope, dict):
-            return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
+            # An agy old enough not to emit an envelope, or a failure that printed
+            # prose. Whatever reached stdout is still the answer; `usage=None` says
+            # honestly that nothing was reported.
+            return HeadlessResponse(
+                stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode
+            )
+
+        usage = self._usage_from_envelope(envelope)
 
         if envelope.get("status") not in (None, "SUCCESS"):
             # The envelope's `response` may be empty on hard failures (e.g. quota
@@ -217,12 +234,45 @@ class AntigravityHeadlessAdapter:
                 stdout="",
                 stderr=str(detail),
                 exit_code=result.returncode or 1,
+                usage=usage,
             )
 
-        structured_output = envelope.get("structured_output")
-        if structured_output is None:
-            return HeadlessResponse(stdout=str(envelope.get("response", "")), stderr=stderr, exit_code=result.returncode)
-        return HeadlessResponse(stdout=json.dumps(structured_output), stderr=stderr, exit_code=result.returncode)
+        if expect_structured:
+            structured_output = envelope.get("structured_output")
+            if structured_output is not None:
+                return HeadlessResponse(
+                    stdout=json.dumps(structured_output),
+                    stderr=stderr,
+                    exit_code=result.returncode,
+                    usage=usage,
+                )
+
+        return HeadlessResponse(
+            stdout=self._sanitize(str(envelope.get("response", ""))),
+            stderr=stderr,
+            exit_code=result.returncode,
+            usage=usage,
+        )
+
+    def _usage_from_envelope(self, envelope: dict) -> Optional[CliUsage]:
+        """Read the envelope's `usage` block.
+
+        agy reports counts but no price, so `cost_usd` stays None rather than being
+        derived from a token table that would go stale without anyone noticing. Its
+        `thinking_tokens` maps to `reasoning_tokens`, the name the other CLIs use for
+        the same thing.
+        """
+        usage = envelope.get("usage")
+        if not isinstance(usage, dict):
+            return None
+        return CliUsage(
+            input_tokens=_as_int(usage.get("input_tokens")),
+            output_tokens=_as_int(usage.get("output_tokens")),
+            cache_read_tokens=_as_int(usage.get("cache_read_tokens")),
+            reasoning_tokens=_as_int(usage.get("thinking_tokens")),
+            reported_total_tokens=_as_int(usage.get("total_tokens")),
+            source="agy_envelope",
+        )
 
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""

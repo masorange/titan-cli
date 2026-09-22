@@ -13,7 +13,7 @@ from titan_cli.external_cli.adapters.antigravity import (
     _HEADLESS_PREAMBLE,
     AntigravityHeadlessAdapter,
 )
-from titan_cli.external_cli.adapters.base import HeadlessResponse, SupportedCLI
+from titan_cli.external_cli.adapters.base import CliUsage, HeadlessResponse, SupportedCLI
 from titan_cli.external_cli.adapters.claude import ClaudeHeadlessAdapter
 from titan_cli.external_cli.adapters.codex import CodexHeadlessAdapter
 from titan_cli.external_cli.adapters.gemini import GeminiHeadlessAdapter
@@ -116,7 +116,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "review this"],
+            ["claude", "--print", "--output-format", "json", "review this"],
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -231,7 +231,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         )
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--disallowedTools=Bash,Agent", "review this"],
+            ["claude", "--print", "--output-format", "json", "--disallowedTools=Bash,Agent", "review this"],
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -255,7 +255,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, effort="medium")
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--effort", "medium", "review this"],
+            ["claude", "--print", "--output-format", "json", "--effort", "medium", "review this"],
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -623,7 +623,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
 
         mock_run.assert_called_once_with(
-            ["agy", "--print", _HEADLESS_PREAMBLE + "review this"],
+            ["agy", "--output-format", "json", "--print", _HEADLESS_PREAMBLE + "review this"],
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -1467,3 +1467,315 @@ class TestListingCannotStealTheTerminal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── CliUsage and per-CLI usage reporting ─────────────────────────────────────
+#
+# Payload shapes below are not invented: each was captured 2026-09-22 by running the
+# real CLI on this machine with a one-word prompt. That matters, because the whole
+# point of these fields is to report what the CLI said rather than what Titan guessed.
+
+class TestCliUsage(unittest.TestCase):
+
+    def test_total_prefers_the_clis_own_figure(self):
+        usage = CliUsage(input_tokens=10, output_tokens=2, reported_total_tokens=99)
+        self.assertEqual(usage.total_tokens, 99)
+
+    def test_total_falls_back_to_input_plus_output(self):
+        self.assertEqual(CliUsage(input_tokens=10, output_tokens=2).total_tokens, 12)
+
+    def test_total_is_none_when_a_side_is_missing(self):
+        """A half-known total is worse than no total: it would silently understate."""
+        self.assertIsNone(CliUsage(input_tokens=10).total_tokens)
+        self.assertIsNone(CliUsage().total_tokens)
+
+    def test_computed_total_excludes_cache_and_reasoning(self):
+        """Each CLI folds these into its own figure differently, so summing them here
+        would double-count on some CLIs and not others."""
+        usage = CliUsage(
+            input_tokens=10, output_tokens=2, cache_read_tokens=500,
+            cache_write_tokens=700, reasoning_tokens=300,
+        )
+        self.assertEqual(usage.total_tokens, 12)
+
+    def test_absent_figures_are_omitted_from_log_fields(self):
+        """None means "the CLI did not say" — it must never be logged as a zero."""
+        fields = CliUsage(input_tokens=10, source="probe").as_log_fields()
+        self.assertEqual(fields, {"input_tokens": 10, "usage_source": "probe"})
+
+    def test_log_fields_can_be_prefixed(self):
+        fields = CliUsage(cost_usd=0.25).as_log_fields(prefix="call_")
+        self.assertEqual(fields, {"call_cost_usd": 0.25})
+
+    def test_has_cost_distinguishes_zero_from_unknown(self):
+        self.assertTrue(CliUsage(cost_usd=0.0).has_cost)
+        self.assertFalse(CliUsage().has_cost)
+
+
+class TestClaudeUsageReporting(unittest.TestCase):
+    """claude reports usage only inside the --output-format json envelope."""
+
+    ENVELOPE = {
+        "result": "ok",
+        "is_error": False,
+        "total_cost_usd": 0.25971625,
+        "usage": {
+            "input_tokens": 4597,
+            "cache_creation_input_tokens": 37861,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 4,
+        },
+        "modelUsage": {"claude-opus-5[1m]": {"costUSD": 0.25971625}},
+    }
+
+    def setUp(self):
+        self.adapter = ClaudeHeadlessAdapter()
+
+    @patch("subprocess.run")
+    def test_plain_call_reports_usage_and_answer(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=json.dumps(self.ENVELOPE), stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "ok")
+        self.assertEqual(response.usage.input_tokens, 4597)
+        self.assertEqual(response.usage.output_tokens, 4)
+        self.assertEqual(response.usage.cache_write_tokens, 37861)
+        self.assertEqual(response.usage.cost_usd, 0.25971625)
+        self.assertEqual(response.usage.model_reported, "claude-opus-5[1m]")
+
+    @patch("subprocess.run")
+    def test_reports_the_model_that_actually_ran_not_the_one_requested(self, mock_run):
+        """A CLI silently falls back to its own default when a pin is unavailable, and
+        that substitution is exactly what makes two runs incomparable."""
+        mock_run.return_value = MagicMock(stdout=json.dumps(self.ENVELOPE), stderr="", returncode=0)
+        response = self.adapter.execute("prompt", model="haiku")
+        self.assertEqual(response.usage.model_reported, "claude-opus-5[1m]")
+
+    @patch("subprocess.run")
+    def test_several_models_report_none_rather_than_an_arbitrary_one(self, mock_run):
+        envelope = dict(self.ENVELOPE, modelUsage={"claude-opus-5": {}, "claude-haiku-4-5": {}})
+        mock_run.return_value = MagicMock(stdout=json.dumps(envelope), stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+        self.assertIsNone(response.usage.model_reported)
+        self.assertEqual(response.usage.input_tokens, 4597)
+
+    @patch("subprocess.run")
+    def test_failed_call_still_reports_what_it_consumed(self, mock_run):
+        """A failed turn costs money; hiding it would understate every review with a retry."""
+        envelope = dict(self.ENVELOPE, is_error=True, result="overloaded")
+        mock_run.return_value = MagicMock(stdout=json.dumps(envelope), stderr="", returncode=1)
+        response = self.adapter.execute("prompt")
+
+        self.assertFalse(response.succeeded)
+        self.assertEqual(response.usage.cost_usd, 0.25971625)
+
+    @patch("subprocess.run")
+    def test_non_json_stdout_keeps_the_answer_and_reports_no_usage(self, mock_run):
+        """A claude too old to emit the envelope must still return its answer."""
+        mock_run.return_value = MagicMock(stdout="plain answer\n", stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "plain answer")
+        self.assertIsNone(response.usage)
+
+    @patch("subprocess.run")
+    def test_structured_call_reports_usage_alongside_the_schema_answer(self, mock_run):
+        envelope = dict(self.ENVELOPE, structured_output={"findings": []})
+        mock_run.return_value = MagicMock(stdout=json.dumps(envelope), stderr="", returncode=0)
+        response = self.adapter.execute("prompt", json_schema={"type": "object"})
+
+        self.assertEqual(json.loads(response.stdout), {"findings": []})
+        self.assertEqual(response.usage.cost_usd, 0.25971625)
+
+
+class TestGrokUsageReporting(unittest.TestCase):
+    """grok closes its stream with the same envelope shape claude emits."""
+
+    def setUp(self):
+        self.adapter = GrokHeadlessAdapter()
+
+    def _stream(self, **overrides) -> str:
+        result_event = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "ok",
+            "total_cost_usd": 0.080964,
+            "usage": {
+                "input_tokens": 39966,
+                "output_tokens": 76,
+                "cache_read_input_tokens": 1152,
+                "cache_creation_input_tokens": 0,
+            },
+            "modelUsage": {"grok-4.7": {"costUSD": 0.080964}},
+        }
+        result_event.update(overrides)
+        return "\n".join([json.dumps({"type": "system", "model": "grok-4.7"}), json.dumps(result_event)])
+
+    @patch("subprocess.run")
+    def test_reports_usage_from_the_terminal_event(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=self._stream(), stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "ok")
+        self.assertEqual(response.usage.input_tokens, 39966)
+        self.assertEqual(response.usage.cache_read_tokens, 1152)
+        self.assertEqual(response.usage.cost_usd, 0.080964)
+        self.assertEqual(response.usage.model_reported, "grok-4.7")
+
+    @patch("subprocess.run")
+    def test_failed_run_still_reports_usage(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=self._stream(is_error=True, errors=["rate limited"]), stderr="", returncode=0
+        )
+        response = self.adapter.execute("prompt")
+
+        self.assertFalse(response.succeeded)
+        self.assertEqual(response.usage.cost_usd, 0.080964)
+
+    @patch("subprocess.run")
+    def test_stream_without_a_terminal_event_reports_no_usage(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps({"type": "system", "model": "grok-4.7"}), stderr="", returncode=0
+        )
+        self.assertIsNone(self.adapter.execute("prompt").usage)
+
+
+class TestCodexUsageReporting(unittest.TestCase):
+    """codex reports counts on `turn.completed` and never reports a price."""
+
+    def setUp(self):
+        self.adapter = CodexHeadlessAdapter()
+
+    STREAM = "\n".join([
+        json.dumps({"type": "thread.started", "thread_id": "t1"}),
+        json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}),
+        json.dumps({"type": "turn.completed", "usage": {
+            "input_tokens": 16783,
+            "cached_input_tokens": 5888,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 5,
+            "reasoning_output_tokens": 0,
+        }}),
+    ])
+
+    @patch("subprocess.run")
+    def test_reports_counts_but_no_cost(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=self.STREAM, stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "ok")
+        self.assertEqual(response.usage.input_tokens, 16783)
+        self.assertEqual(response.usage.output_tokens, 5)
+        self.assertEqual(response.usage.cache_read_tokens, 5888)
+        self.assertIsNone(response.usage.cost_usd)
+        self.assertFalse(response.usage.has_cost)
+
+    @patch("subprocess.run")
+    def test_stream_without_turn_completed_reports_no_usage(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}),
+            stderr="", returncode=0,
+        )
+        response = self.adapter.execute("prompt")
+        self.assertEqual(response.stdout, "ok")
+        self.assertIsNone(response.usage)
+
+
+class TestOpenCodeUsageReporting(unittest.TestCase):
+    """opencode reports both counts and a resolved price on `step_finish`."""
+
+    def setUp(self):
+        self.adapter = OpenCodeHeadlessAdapter()
+
+    def _stream(self, cost=0.0042) -> str:
+        return "\n".join([
+            json.dumps({"type": "text", "part": {"text": "ok"}}),
+            json.dumps({"type": "step_finish", "part": {
+                "tokens": {"total": 31582, "input": 31484, "output": 1, "reasoning": 97,
+                           "cache": {"write": 0, "read": 12}},
+                "cost": cost,
+            }}),
+        ])
+
+    @patch("subprocess.run")
+    def test_reports_counts_and_cost(self, mock_run):
+        mock_run.return_value = MagicMock(stdout=self._stream(), stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "ok")
+        self.assertEqual(response.usage.total_tokens, 31582)
+        self.assertEqual(response.usage.reasoning_tokens, 97)
+        self.assertEqual(response.usage.cache_read_tokens, 12)
+        self.assertEqual(response.usage.cost_usd, 0.0042)
+
+    @patch("subprocess.run")
+    def test_a_reported_zero_cost_is_kept_as_zero(self, mock_run):
+        """On a local or free model that zero is the true price, and turning it into
+        None would make a free run indistinguishable from a silent CLI."""
+        mock_run.return_value = MagicMock(stdout=self._stream(cost=0), stderr="", returncode=0)
+        usage = self.adapter.execute("prompt").usage
+
+        self.assertEqual(usage.cost_usd, 0.0)
+        self.assertTrue(usage.has_cost)
+
+    @patch("subprocess.run")
+    def test_stream_without_step_finish_reports_no_usage(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps({"type": "text", "part": {"text": "ok"}}), stderr="", returncode=0
+        )
+        self.assertIsNone(self.adapter.execute("prompt").usage)
+
+
+class TestAntigravityUsageReporting(unittest.TestCase):
+    """agy reports counts in its envelope and never reports a price."""
+
+    ENVELOPE = {
+        "status": "SUCCESS",
+        "response": "ok\n",
+        "duration_seconds": 4.41,
+        "num_turns": 1,
+        "usage": {
+            "input_tokens": 13520,
+            "output_tokens": 278,
+            "thinking_tokens": 277,
+            "cache_read_tokens": 0,
+            "total_tokens": 13798,
+        },
+    }
+
+    def setUp(self):
+        self.adapter = AntigravityHeadlessAdapter()
+
+    @patch("titan_cli.external_cli.adapters.antigravity.AntigravityHeadlessAdapter._ensure_read_permissions")
+    @patch("subprocess.run")
+    def test_plain_call_reports_usage_and_answer(self, mock_run, _perms):
+        mock_run.return_value = MagicMock(stdout=json.dumps(self.ENVELOPE), stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "ok")
+        self.assertEqual(response.usage.total_tokens, 13798)
+        self.assertEqual(response.usage.reasoning_tokens, 277)
+        self.assertIsNone(response.usage.cost_usd)
+
+    @patch("titan_cli.external_cli.adapters.antigravity.AntigravityHeadlessAdapter._ensure_read_permissions")
+    @patch("subprocess.run")
+    def test_non_json_stdout_keeps_the_answer_and_reports_no_usage(self, mock_run, _perms):
+        mock_run.return_value = MagicMock(stdout="plain answer\n", stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "plain answer")
+        self.assertIsNone(response.usage)
+
+
+class TestGeminiReportsNoUsage(unittest.TestCase):
+    """gemini emits no machine-readable output at all, so there is nothing to read.
+
+    Asserted rather than assumed: `usage is None` is what makes a gemini review show
+    up as cost-unknown instead of cost-free.
+    """
+
+    @patch("subprocess.run")
+    def test_usage_is_absent(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        self.assertIsNone(GeminiHeadlessAdapter().execute("prompt").usage)

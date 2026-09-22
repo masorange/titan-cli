@@ -31,6 +31,11 @@ from ..models.review_models import (
 )
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
+from ..operations.ai_cost_operations import (
+    AICallRecord,
+    format_cost_summary,
+    summarize_ai_calls,
+)
 from ..operations.ai_response_parsing_operations import (
     REFORMAT_RETRY_TIMEOUT_SECONDS,
     build_json_reformat_prompt,
@@ -962,8 +967,11 @@ def _get_review_diff(
             return ctx.github.get_pr_diff(pr_number), True
 
 
+REVIEW_AI_CALLS_KEY = "review_ai_calls"
+
+
 class _PinnedModelCli:
-    """A headless adapter that always runs with the model the user pinned for it.
+    """A headless adapter that pins the user's model and records what each call cost.
 
     These steps drive the adapter directly rather than through `generate_text`, so the
     model the user chose in AI Configuration would otherwise never reach the CLI - it
@@ -973,11 +981,19 @@ class _PinnedModelCli:
     possible, because no call site passes it.
 
     An explicit `model=` from a caller still wins, matching the executor's own rule.
+
+    The same argument applies to cost telemetry, which is why it lives here too rather
+    than at the five `adapter.execute(...)` call sites: a phase added later is measured
+    without anyone remembering to measure it. Records go on `ctx.data` (never on step
+    metadata, which is scanned for secrets) and appending to a list is safe from the
+    findings phase's worker threads.
     """
 
-    def __init__(self, adapter, model: Optional[str]):
+    def __init__(self, adapter, model: Optional[str], ctx=None, phase: Optional[str] = None):
         self._adapter = adapter
         self._model = model
+        self._ctx = ctx
+        self._phase = phase or "unknown"
 
     @property
     def pinned_model(self) -> Optional[str]:
@@ -994,7 +1010,104 @@ class _PinnedModelCli:
         # mean "no opinion" here too, rather than suppressing the user's pin entirely.
         if kwargs.get("model") is None:
             kwargs["model"] = self._model
-        return self._adapter.execute(prompt, **kwargs)
+        started_at = time.monotonic()
+        try:
+            response = self._adapter.execute(prompt, **kwargs)
+        except BaseException:
+            # A cancelled or crashed call consumed real tokens the CLI never got to
+            # report. Recording a priced zero here would be a lie, so nothing is
+            # recorded and the raise stands - WorkflowAborted must not be swallowed.
+            raise
+        self._record(prompt, kwargs, response, time.monotonic() - started_at)
+        return response
+
+    def _record(self, prompt, kwargs, response, duration_seconds: float) -> None:
+        """Append one call record and log it. Never allowed to break the review."""
+        try:
+            usage = getattr(response, "usage", None)
+            record = AICallRecord(
+                phase=self._phase,
+                cli=self._adapter.cli_name.value,
+                prompt_chars=len(prompt or ""),
+                duration_seconds=round(duration_seconds, 3),
+                succeeded=bool(getattr(response, "succeeded", False)),
+                model_requested=kwargs.get("model"),
+                model_reported=getattr(usage, "model_reported", None),
+                input_tokens=getattr(usage, "input_tokens", None),
+                output_tokens=getattr(usage, "output_tokens", None),
+                total_tokens=getattr(usage, "total_tokens", None),
+                cost_usd=getattr(usage, "cost_usd", None),
+                usage_source=getattr(usage, "source", None),
+            )
+            logger.debug(
+                "ai_call_cost",
+                phase=record.phase,
+                cli=record.cli,
+                model_requested=record.model_requested,
+                model_reported=record.model_reported,
+                model_substituted=record.model_substituted,
+                effort=kwargs.get("effort"),
+                prompt_chars=record.prompt_chars,
+                duration_seconds=record.duration_seconds,
+                succeeded=record.succeeded,
+                input_tokens=record.input_tokens,
+                output_tokens=record.output_tokens,
+                total_tokens=record.total_tokens,
+                # Absent rather than zero when the CLI reports no price: codex and agy
+                # never do, and gemini reports nothing at all.
+                cost_usd=record.cost_usd,
+                usage_source=record.usage_source,
+            )
+            if self._ctx is not None:
+                self._ctx.data.setdefault(REVIEW_AI_CALLS_KEY, []).append(record)
+        except Exception as exc:  # pragma: no cover - telemetry must never break a review
+            logger.debug("ai_call_cost_record_failed", phase=self._phase, error=str(exc))
+
+
+
+def log_review_ai_cost(ctx, scope: str) -> None:
+    """Emit the running cost summary for this review, at DEBUG.
+
+    DEBUG on purpose: the file handler runs at DEBUG in development and INFO in
+    production, so this is a development instrument by construction and never grows an
+    end user's log. Called at more than one point because a review can end at an
+    interactive gate without reaching its last step - `scope` says which point spoke.
+    """
+    records = (ctx.data or {}).get(REVIEW_AI_CALLS_KEY) or []
+    if not records:
+        return
+    summary = summarize_ai_calls(list(records))
+    logger.debug(
+        "review_ai_cost_summary",
+        scope=scope,
+        calls=summary.calls,
+        failed_calls=summary.failed_calls,
+        duration_seconds=summary.duration_seconds,
+        prompt_chars=summary.prompt_chars,
+        total_tokens=summary.total_tokens,
+        cost_usd=summary.cost_usd,
+        cost_is_complete=summary.cost_is_complete,
+        cost_per_call_usd=summary.cost_per_call_usd,
+        calls_missing_cost=summary.calls_missing_cost,
+        calls_missing_tokens=summary.calls_missing_tokens,
+        substituted_model_calls=summary.substituted_model_calls,
+        clis=summary.clis,
+        models_reported=summary.models_reported,
+        phases=[
+            {
+                "phase": p.phase,
+                "calls": p.calls,
+                "failed_calls": p.failed_calls,
+                "duration_seconds": p.duration_seconds,
+                "prompt_chars": p.prompt_chars,
+                "total_tokens": p.total_tokens,
+                "cost_usd": p.cost_usd,
+                "calls_missing_cost": p.calls_missing_cost,
+            }
+            for p in summary.phases
+        ],
+        summary=format_cost_summary(summary),
+    )
 
 
 def _resolve_headless_adapter(cli_preference: str):
@@ -1066,7 +1179,22 @@ def _resolve_review_adapter(
         cli=resolution.cli,
         model=model,
     )
-    return _PinnedModelCli(adapter, model), None, False
+    return (
+        _PinnedModelCli(adapter, model, ctx=ctx, phase=_step_phase(step)),
+        None,
+        False,
+    )
+
+
+def _step_phase(step) -> str:
+    """The routing task this step declared, which is also its cost phase.
+
+    Reusing the declared task rather than inventing a phase name keeps the cost
+    log joinable to the routing log and to the model the user pinned for it.
+    """
+    policy = getattr(step, "ai_policy", None)
+    task = getattr(policy, "task", None)
+    return str(task) if task else str(getattr(step, "__name__", "unknown"))
 
 
 def _route_failure_reason(route_note: Optional[str], ai_off: bool) -> str:
@@ -2810,6 +2938,10 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.success_text(f"✓ AI returned {len(ctx.data['raw_findings'])} raw finding(s)")
     if findings_failed:
         ctx.textual.warning_text("Some findings batches failed or were skipped due to budget limits.")
+    # Logged here as well as at the end of the review because this phase is where the
+    # money goes, and a reviewer can abandon at the approval gate without the workflow
+    # ever reaching a terminal step.
+    log_review_ai_cost(ctx, scope="findings_phase")
     ctx.textual.end_step("success")
     return Success(
         "AI findings retrieved",
@@ -3477,6 +3609,11 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Textual UI context is not available for this step.")
 
     ctx.textual.begin_step("Submit Review")
+
+    # The whole review's AI spend, logged on the way IN rather than at one of this
+    # step's many exits: submitting makes no AI calls, so by now every call is
+    # accounted for, and one call site cannot drift out of sync with the others.
+    log_review_ai_cost(ctx, scope="review")
 
     approved: List[ReviewActionProposal] = ctx.get("approved_action_proposals", [])
     pr_number = ctx.get("review_pr_number")

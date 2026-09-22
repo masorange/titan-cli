@@ -11,7 +11,13 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
+from .base import (
+    CliModel,
+    HeadlessResponse,
+    SupportedCLI,
+    model_listing_lines,
+    usage_from_result_envelope,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -249,12 +255,19 @@ class GrokHeadlessAdapter:
                 stdout="",
                 stderr=str(detail or "Grok CLI reported an error"),
                 exit_code=result.returncode or 1,
+                # Read even here: a failed turn still consumed tokens, and dropping
+                # them would understate any review that had a retry in it.
+                usage=usage_from_result_envelope(final, source="grok_result_event"),
             )
 
         return HeadlessResponse(
             stdout=self._sanitize(str(final.get("result", "") or last_assistant_text)),
             stderr=stderr,
             exit_code=result.returncode,
+            # grok's terminal line carries the same envelope claude's does - `usage`,
+            # `total_cost_usd` and a `modelUsage` map naming the model that ran - so the
+            # shared reader handles both rather than each adapter growing its own.
+            usage=usage_from_result_envelope(final, source="grok_result_event"),
         )
 
     def _assistant_text(self, event: dict) -> str:

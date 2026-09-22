@@ -331,3 +331,130 @@ class TestPinnedModelCliSemantics:
         wrapper, _ = self._wrapped("opus")
 
         assert wrapper.pinned_model == "opus"
+
+
+class TestTheWrapperRecordsWhatEachCallCost:
+    """Cost telemetry lives in the adapter wrapper, not at the call sites.
+
+    Same argument as the model pin above: there are five `adapter.execute(...)` sites in
+    the review and a phase added later would otherwise go unmeasured because nobody
+    remembered to measure it.
+    """
+
+    @staticmethod
+    def _wrapped(usage=None, *, ctx=None, phase="code_review_findings", raises=None):
+        from titan_cli.external_cli.adapters.base import HeadlessResponse, SupportedCLI
+        from titan_plugin_github.steps.code_review_steps import _PinnedModelCli
+
+        class _Adapter:
+            cli_name = SupportedCLI.CLAUDE
+
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, prompt, **kwargs):
+                self.calls.append(kwargs)
+                if raises is not None:
+                    raise raises
+                return HeadlessResponse(stdout="ok", stderr="", exit_code=0, usage=usage)
+
+        adapter = _Adapter()
+        return _PinnedModelCli(adapter, "opus", ctx=ctx, phase=phase), adapter
+
+    @staticmethod
+    def _ctx():
+        class _Ctx:
+            def __init__(self):
+                self.data = {}
+
+        return _Ctx()
+
+    def _records(self, ctx):
+        from titan_plugin_github.steps.code_review_steps import REVIEW_AI_CALLS_KEY
+
+        return ctx.data.get(REVIEW_AI_CALLS_KEY, [])
+
+    def test_a_call_is_recorded_with_its_phase_and_duration(self):
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(ctx=ctx, phase="code_review_plan")
+
+        wrapper.execute("a prompt")
+
+        record, = self._records(ctx)
+        assert record.phase == "code_review_plan"
+        assert record.cli == "claude"
+        assert record.prompt_chars == len("a prompt")
+        assert record.succeeded is True
+        assert record.duration_seconds >= 0
+
+    def test_reported_usage_reaches_the_record(self):
+        from titan_cli.external_cli.adapters.base import CliUsage
+
+        ctx = self._ctx()
+        usage = CliUsage(
+            input_tokens=100, output_tokens=5, cost_usd=0.02,
+            model_reported="claude-opus-5[1m]", source="claude_result_envelope",
+        )
+        wrapper, _ = self._wrapped(usage, ctx=ctx)
+
+        wrapper.execute("prompt")
+
+        record, = self._records(ctx)
+        assert record.total_tokens == 105
+        assert record.cost_usd == 0.02
+        assert record.model_reported == "claude-opus-5[1m]"
+        assert record.usage_source == "claude_result_envelope"
+
+    def test_a_cli_that_reports_nothing_records_none_not_zero(self):
+        """gemini reports no usage at all; recording zeros would make its reviews look
+        free instead of unmeasured."""
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(usage=None, ctx=ctx)
+
+        wrapper.execute("prompt")
+
+        record, = self._records(ctx)
+        assert record.cost_usd is None
+        assert record.total_tokens is None
+
+    def test_the_requested_model_is_recorded_alongside_the_reported_one(self):
+        from titan_cli.external_cli.adapters.base import CliUsage
+
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(CliUsage(model_reported="claude-opus-5[1m]"), ctx=ctx)
+
+        wrapper.execute("prompt", model="haiku")
+
+        record, = self._records(ctx)
+        assert record.model_requested == "haiku"
+        assert record.model_substituted is True
+
+    def test_every_call_accumulates(self):
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(ctx=ctx)
+
+        wrapper.execute("one")
+        wrapper.execute("two")
+
+        assert len(self._records(ctx)) == 2
+
+    def test_an_interrupted_call_propagates_and_records_nothing(self):
+        """WorkflowAborted is a BaseException and must not be swallowed by telemetry,
+        and a cancelled call has no figures the CLI ever got to report."""
+        import pytest
+
+        from titan_cli.core.interrupt import WorkflowAborted
+
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(ctx=ctx, raises=WorkflowAborted())
+
+        with pytest.raises(BaseException):
+            wrapper.execute("prompt")
+
+        assert self._records(ctx) == []
+
+    def test_telemetry_never_breaks_a_review(self):
+        """Without a ctx there is nowhere to record, and the call must still return."""
+        wrapper, _ = self._wrapped(ctx=None)
+
+        assert wrapper.execute("prompt").stdout == "ok"

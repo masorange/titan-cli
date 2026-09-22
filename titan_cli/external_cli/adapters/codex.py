@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import CliModel, HeadlessResponse, SupportedCLI
+from .base import CliModel, CliUsage, HeadlessResponse, SupportedCLI, _as_int
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -134,10 +134,12 @@ class CodexHeadlessAdapter:
                 cwd=cwd,
                 timeout=timeout,
             )
+            text, usage = self._parse_json_output(result.stdout)
             return HeadlessResponse(
-                stdout=self._parse_json_output(result.stdout),
+                stdout=text,
                 stderr=result.stderr.strip(),
                 exit_code=result.returncode,
+                usage=usage,
             )
         except subprocess.TimeoutExpired:
             return HeadlessResponse(
@@ -156,17 +158,24 @@ class CodexHeadlessAdapter:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
 
-    def _parse_json_output(self, jsonl_output: str) -> str:
+    def _parse_json_output(self, jsonl_output: str) -> tuple[str, Optional[CliUsage]]:
         """
         Parse JSONL output from `codex exec --json --ephemeral`.
 
-        Extracts the agent's response from JSON events.
-        Looks for: item.completed events with type="agent_message".
+        Returns the agent's response and what the run reported about its own
+        consumption. Two event types matter: `item.completed` with
+        type="agent_message" carries the answer, and the closing `turn.completed`
+        carries `usage`. Both are read in one pass — codex emits every tool call and
+        reasoning step on this stream, so a second pass over it is not free.
+
+        codex reports no price, only counts, so `cost_usd` stays None rather than
+        being derived from a token table that would go stale silently.
         """
         if not jsonl_output or not jsonl_output.strip():
-            return ""
+            return "", None
 
         agent_messages = []
+        usage: Optional[CliUsage] = None
         for line in jsonl_output.strip().split("\n"):
             if not line:
                 continue
@@ -180,9 +189,30 @@ class CodexHeadlessAdapter:
                         text = item.get("text", "")
                         if text:
                             agent_messages.append(text)
+                elif event.get("type") == "turn.completed":
+                    usage = self._usage_from_turn(event)
 
             except json.JSONDecodeError:
                 # Skip unparseable lines
                 continue
 
-        return "\n".join(agent_messages).strip()
+        return "\n".join(agent_messages).strip(), usage
+
+    def _usage_from_turn(self, event: dict) -> Optional[CliUsage]:
+        """Read the `usage` block of a `turn.completed` event.
+
+        `cached_input_tokens` is a SUBSET of `input_tokens` in codex's accounting, not
+        an addition to it, which is why it maps to `cache_read_tokens` and is never
+        added into a total here.
+        """
+        usage = event.get("usage")
+        if not isinstance(usage, dict):
+            return None
+        return CliUsage(
+            input_tokens=_as_int(usage.get("input_tokens")),
+            output_tokens=_as_int(usage.get("output_tokens")),
+            cache_read_tokens=_as_int(usage.get("cached_input_tokens")),
+            cache_write_tokens=_as_int(usage.get("cache_write_input_tokens")),
+            reasoning_tokens=_as_int(usage.get("reasoning_output_tokens")),
+            source="codex_turn_completed",
+        )

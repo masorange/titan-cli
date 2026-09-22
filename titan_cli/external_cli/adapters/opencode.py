@@ -12,7 +12,15 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
+from .base import (
+    CliModel,
+    CliUsage,
+    HeadlessResponse,
+    SupportedCLI,
+    _as_float,
+    _as_int,
+    model_listing_lines,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -127,10 +135,12 @@ class OpenCodeHeadlessAdapter:
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
             )
+            text, usage = self._parse_json_output(result.stdout)
             return HeadlessResponse(
-                stdout=self._parse_json_output(result.stdout),
+                stdout=text,
                 stderr=result.stderr.strip(),
                 exit_code=result.returncode,
+                usage=usage,
             )
         except subprocess.TimeoutExpired:
             return HeadlessResponse(
@@ -149,7 +159,7 @@ class OpenCodeHeadlessAdapter:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
 
-    def _parse_json_output(self, jsonl_output: str) -> str:
+    def _parse_json_output(self, jsonl_output: str) -> tuple[str, Optional[CliUsage]]:
         """
         Parse JSONL output from `opencode run --format json`.
 
@@ -162,11 +172,12 @@ class OpenCodeHeadlessAdapter:
         work and the answer comes after the last tool.
         """
         if not jsonl_output or not jsonl_output.strip():
-            return ""
+            return "", None
 
         final_texts = []
         post_tool_texts = []
         all_texts = []
+        usage: Optional[CliUsage] = None
         for line in jsonl_output.strip().split("\n"):
             if not line:
                 continue
@@ -178,6 +189,13 @@ class OpenCodeHeadlessAdapter:
             event_type = event.get("type")
             if event_type == "tool_use":
                 post_tool_texts.clear()
+                continue
+            if event_type == "step_finish":
+                # The only event that reports consumption, and the only one that gives
+                # a price: opencode resolves cost itself per provider, so there is
+                # nothing to derive. Last one wins - a multi-step run reports per step
+                # and the closing step is the cumulative one.
+                usage = self._usage_from_step(event) or usage
                 continue
             if event_type != "text":
                 continue
@@ -198,4 +216,32 @@ class OpenCodeHeadlessAdapter:
         # not the answer, but it beats returning nothing: the caller's contract
         # check gets real content to reject and the user sees what the model was
         # doing when the run stopped.
-        return "\n".join(final_texts or post_tool_texts or all_texts[-1:]).strip()
+        return "\n".join(final_texts or post_tool_texts or all_texts[-1:]).strip(), usage
+
+    def _usage_from_step(self, event: dict) -> Optional[CliUsage]:
+        """Read `part.tokens` and `part.cost` off a `step_finish` event.
+
+        A reported cost of 0 is kept as 0, not discarded as missing: on a local or
+        free model that zero is the true price, and turning it into None would make
+        a free run indistinguishable from one whose CLI said nothing.
+        """
+        part = event.get("part")
+        if not isinstance(part, dict):
+            return None
+        tokens = part.get("tokens")
+        if not isinstance(tokens, dict):
+            tokens = {}
+        cache = tokens.get("cache")
+        if not isinstance(cache, dict):
+            cache = {}
+        usage = CliUsage(
+            input_tokens=_as_int(tokens.get("input")),
+            output_tokens=_as_int(tokens.get("output")),
+            reasoning_tokens=_as_int(tokens.get("reasoning")),
+            cache_read_tokens=_as_int(cache.get("read")),
+            cache_write_tokens=_as_int(cache.get("write")),
+            reported_total_tokens=_as_int(tokens.get("total")),
+            cost_usd=_as_float(part.get("cost")),
+            source="opencode_step_finish",
+        )
+        return usage if usage.total_tokens is not None or usage.has_cost else None
