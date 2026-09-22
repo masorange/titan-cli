@@ -86,6 +86,19 @@ def select_review_axes(
 
 
 def path_matches_any(path: str, patterns: list[str]) -> bool:
-    """Return True when path matches any glob pattern."""
+    """Return True when path matches any glob pattern.
+
+    A leading `**/` also matches at the repository root. `fnmatch` needs something
+    before `**/` to match, so `**/core/**` matched `titan_cli/core/x.py` but NOT
+    `core/x.py` — which means every pattern written in the idiom the docs use silently
+    missed a top-level directory of that name. The intent of `**/core/**` is "a core
+    directory anywhere", root included, so the prefix-stripped form is tried too.
+    """
     normalized_path = path.replace("\\", "/").lower()
-    return any(fnmatch(normalized_path, pattern.lower()) for pattern in patterns)
+    for pattern in patterns:
+        candidate = pattern.lower()
+        if fnmatch(normalized_path, candidate):
+            return True
+        if candidate.startswith("**/") and fnmatch(normalized_path, candidate[3:]):
+            return True
+    return False

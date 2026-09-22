@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from .review_enums import ChecklistCategory
+from .review_enums import AttentionTier, ChecklistCategory
 
 
 class CandidateScoringRule(BaseModel):
@@ -34,6 +34,25 @@ class ReviewProfile(BaseModel):
     version: int = Field(default=1)
     change_patterns: dict[str, list[str]] = Field(default_factory=dict)
     file_roles: dict[str, list[str]] = Field(default_factory=dict)
+    attention: dict[str, AttentionTier] = Field(
+        default_factory=dict,
+        description="How much attention each file role is worth: deep (the model opens "
+        "the file and explores), glance (the model sees only the diff, packed with "
+        "others and cheap) or skip (not reviewed, but said so on screen). Keyed by the "
+        "role names `file_roles` defines, plus the three the manifest derives - "
+        "`docs_or_generated`, `tests`, `config_or_contracts` - and `other` for a file "
+        "no role claims. A role absent from this map falls back to glance: covering a "
+        "file cheaply is the safe default, skipping it silently is not.",
+    )
+    always_deep: list[str] = Field(
+        default_factory=list,
+        description="Globs that enter the deep tier whatever their role says and "
+        "however little changed. This is the one path-based escape hatch, and it exists "
+        "because a two-line change in a security boundary deserves a full read while "
+        "its role-level default may not. It outranks every other rule, including the "
+        "lockfile and rename-only skips: second-guessing an explicit instruction would "
+        "make the hatch useless.",
+    )
     candidate_scoring: list[CandidateScoringRule] = Field(default_factory=list)
     candidate_exclusions: CandidateExclusions = Field(default_factory=CandidateExclusions)
     review_axes: dict[ChecklistCategory, ReviewAxisRule] = Field(default_factory=dict)

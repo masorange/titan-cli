@@ -5,8 +5,8 @@ policy previously duplicated as free functions in
 `context_resolution_operations.py` and `code_review_steps.py`.
 """
 
-from ..models.review_enums import FileReadMode, PRSizeClass
-from ..models.review_models import FileContextEntry, FocusContextBatch, ReviewStrategy
+from ..models.review_enums import FileReadMode
+from ..models.review_models import FileContextEntry, FocusContextBatch, ReviewBudget
 
 
 class PromptBudgetManager:
@@ -17,10 +17,20 @@ class PromptBudgetManager:
     # actual cost is much higher than its prompt-text size suggests.
     WORKTREE_REFERENCE_ESTIMATED_CHARS = 5000
 
-    def content_budget(self, strategy: ReviewStrategy) -> int:
-        """Return the char budget available for file/related/comment context."""
-        reserve = 5000 if strategy.size_class in {PRSizeClass.LARGE, PRSizeClass.HUGE} else 3500
-        return max(2500, strategy.max_prompt_chars - reserve)
+    # What the prompt spends on everything that is not file content: the PR header, the
+    # axes, the instructions and the response schema. Measured on a real batch at ~2.9k
+    # chars, so 3500 leaves room without pretending to be exact.
+    NON_CONTENT_RESERVE_CHARS = 3500
+
+    def content_budget(self, budget: ReviewBudget) -> int:
+        """Return the char budget available for file/related/comment context.
+
+        One reserve, not two. The old version reserved 5000 chars on a PR classified
+        LARGE or HUGE and 3500 otherwise, which only made sense while a big PR meant
+        more focus files; the deep tier is now capped at a fixed number of sessions, so
+        the PR's overall size says nothing about how much room one batch needs.
+        """
+        return max(2500, budget.deep_max_prompt_chars - self.NON_CONTENT_RESERVE_CHARS)
 
     def estimate_entry_chars(self, entry: FileContextEntry) -> int:
         """Estimate the prompt-budget cost of a resolved file context entry."""

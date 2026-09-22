@@ -813,6 +813,19 @@ Supported fields:
 - `review_axes`: Optional map keyed by checklist category ID with:
   - `always_include`: Optional boolean.
   - `patterns`: Optional glob list.
+- `attention`: Optional map from file role name to how much attention that role is worth:
+  - `deep`: the model opens the file and reads around the change.
+  - `glance`: the model sees only the diff, packed with other files and cheap.
+  - `skip`: not reviewed, and said so on screen.
+  - Keys are the role names `file_roles` defines, plus `docs_or_generated`, `tests` and
+    `config_or_contracts` (derived from the file itself) and `other` for a file no role
+    claims. A role you do not mention falls back to `glance`, never to `skip`.
+- `always_deep`: Optional glob list. These files get a full read whatever their role says
+  and however little changed. It outranks every other rule, including the automatic skips
+  for lockfiles and rename-only changes.
+
+Note a glob is matched case-insensitively, and a leading `**/` also matches at the
+repository root, so `**/core/**` matches both `core/x.py` and `src/core/x.py`.
 
 Example:
 
@@ -849,6 +862,17 @@ review_axes:
   security:
     patterns:
       - "**/auth/**"
+
+attention:
+  business_logic: deep
+  integration_or_adapter: deep
+  entrypoints_or_ui: glance
+  tests: glance
+  docs_or_generated: skip
+
+always_deep:
+  - "**/core/security/**"
+  - "**/*payment*"
 ```
 
 ### Review checklist

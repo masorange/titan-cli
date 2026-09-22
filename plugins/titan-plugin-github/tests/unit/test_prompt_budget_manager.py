@@ -12,16 +12,16 @@ from titan_plugin_github.managers.prompt_budget_manager import (
     PromptBudgetManager,
     get_prompt_budget_manager,
 )
-from titan_plugin_github.models.review_enums import FileReadMode, PRSizeClass, ReviewStrategyType
-from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch, ReviewStrategy
+from titan_plugin_github.models.review_enums import FileReadMode
+from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch, ReviewBudget
 
 
-def make_strategy(*, size_class: PRSizeClass, max_prompt_chars: int) -> ReviewStrategy:
-    return ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=size_class,
-        max_focus_files=10,
-        max_prompt_chars=max_prompt_chars,
+def make_budget(*, max_prompt_chars: int) -> ReviewBudget:
+    return ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=max_prompt_chars,
+        scan_max_prompt_chars=max_prompt_chars,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
 
@@ -52,20 +52,26 @@ def make_batch(entries: dict[str, FileContextEntry], **overrides) -> FocusContex
 # ---------------------------------------------------------------------------
 
 
-def test_content_budget_reserves_more_for_large_prs():
-    manager = PromptBudgetManager()
-    small_strategy = make_strategy(size_class=PRSizeClass.SMALL, max_prompt_chars=20000)
-    large_strategy = make_strategy(size_class=PRSizeClass.LARGE, max_prompt_chars=20000)
+def test_content_budget_reserves_the_same_whatever_the_pr_size():
+    """One reserve, not two.
 
-    assert manager.content_budget(small_strategy) == 20000 - 3500
-    assert manager.content_budget(large_strategy) == 20000 - 5000
+    It used to reserve 5000 chars on a PR classified LARGE or HUGE and 3500 otherwise,
+    which only made sense while a big PR meant more focus files. The deep tier is now
+    capped at a fixed number of sessions, so the PR's overall size says nothing about how
+    much room one batch needs.
+    """
+    manager = PromptBudgetManager()
+    budget = make_budget(max_prompt_chars=20000)
+
+    assert manager.content_budget(budget) == 20000 - manager.NON_CONTENT_RESERVE_CHARS
+    assert manager.NON_CONTENT_RESERVE_CHARS == 3500
 
 
 def test_content_budget_never_goes_below_floor():
     manager = PromptBudgetManager()
-    strategy = make_strategy(size_class=PRSizeClass.HUGE, max_prompt_chars=4000)
+    budget = make_budget(max_prompt_chars=4000)
 
-    assert manager.content_budget(strategy) == 2500
+    assert manager.content_budget(budget) == 2500
 
 
 def test_get_prompt_budget_manager_returns_shared_instance():

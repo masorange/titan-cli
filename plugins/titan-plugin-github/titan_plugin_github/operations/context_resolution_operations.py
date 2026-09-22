@@ -8,7 +8,7 @@ from titan_cli.core.logging import get_logger
 
 from ..managers.diff_context_manager import DiffContextManager, get_or_create_diff_manager
 from ..managers.prompt_budget_manager import get_prompt_budget_manager
-from ..models.review_enums import ContextRequestType, FileReadMode, PRSizeClass
+from ..models.review_enums import ContextRequestType, FileReadMode
 from ..models.review_models import (
     ChangeManifest,
     CommentContextEntry,
@@ -19,7 +19,7 @@ from ..models.review_models import (
     ReviewChecklistItem,
     ReviewContextPackage,
     ReviewPlan,
-    ReviewStrategy,
+    ReviewBudget,
 )
 
 logger = get_logger(__name__)
@@ -197,7 +197,7 @@ def build_review_context_package(
     manifest: ChangeManifest,
     checklist: list[ReviewChecklistItem],
     comment_context: list[CommentContextEntry],
-    strategy: ReviewStrategy,
+    budget: ReviewBudget,
     cwd: Optional[str] = None,
     diff_manager: Optional[DiffContextManager] = None,
     allow_file_reads: bool = True,
@@ -224,8 +224,8 @@ def build_review_context_package(
     related_files = resolve_context_requests(
         plan.extra_context_requests[:1], cwd, allow_file_reads=allow_file_reads
     )
-    comment_context = comment_context[: strategy.max_comment_entries]
-    content_budget = get_prompt_budget_manager().content_budget(strategy)
+    comment_context = comment_context[: budget.max_comment_entries]
+    content_budget = get_prompt_budget_manager().content_budget(budget)
 
     batches: list[FocusContextBatch] = []
     current_files: dict[str, FileContextEntry] = {}
@@ -234,7 +234,7 @@ def build_review_context_package(
 
     for file_plan in plan.focus_files:
         entry = _resolve_file_context(
-            file_plan, diff, strategy, cwd, manager, allow_file_reads=allow_file_reads
+            file_plan, diff, budget, cwd, manager, allow_file_reads=allow_file_reads
         )
         entry_chars = entry.approximate_chars or get_prompt_budget_manager().estimate_entry_chars(entry)
         # A worktree_reference file forces the CLI to read it from disk itself, which is
@@ -257,7 +257,7 @@ def build_review_context_package(
                     related_files=related_files,
                     pr_manifest=manifest.pr,
                     approximate_chars=current_chars,
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
+                    prompt_budget_target_chars=budget.deep_max_prompt_chars,
                 )
             )
             batch_index += 1
@@ -277,7 +277,7 @@ def build_review_context_package(
                 related_files=related_files,
                 pr_manifest=manifest.pr,
                 approximate_chars=current_chars,
-                prompt_budget_target_chars=strategy.max_prompt_chars,
+                prompt_budget_target_chars=budget.deep_max_prompt_chars,
             )
         )
 
@@ -287,7 +287,7 @@ def build_review_context_package(
 def _resolve_file_context(
     file_plan: FileReviewPlan,
     diff: str,
-    strategy: ReviewStrategy,
+    budget: ReviewBudget,
     cwd: Optional[str] = None,
     diff_manager: Optional[DiffContextManager] = None,
     allow_file_reads: bool = True,
@@ -299,7 +299,7 @@ def _resolve_file_context(
     # lines and degrade to the general body. 30 covers any realistic file (a header
     # is ~40 chars, so worst case ~1.2k chars) while still bounding pathological diffs.
     hunk_headers = [hunk.header for hunk in manager.get_hunks(file_plan.path)[:30]]
-    file_limits = _file_limits(strategy, file_plan.path)
+    file_limits = _file_limits(file_plan.path)
     resolved_entry: FileContextEntry | None = None
 
     if not allow_file_reads and desired_mode in (FileReadMode.FULL_FILE, FileReadMode.EXPANDED_HUNKS):
@@ -391,39 +391,25 @@ def _resolve_file_context(
     return _log_file_context(resolved_entry, file_plan.path)
 
 
-def _file_limits(strategy: ReviewStrategy, path: str) -> dict[str, int]:
-    is_large = strategy.size_class in {PRSizeClass.LARGE, PRSizeClass.HUGE}
-    is_central = _looks_like_central_file(path)
-    is_test = _is_test_file(path)
+def _file_limits(path: str) -> dict[str, int]:
+    """How much of one file a deep batch may carry.
+
+    One set of limits, not four. The old version shrank every file when the PR was
+    classified LARGE or HUGE, which made sense when a big PR meant more focus files; the
+    deep tier is now capped at a fixed number of sessions, so the PR's overall size no
+    longer says anything about how much room one file has. `fit_batch_to_budget` still
+    shrinks a batch that overflows, so the generous limits are safe.
+
+    The per-path branches went with it: they hinged on a hardcoded list of filename
+    tokens (`viewmodel`, `manager`, `service`, ...), which is a guess about one kind of
+    codebase living in code that has to work for any of them. What a project considers
+    central belongs in its own profile.
+    """
     return {
-        "max_file_chars": 9000 if is_test and is_large else 12000 if is_central and is_large else 7000 if is_large else 14000,
-        "max_file_lines": 140 if is_test and is_large else 220 if is_central and is_large else 120 if is_large else 260,
-        "extra_lines": 4 if is_test and is_large else 8 if is_central else 4 if is_large else 8,
+        "max_file_chars": 14000,
+        "max_file_lines": 260,
+        "extra_lines": 8,
     }
-
-
-def _looks_like_central_file(path: str) -> bool:
-    path_lower = path.lower()
-    return any(
-        token in path_lower
-        for token in (
-            "viewmodel",
-            "manager",
-            "service",
-            "utils",
-            "mapper",
-            "serializer",
-            "adapter",
-            "converter",
-            "parser",
-            "model",
-        )
-    )
-
-
-def _is_test_file(path: str) -> bool:
-    path_lower = path.lower()
-    return any(token in path_lower for token in ("/test/", "/tests/", "test.kt", "test.py", "spec."))
 
 
 def _build_worktree_hint(file_plan: FileReviewPlan) -> str:

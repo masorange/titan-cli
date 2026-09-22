@@ -6,7 +6,7 @@ from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Error, Exit, Skip, Success
 from titan_cli.external_cli.adapters import HeadlessResponse
 from titan_cli.external_cli.adapters.base import SupportedCLI
-from titan_plugin_github.models.review_enums import FileReadMode, FileReviewPriority, FindingSeverity, PRSizeClass, ReviewStrategyType
+from titan_plugin_github.models.review_enums import FileReadMode, FileReviewPriority, FindingSeverity
 from titan_plugin_github.models.review_models import (
     ChangeManifest,
     FileContextEntry,
@@ -14,7 +14,7 @@ from titan_plugin_github.models.review_models import (
     FocusContextBatch,
     PullRequestManifest,
     ReferencedCommitContext,
-    ReviewStrategy,
+    ReviewBudget,
     ScoredReviewCandidate,
     ThreadReviewCandidate,
     ThreadReviewContext,
@@ -558,11 +558,11 @@ def test_ai_review_findings_splits_oversized_batch_via_prompt_budget_manager(mon
     ctx.data["review_context_batches"] = [
         _make_findings_batch("batch_1", {"a.py": 3000, "b.py": 3000})
     ]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -606,11 +606,11 @@ def test_ai_review_findings_parses_markdown_fenced_response(monkeypatch):
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -659,11 +659,11 @@ def test_ai_review_findings_recovers_via_reformat_retry(monkeypatch):
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -688,11 +688,11 @@ def test_ai_review_findings_marks_batch_failed_when_reformat_retry_also_fails(mo
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -730,11 +730,11 @@ def test_ai_review_findings_partial_batch_failure_still_succeeds_with_flag(monke
         _make_findings_batch("batch_1", {"a.py": 100}),
         _make_findings_batch("batch_2", {"b.py": 100}),
     ]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -781,11 +781,11 @@ def test_ai_review_findings_returns_error_when_all_batches_fail(monkeypatch):
         _make_findings_batch("batch_1", {"a.py": 100}),
         _make_findings_batch("batch_2", {"b.py": 100}),
     ]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -837,11 +837,11 @@ def test_ai_review_findings_non_list_payload_goes_through_reformat_retry(monkeyp
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -867,11 +867,11 @@ def test_ai_review_findings_non_list_payload_marks_failed_when_retry_also_non_li
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -925,11 +925,11 @@ def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -954,11 +954,11 @@ def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeyp
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -986,11 +986,11 @@ def test_ai_review_findings_restricts_tools_when_supported(monkeypatch):
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -1011,11 +1011,11 @@ def test_ai_review_findings_omits_disallowed_tools_when_unsupported(monkeypatch)
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -1038,11 +1038,11 @@ def test_ai_review_findings_reformat_retry_also_restricts_tools(monkeypatch):
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -1084,11 +1084,11 @@ def test_ai_review_findings_caps_effort_for_worktree_reference_batch(monkeypatch
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_worktree_reference_batch("batch_1", "HomeScreen.kt")]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -1109,11 +1109,11 @@ def test_ai_review_findings_omits_effort_when_no_worktree_reference(monkeypatch)
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=6000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=6000,
+        scan_max_prompt_chars=6000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -1375,11 +1375,11 @@ def _verify_ctx(findings: list, adapter_stdout: str | None = None) -> WorkflowCo
     ctx.textual = _FakeTextual()
     ctx.data["deduped_findings"] = findings
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=20000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=20000,
+        scan_max_prompt_chars=20000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     # The pass ships disabled by default (it has never refuted a real finding);
@@ -1482,11 +1482,11 @@ def test_verify_findings_fails_open_when_prompt_over_budget(monkeypatch):
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
     ctx = _verify_ctx([finding])
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=100,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=100,
+        scan_max_prompt_chars=100,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     result = verify_findings(ctx)
@@ -1545,11 +1545,11 @@ def _concurrency_ctx(batch_count: int, concurrency: int) -> WorkflowContext:
     ctx.data["review_context_batches"] = [
         _make_findings_batch(f"batch_{i}", {f"f{i}.py": 100}) for i in range(batch_count)
     ]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=20000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=20000,
+        scan_max_prompt_chars=20000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["cli_preference"] = "auto"
@@ -1635,13 +1635,12 @@ def _rescue_ctx(adapter_stdouts: list[str]) -> tuple[WorkflowContext, "_FakeSequ
     ctx.textual = _FakeTextual()
     ctx.data["review_profile"] = ReviewProfile(findings_batch_concurrency=1)
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=20000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=20000,
+        scan_max_prompt_chars=20000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
-        suspicious_empty_findings=True,
     )
     ctx.data["review_candidates"] = [
         ScoredReviewCandidate(
@@ -1715,22 +1714,21 @@ def test_ai_review_findings_no_rescue_when_findings_exist(monkeypatch):
     assert len(fake_adapter.calls) == 1
 
 
-def test_ai_review_findings_no_rescue_when_not_suspicious(monkeypatch):
-    ctx, fake_adapter = _rescue_ctx(["[]"])
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=20000,
-        max_comment_entries=5,
-        suspicious_empty_findings=False,
-    )
+def test_ai_review_findings_rescues_on_empty_whatever_the_pr_size(monkeypatch):
+    """The rescue gate no longer depends on how big the PR is.
+
+    It used to hang on `suspicious_empty_findings`, a flag the size class set True for
+    everything but the smallest PRs — so a tiny PR's empty result was trusted purely
+    because it was tiny. What makes an empty result worth a second look is that files
+    WERE read and produced nothing, which is what is checked now.
+    """
+    ctx, fake_adapter = _rescue_ctx(["[]", "[]"])
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
     result = ai_review_findings(ctx)
 
     assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 1
+    assert len(fake_adapter.calls) == 2
 
 
 # ============================================================================
@@ -1772,13 +1770,12 @@ def _synthesis_ctx(
         _make_findings_batch(f"batch_{index + 1}", file_chars)
         for index, file_chars in enumerate(files)
     ]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=20000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=20000,
+        scan_max_prompt_chars=20000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
-        suspicious_empty_findings=False,
     )
     ctx.data["review_diff"] = diff if diff is not None else _synthesis_diff()
     ctx.data["cli_preference"] = "auto"
@@ -2046,11 +2043,11 @@ def _timeout_ctx(adapter_script: list[tuple[int, str]], *, worktree_reference: b
         ]
     else:
         ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"border.py": 100})]
-    ctx.data["review_strategy"] = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=20000,
+    ctx.data["review_budget"] = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=20000,
+        scan_max_prompt_chars=20000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
     ctx.data["review_diff"] = (
@@ -2160,3 +2157,52 @@ def test_validate_review_actions_releases_worktree_even_with_no_actions(monkeypa
 
     assert isinstance(result, Skip)
     assert removed == ["/tmp/wt/titan-review-9"]
+
+
+# ============================================================================
+# findings-phase cost is reported even when the phase is abandoned (cov-001/005)
+# ============================================================================
+
+
+def test_findings_phase_reports_its_cost_even_when_interrupted(monkeypatch):
+    """The phase a user interrupts is the one whose cost they most want to know.
+
+    A real run on 2026-09-22 was stopped mid-findings and emitted no cost summary at
+    all, because it was only logged on the success path. WorkflowAborted is a
+    BaseException, so `finally` is the only construct that still runs.
+    """
+    import pytest
+
+    from titan_cli.core.interrupt import WorkflowAborted
+
+    scopes = []
+
+    class _Ctx:
+        data = {}
+
+    monkeypatch.setattr(
+        code_review_steps, "_ai_review_findings", lambda _ctx: (_ for _ in ()).throw(WorkflowAborted())
+    )
+    monkeypatch.setattr(
+        code_review_steps, "log_review_ai_cost", lambda _ctx, scope: scopes.append(scope)
+    )
+
+    with pytest.raises(BaseException):
+        code_review_steps.ai_review_findings(_Ctx())
+
+    assert scopes == ["findings_phase"]
+
+
+def test_findings_phase_reports_its_cost_on_the_success_path_too(monkeypatch):
+    scopes = []
+
+    class _Ctx:
+        data = {}
+
+    monkeypatch.setattr(code_review_steps, "_ai_review_findings", lambda _ctx: Success("done"))
+    monkeypatch.setattr(
+        code_review_steps, "log_review_ai_cost", lambda _ctx, scope: scopes.append(scope)
+    )
+
+    assert isinstance(code_review_steps.ai_review_findings(_Ctx()), Success)
+    assert scopes == ["findings_phase"]

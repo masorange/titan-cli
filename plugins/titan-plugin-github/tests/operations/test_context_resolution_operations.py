@@ -12,8 +12,6 @@ from titan_plugin_github.models.review_enums import (
     FileChangeStatus,
     FileReadMode,
     FileReviewPriority,
-    PRSizeClass,
-    ReviewStrategyType,
 )
 from titan_plugin_github.models.review_models import (
     ChangeManifest,
@@ -23,7 +21,7 @@ from titan_plugin_github.models.review_models import (
     PullRequestManifest,
     ReviewChecklistItem,
     ReviewPlan,
-    ReviewStrategy,
+    ReviewBudget,
 )
 from titan_plugin_github.operations.context_resolution_operations import (
     build_review_context_package,
@@ -73,15 +71,15 @@ def test_build_review_context_package_batches_by_manager_content_budget():
             description="Does it work",
         )
     ]
-    strategy = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=4000,
+    budget = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=4000,
+        scan_max_prompt_chars=4000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
 
-    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], budget=budget)
 
     # content_budget(strategy) == max(2500, 4000 - 3500) == 2500; each ~3000-char
     # hunk alone exceeds that budget, so every file must land in its own batch.
@@ -112,15 +110,15 @@ def test_direct_strategy_overflow_spills_to_extra_batch_instead_of_dropping():
             description="Does it work",
         )
     ]
-    strategy = ReviewStrategy(
-        strategy=ReviewStrategyType.DIRECT_FINDINGS,
-        size_class=PRSizeClass.TINY,
-        max_focus_files=4,
-        max_prompt_chars=4000,
+    budget = ReviewBudget(
+        max_deep_sessions=4,
+        deep_max_prompt_chars=4000,
+        scan_max_prompt_chars=4000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
 
-    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], budget=budget)
 
     reviewed_paths = {path for batch in package.batches for path in batch.files_context}
     assert reviewed_paths == set(paths)
@@ -145,15 +143,15 @@ def test_build_review_context_package_keeps_small_files_in_one_batch():
             description="Does it work",
         )
     ]
-    strategy = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=20000,
+    budget = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=20000,
+        scan_max_prompt_chars=20000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
 
-    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], budget=budget)
 
     assert len(package.batches) == 1
     assert set(package.batches[0].files_context.keys()) == set(paths)
@@ -183,15 +181,15 @@ def test_worktree_reference_entries_get_a_high_fixed_cost_and_split_batches():
     ]
     # Budget that would have fit two ~800-char entries (old estimate) but not two
     # WORKTREE_REFERENCE_ESTIMATED_CHARS-sized ones.
-    strategy = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=2000 + 3500,
+    budget = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=2000,
+        scan_max_prompt_chars=2000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
 
-    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], budget=budget)
 
     first_entry = package.batches[0].files_context["a.py"]
     assert first_entry.worktree_reference is True
@@ -223,15 +221,15 @@ def test_worktree_reference_files_are_capped_at_one_per_batch_even_with_ample_bu
             description="Does it work",
         )
     ]
-    strategy = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=100_000,
+    budget = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=100_000,
+        scan_max_prompt_chars=100_000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
 
-    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], budget=budget)
 
     assert len(package.batches) == 3
     assert [list(batch.files_context.keys()) for batch in package.batches] == [["a.py"], ["b.py"], ["c.py"]]
@@ -257,15 +255,15 @@ def test_mixed_batch_closes_before_a_second_worktree_reference_file():
             description="Does it work",
         )
     ]
-    strategy = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=100_000,
+    budget = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=100_000,
+        scan_max_prompt_chars=100_000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
 
-    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], strategy=strategy)
+    package = build_review_context_package(plan, diff, manifest, checklist, comment_context=[], budget=budget)
 
     assert len(package.batches) == 2
     assert list(package.batches[0].files_context.keys()) == ["inline.py", "a.py"]
@@ -361,25 +359,25 @@ def _single_file_setup(read_mode, path="a.py"):
             description="Does it work",
         )
     ]
-    strategy = ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=PRSizeClass.SMALL,
-        max_focus_files=10,
-        max_prompt_chars=100_000,
+    budget = ReviewBudget(
+        max_deep_sessions=10,
+        deep_max_prompt_chars=100_000,
+        scan_max_prompt_chars=100_000,
+        scan_max_files_per_batch=12,
         max_comment_entries=5,
     )
-    return diff, plan, make_manifest([path]), checklist, strategy
+    return diff, plan, make_manifest([path]), checklist, budget
 
 
 class TestBuildPackageWithoutFileReads:
     def test_full_file_degrades_to_hunks_only(self, tmp_path):
         """A real file exists at cwd, but it is the wrong revision — it must be ignored."""
         (tmp_path / "a.py").write_text("content from the wrong branch\n" * 5)
-        diff, plan, manifest, checklist, strategy = _single_file_setup(FileReadMode.FULL_FILE)
+        diff, plan, manifest, checklist, budget = _single_file_setup(FileReadMode.FULL_FILE)
 
         package = build_review_context_package(
             plan, diff, manifest, checklist,
-            comment_context=[], strategy=strategy,
+            comment_context=[], budget=budget,
             cwd=str(tmp_path), allow_file_reads=False,
         )
 
@@ -390,11 +388,11 @@ class TestBuildPackageWithoutFileReads:
 
     def test_expanded_hunks_degrades_to_hunks_only(self, tmp_path):
         (tmp_path / "a.py").write_text("content from the wrong branch\n" * 5)
-        diff, plan, manifest, checklist, strategy = _single_file_setup(FileReadMode.EXPANDED_HUNKS)
+        diff, plan, manifest, checklist, budget = _single_file_setup(FileReadMode.EXPANDED_HUNKS)
 
         package = build_review_context_package(
             plan, diff, manifest, checklist,
-            comment_context=[], strategy=strategy,
+            comment_context=[], budget=budget,
             cwd=str(tmp_path), allow_file_reads=False,
         )
 
@@ -404,11 +402,11 @@ class TestBuildPackageWithoutFileReads:
 
     def test_full_file_is_used_when_reads_are_allowed(self, tmp_path):
         (tmp_path / "a.py").write_text("verified content\n")
-        diff, plan, manifest, checklist, strategy = _single_file_setup(FileReadMode.FULL_FILE)
+        diff, plan, manifest, checklist, budget = _single_file_setup(FileReadMode.FULL_FILE)
 
         package = build_review_context_package(
             plan, diff, manifest, checklist,
-            comment_context=[], strategy=strategy,
+            comment_context=[], budget=budget,
             cwd=str(tmp_path), allow_file_reads=True,
         )
 
@@ -420,7 +418,7 @@ class TestBuildPackageWithoutFileReads:
         """worktree_reference has the CLI read the file itself — the same
         wrong-revision read, just delegated."""
         path = "big.py"
-        diff, plan, manifest, checklist, strategy = _single_file_setup(
+        diff, plan, manifest, checklist, budget = _single_file_setup(
             FileReadMode.FULL_FILE, path=path
         )
         # Oversized hunk: normally this ends up as a worktree_reference entry.
@@ -428,7 +426,7 @@ class TestBuildPackageWithoutFileReads:
 
         package = build_review_context_package(
             plan, diff, manifest, checklist,
-            comment_context=[], strategy=strategy,
+            comment_context=[], budget=budget,
             allow_file_reads=False,
         )
 
@@ -437,14 +435,14 @@ class TestBuildPackageWithoutFileReads:
         assert entry.read_mode == FileReadMode.HUNKS_ONLY
 
     def test_file_absent_from_diff_gets_headers_only_with_a_hint(self):
-        diff, plan, manifest, checklist, strategy = _single_file_setup(
+        diff, plan, manifest, checklist, budget = _single_file_setup(
             FileReadMode.FULL_FILE, path="in_plan.py"
         )
         diff = make_diff("something_else.py", "y = 2")
 
         package = build_review_context_package(
             plan, diff, manifest, checklist,
-            comment_context=[], strategy=strategy,
+            comment_context=[], budget=budget,
             allow_file_reads=False,
         )
 
@@ -455,7 +453,7 @@ class TestBuildPackageWithoutFileReads:
 
     def test_related_context_requests_are_skipped(self, tmp_path):
         (tmp_path / "test_a.py").write_text("def test_something(): pass\n")
-        diff, plan, manifest, checklist, strategy = _single_file_setup(FileReadMode.HUNKS_ONLY)
+        diff, plan, manifest, checklist, budget = _single_file_setup(FileReadMode.HUNKS_ONLY)
         plan = ReviewPlan(
             focus_files=plan.focus_files,
             review_axes=plan.review_axes,
@@ -466,7 +464,7 @@ class TestBuildPackageWithoutFileReads:
 
         package = build_review_context_package(
             plan, diff, manifest, checklist,
-            comment_context=[], strategy=strategy,
+            comment_context=[], budget=budget,
             cwd=str(tmp_path), allow_file_reads=False,
         )
 

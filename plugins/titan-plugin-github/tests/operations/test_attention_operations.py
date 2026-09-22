@@ -1,0 +1,223 @@
+"""Tests for how much attention each changed file is worth.
+
+The tiers answer "is the diff alone enough to judge this change?", not "is this file
+important?" — so the assertions below are about precedence and explainability, not about
+whether a given role deserves a deep read.
+"""
+
+from titan_plugin_github.models.review_enums import AttentionTier, FileChangeStatus
+from titan_plugin_github.models.review_models import ChangedFileEntry
+from titan_plugin_github.models.review_profile_models import ReviewProfile
+from titan_plugin_github.operations.attention_operations import (
+    resolve_file_attention,
+    summarize_attention_plan,
+)
+from titan_plugin_github.review_profiles import DEFAULT_REVIEW_PROFILE
+
+
+def _file(path: str, **flags) -> ChangedFileEntry:
+    return ChangedFileEntry(path=path, status=FileChangeStatus.MODIFIED, **flags)
+
+
+def _profile(**overrides) -> ReviewProfile:
+    base = dict(
+        file_roles={
+            "business_logic": ["**/services/**"],
+            "entrypoints_or_ui": ["**/screens/**"],
+        },
+        attention={
+            "business_logic": AttentionTier.DEEP,
+            "entrypoints_or_ui": AttentionTier.GLANCE,
+            "tests": AttentionTier.GLANCE,
+            "docs_or_generated": AttentionTier.SKIP,
+        },
+    )
+    base.update(overrides)
+    return ReviewProfile(**base)
+
+
+class TestRoleDrivesTheTier:
+
+    def test_a_role_mapped_to_deep_gets_deep(self):
+        plan = resolve_file_attention([_file("app/services/pay.py")], _profile())
+
+        assert plan.files[0].tier == AttentionTier.DEEP
+        assert plan.files[0].reason == "role:business_logic"
+
+    def test_a_role_mapped_to_glance_gets_glance(self):
+        plan = resolve_file_attention([_file("app/screens/home.py")], _profile())
+
+        assert plan.files[0].tier == AttentionTier.GLANCE
+
+    def test_docs_are_skipped_through_their_derived_role(self):
+        plan = resolve_file_attention([_file("README.md", is_docs=True)], _profile())
+
+        assert plan.files[0].tier == AttentionTier.SKIP
+        assert plan.files[0].role == "docs_or_generated"
+
+    def test_an_unconfigured_role_falls_back_to_glance_not_skip(self):
+        """Covering a file cheaply is the safe default; skipping it silently is not."""
+        plan = resolve_file_attention([_file("misc/thing.py")], _profile())
+
+        assert plan.files[0].tier == AttentionTier.GLANCE
+        assert plan.files[0].role == "other"
+        assert plan.files[0].reason == "role_not_configured:other"
+
+    def test_an_empty_attention_map_still_covers_everything(self):
+        plan = resolve_file_attention([_file("app/services/pay.py")], _profile(attention={}))
+
+        assert plan.files[0].tier == AttentionTier.GLANCE
+        assert plan.count_for(AttentionTier.SKIP) == 0
+
+
+class TestPrecedence:
+
+    def test_always_deep_beats_the_roles_tier(self):
+        plan = resolve_file_attention(
+            [_file("app/screens/home.py")],
+            _profile(always_deep=["**/screens/**"]),
+        )
+
+        assert plan.files[0].tier == AttentionTier.DEEP
+        assert plan.files[0].reason == "always_deep"
+
+    def test_always_deep_beats_a_skipped_role(self):
+        """A two-line change in a declared boundary deserves a full read even if its
+        role would normally be skipped."""
+        plan = resolve_file_attention(
+            [_file("docs/security.md", is_docs=True)],
+            _profile(always_deep=["docs/security.md"]),
+        )
+
+        assert plan.files[0].tier == AttentionTier.DEEP
+
+    def test_always_deep_beats_the_lockfile_skip(self):
+        """A hatch that gets second-guessed is not a hatch."""
+        plan = resolve_file_attention(
+            [_file("poetry.lock", is_lockfile=True)],
+            _profile(always_deep=["poetry.lock"]),
+        )
+
+        assert plan.files[0].tier == AttentionTier.DEEP
+
+    def test_a_lockfile_is_skipped_without_being_configured(self):
+        plan = resolve_file_attention([_file("poetry.lock", is_lockfile=True)], _profile())
+
+        assert plan.files[0].tier == AttentionTier.SKIP
+        assert plan.files[0].reason == "lockfile"
+
+    def test_a_rename_only_change_is_skipped(self):
+        """Moving a file does not change what it does."""
+        plan = resolve_file_attention(
+            [_file("app/services/pay.py", is_rename_only=True)], _profile()
+        )
+
+        assert plan.files[0].tier == AttentionTier.SKIP
+        assert plan.files[0].reason == "rename_only"
+
+    def test_always_deep_matches_case_insensitively_like_the_rest_of_the_profile(self):
+        plan = resolve_file_attention(
+            [_file("App/Services/Pay.py")], _profile(always_deep=["**/services/**"])
+        )
+
+        assert plan.files[0].tier == AttentionTier.DEEP
+
+
+class TestPlanShape:
+
+    def test_counts_include_tiers_that_came_out_empty(self):
+        """A summary whose keys change shape between PRs is harder to compare."""
+        plan = resolve_file_attention([_file("app/services/pay.py")], _profile())
+
+        assert plan.counts == {"deep": 1, "glance": 0, "skip": 0}
+
+    def test_reviewable_count_excludes_the_skipped(self):
+        """The honest denominator: coverage against the PR's total file count flatters
+        the review on any PR with generated output in it."""
+        plan = resolve_file_attention(
+            [
+                _file("app/services/pay.py"),
+                _file("app/screens/home.py"),
+                _file("README.md", is_docs=True),
+                _file("poetry.lock", is_lockfile=True),
+            ],
+            _profile(),
+        )
+
+        assert len(plan.files) == 4
+        assert plan.reviewable_count == 2
+
+    def test_paths_can_be_read_back_per_tier(self):
+        plan = resolve_file_attention(
+            [_file("app/services/pay.py"), _file("app/screens/home.py")], _profile()
+        )
+
+        assert plan.paths_for(AttentionTier.DEEP) == ["app/services/pay.py"]
+        assert plan.paths_for(AttentionTier.GLANCE) == ["app/screens/home.py"]
+
+    def test_no_files_is_not_an_error(self):
+        plan = resolve_file_attention([], _profile())
+
+        assert plan.files == []
+        assert plan.reviewable_count == 0
+
+
+class TestSummary:
+
+    def test_skip_reasons_are_grouped_rather_than_listed_per_path(self):
+        plan = resolve_file_attention(
+            [
+                _file("a.lock", is_lockfile=True),
+                _file("b.lock", is_lockfile=True),
+                _file("README.md", is_docs=True),
+                _file("app/services/pay.py"),
+            ],
+            _profile(),
+        )
+
+        summary = summarize_attention_plan(plan)
+
+        assert summary["files_total"] == 4
+        assert summary["files_reviewable"] == 1
+        assert summary["skip_reasons"] == {"lockfile": 2, "role:docs_or_generated": 1}
+
+    def test_always_deep_files_are_named_because_they_are_a_project_decision(self):
+        plan = resolve_file_attention(
+            [_file("core/security/vault.py"), _file("app/screens/home.py")],
+            _profile(always_deep=["**/core/security/**"]),
+        )
+
+        assert summarize_attention_plan(plan)["always_deep_files"] == ["core/security/vault.py"]
+
+
+class TestShippedDefaults:
+    """The profile Titan ships has to hold together on its own."""
+
+    def test_every_role_the_default_profile_defines_has_a_tier(self):
+        """A role with no tier silently falls back to glance, which would make the
+        shipped configuration quieter than it looks."""
+        for role in DEFAULT_REVIEW_PROFILE.file_roles:
+            assert role in DEFAULT_REVIEW_PROFILE.attention, role
+
+    def test_the_three_derived_roles_and_other_have_a_tier(self):
+        for role in ("docs_or_generated", "tests", "config_or_contracts", "other"):
+            assert role in DEFAULT_REVIEW_PROFILE.attention, role
+
+    def test_nothing_is_deep_by_accident(self):
+        deep_roles = {
+            role for role, tier in DEFAULT_REVIEW_PROFILE.attention.items()
+            if tier == AttentionTier.DEEP
+        }
+
+        assert deep_roles == {"business_logic", "integration_or_adapter", "workflow_orchestration"}
+
+    def test_only_generated_output_and_docs_are_skipped_by_default(self):
+        skipped = {
+            role for role, tier in DEFAULT_REVIEW_PROFILE.attention.items()
+            if tier == AttentionTier.SKIP
+        }
+
+        assert skipped == {"docs_or_generated"}
+
+    def test_always_deep_ships_empty_because_titan_cannot_know_a_projects_boundaries(self):
+        assert DEFAULT_REVIEW_PROFILE.always_deep == []

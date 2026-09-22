@@ -37,11 +37,6 @@ steps:
     plugin: github
     step: build_review_checklist
 
-  - id: select_strategy
-    name: "Select Review Strategy"
-    plugin: github
-    step: select_review_strategy
-
   - id: ai_plan
     name: "AI Review Plan"
     plugin: github

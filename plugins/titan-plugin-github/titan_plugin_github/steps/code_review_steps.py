@@ -23,14 +23,16 @@ from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
 from ..managers.prompt_budget_manager import get_prompt_budget_manager
-from ..models.review_enums import ReviewActionType, ReviewStrategyType, ThreadDecisionType
+from ..models.review_enums import ReviewActionType, ThreadDecisionType
 from ..models.review_models import (
     PRClassification,
     ReferencedCommitContext,
     ReviewActionProposal,
+    ReviewBudget,
 )
 from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
+from ..operations.review_strategy_operations import review_budget
 from ..operations.ai_cost_operations import (
     AICallRecord,
     format_cost_summary,
@@ -1453,12 +1455,41 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
         comment_entries=classification.comment_entries,
     )
     _render_pr_classification(ctx, classification)
+
+    # What the PR DESERVES, kept separate from what the review can afford. Reported
+    # here and consumed later: on its own this changes nothing about which files are
+    # reviewed, but it is the first time the count of files nobody will look at is a
+    # number on screen rather than an omission.
+    from ..operations.attention_operations import (
+        resolve_file_attention,
+        summarize_attention_plan,
+    )
+
+    attention_plan = resolve_file_attention(manifest.files, review_profile)
+    logger.debug("attention_plan_resolved", **summarize_attention_plan(attention_plan))
+    _render_attention_plan(ctx, attention_plan)
+
+    # One budget for every review, from Titan's constants. It used to be a step that
+    # derived five different budgets from the size label; nothing derives it now, so it
+    # is published here with the rest of the deterministic groundwork.
+    budget = review_budget()
+    ctx.data["review_budget"] = budget
+    logger.debug(
+        "review_budget_resolved",
+        max_deep_sessions=budget.max_deep_sessions,
+        deep_max_prompt_chars=budget.deep_max_prompt_chars,
+        scan_max_prompt_chars=budget.scan_max_prompt_chars,
+        scan_max_files_per_batch=budget.scan_max_files_per_batch,
+    )
+
     ctx.textual.end_step("success")
     return Success(
         "PR classified",
         metadata={
             "pr_classification": classification,
             "review_profile": review_profile,
+            "attention_plan": attention_plan,
+            "review_budget": budget,
         },
     )
 
@@ -1615,71 +1646,6 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 
-def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Choose review strategy based on deterministic PR classification.
-
-    Requires:
-        ctx.textual: Textual UI context.
-
-    Inputs (from ctx.data):
-        pr_classification (PRClassification): Deterministic PR classification.
-
-    Outputs (saved to ctx.data):
-        review_strategy (ReviewStrategy): Execution strategy for planning and findings.
-
-    Returns:
-        Success: When a review strategy is selected successfully.
-        Error: When required context is missing or the step cannot run.
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Select Review Strategy")
-
-    classification = ctx.get("pr_classification")
-    if not classification:
-        ctx.textual.error_text("No pr_classification in context")
-        ctx.textual.end_step("error")
-        return Error("No pr_classification in context")
-
-    from ..operations.review_strategy_operations import (
-        select_review_strategy as select_review_strategy_operation,
-    )
-
-    strategy = select_review_strategy_operation(classification)
-
-    logger.info(
-        "review_strategy_selected",
-        strategy=strategy.strategy,
-        size_class=strategy.size_class,
-        max_focus_files=strategy.max_focus_files,
-        max_prompt_chars=strategy.max_prompt_chars,
-        max_comment_entries=strategy.max_comment_entries,
-    )
-    # Speak outcome, not mechanics: strategy enum names and prompt budgets in chars
-    # mean nothing to the reviewer — what matters is how the review will proceed and
-    # how many files it will focus on. Mechanics stay in the debug log above.
-    strategy_labels = {
-        "direct_findings": "direct review in one pass",
-        "light_plan": "lightweight plan, then focused review",
-        "batched_findings": "planned review in batches",
-    }
-    approach = strategy_labels.get(strategy.strategy.value, strategy.strategy.value)
-    ctx.textual.success_text(
-        f"✓ Review approach: {approach} · up to {strategy.max_focus_files} focus file(s)"
-    )
-    if strategy.reason:
-        ctx.textual.dim_text(strategy.reason)
-    ctx.textual.end_step("success")
-    return Success("Review strategy selected", metadata={"review_strategy": strategy})
-
-
-# ============================================================================
-# PHASE 3: DIRECTED AI ANALYSIS (first AI call)
-# ============================================================================
-
-
 @declare_ai_usage(
     task=AITask.CODE_REVIEW_PLAN,
     executes=[AIProviderType.CLI_HEADLESS],
@@ -1720,14 +1686,14 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     checklist = ctx.get("review_checklist", [])
     candidates = ctx.get("review_candidates", [])
     excluded_files = ctx.get("excluded_review_files", [])
-    strategy = ctx.get("review_strategy")
+    budget = _get_review_budget(ctx)
     review_profile = _get_review_profile(ctx)
     project_root = ctx.data.get("project_root")
 
-    if not manifest or not strategy:
-        ctx.textual.error_text("Missing change_manifest or review_strategy in context")
+    if not manifest:
+        ctx.textual.error_text("Missing change_manifest in context")
         ctx.textual.end_step("error")
-        return Error("Missing change_manifest or review_strategy in context")
+        return Error("Missing change_manifest in context")
 
     from ..operations.plan_prompt_operations import (
         build_review_plan_prompt,
@@ -1736,12 +1702,17 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     from ..models.review_models import ReviewPlan
     from pydantic import ValidationError
 
-    if strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS:
+    # There is nothing for the AI to choose when every candidate already fits the deep
+    # budget, so paying a planning call to pick "all of them" is waste. This replaces the
+    # old DIRECT_FINDINGS size class, which asked the same question badly: it inferred
+    # "small enough to skip planning" from a line count instead of from whether a choice
+    # actually has to be made.
+    if len(candidates) <= budget.max_deep_sessions:
         fallback = build_default_review_plan(
             candidates,
             excluded_files,
             checklist,
-            strategy,
+            budget,
             review_profile=review_profile,
         )
         ctx.data["review_plan"] = fallback
@@ -1763,7 +1734,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
             candidates,
             excluded_files,
             checklist,
-            strategy,
+            budget,
             review_profile=review_profile,
         )
         ctx.data["review_plan"] = fallback
@@ -1786,7 +1757,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         comments_context,
         checklist,
         candidates,
-        strategy,
+        budget,
         excluded_files,
         review_profile,
     )
@@ -1800,7 +1771,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         comment_entries=len(comments_context),
         checklist_items=len(checklist),
         candidate_files=len(candidates),
-        strategy=str(strategy.strategy),
+        
     )
     with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
         response = run_interruptible(
@@ -1816,7 +1787,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         comment_entries=len(comments_context),
         checklist_items=len(checklist),
         candidate_files=len(candidates),
-        strategy=str(strategy.strategy),
+        
     )
 
     if not response.succeeded:
@@ -1832,7 +1803,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
             candidates,
             excluded_files,
             checklist,
-            strategy,
+            budget,
             review_profile=review_profile,
         )
         ctx.data["review_plan"] = fallback
@@ -1862,7 +1833,7 @@ def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
             candidates,
             excluded_files,
             checklist,
-            strategy,
+            budget,
             review_profile=review_profile,
         )
         ctx.data["review_plan"] = fallback
@@ -1942,12 +1913,12 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
 
         candidates = ctx.get("review_candidates", [])
         excluded_files = ctx.get("excluded_review_files", [])
-        strategy = ctx.get("review_strategy")
+        budget = _get_review_budget(ctx)
         corrected = build_default_review_plan(
             candidates,
             excluded_files,
             checklist,
-            strategy,
+            budget,
             review_profile=review_profile,
         )
         ctx.data["validated_review_plan"] = corrected
@@ -1961,6 +1932,16 @@ def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     _show_review_plan_validation_summary(ctx, plan)
     ctx.textual.end_step("success")
     return Success("Review plan validated", metadata={"validated_review_plan": plan})
+
+
+def _get_review_budget(ctx: WorkflowContext) -> ReviewBudget:
+    """The budget for this review, or Titan's constants when the step runs standalone.
+
+    Falling back rather than failing: the budget carries no decision a user made, so a
+    step invoked outside the full workflow should run with the shipped numbers instead
+    of erroring on missing context.
+    """
+    return ctx.get("review_budget") or review_budget()
 
 
 def _get_review_profile(ctx: WorkflowContext) -> ReviewProfile:
@@ -2018,6 +1999,29 @@ def _build_review_checklist_preview(ctx: WorkflowContext, checklist: list) -> se
 
     applicable = select_review_axes(checklist, candidates, review_profile)
     return {str(item_id) for item_id in applicable}
+
+
+def _render_attention_plan(ctx: WorkflowContext, plan) -> None:
+    """Show how much attention each part of the PR is worth, and what is skipped.
+
+    The skipped count is the line that matters. A review that looked at 12 of 108 files
+    used to print a green tick and nothing else, so it read as a review of the PR; the
+    denominator here is the reviewable files, not the total, because counting generated
+    output as covered flatters the result.
+    """
+    from ..models.review_enums import AttentionTier
+
+    counts = plan.counts
+    ctx.textual.dim_text(
+        f"Attention · {counts[AttentionTier.DEEP.value]} to read in full · "
+        f"{counts[AttentionTier.GLANCE.value]} at a glance · "
+        f"{counts[AttentionTier.SKIP.value]} not reviewed"
+    )
+    skipped = plan.paths_for(AttentionTier.SKIP)
+    if skipped:
+        shown = ", ".join(skipped[:3])
+        more = f" (+{len(skipped) - 3} more)" if len(skipped) > 3 else ""
+        ctx.textual.dim_text(f"  not reviewed: {shown}{more}")
 
 
 def _render_review_config(ctx: WorkflowContext, profile_resolution, checklist_resolution) -> None:
@@ -2161,7 +2165,7 @@ def _render_findings_batch_degraded(ctx: WorkflowContext, batch_id: str) -> None
     ctx.textual.dim_text(f"{batch_id} was too large — file context reduced to fit the AI call")
 
 
-def _retry_timed_out_worktree_batch(ctx: WorkflowContext, batch, run, strategy) -> Optional[tuple]:
+def _retry_timed_out_worktree_batch(ctx: WorkflowContext, batch, run, budget) -> Optional[tuple]:
     """Retry a timed-out worktree_reference batch once in bounded hunks_only mode.
 
     Runs on the step thread (UI access is fine). Returns (fallback_batch, outcome)
@@ -2180,7 +2184,7 @@ def _retry_timed_out_worktree_batch(ctx: WorkflowContext, batch, run, strategy) 
     if not fallback:
         return None
     prompt = build_findings_prompt_parts(fallback)["prompt"]
-    if strategy and len(prompt) > strategy.max_prompt_chars:
+    if budget and len(prompt) > budget.deep_max_prompt_chars:
         return None
 
     ctx.textual.dim_text(
@@ -2310,14 +2314,14 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     diff = ctx.get("review_diff", "")
     comment_context = ctx.get("comment_review_context", [])
     checklist = ctx.get("review_checklist", [])
-    strategy = ctx.get("review_strategy")
+    budget = _get_review_budget(ctx)
     worktree_path = ctx.data.get("worktree_path")
     project_root = worktree_path or ctx.data.get("project_root")
 
-    if not plan or not manifest or not strategy:
-        ctx.textual.error_text("Missing validated_review_plan, change_manifest or review_strategy in context")
+    if not plan or not manifest:
+        ctx.textual.error_text("Missing validated_review_plan or change_manifest in context")
         ctx.textual.end_step("error")
-        return Error("Missing validated_review_plan, change_manifest or review_strategy in context")
+        return Error("Missing validated_review_plan or change_manifest in context")
 
     if not diff:
         ctx.textual.error_text("No diff in context (run fetch_pr_review_bundle first)")
@@ -2347,7 +2351,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
                 manifest=manifest,
                 checklist=checklist,
                 comment_context=comment_context,
-                strategy=strategy,
+                budget=budget,
                 cwd=project_root,
                 diff_manager=diff_manager,
                 allow_file_reads=read_access.allowed,
@@ -2548,6 +2552,23 @@ def _execute_findings_batch(
     enforces=True,
 )
 def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """Run the findings phase, and report its cost even if it is abandoned.
+
+    The wrapper exists for the `finally`. This phase is where a review spends almost
+    everything, and it is also the one a user interrupts when it is taking too long —
+    which is precisely the moment they want to know what it cost. Emitting the summary
+    only on the success path meant an aborted run reported nothing at all.
+
+    `WorkflowAborted` is a `BaseException`, so `finally` is the only construct that
+    still runs on an interrupt without catching it.
+    """
+    try:
+        return _ai_review_findings(ctx)
+    finally:
+        log_review_ai_cost(ctx, scope="findings_phase")
+
+
+def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     """
     Second AI call: find actionable problems in the exact code context.
 
@@ -2583,7 +2604,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("AI Review Findings")
 
     batches = ctx.get("review_context_batches")
-    strategy = ctx.get("review_strategy")
+    budget = _get_review_budget(ctx)
     project_root = ctx.data.get("worktree_path") or ctx.data.get("project_root")
 
     if not batches:
@@ -2671,7 +2692,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         fitted_batches, changed = get_prompt_budget_manager().fit_batch_to_budget(
             batch,
             prompt_parts,
-            strategy.max_prompt_chars,
+            budget.deep_max_prompt_chars,
             allow_file_reads=ctx.data.get("review_file_reads_allowed", True),
         )
         if changed:
@@ -2680,7 +2701,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 original_batch_id=batch.batch_id,
                 produced_batches=[candidate.batch_id for candidate in fitted_batches],
                 prompt_actual_chars=len(prompt),
-                prompt_budget_target_chars=strategy.max_prompt_chars,
+                prompt_budget_target_chars=budget.deep_max_prompt_chars,
             )
             is_actual_split = len(fitted_batches) > 1 or fitted_batches[0].batch_id != batch.batch_id
             if is_actual_split:
@@ -2708,19 +2729,19 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             related_files=len(batch.related_files),
             checklist_items=len(batch.checklist_applicable),
             comment_entries=len(batch.comment_context),
-            strategy=str(strategy.strategy) if strategy else None,
-            prompt_budget_target_chars=strategy.max_prompt_chars,
+            strategy=None,
+            prompt_budget_target_chars=budget.deep_max_prompt_chars,
             prompt_actual_chars=len(prompt),
             prompt_still_too_large=batch.prompt_still_too_large,
             degraded_context=batch.degraded_context,
             **prompt_breakdown,
         )
-        if len(prompt) > strategy.max_prompt_chars:
+        if len(prompt) > budget.deep_max_prompt_chars:
             findings_failed = True
             logger.error(
                 "findings_batch_over_budget",
                 batch_id=batch.batch_id,
-                prompt_budget_target_chars=strategy.max_prompt_chars,
+                prompt_budget_target_chars=budget.deep_max_prompt_chars,
                 prompt_actual_chars=len(prompt),
             )
             skipped_paths = ", ".join(sorted(batch.files_context)) or "unknown files"
@@ -2759,7 +2780,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 disallowed_tools=disallowed_tools,
                 effort=entry_effort,
                 use_structured_output=use_structured_output,
-                strategy_name=str(strategy.strategy) if strategy else None,
+                strategy_name=None,
                 manifest_paths=manifest_paths,
             )
         except Exception as exc:
@@ -2778,10 +2799,21 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 completed = ((entry[0], _run(entry)) for entry in ready)
                 outcomes = list(completed)
             else:
+                import contextvars
                 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+                # Each worker runs inside a copy of this thread's context, so the log's
+                # run id (and anything else bound around the workflow) survives into the
+                # pool. A pool worker otherwise starts with an empty context, which is
+                # what left thousands of batch events unattributable to their run.
+                def _run_in_context(entry, _ctx=None):
+                    return (_ctx or contextvars.copy_context()).run(_run, entry)
+
                 with ThreadPoolExecutor(max_workers=pool_size) as executor:
-                    future_to_batch = {executor.submit(_run, entry): entry[0] for entry in ready}
+                    future_to_batch = {
+                        executor.submit(_run_in_context, entry, contextvars.copy_context()): entry[0]
+                        for entry in ready
+                    }
                     outcomes = [
                         (future_to_batch[future], future.result())
                         for future in as_completed(future_to_batch)
@@ -2797,7 +2829,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 # budget exploring a (usually huge) file and reviewed NOTHING. One
                 # bounded retry with inline hunks trades depth for guaranteed
                 # coverage of the batch's files.
-                retried = _retry_timed_out_worktree_batch(ctx, batch, _run, strategy)
+                retried = _retry_timed_out_worktree_batch(ctx, batch, _run, budget)
                 if retried:
                     batch, outcome = retried
             if outcome["status"] == "success":
@@ -2848,11 +2880,14 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             + (f" — {why}" if why else "")
         )
 
-    if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
-        # Empty review on a PR the strategy flagged as suspicious-if-empty: instead of
-        # only noting that borderline files went unreviewed, run ONE rescue batch over
-        # up to 2 of them (hunks_only, budget-respecting). Rescue findings are the
-        # signal that the main candidate selection was too aggressive.
+    if not aggregated_raw and budget and batches_succeeded:
+        # Batches ran and came back with nothing. That used to be gated on a flag the
+        # size class set - True for everything but the smallest PRs - which meant a tiny
+        # PR's empty result was trusted purely because it was tiny. What makes an empty
+        # result worth a second look is that files WERE read and produced nothing, so
+        # that is the condition now: run ONE rescue batch over up to 2 borderline files
+        # (hunks_only, budget-respecting). Rescue findings are the signal that candidate
+        # selection was too aggressive.
         from ..operations.findings_operations import build_empty_findings_rescue_batch
 
         candidates = ctx.get("review_candidates", [])
@@ -2875,11 +2910,11 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         )
         if rescue_batch:
             rescue_prompt = build_findings_prompt_parts(rescue_batch)["prompt"]
-            if len(rescue_prompt) > strategy.max_prompt_chars:
+            if len(rescue_prompt) > budget.deep_max_prompt_chars:
                 logger.debug(
                     "rescue_batch_over_budget",
                     prompt_actual_chars=len(rescue_prompt),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
+                    prompt_budget_target_chars=budget.deep_max_prompt_chars,
                 )
                 ctx.textual.dim_text(
                     "No findings from main batches; borderline files remain unreviewed (rescue over budget)."
@@ -2895,7 +2930,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     prompt=rescue_prompt,
                     batch_id=rescue_batch.batch_id,
                     files_context=len(rescue_batch.files_context),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
+                    prompt_budget_target_chars=budget.deep_max_prompt_chars,
                     prompt_actual_chars=len(rescue_prompt),
                 )
                 _render_findings_batch_started(ctx, rescue_batch)
@@ -2940,7 +2975,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     # after the rescue block so the rescue's empty-findings gate is unaffected, and
     # best-effort like it: failure never marks the review as failed, and it stays
     # outside the attempted/succeeded counters.
-    if _get_review_profile(ctx).findings_synthesis_enabled and strategy:
+    if _get_review_profile(ctx).findings_synthesis_enabled and budget:
         from ..operations.findings_operations import (
             FINDINGS_SYNTHESIS_EFFORT,
             SYNTHESIS_INSTRUCTIONS,
@@ -2969,13 +3004,13 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             synthesis_prompt = build_findings_prompt_parts(
                 synthesis_batch, instructions_override=SYNTHESIS_INSTRUCTIONS
             )["prompt"]
-            if len(synthesis_prompt) > strategy.max_prompt_chars:
+            if len(synthesis_prompt) > budget.deep_max_prompt_chars:
                 # No split/degrade machinery for this batch: the whole point is seeing
                 # every hunk together, so a partial synthesis is not worth the spend.
                 logger.debug(
                     "synthesis_batch_over_budget",
                     prompt_actual_chars=len(synthesis_prompt),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
+                    prompt_budget_target_chars=budget.deep_max_prompt_chars,
                 )
                 ctx.textual.dim_text("Cross-file synthesis skipped (combined hunks over budget).")
             else:
@@ -2985,7 +3020,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     prompt=synthesis_prompt,
                     batch_id=synthesis_batch.batch_id,
                     files_context=len(synthesis_batch.files_context),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
+                    prompt_budget_target_chars=budget.deep_max_prompt_chars,
                     prompt_actual_chars=len(synthesis_prompt),
                 )
                 _render_findings_batch_started(ctx, synthesis_batch)
@@ -3047,10 +3082,6 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             f"Discarded {findings_out_of_scope} finding(s) about files their batch never saw."
         )
     ctx.data["findings_out_of_scope"] = findings_out_of_scope
-    # Logged here as well as at the end of the review because this phase is where the
-    # money goes, and a reviewer can abandon at the approval gate without the workflow
-    # ever reaching a terminal step.
-    log_review_ai_cost(ctx, scope="findings_phase")
     ctx.textual.end_step("success")
     return Success(
         "AI findings retrieved",
@@ -3254,7 +3285,7 @@ def verify_findings(ctx: WorkflowContext) -> WorkflowResult:
     Requires (from ctx.data):
         deduped_findings (List[Finding])
         review_context_batches (List[FocusContextBatch])
-        review_strategy (ReviewStrategy)
+        review_budget (ReviewBudget)
 
     Outputs (saved to ctx.data):
         deduped_findings (List[Finding]): verified set, refuted findings removed
@@ -3315,7 +3346,7 @@ def verify_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     _announce_review_adapter(ctx, adapter)
 
-    strategy = ctx.get("review_strategy")
+    budget = _get_review_budget(ctx)
     batches = ctx.get("review_context_batches", [])
     project_root = ctx.data.get("worktree_path") or ctx.data.get("project_root")
 
@@ -3323,7 +3354,7 @@ def verify_findings(ctx: WorkflowContext) -> WorkflowResult:
     prompt_parts = build_verification_prompt_parts(to_verify, code_map)
     prompt = prompt_parts["prompt"]
 
-    max_prompt_chars = strategy.max_prompt_chars if strategy else None
+    max_prompt_chars = budget.deep_max_prompt_chars if budget else None
     if max_prompt_chars and len(prompt) > max_prompt_chars:
         # Fail-open on budget too: verification is an optional quality filter, never
         # worth degrading or splitting like the findings pass.

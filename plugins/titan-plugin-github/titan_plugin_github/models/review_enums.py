@@ -82,12 +82,26 @@ class PRSizeClass(StrEnum):
     HUGE = "huge"
 
 
-class ReviewStrategyType(StrEnum):
-    """How the new-findings workflow should analyze the PR."""
+class AttentionTier(StrEnum):
+    """How much attention a changed file is worth.
 
-    DIRECT_FINDINGS = "direct_findings"
-    LIGHT_PLAN = "light_plan"
-    BATCHED_FINDINGS = "batched_findings"
+    The unit of cost differs per tier, which is the point of having them: GLANCE is
+    bounded by prompt characters (the model only sees the diff and cannot read the
+    repo, so the prompt IS the spend), while DEEP is bounded by the number of sessions
+    (the model opens the file itself and explores, so the prompt size is irrelevant
+    next to what it reads).
+
+    SKIP is declared, never silent: a file nobody looked at has to be visible as such,
+    or a review of 11% of a PR reads like a review of the PR.
+
+    There is deliberately no REPRESENTATIVE member yet. Reviewing one file of a
+    repeated group and comparing the rest belongs to the clustering work, and a
+    configurable tier that nothing acts on is worse than no tier at all.
+    """
+
+    DEEP = "deep"
+    GLANCE = "glance"
+    SKIP = "skip"
 
 
 class ExclusionReason(StrEnum):

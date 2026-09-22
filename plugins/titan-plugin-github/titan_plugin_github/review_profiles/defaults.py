@@ -1,6 +1,6 @@
 """Default review profile definitions for GitHub code review."""
 
-from ..models.review_enums import ChecklistCategory
+from ..models.review_enums import AttentionTier, ChecklistCategory
 from ..models.review_profile_models import (
     CandidateExclusions,
     CandidateScoringRule,
@@ -140,6 +140,25 @@ DEFAULT_REVIEW_PROFILE = ReviewProfile(
             "**/*model*",
         ],
     },
+    # Attention per role. Three roles get a full read because that is where a defect
+    # can hide behind code the diff does not show: behaviour, the adapters that talk to
+    # the outside, and the orchestration that decides what runs. The rest are covered by
+    # the cheap tier - seen, not opened - and only generated output and docs are skipped
+    # outright. Nothing here is a guess about importance: it is a guess about whether
+    # the DIFF ALONE is enough to judge the change, which is the question the tiers ask.
+    attention={
+        "business_logic": AttentionTier.DEEP,
+        "integration_or_adapter": AttentionTier.DEEP,
+        "workflow_orchestration": AttentionTier.DEEP,
+        "config_or_contracts": AttentionTier.GLANCE,
+        "entrypoints_or_ui": AttentionTier.GLANCE,
+        "tests": AttentionTier.GLANCE,
+        "other": AttentionTier.GLANCE,
+        "docs_or_generated": AttentionTier.SKIP,
+    },
+    # Empty by default: Titan cannot know which paths a given project treats as a
+    # boundary worth reading whole on a two-line change. A project declares its own.
+    always_deep=[],
     candidate_scoring=[
         CandidateScoringRule(
             name="domain_critical_path",

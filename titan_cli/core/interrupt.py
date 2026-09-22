@@ -22,6 +22,7 @@ usage outside the TUI - `run_interruptible` calls the function inline and
 behaves exactly like not being there.
 """
 
+import contextvars
 import threading
 from typing import Callable, Optional, TypeVar
 
@@ -78,16 +79,25 @@ def run_interruptible(fn: Callable[[], T]) -> T:
     outcome is discarded and the thread cannot block interpreter shutdown.
 
     With no abort check registered, calls `fn` inline.
+
+    The daemon thread runs inside a COPY of the caller's context, so contextvars set
+    around the call still apply inside it. A bare `threading.Thread` starts with an
+    empty context, which silently stripped the log's run id from everything that goes
+    through here — measured 2026-09-22: 3,573 `findings_batch_adapter_call` events and
+    every `ai_call_cost` event had no `run` field, because every AI call in a review is
+    made through this function. Cost that cannot be attributed to a run cannot be
+    compared between runs, which was the entire point of recording it.
     """
     if _abort_check is None:
         return fn()
 
     outcome: dict = {}
     done = threading.Event()
+    caller_context = contextvars.copy_context()
 
     def _target() -> None:
         try:
-            outcome["result"] = fn()
+            outcome["result"] = caller_context.run(fn)
         except BaseException as e:
             outcome["error"] = e
         finally:

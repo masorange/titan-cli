@@ -12,7 +12,6 @@ from ..models.review_enums import (
     FileReadMode,
     FileReviewPriority,
     PRSizeClass,
-    ReviewStrategyType,
 )
 from ..models.review_profile_models import ReviewProfile
 from ..models.review_models import (
@@ -20,9 +19,9 @@ from ..models.review_models import (
     ExcludedFileEntry,
     FileReviewPlan,
     PRClassification,
+    ReviewBudget,
     ReviewChecklistItem,
     ReviewPlan,
-    ReviewStrategy,
     ScoredReviewCandidate,
 )
 from ..review_profiles import DEFAULT_REVIEW_PROFILE
@@ -313,59 +312,41 @@ def summarize_candidate_clusters(
     return summary[:5]
 
 
-def select_review_strategy(classification: PRClassification) -> ReviewStrategy:
-    if classification.size_class == PRSizeClass.TINY:
-        return ReviewStrategy(
-            strategy=ReviewStrategyType.DIRECT_FINDINGS,
-            size_class=classification.size_class,
-            max_focus_files=4,
-            max_prompt_chars=14000,
-            max_comment_entries=8,
-            suspicious_empty_findings=False,
-            reason="small enough for direct findings without planning overhead",
-        )
-    if classification.size_class == PRSizeClass.SMALL:
-        return ReviewStrategy(
-            strategy=ReviewStrategyType.DIRECT_FINDINGS,
-            size_class=classification.size_class,
-            max_focus_files=6,
-            max_prompt_chars=22000,
-            max_comment_entries=10,
-            suspicious_empty_findings=True,
-            reason="limited scope; direct findings remain affordable",
-        )
-    if classification.size_class == PRSizeClass.MEDIUM:
-        return ReviewStrategy(
-            strategy=ReviewStrategyType.LIGHT_PLAN,
-            size_class=classification.size_class,
-            max_focus_files=8,
-            max_prompt_chars=32000,
-            max_comment_entries=10,
-            suspicious_empty_findings=True,
-            reason="moderate PR size benefits from a lightweight focus plan",
-        )
-    if classification.size_class == PRSizeClass.LARGE:
-        return ReviewStrategy(
-            strategy=ReviewStrategyType.BATCHED_FINDINGS,
-            size_class=classification.size_class,
-            max_focus_files=8 if classification.is_repetitive_migration else 10,
-            max_prompt_chars=18000 if classification.is_repetitive_migration else 24000,
-            max_comment_entries=8,
-            suspicious_empty_findings=True,
-            reason=(
-                "repetitive migration pattern; prioritize shared helpers and representative call sites"
-                if classification.is_repetitive_migration
-                else "large PR requires batching to keep findings prompts bounded"
-            ),
-        )
-    return ReviewStrategy(
-        strategy=ReviewStrategyType.BATCHED_FINDINGS,
-        size_class=classification.size_class,
-        max_focus_files=12,
-        max_prompt_chars=18000,
-        max_comment_entries=6,
-        suspicious_empty_findings=True,
-        reason="very large PR requires strict batching and narrow prompt budgets",
+# One budget for every review, in Titan, generic. Not derived from a size label: the
+# five-tier table it replaces gave a 108-file PR and a 500-file PR the same 12 files
+# because HUGE was its last rung.
+#
+# `MAX_DEEP_SESSIONS` is the number that actually pays the bill - each deep read is a
+# full CLI session, and a session has a floor cost measured 2026-09-22 at $0.26 on
+# claude and $0.08 on grok for a one-word answer, before it reads anything. Twelve keeps
+# the spend at the level the old HUGE tier already cost.
+MAX_DEEP_SESSIONS = 12
+
+# What a deep batch may be HANDED. It does not bound what the model then reads from the
+# worktree, which is the real cost - it only stops one prompt from being absurd.
+DEEP_MAX_PROMPT_CHARS = 18000
+
+# The glance tier cannot read the repo, so here the prompt IS the spend and characters
+# are the honest unit. The per-batch file cap is separate because a prompt that fits the
+# char budget can still hold too many files to judge carefully.
+SCAN_MAX_PROMPT_CHARS = 18000
+SCAN_MAX_FILES_PER_BATCH = 12
+
+MAX_COMMENT_ENTRIES = 10
+
+
+def review_budget() -> ReviewBudget:
+    """The budget every review runs under.
+
+    A function rather than a module constant so callers cannot mutate a shared object,
+    and so a future per-project override has one place to land.
+    """
+    return ReviewBudget(
+        max_deep_sessions=MAX_DEEP_SESSIONS,
+        deep_max_prompt_chars=DEEP_MAX_PROMPT_CHARS,
+        scan_max_prompt_chars=SCAN_MAX_PROMPT_CHARS,
+        scan_max_files_per_batch=SCAN_MAX_FILES_PER_BATCH,
+        max_comment_entries=MAX_COMMENT_ENTRIES,
     )
 
 
@@ -373,11 +354,11 @@ def build_deterministic_review_plan(
     candidates: list[ScoredReviewCandidate],
     excluded_files: list[ExcludedFileEntry],
     checklist: list[ReviewChecklistItem],
-    strategy: ReviewStrategy,
+    budget: ReviewBudget,
     review_profile: ReviewProfile | None = None,
 ) -> ReviewPlan:
     review_profile = review_profile or DEFAULT_REVIEW_PROFILE
-    focus_candidates = candidates[: strategy.max_focus_files]
+    focus_candidates = candidates[: budget.max_deep_sessions]
     focus_files = [
         FileReviewPlan(
             path=candidate.path,
@@ -390,7 +371,7 @@ def build_deterministic_review_plan(
 
     review_axes = select_review_axes(checklist, focus_candidates, review_profile)
     trimmed_excluded = list(excluded_files)
-    for candidate in candidates[strategy.max_focus_files :]:
+    for candidate in candidates[budget.max_deep_sessions :]:
         trimmed_excluded.append(
             ExcludedFileEntry(
                 path=candidate.path,

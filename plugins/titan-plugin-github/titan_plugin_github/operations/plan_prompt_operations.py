@@ -8,7 +8,7 @@ from ..models.review_models import (
     ExcludedFileEntry,
     ReviewChecklistItem,
     ReviewPlan,
-    ReviewStrategy,
+    ReviewBudget,
     ScoredReviewCandidate,
 )
 from ..models.review_profile_models import ReviewProfile
@@ -21,14 +21,14 @@ def build_review_plan_prompt(
     comments: list[CommentContextEntry],
     checklist: list[ReviewChecklistItem],
     candidates: list[ScoredReviewCandidate],
-    strategy: ReviewStrategy,
+    budget: ReviewBudget,
     excluded_files: list[ExcludedFileEntry],
     review_profile: ReviewProfile | None = None,
 ) -> str:
     manifest_json = _manifest_to_json(manifest)
     comments_json = comment_context_to_json(comments)
     checklist_json = _checklist_to_json(checklist)
-    candidates_json = _candidates_to_json(candidates[: strategy.max_focus_files + 4])
+    candidates_json = _candidates_to_json(candidates[: budget.max_deep_sessions + 4])
     candidate_clusters_json = _candidate_clusters_to_json(candidates, review_profile)
     excluded_json = _excluded_to_json(excluded_files[:10])
     schema = _review_plan_schema()
@@ -58,7 +58,7 @@ Use the candidate ranking as your starting point. Do not expand the focus unnece
 {checklist_json}
 
 ## Execution Constraints
-- Focus at most {strategy.max_focus_files} files
+- Focus at most {budget.max_deep_sessions} files
 - Prefer expanded_hunks over full_file
 - Request extra context only when truly needed
 - If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
@@ -79,16 +79,22 @@ def build_default_review_plan(
     candidates: list[ScoredReviewCandidate],
     excluded_files: list[ExcludedFileEntry],
     checklist: list[ReviewChecklistItem],
-    strategy: ReviewStrategy,
+    budget: ReviewBudget,
     review_profile: ReviewProfile | None = None,
 ) -> ReviewPlan:
     return build_deterministic_review_plan(
         candidates,
         excluded_files,
         checklist,
-        strategy,
+        budget,
         review_profile=review_profile,
     )
+
+
+# A safety valve, not a policy: at ~160 chars per entry this is ~32k chars, which only a
+# PR of extraordinary size would reach. The planner reads nothing from the repo, so
+# characters are its entire cost and there is no session to pay for.
+MANIFEST_FILES_IN_PLAN_PROMPT = 200
 
 
 def _manifest_to_json(manifest: ChangeManifest) -> str:
@@ -107,7 +113,13 @@ def _manifest_to_json(manifest: ChangeManifest) -> str:
             "files_changed": len(manifest.files),
             "total_additions": manifest.total_additions,
             "total_deletions": manifest.total_deletions,
-            "top_changed_files": [
+            # Every changed file, churn-ordered, not the top 12. The old cut was the
+            # same number as the focus limit, so the planner was asked to choose 12
+            # files out of the only 12 it could see — on a 108-file PR it never learned
+            # the other 96 existed. The cap that remains is a safety valve for an
+            # enormous PR, not a policy: characters are the whole cost of this call
+            # (the planner reads nothing from the repo), so it is generous.
+            "changed_files": [
                 {
                     "path": f.path,
                     "status": f.status,
@@ -120,9 +132,11 @@ def _manifest_to_json(manifest: ChangeManifest) -> str:
                     "is_lockfile": f.is_lockfile,
                     "is_rename_only": f.is_rename_only,
                 }
-                for f in sorted(manifest.files, key=lambda item: item.total_changes, reverse=True)[:12]
+                for f in sorted(manifest.files, key=lambda item: item.total_changes, reverse=True)[
+                    :MANIFEST_FILES_IN_PLAN_PROMPT
+                ]
             ],
-            "remaining_file_count": max(0, len(manifest.files) - 12),
+            "files_not_listed": max(0, len(manifest.files) - MANIFEST_FILES_IN_PLAN_PROMPT),
         },
         indent=2,
     )

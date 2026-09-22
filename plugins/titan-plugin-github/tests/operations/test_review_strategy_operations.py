@@ -1,4 +1,4 @@
-from titan_plugin_github.models.review_enums import ChecklistCategory, ExclusionReason, PRSizeClass, ReviewStrategyType
+from titan_plugin_github.models.review_enums import ChecklistCategory, ExclusionReason, PRSizeClass
 from titan_plugin_github.models.review_models import ReviewChecklistItem
 from titan_plugin_github.models.review_models import ChangeManifest, ChangedFileEntry, PullRequestManifest
 from titan_plugin_github.models.review_profile_models import (
@@ -11,7 +11,7 @@ from titan_plugin_github.operations.review_strategy_operations import (
     build_deterministic_review_plan,
     classify_pr,
     score_review_candidates,
-    select_review_strategy,
+    review_budget,
     summarize_candidate_clusters,
 )
 
@@ -143,21 +143,26 @@ def test_score_review_candidates_excludes_low_value_files():
     assert {item.reason for item in excluded} == {ExclusionReason.DOCS, ExclusionReason.LOCKFILE}
 
 
-def test_deterministic_plan_respects_focus_limit(sample_ui_pr):
+def test_deterministic_plan_respects_the_deep_session_budget(sample_ui_pr):
+    """The focus limit is now one number for every PR.
+
+    It used to come from a five-tier table keyed on a size label, whose last rung meant
+    a 108-file PR and a 500-file PR both got 12 files reviewed.
+    """
     manifest = make_manifest(
         [
             ChangedFileEntry(path=f"src/controller_{idx}.py", status="modified", additions=30, deletions=8)
-            for idx in range(6)
+            for idx in range(20)
         ]
     )
     candidates, excluded = score_review_candidates(manifest)
-    strategy = select_review_strategy(classify_pr(manifest))
+    budget = review_budget()
 
-    plan = build_deterministic_review_plan(candidates, excluded, [], strategy)
+    plan = build_deterministic_review_plan(candidates, excluded, [], budget)
 
-    assert strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS
-    assert len(plan.focus_files) == strategy.max_focus_files
-    assert len(plan.excluded_files) == len(excluded) + max(0, len(candidates) - strategy.max_focus_files)
+    assert len(candidates) > budget.max_deep_sessions
+    assert len(plan.focus_files) == budget.max_deep_sessions
+    assert len(plan.excluded_files) == len(excluded) + len(candidates) - budget.max_deep_sessions
 
 
 def test_summarize_candidate_clusters_detects_repeated_callsites():
@@ -205,7 +210,7 @@ def test_deterministic_plan_can_select_semantic_axes():
         [ChangedFileEntry(path="src/RecordedAnalyticsEvent.kt", status="modified", additions=18, deletions=3)]
     )
     candidates, excluded = score_review_candidates(manifest)
-    strategy = select_review_strategy(classify_pr(manifest))
+    budget = review_budget()
     checklist = [
         ReviewChecklistItem(
             id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
@@ -224,7 +229,7 @@ def test_deterministic_plan_can_select_semantic_axes():
         ),
     ]
 
-    plan = build_deterministic_review_plan(candidates, excluded, checklist, strategy)
+    plan = build_deterministic_review_plan(candidates, excluded, checklist, budget)
 
     assert ChecklistCategory.SEMANTIC_CORRECTNESS in plan.review_axes
 
@@ -353,7 +358,7 @@ def test_deterministic_plan_uses_profile_review_axes():
     candidates, excluded = score_review_candidates(
         make_manifest([ChangedFileEntry(path="src/auth/session.py", status="modified", additions=18, deletions=3)])
     )
-    strategy = select_review_strategy(classify_pr(make_manifest([ChangedFileEntry(path="src/auth/session.py", status="modified", additions=18, deletions=3)])))
+    budget = review_budget()
     checklist = [
         ReviewChecklistItem(
             id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
@@ -384,7 +389,7 @@ def test_deterministic_plan_uses_profile_review_axes():
         },
     )
 
-    plan = build_deterministic_review_plan(candidates, excluded, checklist, strategy, review_profile=profile)
+    plan = build_deterministic_review_plan(candidates, excluded, checklist, budget, review_profile=profile)
 
     assert ChecklistCategory.SECURITY in plan.review_axes
 

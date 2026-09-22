@@ -22,11 +22,10 @@ from .review_enums import (
     PRSizeClass,
     ReviewActionSource,
     ReviewActionType,
-    ReviewStrategyType,
+
     ThreadDecisionType,
     ThreadSeverity,
 )
-
 
 class ChangedFileEntry(BaseModel):
     """Single file changed in the PR with cheap deterministic signals."""
@@ -47,7 +46,6 @@ class ChangedFileEntry(BaseModel):
     def total_changes(self) -> int:
         return self.additions + self.deletions
 
-
 class PullRequestManifest(BaseModel):
     """Basic PR metadata."""
 
@@ -57,7 +55,6 @@ class PullRequestManifest(BaseModel):
     head: str = Field(..., description="Head branch")
     author: str = Field(..., description="PR author login")
     description: str = Field(..., description="PR description/body")
-
 
 class ChangeManifest(BaseModel):
     """Cheap deterministic context extracted from the PR."""
@@ -73,7 +70,6 @@ class ChangeManifest(BaseModel):
             f"(+{self.total_additions}/-{self.total_deletions})"
         )
 
-
 class ReviewChecklistItem(BaseModel):
     """Single review category offered to AI."""
 
@@ -81,7 +77,6 @@ class ReviewChecklistItem(BaseModel):
     name: str = Field(..., description="Display name")
     description: str = Field(..., description="What this checklist item covers")
     relevant_file_patterns: list[str] = Field(default_factory=list)
-
 
 class ExistingCommentIndexEntry(BaseModel):
     """Compact dedupe-oriented view of an existing PR comment."""
@@ -99,7 +94,6 @@ class ExistingCommentIndexEntry(BaseModel):
     reply_count: int = 0
     is_adjudicated: bool = False
 
-
 class CommentThreadSummary(BaseModel):
     """Compressed representation of a review thread for prompt context."""
 
@@ -113,7 +107,6 @@ class CommentThreadSummary(BaseModel):
     main_issue: str = Field(default="", description="Initial issue raised in the thread")
     latest_state: str = Field(default="", description="Latest visible response or status")
     reply_count: int = 0
-
 
 class CommentContextEntry(BaseModel):
     """Prompt-ready comment context, either raw compact comment or summarized thread."""
@@ -131,14 +124,12 @@ class CommentContextEntry(BaseModel):
     reply_count: int = 0
     is_adjudicated: bool = False
 
-
 class ContextRequest(BaseModel):
     """Request for additional supporting context beyond the diff."""
 
     type: ContextRequestType
     for_path: str
     reason: str = ""
-
 
 class FileReviewPlan(BaseModel):
     """Focused plan for one file selected for deeper review."""
@@ -148,14 +139,12 @@ class FileReviewPlan(BaseModel):
     read_mode: FileReadMode
     reasons: list[str] = Field(default_factory=list)
 
-
 class ExcludedFileEntry(BaseModel):
     """File excluded or trimmed from review focus."""
 
     path: str
     reason: ExclusionReason
     detail: str = ""
-
 
 class ReviewPlan(BaseModel):
     """Structured output from planning: what to review, not every changed file."""
@@ -164,7 +153,6 @@ class ReviewPlan(BaseModel):
     review_axes: list[ChecklistCategory] = Field(default_factory=list)
     extra_context_requests: list[ContextRequest] = Field(default_factory=list)
     excluded_files: list[ExcludedFileEntry] = Field(default_factory=list)
-
 
 class PRClassification(BaseModel):
     """Deterministic classification of PR size and composition."""
@@ -187,7 +175,6 @@ class PRClassification(BaseModel):
     is_repetitive_migration: bool = False
     rationale: str = ""
 
-
 class ScoredReviewCandidate(BaseModel):
     """File candidate ranked before AI planning."""
 
@@ -197,18 +184,28 @@ class ScoredReviewCandidate(BaseModel):
     suggested_read_mode: FileReadMode
     reasons: list[str] = Field(default_factory=list)
 
+class ReviewBudget(BaseModel):
+    """What one review is allowed to spend.
 
-class ReviewStrategy(BaseModel):
-    """Execution strategy for the new-findings workflow."""
+    Replaces the per-size-class strategy table, which set five different budgets from a
+    size label and, because `HUGE` was its last rung, gave a 108-file PR and a 500-file
+    PR the same 12 reviewed files. Size still describes a PR; it no longer decides what
+    gets looked at.
 
-    strategy: ReviewStrategyType
-    size_class: PRSizeClass
-    max_focus_files: int
-    max_prompt_chars: int
+    The two limits are measured in different units on purpose, because the tiers spend
+    differently. A deep read costs an agentic session: the model opens the file and
+    explores, so the prompt it was handed is irrelevant next to what it reads — measured
+    2026-09-21, the call with the run's LONGEST prompt and no repo access was also its
+    cheapest (13,955 chars, 30 s), while 4,312-char calls that read the worktree cost
+    130-200 s. A glance costs only what it is handed, so there characters are the honest
+    unit.
+    """
+
+    max_deep_sessions: int
+    deep_max_prompt_chars: int
+    scan_max_prompt_chars: int
+    scan_max_files_per_batch: int
     max_comment_entries: int
-    suspicious_empty_findings: bool = False
-    reason: str = ""
-
 
 class Finding(BaseModel):
     """Single problem found by AI in targeted code review."""
@@ -223,7 +220,6 @@ class Finding(BaseModel):
     snippet: Optional[str] = None
     suggested_comment: str
 
-
 class ThreadDecision(BaseModel):
     """AI decision on what to do with an existing review thread."""
 
@@ -233,7 +229,6 @@ class ThreadDecision(BaseModel):
     suggested_reply: Optional[str] = None
     category: Optional[str] = None
     severity: ThreadSeverity = ThreadSeverity.NONE
-
 
 class ThreadReviewCandidate(BaseModel):
     """Thread selected for AI analysis in thread-resolution workflow."""
@@ -248,7 +243,6 @@ class ThreadReviewCandidate(BaseModel):
     last_reply_body: Optional[str] = None
     is_outdated: bool = False
 
-
 class ReferencedCommitContext(BaseModel):
     """Remote commit context referenced from a review-thread reply."""
 
@@ -257,7 +251,6 @@ class ReferencedCommitContext(BaseModel):
     message: str = ""
     changed_files: list[str] = Field(default_factory=list)
     patch_excerpt: Optional[str] = None
-
 
 class ThreadReviewContext(BaseModel):
     """Enriched context for AI to decide what to do with a thread."""
@@ -272,7 +265,6 @@ class ThreadReviewContext(BaseModel):
     current_code_hunk: Optional[str] = None
     referenced_commits: list[ReferencedCommitContext] = Field(default_factory=list)
     is_outdated: bool = False
-
 
 class ReviewActionProposal(BaseModel):
     """Unified action ready for user review and GitHub submission."""
@@ -302,7 +294,6 @@ class ReviewActionProposal(BaseModel):
     read_mode: Optional[str] = None
     related_existing_comment_ids: list[int] = Field(default_factory=list)
 
-
 class FileContextEntry(BaseModel):
     """Extracted context for one focused file."""
 
@@ -315,7 +306,6 @@ class FileContextEntry(BaseModel):
     review_hint: str = ""
     changed_hunk_headers: list[str] = Field(default_factory=list)
     approximate_chars: int = 0
-
 
 class FocusContextBatch(BaseModel):
     """Single bounded batch of review context for one findings prompt."""
@@ -332,12 +322,10 @@ class FocusContextBatch(BaseModel):
     prompt_still_too_large: bool = False
     degraded_context: bool = False
 
-
 class ReviewContextPackage(BaseModel):
     """Collection of one or more bounded context batches for findings analysis."""
 
     batches: list[FocusContextBatch] = Field(default_factory=list)
-
 
 __all__ = [
     "ChangedFileEntry",
@@ -353,7 +341,7 @@ __all__ = [
     "ReviewPlan",
     "PRClassification",
     "ScoredReviewCandidate",
-    "ReviewStrategy",
+    "ReviewBudget",
     "Finding",
     "ThreadDecision",
     "ThreadReviewCandidate",
