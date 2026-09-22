@@ -2343,6 +2343,45 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
 # ============================================================================
 
 
+def _scoped_batch_outcome(batch, raw: list, manifest_paths: Optional[set]) -> dict:
+    """Drop findings about files this batch never showed the model.
+
+    The anchoring layer can resolve a line in ANY file of the PR, so a finding whose
+    path the batch did not send still anchors and publishes — on a file the model never
+    read. With one or two files per batch a wrong path is unlikely; a packed batch of
+    ten or fifteen makes misattribution an ordinary mistake, which is why this runs
+    before the findings leave the worker.
+
+    Deliberately NOT a downgrade-and-keep: an unverifiable claim with its line stripped
+    still reads as a review finding, and the reviewer cannot tell it apart from one the
+    model actually looked at. Every drop is logged with its reason so the rate is
+    measurable, and if it ever turns out to cost real signal the log is the evidence.
+    """
+    from ..operations.findings_operations import (
+        batch_scope_paths,
+        partition_findings_by_batch_scope,
+    )
+
+    kept, rejected = partition_findings_by_batch_scope(
+        raw, batch_scope_paths(batch), manifest_paths or set()
+    )
+    if rejected:
+        logger.warning(
+            "findings_outside_batch_scope",
+            batch_id=batch.batch_id,
+            batch_paths=sorted(batch.files_context),
+            dropped=len(rejected),
+            kept=len(kept),
+            rejected=rejected,
+        )
+    return {
+        "status": "success",
+        "raw": kept,
+        "detail": "",
+        "out_of_scope": len(rejected),
+    }
+
+
 def _execute_findings_batch(
     adapter,
     batch,
@@ -2354,12 +2393,17 @@ def _execute_findings_batch(
     effort: Optional[str],
     use_structured_output: bool,
     strategy_name: Optional[str],
+    manifest_paths: Optional[set] = None,
 ) -> dict:
-    """Run one findings batch end-to-end: CLI call, parse, reformat retry.
+    """Run one findings batch end-to-end: CLI call, parse, reformat retry, scope check.
 
     Runs inside a worker thread when batches execute concurrently, so it must not
     touch `ctx`/the UI — it returns an outcome dict the step thread renders:
-    {"status": "success" | "failed", "raw": list | None, "detail": str}.
+    {"status": "success" | "failed", "raw": list | None, "detail": str}, plus
+    "out_of_scope" for findings the batch was not entitled to make.
+
+    `manifest_paths` is every path in the PR, used only to tell a hallucinated path
+    apart from a real file this batch was simply not shown.
     """
     from ..operations.findings_operations import parse_findings_response
 
@@ -2427,7 +2471,7 @@ def _execute_findings_batch(
 
     match parse_findings_response(response.stdout, structured=use_structured_output):
         case ClientSuccess(data=raw) if isinstance(raw, list):
-            return {"status": "success", "raw": raw, "detail": ""}
+            return _scoped_batch_outcome(batch, raw, manifest_paths)
         case ClientSuccess(data=raw):
             # A structured success whose payload isn't a findings list (e.g. a dict)
             # must not vanish silently — treat it like any other parse failure.
@@ -2445,7 +2489,7 @@ def _execute_findings_batch(
                 batch_id=batch.batch_id,
                 findings_count=len(raw),
             )
-            return {"status": "success", "raw": raw, "detail": ""}
+            return _scoped_batch_outcome(batch, raw, manifest_paths)
         case _:
             logger.debug("findings_batch_reformat_failed", batch_id=batch.batch_id)
             return {"status": "failed", "raw": None, "detail": "parse error"}
@@ -2560,6 +2604,12 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     # Paths whose batch actually produced output — a failed/skipped batch's files were
     # NOT reviewed, and downstream passes (synthesis) must not claim they were.
     reviewed_paths: set[str] = set()
+    # Every path in the PR, so a batch can tell a hallucinated path apart from a real
+    # file it simply was not shown. An empty set (no manifest) makes every unknown path
+    # read as hallucinated, which is the safe direction: both outcomes drop the finding.
+    change_manifest = ctx.get("change_manifest")
+    manifest_paths = {f.path for f in change_manifest.files} if change_manifest else set()
+    findings_out_of_scope = 0
     batch_queue = list(batches)
     ctx.textual.dim_text(f"Reviewing {len(batch_queue)} batch(es) with {cli_display}")
 
@@ -2663,6 +2713,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 effort=entry_effort,
                 use_structured_output=use_structured_output,
                 strategy_name=str(strategy.strategy) if strategy else None,
+                manifest_paths=manifest_paths,
             )
         except Exception as exc:
             logger.error("findings_batch_crashed", batch_id=entry_batch.batch_id, error=str(exc))
@@ -2705,6 +2756,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             if outcome["status"] == "success":
                 batches_succeeded += 1
                 reviewed_paths.update(batch.files_context)
+                findings_out_of_scope += outcome.get("out_of_scope", 0)
                 aggregated_raw.extend(outcome["raw"])
                 _render_findings_batch_result(
                     ctx,
@@ -2804,6 +2856,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     rescue_outcome = _run((rescue_batch, rescue_prompt, None))
                 if rescue_outcome["status"] == "success":
                     reviewed_paths.update(rescue_batch.files_context)
+                    findings_out_of_scope += rescue_outcome.get("out_of_scope", 0)
                     aggregated_raw.extend(rescue_outcome["raw"])
                     _render_findings_batch_result(
                         ctx,
@@ -2897,6 +2950,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 ):
                     synthesis_outcome = _run((synthesis_batch, synthesis_prompt, synthesis_effort))
                 if synthesis_outcome["status"] == "success":
+                    findings_out_of_scope += synthesis_outcome.get("out_of_scope", 0)
                     unique_findings = dedupe_synthesis_findings(
                         synthesis_outcome["raw"], aggregated_raw
                     )
@@ -2938,6 +2992,14 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.success_text(f"✓ AI returned {len(ctx.data['raw_findings'])} raw finding(s)")
     if findings_failed:
         ctx.textual.warning_text("Some findings batches failed or were skipped due to budget limits.")
+    if findings_out_of_scope:
+        # Shown, not just logged: a model naming files it was never given is a signal
+        # about the prompt, and it is the first thing to look at if packed batches ever
+        # start losing real findings.
+        ctx.textual.dim_text(
+            f"Discarded {findings_out_of_scope} finding(s) about files their batch never saw."
+        )
+    ctx.data["findings_out_of_scope"] = findings_out_of_scope
     # Logged here as well as at the end of the review because this phase is where the
     # money goes, and a reviewer can abandon at the approval gate without the workflow
     # ever reaching a terminal step.

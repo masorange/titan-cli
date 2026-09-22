@@ -313,6 +313,120 @@ def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[li
             return error
 
 
+def batch_scope_paths(batch: FocusContextBatch) -> set[str]:
+    """Every path this batch actually put in front of the model.
+
+    That is its `files_context` keys plus the `for_path` half of each related-context
+    key (they are stored as "<request type>:<path>"). The related CONTENT itself comes
+    from an unlabelled sibling - `__init__.py`, `protocols.py`, a `base_*` file - whose
+    own path is recorded nowhere, so a finding naming that sibling is the model
+    inferring a path rather than reading one.
+    """
+    paths = set(batch.files_context)
+    for key in batch.related_files:
+        _, _, for_path = key.partition(":")
+        if for_path:
+            paths.add(normalize_finding_path(for_path))
+    return {normalize_finding_path(path) for path in paths}
+
+
+def normalize_finding_path(path: str) -> str:
+    """Canonicalise a path for comparison without being clever about it.
+
+    Only the two differences a model plausibly introduces on its own: Windows
+    separators and a "./" prefix. Case is preserved, because paths are case-sensitive
+    where this runs and folding it would let two real files collide.
+    """
+    normalized = (path or "").strip().replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
+def partition_findings_by_batch_scope(
+    raw_findings: list,
+    batch_paths: set[str],
+    manifest_paths: set[str],
+) -> tuple[list, list[dict]]:
+    """Split a batch's findings into those it was entitled to make, and the rest.
+
+    A findings batch is only shown a few files, but the anchoring layer can resolve a
+    line in ANY file of the PR — so a finding whose path the batch never sent will
+    still anchor and publish, on a file the model did not read. That is the failure
+    this guards: with one or two files per batch a wrong path is unlikely, but a packed
+    batch showing ten or fifteen makes misattribution an ordinary mistake.
+
+    Two reasons to reject, kept apart because they mean different things:
+
+    - `unknown_path`: not in this batch and not anywhere in the PR. Nothing can
+      legitimately anchor it; it is a hallucinated or mangled path.
+    - `outside_batch`: a real file of the PR that this batch was not shown. The
+      dangerous one, precisely because it CAN anchor.
+
+    A path that differs from a batch path only by separator or "./" prefix is accepted
+    and rewritten to the batch's spelling, so a correct finding is never lost to
+    formatting. Findings with no path at all are kept: a general observation is not
+    misattributed to anything, and the publish layer already handles a pathless
+    finding.
+
+    Returns `(kept, rejected)`, where each rejected entry is
+    `{"path", "reason", "title"}` — enough for a log line and a count, without
+    carrying the whole finding into telemetry.
+    """
+    if not raw_findings:
+        return [], []
+
+    canonical = {normalize_finding_path(path): path for path in batch_paths}
+    manifest = {normalize_finding_path(path) for path in manifest_paths}
+
+    kept: list = []
+    rejected: list[dict] = []
+    for finding in raw_findings:
+        path = _finding_path(finding)
+        if not path:
+            kept.append(finding)
+            continue
+
+        normalized = normalize_finding_path(path)
+        if normalized in canonical:
+            kept.append(_with_path(finding, canonical[normalized]))
+            continue
+
+        rejected.append({
+            "path": path,
+            "reason": "outside_batch" if normalized in manifest else "unknown_path",
+            "title": _finding_title(finding),
+        })
+
+    return kept, rejected
+
+
+def _finding_path(finding: Any) -> str:
+    """Read the path off a raw finding, which is a dict before normalization."""
+    if isinstance(finding, dict):
+        value = finding.get("path")
+    else:
+        value = getattr(finding, "path", None)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _finding_title(finding: Any) -> str:
+    if isinstance(finding, dict):
+        value = finding.get("title")
+    else:
+        value = getattr(finding, "title", None)
+    return _short_title(value) if isinstance(value, str) else ""
+
+
+def _with_path(finding: Any, path: str) -> Any:
+    """Return the finding carrying the batch's own spelling of its path."""
+    if isinstance(finding, dict):
+        if finding.get("path") == path:
+            return finding
+        return {**finding, "path": path}
+    return finding
+
+
 def build_default_findings() -> list[Finding]:
     return []
 

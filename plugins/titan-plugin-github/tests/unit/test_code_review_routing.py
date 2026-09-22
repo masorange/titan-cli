@@ -458,3 +458,55 @@ class TestTheWrapperRecordsWhatEachCallCost:
         wrapper, _ = self._wrapped(ctx=None)
 
         assert wrapper.execute("prompt").stdout == "ok"
+
+
+class TestTheBatchOutcomeCarriesItsScopeRejections:
+    """The glue between the scope guard and the step's counters.
+
+    Thin, but it is the contract the step reads: a batch that drops findings has to say
+    so in its outcome, or the count never reaches the reviewer.
+    """
+
+    @staticmethod
+    def _batch(paths):
+        from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
+
+        return FocusContextBatch(
+            batch_id="batch_1",
+            files_context={p: FileContextEntry(path=p) for p in paths},
+        )
+
+    def test_in_scope_findings_survive_with_a_zero_count(self):
+        from titan_plugin_github.steps.code_review_steps import _scoped_batch_outcome
+
+        outcome = _scoped_batch_outcome(
+            self._batch(["a/one.py"]), [{"path": "a/one.py", "title": "Bug"}], {"a/one.py"}
+        )
+
+        assert outcome["status"] == "success"
+        assert len(outcome["raw"]) == 1
+        assert outcome["out_of_scope"] == 0
+
+    def test_a_finding_about_another_file_is_removed_and_counted(self):
+        from titan_plugin_github.steps.code_review_steps import _scoped_batch_outcome
+
+        outcome = _scoped_batch_outcome(
+            self._batch(["a/one.py"]),
+            [{"path": "a/one.py", "title": "Real"}, {"path": "z/other.py", "title": "Wrong"}],
+            {"a/one.py", "z/other.py"},
+        )
+
+        assert [f["path"] for f in outcome["raw"]] == ["a/one.py"]
+        assert outcome["out_of_scope"] == 1
+
+    def test_a_missing_manifest_does_not_crash_the_batch(self):
+        """`manifest_paths` is optional all the way down; without it every unfamiliar
+        path simply reads as hallucinated."""
+        from titan_plugin_github.steps.code_review_steps import _scoped_batch_outcome
+
+        outcome = _scoped_batch_outcome(
+            self._batch(["a/one.py"]), [{"path": "z/other.py", "title": "Wrong"}], None
+        )
+
+        assert outcome["raw"] == []
+        assert outcome["out_of_scope"] == 1
