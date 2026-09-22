@@ -2477,6 +2477,7 @@ def ai_review_scan(ctx: WorkflowContext) -> WorkflowResult:
     ctx.textual.begin_step("Skim The Rest Of The PR")
 
     from ..models.review_enums import AttentionTier
+    from ..operations.findings_operations import FINDINGS_DISALLOWED_TOOLS
     from ..operations.review_strategy_operations import summarize_candidate_clusters
     from ..operations.scan_operations import (
         build_scan_batches,
