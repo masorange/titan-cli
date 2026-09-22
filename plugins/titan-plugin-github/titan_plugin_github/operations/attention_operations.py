@@ -144,3 +144,26 @@ def summarize_attention_plan(plan: AttentionPlan) -> dict:
         "skip_reasons": skip_reasons,
         "always_deep_files": [e.path for e in plan.files if e.reason == "always_deep"],
     }
+
+
+def build_change_shape_lines(
+    plan: AttentionPlan, files: list[ChangedFileEntry], reviewed_paths: set[str]
+) -> list[str]:
+    """One line per changed file: path, role, tier, churn, and who is reading it.
+
+    The whole-PR context the deep session needs to answer the questions a human asks
+    last — does the shape of this change match what the PR says it does, and what is
+    missing. A migration that touched 11 of 12 call sites, a new API with no tests and a
+    config nobody reads are all invisible to a reader that only sees the files it was
+    handed, which is what every batch saw until now. No file CONTENT is included, so this
+    stays a few dozen characters per file however large the PR is.
+    """
+    churn = {entry.path: (entry.additions, entry.deletions) for entry in files}
+    lines: list[str] = []
+    for entry in plan.files:
+        additions, deletions = churn.get(entry.path, (0, 0))
+        read_by = "reviewed here" if entry.path in reviewed_paths else entry.tier.value
+        lines.append(
+            f"{entry.path} | role={entry.role} | {read_by} | +{additions}/-{deletions}"
+        )
+    return lines

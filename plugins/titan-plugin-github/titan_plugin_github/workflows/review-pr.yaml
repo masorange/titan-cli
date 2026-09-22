@@ -37,15 +37,23 @@ steps:
     plugin: github
     step: build_review_checklist
 
-  - id: ai_plan
-    name: "AI Review Plan"
+  # No AI call here. The attention plan already decided which files are deep, and on run
+  # 4fd7f345 the model it replaced spent 92,463 input tokens and 38.8s choosing 7 of
+  # those 9 files, leaving two unreviewed.
+  - id: build_plan
+    name: "Review Plan"
     plugin: github
-    step: ai_review_plan
+    step: build_review_plan
 
-  - id: validate_plan
-    name: "Validate Review Plan"
+  # Call 1 of two. Diffs only, no repo access, its own (cheap) model: a first pass over
+  # every reviewable file the deep session will not open. It publishes nothing — what it
+  # flags travels into the deep prompt for that session to settle. Best-effort: a failed
+  # skim leaves those files where they already were, unlooked-at.
+  - id: ai_scan
+    name: "Skim The Rest Of The PR"
     plugin: github
-    step: validate_review_plan
+    step: ai_review_scan
+    on_error: continue
 
   - id: create_worktree
     name: "Create PR Worktree"

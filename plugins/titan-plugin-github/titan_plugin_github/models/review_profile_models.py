@@ -53,6 +53,25 @@ class ReviewProfile(BaseModel):
         "lockfile and rename-only skips: second-guessing an explicit instruction would "
         "make the hatch useless.",
     )
+    context_docs: list[str] = Field(
+        default_factory=list,
+        description="Paths or globs of project documents the review session should read "
+        "BEFORE judging the code: architecture notes, conventions, an agent harness, "
+        "whatever states the rules this repo is held to. Only the paths travel in the "
+        "prompt -- the session opens them from the working tree itself -- and only paths "
+        "that actually exist there are offered, so a stale entry costs nothing. Keep the "
+        "list short and load-bearing: this is the reading a new reviewer would do first, "
+        "not the whole repository. A review with no project context judges the diff "
+        "against general good practice and reports things the project decided on purpose.",
+    )
+    max_context_docs: int = Field(
+        default=8,
+        ge=0,
+        le=25,
+        description="Ceiling on how many context documents are offered to the session. A "
+        "bound, not a target: every document is reading time inside the one deep call, "
+        "and an unbounded list turns 'read the docs' into 'read the repo'.",
+    )
     candidate_scoring: list[CandidateScoringRule] = Field(default_factory=list)
     candidate_exclusions: CandidateExclusions = Field(default_factory=CandidateExclusions)
     review_axes: dict[ChecklistCategory, ReviewAxisRule] = Field(default_factory=dict)

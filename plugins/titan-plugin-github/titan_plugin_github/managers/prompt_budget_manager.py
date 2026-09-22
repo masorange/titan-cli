@@ -12,10 +12,16 @@ from ..models.review_models import FileContextEntry, FocusContextBatch, ReviewBu
 class PromptBudgetManager:
     """Owns prompt-part sizing, batch fit/split decisions, and degradation policy."""
 
-    # A worktree_reference entry is just a short hint in the prompt text, but the CLI still
-    # has to open and analyze the real file from the worktree with its own tools, so its
-    # actual cost is much higher than its prompt-text size suggests.
-    WORKTREE_REFERENCE_ESTIMATED_CHARS = 5000
+    # What a worktree_reference entry actually occupies in the prompt: a path, a hint and
+    # the changed hunk headers.
+    #
+    # It used to be charged 5000 chars to stand in for the CLI's exploration cost, and
+    # that inflation -- not any cost policy -- is half of why one deep file meant one AI
+    # call: two such entries blew the content budget and spilled into separate batches.
+    # Exploration is not paid in prompt characters, so charging it here mixed two units
+    # (the deep tier is bounded by sessions, the glance tier by characters). The prompt's
+    # real size is still enforced, against the actual string, in fit_batch_to_budget.
+    WORKTREE_REFERENCE_PROMPT_CHARS = 400
 
     # What the prompt spends on everything that is not file content: the PR header, the
     # axes, the instructions and the response schema. Measured on a real batch at ~2.9k
@@ -41,7 +47,7 @@ class PromptBudgetManager:
         if entry.hunks:
             return sum(len(hunk) for hunk in entry.hunks)
         if entry.worktree_reference:
-            return self.WORKTREE_REFERENCE_ESTIMATED_CHARS
+            return self.WORKTREE_REFERENCE_PROMPT_CHARS
         return 0
 
     def fit_batch_to_budget(
@@ -112,6 +118,35 @@ class PromptBudgetManager:
         if batch.comment_context:
             return [batch.model_copy(update={"comment_context": [], "degraded_context": True})], True
 
+        hunk_split = self._split_entry_hunks(batch, only_path, only_entry)
+        if hunk_split:
+            return hunk_split, True
+
+        if only_entry.worktree_reference and only_entry.hunks:
+            # Last resort for a file whose diff cannot be divided: a NEW file is one
+            # single hunk, so PR 251's locks.py (+323) and models.py (+301) arrived as one
+            # ~12k-char hunk each and were reported "too large even after reduction" --
+            # skipped outright, which is the worst outcome available. Drop the inline diff
+            # and keep the reference: the session opens the file from the working tree and
+            # the hunk HEADERS still say which regions changed. Anchoring gets weaker for
+            # this one file (no snippet to copy), and a reviewed file with weak anchors
+            # beats an unreviewed one.
+            return [
+                batch.model_copy(
+                    update={
+                        "files_context": {
+                            only_path: only_entry.model_copy(
+                                update={
+                                    "hunks": [],
+                                    "approximate_chars": self.WORKTREE_REFERENCE_PROMPT_CHARS,
+                                }
+                            )
+                        },
+                        "degraded_context": True,
+                    }
+                )
+            ], True
+
         oversized = batch.model_copy(
             update={
                 "prompt_actual_chars": actual_chars,
@@ -120,6 +155,50 @@ class PromptBudgetManager:
             }
         )
         return [oversized], False
+
+    def _split_entry_hunks(
+        self, batch: FocusContextBatch, path: str, entry: FileContextEntry
+    ) -> list[FocusContextBatch]:
+        """Split one file's hunks across two batches, or return [] if that is impossible.
+
+        The last resort before a batch is declared oversized, and the only degradation
+        that helps the shape which actually broke: a single file whose own hunks exceed
+        the budget. Splitting by file does nothing there -- measured on PR #254, one file
+        with 22 hunks built a 149,353-char prompt against an 18,000 budget, and the batch
+        was skipped rather than divided, leaving the PR's main file unreviewed in three
+        consecutive runs.
+
+        Whole-file content cannot be divided this way (the model is being shown the file,
+        not a set of regions), and a single hunk is already indivisible, so both return []
+        and the caller reports oversized as before.
+        """
+        field = "hunks" if entry.hunks else "expanded_hunks" if entry.expanded_hunks else None
+        if entry.full_content or field is None:
+            return []
+
+        hunks = list(getattr(entry, field))
+        if len(hunks) < 2:
+            return []
+
+        midpoint = max(1, len(hunks) // 2)
+        halves = (hunks[:midpoint], hunks[midpoint:])
+        return [
+            batch.model_copy(
+                update={
+                    "batch_id": f"{batch.batch_id}{suffix}",
+                    "files_context": {
+                        path: entry.model_copy(
+                            update={
+                                field: half,
+                                "approximate_chars": sum(len(hunk) for hunk in half),
+                            }
+                        )
+                    },
+                    "degraded_context": True,
+                }
+            )
+            for suffix, half in zip(("a", "b"), halves)
+        ]
 
 
 _default_manager = PromptBudgetManager()

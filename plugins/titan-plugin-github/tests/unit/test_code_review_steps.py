@@ -35,6 +35,9 @@ from titan_plugin_github.steps.code_review_steps import (
 
 
 class _FakeTextual:
+    def __init__(self):
+        self.warnings: list[str] = []
+
     def begin_step(self, _name):
         pass
 
@@ -44,8 +47,8 @@ class _FakeTextual:
     def dim_text(self, _text):
         pass
 
-    def warning_text(self, _text):
-        pass
+    def warning_text(self, text):
+        self.warnings.append(text)
 
     def error_text(self, _text):
         pass
@@ -564,6 +567,9 @@ def test_ai_review_findings_splits_oversized_batch_via_prompt_budget_manager(mon
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -612,6 +618,9 @@ def test_ai_review_findings_parses_markdown_fenced_response(monkeypatch):
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -665,6 +674,9 @@ def test_ai_review_findings_recovers_via_reformat_retry(monkeypatch):
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -694,6 +706,9 @@ def test_ai_review_findings_marks_batch_failed_when_reformat_retry_also_fails(mo
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -736,6 +751,9 @@ def test_ai_review_findings_partial_batch_failure_still_succeeds_with_flag(monke
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -787,6 +805,9 @@ def test_ai_review_findings_returns_error_when_all_batches_fail(monkeypatch):
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -843,6 +864,9 @@ def test_ai_review_findings_non_list_payload_goes_through_reformat_retry(monkeyp
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -873,6 +897,9 @@ def test_ai_review_findings_non_list_payload_marks_failed_when_retry_also_non_li
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -931,6 +958,9 @@ def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -960,6 +990,9 @@ def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeyp
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -992,6 +1025,9 @@ def test_ai_review_findings_restricts_tools_when_supported(monkeypatch):
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -1017,6 +1053,9 @@ def test_ai_review_findings_omits_disallowed_tools_when_unsupported(monkeypatch)
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -1044,6 +1083,9 @@ def test_ai_review_findings_reformat_retry_also_restricts_tools(monkeypatch):
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -1071,11 +1113,14 @@ def _make_worktree_reference_batch(batch_id: str, path: str) -> FocusContextBatc
     )
 
 
-def test_ai_review_findings_caps_effort_for_worktree_reference_batch(monkeypatch):
-    """O-003 fix: a real replay showed removing Bash alone didn't reduce duration — Claude
-    still took ~330s regardless of tool. Capping effort at FINDINGS_WORKTREE_REFERENCE_EFFORT
-    cut that to ~170s in the same replay while still finding a genuine bug an independent CLI
-    also found, so ai_review_findings must request it for worktree_reference batches."""
+def test_ai_review_findings_sets_effort_for_worktree_reference_batch(monkeypatch):
+    """A batch that reads files from the worktree gets an explicit effort, not the CLI's
+    default, and ai_review_findings must pass it through.
+
+    The VALUE moved from medium to high once the deep tier became one session: measured on
+    PR 251, medium found 5 findings in 4 files for $2.1809 and high found 7 in 5 for
+    $2.5215. What the test pins is that the constant reaches the adapter, not which value
+    it holds."""
     from titan_plugin_github.operations.findings_operations import FINDINGS_WORKTREE_REFERENCE_EFFORT
 
     fake_adapter = _FakeStructuredOutputAdapter('{"findings": []}')
@@ -1090,6 +1135,9 @@ def test_ai_review_findings_caps_effort_for_worktree_reference_batch(monkeypatch
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -1115,6 +1163,9 @@ def test_ai_review_findings_omits_effort_when_no_worktree_reference(monkeypatch)
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -1381,6 +1432,9 @@ def _verify_ctx(findings: list, adapter_stdout: str | None = None) -> WorkflowCo
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     # The pass ships disabled by default (it has never refuted a real finding);
     # these tests exercise the step itself, so they opt in explicitly.
@@ -1488,6 +1542,9 @@ def test_verify_findings_fails_open_when_prompt_over_budget(monkeypatch):
         scan_max_prompt_chars=100,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     result = verify_findings(ctx)
 
@@ -1551,6 +1608,9 @@ def _concurrency_ctx(batch_count: int, concurrency: int) -> WorkflowContext:
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["cli_preference"] = "auto"
     ctx.data["project_root"] = "/tmp/project"
@@ -1641,6 +1701,9 @@ def _rescue_ctx(adapter_stdouts: list[str]) -> tuple[WorkflowContext, "_FakeSequ
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["review_candidates"] = [
         ScoredReviewCandidate(
@@ -1665,70 +1728,24 @@ def _rescue_ctx(adapter_stdouts: list[str]) -> tuple[WorkflowContext, "_FakeSequ
     return ctx, fake_adapter
 
 
-def test_ai_review_findings_runs_rescue_batch_on_suspicious_empty(monkeypatch):
-    """review-quality-007: zero findings + suspicious_empty_findings must trigger ONE
-    extra rescue batch over borderline unreviewed files — not just a dim line."""
-    ctx, fake_adapter = _rescue_ctx(
-        [
-            "[]",  # batch_1: clean review, no findings
-            '[{"title": "Rescued bug", "path": "border.py"}]',  # rescue batch
-        ]
-    )
+def test_ai_review_findings_reports_nothing_when_there_is_nothing(monkeypatch):
+    """A review with nothing to say says nothing, and makes no further calls.
+
+    This replaces two tests for the empty-findings rescue, which reviewed extra
+    "borderline" files whenever the batches came back empty. That was pressure to produce
+    a finding, and the condition it compensated for is gone: it existed because only 12
+    files of any PR were ever looked at, so an empty result really could mean the wrong 12
+    had been chosen.
+    """
+    ctx, fake_adapter = _rescue_ctx(["[]"])
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
     result = ai_review_findings(ctx)
 
     assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 2
-    assert "border.py" in fake_adapter.calls[1]["prompt"]
-    assert ctx.data["raw_findings"] == [{"title": "Rescued bug", "path": "border.py"}]
-    assert ctx.data["ai_findings_failed"] is False
-
-
-def test_ai_review_findings_rescue_failure_does_not_fail_the_review(monkeypatch):
-    """The rescue pass is best-effort: if it fails, the review stays a clean Success
-    (the main batches DID complete with zero findings)."""
-    ctx, fake_adapter = _rescue_ctx(
-        [
-            "[]",  # batch_1: clean
-            "no json from the rescue call",  # rescue main call
-            "still no json",  # rescue reformat retry
-        ]
-    )
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 1  # the batch, and no rescue after it
     assert ctx.data["raw_findings"] == []
     assert ctx.data["ai_findings_failed"] is False
-
-
-def test_ai_review_findings_no_rescue_when_findings_exist(monkeypatch):
-    ctx, fake_adapter = _rescue_ctx(['[{"title": "Bug"}]'])
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 1
-
-
-def test_ai_review_findings_rescues_on_empty_whatever_the_pr_size(monkeypatch):
-    """The rescue gate no longer depends on how big the PR is.
-
-    It used to hang on `suspicious_empty_findings`, a flag the size class set True for
-    everything but the smallest PRs — so a tiny PR's empty result was trusted purely
-    because it was tiny. What makes an empty result worth a second look is that files
-    WERE read and produced nothing, which is what is checked now.
-    """
-    ctx, fake_adapter = _rescue_ctx(["[]", "[]"])
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 2
 
 
 # ============================================================================
@@ -1776,6 +1793,9 @@ def _synthesis_ctx(
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["review_diff"] = diff if diff is not None else _synthesis_diff()
     ctx.data["cli_preference"] = "auto"
@@ -2027,7 +2047,7 @@ class _FakeExitCodeAdapter:
         return True
 
     def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
-        self.calls.append({"prompt": prompt, "effort": effort})
+        self.calls.append({"prompt": prompt, "effort": effort, "timeout": timeout})
         exit_code, stdout = self._script[len(self.calls) - 1]
         return HeadlessResponse(stdout=stdout, stderr="", exit_code=exit_code)
 
@@ -2049,6 +2069,9 @@ def _timeout_ctx(adapter_script: list[tuple[int, str]], *, worktree_reference: b
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
     ctx.data["review_diff"] = (
         "diff --git a/border.py b/border.py\n"
@@ -2112,6 +2135,90 @@ def test_ai_review_findings_timeout_retry_failure_keeps_batch_failed(monkeypatch
 
     assert isinstance(result, Error)  # still 0/N succeeded
     assert len(fake_adapter.calls) == 2
+
+
+def _multi_hunk_diff(path: str, *, hunks: int, hunk_chars: int) -> str:
+    """A diff for `path` with `hunks` separate hunks, each roughly `hunk_chars` long."""
+    header = (
+        f"diff --git a/{path} b/{path}\n"
+        f"index 111..222 100644\n"
+        f"--- a/{path}\n"
+        f"+++ b/{path}\n"
+    )
+    body = ""
+    for index in range(hunks):
+        start = 1 + index * 40
+        body += f"@@ -{start},2 +{start},3 @@\n context\n+{'x' * hunk_chars}\n context\n"
+    return header + body
+
+
+def test_ai_review_findings_splits_an_oversized_timeout_fallback_instead_of_dropping_it(
+    monkeypatch,
+):
+    """A fallback that does not fit the budget is SPLIT, not abandoned.
+
+    This is the defect measured on PR #254: the fallback prompt for one file came to
+    149,353 chars against an 18,000 budget, the retry returned early keeping the original
+    timeout, and the file went unreviewed in three consecutive runs with no UI line and no
+    log event saying so.
+    """
+    ctx, fake_adapter = _timeout_ctx(
+        [
+            (124, ""),  # batch_1 times out exploring the worktree
+            (0, '[{"title": "First half", "path": "border.py"}]'),
+            (0, '[{"title": "Second half", "path": "border.py"}]'),
+        ]
+    )
+    # Two ~1200-char hunks build a 4,729-char fallback prompt; each half builds 3,520.
+    ctx.data["review_diff"] = _multi_hunk_diff("border.py", hunks=2, hunk_chars=1200)
+    ctx.data["review_budget"] = ctx.data["review_budget"].model_copy(
+        update={"deep_max_prompt_chars": 4000}
+    )
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    assert len(fake_adapter.calls) == 3  # timeout + two split retries, not one drop
+    assert ctx.data["raw_findings"] == [
+        {"title": "First half", "path": "border.py"},
+        {"title": "Second half", "path": "border.py"},
+    ]
+    assert ctx.data["ai_findings_failed"] is False
+
+
+def test_ai_review_findings_says_so_when_a_timed_out_batch_cannot_be_retried(monkeypatch):
+    """No hunks means nothing bounded to retry with — the file is unreviewed, and that
+    is stated rather than left to look like any other failure."""
+    ctx, fake_adapter = _timeout_ctx([(124, "")])
+    ctx.data["review_diff"] = ""  # no hunks for border.py
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Error)  # 0/1 batches produced output
+    assert len(fake_adapter.calls) == 1
+    warnings = " ".join(ctx.textual.warnings)
+    assert "border.py" in warnings
+    assert "NOT reviewed" in warnings
+
+
+def test_ai_review_findings_derives_the_call_timeout_from_the_batch_size(monkeypatch):
+    """The flat 300 s was chosen when a batch held one file; a packed batch measured
+    251 s at medium effort for ten files, so the deadline has to scale with them."""
+    ctx, fake_adapter = _timeout_ctx([(0, "[]")], worktree_reference=False)
+    ctx.data["review_context_batches"] = [
+        _make_findings_batch("batch_1", {"a.py": 100, "b.py": 100, "c.py": 100})
+    ]
+    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    budget = ctx.data["review_budget"]
+    assert fake_adapter.calls[0]["timeout"] == (
+        budget.deep_timeout_base_seconds + 2 * budget.deep_timeout_per_file_seconds
+    )
 
 
 def test_release_review_worktree_cleans_and_clears_context(monkeypatch):

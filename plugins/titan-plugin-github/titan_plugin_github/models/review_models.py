@@ -11,6 +11,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from .review_enums import (
+    AttentionTier,
     ChecklistCategory,
     CommentContextKind,
     ContextRequestType,
@@ -207,6 +208,17 @@ class ReviewBudget(BaseModel):
     scan_max_files_per_batch: int
     max_comment_entries: int
 
+    # How long one deep call may run, derived rather than flat. A deep read is an
+    # agentic session whose duration tracks the number of files it was handed, so a
+    # single number cannot serve both shapes: measured 2026-09-22 on PR 251, ten files
+    # in one session took 251 s at medium effort and 363 s at high, against a flat 300 s
+    # that was chosen when a batch held one file. Kept deliberately generous, because a
+    # timeout is a safety net and not a cost control -- the model's own effort setting
+    # bounds the spend, and a genuinely hung call is interruptible from the TUI.
+    deep_timeout_base_seconds: int
+    deep_timeout_per_file_seconds: int
+    deep_timeout_max_seconds: int
+
 class Finding(BaseModel):
     """Single problem found by AI in targeted code review."""
 
@@ -311,7 +323,28 @@ class FocusContextBatch(BaseModel):
     """Single bounded batch of review context for one findings prompt."""
 
     batch_id: str
+    # Which tier this batch IS. The batch set is derived from the attention plan -- one
+    # deep batch over the files that matter, glance batches over the rest -- rather than
+    # emerging from a character budget, which is what made the tiers decoration and the
+    # call count an accident.
+    tier: AttentionTier = AttentionTier.DEEP
     files_context: dict[str, FileContextEntry] = Field(default_factory=dict)
+    # One line per changed file in the PR — path, role, tier, churn — with no content.
+    # The whole-change context that lets the reviewing session answer what a human asks
+    # last: does this match what the PR says it does, and what is missing. Carried by
+    # overflow slices too -- a slice still needs to know the whole it belongs to, and the
+    # cost is a few dozen characters per file however large the PR is.
+    change_shape: list[str] = Field(default_factory=list)
+    # What the skim (call 1) flagged for this session to settle: {path, note, suspicion}.
+    # Working material, not findings -- the session opens the file and confirms or drops.
+    scan_suspicions: list[dict] = Field(default_factory=list)
+    # Paths of project documents the session should read before judging the code --
+    # paths only, never content, so a whole architecture document costs one line.
+    context_docs: list[str] = Field(default_factory=list)
+    # The PR's stated intent, at more than the one-line cap a per-file batch got. A batch
+    # that is the review (rather than one file of it) has to know what it is checking
+    # against, and the deep tier's cost is the session, not the prompt (D-002).
+    pr_intent: Optional[str] = None
     comment_context: list[CommentContextEntry] = Field(default_factory=list)
     checklist_applicable: list[ReviewChecklistItem] = Field(default_factory=list)
     related_files: dict[str, str] = Field(default_factory=dict)

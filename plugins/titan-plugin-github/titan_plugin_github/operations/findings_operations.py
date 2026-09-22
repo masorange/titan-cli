@@ -28,7 +28,32 @@ def build_findings_prompt_parts(
     pr_context = _pr_context_to_text(batch)
     schema = _finding_schema()
 
-    instructions = instructions_override or """- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
+    # Asked explicitly, and only when the batch holds more than one file, because a
+    # session that CAN see several files together does not necessarily go looking. The
+    # separate synthesis call was invented when no batch ever held two files; its whole
+    # question is these three lines, and its two findings on run 4fd7f345 (mismatched
+    # credential labels, a duplicated redaction policy) were exactly what a session
+    # holding all seven files was in a position to find and did not report.
+    cross_file_instructions = (
+        """- Report contract mismatches ACROSS the files below: a signature, return shape, field, event or error contract changed in one of them while a caller or consumer in another still uses the old one
+- Report a change applied in some of these files but missed in others: a rename, a parameter, a guard, a behaviour
+- Report the same concept named or treated inconsistently between these files
+"""
+        if len(batch.files_context) > 1
+        else ""
+    )
+
+    # Only stated when documents were actually resolved: an instruction to read a list
+    # that is not there invites the model to go looking for one.
+    context_docs_instruction = (
+        """- Consult the Project Context documents for what bears on the files under review, and hold the change to what they say: a convention this project chose deliberately is not a finding, and a violation of one IS. Do not read them end to end
+- Before asserting what happens in a configuration, flavor, environment or call site that is NOT in this diff, open it in the working tree and check. If you cannot check it, say what you verified and what you assumed
+"""
+        if batch.context_docs
+        else ""
+    )
+
+    instructions = instructions_override or f"""{context_docs_instruction}{cross_file_instructions}- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
 - Also report changes that preserve execution but alter the observable meaning of data, events, labels, classifications, or results
 - Also report changes that degrade fidelity of recorded, serialized, converted, or displayed data even if the code still runs
 - Also report changes that remove an important previous guarantee such as success/failure signaling, fallback behavior, or state consistency
@@ -39,16 +64,31 @@ def build_findings_prompt_parts(
 - Prefer describing an observable behavior risk over making an unverified compilation claim
 - Do not report code style preferences, refactor suggestions, architecture preferences, or naming opinions without observable impact
 - Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
-- If the repository exposes project instructions, skills, or review documentation in the current working tree, use them when relevant, but do not depend on them
 - If there are no findings, return []"""
+
+    shape_text = _change_shape_to_text(batch)
+    context_docs_text = _context_docs_to_text(batch)
+    suspicions_text = _scan_suspicions_to_text(batch)
+    # A batch that carries the whole change's shape is THE review, not a slice of one, and
+    # it is told so: the framing decides whether the model reports what it can see in the
+    # files it was handed or judges the change as a whole against what the PR claims.
+    opening = (
+        "Review this pull request.\n\nYou have the files that matter open to you and the "
+        "shape of the whole change. Judge the change, not just the lines: whether it does "
+        "what the PR says, whether it breaks something that worked, and whether anything "
+        "it needed is missing."
+        if shape_text
+        else "This is one bounded review batch. Review only the provided code and report "
+        "actionable problems that are actually present."
+    )
 
     prompt = f"""You are performing a focused pull request code review.
 
-This is one bounded review batch. Review only the provided code and report actionable problems that are actually present.
+{opening}
 
 ## PR Context
 {pr_context}
-
+{context_docs_text}{shape_text}{suspicions_text}
 ## Existing Comments (do not duplicate these)
 {comments_json}
 
@@ -67,6 +107,9 @@ Respond ONLY with a valid JSON array matching this schema. Do not include any pr
 
     return {
         "pr_context": pr_context,
+        "change_shape": shape_text,
+        "context_docs": context_docs_text,
+        "scan_suspicions": suspicions_text,
         "comments": comments_json,
         "review_axes": checklist_json,
         "files_context": files_text,
@@ -77,6 +120,50 @@ Respond ONLY with a valid JSON array matching this schema. Do not include any pr
     }
 
 
+def _scan_suspicions_to_text(batch: FocusContextBatch) -> str:
+    """What the skim flagged, and what this session is asked to do about it."""
+    if not batch.scan_suspicions:
+        return ""
+    lines = "\n".join(
+        f"- {item.get('path')}: {item.get('suspicion')}" for item in batch.scan_suspicions
+    )
+    return (
+        "\n## Flagged by the first pass (settle these; they are NOT findings yet)\n"
+        "A cheap pass over the rest of the PR saw only these files' diffs and raised "
+        "these questions. Open each file in the working tree and either report a finding "
+        "or drop it. A question you cannot settle is not a finding.\n"
+        f"{lines}\n"
+    )
+
+
+def _context_docs_to_text(batch: FocusContextBatch) -> str:
+    """The project's own rules, by path. Empty string when none were resolved."""
+    if not batch.context_docs:
+        return ""
+    lines = "\n".join(f"- {path}" for path in batch.context_docs)
+    return (
+        "\n## Project Context (consult before judging; do NOT read end to end)\n"
+        "These state how this project does things. Where they contradict general good "
+        "practice, they win: a convention the project chose on purpose is not a finding, "
+        "and breaking one IS.\n"
+        "Look up only what bears on the files below — the rules for their area, the "
+        "conventions they follow — and stop there. Reading these in full is not the job "
+        "and spends the review's time on documentation instead of code.\n"
+        f"{lines}\n"
+    )
+
+
+def _change_shape_to_text(batch: FocusContextBatch) -> str:
+    """The whole PR's file list, roles and tiers — no content. Empty string when absent."""
+    if not batch.change_shape:
+        return ""
+    lines = "\n".join(batch.change_shape)
+    return (
+        "\n## The Whole Change (every changed file; only the files below are open to you)\n"
+        f"{lines}\n"
+    )
+
+
 def _pr_context_to_text(batch: FocusContextBatch) -> str:
     if not batch.pr_manifest:
         return f"Batch {batch.batch_id}"
@@ -84,7 +171,7 @@ def _pr_context_to_text(batch: FocusContextBatch) -> str:
     # One-line intent only (cap 200 chars ≈ 50 tokens): this block repeats once per
     # batch, so it must stay minimal (D-002 token mandate). The fuller trimmed
     # description goes to the single-call plan phase instead.
-    intent = extract_pr_intent_line(pr.description)
+    intent = batch.pr_intent or extract_pr_intent_line(pr.description)
     return (
         f"PR #{pr.number}: {_short_title(pr.title)}\n"
         + (f"Intent: {intent}\n" if intent else "")
@@ -118,12 +205,19 @@ def _files_context_to_text(files_context: dict) -> str:
     for path, entry in files_context.items():
         parts.append(f"### {path}")
         if entry.worktree_reference:
-            parts.append("Read from worktree instead of inline context.")
+            parts.append("Open this file in the working tree; the diff below is what changed.")
             if entry.review_hint:
                 parts.append(entry.review_hint)
-            if entry.changed_hunk_headers:
+            if entry.changed_hunk_headers and not entry.hunks:
                 parts.append("Changed regions to inspect first:")
                 parts.extend(f"- {header}" for header in entry.changed_hunk_headers)
+            # The diff stays inline even though the file is on disk: the working tree holds
+            # the post-change file, so "what changed" is not recoverable from it, and the
+            # added lines are what an inline comment anchors to.
+            for hunk in entry.hunks:
+                parts.append("```")
+                parts.append(_annotate_diff_hunk(hunk))
+                parts.append("```")
         elif entry.full_content:
             parts.append("```")
             parts.append(_add_line_numbers(entry.full_content))
@@ -147,7 +241,13 @@ def _related_files_to_text(related_files: dict[str, str]) -> str:
         return ""
     parts = ["\n## Related Context"]
     for label, content in related_files.items():
-        parts.extend([f"\n### {label}", "```", content[:2000], "```"])
+        parts.append(f"\n### {label}")
+        # A one-line pointer is not code; fencing it just adds noise. Whole-file content
+        # (only sent when the working tree cannot be trusted) still gets a fence.
+        if "\n" in content:
+            parts.extend(["```", content[:2000], "```"])
+        else:
+            parts.append(content)
     return "\n".join(parts) + "\n"
 
 
@@ -244,17 +344,21 @@ cross-file lookups (an imported type, a caller, a test) through Claude Code's ow
 tools instead of arbitrary shell recursion.
 """
 
-FINDINGS_WORKTREE_REFERENCE_EFFORT = "medium"
-"""Reasoning-effort tier for findings batches that include a worktree_reference file.
+FINDINGS_WORKTREE_REFERENCE_EFFORT = "high"
+"""Reasoning-effort tier for findings batches that read files from the worktree.
 
-Removing Bash alone (`FINDINGS_DISALLOWED_TOOLS`) didn't reduce O-003's duration/timeout —
-a real replay showed Claude still takes ~15 Read/Grep turns and ~330s regardless of which
-tool is available, while Codex/Gemini cover similar ground in far fewer output tokens and a
-fraction of the time. Capping effort at "medium" (vs. the session default) cut a real replay
-from ~330s/$1.10 to ~170s/$0.78 while still surfacing a genuine bug an independent CLI
-(Gemini) also found — "low" was faster still (~50s/$0.34) but missed that bug, so "medium" is
-the current balance. Provisional pending more real-PR data, same as
-`WORKTREE_REFERENCE_ESTIMATED_CHARS` (O-001).
+It was "medium", and that was the right answer to a different question. Capping effort was
+a per-file cost mitigation: with one session per deep file, a real replay showed medium cut
+one file's review from ~330s/$1.10 to ~170s/$0.78 while still finding a genuine bug ("low"
+was faster still, ~50s/$0.34, and missed it). Multiplied across nine files that saving was
+worth having.
+
+The deep tier is now one session over all of them, which changes the arithmetic: measured
+2026-09-22 over the same ten files of PR 251, medium returned 5 findings in 4 files for
+$2.1809 and high returned 7 in 5 for $2.5215 -- two of them defects medium did not report.
+Thirty-four cents for two real findings is a trade worth making when it is paid once per
+review instead of once per file, and both figures are a fraction of the $7.4581 that nine
+capped-effort sessions cost on the same PR.
 """
 
 
@@ -429,61 +533,6 @@ def _with_path(finding: Any, path: str) -> Any:
 
 def build_default_findings() -> list[Finding]:
     return []
-
-
-RESCUE_BATCH_ID = "rescue_1"
-RESCUE_MAX_FILES = 2
-
-
-def build_empty_findings_rescue_batch(
-    borderline_paths: list[str],
-    diff: str,
-    checklist: list[ReviewChecklistItem],
-    pr_manifest,
-    diff_manager=None,
-    comment_context=None,
-) -> FocusContextBatch | None:
-    """Build one extra findings batch from borderline candidate files.
-
-    Used when the main batches return zero findings on a PR the strategy flagged as
-    suspicious-if-empty: instead of just noting that borderline files went unreviewed,
-    review up to RESCUE_MAX_FILES of them in hunks_only mode. Returns None when none
-    of the paths have diff hunks.
-
-    `comment_context` carries over from the main batches: the prompt tells the model
-    not to duplicate existing comments, so leaving it empty spends the call on
-    findings that dedupe throws away downstream.
-    """
-    from ..models.review_enums import FileReadMode
-    from ..models.review_models import FileContextEntry
-    from .context_resolution_operations import extract_hunks_only
-
-    files_context: dict[str, FileContextEntry] = {}
-    for path in borderline_paths:
-        if len(files_context) >= RESCUE_MAX_FILES:
-            break
-        hunks = extract_hunks_only(diff, path, diff_manager=diff_manager)
-        # A borderline candidate without hunks (binary, rename-only) shouldn't burn
-        # one of the rescue slots.
-        if not hunks:
-            continue
-        files_context[path] = FileContextEntry(
-            path=path,
-            read_mode=FileReadMode.HUNKS_ONLY,
-            hunks=hunks,
-            approximate_chars=sum(len(hunk) for hunk in hunks),
-        )
-
-    if not files_context:
-        return None
-
-    return FocusContextBatch(
-        batch_id=RESCUE_BATCH_ID,
-        files_context=files_context,
-        checklist_applicable=checklist[:4],
-        comment_context=comment_context or [],
-        pr_manifest=pr_manifest,
-    )
 
 
 SYNTHESIS_BATCH_ID = "synthesis_1"

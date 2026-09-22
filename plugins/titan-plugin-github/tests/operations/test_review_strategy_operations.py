@@ -10,6 +10,7 @@ from titan_plugin_github.models.review_profile_models import (
 from titan_plugin_github.operations.review_strategy_operations import (
     build_deterministic_review_plan,
     classify_pr,
+    deep_call_timeout_seconds,
     score_review_candidates,
     review_budget,
     summarize_candidate_clusters,
@@ -413,3 +414,138 @@ def test_classify_pr_comment_threads_do_not_change_size_class():
     # The activity signal is still captured — just not as size.
     assert noisy.active_review is True
     assert quiet.active_review is False
+
+
+# ============================================================================
+# Deep-call timeout derivation
+# ============================================================================
+
+
+def test_deep_call_timeout_matches_the_old_flat_value_for_one_file():
+    """A single-file call must not come out with a shorter deadline than the flat 300 s
+    it replaces — the base alone reproduces it."""
+    budget = review_budget()
+
+    assert deep_call_timeout_seconds(budget, 1) == 300
+    # Zero files is not a real batch, but it must not produce a negative allowance.
+    assert deep_call_timeout_seconds(budget, 0) == 300
+
+
+def test_deep_call_timeout_grows_with_the_files_it_was_handed():
+    """The measured shape that broke the flat timeout: ten files in one session took
+    251 s at medium effort and 363 s at high, against a 300 s deadline."""
+    budget = review_budget()
+
+    ten_files = deep_call_timeout_seconds(budget, 10)
+
+    assert ten_files > 363
+    assert ten_files == budget.deep_timeout_base_seconds + 9 * budget.deep_timeout_per_file_seconds
+
+
+def test_deep_call_timeout_is_capped():
+    """A hung CLI cannot hold a review open indefinitely, however many files it got."""
+    budget = review_budget()
+
+    assert deep_call_timeout_seconds(budget, 500) == budget.deep_timeout_max_seconds
+
+
+# ============================================================================
+# The deterministic plan: the DEEP tier is the selection
+# ============================================================================
+
+
+def _candidate(path: str, score: int):
+    from titan_plugin_github.models.review_enums import FileReadMode, FileReviewPriority
+    from titan_plugin_github.models.review_models import ScoredReviewCandidate
+
+    return ScoredReviewCandidate(
+        path=path,
+        score=score,
+        priority=FileReviewPriority.HIGH,
+        suggested_read_mode=FileReadMode.EXPANDED_HUNKS,
+    )
+
+
+def _attention(tiers: dict):
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
+
+    return AttentionPlan(
+        files=[
+            FileAttention(path, AttentionTier(tier), "business_logic", f"role:{tier}")
+            for path, tier in tiers.items()
+        ]
+    )
+
+
+def test_the_deep_tier_is_the_selection_not_the_top_scores():
+    """Every deep file is read, and only deep files are.
+
+    This replaced an AI planning call. On run 4fd7f345 that call spent 92,463 input
+    tokens and 38.8 s choosing files, and chose 7 of the 9 the attention plan had already
+    marked deep — spending two of its slots on test files tiered `glance`, so
+    `titan_cli/core/oauth/__init__.py` and `exceptions.py` went unreviewed."""
+    from titan_plugin_github.operations.review_strategy_operations import (
+        build_deterministic_review_plan,
+    )
+
+    candidates = [
+        _candidate("core.py", 9),
+        _candidate("test_core.py", 8),
+        _candidate("tiny.py", 1),
+    ]
+    plan = build_deterministic_review_plan(
+        candidates,
+        [],
+        [],
+        review_budget(),
+        attention_plan=_attention({"core.py": "deep", "test_core.py": "glance", "tiny.py": "deep"}),
+    )
+
+    # tiny.py scores last but is deep, so it is read; test_core.py outscores it and is not.
+    assert [f.path for f in plan.focus_files] == ["core.py", "tiny.py"]
+    excluded = {entry.path: entry.detail for entry in plan.excluded_files}
+    assert "test_core.py" in excluded
+    assert "glance" in excluded["test_core.py"]
+
+
+def test_a_deep_tier_larger_than_the_session_budget_is_capped_and_said_out_loud():
+    """max_deep_sessions stops being a selection rule and becomes the overflow guard it
+    was always described as — and the files it drops are named, not silent."""
+    from titan_plugin_github.models.review_enums import ExclusionReason
+    from titan_plugin_github.operations.review_strategy_operations import (
+        build_deterministic_review_plan,
+    )
+
+    budget = review_budget().model_copy(update={"max_deep_sessions": 2})
+    candidates = [_candidate(f"f{i}.py", 10 - i) for i in range(4)]
+    plan = build_deterministic_review_plan(
+        candidates,
+        [],
+        [],
+        budget,
+        attention_plan=_attention({f"f{i}.py": "deep" for i in range(4)}),
+    )
+
+    assert [f.path for f in plan.focus_files] == ["f0.py", "f1.py"]
+    overflow = [
+        entry
+        for entry in plan.excluded_files
+        if entry.reason == ExclusionReason.BUDGET_TRIMMED and "session limit" in entry.detail
+    ]
+    assert sorted(entry.path for entry in overflow) == ["f2.py", "f3.py"]
+
+
+def test_without_an_attention_plan_the_score_order_cut_still_applies():
+    """A step run standalone has no tiers to go on, so it keeps the old behaviour rather
+    than reviewing nothing."""
+    from titan_plugin_github.operations.review_strategy_operations import (
+        build_deterministic_review_plan,
+    )
+
+    budget = review_budget().model_copy(update={"max_deep_sessions": 2})
+    candidates = [_candidate(f"f{i}.py", 10 - i) for i in range(4)]
+
+    plan = build_deterministic_review_plan(candidates, [], [], budget)
+
+    assert [f.path for f in plan.focus_files] == ["f0.py", "f1.py"]

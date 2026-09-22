@@ -23,7 +23,7 @@ class AITask(StrEnum):
     PR_DESCRIPTION = "pr_description"
     ISSUE_GENERATION = "issue_generation"
     JIRA_ANALYSIS = "jira_analysis"
-    CODE_REVIEW_PLAN = "code_review_plan"
+    CODE_REVIEW_SCAN = "code_review_scan"
     CODE_REVIEW_FINDINGS = "code_review_findings"
     RESPOND_PR_COMMENT = "respond_pr_comment"
     FIX_TEST_FAILURES = "fix_test_failures"

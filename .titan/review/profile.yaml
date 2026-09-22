@@ -262,7 +262,20 @@ review_axes:
       - "README.md"
       - "DEVELOPMENT.md"
 
-# Cross-file synthesis batch (review-quality-004): one extra AI call per review that
-# looks for contract mismatches between the PR's own files. Enabled here to gather
-# real cost data — the built-in default is false.
-findings_synthesis_enabled: true
+# Cross-file synthesis batch: one extra AI call per review that looks for contract
+# mismatches between the PR's own files. Turned OFF on 2026-09-22, and the reason is a
+# measurement rather than a preference.
+#
+# It was invented when every batch held ONE file, so nothing could see two files at once.
+# The deep tier is now a single session over all the deep files, which can. On run
+# 4fd7f345 (PR 251) the synthesis call cost $0.8478 of the review's $1.9694 -- 43% -- and
+# sent a 101,025-char prompt, LARGER than the review's own 77,740, at effort=medium while
+# the review ran at high.
+#
+# Its two findings there (mismatched credential labels, a duplicated redaction policy)
+# were exactly what a session holding all seven files was in a position to find. It did
+# not report them, so its question now lives in the deep prompt's instructions, asked
+# explicitly whenever the batch holds more than one file. Turn this back on if the next
+# run shows the deep session still misses what the separate call caught -- that would say
+# something real about how many questions one call can carry.
+findings_synthesis_enabled: false

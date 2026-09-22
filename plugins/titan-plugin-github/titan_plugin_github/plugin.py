@@ -172,8 +172,8 @@ class GitHubPlugin(TitanPlugin):
             classify_pr,
             score_review_candidates,
             build_review_checklist,
-            ai_review_plan,
-            validate_review_plan,
+            build_review_plan,
+            ai_review_scan,
             resolve_review_context,
             ai_review_findings,
             normalize_findings,
@@ -229,8 +229,8 @@ class GitHubPlugin(TitanPlugin):
             "score_review_candidates": score_review_candidates,
             "build_review_checklist": build_review_checklist,
             # Phase 3: directed AI analysis (first AI call)
-            "ai_review_plan": ai_review_plan,
-            "validate_review_plan": validate_review_plan,
+            "build_review_plan": build_review_plan,
+            "ai_review_scan": ai_review_scan,
             "resolve_review_context": resolve_review_context,
             # Phase 4: targeted review (second AI call)
             "ai_review_findings": ai_review_findings,

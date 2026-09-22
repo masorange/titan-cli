@@ -159,6 +159,23 @@ DEFAULT_REVIEW_PROFILE = ReviewProfile(
     # Empty by default: Titan cannot know which paths a given project treats as a
     # boundary worth reading whole on a two-line change. A project declares its own.
     always_deep=[],
+    # Conventional names only, and every one is checked for existence in the working tree
+    # before it reaches the prompt -- a repo that has none of them sends none, so this is
+    # safe on a project Titan has never seen. These are the files a human reviewer opens
+    # before their first review of an unfamiliar repo: the instructions the project gives
+    # its contributors (and its agents), and the harness that records what the work is
+    # for. A project names its own architecture notes in `.titan/review/profile.yaml`,
+    # because only it knows which document is load-bearing.
+    # Deliberately short: these are consulted, not read end to end, and every extra
+    # document is time the one deep call spends on prose instead of code. An agent
+    # harness is NOT here on purpose -- it records what the work is for, not how this
+    # code must be written -- but a project that wants it can name it, along with its own
+    # architecture notes, in `.titan/review/profile.yaml`.
+    context_docs=[
+        "CLAUDE.md",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+    ],
     candidate_scoring=[
         CandidateScoringRule(
             name="domain_critical_path",

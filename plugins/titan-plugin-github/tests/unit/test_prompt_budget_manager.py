@@ -23,6 +23,9 @@ def make_budget(*, max_prompt_chars: int) -> ReviewBudget:
         scan_max_prompt_chars=max_prompt_chars,
         scan_max_files_per_batch=12,
         max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
     )
 
 
@@ -106,14 +109,19 @@ def test_estimate_entry_chars_sums_hunks():
     assert manager.estimate_entry_chars(entry) == 150
 
 
-def test_estimate_entry_chars_penalizes_worktree_reference_regardless_of_hint_size():
+def test_estimate_entry_chars_charges_worktree_reference_only_for_its_prompt_text():
+    """The estimate stopped standing in for the CLI's exploration cost.
+
+    It was 5,000 chars, which forced two deep files into separate batches and so into
+    separate sessions. Exploration is the session's cost, not the prompt's; the prompt's
+    real size is still checked against the actual string in fit_batch_to_budget."""
     manager = PromptBudgetManager()
     entry = FileContextEntry(
         path="a.py", read_mode=FileReadMode.WORKTREE_REFERENCE, worktree_reference=True, review_hint="short"
     )
 
-    assert manager.estimate_entry_chars(entry) == PromptBudgetManager.WORKTREE_REFERENCE_ESTIMATED_CHARS
-    assert manager.estimate_entry_chars(entry) > 800
+    assert manager.estimate_entry_chars(entry) == PromptBudgetManager.WORKTREE_REFERENCE_PROMPT_CHARS
+    assert manager.estimate_entry_chars(entry) < 1000
 
 
 def test_estimate_entry_chars_returns_zero_for_empty_entry():
@@ -249,3 +257,103 @@ def test_fit_batch_marks_oversized_when_nothing_left_to_trim():
     assert fitted[0].prompt_still_too_large is True
     assert fitted[0].prompt_actual_chars == 5000
     assert fitted[0].degraded_context is True
+
+
+# ---------------------------------------------------------------------------
+# Single-file hunk splitting (last resort before oversized)
+# ---------------------------------------------------------------------------
+
+
+def test_fit_batch_splits_one_files_hunks_when_no_other_degradation_is_left():
+    """The shape that actually broke: one file whose own hunks exceed the budget.
+
+    Splitting by file does nothing there. Measured on PR #254, one file with 22 hunks
+    built a 149,353-char prompt against an 18,000 budget and the batch was skipped
+    rather than divided, so the PR's main file went unreviewed three runs in a row.
+    """
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(
+        path="a.py",
+        read_mode=FileReadMode.HUNKS_ONLY,
+        hunks=[f"hunk-{index}" for index in range(4)],
+        approximate_chars=4000,
+    )
+    batch = make_batch({"a.py": entry})
+
+    fitted, changed = manager.fit_batch_to_budget(
+        batch, {"prompt": "x" * 5000}, budget_chars=1000, allow_file_reads=False
+    )
+
+    assert changed is True
+    assert [candidate.batch_id for candidate in fitted] == ["batch_1a", "batch_1b"]
+    assert fitted[0].files_context["a.py"].hunks == ["hunk-0", "hunk-1"]
+    assert fitted[1].files_context["a.py"].hunks == ["hunk-2", "hunk-3"]
+    # Every hunk survives the split: the point is to review all of them, in more calls.
+    assert all(candidate.degraded_context for candidate in fitted)
+    assert fitted[0].files_context["a.py"].approximate_chars == len("hunk-0") + len("hunk-1")
+
+
+def test_fit_batch_reports_oversized_when_a_single_hunk_exceeds_the_budget():
+    """One hunk is indivisible, so this still reports oversized — but the caller now
+    says so out loud instead of dropping the batch silently."""
+    manager = PromptBudgetManager()
+    batch = make_batch({"a.py": make_entry("a.py", chars=5000)})
+
+    fitted, changed = manager.fit_batch_to_budget(
+        batch, {"prompt": "x" * 5000}, budget_chars=1000, allow_file_reads=False
+    )
+
+    assert changed is False
+    assert fitted[0].prompt_still_too_large is True
+
+
+def test_fit_batch_prefers_worktree_reference_over_splitting_hunks():
+    """Hunk splitting is the LAST resort: when reading the file is allowed, one call
+    that reads it beats two calls that each see half the diff."""
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(
+        path="a.py",
+        read_mode=FileReadMode.HUNKS_ONLY,
+        hunks=[f"hunk-{index}" for index in range(4)],
+        approximate_chars=4000,
+    )
+    batch = make_batch({"a.py": entry})
+
+    fitted, changed = manager.fit_batch_to_budget(
+        batch, {"prompt": "x" * 5000}, budget_chars=1000, allow_file_reads=True
+    )
+
+    assert changed is True
+    assert len(fitted) == 1
+    assert fitted[0].files_context["a.py"].worktree_reference is True
+
+
+def test_fit_batch_drops_the_inline_diff_before_giving_up_on_a_worktree_file():
+    """A NEW file is one single hunk, so there is nothing to split — and skipping it is
+    the worst outcome available.
+
+    Measured on PR 251: locks.py (+323) and models.py (+301) arrived as one ~12k-char hunk
+    each and were reported "too large even after reduction. NOT reviewed". The reference
+    survives without the diff: the session opens the file from the working tree and the
+    hunk headers still say which regions changed."""
+    manager = PromptBudgetManager()
+    entry = FileContextEntry(
+        path="locks.py",
+        read_mode=FileReadMode.WORKTREE_REFERENCE,
+        worktree_reference=True,
+        hunks=["@@ -0,0 +1,323 @@\n" + "+line\n" * 323],
+        changed_hunk_headers=["@@ -0,0 +1,323 @@"],
+        review_hint="Central changed file.",
+    )
+    batch = make_batch({"locks.py": entry})
+
+    fitted, changed = manager.fit_batch_to_budget(
+        batch, {"prompt": "x" * 20000}, budget_chars=1000, allow_file_reads=False
+    )
+
+    assert changed is True
+    assert len(fitted) == 1
+    survivor = fitted[0].files_context["locks.py"]
+    assert survivor.hunks == []
+    assert survivor.worktree_reference is True
+    assert survivor.changed_hunk_headers == ["@@ -0,0 +1,323 @@"]

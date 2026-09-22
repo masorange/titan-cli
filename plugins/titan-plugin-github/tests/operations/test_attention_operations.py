@@ -221,3 +221,58 @@ class TestShippedDefaults:
 
     def test_always_deep_ships_empty_because_titan_cannot_know_a_projects_boundaries(self):
         assert DEFAULT_REVIEW_PROFILE.always_deep == []
+
+
+# ============================================================================
+# build_change_shape_lines — the whole-change context for the deep session
+# ============================================================================
+
+
+def test_change_shape_lines_cover_every_file_and_mark_who_reads_it():
+    """The deep session's answer to "what is missing" comes from here: every changed
+    file, its role and its tier, with no content at any PR size."""
+    from titan_plugin_github.models.review_enums import FileChangeStatus
+    from titan_plugin_github.models.review_models import ChangedFileEntry
+    from titan_plugin_github.operations.attention_operations import (
+        AttentionPlan,
+        FileAttention,
+        build_change_shape_lines,
+    )
+
+    plan = AttentionPlan(
+        files=[
+            FileAttention("core.py", AttentionTier.DEEP, "business_logic", "role:business_logic"),
+            FileAttention("ui.py", AttentionTier.GLANCE, "entrypoints_or_ui", "role:entrypoints_or_ui"),
+            FileAttention("out.lock", AttentionTier.SKIP, "config_or_contracts", "lockfile"),
+        ]
+    )
+    files = [
+        ChangedFileEntry(path="core.py", status=FileChangeStatus.MODIFIED, additions=40, deletions=3),
+        ChangedFileEntry(path="ui.py", status=FileChangeStatus.MODIFIED, additions=5, deletions=1),
+        ChangedFileEntry(path="out.lock", status=FileChangeStatus.MODIFIED, additions=900, deletions=900),
+    ]
+
+    lines = build_change_shape_lines(plan, files, {"core.py"})
+
+    assert len(lines) == 3
+    assert lines[0] == "core.py | role=business_logic | reviewed here | +40/-3"
+    assert lines[1] == "ui.py | role=entrypoints_or_ui | glance | +5/-1"
+    assert lines[2] == "out.lock | role=config_or_contracts | skip | +900/-900"
+
+
+def test_change_shape_lines_tolerate_a_file_missing_from_the_manifest():
+    """The tier plan and the churn census are built from different sources; a gap
+    between them must not lose the file from the shape."""
+    from titan_plugin_github.operations.attention_operations import (
+        AttentionPlan,
+        FileAttention,
+        build_change_shape_lines,
+    )
+
+    plan = AttentionPlan(
+        files=[FileAttention("core.py", AttentionTier.DEEP, "business_logic", "role:business_logic")]
+    )
+
+    lines = build_change_shape_lines(plan, [], set())
+
+    assert lines == ["core.py | role=business_logic | deep | +0/-0"]

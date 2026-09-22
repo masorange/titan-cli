@@ -46,8 +46,8 @@ For full contract details for every public step, including documented inputs, ou
 | `build_change_manifest` | Code Review | - |
 | `build_existing_comments_index` | Code Review | - |
 | `build_review_checklist` | Code Review | - |
-| `ai_review_plan` | Code Review | - |
-| `validate_review_plan` | Code Review | - |
+| `build_review_plan` | Code Review | - |
+| `ai_review_scan` | Code Review | - |
 | `resolve_review_context` | Code Review | - |
 | `ai_review_findings` | Code Review | - |
 | `normalize_findings` | Code Review | - |
@@ -117,8 +117,8 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `build_change_manifest`: build a structured manifest of changed files and targets
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings
 - `build_review_checklist`: prepare a review checklist from PR context
-- `ai_review_plan`: ask AI to propose the review strategy
-- `validate_review_plan`: verify that the AI review plan is structurally usable
+- `build_review_plan`: decide deterministically which files the deep session reads (no AI call)
+- `ai_review_scan`: skim (diffs only, cheap model) every reviewable file the deep session will not open
 - `resolve_review_context`: expand the exact contexts needed for targeted analysis
 - `ai_review_findings`: run targeted AI analysis and produce candidate findings
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
@@ -1375,66 +1375,87 @@ How to read these contracts:
     | `Error` | - | When required context is missing or the step cannot run. |
 
 
-??? info "`ai_review_plan`"
-    First AI call: decide which files to read and which checklist items apply.
+??? info "`build_review_plan`"
+    Decide what the deep session reads. No AI call: the DEEP attention tier is the
+    selection, in candidate-score order, and `max_deep_sessions` caps it as an overflow
+    guard. Replaces the former `ai_review_plan` and `validate_review_plan` steps — a plan
+    built from the manifest's own candidates is valid by construction, so there is nothing
+    to validate.
 
     **Workflow usage**
 
     ```yaml
     - plugin: github
-      step: ai_review_plan
+      step: build_review_plan
     ```
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `review_plan (ReviewPlan)`
+    **Available to later steps:** `review_plan`, `validated_review_plan`
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_candidates` | list[ScoredReviewCandidate] | Ranked changed files |
+    | `review_checklist` | list[ReviewChecklistItem] | Offered review axes |
+    | `attention_plan` | AttentionPlan | Optional; without it, score order applies |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | review_plan (ReviewPlan) | - | - |
+    | `review_plan` | ReviewPlan | What the deep session reads |
+    | `validated_review_plan` | ReviewPlan | The same plan; kept for downstream steps |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Success` | `review_plan`, `validated_review_plan` | Plan built |
+    | `Error` | - | No review candidates to plan from |
 
 
-??? info "`validate_review_plan`"
-    Validate the AI-generated ReviewPlan against local semantic rules.
+??? info "`ai_review_scan`"
+    Call 1 of the review: skim every reviewable file the deep session will not open.
+    Diffs only, no repo access, on the model assigned to `code_review_scan`. It publishes
+    nothing — its notes and suspicions travel into the deep prompt for that session to
+    settle by opening the file. Best-effort: a failed skim leaves those files where they
+    already were, unlooked-at, and never fails the review.
 
     **Workflow usage**
 
     ```yaml
     - plugin: github
-      step: validate_review_plan
+      step: ai_review_scan
+      on_error: continue
     ```
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `validated_review_plan`
+    **Available to later steps:** `review_scan_notes`, `review_scan_suspicions`
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_diff` | str | The PR diff |
+    | `attention_plan` | AttentionPlan | Which files are glance / deep / skip |
+    | `validated_review_plan` | ReviewPlan | What the deep session reads, so it is not skimmed twice |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `validated_review_plan` | ReviewPlan | Same plan if valid |
+    | `review_scan_notes` | list[dict] | One note per skimmed file |
+    | `review_scan_suspicions` | list[dict] | The subset worth opening |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error (halts workflow on validation failure)` | - | - |
+    | `Success` | `review_scan_notes`, `review_scan_suspicions` | Always, when it can run at all |
+    | `Error` | - | Only when the Textual UI context is missing |
 
 
 ??? info "`resolve_review_context`"
