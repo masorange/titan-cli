@@ -884,9 +884,51 @@ items:
       - "**/permissions/**"
 ```
 
+### Removing a built-in entry
+
+Both files accept a `remove:` block that drops entries from Titan's defaults.
+
+In `profile.yaml` it maps a field to the names to drop:
+
+```yaml
+remove:
+  file_roles:
+    - tests
+  candidate_scoring:
+    - shared_helper
+  review_axes:
+    - code_style
+```
+
+In `checklist.yaml` it is a flat list of category IDs:
+
+```yaml
+remove:
+  - code_style
+  - documentation
+```
+
+A `remove:` target that matches nothing does not fail the review: it is reported on
+screen and logged, because a stale line in a config file should be visible rather than
+fatal.
+
 ### Resolution rules
 
-- Missing `.titan/review/profile.yaml`: built-in review profile is used.
-- Missing `.titan/review/checklist.yaml`: built-in checklist is used.
+- Missing `.titan/review/profile.yaml`: the built-in review profile is used.
+- Missing `.titan/review/checklist.yaml`: the built-in checklist is used.
 - Invalid YAML or invalid category IDs: the workflow fails fast with a clear configuration error.
-- Profile overrides are block replacements, not deep merges.
+- **Your file is merged onto Titan's defaults per named entry.** The unit of merge is the
+  entry, never the pattern list:
+    - A key you define (`file_roles.tests`, `review_axes.security`, a
+      `candidate_scoring` rule with the same `name`, a checklist item with the same
+      `id`) **replaces Titan's entry for that key completely**. Your globs are not
+      appended to Titan's.
+    - A key you do not mention **keeps Titan's value**.
+    - To drop one of Titan's entries, name it under `remove:`.
+- A misspelled field name changes nothing and is reported on screen, rather than being
+  ignored in silence.
+- Checklist categories are a closed set of 12, and all 12 are built-in defaults, so a
+  project can retune or remove a category but cannot add a new one.
+- At the start of every review the workflow prints the **effective** configuration: the
+  source of each file, the resulting counts, and exactly which entries your project
+  replaced, added or removed.

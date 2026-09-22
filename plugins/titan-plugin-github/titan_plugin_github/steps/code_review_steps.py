@@ -1567,24 +1567,28 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("GitHub managers are not available in workflow context.")
 
-    checklist = ctx.github_managers.checklist.get_effective_checklist()
+    # resolve() rather than the plain getters: it reports the SOURCE and what the
+    # project's file changed, which is what makes a merged configuration inspectable
+    # instead of something the user has to trust.
+    checklist_resolution = ctx.github_managers.checklist.resolve()
+    profile_resolution = ctx.github_managers.review_profile.resolve()
+    checklist = checklist_resolution.checklist
+    review_profile = profile_resolution.profile
     applicable_preview_ids = _build_review_checklist_preview(ctx, checklist)
-    review_profile = _get_review_profile(ctx)
     ctx.data["review_checklist"] = checklist
     ctx.data["review_checklist_applicable_preview"] = applicable_preview_ids
     ctx.data["review_profile"] = review_profile
 
+    _render_review_config(ctx, profile_resolution, checklist_resolution)
+
     manifest = ctx.get("change_manifest")
     candidates = ctx.get("review_candidates", [])
-    profile_path = None
-    checklist_path = None
-    if ctx.github_managers:
-        profile_path = ctx.github_managers.review_profile._profile_path()
-        checklist_path = ctx.github_managers.checklist._checklist_path()
+    profile_path = profile_resolution.path
+    checklist_path = checklist_resolution.path
     logger.info(
         "review_config_applied_to_pr",
-        profile_source=("project" if profile_path and profile_path.exists() else "default"),
-        checklist_source=("project" if checklist_path and checklist_path.exists() else "default"),
+        profile_source=profile_resolution.source,
+        checklist_source=checklist_resolution.source,
         manifest_files=len(manifest.files) if manifest else 0,
         candidate_files=len(candidates),
         offered_checklist_count=len(checklist),
@@ -2014,6 +2018,49 @@ def _build_review_checklist_preview(ctx: WorkflowContext, checklist: list) -> se
 
     applicable = select_review_axes(checklist, candidates, review_profile)
     return {str(item_id) for item_id in applicable}
+
+
+def _render_review_config(ctx: WorkflowContext, profile_resolution, checklist_resolution) -> None:
+    """Show the EFFECTIVE review configuration, and what the project changed in it.
+
+    A project file is merged onto Titan's defaults per key, which is only trustworthy
+    if you can see the result: before this, the merge outcome existed solely as a debug
+    log line, and a project file that silently degraded the review looked identical to
+    one that worked. So the counts are shown always, the project's own changes are named
+    when there are any, and a `remove:` target that matched nothing is a visible warning
+    rather than a line in a file that quietly does nothing.
+    """
+    profile = profile_resolution.profile
+    ctx.textual.dim_text(
+        f"Review config · profile: {profile_resolution.source} · "
+        f"checklist: {checklist_resolution.source}"
+    )
+    ctx.textual.dim_text(
+        f"{len(checklist_resolution.checklist)} checklist item(s) · "
+        f"{len(profile.review_axes)} axis rule(s) · "
+        f"{len(profile.candidate_scoring)} scoring rule(s) · "
+        f"{len(profile.file_roles)} file role(s)"
+    )
+
+    for label, resolution in (("profile", profile_resolution), ("checklist", checklist_resolution)):
+        report = resolution.report
+        if not report.is_empty:
+            changes = []
+            if report.replaced:
+                changes.append(f"replaced {', '.join(report.replaced)}")
+            if report.added:
+                changes.append(f"added {', '.join(report.added)}")
+            if report.removed:
+                changes.append(f"removed {', '.join(report.removed)}")
+            ctx.textual.dim_text(f"  {label}: " + " · ".join(changes))
+        for target in report.unknown_removals:
+            ctx.textual.warning_text(
+                f"  {label}: 'remove: {target}' matched nothing — check the spelling"
+            )
+        for key in getattr(report, "ignored_keys", []) or []:
+            ctx.textual.warning_text(
+                f"  {label}: unknown setting '{key}' ignored — check the spelling"
+            )
 
 
 def _render_review_checklist(
