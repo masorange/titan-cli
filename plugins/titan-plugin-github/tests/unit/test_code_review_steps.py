@@ -562,7 +562,7 @@ def test_ai_review_findings_splits_oversized_batch_via_prompt_budget_manager(mon
         _make_findings_batch("batch_1", {"a.py": 3000, "b.py": 3000})
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -613,7 +613,7 @@ def test_ai_review_findings_parses_markdown_fenced_response(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -669,7 +669,7 @@ def test_ai_review_findings_recovers_via_reformat_retry(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -701,7 +701,7 @@ def test_ai_review_findings_marks_batch_failed_when_reformat_retry_also_fails(mo
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -746,7 +746,7 @@ def test_ai_review_findings_partial_batch_failure_still_succeeds_with_flag(monke
         _make_findings_batch("batch_2", {"b.py": 100}),
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -800,7 +800,7 @@ def test_ai_review_findings_returns_error_when_all_batches_fail(monkeypatch):
         _make_findings_batch("batch_2", {"b.py": 100}),
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -859,7 +859,7 @@ def test_ai_review_findings_non_list_payload_goes_through_reformat_retry(monkeyp
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -892,7 +892,7 @@ def test_ai_review_findings_non_list_payload_marks_failed_when_retry_also_non_li
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -953,7 +953,7 @@ def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -971,7 +971,7 @@ def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
     assert ctx.data["raw_findings"] == [{"title": "Bug"}]
     assert ctx.data["ai_findings_failed"] is False
     assert fake_adapter.calls[0]["json_schema"] is not None
-    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings"]
+    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings", "dismissed"]
 
 
 def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeypatch):
@@ -985,7 +985,7 @@ def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeyp
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -1020,7 +1020,7 @@ def test_ai_review_findings_restricts_tools_when_supported(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -1048,7 +1048,7 @@ def test_ai_review_findings_omits_disallowed_tools_when_unsupported(monkeypatch)
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -1078,7 +1078,7 @@ def test_ai_review_findings_reformat_retry_also_restricts_tools(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -1130,7 +1130,7 @@ def test_ai_review_findings_sets_effort_for_worktree_reference_batch(monkeypatch
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_worktree_reference_batch("batch_1", "HomeScreen.kt")]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -1158,7 +1158,7 @@ def test_ai_review_findings_omits_effort_when_no_worktree_reference(monkeypatch)
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -1427,7 +1427,7 @@ def _verify_ctx(findings: list, adapter_stdout: str | None = None) -> WorkflowCo
     ctx.data["deduped_findings"] = findings
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
@@ -1537,7 +1537,7 @@ def test_verify_findings_fails_open_when_prompt_over_budget(monkeypatch):
 
     ctx = _verify_ctx([finding])
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=100,
         scan_max_prompt_chars=100,
         scan_max_files_per_batch=12,
@@ -1603,7 +1603,7 @@ def _concurrency_ctx(batch_count: int, concurrency: int) -> WorkflowContext:
         _make_findings_batch(f"batch_{i}", {f"f{i}.py": 100}) for i in range(batch_count)
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
@@ -1696,7 +1696,7 @@ def _rescue_ctx(adapter_stdouts: list[str]) -> tuple[WorkflowContext, "_FakeSequ
     ctx.data["review_profile"] = ReviewProfile(findings_batch_concurrency=1)
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
@@ -1788,7 +1788,7 @@ def _synthesis_ctx(
         for index, file_chars in enumerate(files)
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
@@ -2047,7 +2047,15 @@ class _FakeExitCodeAdapter:
         return True
 
     def execute(self, prompt: str, cwd=None, timeout=None, json_schema=None, disallowed_tools=None, effort=None) -> HeadlessResponse:
-        self.calls.append({"prompt": prompt, "effort": effort, "timeout": timeout})
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "effort": effort,
+                "timeout": timeout,
+                "disallowed_tools": disallowed_tools,
+                "json_schema": json_schema,
+            }
+        )
         exit_code, stdout = self._script[len(self.calls) - 1]
         return HeadlessResponse(stdout=stdout, stderr="", exit_code=exit_code)
 
@@ -2064,7 +2072,7 @@ def _timeout_ctx(adapter_script: list[tuple[int, str]], *, worktree_reference: b
     else:
         ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"border.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
@@ -2169,10 +2177,13 @@ def test_ai_review_findings_splits_an_oversized_timeout_fallback_instead_of_drop
             (0, '[{"title": "Second half", "path": "border.py"}]'),
         ]
     )
-    # Two ~1200-char hunks build a 4,729-char fallback prompt; each half builds 3,520.
+    # Two ~1200-char hunks build a 5,207-char fallback prompt; each half builds 3,998. The
+    # budget sits between them, so splitting is the only way through. These figures move
+    # whenever the instruction block changes — if this fails after a prompt edit, re-measure
+    # rather than widening the budget until it passes.
     ctx.data["review_diff"] = _multi_hunk_diff("border.py", hunks=2, hunk_chars=1200)
     ctx.data["review_budget"] = ctx.data["review_budget"].model_copy(
-        update={"deep_max_prompt_chars": 4000}
+        update={"deep_max_prompt_chars": 4500}
     )
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
@@ -2313,3 +2324,32 @@ def test_findings_phase_reports_its_cost_on_the_success_path_too(monkeypatch):
 
     assert isinstance(code_review_steps.ai_review_findings(_Ctx()), Success)
     assert scopes == ["findings_phase"]
+
+
+def test_a_failure_reason_carries_the_cli_s_own_words():
+    """A pattern list only recognises the failures it has already seen, and the one it
+    misses is the one worth reading.
+
+    Measured 2026-09-22: claude exited 1 with "You've hit your session limit · resets
+    6:30pm" in stderr, and the reviewer was told "'claude' exited with code 1" while the
+    whole review was discarded."""
+    from titan_cli.external_cli.adapters.base import HeadlessResponse
+
+    session_limit = HeadlessResponse(
+        stdout="", stderr="You've hit your session limit · resets 6:30pm (Europe/Madrid)", exit_code=1
+    )
+    reason = code_review_steps._cli_failure_reason(session_limit, "claude")
+
+    assert "usage quota" in reason  # recognised as quota, so the advice is right
+    assert "resets 6:30pm" in reason  # and the CLI's own words survive
+
+
+def test_a_failure_reason_stays_clean_when_the_cli_only_produced_noise():
+    """Pasting a stack trace into a one-line status is worse than saying nothing."""
+    from titan_cli.external_cli.adapters.base import HeadlessResponse
+
+    noisy = HeadlessResponse(stdout="", stderr="x" * 5000, exit_code=1)
+
+    assert code_review_steps._cli_failure_reason(noisy, "claude") == "'claude' exited with code 1"
+
+

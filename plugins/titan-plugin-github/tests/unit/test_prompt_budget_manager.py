@@ -18,7 +18,7 @@ from titan_plugin_github.models.review_models import FileContextEntry, FocusCont
 
 def make_budget(*, max_prompt_chars: int) -> ReviewBudget:
     return ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=max_prompt_chars,
         scan_max_prompt_chars=max_prompt_chars,
         scan_max_files_per_batch=12,

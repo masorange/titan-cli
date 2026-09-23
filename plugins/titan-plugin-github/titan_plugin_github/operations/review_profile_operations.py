@@ -57,7 +57,14 @@ def select_review_axes(
     focus_candidates: list[ScoredReviewCandidate],
     review_profile: ReviewProfile,
 ) -> list[ChecklistCategory]:
-    """Select applicable review axes from checklist and profile configuration."""
+    """Select applicable review axes from checklist and profile configuration.
+
+    Every axis that applies is returned. There used to be a `[:4]` here, and it was the
+    last survivor of the per-size budget table D-001 deleted: on ragnarok run `70777691`
+    a project offering 12 axes had 4 sent, and which 4 came down to checklist order. What
+    it defended was prompt characters -- 12 axes at the 200-char description cap is ~2.4k
+    against a 120,000-char budget -- so it defended nothing and cost coverage.
+    """
     if not checklist:
         return [
             ChecklistCategory.FUNCTIONAL_CORRECTNESS,
@@ -77,12 +84,26 @@ def select_review_axes(
         if axis_rule:
             patterns.extend(axis_rule.patterns)
 
-        if patterns and any(path_matches_any(path, patterns) for path in candidate_paths):
+        if not patterns:
+            # No restriction anywhere means the axis applies. The checklist is where a
+            # project says what it cares about; `review_axes` is where it says WHEN each
+            # one applies (the model's own words: "rule that determines when a review
+            # axis should apply"). An entry with neither patterns nor a rule has nothing
+            # restricting it.
+            #
+            # It used to be dropped here, silently, and that made Titan's own defaults
+            # incoherent: `performance`, `concurrency`, `code_style` and `documentation`
+            # were offered in the checklist and could never be selected, so 12 axes were
+            # advertised and only 8 could ever be asked about.
+            selected.append(item.id)
+            continue
+
+        if any(path_matches_any(path, patterns) for path in candidate_paths):
             selected.append(item.id)
 
     if not selected:
         selected = [ChecklistCategory.FUNCTIONAL_CORRECTNESS, ChecklistCategory.ERROR_HANDLING]
-    return selected[:4]
+    return selected
 
 
 def path_matches_any(path: str, patterns: list[str]) -> bool:

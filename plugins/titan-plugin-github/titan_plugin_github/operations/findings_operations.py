@@ -43,17 +43,31 @@ def build_findings_prompt_parts(
         else ""
     )
 
+    # The questions the first pass raised are a SECOND task list, kept visibly apart from
+    # the files under review. Merged into this call rather than asked in a separate one
+    # (D-014): a question like "no test covers the magic-link path" is answered far better
+    # by whoever just read the magic-link code than by a call that holds only the path.
+    settle_instructions = (
+        """- Settle each question under "Flagged by the first pass": open that file in the working tree and decide. Confirming costs more than dismissing — report a finding only when you can point at the code that makes the claim true, and put that code in `evidence`
+- "This is fine" is a complete and expected answer: put it in `dismissed` with one sentence on what you checked. A question you cannot check goes there too, with that as the reason
+- Do not review the rest of a flagged file. You were asked about one thing, and that file is not part of this review otherwise
+"""
+        if batch.scan_suspicions
+        else ""
+    )
+
     # Only stated when documents were actually resolved: an instruction to read a list
     # that is not there invites the model to go looking for one.
     context_docs_instruction = (
         """- Consult the Project Context documents for what bears on the files under review, and hold the change to what they say: a convention this project chose deliberately is not a finding, and a violation of one IS. Do not read them end to end
-- Before asserting what happens in a configuration, flavor, environment or call site that is NOT in this diff, open it in the working tree and check. If you cannot check it, say what you verified and what you assumed
 """
         if batch.context_docs
         else ""
     )
 
-    instructions = instructions_override or f"""{context_docs_instruction}{cross_file_instructions}- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
+    instructions = instructions_override or f"""{settle_instructions}{context_docs_instruction}{cross_file_instructions}- Before asserting what happens in a configuration, flavor, environment or call site that is NOT in this diff, open it in the working tree and check. If you cannot check it, say what you verified and what you assumed
+- Before reporting that something is MISSING, unused, untested, unhandled or not overridden anywhere, SEARCH the working tree for it first — Grep and Glob are available to you and are recursive — and put what the search returned in `evidence`. An absence claimed without a search is a guess, and absences are where the serious defects hide: a function with no callers, a code path with no test, a value no flavor overrides
+- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
 - Also report changes that preserve execution but alter the observable meaning of data, events, labels, classifications, or results
 - Also report changes that degrade fidelity of recorded, serialized, converted, or displayed data even if the code still runs
 - Also report changes that remove an important previous guarantee such as success/failure signaling, fallback behavior, or state consistency
@@ -128,10 +142,11 @@ def _scan_suspicions_to_text(batch: FocusContextBatch) -> str:
         f"- {item.get('path')}: {item.get('suspicion')}" for item in batch.scan_suspicions
     )
     return (
-        "\n## Flagged by the first pass (settle these; they are NOT findings yet)\n"
-        "A cheap pass over the rest of the PR saw only these files' diffs and raised "
-        "these questions. Open each file in the working tree and either report a finding "
-        "or drop it. A question you cannot settle is not a finding.\n"
+        "\n## Flagged by the first pass (a SECOND task: settle these, do not review these files)\n"
+        "A cheap pass over the rest of the PR saw only these files' diffs and raised these "
+        "questions. Each names a file that is NOT part of the review above. Open it, decide, "
+        "and either report a finding with the code that proves it or dismiss it saying what "
+        "you checked. A question you cannot settle is not a finding.\n"
         f"{lines}\n"
     )
 
@@ -181,8 +196,12 @@ def _pr_context_to_text(batch: FocusContextBatch) -> str:
 
 
 _CHECKLIST_DESCRIPTION_CAP = 200
-"""Hard cap per checklist description in the findings prompt (D-002 token mandate:
-~590 chars ≈ 150 tokens per batch for 4 real items — measured on ragnarok's checklist)."""
+"""Hard cap per checklist description in the findings prompt.
+
+The cap stays because a description is a prompt line, not an essay, and a project can
+write a paragraph into its checklist. The number of ITEMS is no longer capped: 12 axes at
+this cap is ~2.4k chars against a 120,000-char budget, and cutting them cost a credentials
+PR its `security` axis (run `70777691`)."""
 
 
 def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
@@ -193,7 +212,10 @@ def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
                 "name": item.name,
                 "description": item.description[:_CHECKLIST_DESCRIPTION_CAP],
             }
-            for item in checklist[:4]
+            # No cut here: the plan already decided which axes apply. This was the SAME
+            # `[:4]` as `select_review_axes`, applied a second time in the renderer, so
+            # even a plan that selected 8 axes could only ever ask about 4.
+            for item in checklist
         ],
         indent=2,
     )
@@ -389,10 +411,51 @@ def findings_json_schema() -> dict[str, Any]:
                     },
                     "required": ["severity", "category", "path", "title", "why", "evidence", "suggested_comment"],
                 },
-            }
+            },
+            "dismissed": {
+                "type": "array",
+                "description": (
+                    "Questions from the first pass you checked and found unfounded, or "
+                    "could not check. Empty when none were asked."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "reason": {"type": "string", "description": "One sentence."},
+                    },
+                    "required": ["path", "reason"],
+                },
+            },
         },
-        "required": ["findings"],
+        # Both sides required, deliberately. A findings-only schema teaches the model that
+        # "this is fine" is not an answer, and then a dismissed question is
+        # indistinguishable from an ignored one -- which is how the verification pass this
+        # replaces refuted 0 findings in four real runs while confirming a known false
+        # positive twice.
+        "required": ["findings", "dismissed"],
     }
+
+
+def parse_dismissals(stdout: str, allowed_paths: set[str]) -> list[dict]:
+    """The `dismissed` side of a findings response, scoped to what was actually asked.
+
+    A dismissal of a file nobody flagged is as unfounded as a finding about one (cov-002),
+    and it would corrupt the accounting that tells a deliberate dismissal from silence.
+    """
+    match extract_json_payload(stdout, kind="object"):
+        case ClientSuccess(data=payload) if isinstance(payload, dict):
+            allowed = {normalize_finding_path(path) for path in allowed_paths}
+            kept = []
+            for item in payload.get("dismissed") or []:
+                if not isinstance(item, dict):
+                    continue
+                path = normalize_finding_path((item.get("path") or "").strip())
+                if path and path in allowed:
+                    kept.append({"path": path, "reason": (item.get("reason") or "").strip()})
+            return kept
+        case _:
+            return []
 
 
 def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[list]:
@@ -418,19 +481,30 @@ def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[li
 
 
 def batch_scope_paths(batch: FocusContextBatch) -> set[str]:
-    """Every path this batch actually put in front of the model.
+    """Every path this batch was entitled to make a finding about.
 
-    That is its `files_context` keys plus the `for_path` half of each related-context
-    key (they are stored as "<request type>:<path>"). The related CONTENT itself comes
-    from an unlabelled sibling - `__init__.py`, `protocols.py`, a `base_*` file - whose
-    own path is recorded nowhere, so a finding naming that sibling is the model
-    inferring a path rather than reading one.
+    Three sources, and they are not the same thing:
+
+    - `files_context`: what was put in front of the model.
+    - the `for_path` half of each related-context key (stored as "<request type>:<path>").
+      The related CONTENT comes from an unlabelled sibling — `__init__.py`,
+      `protocols.py`, a `base_*` file — whose own path is recorded nowhere, so a finding
+      naming that sibling is the model inferring a path rather than reading one.
+    - the paths of the skim's suspicions. These files are NOT in `files_context` — the
+      session was asked to open them in the working tree and settle a question about
+      them — so without this the scope check drops every finding the skim's work leads
+      to, and the whole first pass is thrown away. The entitlement is explicit and
+      narrow: someone looked at that file's diff and asked about it by name.
     """
     paths = set(batch.files_context)
     for key in batch.related_files:
         _, _, for_path = key.partition(":")
         if for_path:
             paths.add(normalize_finding_path(for_path))
+    for item in batch.scan_suspicions:
+        suspicion_path = (item.get("path") or "").strip()
+        if suspicion_path:
+            paths.add(normalize_finding_path(suspicion_path))
     return {normalize_finding_path(path) for path in paths}
 
 

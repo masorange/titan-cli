@@ -276,3 +276,5 @@ def test_change_shape_lines_tolerate_a_file_missing_from_the_manifest():
     lines = build_change_shape_lines(plan, [], set())
 
     assert lines == ["core.py | role=business_logic | deep | +0/-0"]
+
+

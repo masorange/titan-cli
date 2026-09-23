@@ -31,6 +31,14 @@ logger = get_logger(__name__)
 
 SCAN_BATCH_ID_PREFIX = "scan"
 
+SCAN_CONTINUATION_NOTE = (
+    "This file's diff did not fit one pass. You are seeing part {part} of {total}; "
+    "judge only what is here and do not conclude anything about the other parts."
+)
+SCAN_HUNK_CUT_MARKER = (
+    "\n[... this single hunk is larger than one pass can carry and was cut here ...]"
+)
+
 
 def build_scan_batches(
     paths: list[str],
@@ -46,14 +54,25 @@ def build_scan_batches(
     prompt IS the spend. `max_files_per_batch` is a ceiling against absurdity, not a
     judgement about attention -- the number at which a packed skim goes shallow is O-001,
     still unmeasured, and the risk it guards is bounded because the skim only FLAGS for a
-    reader that verifies. A file whose own diff exceeds the whole budget still gets its
-    own batch rather than being dropped.
+    reader that verifies.
+
+    A file whose diff does not fit one pass is SPLIT across consecutive passes, not
+    truncated. Truncating was the first implementation and it was wrong for the reason
+    this whole domain exists: seeing a quarter of a 2,200-line file and reporting it as
+    skimmed is reviewing PART of the change and calling it reviewed. The parts are
+    numbered and each pass is told which one it has, so nothing claims to have seen more
+    than it did.
+
+    The only unavoidable cut is a SINGLE hunk larger than one whole pass -- a new file is
+    one hunk covering everything -- which is cut at a line boundary and marked. Nothing
+    can send it whole, and a file shown as nothing cannot be skimmed at all.
     """
     from .context_resolution_operations import extract_hunks_only
 
     batches: list[FocusContextBatch] = []
     current: dict[str, FileContextEntry] = {}
     current_chars = 0
+    split_files: dict[str, int] = {}
 
     def flush() -> None:
         nonlocal current, current_chars
@@ -78,26 +97,47 @@ def build_scan_batches(
             # No diff hunks means nothing to skim: a binary file, a pure rename. Counting
             # it as covered would be the silent skip the tiers exist to prevent.
             continue
-        hunks_chars = sum(len(hunk) for hunk in hunks)
-        if current and (
-            current_chars + hunks_chars > max_prompt_chars
-            or len(current) >= max_files_per_batch
-        ):
-            flush()
-        current[path] = FileContextEntry(
-            path=path,
-            read_mode=FileReadMode.HUNKS_ONLY,
-            hunks=hunks,
-            approximate_chars=hunks_chars,
-        )
-        current_chars += hunks_chars
+        slices = _slice_hunks(hunks, max_prompt_chars)
+        if len(slices) > 1:
+            split_files[path] = len(slices)
+        for part, hunk_slice in enumerate(slices, start=1):
+            slice_chars = sum(len(hunk) for hunk in hunk_slice)
+            # A path can appear once per batch (the context is keyed by path), so a
+            # second part of the same file has to start a new pass. Checked here rather
+            # than flushed after every part, so a file's LAST part can still share a
+            # pass with the files that follow it.
+            if current and (
+                path in current
+                or current_chars + slice_chars > max_prompt_chars
+                or len(current) >= max_files_per_batch
+            ):
+                flush()
+            current[path] = FileContextEntry(
+                path=path,
+                read_mode=FileReadMode.HUNKS_ONLY,
+                hunks=hunk_slice,
+                approximate_chars=slice_chars,
+                review_hint=(
+                    SCAN_CONTINUATION_NOTE.format(part=part, total=len(slices))
+                    if len(slices) > 1
+                    else ""
+                ),
+            )
+            current_chars += slice_chars
 
     flush()
+    if split_files:
+        logger.info(
+            "scan_file_diffs_split",
+            files=len(split_files),
+            parts_per_file=split_files,
+            max_prompt_chars=max_prompt_chars,
+        )
     logger.info(
         "scan_batches_built",
         paths=len(paths),
         batches=len(batches),
-        files=sum(len(batch.files_context) for batch in batches),
+        files=len({path for batch in batches for path in batch.files_context}),
         max_prompt_chars=max_prompt_chars,
         max_files_per_batch=max_files_per_batch,
         approximate_chars=[batch.approximate_chars for batch in batches],
@@ -105,12 +145,69 @@ def build_scan_batches(
     return batches
 
 
+def _slice_hunks(hunks: list[str], budget: int) -> list[list[str]]:
+    """Cut a file's hunks into slices that each fit one pass.
+
+    Whole hunks wherever possible: half a hunk reads like complete code and invites a
+    note about a guard whose other branch was simply not shown. A single hunk bigger than
+    the whole budget is the one case that must be cut mid-hunk, at a line boundary, and
+    it is marked so the pass knows what it is looking at.
+    """
+    slices: list[list[str]] = []
+    current: list[str] = []
+    used = 0
+    for hunk in hunks:
+        if len(hunk) > budget:
+            if current:
+                slices.append(current)
+                current, used = [], 0
+            slices.extend(_cut_one_hunk(hunk, budget))
+            continue
+        if current and used + len(hunk) > budget:
+            slices.append(current)
+            current, used = [], 0
+        current.append(hunk)
+        used += len(hunk)
+    if current:
+        slices.append(current)
+    return slices or [[]]
+
+
+def _cut_one_hunk(hunk: str, budget: int) -> list[list[str]]:
+    """Split one oversized hunk into line-aligned pieces, each marked as a cut."""
+    pieces: list[list[str]] = []
+    remaining = hunk
+    while remaining:
+        if len(remaining) <= budget:
+            pieces.append([remaining])
+            break
+        cut = remaining[:budget]
+        boundary = cut.rfind("\n")
+        if boundary <= 0:
+            boundary = len(cut)
+        pieces.append([remaining[:boundary] + SCAN_HUNK_CUT_MARKER])
+        remaining = remaining[boundary:].lstrip("\n")
+    return pieces
+
+
+# What one note and one suspicion may occupy. Enforced in the schema AND on parse,
+# because an instruction to be brief is a request and a cap is a fact.
+#
+# This exists because of a measurement: on run `50420f9c` the skim produced 29,040 output
+# tokens for 59 notes -- ~490 tokens each, paragraphs rather than the one sentence it was
+# asked for -- and MORE output than the deep tier's entire review of 40 files. It cost
+# $2.2223 of that review's $3.6518. Output is ~95% of what an AI call bills, so the
+# length of a note IS the price of the tier.
+SCAN_NOTE_MAX_CHARS = 200
+SCAN_SUSPICION_MAX_CHARS = 300
+
 SCAN_INSTRUCTIONS = """- You are SKIMMING, not reviewing. One short note per file, and a suspicion only where the diff itself gives you a reason
 - A suspicion is a question worth someone opening the file for, not a verdict: something else will open it and confirm or drop it
+- BREVITY IS THE POINT: one sentence of at most 25 words per note, and one sentence per suspicion. No code blocks, no quoting the diff back, no lists, no analysis
 - You cannot read the repository here. Never claim what code outside these hunks does
 - Prefer saying "nothing stands out" over inventing a concern: a file with a clean note is a useful answer
 - Do not report code style, naming or formatting preferences
-- Keep every note and reason to one sentence"""
+- Where a diff says it was truncated, you saw part of the change: note what you saw and do not conclude anything about the rest"""
 
 
 def build_scan_prompt_parts(
@@ -165,6 +262,8 @@ def _scan_files_to_text(files_context: dict) -> str:
     parts: list[str] = []
     for path, entry in files_context.items():
         parts.append(f"### {path}")
+        if entry.review_hint:
+            parts.append(entry.review_hint)
         for hunk in entry.hunks:
             parts.extend(["```", hunk, "```"])
         parts.append("")
@@ -201,10 +300,15 @@ def _scan_schema() -> str:
                         "type": "object",
                         "properties": {
                             "path": {"type": "string"},
-                            "note": {"type": "string", "description": "One sentence."},
+                            "note": {
+                                "type": "string",
+                                "maxLength": SCAN_NOTE_MAX_CHARS,
+                                "description": "One sentence, 25 words or fewer.",
+                            },
                             "suspicion": {
                                 "type": ["string", "null"],
-                                "description": "Why someone should open this file, or null.",
+                                "maxLength": SCAN_SUSPICION_MAX_CHARS,
+                                "description": "One sentence on why someone should open this file, or null.",
                             },
                         },
                         "required": ["path", "note"],
@@ -251,6 +355,7 @@ def parse_scan_notes(stdout: str, batch_paths: set[str]) -> list[dict]:
 
     notes: list[dict] = []
     rejected: list[str] = []
+    over_length: list[str] = []
     for item in raw_notes:
         if not isinstance(item, dict):
             continue
@@ -262,11 +367,38 @@ def parse_scan_notes(stdout: str, batch_paths: set[str]) -> list[dict]:
             rejected.append(path)
             continue
         suspicion = (item.get("suspicion") or "").strip() or None
+        # Enforced here too, not only in the schema: a CLI without structured output
+        # ignores the schema entirely, and an over-long note is paid for either way --
+        # but at least it stops flooding the settle and deep prompts downstream.
+        if len(note) > SCAN_NOTE_MAX_CHARS or (suspicion and len(suspicion) > SCAN_SUSPICION_MAX_CHARS):
+            over_length.append(path)
+        note = _one_line(note, SCAN_NOTE_MAX_CHARS)
+        suspicion = _one_line(suspicion, SCAN_SUSPICION_MAX_CHARS) if suspicion else None
         notes.append({"path": path, "note": note, "suspicion": suspicion})
 
     if rejected:
         logger.warning("scan_notes_outside_batch_scope", dropped=len(rejected), paths=sorted(set(rejected)))
+    if over_length:
+        # Logged rather than silently trimmed: if this fires often the model is ignoring
+        # the cap and the tier is paying for prose, which is exactly what made the skim
+        # 61% of run `50420f9c`'s bill.
+        logger.warning(
+            "scan_notes_over_length",
+            notes=len(over_length),
+            note_cap=SCAN_NOTE_MAX_CHARS,
+            paths=sorted(set(over_length)),
+        )
     return notes
+
+
+def _one_line(text: str, cap: int) -> str:
+    """Collapse to a single line and cut at a word boundary within `cap`."""
+    collapsed = " ".join((text or "").split())
+    if len(collapsed) <= cap:
+        return collapsed
+    cut = collapsed[:cap]
+    boundary = cut.rfind(" ")
+    return (cut[:boundary] if boundary > cap // 2 else cut).rstrip(" ,;:.") + "…"
 
 
 def suspicions_from_notes(notes: list[dict]) -> list[dict]:

@@ -82,7 +82,7 @@ def test_deep_files_are_one_batch_whatever_their_size():
         )
     ]
     budget = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=4000,
         scan_max_prompt_chars=4000,
         scan_max_files_per_batch=12,
@@ -121,7 +121,7 @@ def test_no_deep_file_is_dropped_at_packaging_time():
         )
     ]
     budget = ReviewBudget(
-        max_deep_sessions=4,
+        deep_files_per_session=4,
         deep_max_prompt_chars=4000,
         scan_max_prompt_chars=4000,
         scan_max_files_per_batch=12,
@@ -157,7 +157,7 @@ def test_build_review_context_package_keeps_small_files_in_one_batch():
         )
     ]
     budget = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
         scan_max_prompt_chars=20000,
         scan_max_files_per_batch=12,
@@ -201,7 +201,7 @@ def test_worktree_reference_entries_cost_only_what_they_occupy_in_the_prompt():
     ]
     # A budget that the old 5,000-char estimate would have split; two honest entries fit.
     budget = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
         scan_max_prompt_chars=6000,
         scan_max_files_per_batch=12,
@@ -246,7 +246,7 @@ def test_every_deep_file_lands_in_one_batch_when_the_budget_allows():
         )
     ]
     budget = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
         scan_max_prompt_chars=100_000,
         scan_max_files_per_batch=12,
@@ -283,7 +283,7 @@ def test_inline_and_worktree_reference_files_share_one_batch():
         )
     ]
     budget = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
         scan_max_prompt_chars=100_000,
         scan_max_files_per_batch=12,
@@ -390,7 +390,7 @@ def _single_file_setup(read_mode, path="a.py"):
         )
     ]
     budget = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
         scan_max_prompt_chars=100_000,
         scan_max_files_per_batch=12,
@@ -602,7 +602,7 @@ def test_only_deep_tier_files_reach_the_review_session():
         ]
     )
     budget = ReviewBudget(
-        max_deep_sessions=10,
+        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
         scan_max_prompt_chars=100_000,
         scan_max_files_per_batch=12,
@@ -710,3 +710,212 @@ def test_context_docs_are_withheld_when_files_may_not_be_read(tmp_path):
         resolve_context_docs(["CLAUDE.md"], str(tmp_path), limit=8, allow_file_reads=False)
         == []
     )
+
+
+def test_every_deep_file_shares_one_session_however_many_there_are():
+    """The session is the unit of understanding (D-014).
+
+    `DEEP_FILES_PER_SESSION = 12` used to chunk this: ragnarok PR 3685's 24 deep files
+    became two sessions although they amount to ~53k chars against a 120,000 ceiling,
+    paying twice for the manifest, context docs, checklist and comment context to obtain
+    two sessions that could not talk — while the best findings this domain has produced
+    were cross-file ones."""
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
+
+    paths = [f"f{i}.py" for i in range(5)]
+    diff = "".join(make_diff(path, "x" * 10) for path in paths)
+    plan = ReviewPlan(
+        focus_files=[
+            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            for path in paths
+        ],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    manifest = make_manifest(paths)
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional correctness",
+            description="Does it work",
+        )
+    ]
+    attention_plan = AttentionPlan(
+        files=[FileAttention(path, AttentionTier.DEEP, "business_logic", "role") for path in paths]
+    )
+    budget = ReviewBudget(
+        deep_files_per_session=2,
+        deep_max_prompt_chars=100_000,
+        scan_max_prompt_chars=100_000,
+        scan_max_files_per_batch=12,
+        max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
+    )
+
+    package = build_review_context_package(
+        plan, diff, manifest, checklist, comment_context=[], budget=budget,
+        attention_plan=attention_plan,
+    )
+
+    assert [batch.batch_id for batch in package.batches] == ["deep_1"]
+    assert set(package.batches[0].files_context) == set(paths)
+
+
+def test_the_least_important_file_gives_up_its_diff_first():
+    """Degradation follows the ranking, not file size.
+
+    An earlier version lowered one allowance for everyone, so whichever file happened to
+    be large lost its diff — a big central file degraded before a small trivial one.
+    `focus_files` arrives in the scorer's order, so the tail gives up its inline diff
+    first and the core keeps it until last."""
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
+
+    # Same size on purpose: only the ranking can decide who degrades.
+    paths = ["core.py", "middle.py", "trivial.py"]
+    diff = "".join(make_diff(path, "x" * 3000) for path in paths)
+    plan = ReviewPlan(
+        focus_files=[
+            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            for path in paths
+        ],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    manifest = make_manifest(paths)
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional correctness",
+            description="Does it work",
+        )
+    ]
+    attention_plan = AttentionPlan(
+        files=[FileAttention(path, AttentionTier.DEEP, "business_logic", "role") for path in paths]
+    )
+    budget = ReviewBudget(
+        deep_files_per_session=12,
+        # Room for roughly one file's diff plus the prompt skeleton.
+        deep_max_prompt_chars=9_000,
+        scan_max_prompt_chars=9_000,
+        scan_max_files_per_batch=12,
+        max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
+    )
+
+    package = build_review_context_package(
+        plan, diff, manifest, checklist, comment_context=[], budget=budget,
+        cwd=None, attention_plan=attention_plan,
+    )
+
+    context = package.batches[0].files_context
+    assert set(context) == set(paths)  # everyone stays in the session
+    assert context["trivial.py"].hunks == []  # the tail degraded
+    assert context["core.py"].hunks  # the head kept its diff
+
+
+def test_a_prompt_that_does_not_fit_loses_diff_detail_not_files():
+    """Fidelity degrades; understanding does not divide.
+
+    A file over its allowance keeps its reference and its hunk headers, and the session
+    opens it from the working tree — so a tight ceiling costs anchoring detail on some
+    files, never the ability to see them together."""
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
+
+    paths = [f"f{i}.py" for i in range(4)]
+    diff = "".join(make_diff(path, "x" * 4000) for path in paths)
+    plan = ReviewPlan(
+        focus_files=[
+            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.EXPANDED_HUNKS)
+            for path in paths
+        ],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    manifest = make_manifest(paths)
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional correctness",
+            description="Does it work",
+        )
+    ]
+    attention_plan = AttentionPlan(
+        files=[FileAttention(path, AttentionTier.DEEP, "business_logic", "role") for path in paths]
+    )
+    budget = ReviewBudget(
+        deep_files_per_session=12,
+        deep_max_prompt_chars=8_000,
+        scan_max_prompt_chars=8_000,
+        scan_max_files_per_batch=12,
+        max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
+    )
+
+    package = build_review_context_package(
+        plan, diff, manifest, checklist, comment_context=[], budget=budget,
+        cwd=None, attention_plan=attention_plan,
+    )
+
+    assert len(package.batches) == 1
+    batch = package.batches[0]
+    assert set(batch.files_context) == set(paths)  # nobody is dropped
+    # ...and the cost was paid in diff detail.
+    assert any(not entry.hunks for entry in batch.files_context.values())
+
+
+def test_flagged_files_join_the_same_session_as_a_second_task():
+    """A question like "no test covers this path" is answered far better by whoever just
+    read that path's code than by a separate call holding only the path (D-014)."""
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
+
+    diff = make_diff("core.py", "x" * 10) + make_diff("core_test.py", "y" * 10)
+    plan = ReviewPlan(
+        focus_files=[
+            FileReviewPlan(path="core.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+        ],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    manifest = make_manifest(["core.py", "core_test.py"])
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
+            name="Functional correctness",
+            description="Does it work",
+        )
+    ]
+    attention_plan = AttentionPlan(
+        files=[
+            FileAttention("core.py", AttentionTier.DEEP, "business_logic", "role"),
+            FileAttention("core_test.py", AttentionTier.GLANCE, "tests", "role"),
+        ]
+    )
+
+    package = build_review_context_package(
+        plan, diff, manifest, checklist, comment_context=[], budget=review_budget_for_tests(),
+        attention_plan=attention_plan,
+        scan_suspicions=[{"path": "core_test.py", "note": "n", "suspicion": "is the path tested?"}],
+    )
+
+    batch = package.batches[0]
+    assert set(batch.files_context) == {"core.py", "core_test.py"}
+    # The flagged file carries headers and the question, never its diff.
+    flagged = batch.files_context["core_test.py"]
+    assert flagged.worktree_reference is True
+    assert flagged.hunks == []
+    assert flagged.changed_hunk_headers
+    assert batch.scan_suspicions[0]["suspicion"] == "is the path tested?"
+
+
+def review_budget_for_tests():
+    from titan_plugin_github.operations.review_strategy_operations import review_budget
+
+    return review_budget()
+
+

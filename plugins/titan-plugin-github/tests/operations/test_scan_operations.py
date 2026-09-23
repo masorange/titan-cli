@@ -54,13 +54,14 @@ def test_scan_respects_the_per_batch_file_ceiling():
 
 
 def test_a_file_whose_diff_exceeds_the_whole_budget_still_gets_skimmed():
-    """Dropping it would be the silent skip the tiers exist to prevent."""
+    """Dropping it would be the silent skip the tiers exist to prevent — it is split
+    across passes instead, and every pass holds only that file."""
     diff = _diff("huge.py", "x" * 5000)
 
     batches = build_scan_batches(["huge.py"], diff, max_prompt_chars=500, max_files_per_batch=10)
 
-    assert len(batches) == 1
-    assert list(batches[0].files_context) == ["huge.py"]
+    assert len(batches) > 1
+    assert all(list(batch.files_context) == ["huge.py"] for batch in batches)
 
 
 def test_files_without_diff_hunks_are_not_counted_as_skimmed():
@@ -116,3 +117,139 @@ def test_scan_notes_survive_a_bare_array_and_junk():
     assert parse_scan_notes(stdout, {"a.py"}) == [
         {"path": "a.py", "note": "Fine", "suspicion": None}
     ]
+
+
+def test_a_diff_too_big_for_one_pass_is_SPLIT_not_truncated():
+    """Seeing a quarter of a file and reporting it as skimmed is reviewing PART of the
+    change and calling it reviewed — the thing this whole domain exists to stop.
+
+    The first implementation truncated (measured: a 2,200-line test file's diff is ~80k
+    chars and took a whole call to itself). Splitting keeps coverage honest: each pass is
+    told which part it has, and the last part still shares a pass with the files after
+    it."""
+    hunks_per_file = 40
+    big = "".join(
+        f"@@ -{1 + i * 40},2 +{1 + i * 40},3 @@\n c\n+{'x' * 900}\n c\n"
+        for i in range(hunks_per_file)
+    )
+    diff = (
+        "diff --git a/big.py b/big.py\nindex 1..2 100644\n--- a/big.py\n+++ b/big.py\n"
+        + big
+        + _diff("small.py")
+    )
+
+    batches = build_scan_batches(["big.py", "small.py"], diff, 18_000, 12)
+
+    assert len(batches) == 3
+    # Every part of the big file is somewhere, and nothing is silently missing.
+    big_hunks = sum(
+        len(batch.files_context["big.py"].hunks)
+        for batch in batches
+        if "big.py" in batch.files_context
+    )
+    assert big_hunks == hunks_per_file
+    # Each pass says which part it holds...
+    assert "part 1 of 3" in batches[0].files_context["big.py"].review_hint
+    assert "part 3 of 3" in batches[2].files_context["big.py"].review_hint
+    # ...and the final part is not wasted on a call of its own.
+    assert set(batches[2].files_context) == {"big.py", "small.py"}
+    assert all(batch.approximate_chars <= 18_000 for batch in batches)
+
+
+def test_the_continuation_note_reaches_the_prompt():
+    """A pass that does not know it is holding part 2 will happily conclude about the
+    parts it never saw."""
+    big = "".join(
+        f"@@ -{1 + i * 40},2 +{1 + i * 40},3 @@\n c\n+{'x' * 900}\n c\n" for i in range(10)
+    )
+    diff = "diff --git a/big.py b/big.py\nindex 1..2 100644\n--- a/big.py\n+++ b/big.py\n" + big
+
+    batches = build_scan_batches(["big.py"], diff, 4_000, 12)
+    prompt = build_scan_prompt_parts(batches[0])["prompt"]
+
+    assert "did not fit one pass" in prompt
+    assert "do not conclude anything about the other parts" in prompt
+
+
+def test_a_single_hunk_bigger_than_a_whole_pass_is_cut_at_a_line_and_marked():
+    """The one unavoidable cut: a new file is ONE hunk covering everything, and nothing
+    can send it whole. Every piece still travels — it is cut, not dropped."""
+    batches = build_scan_batches(["a.py"], _diff("a.py", "y" * 30_000), 4_000, 12)
+
+    assert len(batches) > 1
+    pieces = [
+        hunk
+        for batch in batches
+        for hunk in batch.files_context["a.py"].hunks
+    ]
+    assert len(pieces) > 1
+    assert all("this single hunk is larger" in piece for piece in pieces[:-1])
+    assert all(len(piece) <= 4_200 for piece in pieces)
+
+
+
+# ---------------------------------------------------------------------------
+# What happens to a suspicion after the skim raises it
+# ---------------------------------------------------------------------------
+
+
+
+# ---------------------------------------------------------------------------
+# The settle work moved INTO the deep session (D-014); its tests live with the
+# findings prompt now. What stays here is the skim itself.
+# ---------------------------------------------------------------------------
+
+
+
+def test_a_note_is_capped_in_the_schema_and_again_on_parse():
+    """Measured on run `50420f9c`: 59 notes came back as 29,040 output tokens — ~490
+    tokens each, paragraphs instead of the one sentence asked for, and MORE output than
+    the deep tier's entire review of 40 files. It cost $2.2223 of a $3.6518 review.
+
+    Output is ~95% of what a call bills, so the length of a note IS the price. An
+    instruction to be brief is a request; a cap is a fact, and it is enforced twice
+    because a CLI without structured output ignores the schema entirely."""
+    from titan_plugin_github.operations.scan_operations import (
+        SCAN_NOTE_MAX_CHARS,
+        SCAN_SUSPICION_MAX_CHARS,
+        parse_scan_notes,
+        scan_json_schema,
+    )
+
+    properties = scan_json_schema()["properties"]["notes"]["items"]["properties"]
+    assert properties["note"]["maxLength"] == SCAN_NOTE_MAX_CHARS
+    assert properties["suspicion"]["maxLength"] == SCAN_SUSPICION_MAX_CHARS
+
+    rambling = "word " * 400
+    notes = parse_scan_notes(
+        '{"notes":[{"path":"a.py","note":"%s","suspicion":"%s"}]}' % (rambling, rambling),
+        {"a.py"},
+    )
+
+    assert len(notes[0]["note"]) <= SCAN_NOTE_MAX_CHARS
+    assert len(notes[0]["suspicion"]) <= SCAN_SUSPICION_MAX_CHARS
+    assert notes[0]["note"].endswith("…")
+
+
+def test_a_note_that_already_fits_is_left_exactly_as_written():
+    """Trimming a short note would corrupt it for no gain."""
+    from titan_plugin_github.operations.scan_operations import parse_scan_notes
+
+    notes = parse_scan_notes(
+        '{"notes":[{"path":"a.py","note":"Adds a null guard.","suspicion":null}]}', {"a.py"}
+    )
+
+    assert notes == [{"path": "a.py", "note": "Adds a null guard.", "suspicion": None}]
+
+
+def test_a_multiline_note_is_collapsed_to_one_line():
+    """Notes are rendered one per line on screen and one per line in the deep prompt; a
+    note with newlines in it breaks both."""
+    from titan_plugin_github.operations.scan_operations import parse_scan_notes
+
+    notes = parse_scan_notes(
+        '{"notes":[{"path":"a.py","note":"First line.\\n\\n  Second line.","suspicion":null}]}',
+        {"a.py"},
+    )
+
+    assert notes[0]["note"] == "First line. Second line."

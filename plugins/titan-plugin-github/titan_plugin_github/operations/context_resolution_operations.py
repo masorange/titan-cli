@@ -203,12 +203,83 @@ def resolve_context_requests(
 
 
 DEEP_BATCH_ID = "deep_1"
-"""The deep session's batch id. One per review; overflow splits append a/b as usual."""
+"""The one deep session of a review.
+
+Singular by design (D-014): the session is the unit of understanding, so a prompt that
+does not fit loses diff detail per file, never gains a second session. A budget-driven
+split (`fit_batch_to_budget`) can still append a/b as an emergency, and that is a failure
+worth noticing rather than a routine path.
+"""
 
 # The floor under one file's inline diff share. Below this an inline diff is too small to
 # be worth anchoring against, so the file is better handed over as a reference the session
 # opens itself than as a truncated fragment.
 MIN_INLINE_DIFF_CHARS = 4000
+
+
+def _flagged_file_entries(suspicions: list[dict], already_present: set[str], manager) -> dict:
+    """Header-only entries for the files the first pass flagged.
+
+    Their diffs are deliberately absent: the skim read them already, and resending them
+    would both pay twice and invite a full review of a file nobody tiered as worth one.
+    The headers stay because the working tree holds the file AFTER the change, so without
+    them the session cannot tell which lines an inline comment may attach to.
+    """
+    entries: dict[str, FileContextEntry] = {}
+    for suspicion in suspicions:
+        path = (suspicion.get("path") or "").strip()
+        if not path or path in already_present or path in entries:
+            continue
+        entries[path] = FileContextEntry(
+            path=path,
+            read_mode=FileReadMode.WORKTREE_REFERENCE,
+            worktree_reference=True,
+            changed_hunk_headers=[hunk.header for hunk in manager.get_hunks(path)[:30]],
+            review_hint="Flagged by the first pass — settle the question, do not review this file.",
+            approximate_chars=get_prompt_budget_manager().WORKTREE_REFERENCE_PROMPT_CHARS,
+        )
+    return entries
+
+
+def _measure_prompt(
+    files_context,
+    comment_context,
+    checklist_applicable,
+    related_files,
+    manifest,
+    change_shape,
+    context_docs,
+    suspicions,
+    pr_intent,
+    diff,
+    manager,
+) -> str:
+    """The prompt this session would send, measured rather than estimated.
+
+    Estimating is what produced the ceilings this domain spent two days deleting: a
+    number that stands in for a size is a policy in disguise. The real string is cheap to
+    build and exact.
+    """
+    from ..models.review_models import FocusContextBatch
+    from .findings_operations import build_findings_prompt_parts
+
+    probe = FocusContextBatch(
+        batch_id=DEEP_BATCH_ID,
+        tier=AttentionTier.DEEP,
+        files_context={
+            **files_context,
+            **_flagged_file_entries(suspicions, set(files_context), manager),
+        },
+        comment_context=comment_context,
+        checklist_applicable=checklist_applicable,
+        related_files=related_files,
+        pr_manifest=manifest.pr,
+        change_shape=change_shape,
+        context_docs=context_docs,
+        scan_suspicions=suspicions,
+        pr_intent=pr_intent,
+    )
+    return build_findings_prompt_parts(probe)["prompt"]
 
 
 def _inline_diff_allowance(content_budget: int, file_count: int) -> int:
@@ -261,7 +332,10 @@ def build_review_context_package(
     """
     manager = diff_manager or get_or_create_diff_manager(diff)
     applicable_ids = set(plan.review_axes)
-    checklist_applicable = [item for item in checklist if item.id in applicable_ids] or checklist[:2]
+    # Falling back to EVERY offered axis, not two of them: reaching here means the plan
+    # selected no axis at all, which is an upstream failure, and the safe direction is to
+    # ask about everything the project declared rather than about almost nothing.
+    checklist_applicable = [item for item in checklist if item.id in applicable_ids] or list(checklist)
 
     if len(plan.extra_context_requests) > 1:
         logger.info(
@@ -320,70 +394,135 @@ def build_review_context_package(
     if attention_plan is not None:
         from .attention_operations import build_change_shape_lines
 
-        # Marked from the files that will ACTUALLY be read, not from the tier: a deep file
-        # the scorer never selected must not be described to the model as reviewed here.
+        # Marked from the files ACTUALLY read: a deep file the scorer never selected must
+        # not be described to the model as reviewed. There is no "read by another pass"
+        # label any more, because there is no other pass.
         change_shape = build_change_shape_lines(
             attention_plan, manifest.files, {file_plan.path for file_plan in focus_files}
         )
 
-    # ONE deep batch, built from the tier rather than emerging from a character budget.
+    # ONE session over every deep file. Not a batch of them -- the session is the unit of
+    # understanding, and what it understands about one file is what lets it see the defect
+    # that spans two (D-014).
     #
-    # This function used to be a packer: it walked the focus files, added each one's
-    # estimated size to a running total and started a new batch whenever the total crossed
-    # the content budget. That made the number of AI calls an accident of how large the
-    # files happened to be -- nine deep files became seven calls on PR 251 -- and it made
-    # the attention tiers decoration, since the thing that actually decided the work was
-    # a character sum. The tiers decide now: the deep files are one session, the glance
-    # files are the skim's business, and the character budget is only an emergency valve
-    # (`fit_batch_to_budget`, plus cov-013's split when a call expires).
+    # This function has been three things. It was a packer, where the number of AI calls
+    # was an accident of file size (nine deep files became seven calls on PR 251). Then it
+    # chunked by a constant, `DEEP_FILES_PER_SESSION = 12`, which split ragnarok PR 3685's
+    # 24 deep files into two sessions although they amount to ~53k chars against a
+    # 120,000 ceiling -- paying twice for the manifest, the context documents, the
+    # checklist and the comment context to obtain two sessions that could not talk to each
+    # other, while the best findings this domain has produced were cross-file ones.
     #
-    # What the budget still decides is how much of each file's DIFF travels inline. The
-    # session can open any of these files from the working tree, so a file whose diff
-    # exceeds its share of the budget keeps its reference and its hunk headers and loses
-    # the inline diff -- weaker anchoring for that one file, not a lost file.
+    # What adjusts when the prompt does not fit is the INLINE DIFF PER FILE, never the
+    # session: a file over its allowance keeps its reference and its hunk headers and the
+    # session opens it from the working tree. Fidelity degrades; understanding does not
+    # divide.
+    # What adjusts when the prompt does not fit is which files carry their diff INLINE,
+    # never whether they are in the session: a file demoted to reference keeps its hunk
+    # headers and the session opens it from the working tree. Fidelity degrades;
+    # understanding does not divide.
+    #
+    # And it degrades from the BOTTOM of the ranking. An earlier version lowered a single
+    # allowance for everyone, which meant the file that lost its diff was whichever
+    # happened to be large -- so a big central file degraded before a small trivial one.
+    # `focus_files` arrives in the scorer's order, so the least important file gives up
+    # its diff first and the core keeps it until last.
+    #
+    # What a demoted file loses is real but narrow: the literal added lines the model
+    # copies its `snippet` from, which is what inline anchoring depends on (D-008). It
+    # does not lose the review.
+    suspicions = list(scan_suspicions or [])
     inline_allowance = _inline_diff_allowance(content_budget, len(focus_files))
-    deep_files: dict[str, FileContextEntry] = {}
-    deep_chars = _estimate_related_chars(related_files) + _estimate_comment_chars(comment_context)
-    for file_plan in focus_files:
-        entry = _resolve_file_context(
+    files_context: dict[str, FileContextEntry] = {}
+    prompt_chars = 0
+    demoted: list[str] = []
+
+    def _resolve(file_plan, allowance: int) -> FileContextEntry:
+        return _resolve_file_context(
             file_plan,
             diff,
             budget,
             cwd,
             manager,
             allow_file_reads=allow_file_reads,
-            inline_diff_allowance=inline_allowance,
+            inline_diff_allowance=allowance,
         )
-        deep_files[file_plan.path] = entry
-        deep_chars += entry.approximate_chars or get_prompt_budget_manager().estimate_entry_chars(entry)
+
+    def _measure(context: dict) -> int:
+        return len(
+            _measure_prompt(
+                context,
+                comment_context,
+                checklist_applicable,
+                related_files,
+                manifest,
+                change_shape,
+                context_docs,
+                suspicions,
+                pr_intent,
+                diff,
+                manager,
+            )
+        )
+
+    files_context = {file_plan.path: _resolve(file_plan, inline_allowance) for file_plan in focus_files}
+    if files_context:
+        prompt_chars = _measure(files_context)
+        # Least important first, which is the tail of the scorer's ranking.
+        for file_plan in reversed(focus_files):
+            if prompt_chars <= budget.deep_max_prompt_chars:
+                break
+            entry = files_context.get(file_plan.path)
+            if entry is None or not entry.hunks:
+                continue  # already a reference; nothing left to give up
+            files_context[file_plan.path] = _resolve(file_plan, 0)
+            demoted.append(file_plan.path)
+            prompt_chars = _measure(files_context)
+
+        if demoted:
+            logger.info(
+                "deep_session_fidelity_reduced",
+                demoted_to_reference=len(demoted),
+                paths=demoted,
+                prompt_actual_chars=prompt_chars,
+                prompt_budget_target_chars=budget.deep_max_prompt_chars,
+                still_over_budget=prompt_chars > budget.deep_max_prompt_chars,
+            )
 
     batches: list[FocusContextBatch] = []
-    if deep_files:
+    if files_context or suspicions:
+        # Flagged files join the SAME session as a second task list: headers and the
+        # question, never their diff, which the skim already read.
+        files_context.update(
+            _flagged_file_entries(suspicions, set(files_context), manager)
+        )
         logger.info(
-            "deep_batch_built",
-            files=len(deep_files),
+            "deep_session_built",
+            files=len(focus_files),
+            flagged_files=len(files_context) - len(focus_files),
+            suspicions=len(suspicions),
             inline_diff_allowance=inline_allowance,
-            approximate_chars=deep_chars,
+            prompt_actual_chars=prompt_chars,
             prompt_budget_target_chars=budget.deep_max_prompt_chars,
-            inline_diff_files=sum(1 for entry in deep_files.values() if entry.hunks),
+            inline_diff_files=sum(1 for entry in files_context.values() if entry.hunks),
             reference_only_files=sum(
-                1 for entry in deep_files.values() if entry.worktree_reference and not entry.hunks
+                1 for entry in files_context.values() if entry.worktree_reference and not entry.hunks
             ),
         )
         batches.append(
             FocusContextBatch(
                 batch_id=DEEP_BATCH_ID,
                 tier=AttentionTier.DEEP,
-                files_context=deep_files,
+                files_context=files_context,
                 comment_context=comment_context,
                 checklist_applicable=checklist_applicable,
                 related_files=related_files,
                 pr_manifest=manifest.pr,
                 change_shape=change_shape,
                 context_docs=context_docs,
-                scan_suspicions=list(scan_suspicions or []),
+                scan_suspicions=suspicions,
                 pr_intent=pr_intent,
-                approximate_chars=deep_chars,
+                approximate_chars=prompt_chars,
                 prompt_budget_target_chars=budget.deep_max_prompt_chars,
             )
         )
@@ -421,6 +560,12 @@ def _resolve_file_context(
         )
         desired_mode = FileReadMode.HUNKS_ONLY
 
+    # This file's share of the session's inline budget. The caller lowers it to demote a
+    # file to a reference when the prompt does not fit.
+    allowance = (
+        inline_diff_allowance if inline_diff_allowance is not None else file_limits["max_file_chars"]
+    )
+
     if allow_file_reads and desired_mode in (FileReadMode.FULL_FILE, FileReadMode.EXPANDED_HUNKS):
         # The session has the file on disk, so shipping its body in the prompt buys
         # nothing and costs the packing decision. Measured on PR 251: nine deep files
@@ -434,10 +579,6 @@ def _resolve_file_context(
         # lines are the anchor material every inline comment needs.
         hunks = manager.get_hunk_texts(file_plan.path)
         hunks_chars = sum(len(hunk) for hunk in hunks)
-        # The allowance is this file's share of the deep batch's budget, not a per-file
-        # constant: the batch holds every deep file, so the first big file must not spend
-        # what the rest need. Over its share, the file travels as a reference.
-        allowance = inline_diff_allowance if inline_diff_allowance is not None else file_limits["max_file_chars"]
         if hunks and hunks_chars <= allowance:
             resolved_entry = FileContextEntry(
                 path=file_plan.path,
@@ -491,7 +632,12 @@ def _resolve_file_context(
     if desired_mode == FileReadMode.HUNKS_ONLY:
         hunks = manager.get_hunk_texts(file_plan.path)
         hunks_chars = sum(len(hunk) for hunk in hunks)
-        if hunks and (hunks_chars <= file_limits["max_file_chars"] or not allow_file_reads):
+        # The session's allowance governs here too, not just the richer read modes: a
+        # file planned as hunks_only was otherwise immune to demotion, so lowering the
+        # allowance moved nothing. When reads are NOT allowed the hunks stay whatever
+        # their size, because the diff is then the only honest thing to send.
+        hunks_cap = allowance if allow_file_reads else file_limits["max_file_chars"]
+        if hunks and (hunks_chars <= hunks_cap or not allow_file_reads):
             # Over-budget hunks are still preferable to the worktree_reference fallback
             # when reads are not allowed: that mode has the CLI open the file itself, which
             # is the same wrong-revision read, just delegated. The batching loop keeps the

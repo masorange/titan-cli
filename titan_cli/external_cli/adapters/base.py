@@ -37,8 +37,13 @@ _QUOTA_PATTERNS = re.compile(
     r"|(reached|exceeded)\b.{0,60}\bquota"
     # OpenAI (codex, and opencode on OpenAI): API error type.
     r"|insufficient[_ ]quota"
-    # Anthropic (claude): "Claude usage limit reached", "You've reached your usage limit".
+    # Anthropic (claude): "Claude usage limit reached", "You've reached your usage
+    # limit", and -- measured 2026-09-22, which is how this gap was found -- "You've hit
+    # your session limit · resets 6:30pm (Europe/Madrid)". That last one exited 1 with the
+    # message in stderr and was reported to the user as a bare "exited with code 1".
     r"|usage limit"
+    r"|session limit"
+    r"|limit\b.{0,40}\bresets"
     r"|out of (free )?credits",
     re.IGNORECASE,
 )

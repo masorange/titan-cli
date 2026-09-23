@@ -168,12 +168,29 @@ def _cli_failure_reason(response, cli_name: str) -> str:
         return (
             f"'{cli_name}' has run out of usage quota — wait for it to reset or route "
             f"this task to another CLI in AI Configuration"
+            + _cli_own_words(response)
         )
     if response.exit_code == 124:
         return f"'{cli_name}' timed out"
     if response.exit_code == 127:
         return f"'{cli_name}' is not installed"
-    return f"'{cli_name}' exited with code {response.exit_code}"
+    # The CLI's own message, when it fits on a line. A pattern list can only recognise
+    # the failures it has seen, and the one it misses is the one worth reading: measured
+    # 2026-09-22, "You've hit your session limit · resets 6:30pm" reached the user as
+    # "exited with code 1" because the phrase was not in the list.
+    return f"'{cli_name}' exited with code {response.exit_code}" + _cli_own_words(response)
+
+
+_CLI_MESSAGE_MAX_CHARS = 200
+
+
+def _cli_own_words(response) -> str:
+    """The CLI's own one-line explanation, or nothing when it only produced noise."""
+    for channel in (response.stderr, response.stdout):
+        message = " ".join((channel or "").split())
+        if message and len(message) <= _CLI_MESSAGE_MAX_CHARS:
+            return f" — {message}"
+    return ""
 
 
 def _extract_referenced_commit_shas(reply_bodies: list[str]) -> list[str]:
@@ -1480,7 +1497,7 @@ def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
     ctx.data["review_budget"] = budget
     logger.debug(
         "review_budget_resolved",
-        max_deep_sessions=budget.max_deep_sessions,
+        deep_files_per_session=budget.deep_files_per_session,
         deep_max_prompt_chars=budget.deep_max_prompt_chars,
         scan_max_prompt_chars=budget.scan_max_prompt_chars,
         scan_max_files_per_batch=budget.scan_max_files_per_batch,
@@ -2072,6 +2089,52 @@ def _retry_timed_out_worktree_batch(ctx: WorkflowContext, batch, run, budget) ->
     return results
 
 
+def _render_settled_questions(ctx: WorkflowContext, batches, dismissed: list, findings: list) -> None:
+    """Say what became of every question the first pass raised.
+
+    Three outcomes, and the third is the one worth showing: confirmed (a finding names
+    that file), dismissed (the session says what it checked), or UNANSWERED — which used
+    to look exactly like a dismissal, because both produce nothing.
+    """
+    asked = {
+        (item.get("path") or "").strip()
+        for batch in batches
+        for item in (batch.scan_suspicions or [])
+    }
+    asked.discard("")
+    if not asked:
+        return
+
+    from ..operations.findings_operations import normalize_finding_path
+
+    finding_paths = {
+        normalize_finding_path(finding.get("path") or "")
+        for finding in findings or []
+        if isinstance(finding, dict)
+    }
+    dismissed_paths = {item["path"] for item in dismissed}
+    confirmed = {path for path in asked if normalize_finding_path(path) in finding_paths}
+    unanswered = sorted(asked - confirmed - dismissed_paths)
+
+    logger.info(
+        "scan_suspicion_outcomes",
+        asked=len(asked),
+        confirmed=len(confirmed),
+        dismissed=len(dismissed_paths),
+        unanswered=len(unanswered),
+        unanswered_paths=unanswered,
+    )
+    ctx.textual.text(" ")
+    ctx.textual.dim_text(
+        f"First-pass questions: {len(confirmed)} confirmed · {len(dismissed_paths)} dismissed"
+        + (f" · {len(unanswered)} unanswered" if unanswered else "")
+    )
+    for item in dismissed:
+        ctx.textual.dim_text(f"  dismissed {item['path']} · {item.get('reason', '')}")
+    for path in unanswered:
+        ctx.textual.warning_text(f"  UNANSWERED {path} — the session did not settle this one")
+
+
 def _render_findings_batch_result(
     ctx: WorkflowContext,
     batch_id: str,
@@ -2232,7 +2295,8 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
                 # not run, in which case the batches simply carry no shape section.
                 attention_plan=ctx.get("attention_plan"),
                 review_profile=review_profile,
-                # What the skim flagged, for this session to settle by opening the file.
+                # The first pass's questions ride in the SAME session that reviews the
+                # core, because that is who can answer them best (D-014).
                 scan_suspicions=ctx.get("review_scan_suspicions", []),
             )
     except Exception as e:
@@ -2322,6 +2386,20 @@ def _scoped_batch_outcome(batch, raw: list, manifest_paths: Optional[set]) -> di
         "detail": "",
         "out_of_scope": len(rejected),
     }
+
+
+def _settled_questions(stdout: str, batch) -> list[dict]:
+    """The questions this batch dismissed, scoped to the ones it was actually asked.
+
+    Recorded because a question opened and dismissed on purpose is otherwise
+    indistinguishable from one ignored: both produce no finding.
+    """
+    from ..operations.findings_operations import parse_dismissals
+
+    if not batch.scan_suspicions:
+        return []
+    asked = {(item.get("path") or "").strip() for item in batch.scan_suspicions}
+    return parse_dismissals(stdout, {path for path in asked if path})
 
 
 def _execute_findings_batch(
@@ -2418,7 +2496,10 @@ def _execute_findings_batch(
 
     match parse_findings_response(response.stdout, structured=use_structured_output):
         case ClientSuccess(data=raw) if isinstance(raw, list):
-            return _scoped_batch_outcome(batch, raw, manifest_paths)
+            return {
+                **_scoped_batch_outcome(batch, raw, manifest_paths),
+                "dismissed": _settled_questions(response.stdout, batch),
+            }
         case ClientSuccess(data=raw):
             # A structured success whose payload isn't a findings list (e.g. a dict)
             # must not vanish silently — treat it like any other parse failure.
@@ -2780,6 +2861,10 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     change_manifest = ctx.get("change_manifest")
     manifest_paths = {f.path for f in change_manifest.files} if change_manifest else set()
     findings_out_of_scope = 0
+    # Questions the session opened and found unfounded. Kept apart from findings because
+    # "checked, it is fine" is an answer, and without it a deliberate dismissal is
+    # indistinguishable from a question nobody looked at.
+    dismissed_questions: list[dict] = []
     batch_queue = list(batches)
     ctx.textual.dim_text(f"Reviewing {len(batch_queue)} batch(es) with {cli_display}")
 
@@ -2943,6 +3028,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             for resolved_batch, resolved_outcome in resolved:
                 if resolved_outcome["status"] == "success":
                     batches_succeeded += 1
+                    dismissed_questions.extend(resolved_outcome.get("dismissed") or [])
                     reviewed_paths.update(resolved_batch.files_context)
                     findings_out_of_scope += resolved_outcome.get("out_of_scope", 0)
                     aggregated_raw.extend(resolved_outcome["raw"])
@@ -3111,6 +3197,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             f"Discarded {findings_out_of_scope} finding(s) about files their batch never saw."
         )
     ctx.data["findings_out_of_scope"] = findings_out_of_scope
+    _render_settled_questions(ctx, batches, dismissed_questions, ctx.data["raw_findings"])
     ctx.textual.end_step("success")
     return Success(
         "AI findings retrieved",

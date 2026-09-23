@@ -161,9 +161,9 @@ def test_deterministic_plan_respects_the_deep_session_budget(sample_ui_pr):
 
     plan = build_deterministic_review_plan(candidates, excluded, [], budget)
 
-    assert len(candidates) > budget.max_deep_sessions
-    assert len(plan.focus_files) == budget.max_deep_sessions
-    assert len(plan.excluded_files) == len(excluded) + len(candidates) - budget.max_deep_sessions
+    assert len(candidates) > budget.deep_files_per_session
+    assert len(plan.focus_files) == budget.deep_files_per_session
+    assert len(plan.excluded_files) == len(excluded) + len(candidates) - budget.deep_files_per_session
 
 
 def test_summarize_candidate_clusters_detects_repeated_callsites():
@@ -509,16 +509,20 @@ def test_the_deep_tier_is_the_selection_not_the_top_scores():
     assert "glance" in excluded["test_core.py"]
 
 
-def test_a_deep_tier_larger_than_the_session_budget_is_capped_and_said_out_loud():
-    """max_deep_sessions stops being a selection rule and becomes the overflow guard it
-    was always described as — and the files it drops are named, not silent."""
-    from titan_plugin_github.models.review_enums import ExclusionReason
+def test_a_deep_tier_larger_than_one_session_keeps_every_file():
+    """A deep tier bigger than one session costs ANOTHER session, not files.
+
+    It used to drop the surplus: on ragnarok run `70777691` that sent 12 of 24 deep files
+    to the skim, so a file the profile said to read in full got a glance at its diff
+    instead — D-001's 12-file ceiling wearing a new name. The batching downstream is what
+    turns them into sessions."""
     from titan_plugin_github.operations.review_strategy_operations import (
         build_deterministic_review_plan,
     )
 
-    budget = review_budget().model_copy(update={"max_deep_sessions": 2})
+    budget = review_budget().model_copy(update={"deep_files_per_session": 2})
     candidates = [_candidate(f"f{i}.py", 10 - i) for i in range(4)]
+
     plan = build_deterministic_review_plan(
         candidates,
         [],
@@ -527,13 +531,8 @@ def test_a_deep_tier_larger_than_the_session_budget_is_capped_and_said_out_loud(
         attention_plan=_attention({f"f{i}.py": "deep" for i in range(4)}),
     )
 
-    assert [f.path for f in plan.focus_files] == ["f0.py", "f1.py"]
-    overflow = [
-        entry
-        for entry in plan.excluded_files
-        if entry.reason == ExclusionReason.BUDGET_TRIMMED and "session limit" in entry.detail
-    ]
-    assert sorted(entry.path for entry in overflow) == ["f2.py", "f3.py"]
+    assert [f.path for f in plan.focus_files] == ["f0.py", "f1.py", "f2.py", "f3.py"]
+    assert plan.excluded_files == []
 
 
 def test_without_an_attention_plan_the_score_order_cut_still_applies():
@@ -543,7 +542,7 @@ def test_without_an_attention_plan_the_score_order_cut_still_applies():
         build_deterministic_review_plan,
     )
 
-    budget = review_budget().model_copy(update={"max_deep_sessions": 2})
+    budget = review_budget().model_copy(update={"deep_files_per_session": 2})
     candidates = [_candidate(f"f{i}.py", 10 - i) for i in range(4)]
 
     plan = build_deterministic_review_plan(candidates, [], [], budget)

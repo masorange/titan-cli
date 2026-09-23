@@ -218,7 +218,9 @@ def test_findings_json_schema_wraps_array_in_object_with_findings_key():
     schema = findings_json_schema()
 
     assert schema["type"] == "object"
-    assert schema["required"] == ["findings"]
+    # Both sides required: a findings-only schema teaches the model that "this is fine"
+    # is not an answer, and then a dismissed question looks exactly like an ignored one.
+    assert schema["required"] == ["findings", "dismissed"]
     assert schema["properties"]["findings"]["type"] == "array"
 
 
@@ -950,8 +952,63 @@ def test_the_deep_prompt_hands_the_skim_suspicions_over_as_questions_not_finding
     parts = build_findings_prompt_parts(batch)
 
     assert "Flagged by the first pass" in parts["prompt"]
-    assert "they are NOT findings yet" in parts["prompt"]
+    assert "do not review these files" in parts["prompt"]
     assert "ui/Login.kt: The guard may invert the check" in parts["prompt"]
     assert "A question you cannot settle is not a finding" in parts["prompt"]
+    # The settle rules travel with the questions, in the same call (D-014).
+    assert "Confirming costs more than dismissing" in parts["instructions"]
     # Nothing at all when the skim found nothing worth opening.
     assert build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))["scan_suspicions"] == ""
+
+
+def test_the_findings_prompt_renders_every_axis_the_plan_selected():
+    """The renderer had the SAME `[:4]` as select_review_axes, applied a second time, so
+    even a plan that selected 8 axes could only ever ask about 4. Two independent
+    truncations of one list."""
+    from titan_plugin_github.models.review_enums import ChecklistCategory
+    from titan_plugin_github.models.review_models import FocusContextBatch, ReviewChecklistItem
+    from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
+
+    checklist = [
+        ReviewChecklistItem(id=category, name=str(category), description="d")
+        for category in list(ChecklistCategory)[:8]
+    ]
+
+    parts = build_findings_prompt_parts(
+        FocusContextBatch(batch_id="deep_1", checklist_applicable=checklist)
+    )
+
+    for item in checklist:
+        assert str(item.id) in parts["review_axes"]
+
+
+def test_the_session_is_told_to_search_before_claiming_an_absence():
+    """The serious findings are absences, and an absence needs a search.
+
+    On ragnarok PR #3692, a free-form Claude Code session found 19 findings to Titan's 6,
+    and all three of its `blocking` items were absences: a function with zero callers, a
+    hang traced to a fake, a config no flavor overrides. Titan's session HAS Grep and Glob
+    — only `Bash` and the write/fetch tools are disallowed — so the gap was that nothing
+    told it to look.
+
+    Both rules also have to be unconditional: the verify-before-asserting rule used to
+    hang off `context_docs`, so a repo with no CLAUDE.md never saw it."""
+    from titan_plugin_github.models.review_enums import FileReadMode
+    from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
+    from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
+
+    bare = FocusContextBatch(
+        batch_id="deep_1",
+        files_context={
+            "a.py": FileContextEntry(path="a.py", read_mode=FileReadMode.HUNKS_ONLY, hunks=["x"])
+        },
+    )
+
+    instructions = build_findings_prompt_parts(bare)["instructions"]
+
+    assert "SEARCH the working tree" in instructions
+    assert "An absence claimed without a search is a guess" in instructions
+    assert "open it in the working tree and check" in instructions
+    # No project documents and no flagged questions on this batch, so neither rule may be
+    # gated behind those.
+    assert not bare.context_docs and not bare.scan_suspicions

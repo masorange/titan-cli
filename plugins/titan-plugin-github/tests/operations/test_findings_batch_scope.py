@@ -177,3 +177,24 @@ class TestPartition:
         )
 
         assert set(rejected[0]) == {"path", "reason", "title"}
+
+
+def test_a_skim_suspicion_puts_its_file_in_scope():
+    """Without this the first pass is thrown away.
+
+    The skim's suspicions name files that are NOT in the deep batch's files_context — the
+    session is told to open them in the working tree and settle the question. The scope
+    check (cov-002) would otherwise drop every finding that work leads to, silently, as a
+    path the batch was never shown."""
+    from titan_plugin_github.models.review_models import FocusContextBatch
+    from titan_plugin_github.operations.findings_operations import batch_scope_paths
+
+    batch = FocusContextBatch(
+        batch_id="deep_1",
+        scan_suspicions=[
+            {"path": "tests/core/security/test_vault.py", "note": "n", "suspicion": "s"},
+            {"path": "", "note": "n", "suspicion": "s"},
+        ],
+    )
+
+    assert batch_scope_paths(batch) == {"tests/core/security/test_vault.py"}

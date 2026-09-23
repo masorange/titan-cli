@@ -271,14 +271,64 @@ DEFAULT_REVIEW_PROFILE = ReviewProfile(
             ]
         ),
         ChecklistCategory.TEST_COVERAGE: ReviewAxisRule(patterns=["**/*test*", "**/*spec*"]),
+        # Named deliberately rather than left ruleless. An axis with no rule now applies
+        # to everything, so these three had to become a decision instead of an accident:
+        # concurrency is about a recognisable vocabulary, while "is this change slow" and
+        # "does this need documenting" are fair questions about any code and cost one
+        # prompt line each.
+        ChecklistCategory.CONCURRENCY: ReviewAxisRule(
+            patterns=[
+                "**/*async*",
+                "**/*await*",
+                "**/*coroutine*",
+                "**/*suspend*",
+                "**/*thread*",
+                "**/*concurrent*",
+                "**/*lock*",
+                "**/*mutex*",
+                "**/*semaphore*",
+                "**/*atomic*",
+                "**/*queue*",
+                "**/*worker*",
+                "**/*executor*",
+                "**/*scheduler*",
+                "**/*channel*",
+                "**/*flow*",
+                "**/*observable*",
+                "**/*stream*",
+            ]
+        ),
+        ChecklistCategory.PERFORMANCE: ReviewAxisRule(always_include=True),
+        ChecklistCategory.DOCUMENTATION: ReviewAxisRule(always_include=True),
         ChecklistCategory.API_CONTRACT: ReviewAxisRule(
             patterns=["**/*api*", "**/*schema*", "**/*model*", "**/*contract*"]
         ),
         ChecklistCategory.DATA_VALIDATION: ReviewAxisRule(
             patterns=["**/*validator*", "**/*request*", "**/*form*", "**/*serializer*"]
         ),
+        # The vocabulary of authentication code, not just the word "auth". Measured on
+        # ragnarok run `70777691`: a 38-file PR about credentials, sessions, OTP and
+        # magic links matched NONE of `auth`/`permission`/`security`/`payment`/`billing`,
+        # so the security axis was never asked about on the one PR that most needed it.
+        # These are generic names, not one project's: a repo that does not touch
+        # credentials matches none of them and loses nothing.
         ChecklistCategory.SECURITY: ReviewAxisRule(
-            patterns=["**/*auth*", "**/*permission*", "**/*security*", "**/*payment*", "**/*billing*"]
+            patterns=[
+                "**/*auth*",
+                "**/*credential*",
+                "**/*token*",
+                "**/*session*",
+                "**/*login*",
+                "**/*oauth*",
+                "**/*passkey*",
+                "**/*password*",
+                "**/*secret*",
+                "**/*crypt*",
+                "**/*permission*",
+                "**/*security*",
+                "**/*payment*",
+                "**/*billing*",
+            ]
         ),
     },
 )

@@ -69,6 +69,10 @@ class TestHeadlessResponse(unittest.TestCase):
             "You exceeded your current quota, please check your plan (insufficient_quota)",
             # Anthropic (claude)
             "Claude usage limit reached|1756290000",
+            # Anthropic again, and the one the list was missing: observed verbatim on
+            # 2026-09-22, exit 1 with this in stderr, reported to the user as a bare
+            # "exited with code 1" while the review was thrown away.
+            "You've hit your session limit \u00b7 resets 6:30pm (Europe/Madrid)",
         ]
         for text in signatures:
             with self.subTest(text=text):
@@ -86,6 +90,14 @@ class TestHeadlessResponse(unittest.TestCase):
     def test_quota_exhausted_false_on_unrelated_failure(self):
         r = HeadlessResponse(stdout="", stderr="model overloaded", exit_code=1)
         self.assertFalse(r.quota_exhausted)
+
+    def test_quota_exhausted_does_not_fire_on_an_unrelated_mention_of_limits(self):
+        """The patterns have to stay narrow: a failure about a token limit or a rate
+        limit is a different problem with a different remedy."""
+        for text in ("input length exceeds the context limit", "429 rate limit, retrying"):
+            with self.subTest(text=text):
+                r = HeadlessResponse(stdout="", stderr=text, exit_code=1)
+                self.assertFalse(r.quota_exhausted)
 
 
 # ── ClaudeHeadlessAdapter ─────────────────────────────────────────────────────

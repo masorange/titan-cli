@@ -162,6 +162,9 @@ def build_change_shape_lines(
     lines: list[str] = []
     for entry in plan.files:
         additions, deletions = churn.get(entry.path, (0, 0))
+        # Two labels, not three: there is no "another pass" any more. A deep tier that
+        # does not fit loses diff detail, not shared understanding (D-014), so every file
+        # is either read here or it is not read at all.
         read_by = "reviewed here" if entry.path in reviewed_paths else entry.tier.value
         lines.append(
             f"{entry.path} | role={entry.role} | {read_by} | +{additions}/-{deletions}"

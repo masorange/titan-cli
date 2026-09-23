@@ -202,7 +202,7 @@ class ReviewBudget(BaseModel):
     unit.
     """
 
-    max_deep_sessions: int
+    deep_files_per_session: int
     deep_max_prompt_chars: int
     scan_max_prompt_chars: int
     scan_max_files_per_batch: int

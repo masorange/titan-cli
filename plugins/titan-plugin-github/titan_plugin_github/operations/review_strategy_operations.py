@@ -321,16 +321,25 @@ def summarize_candidate_clusters(
 # five-tier table it replaces gave a 108-file PR and a 500-file PR the same 12 files
 # because HUGE was its last rung.
 #
-# `MAX_DEEP_SESSIONS` is the number that actually pays the bill - each deep read is a
-# full CLI session, and what it generates is the spend: measured 2026-09-22 on PR 251,
-# nine sessions produced 82k output tokens for $6.46 where one session over the same ten
-# files produced 26k for $2.52. Sessions are the unit because each one reasons from
-# scratch and, running independently, cannot share the prompt cache the single session
-# read 2M tokens from. (An earlier note here claimed a ~$0.26 per-session floor measured
-# by probing with a one-word prompt; that figure was almost entirely cache creation from
-# this repo's own CLAUDE.md and does not apply to review calls, which report no cache.)
-# Twelve keeps the spend at the level the old HUGE tier already cost.
-MAX_DEEP_SESSIONS = 12
+# How many deep files ONE session carries. It does not decide how many files get read:
+# a deep tier larger than this costs another session, never a dropped file. It was called
+# MAX_DEEP_SESSIONS, which said "sessions" while holding a count of FILES, and that lie
+# is how it survived D-001 as a coverage ceiling -- on ragnarok run `70777691` it sent 12
+# of 24 deep files to the skim.
+#
+# What it really defends is attention per file inside one call, plus wall-clock per call:
+# a session reasons about everything it was handed at once, so twelve files at
+# `effort=high` measured 310-367 s, and doubling that would put one call near the 1500 s
+# timeout ceiling. That is the unit, and the number is provisional against it (O-004).
+#
+# Sessions are the cost unit, not characters: measured 2026-09-22 on PR 251, nine sessions
+# produced 82k output tokens for $6.46 where one session over the same ten files produced
+# 26k for $2.52, because each session reasons from scratch and independent sessions cannot
+# share the prompt cache the single one read 2M tokens from. (An earlier note here claimed
+# a ~$0.26 per-session floor measured by probing with a one-word prompt; that figure was
+# almost entirely cache creation from this repo's own CLAUDE.md and does not apply to
+# review calls, which report no cache.)
+DEEP_FILES_PER_SESSION = 12
 
 # What the deep batch may be HANDED. It does not bound what the model then reads from the
 # worktree, which is the real cost - it only stops one prompt from being absurd.
@@ -381,7 +390,7 @@ def review_budget() -> ReviewBudget:
     and so a future per-project override has one place to land.
     """
     return ReviewBudget(
-        max_deep_sessions=MAX_DEEP_SESSIONS,
+        deep_files_per_session=DEEP_FILES_PER_SESSION,
         deep_max_prompt_chars=DEEP_MAX_PROMPT_CHARS,
         scan_max_prompt_chars=SCAN_MAX_PROMPT_CHARS,
         scan_max_files_per_batch=SCAN_MAX_FILES_PER_BATCH,
@@ -416,8 +425,9 @@ def build_deterministic_review_plan(
     """Decide what the deep session reads, without asking a model.
 
     With an ``attention_plan``, the DEEP tier IS the selection: every deep file is read,
-    in score order, and nothing else is. `max_deep_sessions` stops being a selection rule
-    and becomes the overflow guard it was always described as.
+    in score order, and nothing else is. `deep_files_per_session` does not appear here at
+    all -- it sizes the batches downstream, so a deep tier bigger than one session costs
+    another session rather than costing files.
 
     This replaced an AI planning call, and the measurement is why. On run 4fd7f345 that
     call spent 92,463 input tokens and 38.8 s choosing files -- and chose 7 of the 9 the
@@ -439,22 +449,18 @@ def build_deterministic_review_plan(
             if candidate.path not in deep_paths
         ]
     else:
-        selected = candidates[: budget.max_deep_sessions]
+        selected = candidates[: budget.deep_files_per_session]
         not_selected = [
             (candidate, "outside deterministic focus limit")
-            for candidate in candidates[budget.max_deep_sessions :]
+            for candidate in candidates[budget.deep_files_per_session :]
         ]
 
-    overflow: list[ScoredReviewCandidate] = []
-    if len(selected) > budget.max_deep_sessions:
-        overflow = selected[budget.max_deep_sessions :]
-        selected = selected[: budget.max_deep_sessions]
-        logger.warning(
-            "deep_tier_exceeds_session_budget",
-            deep_files=len(selected) + len(overflow),
-            max_deep_sessions=budget.max_deep_sessions,
-            not_read=sorted(candidate.path for candidate in overflow),
-        )
+    # No cut for a large deep tier. A deep tier bigger than one session becomes MORE
+    # sessions, not fewer files: `deep_files_per_session` sizes the batch downstream, and
+    # the overflow is what batching is for (D-012). This used to drop the surplus, and on
+    # ragnarok run `70777691` that sent 12 of 24 deep files to the skim -- a file the
+    # profile said to read in full got a glance at its diff instead, which is D-001's
+    # 12-file ceiling wearing a new name.
 
     focus_files = [
         FileReviewPlan(
@@ -476,15 +482,6 @@ def build_deterministic_review_plan(
                 detail=detail,
             )
         )
-    for candidate in overflow:
-        trimmed_excluded.append(
-            ExcludedFileEntry(
-                path=candidate.path,
-                reason=ExclusionReason.BUDGET_TRIMMED,
-                detail=f"deep, but beyond the {budget.max_deep_sessions}-file session limit",
-            )
-        )
-
     return ReviewPlan(
         focus_files=focus_files,
         review_axes=review_axes,
