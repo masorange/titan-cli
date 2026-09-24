@@ -1,14 +1,17 @@
 """
 Headless adapter for Grok Build CLI (grok).
 
-Uses `grok -p <prompt> --output-format streaming-messages-json` for
+Uses `grok --prompt-file <file> --output-format streaming-messages-json` for
 non-interactive execution.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Optional
 
 from .base import (
@@ -161,7 +164,11 @@ class GrokHeadlessAdapter:
             cmd += ["--effort", effort]
         if model is not None:
             cmd += ["-m", model]
-        cmd += ["-p", _HEADLESS_PREAMBLE + prompt]
+        # The prompt goes in a private temp file (`--prompt-file`): grok does not read it
+        # from stdin, and on argv a single string over Linux's 131,072-byte MAX_ARG_STRLEN
+        # fails the exec with E2BIG -- a deep-review prompt runs ~115k characters.
+        prompt_file = _write_prompt_file(_HEADLESS_PREAMBLE + prompt)
+        cmd += ["--prompt-file", str(prompt_file)]
 
         try:
             result = subprocess.run(
@@ -183,6 +190,8 @@ class GrokHeadlessAdapter:
                 stderr="grok command not found",
                 exit_code=127,
             )
+        finally:
+            prompt_file.unlink(missing_ok=True)
 
         return self._parse_stream(result)
 
@@ -287,3 +296,15 @@ class GrokHeadlessAdapter:
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
+
+
+def _write_prompt_file(text: str) -> Path:
+    """Write the prompt to a file only the current user can read, and return its path.
+
+    The prompt carries the PR's code, so it is not left world-readable in /tmp; the
+    caller deletes it once grok exits.
+    """
+    fd, path = tempfile.mkstemp(prefix="titan-grok-", suffix=".txt")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    return Path(path)

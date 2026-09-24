@@ -1,8 +1,8 @@
 """
 Headless adapter for Gemini CLI (gemini).
 
-Uses Gemini's prompt flag in one-shot mode (`--prompt`) so Titan can run
-Gemini without opening an interactive session.
+Uses Gemini's prompt flag in one-shot mode (`--prompt ""`), with the prompt on stdin,
+so Titan can run Gemini without opening an interactive session.
 """
 
 import re
@@ -65,12 +65,17 @@ class GeminiHeadlessAdapter:
         effort: Optional[str] = None,
         model: Optional[str] = None,
     ) -> HeadlessResponse:
-        cmd = ["gemini", "--prompt", prompt]
+        # An empty `--prompt` selects headless mode and the real prompt goes on stdin,
+        # which gemini reads and prepends to it. On argv a single string over Linux's
+        # 131,072-byte MAX_ARG_STRLEN fails the exec with E2BIG -- a deep-review prompt
+        # runs ~115k characters.
+        cmd = ["gemini", "--prompt", ""]
         if model is not None:
             cmd += ["-m", model]
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 cwd=cwd,

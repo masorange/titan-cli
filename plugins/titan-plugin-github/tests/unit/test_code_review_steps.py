@@ -61,6 +61,9 @@ class _FakeTextual:
     def show_diff_stat(self, *_args, **_kwargs):
         pass
 
+    def collapsible_list(self, _entries, classes=""):
+        pass
+
     class _Loading:
         def __enter__(self):
             return self
@@ -1667,13 +1670,13 @@ def test_ai_review_findings_splits_an_oversized_timeout_fallback_instead_of_drop
             (0, '[{"title": "Second half", "path": "border.py"}]'),
         ]
     )
-    # Two ~1200-char hunks build a 5,207-char fallback prompt; each half builds 3,998. The
+    # Two ~1200-char hunks build a 5,893-char fallback prompt; each half builds 4,613. The
     # budget sits between them, so splitting is the only way through. These figures move
     # whenever the instruction block changes — if this fails after a prompt edit, re-measure
     # rather than widening the budget until it passes.
     ctx.data["review_diff"] = _multi_hunk_diff("border.py", hunks=2, hunk_chars=1200)
     ctx.data["review_budget"] = ctx.data["review_budget"].model_copy(
-        update={"deep_max_prompt_chars": 4500}
+        update={"deep_max_prompt_chars": 5200}
     )
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
@@ -1856,7 +1859,10 @@ def test_a_question_with_a_finding_is_confirmed_and_never_also_dismissed():
             super().__init__()
             self.dims: list[str] = []
 
-        def dim_text(self, text):
+        def bold_text(self, text):
+            self.dims.append(text)
+
+        def text(self, text):
             self.dims.append(text)
 
     ctx = Mock()
@@ -1867,8 +1873,9 @@ def test_a_question_with_a_finding_is_confirmed_and_never_also_dismissed():
 
     code_review_steps._render_settled_questions(ctx, [batch], dismissed, findings)
 
-    assert "First-pass questions: 1 confirmed · 1 dismissed" in ctx.textual.dims
-    assert not any(line.startswith("  dismissed a.kt") for line in ctx.textual.dims)
+    assert "Triage questions · 1 confirmed · 1 dismissed" in ctx.textual.dims
+    assert not any("checked" in line for line in ctx.textual.dims)
+    assert any("fine" in line for line in ctx.textual.dims)
     assert not ctx.textual.warnings  # nothing left unanswered
 
 
@@ -1978,3 +1985,139 @@ def test_the_review_config_renders_with_a_profile_written_for_the_old_pipeline(t
     )
 
     assert any("candidate_scoring" in warning for warning in ctx.textual.warnings)
+
+
+def test_ignored_keys_repeated_under_every_entry_fold_into_one_phrase():
+    """A checklist written for an older Titan carried the same removed key under nine
+    items, and each printed its own warning line."""
+    from titan_plugin_github.operations.review_config_merge_operations import summarize_ignored_keys
+
+    keys = ["candidate_scoring", "change_patterns"] + [
+        f"items.{item}.relevant_file_patterns" for item in ("security", "performance", "concurrency")
+    ]
+
+    assert summarize_ignored_keys(keys) == [
+        "candidate_scoring, change_patterns",
+        "items.*.relevant_file_patterns (3×)",
+    ]
+    assert summarize_ignored_keys([]) == []
+
+
+def test_the_checklist_bolds_exactly_the_axes_review_plan_sends():
+    """Bold must mean what Review Plan asks the deep session about, not a guess."""
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import resolve_file_attention
+    from titan_plugin_github.operations.review_profile_operations import select_review_axes
+    from titan_plugin_github.checklists.defaults import DEFAULT_REVIEW_CHECKLIST
+    from titan_plugin_github.review_profiles import DEFAULT_REVIEW_PROFILE
+
+    class _Recording(_FakeTextual):
+        def __init__(self):
+            super().__init__()
+            self.bold: list[str] = []
+            self.dim: list[str] = []
+
+        def bold_text(self, text):
+            self.bold.append(text)
+
+        def dim_text(self, text):
+            self.dim.append(text)
+
+    files = [MockChangedFile(path="src/app/Service.kt", status="modified", additions=5, deletions=1)]
+    ctx = WorkflowContext()
+    ctx.textual = _Recording()
+    ctx.data["change_manifest"] = ChangeManifest(
+        pr=PullRequestManifest(number=1, title="t", base="main", head="f", author="a", description=""),
+        files=files,
+        total_additions=5,
+        total_deletions=1,
+    )
+    checklist = list(DEFAULT_REVIEW_CHECKLIST)
+
+    selected = code_review_steps._selected_review_axes(ctx, checklist, DEFAULT_REVIEW_PROFILE)
+    code_review_steps._render_review_checklist(ctx, checklist, selected)
+
+    deep = resolve_file_attention(files, DEFAULT_REVIEW_PROFILE).paths_for(AttentionTier.DEEP)
+    expected = set(select_review_axes(checklist, deep, DEFAULT_REVIEW_PROFILE))
+    names = {item.id: item.name or str(item.id) for item in checklist}
+    assert set(ctx.textual.bold) == {names[axis] for axis in expected}
+    assert set(ctx.textual.dim) == {names[i.id] for i in checklist if i.id not in expected}
+
+
+def test_triage_questions_highlight_inline_code_without_breaking_markup():
+    """A model's `identifier` becomes bold; brackets in it must stay literal text."""
+    from rich.text import Text
+
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    rendered = code_review_steps._highlight_inline_code(
+        escape_markup("split `RGKWRONGOLDSPASSWORD` into `codes[0]` - intended?")
+    )
+
+    assert "[bold]RGKWRONGOLDSPASSWORD[/bold]" in rendered
+    assert Text.from_markup(rendered).plain == "split RGKWRONGOLDSPASSWORD into codes[0] - intended?"
+
+
+def test_the_repo_file_check_accepts_real_files_and_refuses_escapes(tmp_path):
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "Router.kt").write_text("x", encoding="utf-8")
+    (tmp_path.parent / "outside.kt").write_text("x", encoding="utf-8")
+
+    is_repo_file = code_review_steps._repo_file_checker(str(tmp_path))
+
+    assert is_repo_file("app/Router.kt")
+    assert not is_repo_file("app/Missing.kt")
+    assert not is_repo_file("app")
+    assert not is_repo_file("../outside.kt")
+    assert not is_repo_file(str(tmp_path / "app" / "Router.kt"))
+    assert code_review_steps._repo_file_checker(None) is None
+
+
+def test_context_files_are_grouped_by_how_the_session_receives_them():
+    from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
+    from titan_plugin_github.operations.context_resolution_operations import (
+        group_batch_files_by_delivery,
+    )
+
+    batch = FocusContextBatch(
+        batch_id="deep_1",
+        files_context={
+            "a.kt": FileContextEntry(path="a.kt", hunks=["@@ +1 @@"], worktree_reference=True),
+            "b.kt": FileContextEntry(path="b.kt", hunks=["@@ -1 @@"], removals_only=True),
+            "c.kt": FileContextEntry(path="c.kt", worktree_reference=True),
+        },
+    )
+
+    assert group_batch_files_by_delivery(batch) == {
+        "inline": ["a.kt"],
+        "removals_only": ["b.kt"],
+        "reference": ["c.kt"],
+    }
+
+
+def test_a_cli_without_a_schema_flag_can_still_dismiss_a_triage_question():
+    """Run bcee6ab3 (codex): the prompt asked for a bare findings array, so the model had
+    nowhere to write "checked, it is fine" and all 9 triage questions read as unanswered."""
+    from titan_plugin_github.operations.findings_operations import (
+        parse_dismissals,
+        parse_findings_response,
+    )
+
+    stdout = (
+        '{"findings": [{"title": "Bug", "path": "a.kt"}],'
+        ' "dismissed": [{"path": "b.kt", "reason": "checked the caller"}]}'
+    )
+
+    match parse_findings_response(stdout, structured=False):
+        case ClientSuccess(data=findings):
+            assert findings == [{"title": "Bug", "path": "a.kt"}]
+        case other:
+            raise AssertionError(other)
+    assert parse_dismissals(stdout, {"b.kt"}) == [{"path": "b.kt", "reason": "checked the caller"}]
+
+    # A model that ignores the shape and answers with the old bare array still parses.
+    match parse_findings_response('[{"title": "Bug", "path": "a.kt"}]', structured=False):
+        case ClientSuccess(data=findings):
+            assert findings == [{"title": "Bug", "path": "a.kt"}]
+        case other:
+            raise AssertionError(other)

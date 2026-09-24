@@ -348,3 +348,103 @@ def test_change_shape_lines_tolerate_a_file_missing_from_the_manifest():
     assert lines == ["core.py | role=business_logic | deep | +0/-0"]
 
 
+
+
+class TestDisplayGrouping:
+    """What Review Plan shows: groups by tier and reason, with labels a person reads."""
+
+    def test_role_ids_read_as_words(self):
+        from titan_plugin_github.operations.attention_operations import humanize_role
+
+        assert humanize_role("entrypoints_or_ui") == "Entrypoints / UI"
+        assert humanize_role("business_logic") == "Business logic"
+        assert humanize_role("api_clients") == "API clients"
+
+    def test_reasons_that_are_not_roles_get_their_own_labels(self):
+        from titan_plugin_github.operations.attention_operations import describe_attention_reason
+
+        assert describe_attention_reason("role:business_logic") == "Business logic"
+        assert describe_attention_reason("role_not_configured:infra") == "Infra (no tier configured)"
+        assert describe_attention_reason("deleted") == "Deleted"
+        assert describe_attention_reason("something_new") == "something_new"
+
+    def test_groups_keep_tier_order_and_put_the_largest_group_first(self):
+        from titan_plugin_github.operations.attention_operations import group_attention_for_display
+
+        plan = resolve_file_attention(
+            [
+                _file("app/services/a.py"),
+                _file("app/services/b.py"),
+                _file("app/screens/s.py"),
+                ChangedFileEntry(path="app/services/old.py", status=FileChangeStatus.DELETED),
+            ],
+            _profile(always_deep=["app/screens/**"]),
+        )
+
+        groups = [(g.tier, g.label, len(g.paths)) for g in group_attention_for_display(plan)]
+
+        assert groups == [
+            (AttentionTier.DEEP, "Business logic", 2),
+            (AttentionTier.DEEP, "Always read in full (project rule)", 1),
+            (AttentionTier.GLANCE, "Deleted", 1),
+        ]
+
+    def test_long_paths_keep_the_module_and_the_directories_that_differ(self):
+        from titan_plugin_github.operations.attention_operations import split_display_path
+
+        assert split_display_path("app/src/main/kotlin/com/x/ui/textfields/State.kt") == (
+            "State.kt",
+            "app/…/ui/textfields",
+        )
+        assert split_display_path("app/res/strings.xml") == ("strings.xml", "app/res")
+        assert split_display_path("README.md") == ("README.md", "")
+
+
+class TestStaticResources:
+    """Images, fonts and translatable text never reach the deep session."""
+
+    def test_detection_covers_android_ios_and_web_conventions(self):
+        from titan_plugin_github.operations.manifest_operations import is_static_resource
+
+        for path in (
+            "app/src/main/res/values/strings.xml",
+            "app/src/main/res/values-ca/plurals.xml",
+            "app/src/main/res/drawable/ic_ok.xml",
+            "app/src/main/res/mipmap-hdpi/ic_launcher.webp",
+            "App/Assets.xcassets/Logo.imageset/Contents.json",
+            "App/es.lproj/Localizable.strings",
+            "web/public/logo.svg",
+            "web/src/locales/es.json",
+            "lib/l10n/app_es.arb",
+            "assets/fonts/Inter.ttf",
+        ):
+            assert is_static_resource(path), path
+
+        for path in (
+            "app/src/main/res/layout/activity_main.xml",
+            "app/src/main/res/navigation/nav_graph.xml",
+            "app/src/main/AndroidManifest.xml",
+            "app/src/main/kotlin/ui/StringsProvider.kt",
+            "config/settings.json",
+        ):
+            assert not is_static_resource(path), path
+
+    def test_a_ui_role_glob_cannot_send_them_deep(self):
+        profile = _profile(
+            file_roles={"entrypoints_or_ui": ["**/res/**"]},
+            attention={"entrypoints_or_ui": AttentionTier.DEEP},
+        )
+        plan = resolve_file_attention(
+            [_file("app/src/main/res/values/strings.xml", is_static_resource=True)], profile
+        )
+
+        assert plan.files[0].tier == AttentionTier.GLANCE
+        assert plan.files[0].reason == "static_resource"
+
+    def test_always_deep_still_wins(self):
+        profile = _profile(always_deep=["**/strings.xml"])
+        plan = resolve_file_attention(
+            [_file("app/src/main/res/values/strings.xml", is_static_resource=True)], profile
+        )
+
+        assert plan.files[0].tier == AttentionTier.DEEP

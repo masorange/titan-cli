@@ -1,8 +1,9 @@
 """
 Headless adapter for Antigravity CLI (agy).
 
-Uses `agy --print <prompt>` for non-interactive execution, with
-`--output-format json --json-schema` when a structured response is required.
+Uses `agy --input-format stream-json --output-format stream-json` with the prompt on
+stdin for non-interactive execution, plus `--json-schema` when a structured response is
+required.
 """
 
 import json
@@ -113,24 +114,27 @@ class AntigravityHeadlessAdapter:
         model: Optional[str] = None,
     ) -> HeadlessResponse:
         self._ensure_read_permissions()
-        # --output-format json on EVERY call: the envelope is the only place agy
-        # reports `usage`, so requesting it only alongside a schema left plain-text
-        # calls with no token figure at all. Verified 2026-09-22 that the envelope is
-        # emitted without `--json-schema`.
-        cmd = ["agy", "--output-format", "json"]
+        # stream-json on both sides, on EVERY call. Input: agy's text mode only takes the
+        # prompt as the `--print` argument, and Linux caps one argv string at 131,072
+        # bytes (MAX_ARG_STRLEN) -- a deep-review prompt runs ~115k characters and fails
+        # with E2BIG once it carries non-ASCII text. stream-json reads it from stdin
+        # instead. Output: its final `result` event is the same envelope `--output-format
+        # json` prints (response, structured_output, status, usage), and the envelope is
+        # the only place agy reports `usage`. Verified live 2026-09-24.
+        cmd = ["agy", "--input-format", "stream-json", "--output-format", "stream-json"]
         if json_schema is not None:
             cmd += ["--json-schema", json.dumps(json_schema)]
         if effort is not None:
             cmd += ["--effort", effort]
         if model is not None:
             cmd += ["--model", model]
-        # --print consumes the very next argv token as its prompt, so any flag
-        # placed after it would be swallowed as the prompt. It must come last,
-        # immediately followed by the real prompt.
-        cmd += ["--print", _HEADLESS_PREAMBLE + prompt]
+        stream_input = json.dumps(
+            {"event": "user", "message": {"content": _HEADLESS_PREAMBLE + prompt}}
+        )
         try:
             result = subprocess.run(
                 cmd,
+                input=stream_input + "\n",
                 capture_output=True,
                 text=True,
                 cwd=cwd,
@@ -193,7 +197,7 @@ class AntigravityHeadlessAdapter:
     def _parse_envelope(
         self, result: subprocess.CompletedProcess, *, expect_structured: bool
     ) -> HeadlessResponse:
-        """Unwrap the `--output-format json` envelope, which every call now receives.
+        """Unwrap the result envelope, which every call now receives.
 
         With a schema the validated answer is under `structured_output` and becomes
         stdout as compact JSON so downstream parsing sees no surrounding prose; it falls
@@ -204,10 +208,7 @@ class AntigravityHeadlessAdapter:
         the error path - a failed turn still consumed tokens.
         """
         stderr = result.stderr.strip()
-        try:
-            envelope = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            envelope = None
+        envelope = _result_envelope(result.stdout)
 
         if not isinstance(envelope, dict):
             # An agy old enough not to emit an envelope, or a failure that printed
@@ -277,3 +278,33 @@ class AntigravityHeadlessAdapter:
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
+
+
+def _result_envelope(stdout: str) -> Optional[dict]:
+    """The envelope from agy's output: the `result` event of a stream, or a JSON object.
+
+    A stream is one event per line and the envelope is the payload of the LAST `result`
+    event. A whole-stdout JSON object is what `--output-format json` prints, accepted too
+    so a run captured in that format still parses.
+    """
+    try:
+        whole = json.loads(stdout)
+    except json.JSONDecodeError:
+        whole = None
+    if isinstance(whole, dict):
+        if whole.get("event") == "result" and isinstance(whole.get("result"), dict):
+            return whole["result"]
+        return whole
+
+    envelope = None
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("event") == "result" and isinstance(event.get("result"), dict):
+            envelope = event["result"]
+    return envelope

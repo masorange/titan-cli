@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any
+from typing import Any, Callable, Optional
 
 from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 
@@ -114,7 +114,7 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
 ## Instructions
 {instructions}
 
-Respond ONLY with a valid JSON array matching this schema. Do not include any prose before or after the JSON.
+Respond ONLY with a valid JSON object of this shape. Do not include any prose before or after the JSON.
 {schema}
 """
 
@@ -335,9 +335,17 @@ def _annotate_diff_hunk(hunk: str) -> str:
 
 
 def _finding_schema() -> str:
+    """The response shape the prompt asks for, as text, for CLIs without a schema flag.
+
+    The same `{findings, dismissed}` object `findings_json_schema()` enforces where the
+    CLI can. It used to be a bare findings array, which left a model with nowhere to
+    write "checked, it is fine": on run bcee6ab3 codex answered all 9 triage questions
+    implicitly and every one showed as UNANSWERED.
+    """
     return json.dumps(
-        [
-            {
+        {
+            "findings": [
+                {
                 "severity": "<blocking|important|nit>",
                 "category": "<problem category>",
                 "path": "<file path>",
@@ -347,8 +355,15 @@ def _finding_schema() -> str:
                 "evidence": "<exact supporting snippet>",
                 "snippet": "<short anchor snippet from the target line or null>",
                 "suggested_comment": "<ready-to-post GitHub review comment>",
-            }
-        ],
+                }
+            ],
+            "dismissed": [
+                {
+                    "path": "<file a triage question named>",
+                    "reason": "<one sentence: what you checked, or why you could not>",
+                }
+            ],
+        },
         indent=2,
     )
 
@@ -461,9 +476,16 @@ def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[li
 
     When `structured` is True (the adapter enforced `findings_json_schema()`), stdout is
     the schema envelope `{"findings": [...]}` and this unwraps the `findings` key.
-    Otherwise stdout is free text and this falls back to extracting a bare JSON array.
+    Otherwise stdout is free text: the envelope the prompt asks for is taken when it is
+    there, and a bare JSON array -- what a model that ignores the shape, or the reformat
+    retry, returns -- is still accepted.
     """
     if not structured:
+        match extract_json_payload(stdout, kind="object"):
+            case ClientSuccess(data=payload) if isinstance(payload, dict) and isinstance(
+                payload.get("findings"), list
+            ):
+                return ClientSuccess(data=payload["findings"])
         return extract_json_payload(stdout, kind="array")
     match extract_json_payload(stdout, kind="object"):
         case ClientSuccess(data=payload) if isinstance(payload, dict) and "findings" in payload:
@@ -523,6 +545,7 @@ def partition_findings_by_batch_scope(
     raw_findings: list,
     batch_paths: set[str],
     manifest_paths: set[str],
+    is_repo_file: Optional[Callable[[str], bool]] = None,
 ) -> tuple[list, list[dict]]:
     """Split a batch's findings into those it was entitled to make, and the rest.
 
@@ -538,6 +561,14 @@ def partition_findings_by_batch_scope(
       legitimately anchor it; it is a hallucinated or mangled path.
     - `outside_batch`: a real file of the PR that this batch was not shown. The
       dangerous one, precisely because it CAN anchor.
+
+    One path outside the PR is KEPT: a file that exists in the repository
+    (`is_repo_file`). The deep session reads the working tree, and what it finds there
+    is the damage a PR does beyond its own diff -- on ragnarok PR #3688 the one blocking
+    defect was RouterLoginScreen.kt, untouched by the PR and broken by its new shared
+    password rule, and this filter threw it away as a hallucination. It cannot anchor
+    inline (the file has no hunks), so it publishes in the review body. A path that is
+    not a real file is still `unknown_path`.
 
     A path that differs from a batch path only by separator or "./" prefix is accepted
     and rewritten to the batch's spelling, so a correct finding is never lost to
@@ -566,6 +597,10 @@ def partition_findings_by_batch_scope(
         normalized = normalize_finding_path(path)
         if normalized in canonical:
             kept.append(_with_path(finding, canonical[normalized]))
+            continue
+
+        if normalized not in manifest and is_repo_file is not None and is_repo_file(normalized):
+            kept.append(_with_path(finding, normalized))
             continue
 
         rejected.append({

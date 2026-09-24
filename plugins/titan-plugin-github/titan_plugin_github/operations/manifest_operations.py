@@ -60,9 +60,27 @@ _LOCKFILE_NAMES = {
     "pubspec.lock",
 }
 
+# Images, fonts and translatable text. What changed in them is the whole diff: a string
+# reworded, a drawable recoloured. No code around them can hide a defect, so they are
+# never worth a deep read -- and a project role such as `**/res/**` under UI must not be
+# able to send them there.
+_STATIC_RESOURCE_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".tiff", ".heic", ".avif",
+    ".ttf", ".otf", ".woff", ".woff2", ".eot",
+    ".strings", ".stringsdict", ".xcstrings",
+    ".po", ".pot", ".arb", ".resx", ".xliff", ".xlf",
+}
+_STATIC_RESOURCE_PATH_PATTERNS = [
+    r"(^|/)res/(drawable|mipmap)[^/]*/",
+    r"(^|/)res/values[^/]*/(strings|plurals)\.xml$",
+    r"\.xcassets/",
+    r"(^|/)(locales?|i18n|l10n|translations)/.+\.(json|ya?ml|properties)$",
+]
+
 _TEST_REGEXES = [re.compile(p) for p in _TEST_PATH_PATTERNS]
 _DOC_REGEXES = [re.compile(p) for p in _DOC_PATH_PATTERNS]
 _GENERATED_REGEXES = [re.compile(p) for p in _GENERATED_PATH_PATTERNS]
+_STATIC_RESOURCE_REGEXES = [re.compile(p) for p in _STATIC_RESOURCE_PATH_PATTERNS]
 
 
 def is_test_file(path: str, review_profile: Optional[ReviewProfile] = None) -> bool:
@@ -100,6 +118,13 @@ def is_config_file(path: str) -> bool:
 
 def is_lockfile(path: str) -> bool:
     return Path(path).name.lower() in _LOCKFILE_NAMES
+
+
+def is_static_resource(path: str) -> bool:
+    """Image, font or translatable text: a file whose diff is all there is to judge."""
+    if Path(path).suffix.lower() in _STATIC_RESOURCE_SUFFIXES:
+        return True
+    return any(rx.search(path) for rx in _STATIC_RESOURCE_REGEXES)
 
 
 def is_rename_only(file_change: UIFileChange) -> bool:
@@ -140,6 +165,7 @@ def build_change_manifest(
                 is_generated=is_generated_file(f.path),
                 is_config=is_config_file(f.path),
                 is_lockfile=is_lockfile(f.path),
+                is_static_resource=is_static_resource(f.path),
                 is_rename_only=is_rename_only(f),
             )
         )

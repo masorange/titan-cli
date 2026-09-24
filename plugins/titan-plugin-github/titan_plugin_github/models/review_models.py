@@ -37,6 +37,7 @@ class ChangedFileEntry(BaseModel):
     is_generated: bool = Field(default=False, description="Generated or vendored file")
     is_config: bool = Field(default=False, description="Configuration file")
     is_lockfile: bool = Field(default=False, description="Dependency lockfile")
+    is_static_resource: bool = Field(default=False, description="Image, font or translatable text")
     is_rename_only: bool = Field(default=False, description="Renamed without meaningful edits")
 
     @property

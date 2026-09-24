@@ -198,3 +198,43 @@ def test_a_triage_suspicion_puts_its_file_in_scope():
     )
 
     assert batch_scope_paths(batch) == {"tests/core/security/test_vault.py"}
+
+
+class TestRealFilesOutsideThePr:
+    """What a PR breaks beyond its own diff is kept, not dropped as a hallucination."""
+
+    def test_a_real_repository_file_outside_the_pr_is_kept(self):
+        findings = [{"path": "app/router/RouterLoginScreen.kt", "line": 143, "title": "regression"}]
+
+        kept, rejected = partition_findings_by_batch_scope(
+            findings,
+            {"app/PasswordState.kt"},
+            {"app/PasswordState.kt"},
+            is_repo_file=lambda path: path == "app/router/RouterLoginScreen.kt",
+        )
+
+        assert [f["path"] for f in kept] == ["app/router/RouterLoginScreen.kt"]
+        assert rejected == []
+
+    def test_a_path_that_is_no_file_is_still_rejected(self):
+        kept, rejected = partition_findings_by_batch_scope(
+            [{"path": "app/Invented.kt", "line": 1, "title": "x"}],
+            {"app/PasswordState.kt"},
+            {"app/PasswordState.kt"},
+            is_repo_file=lambda _path: False,
+        )
+
+        assert kept == []
+        assert rejected[0]["reason"] == "unknown_path"
+
+    def test_a_pr_file_this_batch_was_not_shown_is_still_rejected(self):
+        # The existence check must not reopen the misattribution the guard exists for.
+        kept, rejected = partition_findings_by_batch_scope(
+            [{"path": "app/Other.kt", "line": 1, "title": "x"}],
+            {"app/PasswordState.kt"},
+            {"app/PasswordState.kt", "app/Other.kt"},
+            is_repo_file=lambda _path: True,
+        )
+
+        assert kept == []
+        assert rejected[0]["reason"] == "outside_batch"

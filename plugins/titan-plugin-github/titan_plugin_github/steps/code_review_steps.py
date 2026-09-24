@@ -5,6 +5,7 @@ This module contains steps for reviewing pull requests authored by others using
 AI analysis combined with project-specific skill guidelines.
 """
 import os
+from pathlib import Path
 import re
 import threading
 import time
@@ -281,22 +282,6 @@ def _load_referenced_commit_contexts(
             contexts_by_thread[thread.thread_id] = referenced_contexts
 
     return contexts_by_thread
-
-
-def _show_review_plan_summary(ctx: WorkflowContext, plan) -> None:
-    """Render what the deep session reads and which axes it is asked about."""
-    if plan.focus_files:
-        ctx.textual.dim_text(f"deep review ({len(plan.focus_files)} file(s)):")
-        ctx.textual.text(" ")
-        for file_plan in plan.focus_files:
-            ctx.textual.dim_text(f"{file_plan.path} · {', '.join(file_plan.reasons)}")
-
-    ctx.textual.text(" ")
-    if plan.review_axes:
-        ctx.textual.dim_text("review axes:")
-        ctx.textual.text(" ")
-        for axis in plan.review_axes:
-            ctx.textual.dim_text(str(axis))
 
 
 def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payload: dict) -> tuple[dict, list[dict]]:
@@ -1327,6 +1312,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
     config_count = sum(1 for f in manifest.files if f.is_config)
     generated_count = sum(1 for f in manifest.files if f.is_generated)
     lockfile_count = sum(1 for f in manifest.files if f.is_lockfile)
+    static_resource_count = sum(1 for f in manifest.files if f.is_static_resource)
     rename_only_count = sum(1 for f in manifest.files if f.is_rename_only)
     ctx.textual.success_text(
         f"✓ {len(manifest.files)} files analysed"
@@ -1340,6 +1326,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
         config=config_count,
         generated=generated_count,
         lockfiles=lockfile_count,
+        static_resources=static_resource_count,
         rename_only=rename_only_count,
     )
     ctx.textual.end_step("success")
@@ -1468,7 +1455,7 @@ def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
         offered_checklist_ids=[str(item.id) for item in checklist],
     )
 
-    _render_review_checklist(ctx, checklist)
+    _render_review_checklist(ctx, checklist, _selected_review_axes(ctx, checklist, review_profile))
     ctx.textual.end_step("success")
     return Success("Review checklist built", metadata={"review_checklist": checklist})
 
@@ -1548,7 +1535,6 @@ def build_review_plan(ctx: WorkflowContext) -> WorkflowResult:
         review_axes=len(plan.review_axes),
         attention_counts=attention_plan.counts,
     )
-    _show_review_plan_summary(ctx, plan)
     ctx.textual.end_step("success")
     return Success(
         "Review plan built",
@@ -1579,113 +1565,200 @@ def _get_review_profile(ctx: WorkflowContext) -> ReviewProfile:
 
 
 def _render_attention_plan(ctx: WorkflowContext, plan) -> None:
-    """Show how much attention each part of the PR is worth, and what is skipped.
+    """Show how the PR splits by attention, grouped by tier and by why.
 
-    The skipped count is the line that matters. A review that looked at 12 of 108 files
-    used to print a green tick and nothing else, so it read as a review of the PR; the
-    denominator here is the reviewable files, not the total, because counting generated
-    output as covered flatters the result.
+    The counts line comes first, and "not reviewed" is always on it: a review that
+    looked at 12 of 108 files used to print a green tick and nothing else. Files sit
+    behind one collapsed row per group, so the step reads as the shape of the PR
+    instead of a wall of paths; the tier rows are open so the groups show at once.
     """
+    from titan_cli.ui.tui.widgets import CollapsibleEntry
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
     from ..models.review_enums import AttentionTier
+    from ..operations.attention_operations import group_attention_for_display, split_display_path
 
     counts = plan.counts
     ctx.textual.dim_text(
-        f"Attention · {counts[AttentionTier.DEEP.value]} to read in full · "
+        f"{counts[AttentionTier.DEEP.value]} to read in full · "
         f"{counts[AttentionTier.GLANCE.value]} at a glance · "
         f"{counts[AttentionTier.SKIP.value]} not reviewed"
     )
-    skipped = plan.paths_for(AttentionTier.SKIP)
-    if skipped:
-        shown = ", ".join(skipped[:3])
-        more = f" (+{len(skipped) - 3} more)" if len(skipped) > 3 else ""
-        ctx.textual.dim_text(f"  not reviewed: {shown}{more}")
+
+    tier_titles = {
+        AttentionTier.DEEP: "Read in full",
+        AttentionTier.GLANCE: "At a glance",
+        AttentionTier.SKIP: "Not reviewed",
+    }
+    groups = group_attention_for_display(plan)
+    entries = []
+    for tier in AttentionTier:
+        children = []
+        for group in (g for g in groups if g.tier == tier):
+            body = []
+            for path in group.paths:
+                name, directory = split_display_path(path)
+                body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
+            children.append(
+                CollapsibleEntry(title=escape_markup(group.label), right=str(len(group.paths)), body=body)
+            )
+        if children:
+            entries.append(
+                CollapsibleEntry(
+                    title=tier_titles.get(tier, tier.value),
+                    right=str(counts[tier.value]),
+                    style="bold",
+                    children=children,
+                    expanded=True,
+                )
+            )
+    ctx.textual.text(" ")
+    ctx.textual.collapsible_list(entries)
 
 
 def _render_review_config(ctx: WorkflowContext, profile_resolution, checklist_resolution) -> None:
-    """Show the EFFECTIVE review configuration, and what the project changed in it.
+    """Show where the review configuration came from, and what in it Titan ignored.
 
-    A project file is merged onto Titan's defaults per key, which is only trustworthy
-    if you can see the result: before this, the merge outcome existed solely as a debug
-    log line, and a project file that silently degraded the review looked identical to
-    one that worked. So the counts are shown always, the project's own changes are named
-    when there are any, and a `remove:` target that matched nothing is a visible warning
-    rather than a line in a file that quietly does nothing.
+    What the merge replaced key by key, and how many rules of each kind are in force,
+    go to the debug log rather than the screen: a reviewer cannot act on "replaced
+    file_roles.tests", and the list ran to a dozen lines on a project that overrides
+    everything. What stays visible is what signals a broken project file -- a `remove:`
+    target that matched nothing, and keys Titan does not read -- folded into one line per
+    file so a stale file does not bury the step.
     """
-    profile = profile_resolution.profile
+    from ..operations.review_config_merge_operations import summarize_ignored_keys
+
     ctx.textual.dim_text(
         f"Review config · profile: {profile_resolution.source} · "
         f"checklist: {checklist_resolution.source}"
     )
-    ctx.textual.dim_text(
-        f"{len(checklist_resolution.checklist)} checklist item(s) · "
-        f"{len(profile.review_axes)} axis rule(s) · "
-        f"{len(profile.file_roles)} file role(s) · "
-        f"{len(profile.always_deep)} always-deep pattern(s)"
-    )
-
     for label, resolution in (("profile", profile_resolution), ("checklist", checklist_resolution)):
         report = resolution.report
-        if not report.is_empty:
-            changes = []
-            if report.replaced:
-                changes.append(f"replaced {', '.join(report.replaced)}")
-            if report.added:
-                changes.append(f"added {', '.join(report.added)}")
-            if report.removed:
-                changes.append(f"removed {', '.join(report.removed)}")
-            ctx.textual.dim_text(f"  {label}: " + " · ".join(changes))
         for target in report.unknown_removals:
             ctx.textual.warning_text(
                 f"  {label}: 'remove: {target}' matched nothing — check the spelling"
             )
-        for key in getattr(report, "ignored_keys", []) or []:
+        ignored = summarize_ignored_keys(getattr(report, "ignored_keys", []) or [])
+        if ignored:
             # Unknown covers both a typo and a key Titan no longer reads (the scoring
             # keys an older profile still carries), so the message names both.
             ctx.textual.warning_text(
-                f"  {label}: '{key}' ignored — not a setting Titan reads (misspelled, or removed)"
+                f"  {label}: ignored, not settings Titan reads (misspelled or removed): "
+                + "; ".join(ignored)
             )
 
 
-def _render_review_checklist(ctx: WorkflowContext, checklist: list) -> None:
-    """Render the axes this project offers; which apply is decided by the plan."""
-    ctx.textual.success_text(f"✓ {len(checklist)} checklist categories offered")
+def _selected_review_axes(ctx: WorkflowContext, checklist: list, review_profile: ReviewProfile) -> set | None:
+    """The axes the deep session will be asked about, or None without a manifest.
+
+    Resolved with the same two functions Review Plan uses, so what is bold here is what
+    that step sends. Computed here because this is where the categories are listed; the
+    list alone does not tell a reviewer which of them this PR triggers.
+    """
+    manifest = ctx.get("change_manifest")
+    if not manifest:
+        return None
+    from ..models.review_enums import AttentionTier
+    from ..operations.attention_operations import resolve_file_attention
+    from ..operations.review_profile_operations import select_review_axes
+
+    attention_plan = resolve_file_attention(manifest.files, review_profile)
+    deep_paths = attention_plan.paths_for(AttentionTier.DEEP)
+    return set(select_review_axes(checklist, deep_paths, review_profile))
+
+
+def _render_review_checklist(ctx: WorkflowContext, checklist: list, selected: set | None) -> None:
+    """Render the categories this project offers, the ones this PR applies in bold."""
+    if selected is None:
+        ctx.textual.success_text(f"✓ {len(checklist)} checklist categories offered")
+    else:
+        applied = sum(1 for item in checklist if item.id in selected)
+        ctx.textual.success_text(
+            f"✓ {len(checklist)} checklist categories offered · {applied} apply to this PR"
+        )
     ctx.textual.text(" ")
     for item in checklist:
         # Show the human-readable name, not the snake_case category id.
-        ctx.textual.dim_text(item.name or str(item.id))
+        name = item.name or str(item.id)
+        if selected is not None and item.id in selected:
+            ctx.textual.bold_text(name)
+        else:
+            ctx.textual.dim_text(name)
 
 
 def _show_review_context_batches(ctx: WorkflowContext, batches: list) -> None:
-    """Render batch composition for resolved review context."""
-    for batch in batches:
-        file_paths = list(getattr(batch, "files_context", {}).keys())
-        related_count = len(getattr(batch, "related_files", {}) or {})
-        degraded = getattr(batch, "degraded_context", False)
+    """Show what each deep session receives, grouped by HOW it receives each file.
 
-        ctx.textual.text(" ")
-        # Keep the raw batch_id as the label: the findings step references the same
-        # ids ("Reviewing batch_1…", "✓ batch_1 complete"), so the user can correlate.
-        ctx.textual.bold_text(f"{batch.batch_id} · {len(file_paths)} file(s)")
-        if related_count:
-            # Named, not included: when the working tree is readable these are pointers
-            # the session opens if it needs them. Saying "included" was true only while
-            # their content was pasted into the prompt.
-            ctx.textual.dim_text(
-                f"  +{related_count} related file(s) pointed out for the session to open"
+    A flat list of every path repeated what Review Plan had just shown and hid the only
+    thing this step adds: which files arrive with their diff, which lost their added
+    lines to the prompt budget, and which are only named for a triage question.
+    """
+    from titan_cli.ui.tui.widgets import CollapsibleEntry
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    from ..operations.attention_operations import split_display_path
+    from ..operations.context_resolution_operations import (
+        CONTEXT_GROUP_LABELS,
+        group_batch_files_by_delivery,
+    )
+
+    for batch in batches:
+        groups = group_batch_files_by_delivery(batch)
+        children = []
+        for key, paths in groups.items():
+            body = []
+            for path in paths:
+                name, directory = split_display_path(path)
+                body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
+            children.append(
+                CollapsibleEntry(title=CONTEXT_GROUP_LABELS[key], right=str(len(paths)), body=body)
             )
-        if degraded:
+        related_count = len(getattr(batch, "related_files", {}) or {})
+        if related_count:
+            # Named, not included: the session opens them in the worktree if it needs them.
+            children.append(
+                CollapsibleEntry(title="Related files pointed out", right=str(related_count))
+            )
+        ctx.textual.text(" ")
+        ctx.textual.collapsible_list([
+            CollapsibleEntry(
+                title=f"Deep session · {len(batch.files_context)} file(s)",
+                # Kept: the findings step names the same id, so the two can be matched.
+                right=batch.batch_id,
+                style="bold",
+                children=children,
+                expanded=True,
+            )
+        ])
+        if getattr(batch, "degraded_context", False):
             ctx.textual.dim_text("  context reduced to fit the AI prompt size limit")
-        for path in file_paths:
-            ctx.textual.dim_text(f"  {path}")
 
 
 def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
-    """Render the start of a findings batch review."""
+    """Render the start of a findings batch review: a count, the files behind a fold.
+
+    Review Plan already listed every deep file, grouped; repeating 18 full paths here
+    pushed the part of this step that is new -- the result -- off the screen.
+    """
+    from titan_cli.ui.tui.widgets import CollapsibleEntry
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    from ..operations.attention_operations import split_display_path
+
     file_paths = list(getattr(batch, "files_context", {}).keys())
-    ctx.textual.text(" ")
-    ctx.textual.bold_text(f"Reviewing {batch.batch_id} ({len(file_paths)} file(s))")
+    body = []
     for path in file_paths:
-        ctx.textual.dim_text(f"  {path}")
+        name, directory = split_display_path(path)
+        body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
+    ctx.textual.text(" ")
+    ctx.textual.collapsible_list([
+        CollapsibleEntry(
+            title=f"Reading {len(file_paths)} file(s) in full",
+            right=batch.batch_id,
+            style="bold",
+            body=body,
+        )
+    ])
 
 
 def _retry_findings_batch_reformat(
@@ -1884,15 +1957,57 @@ def _render_settled_questions(ctx: WorkflowContext, batches, dismissed: list, fi
         unanswered=len(unanswered),
         unanswered_paths=unanswered,
     )
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
     ctx.textual.text(" ")
-    ctx.textual.dim_text(
-        f"First-pass questions: {len(confirmed)} confirmed · {len(dismissed_paths)} dismissed"
+    ctx.textual.bold_text(
+        f"Triage questions · {len(confirmed)} confirmed · {len(dismissed_paths)} dismissed"
         + (f" · {len(unanswered)} unanswered" if unanswered else "")
     )
+    for path in sorted(confirmed):
+        ctx.textual.text(" ")
+        ctx.textual.text(_display_file_label(path))
+        ctx.textual.success_text("  ↳ confirmed — reported as a finding")
     for item in dismissed:
-        ctx.textual.dim_text(f"  dismissed {item['path']} · {item.get('reason', '')}")
+        ctx.textual.text(" ")
+        ctx.textual.text(_display_file_label(item["path"]))
+        reason = _highlight_inline_code(escape_markup(item.get("reason", "") or "no reason given"))
+        ctx.textual.text(f"  ↳ [dim]dismissed:[/dim] {reason}")
     for path in unanswered:
-        ctx.textual.warning_text(f"  UNANSWERED {path} — the session did not settle this one")
+        ctx.textual.text(" ")
+        ctx.textual.text(_display_file_label(path))
+        ctx.textual.warning_text("  ↳ unanswered — the session did not settle this one")
+
+
+def _display_file_label(path: str) -> str:
+    """`Name.kt  app/…/dir` as markup: the name bold, where it lives dimmed."""
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    from ..operations.attention_operations import split_display_path
+
+    name, directory = split_display_path(path)
+    label = f"[bold]{escape_markup(name)}[/bold]"
+    return f"{label}  [dim]{escape_markup(directory)}[/dim]" if directory else label
+
+
+def _render_out_of_scope_findings(ctx: WorkflowContext, rejected: list[dict]) -> None:
+    """Name every finding dropped for its path, not only how many.
+
+    Shown, not just logged: a model naming files it was never given is a signal about
+    the prompt -- and a finding about a real file outside the PR may be exactly the
+    regression the PR causes, so the reviewer has to be able to see it was dropped.
+    """
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    ctx.textual.text(" ")
+    ctx.textual.warning_text(f"Discarded {len(rejected)} finding(s) about files the review was not given:")
+    for item in rejected:
+        where = "not in this PR" if item.get("reason") == "unknown_path" else "not in this batch"
+        ctx.textual.text(
+            f"  {_display_file_label(item.get('path', ''))} [dim]· {where}[/dim]"
+        )
+        if item.get("title"):
+            ctx.textual.text(f"  ↳ {_highlight_inline_code(escape_markup(item['title']))}")
 
 
 def _render_findings_batch_result(
@@ -2070,18 +2185,17 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
 
     batch_count = len(package.batches)
     files_count = sum(len(batch.files_context) for batch in package.batches)
-    related_count = sum(len(batch.related_files) for batch in package.batches)
 
     ctx.textual.success_text(
-        f"✓ Context: {files_count} focus file(s) in {batch_count} batch(es)"
-        + (f" · {related_count} related file(s) pointed out" if related_count else "")
+        f"✓ Context ready · {files_count} file(s)"
+        + (f" in {batch_count} sessions" if batch_count > 1 else "")
     )
     # Shown, because a review's judgement depends on which project rules it was told to
     # read, and "no project context" is the thing worth noticing when a finding argues
     # against a convention this repo chose on purpose.
     context_docs = package.batches[0].context_docs if package.batches else []
     if context_docs:
-        ctx.textual.dim_text(f"project context to read first: {', '.join(context_docs)}")
+        ctx.textual.dim_text(f"Project rules read first: {', '.join(context_docs)}")
     else:
         ctx.textual.dim_text(
             "no project context documents found — the review judges the diff against "
@@ -2109,7 +2223,9 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
 # ============================================================================
 
 
-def _scoped_batch_outcome(batch, raw: list, manifest_paths: Optional[set]) -> dict:
+def _scoped_batch_outcome(
+    batch, raw: list, manifest_paths: Optional[set], project_root: Optional[str] = None
+) -> dict:
     """Drop findings about files this batch never showed the model.
 
     The anchoring layer can resolve a line in ANY file of the PR, so a finding whose
@@ -2129,8 +2245,23 @@ def _scoped_batch_outcome(batch, raw: list, manifest_paths: Optional[set]) -> di
     )
 
     kept, rejected = partition_findings_by_batch_scope(
-        raw, batch_scope_paths(batch), manifest_paths or set()
+        raw,
+        batch_scope_paths(batch),
+        manifest_paths or set(),
+        is_repo_file=_repo_file_checker(project_root),
     )
+    outside_pr = sorted(
+        {
+            finding.get("path")
+            for finding in kept
+            if isinstance(finding, dict)
+            and finding.get("path")
+            and finding.get("path") not in (manifest_paths or set())
+            and finding.get("path") not in batch_scope_paths(batch)
+        }
+    )
+    if outside_pr:
+        logger.info("findings_outside_pr_kept", batch_id=batch.batch_id, paths=outside_pr)
     if rejected:
         logger.warning(
             "findings_outside_batch_scope",
@@ -2145,7 +2276,27 @@ def _scoped_batch_outcome(batch, raw: list, manifest_paths: Optional[set]) -> di
         "raw": kept,
         "detail": "",
         "out_of_scope": len(rejected),
+        "out_of_scope_findings": rejected,
     }
+
+
+def _repo_file_checker(project_root: Optional[str]):
+    """A predicate for "this relative path is a real file in the reviewed tree", or None.
+
+    Resolved and required to stay under the root, so a model's `../../etc/passwd`
+    cannot be dressed up as a repository file.
+    """
+    if not project_root:
+        return None
+    root = Path(project_root).resolve()
+
+    def _is_repo_file(relative: str) -> bool:
+        if not relative or Path(relative).is_absolute():
+            return False
+        candidate = (root / relative).resolve()
+        return candidate.is_relative_to(root) and candidate.is_file()
+
+    return _is_repo_file
 
 
 def _log_parsed_findings(batch_id: str, raw: list, dismissed: list[dict]) -> None:
@@ -2276,7 +2427,7 @@ def _execute_findings_batch(
             dismissed = _settled_questions(response.stdout, batch)
             _log_parsed_findings(batch.batch_id, raw, dismissed)
             return {
-                **_scoped_batch_outcome(batch, raw, manifest_paths),
+                **_scoped_batch_outcome(batch, raw, manifest_paths, project_root),
                 "dismissed": dismissed,
             }
         case ClientSuccess(data=raw):
@@ -2297,7 +2448,7 @@ def _execute_findings_batch(
                 findings_count=len(raw),
             )
             _log_parsed_findings(batch.batch_id, raw, [])
-            return _scoped_batch_outcome(batch, raw, manifest_paths)
+            return _scoped_batch_outcome(batch, raw, manifest_paths, project_root)
         case _:
             logger.debug("findings_batch_reformat_failed", batch_id=batch.batch_id)
             return {"status": "failed", "raw": None, "detail": "parse error"}
@@ -2496,18 +2647,37 @@ def ai_review_triage(ctx: WorkflowContext) -> WorkflowResult:
 
 
 def _render_triage_notes(ctx: WorkflowContext, notes: list[dict], suspicions: list[dict]) -> None:
-    """Show what the triage saw, with the flagged files apart from the quiet ones."""
+    """Show what the triage flagged and WHY, one block per file, the quiet files named.
+
+    The reason is the part a reviewer reads, so it gets a line of its own under the file
+    name instead of trailing a full path on the same wrapped line; the path is shortened
+    the way Review Plan shortens it, and inline `code` in the question is highlighted.
+    """
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    from ..operations.attention_operations import split_display_path
+
     if not notes:
         return
+
     if suspicions:
         ctx.textual.text(" ")
-        ctx.textual.dim_text("worth opening:")
+        ctx.textual.bold_text(f"Worth opening · {len(suspicions)} of {len(notes)} file(s)")
         for item in suspicions:
-            ctx.textual.dim_text(f"  {item['path']} · {item['suspicion']}")
+            ctx.textual.text(" ")
+            ctx.textual.text(_display_file_label(item["path"]))
+            ctx.textual.text(f"  ↳ {_highlight_inline_code(escape_markup(item['suspicion']))}")
+
     quiet = [item for item in notes if not item.get("suspicion")]
     if quiet:
         ctx.textual.text(" ")
-        ctx.textual.dim_text(f"nothing stood out in {len(quiet)} file(s)")
+        names = ", ".join(escape_markup(split_display_path(item["path"])[0]) for item in quiet)
+        ctx.textual.dim_text(f"Nothing stood out · {names}")
+
+
+def _highlight_inline_code(text: str) -> str:
+    """`code` spans from a model's prose -> bold, so identifiers stand out on screen."""
+    return re.sub(r"`([^`\n]+)`", r"[bold]\1[/bold]", text)
 
 
 @declare_ai_usage(
@@ -2641,6 +2811,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     change_manifest = ctx.get("change_manifest")
     manifest_paths = {f.path for f in change_manifest.files} if change_manifest else set()
     findings_out_of_scope = 0
+    out_of_scope_findings: list[dict] = []
     # Questions the session opened and found unfounded. Kept apart from findings because
     # "checked, it is fine" is an answer, and without it a deliberate dismissal is
     # indistinguishable from a question nobody looked at.
@@ -2811,6 +2982,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     dismissed_questions.extend(resolved_outcome.get("dismissed") or [])
                     reviewed_paths.update(resolved_batch.files_context)
                     findings_out_of_scope += resolved_outcome.get("out_of_scope", 0)
+                    out_of_scope_findings.extend(resolved_outcome.get("out_of_scope_findings") or [])
                     aggregated_raw.extend(resolved_outcome["raw"])
                     _render_findings_batch_result(
                         ctx,
@@ -2866,16 +3038,16 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.data["raw_findings"] = aggregated_raw or build_default_findings()
     ctx.data["ai_findings_failed"] = findings_failed
-    ctx.textual.success_text(f"✓ AI returned {len(ctx.data['raw_findings'])} raw finding(s)")
+    if batches_attempted > 1:
+        # With one batch its own line already said this.
+        ctx.textual.success_text(f"✓ AI returned {len(ctx.data['raw_findings'])} raw finding(s)")
     if findings_failed:
         ctx.textual.warning_text("Some findings batches failed or were skipped due to budget limits.")
     if findings_out_of_scope:
         # Shown, not just logged: a model naming files it was never given is a signal
         # about the prompt, and it is the first thing to look at if packed batches ever
         # start losing real findings.
-        ctx.textual.dim_text(
-            f"Discarded {findings_out_of_scope} finding(s) about files their batch never saw."
-        )
+        _render_out_of_scope_findings(ctx, out_of_scope_findings)
     ctx.data["findings_out_of_scope"] = findings_out_of_scope
     _render_settled_questions(ctx, batches, dismissed_questions, ctx.data["raw_findings"])
     ctx.textual.end_step("success")

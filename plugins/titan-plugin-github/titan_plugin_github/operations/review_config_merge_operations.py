@@ -70,6 +70,30 @@ class ReviewConfigMergeReport:
         }
 
 
+def summarize_ignored_keys(keys: list[str]) -> list[str]:
+    """Fold ignored keys into a few phrases a person can read at a glance.
+
+    A project file written for an older Titan repeats the same removed setting under
+    every entry (`items.<id>.relevant_file_patterns` nine times), and one warning line
+    per occurrence buried the rest of the step. Top-level keys are named as they are;
+    a nested key becomes one wildcard path with the number of entries that carry it.
+    """
+    top_level: list[str] = []
+    nested: dict[tuple[str, str], int] = {}
+    for key in keys:
+        parts = key.split(".")
+        if len(parts) >= 3:
+            group = (parts[0], parts[-1])
+            nested[group] = nested.get(group, 0) + 1
+        else:
+            top_level.append(key)
+
+    phrases = [", ".join(top_level)] if top_level else []
+    for (container, setting), count in nested.items():
+        phrases.append(f"{container}.*.{setting} ({count}×)")
+    return phrases
+
+
 def merge_review_profile_data(
     base: dict, project: dict
 ) -> tuple[dict, ReviewConfigMergeReport]:

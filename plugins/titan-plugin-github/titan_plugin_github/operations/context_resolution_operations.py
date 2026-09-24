@@ -68,7 +68,9 @@ def resolve_file_read_access(
         FileReadAccess with the verdict and a reason for display
     """
     if worktree_path:
-        return FileReadAccess(True, "worktree", f"worktree at PR head: {worktree_path}")
+        return FileReadAccess(
+            True, "worktree", f"worktree at PR head: .../{Path(worktree_path).name}"
+        )
 
     if not head_sha or not checkout_sha:
         return FileReadAccess(
@@ -794,3 +796,33 @@ def resolve_context_docs(
         patterns_without_a_file=max(0, dropped),
     )
     return resolved
+
+
+# How a file reaches the deep session, in the order they are listed on screen.
+CONTEXT_GROUP_LABELS = {
+    "inline": "Diff in the prompt, file open in the worktree",
+    "removals_only": "Only the removed lines (the rest did not fit)",
+    "reference": "Named for a triage question, opened on demand",
+    "named": "Named only",
+}
+
+
+def group_batch_files_by_delivery(batch: FocusContextBatch) -> dict[str, list[str]]:
+    """Every file of a batch under how the session receives it, empty groups left out.
+
+    The same classification `deep_session_built` counts, so the screen and the log
+    agree: a file with hunks (not removals-only) is inline, a removals-only file lost
+    its added lines to the budget, and a worktree reference with no hunks is a file the
+    session was pointed at -- a triage question -- rather than handed.
+    """
+    groups: dict[str, list[str]] = {key: [] for key in CONTEXT_GROUP_LABELS}
+    for path, entry in batch.files_context.items():
+        if entry.removals_only:
+            groups["removals_only"].append(path)
+        elif entry.hunks:
+            groups["inline"].append(path)
+        elif entry.worktree_reference:
+            groups["reference"].append(path)
+        else:
+            groups["named"].append(path)
+    return {key: paths for key, paths in groups.items() if paths}

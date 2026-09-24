@@ -1,7 +1,7 @@
 """
 Headless adapter for OpenCode CLI (opencode).
 
-Uses `opencode run --format json <prompt>` for non-interactive execution.
+Uses `opencode run --format json` with the prompt on stdin for non-interactive execution.
 Parses JSONL event output to extract the agent's response.
 """
 
@@ -119,10 +119,13 @@ class OpenCodeHeadlessAdapter:
         if model is not None:
             # OpenCode expects "provider/model" (e.g. "anthropic/claude-sonnet-4-5").
             cmd += ["-m", model]
-        cmd.append(_HEADLESS_PREAMBLE + prompt)
+        # The prompt goes on stdin: `opencode run` with no message reads it from there,
+        # and on argv a single string over Linux's 131,072-byte MAX_ARG_STRLEN fails the
+        # exec with E2BIG -- a deep-review prompt runs ~115k characters.
         try:
             result = subprocess.run(
                 cmd,
+                input=_HEADLESS_PREAMBLE + prompt,
                 capture_output=True,
                 text=True,
                 cwd=cwd,
@@ -131,8 +134,8 @@ class OpenCodeHeadlessAdapter:
                 # opencode draws a status bar by writing to /dev/tty directly,
                 # bypassing the captured pipes and corrupting Titan's own TUI.
                 # A new session has no controlling terminal, so that open fails
-                # and opencode runs truly headless.
-                stdin=subprocess.DEVNULL,
+                # and opencode runs truly headless. stdin is the prompt pipe, never
+                # the terminal.
                 start_new_session=True,
             )
             text, usage = self._parse_json_output(result.stdout)
@@ -193,9 +196,11 @@ class OpenCodeHeadlessAdapter:
             if event_type == "step_finish":
                 # The only event that reports consumption, and the only one that gives
                 # a price: opencode resolves cost itself per provider, so there is
-                # nothing to derive. Last one wins - a multi-step run reports per step
-                # and the closing step is the cumulative one.
-                usage = self._usage_from_step(event) or usage
+                # nothing to derive. Each step reports ITS OWN turn, so a multi-step run
+                # is the sum. Measured 2026-09-24 on a two-read call: step 1 input
+                # 26,664, step 2 input 29,154. Keeping only the last step, as this used
+                # to, reported a 306 s deep review (run a00923fa) as 89k in / 664 out.
+                usage = _add_usage(usage, self._usage_from_step(event))
                 continue
             if event_type != "text":
                 continue
@@ -245,3 +250,28 @@ class OpenCodeHeadlessAdapter:
             source="opencode_step_finish",
         )
         return usage if usage.total_tokens is not None or usage.has_cost else None
+
+
+def _add_usage(total: Optional[CliUsage], step: Optional[CliUsage]) -> Optional[CliUsage]:
+    """Sum two usages field by field; a field neither reported stays None, never 0."""
+    if step is None:
+        return total
+    if total is None:
+        return step
+
+    def _sum(a, b):
+        if a is None and b is None:
+            return None
+        return (a or 0) + (b or 0)
+
+    return CliUsage(
+        input_tokens=_sum(total.input_tokens, step.input_tokens),
+        output_tokens=_sum(total.output_tokens, step.output_tokens),
+        reasoning_tokens=_sum(total.reasoning_tokens, step.reasoning_tokens),
+        cache_read_tokens=_sum(total.cache_read_tokens, step.cache_read_tokens),
+        cache_write_tokens=_sum(total.cache_write_tokens, step.cache_write_tokens),
+        reported_total_tokens=_sum(total.reported_total_tokens, step.reported_total_tokens),
+        cost_usd=_sum(total.cost_usd, step.cost_usd),
+        model_reported=step.model_reported or total.model_reported,
+        source=step.source or total.source,
+    )

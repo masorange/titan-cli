@@ -367,7 +367,8 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("my prompt", cwd="/repo", timeout=45)
 
         mock_run.assert_called_once_with(
-            ["gemini", "--prompt", "my prompt"],
+            ["gemini", "--prompt", ""],
+            input="my prompt",
             capture_output=True,
             text=True,
             cwd="/repo",
@@ -380,7 +381,8 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("my prompt", json_schema={"type": "object"})
 
         mock_run.assert_called_once_with(
-            ["gemini", "--prompt", "my prompt"],
+            ["gemini", "--prompt", ""],
+            input="my prompt",
             capture_output=True,
             text=True,
             cwd=None,
@@ -406,7 +408,8 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("my prompt", disallowed_tools=["Bash", "Agent"])
 
         mock_run.assert_called_once_with(
-            ["gemini", "--prompt", "my prompt"],
+            ["gemini", "--prompt", ""],
+            input="my prompt",
             capture_output=True,
             text=True,
             cwd=None,
@@ -422,7 +425,8 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("my prompt", effort="medium")
 
         mock_run.assert_called_once_with(
-            ["gemini", "--prompt", "my prompt"],
+            ["gemini", "--prompt", ""],
+            input="my prompt",
             capture_output=True,
             text=True,
             cwd=None,
@@ -456,13 +460,14 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
         kwargs = mock_run.call_args.kwargs
         self.assertEqual(
             mock_run.call_args.args[0],
-            ["opencode", "run", "--format", "json", _OPENCODE_PREAMBLE + "my prompt"],
+            ["opencode", "run", "--format", "json"],
         )
+        # On stdin, never argv: one argv string over 131,072 bytes fails with E2BIG.
+        self.assertEqual(kwargs["input"], _OPENCODE_PREAMBLE + "my prompt")
         self.assertEqual(kwargs["cwd"], "/repo")
         self.assertEqual(kwargs["timeout"], 45)
         # Detached from the controlling tty so opencode cannot draw its
         # status bar over Titan's TUI via /dev/tty.
-        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
         self.assertTrue(kwargs["start_new_session"])
 
     @patch("subprocess.run")
@@ -618,6 +623,10 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
 
 # ── AntigravityHeadlessAdapter ────────────────────────────────────────────────
 
+def _agy_stream_input(prompt: str) -> str:
+    return json.dumps({"event": "user", "message": {"content": _HEADLESS_PREAMBLE + prompt}}) + "\n"
+
+
 class TestAntigravityHeadlessAdapter(unittest.TestCase):
 
     def setUp(self):
@@ -650,7 +659,8 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
 
         mock_run.assert_called_once_with(
-            ["agy", "--output-format", "json", "--print", _HEADLESS_PREAMBLE + "review this"],
+            ["agy", "--input-format", "stream-json", "--output-format", "stream-json"],
+            input=_agy_stream_input("review this"),
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -660,19 +670,34 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertTrue(response.succeeded)
 
     @patch("subprocess.run")
-    def test_print_flag_is_last_and_immediately_precedes_prompt(self, mock_run):
-        # --print consumes the next argv token as its prompt; any flag placed
-        # after it would be swallowed. Every option must come before it.
+    def test_prompt_goes_on_stdin_never_argv(self, mock_run):
+        # One argv string over 131,072 bytes fails with E2BIG; a deep-review prompt is
+        # ~115k characters. stream-json input carries it on stdin.
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
-        self.adapter.execute(
-            "the prompt",
-            json_schema={"type": "object"},
-            effort="high",
-            model="gemini-3-pro",
-        )
+        prompt = "ñ" * 140_000
+        self.adapter.execute(prompt, json_schema={"type": "object"}, effort="high", model="gemini-3-pro")
 
         called_cmd = mock_run.call_args.args[0]
-        self.assertEqual(called_cmd[-2:], ["--print", _HEADLESS_PREAMBLE + "the prompt"])
+        self.assertFalse(any(prompt in arg for arg in called_cmd))
+        self.assertNotIn("--print", called_cmd)
+        self.assertEqual(mock_run.call_args.kwargs["input"], _agy_stream_input(prompt))
+
+    @patch("subprocess.run")
+    def test_the_result_event_of_a_stream_is_the_envelope(self, mock_run):
+        stream = "\n".join([
+            json.dumps({"event": "init", "init": {"cwd": "/tmp"}}),
+            json.dumps({"event": "step_update", "step_update": {"text_delta": "ok"}}),
+            json.dumps({"event": "result", "result": {
+                "status": "SUCCESS", "response": "ignored", "structured_output": {"findings": [1]},
+                "usage": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+            }}),
+        ])
+        mock_run.return_value = MagicMock(stdout=stream, stderr="", returncode=0)
+
+        response = self.adapter.execute("prompt", json_schema={"type": "object"})
+
+        self.assertEqual(json.loads(response.stdout), {"findings": [1]})
+        self.assertEqual(response.usage.input_tokens, 10)
 
     @patch("subprocess.run")
     def test_execute_strips_ansi_codes(self, mock_run):
@@ -710,7 +735,8 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, json_schema=schema)
 
         mock_run.assert_called_once_with(
-            ["agy", "--output-format", "json", "--json-schema", json.dumps(schema), "--print", _HEADLESS_PREAMBLE + "review this"],
+            ["agy", "--input-format", "stream-json", "--output-format", "stream-json", "--json-schema", json.dumps(schema)],
+            input=_agy_stream_input("review this"),
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -929,12 +955,12 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
 
-        mock_run.assert_called_once_with(
-            _GROK_BASE_CMD + ["-p", _GROK_PREAMBLE + "review this"],
-            capture_output=True,
-            text=True,
-            cwd="/tmp",
-            timeout=30,
+        called_cmd = mock_run.call_args.args[0]
+        self.assertEqual(called_cmd[: len(_GROK_BASE_CMD)], _GROK_BASE_CMD)
+        self.assertEqual(called_cmd[-2], "--prompt-file")
+        self.assertEqual(
+            mock_run.call_args.kwargs,
+            {"capture_output": True, "text": True, "cwd": "/tmp", "timeout": 30},
         )
         self.assertEqual(response.stdout, "pong")
         self.assertTrue(response.succeeded)
@@ -951,7 +977,30 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertEqual(called_cmd[called_cmd.index("--permission-mode") + 1], "dontAsk")
 
     @patch("subprocess.run")
-    def test_prompt_flag_is_last_and_immediately_precedes_prompt(self, mock_run):
+    def test_prompt_goes_in_a_private_file_that_is_removed_afterwards(self, mock_run):
+        # One argv string over 131,072 bytes fails with E2BIG, and grok does not read
+        # its prompt from stdin, so it travels in a file only this user can read.
+        seen = {}
+
+        def _run(cmd, **_kwargs):
+            path = Path(cmd[cmd.index("--prompt-file") + 1])
+            seen["path"] = path
+            seen["text"] = path.read_text(encoding="utf-8")
+            seen["mode"] = path.stat().st_mode & 0o777
+            return MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
+
+        mock_run.side_effect = _run
+        prompt = "ñ" * 140_000
+
+        self.adapter.execute(prompt)
+
+        self.assertEqual(seen["text"], _GROK_PREAMBLE + prompt)
+        self.assertEqual(seen["mode"], 0o600)
+        self.assertFalse(seen["path"].exists())
+        self.assertFalse(any(prompt in arg for arg in mock_run.call_args.args[0]))
+
+    @patch("subprocess.run")
+    def test_prompt_file_flag_comes_last(self, mock_run):
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
 
         self.adapter.execute(
@@ -963,7 +1012,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         )
 
         called_cmd = mock_run.call_args.args[0]
-        self.assertEqual(called_cmd[-2:], ["-p", _GROK_PREAMBLE + "the prompt"])
+        self.assertEqual(called_cmd[-2], "--prompt-file")
 
     @patch("subprocess.run")
     def test_execute_with_model_and_effort(self, mock_run):
@@ -973,9 +1022,8 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         called_cmd = mock_run.call_args.args[0]
         self.assertEqual(
-            called_cmd,
-            _GROK_BASE_CMD
-            + ["--effort", "low", "-m", "grok-4.6", "-p", _GROK_PREAMBLE + "prompt"],
+            called_cmd[:-2],
+            _GROK_BASE_CMD + ["--effort", "low", "-m", "grok-4.6"],
         )
 
     @patch("subprocess.run")
@@ -1273,6 +1321,22 @@ class TestModelListing(unittest.TestCase):
                 adapter = get_headless_adapter(cli_name)
                 with patch("subprocess.run", return_value=self._stdout("")):
                     self.assertIsInstance(adapter.list_models(), list)
+
+
+class TestCodexPromptGoesOnStdin(unittest.TestCase):
+    """A deep-review prompt is ~115k chars; one argv string over 131,072 bytes fails with E2BIG."""
+
+    @patch("subprocess.run")
+    def test_prompt_is_piped_and_never_an_argument(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+        prompt = "ñ" * 140_000
+
+        CodexHeadlessAdapter().execute(prompt, model="gpt-5")
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertEqual(called_cmd[-1], "-")
+        self.assertNotIn(prompt, called_cmd)
+        self.assertEqual(mock_run.call_args.kwargs["input"], prompt)
 
 
 class TestCodexModelListing:
@@ -1757,6 +1821,33 @@ class TestOpenCodeUsageReporting(unittest.TestCase):
 
         self.assertEqual(usage.cost_usd, 0.0)
         self.assertTrue(usage.has_cost)
+
+    @patch("subprocess.run")
+    def test_a_multi_step_run_is_the_sum_of_its_steps(self, mock_run):
+        """Each step_finish reports its own turn (measured: 26,664 then 29,154 input on a
+        two-read call); keeping only the last one under-reported a whole deep review."""
+        def _step(inp, out, read, cost):
+            return json.dumps({"type": "step_finish", "part": {
+                "tokens": {"total": inp + out, "input": inp, "output": out,
+                           "cache": {"write": 0, "read": read}},
+                "cost": cost,
+            }})
+
+        stream = "\n".join([
+            _step(26664, 39, 1280, 0.01),
+            json.dumps({"type": "tool_use", "part": {"tool": "read"}}),
+            json.dumps({"type": "text", "part": {"text": "ok"}}),
+            _step(29154, 5, 1280, 0.02),
+        ])
+        mock_run.return_value = MagicMock(stdout=stream, stderr="", returncode=0)
+
+        usage = self.adapter.execute("prompt").usage
+
+        self.assertEqual(usage.input_tokens, 26664 + 29154)
+        self.assertEqual(usage.output_tokens, 44)
+        self.assertEqual(usage.cache_read_tokens, 2560)
+        self.assertAlmostEqual(usage.cost_usd, 0.03)
+        self.assertEqual(usage.cache_write_tokens, 0)
 
     @patch("subprocess.run")
     def test_stream_without_step_finish_reports_no_usage(self, mock_run):

@@ -26,7 +26,7 @@ def codex_models_cache_path() -> Path:
 
 class CodexHeadlessAdapter:
     """
-    Runs Codex CLI in headless mode via `codex exec --json --ephemeral <prompt>`.
+    Runs Codex CLI in headless mode via `codex exec --json --ephemeral -`, prompt on stdin.
 
     Uses flags for non-interactive execution:
     - --json: machine-readable JSONL output
@@ -125,10 +125,14 @@ class CodexHeadlessAdapter:
         cmd = ["codex", "exec", "--json", "--ephemeral"]
         if model is not None:
             cmd += ["-m", model]
-        cmd.append(prompt)
+        # `-` reads the prompt from stdin. On argv, a single string over Linux's 131,072-byte
+        # MAX_ARG_STRLEN fails the exec with E2BIG before codex starts, and a deep-review
+        # prompt runs ~115k characters -- over the limit once it carries non-ASCII text.
+        cmd.append("-")
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 cwd=cwd,

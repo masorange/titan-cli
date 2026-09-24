@@ -79,6 +79,8 @@ def resolve_file_attention(
     2. **Lockfiles and rename-only changes** — `skip`. Neither can carry a reviewable
        defect: one is machine-resolved dependency arithmetic, the other moves a file
        without changing what it does.
+    2b. **Images, fonts and translatable text** — `glance`, whatever their role. The
+       diff is the whole change; there is nothing around it to open.
     3. **The role's configured tier** — the ordinary path.
     4. **`glance`** — when the role is not in the map.
 
@@ -123,6 +125,17 @@ def resolve_file_attention(
         if changed.is_rename_only:
             entries.append(
                 FileAttention(changed.path, AttentionTier.SKIP, role, "rename_only")
+            )
+            continue
+
+        if changed.is_static_resource:
+            # Glance at most, whatever the role says. Placed after `always_deep` (the
+            # project's explicit hatch) and before the role tier, because a role glob is
+            # usually a directory: ragnarok's `**/res/**` under UI sent strings.xml and
+            # drawables to the deep session, where they cost the prompt room the code
+            # needed and can hide nothing the diff does not already show.
+            entries.append(
+                FileAttention(changed.path, AttentionTier.GLANCE, role, "static_resource")
             )
             continue
 
@@ -183,3 +196,84 @@ def build_change_shape_lines(
             f"{entry.path} | role={entry.role} | {read_by} | +{additions}/-{deletions}"
         )
     return lines
+
+
+# Words a role name spells in lowercase that a reader expects in capitals.
+_ACRONYMS = {"ui", "api", "ci", "db", "sql", "sdk", "cli", "ios"}
+
+# Why a file got its tier, when the reason is not a role.
+_REASON_LABELS = {
+    "always_deep": "Always read in full (project rule)",
+    "deleted": "Deleted",
+    "lockfile": "Lockfiles",
+    "rename_only": "Renamed, unchanged",
+    "static_resource": "Images, fonts and texts",
+}
+
+
+@dataclass(frozen=True)
+class AttentionGroup:
+    """Files that share a tier and the reason for it, labelled for a person."""
+
+    tier: AttentionTier
+    label: str
+    paths: list[str]
+
+
+def humanize_role(role: str) -> str:
+    """`entrypoints_or_ui` -> `Entrypoints / UI`.
+
+    Roles are profile keys a project names, so there is no fixed table to look them up
+    in; the snake_case id is turned into words instead.
+    """
+    words = [
+        "/" if word == "or" else word.upper() if word in _ACRONYMS else word
+        for word in role.split("_")
+        if word
+    ]
+    text = " ".join(words)
+    return text[:1].upper() + text[1:] if text else role
+
+
+def describe_attention_reason(reason: str) -> str:
+    """The on-screen label for a `FileAttention.reason`."""
+    if reason in _REASON_LABELS:
+        return _REASON_LABELS[reason]
+    kind, _, role = reason.partition(":")
+    if kind == "role":
+        return humanize_role(role)
+    if kind == "role_not_configured":
+        return f"{humanize_role(role)} (no tier configured)"
+    return reason
+
+
+def group_attention_for_display(plan: AttentionPlan) -> list[AttentionGroup]:
+    """Group files by tier, then by why they landed there, largest group first.
+
+    A flat list of 22 full paths each followed by `role:entrypoints_or_ui` hid the one
+    thing it was for: how the PR splits into kinds of change. Tiers keep their
+    deep -> glance -> skip order; empty tiers are left out.
+    """
+    groups: list[AttentionGroup] = []
+    for tier in AttentionTier:
+        by_label: dict[str, list[str]] = {}
+        for entry in plan.files:
+            if entry.tier == tier:
+                by_label.setdefault(describe_attention_reason(entry.reason), []).append(entry.path)
+        for label, paths in sorted(by_label.items(), key=lambda item: -len(item[1])):
+            groups.append(AttentionGroup(tier=tier, label=label, paths=paths))
+    return groups
+
+
+def split_display_path(path: str, keep_dirs: int = 2) -> tuple[str, str]:
+    """(file name, shortened directory) -- the name is what a reader scans for.
+
+    The directory keeps its first segment (the module: `app`, `network`) and its last
+    `keep_dirs`, which is where files differ; the shared middle (`src/main/kotlin/com/...`)
+    becomes `…`.
+    """
+    parts = path.split("/")
+    name, dirs = parts[-1], parts[:-1]
+    if len(dirs) > keep_dirs + 1:
+        dirs = [dirs[0], "…", *dirs[-keep_dirs:]]
+    return name, "/".join(dirs)
