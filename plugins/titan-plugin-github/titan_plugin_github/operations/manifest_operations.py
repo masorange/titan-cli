@@ -161,6 +161,10 @@ def build_change_manifest(
     )
 
 
+# Enough of a comment to tell what it is about; dedupe compares a finding against this.
+_INDEXED_BODY_CHARS = 1500
+
+
 def _infer_category(body: str) -> Optional[str]:
     lower = body.lower()
     if any(k in lower for k in ("test", "coverage", "mock", "assert")):
@@ -318,6 +322,7 @@ def build_existing_comments_index(
                 line=mc.line,
                 category=_infer_category(mc.body),
                 title=mc.body[:80].strip(),
+                body=mc.body[:_INDEXED_BODY_CHARS],
                 author=mc.author_login,
                 has_author_reply=_has_author_reply(thread),
                 last_reply_author=_last_reply_author(thread),
@@ -337,6 +342,7 @@ def build_existing_comments_index(
                     line=reply.line or mc.line,
                     category=_infer_category(reply.body),
                     title=reply.body[:80].strip(),
+                    body=reply.body[:_INDEXED_BODY_CHARS],
                     author=reply.author_login,
                     has_author_reply=_has_author_reply(thread),
                     last_reply_author=_last_reply_author(thread),
@@ -358,6 +364,7 @@ def build_existing_comments_index(
                 line=None,
                 category=_infer_category(mc.body),
                 title=mc.body[:80].strip(),
+                body=mc.body[:_INDEXED_BODY_CHARS],
                 author=mc.author_login,
                 has_author_reply=_has_author_reply(gc),
                 last_reply_author=_last_reply_author(gc),

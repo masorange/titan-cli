@@ -128,7 +128,8 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "review this"],
+            ["claude", "--print", "--output-format", "json"],
+            input="review this",
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -181,7 +182,8 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, json_schema=schema)
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--json-schema", json.dumps(schema), "review this"],
+            ["claude", "--print", "--output-format", "json", "--json-schema", json.dumps(schema)],
+            input="review this",
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -236,6 +238,17 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertTrue(self.adapter.supports_tool_restriction)
 
     @patch("subprocess.run")
+    def test_the_prompt_never_travels_on_argv(self, mock_run):
+        """Linux caps one argv string at 131,072 bytes; a 145k-char triage prompt failed
+        the exec with E2BIG before claude started. On stdin there is no such ceiling."""
+        mock_run.return_value = MagicMock(stdout=json.dumps({"result": "ok"}), stderr="", returncode=0)
+        prompt = "x" * 200_000
+        self.adapter.execute(prompt)
+        argv = mock_run.call_args.args[0]
+        self.assertNotIn(prompt, argv)
+        self.assertEqual(mock_run.call_args.kwargs["input"], prompt)
+
+    @patch("subprocess.run")
     def test_execute_with_disallowed_tools_adds_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute(
@@ -243,7 +256,8 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         )
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--disallowedTools=Bash,Agent", "review this"],
+            ["claude", "--print", "--output-format", "json", "--disallowedTools=Bash,Agent"],
+            input="review this",
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -267,7 +281,8 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, effort="medium")
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--effort", "medium", "review this"],
+            ["claude", "--print", "--output-format", "json", "--effort", "medium"],
+            input="review this",
             capture_output=True,
             text=True,
             cwd="/tmp",
@@ -1554,6 +1569,18 @@ class TestClaudeUsageReporting(unittest.TestCase):
         self.assertEqual(response.usage.cache_write_tokens, 37861)
         self.assertEqual(response.usage.cost_usd, 0.25971625)
         self.assertEqual(response.usage.model_reported, "claude-opus-5[1m]")
+
+    @patch("subprocess.run")
+    def test_thinking_is_reported_apart_from_the_answer(self, mock_run):
+        """Thinking is counted inside output_tokens, and it is the part of the output
+        that never reaches the parsed answer — so it is the only way to tell where a
+        call's output went."""
+        usage = dict(self.ENVELOPE["usage"], output_tokens=470, output_tokens_details={"thinking_tokens": 400})
+        envelope = dict(self.ENVELOPE, usage=usage)
+        mock_run.return_value = MagicMock(stdout=json.dumps(envelope), stderr="", returncode=0)
+        response = self.adapter.execute("prompt")
+        self.assertEqual(response.usage.output_tokens, 470)
+        self.assertEqual(response.usage.reasoning_tokens, 400)
 
     @patch("subprocess.run")
     def test_reports_the_model_that_actually_ran_not_the_one_requested(self, mock_run):

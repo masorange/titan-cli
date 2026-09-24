@@ -327,7 +327,7 @@ Avoid private-looking or abbreviated aliases for imported operations:
 ```python
 # ❌ BAD: looks private and hides intent
 from ..operations.manifest_operations import build_change_manifest as _build
-from ..operations.review_strategy_operations import score_review_candidates as _score
+from ..operations.review_strategy_operations import build_deterministic_review_plan as _plan
 ```
 
 Keep operation function names natural in `operations/`; do not add an

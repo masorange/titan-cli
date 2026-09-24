@@ -425,16 +425,9 @@ INTERPRETERS: Dict[str, Dict[str, Any]] = {
         # (count field, label, field holding the identities behind it)
         "funnel": [
             ("review_config_applied_to_pr.manifest_files", "Files changed in the PR", None),
-            (
-                "review_config_applied_to_pr.candidate_files",
-                "Files selected for review",
-                "review_candidates_scored.candidate_paths",
-            ),
-            (
-                "review_candidates_scored.excluded",
-                "Files excluded by scoring",
-                "review_candidates_scored.excluded_files",
-            ),
+            ("review_plan_built.focus_files", "Files in the deep review", None),
+            ("triage_completed.triaged", "Files triaged from their diff", None),
+            ("triage_completed.suspicions", "Triage questions for the deep review", "triage_completed.suspicion_paths"),
             ("review_context_summary.comments_in_context", "Existing comments in context", None),
             ("findings_deduplicated.deduped_findings_count", "Findings after dedup", None),
             (

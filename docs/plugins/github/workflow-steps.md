@@ -47,12 +47,11 @@ For full contract details for every public step, including documented inputs, ou
 | `build_existing_comments_index` | Code Review | - |
 | `build_review_checklist` | Code Review | - |
 | `build_review_plan` | Code Review | - |
-| `ai_review_scan` | Code Review | - |
+| `ai_review_triage` | Code Review | - |
 | `resolve_review_context` | Code Review | - |
 | `ai_review_findings` | Code Review | - |
 | `normalize_findings` | Code Review | - |
 | `dedupe_findings` | Code Review | - |
-| `verify_findings` | Code Review | - |
 | `build_new_comment_actions` | Code Review | - |
 | `validate_review_actions` | Code Review | - |
 | `submit_review_actions` | Code Review | - |
@@ -116,14 +115,13 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `fetch_pr_review_bundle`: collect PR, diff, file, and discussion context for review
 - `build_change_manifest`: build a structured manifest of changed files and targets
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings
-- `build_review_checklist`: prepare a review checklist from PR context
-- `build_review_plan`: decide deterministically which files the deep session reads (no AI call)
-- `ai_review_scan`: skim (diffs only, cheap model) every reviewable file the deep session will not open
+- `build_review_checklist`: load the review axes the project offers (what each axis is)
+- `build_review_plan`: assign every changed file `deep`, `glance` or `skip` from the review profile, and decide what the deep review reads (no AI call)
+- `ai_review_triage`: triage every `glance` file from its diff in one call (cheap model, no repo access); publishes nothing, flags questions for the deep review
 - `resolve_review_context`: expand the exact contexts needed for targeted analysis
-- `ai_review_findings`: run targeted AI analysis and produce candidate findings
+- `ai_review_findings`: the deep review — one worktree session over the `deep` files, which settles the triage questions last
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
 - `dedupe_findings`: remove duplicate or overlapping findings before submission
-- `verify_findings`: adversarial AI pass that drops findings refuted against the code (fail-open)
 - `build_new_comment_actions`: translate findings into GitHub review actions
 - `validate_review_actions`: validate those review actions before posting
 - `submit_review_actions`: submit review comments or review actions to GitHub
@@ -277,7 +275,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `merge_queue_enabled` | bool \| None | Whether the base branch requires a merge queue, or None when the lookup failed. |
+    | `merge_queue_enabled` | bool | None | Whether the base branch requires a merge queue, or None when the lookup failed. |
     | `merge_queue_state` | - | The merge queue state object, when the lookup succeeded. |
 
     **Returns**
@@ -394,14 +392,15 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `pr_number` | int | Pull request number to inspect. |
-    | `merge_queued` | bool, optional | Set by `merge_pull_request` when the PR was added to the merge queue. |
+    | `merge_queued` | bool | Set by `merge_pull_request`; True when the PR was added to the merge queue. |
+    | Required - a missing value is treated as a workflow configuration error. | - | - |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `verified_pr_info` | - | The pull request object; saved only on the regular merge path (`merge_queued` falsy). |
-    | `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (`merge_queued` truthy). |
+    | `verified_pr_info` | - | The pull request object; saved only on the regular merge path (merge_queued falsy). |
+    | `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (merge_queued truthy). |
 
     **Returns**
 
@@ -1218,92 +1217,6 @@ How to read these contracts:
     | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | - |
 
 
-??? info "`classify_pr`"
-    Classify PR size and composition before planning.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: classify_pr
-    ```
-
-    **Used by built-in workflows:** `review-pr`
-
-    **Available to later steps:** `pr_classification`, `review_profile`
-
-    **Requires**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `ctx.textual` | - | Textual UI context. |
-
-    **Inputs (from ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `change_manifest` | ChangeManifest | Structured PR change summary. |
-    | `existing_comments_index` | List[ExistingCommentIndexEntry], optional | Existing comments used to estimate review activity. |
-    | `review_threads` | List[UICommentThread], optional | Current review threads. |
-
-    **Outputs (saved to ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `pr_classification` | PRClassification | Deterministic PR classification. |
-    | `review_profile` | ReviewProfile | Resolved review profile used during classification. |
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success` | `pr_classification`, `review_profile` | When PR classification is computed successfully. |
-    | `Error` | - | When required context is missing or the step cannot run. |
-
-
-??? info "`score_review_candidates`"
-    Rank changed files and precompute excluded files.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: score_review_candidates
-    ```
-
-    **Used by built-in workflows:** `review-pr`
-
-    **Available to later steps:** `review_profile`, `review_candidates`, `excluded_review_files`
-
-    **Requires**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `ctx.textual` | - | Textual UI context. |
-
-    **Inputs (from ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `change_manifest` | ChangeManifest | Structured PR change summary. |
-
-    **Outputs (saved to ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `review_profile` | ReviewProfile | Resolved review profile used during scoring. |
-    | `review_candidates` | List[ScoredReviewCandidate] | Ranked review candidates. |
-    | `excluded_review_files` | List[ExcludedFileEntry] | Files excluded from deep review. |
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success` | `review_profile`, `review_candidates`, `excluded_review_files` | When review candidates are scored successfully. |
-    | `Exit` | - | When no reviewable candidates remain after exclusions. |
-    | `Error` | - | When required context is missing or the step cannot run. |
-
-
 ??? info "`build_review_checklist`"
     Assemble the review checklist for this PR.
 
@@ -1335,52 +1248,8 @@ How to read these contracts:
     | `Success` | `review_checklist (List[ReviewChecklistItem])` | - |
 
 
-??? info "`select_review_strategy`"
-    Choose review strategy based on deterministic PR classification.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: select_review_strategy
-    ```
-
-    **Used by built-in workflows:** `review-pr`
-
-    **Available to later steps:** `review_strategy`
-
-    **Requires**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `ctx.textual` | - | Textual UI context. |
-
-    **Inputs (from ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `pr_classification` | PRClassification | Deterministic PR classification. |
-
-    **Outputs (saved to ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `review_strategy` | ReviewStrategy | Execution strategy for planning and findings. |
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success` | `review_strategy` | When a review strategy is selected successfully. |
-    | `Error` | - | When required context is missing or the step cannot run. |
-
-
 ??? info "`build_review_plan`"
-    Decide what the deep session reads. No AI call: the DEEP attention tier is the
-    selection, in candidate-score order, and `max_deep_sessions` caps it as an overflow
-    guard. Replaces the former `ai_review_plan` and `validate_review_plan` steps — a plan
-    built from the manifest's own candidates is valid by construction, so there is nothing
-    to validate.
+    Decide how much attention every changed file gets, and what the deep session reads.
 
     **Workflow usage**
 
@@ -1391,71 +1260,57 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `review_plan`, `validated_review_plan`
+    **Available to later steps:** `attention_plan (AttentionPlan)`, `review_budget (ReviewBudget)`, `review_plan, validated_review_plan (ReviewPlan)`
 
     **Inputs (from ctx.data)**
 
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `review_candidates` | list[ScoredReviewCandidate] | Ranked changed files |
-    | `review_checklist` | list[ReviewChecklistItem] | Offered review axes |
-    | `attention_plan` | AttentionPlan | Optional; without it, score order applies |
+    None documented.
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `review_plan` | ReviewPlan | What the deep session reads |
-    | `validated_review_plan` | ReviewPlan | The same plan; kept for downstream steps |
+    | attention_plan (AttentionPlan) | - | - |
+    | review_budget (ReviewBudget) | - | - |
+    | review_plan, validated_review_plan (ReviewPlan) | - | - |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `review_plan`, `validated_review_plan` | Plan built |
-    | `Error` | - | No review candidates to plan from |
+    | `Success, Exit when nothing is reviewable, or Error` | - | - |
 
 
-??? info "`ai_review_scan`"
-    Call 1 of the review: skim every reviewable file the deep session will not open.
-    Diffs only, no repo access, on the model assigned to `code_review_scan`. It publishes
-    nothing — its notes and suspicions travel into the deep prompt for that session to
-    settle by opening the file. Best-effort: a failed skim leaves those files where they
-    already were, unlooked-at, and never fails the review.
+??? info "`ai_review_triage`"
+    Call 1 of the review: triage every file the deep session will not open.
 
     **Workflow usage**
 
     ```yaml
     - plugin: github
-      step: ai_review_scan
-      on_error: continue
+      step: ai_review_triage
     ```
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `review_scan_notes`, `review_scan_suspicions`
+    **Available to later steps:** `review_triage_notes`, `review_triage_suspicions`
 
     **Inputs (from ctx.data)**
 
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `review_diff` | str | The PR diff |
-    | `attention_plan` | AttentionPlan | Which files are glance / deep / skip |
-    | `validated_review_plan` | ReviewPlan | What the deep session reads, so it is not skimmed twice |
+    None documented.
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `review_scan_notes` | list[dict] | One note per skimmed file |
-    | `review_scan_suspicions` | list[dict] | The subset worth opening |
+    | `review_triage_notes` | list[dict] | one note per triaged file |
+    | `review_triage_suspicions` | list[dict] | the subset worth opening |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `review_scan_notes`, `review_scan_suspicions` | Always, when it can run at all |
-    | `Error` | - | Only when the Textual UI context is missing |
+    | `Success (always, when it can run at all)` | - | - |
 
 
 ??? info "`resolve_review_context`"
@@ -1490,7 +1345,7 @@ How to read these contracts:
 
 
 ??? info "`ai_review_findings`"
-    Second AI call: find actionable problems in the exact code context.
+    Run the findings phase, and report its cost even if it is abandoned.
 
     **Workflow usage**
 
@@ -1501,23 +1356,20 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `raw_findings`
-
     **Inputs (from ctx.data)**
 
     None documented.
 
     **Outputs (saved to ctx.data)**
 
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `raw_findings` | list | str | Raw AI output before normalization |
+    None documented.
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Whatever the deep review returns` | - | Success with raw findings, Skip when AI is |
+    | `off for the task, or Error when every batch failed.` | - | - |
 
 
 ??? info "`normalize_findings`"
@@ -1580,38 +1432,6 @@ How to read these contracts:
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
     | `Success or Error` | - | - |
-
-
-??? info "`verify_findings`"
-    Adversarial verification pass: try to REFUTE each finding before the human gate.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: verify_findings
-    ```
-
-    **Used by built-in workflows:** `review-pr`
-
-    **Available to later steps:** `deduped_findings`, `refuted_findings`
-
-    **Inputs (from ctx.data)**
-
-    None documented.
-
-    **Outputs (saved to ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `deduped_findings` | List[Finding] | verified set, refuted findings removed |
-    | `refuted_findings` | List[Finding] | findings dropped by this pass |
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success or Skip` | - | - |
 
 
 ??? info "`build_new_comment_actions`"

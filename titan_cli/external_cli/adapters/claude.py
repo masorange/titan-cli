@@ -1,7 +1,7 @@
 """
 Headless adapter for Claude CLI (claude).
 
-Uses `claude --print <prompt>` for non-interactive execution.
+Uses `claude --print` with the prompt on stdin for non-interactive execution.
 """
 
 import json
@@ -17,7 +17,7 @@ _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 class ClaudeHeadlessAdapter:
     """
-    Runs Claude CLI in headless mode via `claude --print <prompt>`.
+    Runs Claude CLI in headless mode via `claude --print`, prompt on stdin.
 
     The --print flag makes Claude write the response to stdout
     and exit immediately, without starting an interactive session.
@@ -89,10 +89,15 @@ class ClaudeHeadlessAdapter:
             cmd += ["--effort", effort]
         if model is not None:
             cmd += ["--model", model]
-        cmd.append(prompt)
+        # The prompt goes on stdin, never argv: Linux caps ONE argv string at 131,072
+        # bytes (MAX_ARG_STRLEN), and exceeding it fails the exec with E2BIG before
+        # claude starts. Measured 2026-09-24: a 145k-char triage prompt raised
+        # "[Errno 7] Argument list too long: 'claude'". `claude --print` reads its prompt
+        # from stdin when none is given as an argument.
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 cwd=cwd,

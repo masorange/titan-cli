@@ -9,15 +9,12 @@ from titan_plugin_github.managers.prompt_budget_manager import get_prompt_budget
 from titan_plugin_github.models.review_enums import (
     AttentionTier,
     ChecklistCategory,
-    ContextRequestType,
     FileChangeStatus,
     FileReadMode,
-    FileReviewPriority,
 )
 from titan_plugin_github.models.review_models import (
     ChangeManifest,
     ChangedFileEntry,
-    ContextRequest,
     FileReviewPlan,
     PullRequestManifest,
     ReviewChecklistItem,
@@ -68,7 +65,7 @@ def test_deep_files_are_one_batch_whatever_their_size():
     diff = "".join(make_diff(path, "x" * 3000) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            FileReviewPlan(path=path, read_mode=FileReadMode.HUNKS_ONLY)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -82,10 +79,8 @@ def test_deep_files_are_one_batch_whatever_their_size():
         )
     ]
     budget = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=4000,
-        scan_max_prompt_chars=4000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=4000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -107,7 +102,7 @@ def test_no_deep_file_is_dropped_at_packaging_time():
     diff = "".join(make_diff(path, "x" * 3000) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            FileReviewPlan(path=path, read_mode=FileReadMode.HUNKS_ONLY)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -121,10 +116,8 @@ def test_no_deep_file_is_dropped_at_packaging_time():
         )
     ]
     budget = ReviewBudget(
-        deep_files_per_session=4,
         deep_max_prompt_chars=4000,
-        scan_max_prompt_chars=4000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=4000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -143,7 +136,7 @@ def test_build_review_context_package_keeps_small_files_in_one_batch():
     diff = "".join(make_diff(path, "x" * 10) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            FileReviewPlan(path=path, read_mode=FileReadMode.HUNKS_ONLY)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -157,10 +150,8 @@ def test_build_review_context_package_keeps_small_files_in_one_batch():
         )
     ]
     budget = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
-        scan_max_prompt_chars=20000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=20000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -186,7 +177,7 @@ def test_worktree_reference_entries_cost_only_what_they_occupy_in_the_prompt():
     diff = "".join(make_diff(path, "x" * 10) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE)
+            FileReviewPlan(path=path, read_mode=FileReadMode.WORKTREE_REFERENCE)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -201,10 +192,8 @@ def test_worktree_reference_entries_cost_only_what_they_occupy_in_the_prompt():
     ]
     # A budget that the old 5,000-char estimate would have split; two honest entries fit.
     budget = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -232,7 +221,7 @@ def test_every_deep_file_lands_in_one_batch_when_the_budget_allows():
     diff = "".join(make_diff(path, "x" * 10) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE)
+            FileReviewPlan(path=path, read_mode=FileReadMode.WORKTREE_REFERENCE)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -246,10 +235,8 @@ def test_every_deep_file_lands_in_one_batch_when_the_budget_allows():
         )
     ]
     budget = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
-        scan_max_prompt_chars=100_000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=100_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -267,9 +254,9 @@ def test_inline_and_worktree_reference_files_share_one_batch():
     starts a new batch."""
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path="inline.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY),
-            FileReviewPlan(path="a.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE),
-            FileReviewPlan(path="b.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.WORKTREE_REFERENCE),
+            FileReviewPlan(path="inline.py", read_mode=FileReadMode.HUNKS_ONLY),
+            FileReviewPlan(path="a.py", read_mode=FileReadMode.WORKTREE_REFERENCE),
+            FileReviewPlan(path="b.py", read_mode=FileReadMode.WORKTREE_REFERENCE),
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
     )
@@ -283,10 +270,8 @@ def test_inline_and_worktree_reference_files_share_one_batch():
         )
     ]
     budget = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
-        scan_max_prompt_chars=100_000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=100_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -378,7 +363,7 @@ def _single_file_setup(read_mode, path="a.py"):
     diff = make_diff(path, "added_line = 1")
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=read_mode)
+            FileReviewPlan(path=path, read_mode=read_mode)
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
     )
@@ -390,10 +375,8 @@ def _single_file_setup(read_mode, path="a.py"):
         )
     ]
     budget = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
-        scan_max_prompt_chars=100_000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=100_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -493,79 +476,6 @@ class TestBuildPackageWithoutFileReads:
         assert entry.hunks == []
         assert "not at this PR's head commit" in entry.review_hint
 
-    def test_related_context_requests_are_skipped(self, tmp_path):
-        (tmp_path / "test_a.py").write_text("def test_something(): pass\n")
-        diff, plan, manifest, checklist, budget = _single_file_setup(FileReadMode.HUNKS_ONLY)
-        plan = ReviewPlan(
-            focus_files=plan.focus_files,
-            review_axes=plan.review_axes,
-            extra_context_requests=[
-                ContextRequest(type=ContextRequestType.RELATED_TESTS, for_path="a.py")
-            ],
-        )
-
-        package = build_review_context_package(
-            plan, diff, manifest, checklist,
-            comment_context=[], budget=budget,
-            cwd=str(tmp_path), allow_file_reads=False,
-        )
-
-        assert package.batches[0].related_files == {}
-
-
-# ---------------------------------------------------------------------------
-# Related context: a pointer when the tree is readable, content when it is not
-# ---------------------------------------------------------------------------
-
-
-def test_related_context_is_a_pointer_when_the_working_tree_is_readable(tmp_path):
-    """The session can open a sibling file itself, so it is named, not pasted.
-
-    Pasting it cost up to 2,000 chars of the content budget and was charged to EVERY
-    batch (related context ships with all of them), only to be stripped again by the
-    first degradation that made a call fit."""
-    from titan_plugin_github.models.review_enums import ContextRequestType
-    from titan_plugin_github.models.review_models import ContextRequest
-    from titan_plugin_github.operations.context_resolution_operations import (
-        resolve_context_requests,
-    )
-
-    (tmp_path / "pkg").mkdir()
-    (tmp_path / "pkg" / "__init__.py").write_text("SECRET_SENTINEL = 1\n")
-
-    resolved = resolve_context_requests(
-        [ContextRequest(type=ContextRequestType.RELATED_CONTEXT, for_path="pkg/mod.py")],
-        cwd=str(tmp_path),
-        allow_file_reads=True,
-    )
-
-    value = next(iter(resolved.values()))
-    assert "pkg/__init__.py" in value
-    assert "SECRET_SENTINEL" not in value
-    assert "\n" not in value
-
-
-def test_related_context_is_empty_when_files_may_not_be_read(tmp_path):
-    """Unchanged: an unverified checkout must never put another revision's code in the
-    prompt, and a pointer to it would be just as wrong."""
-    from titan_plugin_github.models.review_enums import ContextRequestType
-    from titan_plugin_github.models.review_models import ContextRequest
-    from titan_plugin_github.operations.context_resolution_operations import (
-        resolve_context_requests,
-    )
-
-    (tmp_path / "pkg").mkdir()
-    (tmp_path / "pkg" / "__init__.py").write_text("x = 1\n")
-
-    assert (
-        resolve_context_requests(
-            [ContextRequest(type=ContextRequestType.RELATED_CONTEXT, for_path="pkg/mod.py")],
-            cwd=str(tmp_path),
-            allow_file_reads=False,
-        )
-        == {}
-    )
-
 
 def test_only_deep_tier_files_reach_the_review_session():
     """The deep session reads the deep files and nothing else.
@@ -581,7 +491,7 @@ def test_only_deep_tier_files_reach_the_review_session():
     diff = "".join(make_diff(path, "x" * 10) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            FileReviewPlan(path=path, read_mode=FileReadMode.HUNKS_ONLY)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -602,10 +512,8 @@ def test_only_deep_tier_files_reach_the_review_session():
         ]
     )
     budget = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=100_000,
-        scan_max_prompt_chars=100_000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=100_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -727,7 +635,7 @@ def test_every_deep_file_shares_one_session_however_many_there_are():
     diff = "".join(make_diff(path, "x" * 10) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            FileReviewPlan(path=path, read_mode=FileReadMode.HUNKS_ONLY)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -744,10 +652,8 @@ def test_every_deep_file_shares_one_session_however_many_there_are():
         files=[FileAttention(path, AttentionTier.DEEP, "business_logic", "role") for path in paths]
     )
     budget = ReviewBudget(
-        deep_files_per_session=2,
         deep_max_prompt_chars=100_000,
-        scan_max_prompt_chars=100_000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=100_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -778,7 +684,7 @@ def test_the_least_important_file_gives_up_its_diff_first():
     diff = "".join(make_diff(path, "x" * 3000) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            FileReviewPlan(path=path, read_mode=FileReadMode.HUNKS_ONLY)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -795,11 +701,9 @@ def test_the_least_important_file_gives_up_its_diff_first():
         files=[FileAttention(path, AttentionTier.DEEP, "business_logic", "role") for path in paths]
     )
     budget = ReviewBudget(
-        deep_files_per_session=12,
         # Room for roughly one file's diff plus the prompt skeleton.
         deep_max_prompt_chars=9_000,
-        scan_max_prompt_chars=9_000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=9_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -830,7 +734,7 @@ def test_a_prompt_that_does_not_fit_loses_diff_detail_not_files():
     diff = "".join(make_diff(path, "x" * 4000) for path in paths)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path=path, priority=FileReviewPriority.HIGH, read_mode=FileReadMode.EXPANDED_HUNKS)
+            FileReviewPlan(path=path, read_mode=FileReadMode.EXPANDED_HUNKS)
             for path in paths
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
@@ -847,10 +751,8 @@ def test_a_prompt_that_does_not_fit_loses_diff_detail_not_files():
         files=[FileAttention(path, AttentionTier.DEEP, "business_logic", "role") for path in paths]
     )
     budget = ReviewBudget(
-        deep_files_per_session=12,
         deep_max_prompt_chars=8_000,
-        scan_max_prompt_chars=8_000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=8_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -878,7 +780,7 @@ def test_flagged_files_join_the_same_session_as_a_second_task():
     diff = make_diff("core.py", "x" * 10) + make_diff("core_test.py", "y" * 10)
     plan = ReviewPlan(
         focus_files=[
-            FileReviewPlan(path="core.py", priority=FileReviewPriority.HIGH, read_mode=FileReadMode.HUNKS_ONLY)
+            FileReviewPlan(path="core.py", read_mode=FileReadMode.HUNKS_ONLY)
         ],
         review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
     )
@@ -900,7 +802,7 @@ def test_flagged_files_join_the_same_session_as_a_second_task():
     package = build_review_context_package(
         plan, diff, manifest, checklist, comment_context=[], budget=review_budget_for_tests(),
         attention_plan=attention_plan,
-        scan_suspicions=[{"path": "core_test.py", "note": "n", "suspicion": "is the path tested?"}],
+        triage_suspicions=[{"path": "core_test.py", "note": "n", "suspicion": "is the path tested?"}],
     )
 
     batch = package.batches[0]
@@ -910,7 +812,7 @@ def test_flagged_files_join_the_same_session_as_a_second_task():
     assert flagged.worktree_reference is True
     assert flagged.hunks == []
     assert flagged.changed_hunk_headers
-    assert batch.scan_suspicions[0]["suspicion"] == "is the path tested?"
+    assert batch.triage_suspicions[0]["suspicion"] == "is the path tested?"
 
 
 def review_budget_for_tests():
@@ -919,3 +821,116 @@ def review_budget_for_tests():
     return review_budget()
 
 
+
+
+def _expanded_setup(tmp_path, sizes: dict[str, int], budget_chars: int):
+    """Deep files planned the way the real plan plans them now: EXPANDED_HUNKS, with the
+    files on disk so reads are allowed -- the worktree case."""
+    for path, size in sizes.items():
+        (tmp_path / path).write_text("context line\n" + "y" * size + "\n")
+    diff = "".join(make_diff(path, "y" * size) for path, size in sizes.items())
+    plan = ReviewPlan(
+        focus_files=[FileReviewPlan(path=path, read_mode=FileReadMode.EXPANDED_HUNKS) for path in sizes],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    checklist = [
+        ReviewChecklistItem(id=ChecklistCategory.FUNCTIONAL_CORRECTNESS, name="F", description="d")
+    ]
+    budget = ReviewBudget(
+        deep_max_prompt_chars=budget_chars,
+        triage_max_prompt_chars=budget_chars,
+        max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
+    )
+    return build_review_context_package(
+        plan, diff, make_manifest(list(sizes)), checklist,
+        comment_context=[], budget=budget, cwd=str(tmp_path), allow_file_reads=True,
+    )
+
+
+def test_a_demoted_deep_file_becomes_a_bare_reference_never_a_bigger_entry(tmp_path):
+    """Demotion used to fall through to the expanded-hunks branch, which ignores the
+    allowance, so the entry grew. On ragnarok PR #3692 all 27 deep files were "demoted",
+    the session still measured 122,319 chars, and it was split in two."""
+    package = _expanded_setup(tmp_path, {"a.py": 6000, "b.py": 6000, "c.py": 6000}, budget_chars=12000)
+
+    assert len(package.batches) == 1
+    entries = package.batches[0].files_context.values()
+    assert all(not entry.expanded_hunks and not entry.full_content for entry in entries)
+    assert all(entry.worktree_reference for entry in entries)
+
+
+def test_a_file_over_its_even_share_gets_its_diff_back_when_there_is_room(tmp_path):
+    """The even share left 7 of 27 files without their diff in a prompt using 65k of
+    120k. A big file is often the central one; with room left, it keeps its diff."""
+    package = _expanded_setup(tmp_path, {"big.py": 20000, "s1.py": 100, "s2.py": 100}, budget_chars=60000)
+
+    entries = package.batches[0].files_context
+    assert entries["big.py"].hunks
+    assert entries["s1.py"].hunks and entries["s2.py"].hunks
+
+
+def test_a_deep_file_over_its_share_keeps_its_removed_lines(tmp_path):
+    """The working tree has the post-change file, so the one thing a reference loses for
+    good is what was REMOVED. On ragnarok PR #3720 the central file went as a bare
+    reference and the session could not see two deleted reducers."""
+    for path in ("big.py", "s1.py"):
+        (tmp_path / path).write_text("x\n")
+    big = (
+        "diff --git a/big.py b/big.py\nindex a..b 100644\n--- a/big.py\n+++ b/big.py\n"
+        "@@ -1,3 +1,3 @@\n context\n-def removed_handler(): pass\n+" + "y" * 9000 + "\n"
+    )
+    small = make_diff("s1.py", "z" * 100)
+    plan = ReviewPlan(
+        focus_files=[FileReviewPlan(path=p, read_mode=FileReadMode.EXPANDED_HUNKS) for p in ("big.py", "s1.py")],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    checklist = [ReviewChecklistItem(id=ChecklistCategory.FUNCTIONAL_CORRECTNESS, name="F", description="d")]
+    budget = ReviewBudget(
+        deep_max_prompt_chars=9000, triage_max_prompt_chars=9000, max_comment_entries=5,
+        deep_timeout_base_seconds=300, deep_timeout_per_file_seconds=120, deep_timeout_max_seconds=1500,
+    )
+
+    package = build_review_context_package(
+        plan, big + small, make_manifest(["big.py", "s1.py"]), checklist,
+        comment_context=[], budget=budget, cwd=str(tmp_path), allow_file_reads=True,
+    )
+
+    entry = package.batches[0].files_context["big.py"]
+    assert entry.removals_only
+    assert any("-def removed_handler(): pass" in hunk for hunk in entry.hunks)
+    assert not any("y" * 100 in hunk for hunk in entry.hunks)
+    assert "Only the REMOVED lines" in entry.review_hint
+
+
+def test_removals_over_the_even_share_still_ride_when_the_session_has_room(tmp_path):
+    """ragnarok PR #3720: the central file's removals (12,985 chars) exceeded its even
+    share (~8,900), the room-left pass only tried the FULL diff, and the file went bare."""
+    for path in ("big.py", "s1.py", "s2.py"):
+        (tmp_path / path).write_text("x\n")
+    removed = "".join(f"-def removed_{i}(): pass  # {'r' * 40}\n" for i in range(110))
+    big = (
+        "diff --git a/big.py b/big.py\nindex a..b 100644\n--- a/big.py\n+++ b/big.py\n"
+        "@@ -1,111 +1,2 @@\n context\n" + removed + "+" + "y" * 10000 + "\n"
+    )
+    diff = big + make_diff("s1.py", "z" * 50) + make_diff("s2.py", "z" * 50)
+    plan = ReviewPlan(
+        focus_files=[FileReviewPlan(path=p, read_mode=FileReadMode.EXPANDED_HUNKS) for p in ("big.py", "s1.py", "s2.py")],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    checklist = [ReviewChecklistItem(id=ChecklistCategory.FUNCTIONAL_CORRECTNESS, name="F", description="d")]
+    budget = ReviewBudget(
+        deep_max_prompt_chars=20000, triage_max_prompt_chars=20000, max_comment_entries=5,
+        deep_timeout_base_seconds=300, deep_timeout_per_file_seconds=120, deep_timeout_max_seconds=1500,
+    )
+
+    package = build_review_context_package(
+        plan, diff, make_manifest(["big.py", "s1.py", "s2.py"]), checklist,
+        comment_context=[], budget=budget, cwd=str(tmp_path), allow_file_reads=True,
+    )
+
+    entry = package.batches[0].files_context["big.py"]
+    assert entry.removals_only
+    assert any("-def removed_0(): pass" in hunk for hunk in entry.hunks)

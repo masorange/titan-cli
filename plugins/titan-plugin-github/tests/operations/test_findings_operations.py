@@ -157,7 +157,7 @@ def test_annotate_diff_hunk_numbers_added_and_context_lines():
 
     assert "10 [CONTEXT] def bar():" in result
     assert "11 [ADDED]     return 1" in result
-    assert "[DELETED - do not review]     return 0" in result
+    assert "[DELETED]     return 0" in result
 
 
 def test_annotate_diff_hunk_does_not_number_surrounding_context_lines():
@@ -272,7 +272,7 @@ def test_checklist_descriptions_are_hard_capped():
     assert "x" * 201 not in rendered
 
 
-def test_pr_context_includes_one_line_intent():
+def test_pr_context_carries_the_authors_description_as_its_own_section():
     batch = FocusContextBatch(
         batch_id="batch_1",
         files_context={"src/foo.py": FileContextEntry(path="src/foo.py", hunks=["@@ -1 +1 @@\n+x"])},
@@ -295,13 +295,11 @@ def test_pr_context_includes_one_line_intent():
 
     parts = build_findings_prompt_parts(batch)
 
-    # The short section heading ("PR's key points") is skipped in favor of the
-    # first substantive sentence.
-    assert "Intent: This PR implements a robust token retry mechanism" in parts["pr_context"]
+    # The whole cleaned description, in its own section, whatever template it uses: no
+    # guessing which line matters, only generic markup (the meme image) removed.
+    assert "## What the author says this PR does" in parts["pr_context"]
+    assert "This PR implements a robust token retry mechanism" in parts["pr_context"]
     assert "giphy" not in parts["pr_context"]
-    # single line, capped
-    intent_line = next(line for line in parts["pr_context"].splitlines() if line.startswith("Intent:"))
-    assert len(intent_line) <= 210
 
 
 def test_pr_context_omits_intent_when_description_is_only_noise():
@@ -321,7 +319,7 @@ def test_pr_context_omits_intent_when_description_is_only_noise():
 
     parts = build_findings_prompt_parts(batch)
 
-    assert "Intent:" not in parts["pr_context"]
+    assert "## What the author says this PR does" not in parts["pr_context"]
 
 
 def test_extract_pr_intent_strips_noise_and_caps():
@@ -349,13 +347,29 @@ def test_extract_pr_intent_strips_noise_and_caps():
     assert "template" not in result
 
 
-def test_extract_pr_intent_line_returns_first_meaningful_line_capped():
-    from titan_plugin_github.operations.prompt_formatting_operations import extract_pr_intent_line
+def test_the_review_gets_the_authors_whole_ask_not_the_template_heading():
+    """Measured on ragnarok PR #3720: the review received ONE line, the template heading
+    "PR's Trigger (Check the VALIDITY of these links)", and the author's own request to
+    verify that deleted events were covered by the mapping never reached the model."""
+    from titan_plugin_github.operations.prompt_formatting_operations import review_pr_description
 
-    assert extract_pr_intent_line("") == ""
-    assert extract_pr_intent_line("A" * 500).startswith("A")
-    assert len(extract_pr_intent_line("A" * 500)) == 200
-    assert extract_pr_intent_line("![m](http://x.gif)\nReal intent sentence.") == "Real intent sentence."
+    description = (
+        "### PR's Trigger (Check the VALIDITY of these links) <!-- REMOVE WHAT DOESN'T APPLY -->\n"
+        "* JIRA Issue: ECAPP-1667\n"
+        '<img src="https://i.imgflip.com/b1u5bw.jpg" width="400"/>\n\n'
+        "### PR's key points\n"
+        "Part 2 of many. Check AnalyticsStore specially.\n"
+        + "- a bullet about the migration\n" * 40
+        + "### How to review this PR?\n"
+        "Verify that the deletions are properly covered by the new entries in analytics_mapping.json.\n"
+    )
+
+    result = review_pr_description(description)
+
+    assert "Check AnalyticsStore specially" in result
+    assert "Verify that the deletions are properly covered" in result
+    assert "<img" not in result and "REMOVE WHAT" not in result
+    assert review_pr_description("") == ""
 
 
 def test_default_titan_checklist_renders_with_descriptions_too():
@@ -400,55 +414,6 @@ def _synthesis_diff() -> str:
     )
 
 
-def test_synthesis_batch_builds_hunks_only_entries_for_all_paths():
-    from titan_plugin_github.models.review_enums import FileReadMode
-    from titan_plugin_github.operations.findings_operations import (
-        SYNTHESIS_BATCH_ID,
-        build_cross_file_synthesis_batch,
-    )
-
-    batch = build_cross_file_synthesis_batch(
-        ["border.py", "second.py", "third.py"], _synthesis_diff(), None
-    )
-
-    assert batch is not None
-    assert batch.batch_id == SYNTHESIS_BATCH_ID
-    # No file cap: unlike the rescue batch, every path with hunks gets an entry.
-    assert set(batch.files_context) == {"border.py", "second.py", "third.py"}
-    for entry in batch.files_context.values():
-        assert entry.read_mode == FileReadMode.HUNKS_ONLY
-        assert entry.full_content is None
-        assert entry.expanded_hunks == []
-        assert entry.approximate_chars > 0
-    assert batch.checklist_applicable == []
-
-
-def test_synthesis_batch_skips_paths_without_hunks():
-    from titan_plugin_github.operations.findings_operations import (
-        build_cross_file_synthesis_batch,
-    )
-
-    batch = build_cross_file_synthesis_batch(
-        ["missing.py", "border.py", "second.py"], _synthesis_diff(), None
-    )
-
-    assert batch is not None
-    assert set(batch.files_context) == {"border.py", "second.py"}
-
-
-def test_synthesis_batch_returns_none_with_fewer_than_two_hunk_files():
-    from titan_plugin_github.operations.findings_operations import (
-        build_cross_file_synthesis_batch,
-    )
-
-    # Only one path with hunks (plus one without): a synthesis over one file is
-    # meaningless.
-    assert (
-        build_cross_file_synthesis_batch(["border.py", "missing.py"], _one_hunk_diff(), None)
-        is None
-    )
-
-
 def _comment_context_entry():
     from titan_plugin_github.models.review_enums import CommentContextKind
     from titan_plugin_github.models.review_models import CommentContextEntry
@@ -460,83 +425,6 @@ def _comment_context_entry():
         title="Existing comment",
         summary="Already reported here",
     )
-
-
-def test_synthesis_batch_carries_comment_context():
-    from titan_plugin_github.operations.findings_operations import (
-        build_cross_file_synthesis_batch,
-        build_findings_prompt_parts,
-    )
-
-    comments = [_comment_context_entry()]
-
-    synthesis = build_cross_file_synthesis_batch(
-        ["border.py", "second.py"], _synthesis_diff(), None, comment_context=comments
-    )
-
-    # The prompt tells the model not to duplicate existing comments, so they must
-    # actually reach the prompt.
-    assert synthesis.comment_context == comments
-    assert "Already reported here" in build_findings_prompt_parts(synthesis)["comments"]
-
-
-def test_build_findings_prompt_parts_instructions_override():
-    from titan_plugin_github.operations.findings_operations import (
-        SYNTHESIS_INSTRUCTIONS,
-        build_cross_file_synthesis_batch,
-        build_findings_prompt_parts,
-        summarize_findings_prompt_parts,
-    )
-
-    batch = build_cross_file_synthesis_batch(
-        ["border.py", "second.py"], _synthesis_diff(), None
-    )
-    parts = build_findings_prompt_parts(batch, instructions_override=SYNTHESIS_INSTRUCTIONS)
-
-    assert parts["instructions"] == SYNTHESIS_INSTRUCTIONS
-    assert "cross-file inconsistencies" in parts["prompt"]
-    assert "Only report actionable issues" not in parts["prompt"]
-    # The summarizer's hardcoded keys must keep working on overridden parts.
-    summary = summarize_findings_prompt_parts(parts)
-    assert summary["instructions_chars"] == len(SYNTHESIS_INSTRUCTIONS)
-
-    default_parts = build_findings_prompt_parts(batch)
-    assert "Only report actionable issues" in default_parts["instructions"]
-
-
-def test_dedupe_synthesis_findings_drops_similar_and_keeps_distinct():
-    from titan_plugin_github.operations.findings_operations import dedupe_synthesis_findings
-
-    existing = [
-        {"path": "a.py", "line": 10, "title": "Null pointer risk in parse_config"},
-        {"path": "b.py", "line": None, "title": "Missing error handling"},
-        "not-a-dict",
-    ]
-    synthesis = [
-        # Exact duplicate (same path/line/title) -> dropped.
-        {"path": "a.py", "line": 10, "title": "Null pointer risk in parse_config"},
-        # Near-duplicate: line within window, very similar title -> dropped.
-        {"path": "a.py", "line": 12, "title": "Null pointer risk in parse_config()"},
-        # Same title but different path -> kept.
-        {"path": "c.py", "line": 10, "title": "Null pointer risk in parse_config"},
-        # Same path/title but line far outside the window -> kept.
-        {"path": "a.py", "line": 200, "title": "Null pointer risk in parse_config"},
-        # Both lines None with similar title -> dropped.
-        {"path": "b.py", "line": None, "title": "Missing error handling"},
-        # One line None, the other not -> kept.
-        {"path": "b.py", "line": 5, "title": "Missing error handling"},
-        # Non-dict synthesis item dropped (it would inflate the unique count and
-        # normalize would reject it anyway).
-        42,
-    ]
-
-    unique = dedupe_synthesis_findings(synthesis, existing)
-
-    assert unique == [
-        {"path": "c.py", "line": 10, "title": "Null pointer risk in parse_config"},
-        {"path": "a.py", "line": 200, "title": "Null pointer risk in parse_config"},
-        {"path": "b.py", "line": 5, "title": "Missing error handling"},
-    ]
 
 
 # ============================================================================
@@ -595,78 +483,6 @@ def test_timeout_fallback_batch_returns_none_without_hunks():
 # ============================================================================
 
 
-def test_trim_hunks_keeps_line_numbering_exact():
-    from titan_plugin_github.operations.findings_operations import (
-        _annotate_diff_hunk,
-        trim_hunks_for_synthesis,
-    )
-
-    # One change buried in 8 context lines each side (like -U20 diffs).
-    body = [f" ctx{i}" for i in range(8)] + ["+added line"] + [f" ctx{i + 8}" for i in range(8)]
-    hunk = "@@ -100,16 +100,17 @@\n" + "\n".join(body)
-
-    [trimmed] = trim_hunks_for_synthesis([hunk], context_lines=3)
-
-    # 3 context lines each side survive; header is recalculated so the annotator
-    # still numbers the added line as 108 (100 + 8 lines above it originally).
-    assert trimmed.startswith("@@ -105,6 +105,7 @@")
-    annotated = _annotate_diff_hunk(trimmed)
-    assert "108 [ADDED] added line" in annotated
-    assert "ctx0" not in trimmed
-    assert "ctx5" in trimmed
-
-
-def test_trim_hunks_splits_distant_changes_into_sub_hunks():
-    from titan_plugin_github.operations.findings_operations import trim_hunks_for_synthesis
-
-    body = (
-        ["+first change"]
-        + [f" gap{i}" for i in range(20)]
-        + ["+second change"]
-    )
-    hunk = "@@ -1,20 +1,22 @@\n" + "\n".join(body)
-
-    trimmed = trim_hunks_for_synthesis([hunk], context_lines=3)
-
-    assert len(trimmed) == 2
-    assert "first change" in trimmed[0] and "second change" not in trimmed[0]
-    assert "second change" in trimmed[1]
-    # Bulk of the gap is gone.
-    assert sum(len(t) for t in trimmed) < len(hunk)
-
-
-def test_trim_hunks_passes_through_short_or_headerless_hunks():
-    from titan_plugin_github.operations.findings_operations import trim_hunks_for_synthesis
-
-    short = "@@ -1,2 +1,3 @@\n context\n+added\n context"
-    headerless = "not a hunk at all"
-
-    assert trim_hunks_for_synthesis([short]) == [short]
-    assert trim_hunks_for_synthesis([headerless]) == [headerless]
-
-
-def test_synthesis_batch_trims_wide_context_hunks():
-    from titan_plugin_github.operations.findings_operations import build_cross_file_synthesis_batch
-
-    def _wide_diff(path: str) -> str:
-        body = [f" pad{i}" for i in range(20)] + ["+added line"] + [f" pad{i + 20}" for i in range(20)]
-        return (
-            f"diff --git a/{path} b/{path}\n"
-            "index 111..222 100644\n"
-            f"--- a/{path}\n"
-            f"+++ b/{path}\n"
-            "@@ -1,40 +1,41 @@\n" + "\n".join(body) + "\n"
-        )
-
-    diff = _wide_diff("a.py") + _wide_diff("b.py")
-    batch = build_cross_file_synthesis_batch(["a.py", "b.py"], diff, None)
-
-    assert batch is not None
-    for entry in batch.files_context.values():
-        assert entry.approximate_chars < 200  # vs ~360 chars of untrimmed padding
-        assert all("pad0" not in hunk for hunk in entry.hunks)
-
-
 def test_timeout_fallback_batch_propagates_batch_context():
     """The bounded retry must not silently lose the original batch's guidance:
     checklist, existing-comment context, related files and PR manifest carry over."""
@@ -706,111 +522,6 @@ def test_timeout_fallback_batch_propagates_batch_context():
     assert fallback.checklist_applicable == checklist
     assert fallback.related_files == {"helper.py": "def helper(): ..."}
     assert fallback.pr_manifest is manifest
-
-
-def test_dedupe_synthesis_findings_dedupes_within_its_own_list():
-    from titan_plugin_github.operations.findings_operations import dedupe_synthesis_findings
-
-    synthesis = [
-        {"path": "a.py", "line": 10, "title": "Contract mismatch"},
-        {"path": "a.py", "line": 12, "title": "Contract mismatch!"},  # near-dup of the first
-        {"path": "b.py", "line": 3, "title": "Other issue"},
-    ]
-
-    unique = dedupe_synthesis_findings(synthesis, [])
-
-    assert unique == [
-        {"path": "a.py", "line": 10, "title": "Contract mismatch"},
-        {"path": "b.py", "line": 3, "title": "Other issue"},
-    ]
-
-
-def test_dedupe_synthesis_findings_lineless_requires_exact_title():
-    from titan_plugin_github.operations.findings_operations import dedupe_synthesis_findings
-
-    existing = [{"path": "a.py", "line": None, "title": "Missing error handling"}]
-    synthesis = [
-        # Similar-but-not-identical title with no line info on either side: kept —
-        # proximity says nothing, similarity alone must not drop it.
-        {"path": "a.py", "line": None, "title": "Missing error handling in retries"},
-        # Exact title repeat with no lines: dropped.
-        {"path": "a.py", "line": None, "title": "Missing error handling"},
-    ]
-
-    unique = dedupe_synthesis_findings(synthesis, existing)
-
-    assert unique == [{"path": "a.py", "line": None, "title": "Missing error handling in retries"}]
-
-
-def test_dedupe_synthesis_same_category_needs_a_wording_match():
-    """Sharing a category is a hint, not proof: a cross-file finding lands on the call
-    site, so it routinely sits within the line window of a per-file finding in the same
-    category while describing a DIFFERENT defect. Dropping it on category alone would
-    silently delete exactly what the synthesis pass exists to surface."""
-    from titan_plugin_github.operations.findings_operations import dedupe_synthesis_findings
-
-    existing = [
-        {
-            "path": "a.py",
-            "line": 10,
-            "category": "error_handling",
-            "title": "Missing null check on user input",
-        }
-    ]
-    distinct_cross_file = {
-        "path": "a.py",
-        "line": 12,
-        "category": "error_handling",
-        "title": "Caller does not handle the new error contract from b.py",
-    }
-
-    assert dedupe_synthesis_findings([distinct_cross_file], existing) == [distinct_cross_file]
-
-
-def test_dedupe_synthesis_same_category_drops_restatements():
-    """Same category + same spot + a loose wording match (below the 0.75 title bar but
-    above the 0.5 same-category bar) is a restatement, and gets dropped."""
-    from titan_plugin_github.operations.findings_operations import dedupe_synthesis_findings
-
-    existing = [
-        {
-            "path": "a.py",
-            "line": 10,
-            "category": "error_handling",
-            "title": "Missing null check on user input",
-        }
-    ]
-    restatement = {
-        "path": "a.py",
-        "line": 11,
-        "category": "error_handling",
-        "title": "Null check missing for user input",
-    }
-
-    assert dedupe_synthesis_findings([restatement], existing) == []
-
-
-def test_dedupe_synthesis_different_categories_keep_the_strict_title_bar():
-    """With different categories the strict 0.75 title threshold still applies, so a
-    0.71-similar title survives."""
-    from titan_plugin_github.operations.findings_operations import dedupe_synthesis_findings
-
-    existing = [
-        {
-            "path": "a.py",
-            "line": 10,
-            "category": "error_handling",
-            "title": "Missing null check on user input",
-        }
-    ]
-    other_category = {
-        "path": "a.py",
-        "line": 11,
-        "category": "security",
-        "title": "Null check missing for user input",
-    }
-
-    assert dedupe_synthesis_findings([other_category], existing) == [other_category]
 
 
 # ============================================================================
@@ -932,10 +643,10 @@ def test_project_context_section_asks_for_lookup_not_for_reading_everything():
     assert without["context_docs"] == ""
 
 
-def test_the_deep_prompt_hands_the_skim_suspicions_over_as_questions_not_findings():
-    """What the skim flagged travels into the deep call to be SETTLED.
+def test_the_deep_prompt_hands_the_triage_suspicions_over_as_questions_not_findings():
+    """What the triage flagged travels into the deep call to be SETTLED.
 
-    The skim publishes nothing: it saw only diffs, so its output is a question for the
+    The triage publishes nothing: it saw only diffs, so its output is a question for the
     session that can open the file. That is what makes verification structural — the
     confirm-or-refute pass it replaces refuted 0 findings in four real runs and confirmed
     a known false positive twice."""
@@ -944,21 +655,27 @@ def test_the_deep_prompt_hands_the_skim_suspicions_over_as_questions_not_finding
 
     batch = FocusContextBatch(
         batch_id="deep_1",
-        scan_suspicions=[
+        triage_suspicions=[
             {"path": "ui/Login.kt", "note": "Adds a guard", "suspicion": "The guard may invert the check"}
         ],
     )
 
     parts = build_findings_prompt_parts(batch)
 
-    assert "Flagged by the first pass" in parts["prompt"]
-    assert "do not review these files" in parts["prompt"]
+    assert "Questions from the triage" in parts["prompt"]
+    assert "for AFTER the review above" in parts["prompt"]
     assert "ui/Login.kt: The guard may invert the check" in parts["prompt"]
     assert "A question you cannot settle is not a finding" in parts["prompt"]
     # The settle rules travel with the questions, in the same call (D-014).
     assert "Confirming costs more than dismissing" in parts["instructions"]
-    # Nothing at all when the skim found nothing worth opening.
-    assert build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))["scan_suspicions"] == ""
+    # LAST, in the prompt and in the instructions: asked first, the questions set the
+    # agenda (5-6 of 8 findings per run on PR 3692 were confirmed triage questions).
+    prompt = parts["prompt"]
+    assert prompt.index("## Code to Review") < prompt.index("## Questions from the triage")
+    assert prompt.index("## Questions from the triage") < prompt.index("## Instructions")
+    assert parts["instructions"].rstrip().splitlines()[-3].startswith("- LAST, once the files")
+    # Nothing at all when the triage found nothing worth opening.
+    assert build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))["triage_suspicions"] == ""
 
 
 def test_the_findings_prompt_renders_every_axis_the_plan_selected():
@@ -1011,4 +728,15 @@ def test_the_session_is_told_to_search_before_claiming_an_absence():
     assert "open it in the working tree and check" in instructions
     # No project documents and no flagged questions on this batch, so neither rule may be
     # gated behind those.
-    assert not bare.context_docs and not bare.scan_suspicions
+    assert not bare.context_docs and not bare.triage_suspicions
+
+
+def test_the_deep_review_is_asked_what_a_removal_breaks():
+    """"Do not report deleted lines" made the session pass over the removal of reducers
+    whose actions are still dispatched (ragnarok PR #3720). A deleted line is still not a
+    finding by itself; what its removal breaks is, once the replacement was searched for."""
+    parts = build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))
+
+    assert "Do not report deleted lines" not in parts["instructions"]
+    assert "what its removal BREAKS" in parts["instructions"]
+    assert "SEARCH for the replacement" in parts["instructions"]

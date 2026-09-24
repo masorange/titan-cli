@@ -32,19 +32,9 @@ class TestRootLevelGlobs:
 # ============================================================================
 
 
-def _auth_candidates(paths: list[str]):
-    from titan_plugin_github.models.review_enums import FileReadMode, FileReviewPriority
-    from titan_plugin_github.models.review_models import ScoredReviewCandidate
-
-    return [
-        ScoredReviewCandidate(
-            path=path,
-            score=10,
-            priority=FileReviewPriority.HIGH,
-            suggested_read_mode=FileReadMode.HUNKS_ONLY,
-        )
-        for path in paths
-    ]
+def _auth_candidates(paths: list[str]) -> list[str]:
+    """The deep files the axes are selected against: paths, since nothing scores them."""
+    return list(paths)
 
 
 def test_every_applicable_axis_is_selected_not_the_first_four():
@@ -169,7 +159,7 @@ def test_titan_defaults_can_ask_about_every_axis_they_offer():
     selectable = set()
     for item in DEFAULT_REVIEW_CHECKLIST:
         rule = DEFAULT_REVIEW_PROFILE.review_axes.get(item.id) or ReviewAxisRule()
-        patterns = list(item.relevant_file_patterns) + list(rule.patterns)
+        patterns = list(rule.patterns)
         if rule.always_include or not patterns:
             selectable.add(item.id)
             continue

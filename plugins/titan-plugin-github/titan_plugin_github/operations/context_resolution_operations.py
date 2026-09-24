@@ -7,13 +7,12 @@ from typing import Optional
 from titan_cli.core.logging import get_logger
 
 from ..managers.diff_context_manager import DiffContextManager, get_or_create_diff_manager
-from .prompt_formatting_operations import extract_pr_intent_line
+from .prompt_formatting_operations import review_pr_description
 from ..managers.prompt_budget_manager import get_prompt_budget_manager
-from ..models.review_enums import AttentionTier, ContextRequestType, FileReadMode
+from ..models.review_enums import AttentionTier, FileReadMode
 from ..models.review_models import (
     ChangeManifest,
     CommentContextEntry,
-    ContextRequest,
     FileContextEntry,
     FileReviewPlan,
     FocusContextBatch,
@@ -129,79 +128,6 @@ def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
     return None
 
 
-def _find_related_tests(path: str, cwd: Optional[str] = None) -> Optional[tuple[str, str]]:
-    """Return (path, content) for the first existing test file of `path`, or None."""
-    p = Path(path)
-    stem = p.stem
-    candidates = [
-        p.parent / "tests" / f"test_{stem}{p.suffix}",
-        p.parent / f"test_{stem}{p.suffix}",
-        p.parent / f"{stem}_test{p.suffix}",
-        Path("tests") / f"test_{stem}{p.suffix}",
-        Path("tests") / p.parent / f"test_{stem}{p.suffix}",
-    ]
-
-    for candidate in candidates:
-        content = read_file_content(str(candidate), cwd)
-        if content:
-            return str(candidate), content
-    return None
-
-
-def _find_related_context(path: str, cwd: Optional[str] = None) -> Optional[tuple[str, str]]:
-    """Return (path, content) for the first existing sibling of `path`, or None."""
-    p = Path(path)
-    candidates = [
-        p.parent / "__init__.py",
-        p.parent / "protocols.py",
-        p.parent / "interfaces.py",
-        p.parent / f"base_{p.stem}{p.suffix}",
-        p.parent / f"{p.stem}_base{p.suffix}",
-    ]
-
-    for candidate in candidates:
-        if candidate == p:
-            continue
-        content = read_file_content(str(candidate), cwd)
-        if content:
-            return str(candidate), content[:3000]
-    return None
-
-
-def resolve_context_requests(
-    requests: list[ContextRequest],
-    cwd: Optional[str] = None,
-    allow_file_reads: bool = True,
-) -> dict[str, str]:
-    """
-    Resolve extra context requests by reading sibling files.
-
-    Returns nothing when ``allow_file_reads`` is False: these files are read whole from
-    disk, so an unverified revision would put unrelated code in the prompt.
-    """
-    if not allow_file_reads:
-        return {}
-
-    result: dict[str, str] = {}
-    for req in requests:
-        found = (
-            _find_related_tests(req.for_path, cwd)
-            if req.type == ContextRequestType.RELATED_TESTS
-            else _find_related_context(req.for_path, cwd)
-        )
-        if not found:
-            continue
-        found_path, content = found
-        key = f"{req.type}:{req.for_path}"
-        # Reaching this point means the working tree is readable, so the session can open
-        # the sibling itself. Naming it costs a line where pasting it cost up to 2,000
-        # chars of the content budget -- charged to EVERY batch, since related context
-        # ships with all of them, and then stripped again by the first degradation to make
-        # the call fit. The path plus the reason is the part the model could not guess.
-        result[key] = f"Open `{found_path}` in the working tree if this file's review needs it."
-    return result
-
-
 DEEP_BATCH_ID = "deep_1"
 """The one deep session of a review.
 
@@ -220,7 +146,7 @@ MIN_INLINE_DIFF_CHARS = 4000
 def _flagged_file_entries(suspicions: list[dict], already_present: set[str], manager) -> dict:
     """Header-only entries for the files the first pass flagged.
 
-    Their diffs are deliberately absent: the skim read them already, and resending them
+    Their diffs are deliberately absent: the triage read them already, and resending them
     would both pay twice and invite a full review of a file nobody tiered as worth one.
     The headers stay because the working tree holds the file AFTER the change, so without
     them the session cannot tell which lines an inline comment may attach to.
@@ -235,7 +161,7 @@ def _flagged_file_entries(suspicions: list[dict], already_present: set[str], man
             read_mode=FileReadMode.WORKTREE_REFERENCE,
             worktree_reference=True,
             changed_hunk_headers=[hunk.header for hunk in manager.get_hunks(path)[:30]],
-            review_hint="Flagged by the first pass — settle the question, do not review this file.",
+            review_hint="Flagged by the triage — settle its question after the review; do not go looking for more.",
             approximate_chars=get_prompt_budget_manager().WORKTREE_REFERENCE_PROMPT_CHARS,
         )
     return entries
@@ -276,7 +202,7 @@ def _measure_prompt(
         pr_manifest=manifest.pr,
         change_shape=change_shape,
         context_docs=context_docs,
-        scan_suspicions=suspicions,
+        triage_suspicions=suspicions,
         pr_intent=pr_intent,
     )
     return build_findings_prompt_parts(probe)["prompt"]
@@ -294,16 +220,6 @@ def _inline_diff_allowance(content_budget: int, file_count: int) -> int:
     return max(MIN_INLINE_DIFF_CHARS, content_budget // file_count)
 
 
-PR_INTENT_MAX_CHARS = 1200
-"""How much of the PR description the reviewing session is handed.
-
-Six times the 200-char line a per-file batch got, because a batch that judges the change
-against its stated intent needs the claim, not a summary of it. Still capped: a PR
-description can run to a novel, and the review is not a reading exercise. Characters are
-the wrong unit for this tier anyway (D-002) -- the cap is about focus, not cost.
-"""
-
-
 def build_review_context_package(
     plan: ReviewPlan,
     diff: str,
@@ -316,7 +232,7 @@ def build_review_context_package(
     allow_file_reads: bool = True,
     attention_plan=None,
     review_profile=None,
-    scan_suspicions: Optional[list[dict]] = None,
+    triage_suspicions: Optional[list[dict]] = None,
 ) -> ReviewContextPackage:
     """
     Build the batched review context package for the AI prompt.
@@ -337,17 +253,9 @@ def build_review_context_package(
     # ask about everything the project declared rather than about almost nothing.
     checklist_applicable = [item for item in checklist if item.id in applicable_ids] or list(checklist)
 
-    if len(plan.extra_context_requests) > 1:
-        logger.info(
-            "extra_context_requests_trimmed",
-            planned=len(plan.extra_context_requests),
-            kept=1,
-            dropped=len(plan.extra_context_requests) - 1,
-        )
-
-    related_files = resolve_context_requests(
-        plan.extra_context_requests[:1], cwd, allow_file_reads=allow_file_reads
-    )
+    # Sibling files used to be pasted in on request from the AI planning call; that call
+    # is gone and the session opens whatever it needs from the working tree itself.
+    related_files: dict[str, str] = {}
     comment_context = comment_context[: budget.max_comment_entries]
     content_budget = get_prompt_budget_manager().content_budget(budget)
 
@@ -355,18 +263,14 @@ def build_review_context_package(
     # More than the one-line cap a per-file batch got: this batch judges the change
     # against what the PR says it does, so it needs the claim in full. Still capped —
     # a PR description can be a novel, and the review is not a reading exercise.
-    pr_intent = (
-        extract_pr_intent_line(manifest.pr.description, max_chars=PR_INTENT_MAX_CHARS)
-        if manifest.pr
-        else None
-    )
+    pr_intent = review_pr_description(manifest.pr.description) if manifest.pr else None
 
     # The deep session reads the DEEP files and nothing else. Until now `focus_files`
     # came straight from the scorer (top N candidates), so a file the attention plan had
     # tiered `glance` or `skip` could still be deep-read: on PR 251,
     # `docs/concepts/oauth-manager.md` was tiered skip and went into a review batch anyway.
     # That made the tiers decoration. Files left out here are not lost -- they are
-    # declared, on screen and in the log, and the skim (call 1) is what looks at the
+    # declared, on screen and in the log, and the triage (call 1) is what looks at the
     # glance ones.
     focus_files = plan.focus_files
     if attention_plan is not None:
@@ -431,7 +335,7 @@ def build_review_context_package(
     # What a demoted file loses is real but narrow: the literal added lines the model
     # copies its `snippet` from, which is what inline anchoring depends on (D-008). It
     # does not lose the review.
-    suspicions = list(scan_suspicions or [])
+    suspicions = list(triage_suspicions or [])
     inline_allowance = _inline_diff_allowance(content_budget, len(focus_files))
     files_context: dict[str, FileContextEntry] = {}
     prompt_chars = 0
@@ -468,6 +372,38 @@ def build_review_context_package(
     files_context = {file_plan.path: _resolve(file_plan, inline_allowance) for file_plan in focus_files}
     if files_context:
         prompt_chars = _measure(files_context)
+        # The even share is a starting point, not a verdict. A file whose diff is larger
+        # than its share -- often the central one -- starts as a bare reference; when the
+        # session still has room, it gets its diff back, in plan order, as long as the
+        # real prompt fits. On ragnarok PR #3692 the even share left 7 of 27 files without
+        # their diff in a prompt using 65k of 120k.
+        restored: list[str] = []
+        for file_plan in focus_files:
+            entry = files_context[file_plan.path]
+            if (entry.hunks and not entry.removals_only) or not entry.worktree_reference:
+                continue
+            # The full diff first; failing that, its removed lines -- the part the
+            # session cannot recover from the tree. On ragnarok PR #3720 the central
+            # file's removals (12,985 chars) exceeded its even share (~8,900) and this
+            # pass only ever tried the full diff, so it went bare and the session
+            # dismissed the defect it could not see.
+            full = _resolve(file_plan, budget.deep_max_prompt_chars)
+            removals = (
+                None
+                if entry.removals_only
+                else _removals_only_entry(file_plan, manager.get_hunk_texts(file_plan.path), entry.changed_hunk_headers)
+            )
+            for candidate in (full, removals):
+                if candidate is None or not candidate.hunks:
+                    continue
+                trial = {**files_context, file_plan.path: candidate}
+                trial_chars = _measure(trial)
+                if trial_chars <= budget.deep_max_prompt_chars:
+                    files_context, prompt_chars = trial, trial_chars
+                    restored.append(file_plan.path)
+                    break
+        if restored:
+            logger.debug("deep_session_diffs_restored", files=len(restored), paths=restored)
         # Least important first, which is the tail of the scorer's ranking.
         for file_plan in reversed(focus_files):
             if prompt_chars <= budget.deep_max_prompt_chars:
@@ -492,7 +428,7 @@ def build_review_context_package(
     batches: list[FocusContextBatch] = []
     if files_context or suspicions:
         # Flagged files join the SAME session as a second task list: headers and the
-        # question, never their diff, which the skim already read.
+        # question, never their diff, which the triage already read.
         files_context.update(
             _flagged_file_entries(suspicions, set(files_context), manager)
         )
@@ -504,7 +440,8 @@ def build_review_context_package(
             inline_diff_allowance=inline_allowance,
             prompt_actual_chars=prompt_chars,
             prompt_budget_target_chars=budget.deep_max_prompt_chars,
-            inline_diff_files=sum(1 for entry in files_context.values() if entry.hunks),
+            inline_diff_files=sum(1 for entry in files_context.values() if entry.hunks and not entry.removals_only),
+            removals_only_files=sum(1 for entry in files_context.values() if entry.removals_only),
             reference_only_files=sum(
                 1 for entry in files_context.values() if entry.worktree_reference and not entry.hunks
             ),
@@ -520,7 +457,7 @@ def build_review_context_package(
                 pr_manifest=manifest.pr,
                 change_shape=change_shape,
                 context_docs=context_docs,
-                scan_suspicions=suspicions,
+                triage_suspicions=suspicions,
                 pr_intent=pr_intent,
                 approximate_chars=prompt_chars,
                 prompt_budget_target_chars=budget.deep_max_prompt_chars,
@@ -592,6 +529,33 @@ def _resolve_file_context(
                 ),
             )
             return _log_file_context(resolved_entry, file_plan.path)
+        # Over its share, the diff is cut down to its REMOVED lines: the session opens the
+        # file for everything added or kept, but what was deleted exists nowhere it can
+        # reach (Bash, so git, is disallowed). On ragnarok PR #3720 the central
+        # AnalyticsStore.kt (32,495 chars of diff) went as a bare reference, the session
+        # searched the post-change tree for two deleted reducers, found "none", and
+        # dismissed the question that would have found them -- at $2.17 of searching. Its
+        # removed lines are 12,985 chars.
+        removals_entry = _removals_only_entry(file_plan, hunks, hunk_headers)
+        if removals_entry and removals_entry.approximate_chars <= allowance:
+            return _log_file_context(removals_entry, file_plan.path)
+        # Not even the removals fit: a reference with its hunk headers, and the session
+        # opens the file. This used to fall through to the expanded-hunks branch below, which
+        # ignores the allowance -- so "demoting" a file made its entry LARGER, and on
+        # ragnarok PR #3692 all 27 deep files were "demoted" and the session still came
+        # out at 122,319 chars and was split in two. It never showed while a scorer
+        # handed low-score files `hunks_only`, the one mode the allowance did govern.
+        return _log_file_context(
+            FileContextEntry(
+                path=file_plan.path,
+                read_mode=FileReadMode.WORKTREE_REFERENCE,
+                worktree_reference=True,
+                review_hint=_build_worktree_hint(file_plan),
+                changed_hunk_headers=hunk_headers,
+                approximate_chars=get_prompt_budget_manager().WORKTREE_REFERENCE_PROMPT_CHARS,
+            ),
+            file_plan.path,
+        )
 
     if desired_mode == FileReadMode.FULL_FILE:
         content = read_file_content(file_plan.path, cwd)
@@ -695,6 +659,48 @@ def _file_limits(path: str) -> dict[str, int]:
         "max_file_lines": 260,
         "extra_lines": 8,
     }
+
+
+REMOVALS_ONLY_HINT = (
+    " Only the REMOVED lines of this file's diff are shown below: open the file for what was"
+    " added or kept. What was removed is not in the working tree any more, so check here"
+    " whether anything it did is now missing."
+)
+
+
+def _removals_only_entry(
+    file_plan: FileReviewPlan, hunks: list[str], hunk_headers: list[str]
+) -> Optional[FileContextEntry]:
+    """A reference carrying only the removed lines of its diff, or None if nothing was removed."""
+    removals = _removed_lines_only(hunks)
+    if not removals:
+        return None
+    return FileContextEntry(
+        path=file_plan.path,
+        read_mode=FileReadMode.WORKTREE_REFERENCE,
+        worktree_reference=True,
+        hunks=removals,
+        removals_only=True,
+        review_hint=_build_worktree_hint(file_plan) + REMOVALS_ONLY_HINT,
+        changed_hunk_headers=hunk_headers,
+        approximate_chars=(
+            sum(len(hunk) for hunk in removals) + get_prompt_budget_manager().WORKTREE_REFERENCE_PROMPT_CHARS
+        ),
+    )
+
+
+def _removed_lines_only(hunks: list[str]) -> list[str]:
+    """Each hunk reduced to its header and its removed lines; hunks that remove nothing drop out."""
+    reduced: list[str] = []
+    for hunk in hunks:
+        lines = hunk.splitlines()
+        if not lines:
+            continue
+        header, body = lines[0], lines[1:]
+        removed = [line for line in body if line.startswith("-") and not line.startswith("---")]
+        if removed:
+            reduced.append("\n".join([header, *removed]) + "\n")
+    return reduced
 
 
 def _build_worktree_hint(file_plan: FileReviewPlan) -> str:

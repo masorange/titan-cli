@@ -27,7 +27,6 @@ import titan_plugin_github.steps.code_review_steps as code_review_steps
 from titan_plugin_github.steps.code_review_steps import (
     ai_review_findings,
     ai_thread_resolution,
-    verify_findings,
 )
 
 
@@ -104,7 +103,7 @@ def stub_adapter_lookup(monkeypatch):
 
 @pytest.mark.parametrize(
     "step",
-    [ai_review_findings, verify_findings, ai_thread_resolution],
+    [ai_review_findings, ai_thread_resolution],
 )
 def test_every_review_step_uses_the_global_default_cli(step):
     adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(_executor()), step)
@@ -125,28 +124,6 @@ def test_a_task_preference_for_a_cli_is_honored_over_nothing():
 
     assert adapter.cli_name == "gemini"
     assert note is None
-
-
-def test_findings_and_verification_share_one_task_setting():
-    """verify_findings is part of the findings pass, so one preference governs both."""
-    executor = _executor(
-        task_preferences={
-            AITask.CODE_REVIEW_FINDINGS: AIProviderPreference(provider=AIProviderType.OFF)
-        }
-    )
-
-    findings_adapter, _, findings_off = code_review_steps._resolve_review_adapter(
-        _ctx(executor), ai_review_findings
-    )
-    verify_adapter, _, verify_off = code_review_steps._resolve_review_adapter(
-        _ctx(executor), verify_findings
-    )
-
-    assert findings_adapter is None and findings_off is True
-    assert verify_adapter is None and verify_off is True
-
-
-# --- every failure names its reason ---------------------------------------
 
 
 def test_off_reports_that_the_task_is_disabled():
@@ -212,7 +189,6 @@ def test_no_router_keeps_the_first_available_cli_behavior():
     "step, task",
     [
         (ai_review_findings, AITask.CODE_REVIEW_FINDINGS),
-        (verify_findings, AITask.CODE_REVIEW_FINDINGS),
         (ai_thread_resolution, "thread_resolution"),
     ],
 )
@@ -268,7 +244,7 @@ def test_the_wrapper_is_transparent_for_everything_else():
 
 @pytest.mark.parametrize(
     "step",
-    [ai_review_findings, verify_findings, ai_thread_resolution],
+    [ai_review_findings, ai_thread_resolution],
 )
 def test_every_review_step_gets_the_pinned_model(step):
     executor = _executor(cli_models={"claude": "haiku"})

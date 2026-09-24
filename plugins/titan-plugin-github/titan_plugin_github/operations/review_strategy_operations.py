@@ -1,346 +1,24 @@
-"""Deterministic operations for selecting PR review focus."""
+"""Deterministic operations that decide what one review reads, and under what budget."""
 
-from .review_profile_operations import (
-    classify_file_role,
-    is_reviewable_documentation,
-    match_change_patterns,
-    matching_scoring_rules,
-    select_review_axes,
-)
 from titan_cli.core.logging import get_logger
 
-from ..models.review_enums import (
-    AttentionTier,
-    ExclusionReason,
-    FileReadMode,
-    FileReviewPriority,
-    PRSizeClass,
-)
-from ..models.review_profile_models import ReviewProfile
+from ..models.review_enums import AttentionTier, FileReadMode
 from ..models.review_models import (
-    ChangeManifest,
-    ExcludedFileEntry,
     FileReviewPlan,
-    PRClassification,
     ReviewBudget,
     ReviewChecklistItem,
     ReviewPlan,
-    ScoredReviewCandidate,
 )
-from ..review_profiles import DEFAULT_REVIEW_PROFILE
+from ..models.review_profile_models import ReviewProfile
+from .review_profile_operations import select_review_axes
 
 logger = get_logger(__name__)
-
-
-def classify_pr(
-    manifest: ChangeManifest,
-    comment_entries: int = 0,
-    comment_threads: int = 0,
-    review_profile: ReviewProfile | None = None,
-) -> PRClassification:
-    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
-    total_lines = manifest.total_additions + manifest.total_deletions
-    files_changed = len(manifest.files)
-    repeated_callsite_files = sum(
-        1 for f in manifest.files if "repeated_callsite" in match_change_patterns(f.path, review_profile)
-    )
-    high_signal_files = sum(
-        1
-        for f in manifest.files
-        if {"central_behavior", "entrypoint"}.intersection(match_change_patterns(f.path, review_profile))
-    )
-    repetition_ratio = (repeated_callsite_files / files_changed) if files_changed else 0.0
-    roles = sorted(
-        {
-            classify_file_role(
-                f.path,
-                review_profile,
-                is_test=f.is_test,
-                is_docs=f.is_docs,
-                is_generated=f.is_generated,
-                is_config=f.is_config,
-            )
-            for f in manifest.files
-        }
-    )
-    role_count = len(roles)
-    active_review = comment_threads >= 5 or comment_entries >= 10
-    is_repetitive_migration = files_changed >= 12 and total_lines <= 700 and repetition_ratio >= 0.35
-    complexity_score = _compute_complexity_score(
-        files_changed=files_changed,
-        total_lines=total_lines,
-        high_signal_files=high_signal_files,
-        role_count=role_count,
-        is_repetitive_migration=is_repetitive_migration,
-        repetition_ratio=repetition_ratio,
-    )
-    size_class = _score_to_size_class(complexity_score)
-
-    if files_changed >= 35 and total_lines >= 4000 and role_count >= 3:
-        size_class = PRSizeClass.HUGE
-
-    if size_class == PRSizeClass.HUGE and is_repetitive_migration:
-        size_class = PRSizeClass.LARGE
-    elif size_class == PRSizeClass.HUGE and files_changed <= 15 and role_count <= 4 and high_signal_files <= 6:
-        size_class = PRSizeClass.LARGE
-    elif size_class == PRSizeClass.LARGE and files_changed <= 8 and total_lines <= 300:
-        size_class = PRSizeClass.SMALL
-
-    rationale_parts = [f"{files_changed} files", f"{total_lines} changed lines"]
-    if high_signal_files:
-        rationale_parts.append(f"{high_signal_files} high-signal files")
-    if repeated_callsite_files:
-        rationale_parts.append(f"{repeated_callsite_files} repeated call sites")
-    if role_count:
-        rationale_parts.append(f"roles: {', '.join(roles)}")
-    if active_review:
-        rationale_parts.append("active review in progress")
-    if is_repetitive_migration:
-        rationale_parts.append("repetitive migration pattern detected")
-    rationale_parts.append(f"complexity score {complexity_score}")
-
-    return PRClassification(
-        size_class=size_class,
-        files_changed=files_changed,
-        total_lines_changed=total_lines,
-        doc_files=sum(1 for f in manifest.files if f.is_docs),
-        test_files=sum(1 for f in manifest.files if f.is_test),
-        config_files=sum(1 for f in manifest.files if f.is_config),
-        generated_files=sum(1 for f in manifest.files if f.is_generated),
-        comment_threads=comment_threads,
-        comment_entries=comment_entries,
-        high_signal_files=high_signal_files,
-        repeated_callsite_files=repeated_callsite_files,
-        role_count=role_count,
-        roles=roles,
-        complexity_score=complexity_score,
-        active_review=active_review,
-        is_repetitive_migration=is_repetitive_migration,
-        rationale=", ".join(rationale_parts),
-    )
-
-
-def _compute_complexity_score(
-    *,
-    files_changed: int,
-    total_lines: int,
-    high_signal_files: int,
-    role_count: int,
-    is_repetitive_migration: bool,
-    repetition_ratio: float,
-) -> int:
-    # The size class measures the CODE, so review activity deliberately plays no part
-    # here: comments don't make a PR bigger, and counting them meant a review's own
-    # published comments could push the same unchanged PR into a bigger size class on
-    # the next run. Review activity is captured separately as `active_review`.
-    score = 0
-
-    if files_changed <= 3:
-        score += 0
-    elif files_changed <= 8:
-        score += 2
-    elif files_changed <= 15:
-        score += 3
-    elif files_changed <= 40:
-        score += 4
-    else:
-        score += 6
-
-    if total_lines <= 80:
-        score += 0
-    elif total_lines <= 300:
-        score += 1
-    elif total_lines <= 900:
-        score += 2
-    elif total_lines <= 2500:
-        score += 3
-    elif total_lines <= 10000:
-        score += 4
-    else:
-        score += 6
-
-    if high_signal_files >= 8:
-        score += 3
-    elif high_signal_files >= 4:
-        score += 2
-    elif high_signal_files >= 1:
-        score += 1
-
-    if role_count >= 6:
-        score += 3
-    elif role_count >= 4:
-        score += 2
-    elif role_count >= 2:
-        score += 1
-
-    if is_repetitive_migration:
-        score -= 2
-    elif repetition_ratio >= 0.35:
-        score -= 1
-
-    return max(0, score)
-
-
-def _score_to_size_class(score: int) -> PRSizeClass:
-    if score <= 2:
-        return PRSizeClass.TINY
-    if score <= 4:
-        return PRSizeClass.SMALL
-    if score <= 6:
-        return PRSizeClass.MEDIUM
-    if score <= 10:
-        return PRSizeClass.LARGE
-    return PRSizeClass.HUGE
-
-
-def score_review_candidates(
-    manifest: ChangeManifest,
-    review_profile: ReviewProfile | None = None,
-) -> tuple[list[ScoredReviewCandidate], list[ExcludedFileEntry]]:
-    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
-    candidates: list[ScoredReviewCandidate] = []
-    excluded: list[ExcludedFileEntry] = []
-    repeated_callsite_paths = _detect_repeated_callsite_paths(manifest, review_profile)
-
-    for entry in manifest.files:
-        reasons: list[str] = []
-
-        if entry.status.value == "deleted":
-            excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.DELETED))
-            continue
-        if entry.is_rename_only:
-            excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.RENAME_ONLY))
-            continue
-        if entry.is_lockfile:
-            excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.LOCKFILE))
-            continue
-        if entry.is_generated:
-            excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.GENERATED))
-            continue
-        if entry.is_docs and not is_reviewable_documentation(entry.path, review_profile):
-            excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.DOCS))
-            continue
-
-        score = 0
-        if entry.total_changes >= 200:
-            score += 6
-            reasons.append("large change set")
-        elif entry.total_changes >= 80:
-            score += 4
-            reasons.append("medium change set")
-        elif entry.total_changes >= 20:
-            score += 2
-            reasons.append("non-trivial change")
-
-        if entry.status.value == "added":
-            score += 3
-            reasons.append("new file")
-
-        if not entry.is_test:
-            # Scoring rules describe production roles (viewmodels, utils, config
-            # surfaces...). A test file matching them by name would inherit the
-            # criticality of the code it tests; tests score on their own change
-            # size plus the explicit test bonus below.
-            for rule in matching_scoring_rules(entry.path, review_profile):
-                score += rule.score_delta
-                reasons.append(rule.reason)
-
-        if entry.path in repeated_callsite_paths:
-            score -= 2
-            reasons.append("repeated call-site migration")
-
-        if (
-            entry.is_config
-            and entry.total_changes <= review_profile.candidate_exclusions.low_signal_config_max_changes
-        ):
-            excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.LOW_SIGNAL_CONFIG))
-            continue
-
-        if entry.is_test and entry.total_changes <= review_profile.candidate_exclusions.low_signal_test_max_changes:
-            excluded.append(ExcludedFileEntry(path=entry.path, reason=ExclusionReason.LOW_SIGNAL_TEST))
-            continue
-        if entry.is_test:
-            score += 1
-            reasons.append("test file with meaningful changes")
-
-        if score <= 0:
-            score = 1
-            reasons.append("changed source file")
-
-        if score >= 10:
-            priority = FileReviewPriority.HIGH
-            read_mode = FileReadMode.EXPANDED_HUNKS
-        elif score >= 5:
-            priority = FileReviewPriority.MEDIUM
-            read_mode = FileReadMode.EXPANDED_HUNKS
-        else:
-            priority = FileReviewPriority.LOW
-            read_mode = FileReadMode.HUNKS_ONLY
-
-        candidates.append(
-            ScoredReviewCandidate(
-                path=entry.path,
-                score=score,
-                priority=priority,
-                suggested_read_mode=read_mode,
-                reasons=reasons,
-            )
-        )
-
-    candidates.sort(key=lambda item: (item.score, item.priority == FileReviewPriority.HIGH), reverse=True)
-    return candidates, excluded
-
-
-def summarize_candidate_clusters(
-    candidates: list[ScoredReviewCandidate],
-    review_profile: ReviewProfile | None = None,
-) -> list[dict]:
-    """Build a compact summary of repeated candidate groups for planning prompts."""
-    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
-    clusters: dict[str, list[ScoredReviewCandidate]] = {}
-    for candidate in candidates:
-        group = _candidate_group(candidate.path, review_profile)
-        clusters.setdefault(group, []).append(candidate)
-
-    summary: list[dict] = []
-    for group, grouped_candidates in clusters.items():
-        if len(grouped_candidates) < 3:
-            continue
-        summary.append(
-            {
-                "group": group,
-                "count": len(grouped_candidates),
-                "representatives": [candidate.path for candidate in grouped_candidates[:3]],
-            }
-        )
-    summary.sort(key=lambda item: item["count"], reverse=True)
-    return summary[:5]
 
 
 # One budget for every review, in Titan, generic. Not derived from a size label: the
 # five-tier table it replaces gave a 108-file PR and a 500-file PR the same 12 files
 # because HUGE was its last rung.
 #
-# How many deep files ONE session carries. It does not decide how many files get read:
-# a deep tier larger than this costs another session, never a dropped file. It was called
-# MAX_DEEP_SESSIONS, which said "sessions" while holding a count of FILES, and that lie
-# is how it survived D-001 as a coverage ceiling -- on ragnarok run `70777691` it sent 12
-# of 24 deep files to the skim.
-#
-# What it really defends is attention per file inside one call, plus wall-clock per call:
-# a session reasons about everything it was handed at once, so twelve files at
-# `effort=high` measured 310-367 s, and doubling that would put one call near the 1500 s
-# timeout ceiling. That is the unit, and the number is provisional against it (O-004).
-#
-# Sessions are the cost unit, not characters: measured 2026-09-22 on PR 251, nine sessions
-# produced 82k output tokens for $6.46 where one session over the same ten files produced
-# 26k for $2.52, because each session reasons from scratch and independent sessions cannot
-# share the prompt cache the single one read 2M tokens from. (An earlier note here claimed
-# a ~$0.26 per-session floor measured by probing with a one-word prompt; that figure was
-# almost entirely cache creation from this repo's own CLAUDE.md and does not apply to
-# review calls, which report no cache.)
-DEEP_FILES_PER_SESSION = 12
-
 # What the deep batch may be HANDED. It does not bound what the model then reads from the
 # worktree, which is the real cost - it only stops one prompt from being absurd.
 #
@@ -358,11 +36,13 @@ DEEP_FILES_PER_SESSION = 12
 # and `fit_batch_to_budget` still enforces it against the real string.
 DEEP_MAX_PROMPT_CHARS = 120000
 
-# The glance tier cannot read the repo, so here the prompt IS the spend and characters
-# are the honest unit. The per-batch file cap is separate because a prompt that fits the
-# char budget can still hold too many files to judge carefully.
-SCAN_MAX_PROMPT_CHARS = 18000
-SCAN_MAX_FILES_PER_BATCH = 12
+# The triage cannot read the repo, so here the prompt IS the spend and characters are
+# the honest unit. Sized so an ordinary PR is ONE call: at 18,000 chars ragnarok PR 3692's
+# 24 glance files (144,805 chars of diff) took 12 calls, each paying the CLI's own fixed
+# context (~$0.08 on claude) -- $1.18 for the triage against $0.66 for the deep review --
+# and no call could rank its questions against the other eleven's. 200,000 chars is ~50k
+# tokens, inside every supported CLI's context window.
+TRIAGE_MAX_PROMPT_CHARS = 200000
 
 MAX_COMMENT_ENTRIES = 10
 
@@ -390,10 +70,8 @@ def review_budget() -> ReviewBudget:
     and so a future per-project override has one place to land.
     """
     return ReviewBudget(
-        deep_files_per_session=DEEP_FILES_PER_SESSION,
         deep_max_prompt_chars=DEEP_MAX_PROMPT_CHARS,
-        scan_max_prompt_chars=SCAN_MAX_PROMPT_CHARS,
-        scan_max_files_per_batch=SCAN_MAX_FILES_PER_BATCH,
+        triage_max_prompt_chars=TRIAGE_MAX_PROMPT_CHARS,
         max_comment_entries=MAX_COMMENT_ENTRIES,
         deep_timeout_base_seconds=DEEP_TIMEOUT_BASE_SECONDS,
         deep_timeout_per_file_seconds=DEEP_TIMEOUT_PER_FILE_SECONDS,
@@ -415,110 +93,33 @@ def deep_call_timeout_seconds(budget: ReviewBudget, file_count: int) -> int:
 
 
 def build_deterministic_review_plan(
-    candidates: list[ScoredReviewCandidate],
-    excluded_files: list[ExcludedFileEntry],
+    attention_plan,
     checklist: list[ReviewChecklistItem],
-    budget: ReviewBudget,
-    review_profile: ReviewProfile | None = None,
-    attention_plan=None,
+    review_profile: ReviewProfile,
 ) -> ReviewPlan:
-    """Decide what the deep session reads, without asking a model.
+    """Decide what the deep session reads, without asking a model or scoring anything.
 
-    With an ``attention_plan``, the DEEP tier IS the selection: every deep file is read,
-    in score order, and nothing else is. `deep_files_per_session` does not appear here at
-    all -- it sizes the batches downstream, so a deep tier bigger than one session costs
-    another session rather than costing files.
+    The deep tier IS the selection: every deep file is read, in manifest order, with its
+    diff inline and the file open in the worktree. Everything else that is not skipped
+    goes to the triage, so nothing reviewable is left out and there is no exclusion list
+    to keep.
 
-    This replaced an AI planning call, and the measurement is why. On run 4fd7f345 that
-    call spent 92,463 input tokens and 38.8 s choosing files -- and chose 7 of the 9 the
-    attention plan had already marked deep, spending two of its slots on test files the
-    plan had tiered `glance`. `titan_cli/core/oauth/__init__.py` and `exceptions.py` went
-    unreviewed as a result. A call that subtracts coverage a deterministic rule already
-    decided is not worth its tokens.
-
-    Without an attention plan (a step run standalone), the old score-order cut applies.
+    Two layers that sat in front of this are gone. An AI planning call (run 4fd7f345: 92,463
+    input tokens to choose 7 of the 9 files the tiers had already marked deep), and a
+    scorer that ranked files for a 12-file cut which no longer exists -- and which, while
+    it lived, also decided how much context each deep file got: under 5 points a deep file
+    went in as bare hunks without being marked as openable.
     """
-    review_profile = review_profile or DEFAULT_REVIEW_PROFILE
-
-    if attention_plan is not None:
-        deep_paths = set(attention_plan.paths_for(AttentionTier.DEEP))
-        selected = [candidate for candidate in candidates if candidate.path in deep_paths]
-        not_selected = [
-            (candidate, _exclusion_for_tier(attention_plan, candidate.path))
-            for candidate in candidates
-            if candidate.path not in deep_paths
-        ]
-    else:
-        selected = candidates[: budget.deep_files_per_session]
-        not_selected = [
-            (candidate, "outside deterministic focus limit")
-            for candidate in candidates[budget.deep_files_per_session :]
-        ]
-
-    # No cut for a large deep tier. A deep tier bigger than one session becomes MORE
-    # sessions, not fewer files: `deep_files_per_session` sizes the batch downstream, and
-    # the overflow is what batching is for (D-012). This used to drop the surplus, and on
-    # ragnarok run `70777691` that sent 12 of 24 deep files to the skim -- a file the
-    # profile said to read in full got a glance at its diff instead, which is D-001's
-    # 12-file ceiling wearing a new name.
-
+    deep_entries = [entry for entry in attention_plan.files if entry.tier == AttentionTier.DEEP]
     focus_files = [
         FileReviewPlan(
-            path=candidate.path,
-            priority=candidate.priority,
-            read_mode=candidate.suggested_read_mode,
-            reasons=candidate.reasons,
+            path=entry.path,
+            read_mode=FileReadMode.EXPANDED_HUNKS,
+            reasons=[entry.reason],
         )
-        for candidate in selected
+        for entry in deep_entries
     ]
-
-    review_axes = select_review_axes(checklist, selected, review_profile)
-    trimmed_excluded = list(excluded_files)
-    for candidate, detail in not_selected:
-        trimmed_excluded.append(
-            ExcludedFileEntry(
-                path=candidate.path,
-                reason=ExclusionReason.BUDGET_TRIMMED,
-                detail=detail,
-            )
-        )
     return ReviewPlan(
         focus_files=focus_files,
-        review_axes=review_axes,
-        extra_context_requests=[],
-        excluded_files=trimmed_excluded,
+        review_axes=select_review_axes(checklist, [entry.path for entry in deep_entries], review_profile),
     )
-
-
-def _exclusion_for_tier(attention_plan, path: str) -> str:
-    """Why a candidate is not in the deep session, named by its tier."""
-    for entry in attention_plan.files:
-        if entry.path == path:
-            return f"tiered {entry.tier.value} ({entry.reason})"
-    return "not in the attention plan"
-
-
-def _detect_repeated_callsite_paths(
-    manifest: ChangeManifest,
-    review_profile: ReviewProfile,
-) -> set[str]:
-    repeated: set[str] = set()
-    callsite_like = [
-        entry for entry in manifest.files
-        if "repeated_callsite" in match_change_patterns(entry.path, review_profile) and entry.total_changes <= 20
-    ]
-    if len(callsite_like) < 4:
-        return repeated
-    repeated.update(entry.path for entry in callsite_like)
-    return repeated
-
-
-def _candidate_group(path: str, review_profile: ReviewProfile) -> str:
-    matches = match_change_patterns(path, review_profile)
-    if "central_behavior" in matches:
-        return "central_behavior"
-    if "entrypoint" in matches:
-        return "entrypoint"
-    if "repeated_callsite" in matches:
-        return "repeated_callsite"
-    return "other"

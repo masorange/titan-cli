@@ -44,11 +44,10 @@ items:
     checklist = ChecklistManager(project_root=tmp_path).get_effective_checklist()
 
     by_id = {item.id: item for item in checklist}
-    # The project's items merge onto Titan's twelve: the known id is replaced in place
-    # and `security` (already a default category) gets the project's patterns. Adding
-    # one item must not cost the other eleven.
+    # The project's items merge onto Titan's twelve: the known id is replaced in place.
+    # Adding one item must not cost the other eleven.
     assert by_id["functional_correctness"].description == "Check behavior"
-    assert by_id["security"].relevant_file_patterns == ["**/auth/**"]
+    assert by_id["security"].description == "Check auth and secrets"
     assert len(checklist) == len(DEFAULT_REVIEW_CHECKLIST)
     assert checklist[0].id == DEFAULT_REVIEW_CHECKLIST[0].id
 
@@ -110,7 +109,25 @@ items:
     assert checklist[0].id == DEFAULT_REVIEW_CHECKLIST[0].id
     by_id = {str(item.id): item for item in checklist}
     assert by_id["performance"].name == "Our Performance Bar"
-    assert by_id["performance"].relevant_file_patterns == ["**/*query*"]
+
+
+def test_checklist_patterns_are_reported_as_ignored_not_applied(tmp_path: Path):
+    """WHEN an axis applies lives in the profile's `review_axes`. A checklist still
+    carrying `relevant_file_patterns` must say they do nothing, not look applied."""
+    _write_checklist(tmp_path, """
+version: 1
+items:
+  - id: performance
+    name: Performance
+    description: ours
+    relevant_file_patterns:
+      - "**/*query*"
+""")
+
+    resolution = ChecklistManager(project_root=tmp_path).resolve()
+
+    assert resolution.report.ignored_keys == ["items.performance.relevant_file_patterns"]
+    assert resolution.report.has_warnings
 
 
 def test_resolve_reports_what_the_project_changed(tmp_path: Path):

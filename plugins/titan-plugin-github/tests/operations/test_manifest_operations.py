@@ -3,7 +3,7 @@ from titan_plugin_github.models.view import UIComment, UICommentThread, UIFileCh
 from titan_plugin_github.models.review_models import ExistingCommentIndexEntry, Finding
 from titan_plugin_github.models.review_enums import FindingSeverity
 from titan_plugin_github.models.validators import is_duplicate
-from titan_plugin_github.models.review_profile_models import CandidateExclusions, ReviewProfile
+from titan_plugin_github.models.review_profile_models import ReviewProfile
 from titan_plugin_github.operations.manifest_operations import (
     build_change_manifest,
     build_comment_review_context,
@@ -75,10 +75,7 @@ def test_is_test_file_does_not_claim_production_lookalikes():
 def test_is_test_file_uses_profile_declared_globs():
     profile = ReviewProfile(
         version=1,
-        change_patterns={},
         file_roles={"tests": ["**/*Fixtures.kt", "sharedTest/src/main/kotlin/**"]},
-        candidate_scoring=[],
-        candidate_exclusions=CandidateExclusions(),
         review_axes={},
     )
 
@@ -91,10 +88,7 @@ def test_is_test_file_uses_profile_declared_globs():
 def test_build_change_manifest_marks_tests_via_profile(sample_ui_pr):
     profile = ReviewProfile(
         version=1,
-        change_patterns={},
         file_roles={"tests": ["**/*Fixtures.kt"]},
-        candidate_scoring=[],
-        candidate_exclusions=CandidateExclusions(),
         review_axes={},
     )
     files = [
@@ -463,3 +457,36 @@ def test_is_duplicate_returns_false_if_not_adjudicated_and_dissimilar():
     )
 
     assert is_duplicate(finding, existing, title_similarity_threshold=0.9) is False
+
+
+def _index_entry(**overrides):
+    base = dict(comment_id=9, thread_id="t9", is_resolved=False, path="ui/DeviceDetailScreen.kt",
+                line=116, category="error_handling", author="reviewer")
+    base.update(overrides)
+    base.setdefault("title", base.get("body", "")[:80])
+    return ExistingCommentIndexEntry(**base)
+
+
+def test_a_shared_category_near_a_comment_is_not_a_duplicate_by_itself():
+    """Measured on ragnarok PR #3685: this real, new finding was dropped because a human
+    comment five lines away was guessed `error_handling` for containing "handling"."""
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT, category="error_handling", path="ui/DeviceDetailScreen.kt",
+        line=111, title='Checkout "Retry" button only dismisses the error, it never retries checkout',
+        why="onCheckoutErrorRetryClick only resets hasCheckoutError; the checkout request is not issued again.",
+        evidence="onCheckoutErrorRetryClick = { hasCheckoutError = false }", suggested_comment="c",
+    )
+    comment = _index_entry(body="Shouldn't this be handling the case when there's no `checkoutUrl`?")
+
+    assert is_duplicate(finding, comment) is False
+
+
+def test_a_nearby_comment_that_says_the_same_thing_is_a_duplicate():
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT, category="error_handling", path="ui/DeviceDetailScreen.kt",
+        line=111, title="Retry button does not retry the checkout request",
+        why="The retry handler only hides the error screen.", evidence="e", suggested_comment="c",
+    )
+    comment = _index_entry(body="The retry button here only hides the error, it should retry the checkout request.")
+
+    assert is_duplicate(finding, comment) is True

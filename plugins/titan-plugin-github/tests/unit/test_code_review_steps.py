@@ -6,16 +6,14 @@ from titan_cli.engine import WorkflowContext
 from titan_cli.engine.results import Error, Exit, Skip, Success
 from titan_cli.external_cli.adapters import HeadlessResponse
 from titan_cli.external_cli.adapters.base import SupportedCLI
-from titan_plugin_github.models.review_enums import FileReadMode, FileReviewPriority, FindingSeverity
+from titan_plugin_github.models.review_enums import FileReadMode
 from titan_plugin_github.models.review_models import (
     ChangeManifest,
-    FileContextEntry,
-    Finding,
-    FocusContextBatch,
     PullRequestManifest,
+    FileContextEntry,
+    FocusContextBatch,
     ReferencedCommitContext,
     ReviewBudget,
-    ScoredReviewCandidate,
     ThreadReviewCandidate,
     ThreadReviewContext,
 )
@@ -29,8 +27,6 @@ from titan_plugin_github.steps.code_review_steps import (
     build_thread_review_candidates,
     build_thread_review_contexts,
     fetch_pr_review_bundle,
-    score_review_candidates,
-    verify_findings,
 )
 
 
@@ -290,37 +286,6 @@ def test_build_thread_review_candidates_errors_without_current_user():
     assert result.message == "Current GitHub user not available"
 
 
-def test_score_review_candidates_exits_when_no_reviewable_candidates_remain():
-    ctx = WorkflowContext()
-    ctx.textual = _FakeTextual()
-    ctx.data["change_manifest"] = ChangeManifest(
-        pr=PullRequestManifest(
-            number=215,
-            title="docs-only cleanup",
-            base="master",
-            head="cleanup",
-            author="alex",
-            description="Body",
-        ),
-        files=[
-            MockChangedFile(
-                path="docs/readme.md",
-                status="modified",
-                additions=1,
-                deletions=0,
-                is_docs=True,
-            )
-        ],
-        total_additions=1,
-        total_deletions=0,
-    )
-
-    result = score_review_candidates(ctx)
-
-    assert isinstance(result, Exit)
-    assert result.message == "No reviewable candidates after exclusions"
-
-
 def MockChangedFile(**kwargs):
     from titan_plugin_github.models.review_models import ChangedFileEntry
 
@@ -562,10 +527,8 @@ def test_ai_review_findings_splits_oversized_batch_via_prompt_budget_manager(mon
         _make_findings_batch("batch_1", {"a.py": 3000, "b.py": 3000})
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -613,10 +576,8 @@ def test_ai_review_findings_parses_markdown_fenced_response(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -669,10 +630,8 @@ def test_ai_review_findings_recovers_via_reformat_retry(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -701,10 +660,8 @@ def test_ai_review_findings_marks_batch_failed_when_reformat_retry_also_fails(mo
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -740,16 +697,14 @@ def test_ai_review_findings_partial_batch_failure_still_succeeds_with_flag(monke
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
     # The canned-stdout sequence assumes batch order — pin the pool to 1.
-    ctx.data["review_profile"] = ReviewProfile(findings_batch_concurrency=1)
+    ctx.data["review_profile"] = ReviewProfile()
     ctx.data["review_context_batches"] = [
         _make_findings_batch("batch_1", {"a.py": 100}),
         _make_findings_batch("batch_2", {"b.py": 100}),
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -800,10 +755,8 @@ def test_ai_review_findings_returns_error_when_all_batches_fail(monkeypatch):
         _make_findings_batch("batch_2", {"b.py": 100}),
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -859,10 +812,8 @@ def test_ai_review_findings_non_list_payload_goes_through_reformat_retry(monkeyp
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -892,10 +843,8 @@ def test_ai_review_findings_non_list_payload_marks_failed_when_retry_also_non_li
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -953,10 +902,8 @@ def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -985,10 +932,8 @@ def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeyp
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -1020,10 +965,8 @@ def test_ai_review_findings_restricts_tools_when_supported(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -1048,10 +991,8 @@ def test_ai_review_findings_omits_disallowed_tools_when_unsupported(monkeypatch)
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -1078,10 +1019,8 @@ def test_ai_review_findings_reformat_retry_also_restricts_tools(monkeypatch):
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -1130,10 +1069,8 @@ def test_ai_review_findings_sets_effort_for_worktree_reference_batch(monkeypatch
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_worktree_reference_batch("batch_1", "HomeScreen.kt")]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -1158,10 +1095,8 @@ def test_ai_review_findings_omits_effort_when_no_worktree_reference(monkeypatch)
     ctx.textual = _FakeTextual()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=6000,
-        scan_max_prompt_chars=6000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=6000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -1400,160 +1335,6 @@ def test_submit_sha_drift_ignores_surrounding_whitespace():
 
 
 # ============================================================================
-# verify_findings (review-quality-003)
-# ============================================================================
-
-
-def _make_finding_model(
-    title: str = "Null check missing",
-    severity: FindingSeverity = FindingSeverity.IMPORTANT,
-    path: str = "a.py",
-) -> Finding:
-    return Finding(
-        severity=severity,
-        category="error_handling",
-        path=path,
-        line=10,
-        title=title,
-        why="The value may be None",
-        evidence="value.method()",
-        suggested_comment="Add a null check",
-    )
-
-
-def _verify_ctx(findings: list, adapter_stdout: str | None = None) -> WorkflowContext:
-    ctx = WorkflowContext()
-    ctx.textual = _FakeTextual()
-    ctx.data["deduped_findings"] = findings
-    ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
-    ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
-        deep_max_prompt_chars=20000,
-        scan_max_prompt_chars=20000,
-        scan_max_files_per_batch=12,
-        max_comment_entries=5,
-        deep_timeout_base_seconds=300,
-        deep_timeout_per_file_seconds=120,
-        deep_timeout_max_seconds=1500,
-    )
-    # The pass ships disabled by default (it has never refuted a real finding);
-    # these tests exercise the step itself, so they opt in explicitly.
-    ctx.data["review_profile"] = ReviewProfile(findings_verification_enabled=True)
-    ctx.data["cli_preference"] = "auto"
-    ctx.data["project_root"] = "/tmp/project"
-    return ctx
-
-
-def test_verify_findings_drops_refuted_finding(monkeypatch):
-    """review-quality-003: a finding the verifier refutes with evidence is removed
-    from deduped_findings before the human gate, and published as refuted."""
-    refuted = _make_finding_model("False positive")
-    confirmed = _make_finding_model("Real bug")
-    stdout = '{"verdicts": [{"index": 0, "verdict": "refuted", "reasoning": "check exists at line 12"}, {"index": 1, "verdict": "confirmed", "reasoning": "holds"}]}'
-    fake_adapter = _FakeStructuredOutputAdapter(stdout)
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([refuted, confirmed])
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert ctx.data["deduped_findings"] == [confirmed]
-    assert ctx.data["refuted_findings"] == [refuted]
-    # Verification must run at low effort with the verdicts schema (D-002/D-003).
-    assert fake_adapter.calls[0]["effort"] == "low"
-    assert fake_adapter.calls[0]["json_schema"]["required"] == ["verdicts"]
-
-
-def test_verify_findings_fails_open_on_cli_failure(monkeypatch):
-    finding = _make_finding_model()
-    fake_adapter = _FakeFailingCLIAdapter(exit_code=1)
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([finding])
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Skip)
-    assert ctx.data["deduped_findings"] == [finding]
-
-
-def test_verify_findings_fails_open_on_unparseable_response(monkeypatch):
-    finding = _make_finding_model()
-    fake_adapter = _FakeStructuredOutputAdapter("I cannot judge these findings, sorry.")
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([finding])
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Skip)
-    assert ctx.data["deduped_findings"] == [finding]
-
-
-def test_verify_findings_disabled_by_default(monkeypatch):
-    """The pass ships OFF: across every observed real review it refuted nothing,
-    so by default it only adds latency. Projects opt in via profile.yaml."""
-    finding = _make_finding_model()
-    fake_adapter = _FakeStructuredOutputAdapter("should never be called")
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([finding])
-    ctx.data["review_profile"] = ReviewProfile()
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Skip)
-    assert fake_adapter.calls == []
-
-
-def test_verify_findings_skips_when_profile_disables_it(monkeypatch):
-    finding = _make_finding_model()
-    fake_adapter = _FakeStructuredOutputAdapter("should never be called")
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([finding])
-    ctx.data["review_profile"] = ReviewProfile(findings_verification_enabled=False)
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Skip)
-    assert fake_adapter.calls == []
-    assert ctx.data["deduped_findings"] == [finding]
-
-
-def test_verify_findings_skips_nit_only_findings(monkeypatch):
-    nit = _make_finding_model("Style nit", severity=FindingSeverity.NIT)
-    fake_adapter = _FakeStructuredOutputAdapter("should never be called")
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([nit])
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Skip)
-    assert fake_adapter.calls == []
-    assert ctx.data["deduped_findings"] == [nit]
-
-
-def test_verify_findings_fails_open_when_prompt_over_budget(monkeypatch):
-    finding = _make_finding_model()
-    fake_adapter = _FakeStructuredOutputAdapter("should never be called")
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([finding])
-    ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
-        deep_max_prompt_chars=100,
-        scan_max_prompt_chars=100,
-        scan_max_files_per_batch=12,
-        max_comment_entries=5,
-        deep_timeout_base_seconds=300,
-        deep_timeout_per_file_seconds=120,
-        deep_timeout_max_seconds=1500,
-    )
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Skip)
-    assert fake_adapter.calls == []
-    assert ctx.data["deduped_findings"] == [finding]
-
-
-# ============================================================================
 # ai_review_findings concurrency (review-quality-006)
 # ============================================================================
 
@@ -1593,20 +1374,19 @@ class _FakeConcurrencyTrackingAdapter:
                 self._in_flight -= 1
 
 
-def _concurrency_ctx(batch_count: int, concurrency: int) -> WorkflowContext:
+def _concurrency_ctx(monkeypatch, batch_count: int, concurrency: int) -> WorkflowContext:
     from titan_plugin_github.models.review_profile_models import ReviewProfile
 
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
-    ctx.data["review_profile"] = ReviewProfile(findings_batch_concurrency=concurrency)
+    monkeypatch.setattr(code_review_steps, "FINDINGS_BATCH_CONCURRENCY", concurrency)
+    ctx.data["review_profile"] = ReviewProfile()
     ctx.data["review_context_batches"] = [
         _make_findings_batch(f"batch_{i}", {f"f{i}.py": 100}) for i in range(batch_count)
     ]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
-        scan_max_prompt_chars=20000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=20000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -1618,13 +1398,13 @@ def _concurrency_ctx(batch_count: int, concurrency: int) -> WorkflowContext:
 
 
 def test_ai_review_findings_runs_batches_concurrently(monkeypatch):
-    """review-quality-006: with findings_batch_concurrency=2, two batches must be
+    """review-quality-006: with FINDINGS_BATCH_CONCURRENCY=2, two batches must be
     in flight at the same time (the barrier only releases when both arrive — this
     test deadlocks/times out under a sequential executor)."""
     fake_adapter = _FakeConcurrencyTrackingAdapter(stdout='[{"title": "Bug"}]', block_until=2)
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
-    ctx = _concurrency_ctx(batch_count=2, concurrency=2)
+    ctx = _concurrency_ctx(monkeypatch, batch_count=2, concurrency=2)
     result = ai_review_findings(ctx)
 
     assert isinstance(result, Success)
@@ -1637,7 +1417,7 @@ def test_ai_review_findings_concurrency_one_stays_sequential(monkeypatch):
     fake_adapter = _FakeConcurrencyTrackingAdapter(stdout="[]")
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
-    ctx = _concurrency_ctx(batch_count=3, concurrency=1)
+    ctx = _concurrency_ctx(monkeypatch, batch_count=3, concurrency=1)
     result = ai_review_findings(ctx)
 
     assert isinstance(result, Success)
@@ -1649,7 +1429,7 @@ def test_ai_review_findings_pool_never_exceeds_configured_concurrency(monkeypatc
     fake_adapter = _FakeConcurrencyTrackingAdapter(stdout="[]")
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
-    ctx = _concurrency_ctx(batch_count=6, concurrency=2)
+    ctx = _concurrency_ctx(monkeypatch, batch_count=6, concurrency=2)
     result = ai_review_findings(ctx)
 
     assert isinstance(result, Success)
@@ -1675,7 +1455,7 @@ def test_ai_review_findings_worker_crash_marks_batch_failed_not_step_crash(monke
 
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: _ExplodingAdapter())
 
-    ctx = _concurrency_ctx(batch_count=1, concurrency=2)
+    ctx = _concurrency_ctx(monkeypatch, batch_count=1, concurrency=2)
     result = ai_review_findings(ctx)
 
     # Single batch crashed → 0/1 produced output → visible Error (review-quality-005).
@@ -1693,26 +1473,16 @@ def _rescue_ctx(adapter_stdouts: list[str]) -> tuple[WorkflowContext, "_FakeSequ
     fake_adapter = _FakeSequentialAdapter(adapter_stdouts)
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
-    ctx.data["review_profile"] = ReviewProfile(findings_batch_concurrency=1)
+    ctx.data["review_profile"] = ReviewProfile()
     ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"a.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
-        scan_max_prompt_chars=20000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=20000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
         deep_timeout_max_seconds=1500,
     )
-    ctx.data["review_candidates"] = [
-        ScoredReviewCandidate(
-            path="border.py",
-            score=3,
-            priority=FileReviewPriority.LOW,
-            suggested_read_mode=FileReadMode.HUNKS_ONLY,
-        )
-    ]
     ctx.data["review_diff"] = (
         "diff --git a/border.py b/border.py\n"
         "index 111..222 100644\n"
@@ -1746,284 +1516,6 @@ def test_ai_review_findings_reports_nothing_when_there_is_nothing(monkeypatch):
     assert len(fake_adapter.calls) == 1  # the batch, and no rescue after it
     assert ctx.data["raw_findings"] == []
     assert ctx.data["ai_findings_failed"] is False
-
-
-# ============================================================================
-# ai_review_findings cross-file synthesis (review-quality-004)
-# ============================================================================
-
-
-def _synthesis_diff(line: str = "added line") -> str:
-    def _file_diff(path: str) -> str:
-        return (
-            f"diff --git a/{path} b/{path}\n"
-            "index 111..222 100644\n"
-            f"--- a/{path}\n"
-            f"+++ b/{path}\n"
-            "@@ -1,2 +1,3 @@\n"
-            " context\n"
-            f"+{line}\n"
-            " context\n"
-        )
-
-    return _file_diff("a.py") + _file_diff("b.py")
-
-
-def _synthesis_ctx(
-    adapter_stdouts: list[str],
-    *,
-    enabled: bool = True,
-    batch_files: list[dict[str, int]] | None = None,
-    diff: str | None = None,
-) -> tuple[WorkflowContext, "_FakeSequentialAdapter"]:
-    fake_adapter = _FakeSequentialAdapter(adapter_stdouts)
-    ctx = WorkflowContext()
-    ctx.textual = _FakeTextual()
-    ctx.data["review_profile"] = ReviewProfile(
-        findings_batch_concurrency=1, findings_synthesis_enabled=enabled
-    )
-    files = batch_files if batch_files is not None else [{"a.py": 100}, {"b.py": 100}]
-    ctx.data["review_context_batches"] = [
-        _make_findings_batch(f"batch_{index + 1}", file_chars)
-        for index, file_chars in enumerate(files)
-    ]
-    ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
-        deep_max_prompt_chars=20000,
-        scan_max_prompt_chars=20000,
-        scan_max_files_per_batch=12,
-        max_comment_entries=5,
-        deep_timeout_base_seconds=300,
-        deep_timeout_per_file_seconds=120,
-        deep_timeout_max_seconds=1500,
-    )
-    ctx.data["review_diff"] = diff if diff is not None else _synthesis_diff()
-    ctx.data["cli_preference"] = "auto"
-    ctx.data["project_root"] = "/tmp/project"
-    return ctx, fake_adapter
-
-
-def test_ai_review_findings_runs_synthesis_when_enabled_and_multi_file(monkeypatch):
-    """review-quality-004: with the profile flag on and >1 focus file, one extra
-    cross-file synthesis batch runs after the per-file batches — even when the
-    per-file batches already produced findings (unlike the 007 rescue)."""
-    ctx, fake_adapter = _synthesis_ctx(
-        [
-            '[{"title": "Bug in a", "path": "a.py", "line": 5}]',  # batch_1
-            "[]",  # batch_2
-            '[{"title": "Contract mismatch", "path": "b.py", "line": 2}]',  # synthesis
-        ]
-    )
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 3
-    synthesis_prompt = fake_adapter.calls[2]["prompt"]
-    assert "cross-file inconsistencies" in synthesis_prompt
-    assert "a.py" in synthesis_prompt and "b.py" in synthesis_prompt
-    assert ctx.data["raw_findings"] == [
-        {"title": "Bug in a", "path": "a.py", "line": 5},
-        {"title": "Contract mismatch", "path": "b.py", "line": 2},
-    ]
-    assert ctx.data["ai_findings_failed"] is False
-
-
-def test_ai_review_findings_synthesis_disabled_by_default(monkeypatch):
-    ctx, fake_adapter = _synthesis_ctx(["[]", "[]"], enabled=False)
-    # Same as the default profile: the flag is opt-in (D-002 token mandate).
-    assert ReviewProfile().findings_synthesis_enabled is False
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 2
-
-
-def test_ai_review_findings_no_synthesis_single_focus_file(monkeypatch):
-    ctx, fake_adapter = _synthesis_ctx(["[]"], batch_files=[{"a.py": 100}])
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 1
-
-
-def test_ai_review_findings_synthesis_skipped_over_budget(monkeypatch):
-    """Over-budget synthesis skips silently — no split/degrade machinery, no 3rd call."""
-    # Big diff hunks blow the synthesis prompt past the budget, while the per-file
-    # batches (100 chars each) still fit comfortably.
-    ctx, fake_adapter = _synthesis_ctx(
-        ["[]", "[]"], diff=_synthesis_diff(line="z" * 15000)
-    )
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 2
-    assert ctx.data["ai_findings_failed"] is False
-
-
-def test_ai_review_findings_synthesis_failure_is_best_effort(monkeypatch):
-    """A failed synthesis call must not mark an otherwise-successful review as failed."""
-    ctx, fake_adapter = _synthesis_ctx(
-        [
-            '[{"title": "Bug in a", "path": "a.py", "line": 5}]',  # batch_1
-            "[]",  # batch_2
-            "no json from the synthesis call",  # synthesis main call
-            "still no json",  # synthesis reformat retry
-        ]
-    )
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert ctx.data["raw_findings"] == [{"title": "Bug in a", "path": "a.py", "line": 5}]
-    assert ctx.data["ai_findings_failed"] is False
-
-
-def test_ai_review_findings_synthesis_dedupes_against_per_file_findings(monkeypatch):
-    """Synthesis near-duplicates of per-file findings are dropped before aggregation;
-    only genuinely new cross-file findings are added."""
-    ctx, fake_adapter = _synthesis_ctx(
-        [
-            '[{"title": "Bug in a", "path": "a.py", "line": 5}]',  # batch_1
-            "[]",  # batch_2
-            (
-                '[{"title": "Bug in a", "path": "a.py", "line": 7},'
-                ' {"title": "Contract mismatch", "path": "b.py", "line": 2}]'
-            ),  # synthesis: near-dup (same path, line within 5, same title) + new
-        ]
-    )
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert ctx.data["raw_findings"] == [
-        {"title": "Bug in a", "path": "a.py", "line": 5},
-        {"title": "Contract mismatch", "path": "b.py", "line": 2},
-    ]
-
-
-# ============================================================================
-# Fixes from the 2026-08-03 validation-run findings
-# ============================================================================
-
-
-def test_verify_findings_mixed_nit_and_non_nit_index_remapping(monkeypatch):
-    """Verdict indices address the FILTERED (non-nit) list. With nits mixed in, a
-    refutation of filtered-index 0 must drop the right non-nit finding while every
-    nit rides through untouched."""
-    nit_first = _make_finding_model("Style nit", severity=FindingSeverity.NIT)
-    false_positive = _make_finding_model("False positive")
-    real_bug = _make_finding_model("Real bug")
-    nit_last = _make_finding_model("Another nit", severity=FindingSeverity.NIT)
-    stdout = (
-        '{"verdicts": [{"index": 0, "verdict": "refuted", "reasoning": "check exists"},'
-        ' {"index": 1, "verdict": "confirmed", "reasoning": "holds"}]}'
-    )
-    fake_adapter = _FakeStructuredOutputAdapter(stdout)
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([nit_first, false_positive, real_bug, nit_last])
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Success)
-    # Index 0 of the filtered list is "False positive", NOT the leading nit.
-    assert ctx.data["refuted_findings"] == [false_positive]
-    assert set(f.title for f in ctx.data["deduped_findings"]) == {
-        "Style nit",
-        "Real bug",
-        "Another nit",
-    }
-    # Only the 2 non-nit findings were sent to the verifier.
-    prompt = fake_adapter.calls[0]["prompt"]
-    assert "Style nit" not in prompt
-    assert "False positive" in prompt
-
-
-def test_verify_findings_refutation_ignored_when_path_has_no_code(monkeypatch):
-    """A refutation for a finding whose path has no hunks in any batch is ignored:
-    the model never saw that code, so its contradiction is worthless."""
-    orphan = _make_finding_model("Orphan finding", path="not_in_batches.py")
-    stdout = '{"verdicts": [{"index": 0, "verdict": "refuted", "reasoning": "no such code"}]}'
-    fake_adapter = _FakeStructuredOutputAdapter(stdout)
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    ctx = _verify_ctx([orphan])
-    result = verify_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert ctx.data["deduped_findings"] == [orphan]
-    assert ctx.data["refuted_findings"] == []
-
-
-def _three_file_diff() -> str:
-    def _file_diff(path: str) -> str:
-        return (
-            f"diff --git a/{path} b/{path}\n"
-            "index 111..222 100644\n"
-            f"--- a/{path}\n"
-            f"+++ b/{path}\n"
-            "@@ -1,2 +1,3 @@\n"
-            " context\n"
-            "+added line\n"
-            " context\n"
-        )
-
-    return _file_diff("a.py") + _file_diff("b.py") + _file_diff("c.py")
-
-
-def test_ai_review_findings_synthesis_excludes_failed_batches_paths(monkeypatch):
-    """A failed batch's files were NOT reviewed — the synthesis prompt must not
-    include them under instructions claiming their single-file issues were already
-    covered (that would suppress findings nobody ever looked for)."""
-    ctx, fake_adapter = _synthesis_ctx(
-        [
-            "[]",  # batch_1 (a.py) ok
-            "[]",  # batch_2 (b.py) ok
-            "no json from batch_3",  # batch_3 (c.py) main call
-            "still no json",  # batch_3 reformat retry -> failed
-            "[]",  # synthesis over a.py + b.py only
-        ],
-        batch_files=[{"a.py": 100}, {"b.py": 100}, {"c.py": 100}],
-        diff=_three_file_diff(),
-    )
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    assert len(fake_adapter.calls) == 5
-    synthesis_prompt = fake_adapter.calls[4]["prompt"]
-    assert "### a.py" in synthesis_prompt
-    assert "### b.py" in synthesis_prompt
-    assert "c.py" not in synthesis_prompt
-
-
-def test_ai_review_findings_no_synthesis_when_only_one_batch_succeeded(monkeypatch):
-    """With 2 focus files but only 1 reviewed (other batch failed), synthesis is
-    skipped: there is nothing cross-file among a single reviewed path."""
-    ctx, fake_adapter = _synthesis_ctx(
-        [
-            "[]",  # batch_1 (a.py) ok
-            "no json",  # batch_2 (b.py) main call
-            "still no json",  # batch_2 reformat retry -> failed
-        ]
-    )
-    monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
-
-    result = ai_review_findings(ctx)
-
-    assert isinstance(result, Success)
-    # 3 calls: batch_1 + batch_2 + retry. No 4th (synthesis) call.
-    assert len(fake_adapter.calls) == 3
 
 
 # ============================================================================
@@ -2064,7 +1556,7 @@ def _timeout_ctx(adapter_script: list[tuple[int, str]], *, worktree_reference: b
     fake_adapter = _FakeExitCodeAdapter(adapter_script)
     ctx = WorkflowContext()
     ctx.textual = _FakeTextual()
-    ctx.data["review_profile"] = ReviewProfile(findings_batch_concurrency=1)
+    ctx.data["review_profile"] = ReviewProfile()
     if worktree_reference:
         ctx.data["review_context_batches"] = [
             _make_worktree_reference_batch("batch_1", "border.py")
@@ -2072,10 +1564,8 @@ def _timeout_ctx(adapter_script: list[tuple[int, str]], *, worktree_reference: b
     else:
         ctx.data["review_context_batches"] = [_make_findings_batch("batch_1", {"border.py": 100})]
     ctx.data["review_budget"] = ReviewBudget(
-        deep_files_per_session=10,
         deep_max_prompt_chars=20000,
-        scan_max_prompt_chars=20000,
-        scan_max_files_per_batch=12,
+        triage_max_prompt_chars=20000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
         deep_timeout_per_file_seconds=120,
@@ -2353,3 +1843,138 @@ def test_a_failure_reason_stays_clean_when_the_cli_only_produced_noise():
     assert code_review_steps._cli_failure_reason(noisy, "claude") == "'claude' exited with code 1"
 
 
+
+
+def test_a_question_with_a_finding_is_confirmed_and_never_also_dismissed():
+    """Run 0b420ac0 reported "1 confirmed · 4 dismissed" for 4 questions: the session
+    reported a finding on a flagged file AND dismissed its question, and both were
+    counted. The finding is what reaches the PR, so it is the outcome."""
+    from types import SimpleNamespace
+
+    class _Recording(_FakeTextual):
+        def __init__(self):
+            super().__init__()
+            self.dims: list[str] = []
+
+        def dim_text(self, text):
+            self.dims.append(text)
+
+    ctx = Mock()
+    ctx.textual = _Recording()
+    batch = SimpleNamespace(triage_suspicions=[{"path": "a.kt"}, {"path": "b.kt"}])
+    dismissed = [{"path": "a.kt", "reason": "checked"}, {"path": "b.kt", "reason": "fine"}]
+    findings = [{"path": "a.kt", "line": 3}]
+
+    code_review_steps._render_settled_questions(ctx, [batch], dismissed, findings)
+
+    assert "First-pass questions: 1 confirmed · 1 dismissed" in ctx.textual.dims
+    assert not any(line.startswith("  dismissed a.kt") for line in ctx.textual.dims)
+    assert not ctx.textual.warnings  # nothing left unanswered
+
+
+def test_the_settle_rule_asks_for_defects_seen_while_settling():
+    """The old rule, "do not review the rest of a flagged file", made a session discard
+    a real defect it had already found (run 0b420ac0: "I didn't review this further
+    because it's outside the question")."""
+    import inspect
+
+    from titan_plugin_github.operations import findings_operations
+
+    source = inspect.getsource(findings_operations)
+    assert "Do not review the rest of a flagged file" not in source
+    assert "a defect you SEE while settling it is a finding like any other" in source
+
+
+def test_a_call_record_keeps_the_cached_input_the_cli_reported():
+    """Anthropic counts cached input outside input_tokens, so a 90k-char prompt logged
+    as input_tokens=107 with the cache figures dropped — which read as a broken counter
+    on the newer models, when the record simply never kept those two fields."""
+    from titan_cli.external_cli.adapters.base import CliUsage
+
+    usage = CliUsage(input_tokens=107, output_tokens=6779, cache_read_tokens=5000,
+                     cache_write_tokens=30000, reasoning_tokens=900, cost_usd=0.58)
+    adapter = Mock()
+    adapter.cli_name = SupportedCLI.CLAUDE
+    adapter.execute.return_value = HeadlessResponse(stdout="ok", stderr="", exit_code=0, usage=usage)
+    ctx = Mock()
+    ctx.data = {}
+
+    code_review_steps._PinnedModelCli(adapter, "sonnet", ctx=ctx, phase="code_review_findings").execute("p")
+
+    record = ctx.data[code_review_steps.REVIEW_AI_CALLS_KEY][0]
+    assert (record.cache_read_tokens, record.cache_write_tokens, record.reasoning_tokens) == (5000, 30000, 900)
+
+
+def test_the_review_plan_reads_every_deep_file_and_names_the_rest():
+    """One step decides the tiers and the deep session's files: no scorer, no model."""
+    from titan_plugin_github.steps.code_review_steps import build_review_plan
+
+    ctx = WorkflowContext()
+    ctx.textual = _FakeTextual()
+    ctx.data["review_profile"] = ReviewProfile(
+        file_roles={"business_logic": ["**/services/**"]},
+        attention={"business_logic": "deep", "docs_or_generated": "skip"},
+    )
+    ctx.data["review_checklist"] = []
+    ctx.data["change_manifest"] = ChangeManifest(
+        pr=PullRequestManifest(number=1, title="t", base="main", head="f", author="a", description=""),
+        files=[
+            MockChangedFile(path="app/services/pay.py", status="modified", additions=5, deletions=1),
+            MockChangedFile(path="app/misc/util.py", status="modified", additions=5, deletions=1),
+            MockChangedFile(path="README.md", status="modified", additions=1, deletions=0, is_docs=True),
+        ],
+        total_additions=11,
+        total_deletions=2,
+    )
+
+    result = build_review_plan(ctx)
+
+    assert isinstance(result, Success)
+    plan = result.metadata["validated_review_plan"]
+    assert [f.path for f in plan.focus_files] == ["app/services/pay.py"]
+    assert result.metadata["attention_plan"].counts == {"deep": 1, "glance": 1, "skip": 1}
+    assert "review_budget" in result.metadata
+
+
+def test_the_review_plan_exits_when_nothing_is_reviewable():
+    from titan_plugin_github.review_profiles import DEFAULT_REVIEW_PROFILE
+    from titan_plugin_github.steps.code_review_steps import build_review_plan
+
+    ctx = WorkflowContext()
+    ctx.textual = _FakeTextual()
+    ctx.data["review_profile"] = DEFAULT_REVIEW_PROFILE
+    ctx.data["review_checklist"] = []
+    ctx.data["change_manifest"] = ChangeManifest(
+        pr=PullRequestManifest(number=1, title="t", base="main", head="f", author="a", description=""),
+        files=[MockChangedFile(path="docs/readme.md", status="modified", additions=1, deletions=0, is_docs=True)],
+        total_additions=1,
+        total_deletions=0,
+    )
+
+    assert isinstance(build_review_plan(ctx), Exit)
+
+
+def test_the_review_config_renders_with_a_profile_written_for_the_old_pipeline(tmp_path):
+    """The render read `profile.candidate_scoring` after the field was deleted, and the
+    Review PR workflow died at Build Review Checklist on ragnarok. It must render with
+    a real resolution, and name the keys it ignored."""
+    from titan_plugin_github.managers.checklist_manager import ChecklistManager
+    from titan_plugin_github.managers.review_profile_manager import ReviewProfileManager
+
+    review_dir = tmp_path / ".titan" / "review"
+    review_dir.mkdir(parents=True)
+    (review_dir / "profile.yaml").write_text("candidate_scoring: []\n", encoding="utf-8")
+
+    class _Recording(_FakeTextual):
+        def dim_text(self, _text):
+            pass
+
+    ctx = WorkflowContext()
+    ctx.textual = _Recording()
+    code_review_steps._render_review_config(
+        ctx,
+        ReviewProfileManager(project_root=tmp_path).resolve(),
+        ChecklistManager(project_root=tmp_path).resolve(),
+    )
+
+    assert any("candidate_scoring" in warning for warning in ctx.textual.warnings)

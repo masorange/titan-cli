@@ -179,10 +179,10 @@ class TestPartition:
         assert set(rejected[0]) == {"path", "reason", "title"}
 
 
-def test_a_skim_suspicion_puts_its_file_in_scope():
+def test_a_triage_suspicion_puts_its_file_in_scope():
     """Without this the first pass is thrown away.
 
-    The skim's suspicions name files that are NOT in the deep batch's files_context — the
+    The triage's suspicions name files that are NOT in the deep batch's files_context — the
     session is told to open them in the working tree and settle the question. The scope
     check (cov-002) would otherwise drop every finding that work leads to, silently, as a
     path the batch was never shown."""
@@ -191,7 +191,7 @@ def test_a_skim_suspicion_puts_its_file_in_scope():
 
     batch = FocusContextBatch(
         batch_id="deep_1",
-        scan_suspicions=[
+        triage_suspicions=[
             {"path": "tests/core/security/test_vault.py", "note": "n", "suspicion": "s"},
             {"path": "", "note": "n", "suspicion": "s"},
         ],

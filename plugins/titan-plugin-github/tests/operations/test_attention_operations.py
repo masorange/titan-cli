@@ -36,6 +36,69 @@ def _profile(**overrides) -> ReviewProfile:
     return ReviewProfile(**base)
 
 
+class TestOverlappingRoles:
+    """A path matching several roles gets the one asking for the MOST attention."""
+
+    def test_the_deeper_role_wins_whatever_order_the_roles_are_listed_in(self):
+        """ragnarok listed `**/ui/**` (glance) before `**/*ViewModel.kt` (business,
+        deep); first-match sent LoginViewModel to the triage."""
+        profile = _profile(
+            file_roles={
+                "entrypoints_or_ui": ["**/ui/**"],
+                "business_logic": ["**/*ViewModel.kt"],
+            }
+        )
+
+        plan = resolve_file_attention([_file("app/ui/login/LoginViewModel.kt")], profile)
+
+        assert plan.files[0].tier == AttentionTier.DEEP
+        assert plan.files[0].role == "business_logic"
+
+    def test_list_order_only_breaks_a_tie(self):
+        profile = _profile(
+            file_roles={"business_logic": ["**/core/**"], "integration_or_adapter": ["**/core/**"]},
+            attention={"business_logic": AttentionTier.DEEP, "integration_or_adapter": AttentionTier.DEEP},
+        )
+
+        plan = resolve_file_attention([_file("app/core/x.py")], profile)
+
+        assert plan.files[0].role == "business_logic"
+
+    def test_a_config_looking_name_does_not_outrank_a_deep_role(self):
+        """`is_config` is a guess from the file name; a deep role the project wrote wins."""
+        profile = _profile(file_roles={"business_logic": ["**/services/**"]})
+
+        plan = resolve_file_attention([_file("app/services/settings.yaml", is_config=True)], profile)
+
+        assert plan.files[0].tier == AttentionTier.DEEP
+
+    def test_tests_stay_tests_even_under_a_deep_path(self):
+        """Detected tests are a fact about the file, not a pattern guess."""
+        plan = resolve_file_attention([_file("app/services/pay_test.py", is_test=True)], _profile())
+
+        assert plan.files[0].role == "tests"
+
+
+class TestDeletedFiles:
+
+    def test_a_deleted_file_goes_to_the_triage_whatever_its_role(self):
+        """Not deep (nothing to open) and not skipped: its diff is what the PR removes.
+        Skipping them cost ragnarok PR #3720 the questions that found removed tracking."""
+        deleted = ChangedFileEntry(path="app/services/pay.py", status=FileChangeStatus.DELETED)
+
+        plan = resolve_file_attention([deleted], _profile())
+
+        assert plan.files[0].tier == AttentionTier.GLANCE
+        assert plan.files[0].reason == "deleted"
+
+    def test_always_deep_does_not_send_a_deleted_file_to_the_deep_session(self):
+        deleted = ChangedFileEntry(path="app/core/security/gate.py", status=FileChangeStatus.DELETED)
+
+        plan = resolve_file_attention([deleted], _profile(always_deep=["**/core/security/**"]))
+
+        assert plan.files[0].tier == AttentionTier.GLANCE
+
+
 class TestRoleDrivesTheTier:
 
     def test_a_role_mapped_to_deep_gets_deep(self):
@@ -209,7 +272,14 @@ class TestShippedDefaults:
             if tier == AttentionTier.DEEP
         }
 
-        assert deep_roles == {"business_logic", "integration_or_adapter", "workflow_orchestration"}
+        # UI is deep on purpose: a screen or view model holds state and effects the diff
+        # alone cannot show (ragnarok PR #3692 triaged its post-login flow from diffs).
+        assert deep_roles == {
+            "business_logic",
+            "integration_or_adapter",
+            "workflow_orchestration",
+            "entrypoints_or_ui",
+        }
 
     def test_only_generated_output_and_docs_are_skipped_by_default(self):
         skipped = {

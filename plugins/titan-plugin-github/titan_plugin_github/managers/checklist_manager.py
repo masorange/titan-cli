@@ -92,7 +92,6 @@ class ChecklistManager:
                 id=item.id,
                 name=item.name,
                 description=item.description,
-                relevant_file_patterns=list(item.relevant_file_patterns),
             )
             for item in checklist_file.items
         ]
@@ -102,6 +101,7 @@ class ChecklistManager:
                 "review_checklist_merge_warnings",
                 path=str(config_path),
                 unknown_removals=report.unknown_removals,
+                ignored_keys=report.ignored_keys,
             )
         return ReviewChecklistResolution(
             checklist=checklist, source="project", path=config_path, report=report

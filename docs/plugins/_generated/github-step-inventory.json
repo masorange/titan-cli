@@ -141,28 +141,16 @@
           "summary": "Index existing review comments to avoid duplicates."
         },
         {
-          "name": "classify_pr",
-          "summary": "Classify PR size and composition before review planning."
-        },
-        {
-          "name": "score_review_candidates",
-          "summary": "Rank changed files and exclude low-value review candidates."
-        },
-        {
           "name": "build_review_checklist",
-          "summary": "Prepare a review checklist from PR context."
+          "summary": "Load the review axes this project offers."
         },
         {
-          "name": "select_review_strategy",
-          "summary": "Choose the review execution strategy from deterministic PR signals."
+          "name": "build_review_plan",
+          "summary": "Assign every changed file deep, glance or skip, and decide what the deep review reads."
         },
         {
-          "name": "ai_review_plan",
-          "summary": "Ask AI to plan the directed review strategy."
-        },
-        {
-          "name": "validate_review_plan",
-          "summary": "Validate the AI review plan before execution."
+          "name": "ai_review_triage",
+          "summary": "Triage every glance file from its diff in one call; publishes nothing, flags questions for the deep review."
         },
         {
           "name": "resolve_review_context",
@@ -170,7 +158,7 @@
         },
         {
           "name": "ai_review_findings",
-          "summary": "Run targeted AI analysis and produce candidate findings."
+          "summary": "Deep review: one session over the deep files, then settle the triage questions."
         },
         {
           "name": "normalize_findings",
@@ -179,10 +167,6 @@
         {
           "name": "dedupe_findings",
           "summary": "Remove duplicate or overlapping findings before submission."
-        },
-        {
-          "name": "verify_findings",
-          "summary": "Adversarially verify candidate findings and drop the refuted ones."
         },
         {
           "name": "build_new_comment_actions",
@@ -247,15 +231,14 @@
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
       "function": "ai_review_findings",
-      "summary": "Second AI call: find actionable problems in the exact code context.",
+      "summary": "Run the findings phase, and report its cost even if it is abandoned.",
       "docstring_sections": {
         "Requires": [],
         "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    raw_findings (list | str): Raw AI output before normalization"
-        ],
+        "Outputs (saved to ctx.data)": [],
         "Returns": [
-          "    Success or Error"
+          "    Whatever the deep review returns: Success with raw findings, Skip when AI is",
+          "    off for the task, or Error when every batch failed."
         ]
       },
       "used_by_workflows": [
@@ -263,19 +246,20 @@
       ]
     },
     {
-      "name": "ai_review_plan",
+      "name": "ai_review_triage",
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "ai_review_plan",
-      "summary": "First AI call: decide which files to read and which checklist items apply.",
+      "function": "ai_review_triage",
+      "summary": "Call 1 of the review: triage every file the deep session will not open.",
       "docstring_sections": {
         "Requires": [],
         "Inputs (from ctx.data)": [],
         "Outputs (saved to ctx.data)": [
-          "    review_plan (ReviewPlan)"
+          "    review_triage_notes (list[dict]): one note per triaged file",
+          "    review_triage_suspicions (list[dict]): the subset worth opening"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success (always, when it can run at all)"
         ]
       },
       "used_by_workflows": [
@@ -441,6 +425,28 @@
       ]
     },
     {
+      "name": "build_review_plan",
+      "group": "Code Review",
+      "module": "titan_plugin_github.steps.code_review_steps",
+      "function": "build_review_plan",
+      "summary": "Decide how much attention every changed file gets, and what the deep session reads.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [],
+        "Outputs (saved to ctx.data)": [
+          "    attention_plan (AttentionPlan)",
+          "    review_budget (ReviewBudget)",
+          "    review_plan, validated_review_plan (ReviewPlan)"
+        ],
+        "Returns": [
+          "    Success, Exit when nothing is reviewable, or Error"
+        ]
+      },
+      "used_by_workflows": [
+        "review-pr"
+      ]
+    },
+    {
       "name": "build_thread_actions",
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
@@ -584,34 +590,6 @@
       },
       "used_by_workflows": [
         "respond-pr-comments"
-      ]
-    },
-    {
-      "name": "classify_pr",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "classify_pr",
-      "summary": "Classify PR size and composition before planning.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.textual: Textual UI context."
-        ],
-        "Inputs (from ctx.data)": [
-          "    change_manifest (ChangeManifest): Structured PR change summary.",
-          "    existing_comments_index (List[ExistingCommentIndexEntry], optional): Existing comments used to estimate review activity.",
-          "    review_threads (List[UICommentThread], optional): Current review threads."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    pr_classification (PRClassification): Deterministic PR classification.",
-          "    review_profile (ReviewProfile): Resolved review profile used during classification."
-        ],
-        "Returns": [
-          "    Success: When PR classification is computed successfully.",
-          "    Error: When required context is missing or the step cannot run."
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
       ]
     },
     {
@@ -1130,34 +1108,6 @@
       ]
     },
     {
-      "name": "score_review_candidates",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "score_review_candidates",
-      "summary": "Rank changed files and precompute excluded files.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.textual: Textual UI context."
-        ],
-        "Inputs (from ctx.data)": [
-          "    change_manifest (ChangeManifest): Structured PR change summary."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    review_profile (ReviewProfile): Resolved review profile used during scoring.",
-          "    review_candidates (List[ScoredReviewCandidate]): Ranked review candidates.",
-          "    excluded_review_files (List[ExcludedFileEntry]): Files excluded from deep review."
-        ],
-        "Returns": [
-          "    Success: When review candidates are scored successfully.",
-          "    Exit: When no reviewable candidates remain after exclusions.",
-          "    Error: When required context is missing or the step cannot run."
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
       "name": "select_pr_for_code_review",
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
@@ -1232,31 +1182,6 @@
       "used_by_workflows": []
     },
     {
-      "name": "select_review_strategy",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "select_review_strategy",
-      "summary": "Choose review strategy based on deterministic PR classification.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.textual: Textual UI context."
-        ],
-        "Inputs (from ctx.data)": [
-          "    pr_classification (PRClassification): Deterministic PR classification."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    review_strategy (ReviewStrategy): Execution strategy for planning and findings."
-        ],
-        "Returns": [
-          "    Success: When a review strategy is selected successfully.",
-          "    Error: When required context is missing or the step cannot run."
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
       "name": "send_comment_replies",
       "group": "Pull Request Review",
       "module": "titan_plugin_github.steps.pr_review_steps",
@@ -1317,47 +1242,6 @@
       ]
     },
     {
-      "name": "validate_review_plan",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "validate_review_plan",
-      "summary": "Validate the AI-generated ReviewPlan against local semantic rules.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    validated_review_plan (ReviewPlan): Same plan if valid"
-        ],
-        "Returns": [
-          "    Success or Error (halts workflow on validation failure)"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
-      "name": "verify_findings",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "verify_findings",
-      "summary": "Adversarial verification pass: try to REFUTE each finding before the human gate.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    deduped_findings (List[Finding]): verified set, refuted findings removed",
-          "    refuted_findings (List[Finding]): findings dropped by this pass"
-        ],
-        "Returns": [
-          "    Success or Skip"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
       "name": "verify_merge_outcome",
       "group": "Pull Requests",
       "module": "titan_plugin_github.steps.pull_request_steps",
@@ -1369,14 +1253,15 @@
         ],
         "Inputs (from ctx.data)": [
           "    pr_number (int): Pull request number to inspect.",
-          "    merge_queued (bool, optional): Set by `merge_pull_request` when the PR was added to the merge queue."
+          "    merge_queued (bool): Set by `merge_pull_request`; True when the PR was added to the merge queue.",
+          "        Required - a missing value is treated as a workflow configuration error."
         ],
         "Outputs (saved to ctx.data)": [
-          "    verified_pr_info: The pull request object, after a regular merge.",
-          "    merge_queue_state: The merge queue state, after a queued merge."
+          "    verified_pr_info: The pull request object; saved only on the regular merge path (merge_queued falsy).",
+          "    merge_queue_state: The merge queue state; saved only on the queued merge path (merge_queued truthy)."
         ],
         "Returns": [
-          "    Success: If the PR is merged, or still queued when it was enqueued.",
+          "    Success: If the PR is merged, or still queued when it was enqueued. Exactly one output key is saved - `verified_pr_info` on the regular merge path, `merge_queue_state` on the queued merge path - never both.",
           "    Error: If required context is missing, the PR is in neither state, or the GitHub call fails."
         ]
       },

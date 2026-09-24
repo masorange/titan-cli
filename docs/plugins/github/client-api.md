@@ -777,7 +777,7 @@ The GitHub plugin ships with workflows that use these capabilities directly:
 
 - `create-pr-ai`: Creates a pull request after committing and pushing changes, with AI-generated PR content.
 - `create-issue-ai`: Creates a GitHub issue from an AI-suggested title and description.
-- `review-pr`: Runs a focused AI review over the changed files most likely to contain actionable problems.
+- `review-pr`: Reviews the whole PR in two AI calls: a cheap triage of every `glance` file from its diff, then one deep review session over the `deep` files.
 - `respond-pr-comments`: Helps review pending comments, reply to them, and request another review.
 
 These workflows can be used as-is or extended from `.titan/workflows/`.
@@ -791,38 +791,36 @@ If these files do not exist, the plugin uses built-in defaults automatically.
 
 File: `.titan/review/profile.yaml`
 
-Controls path heuristics used to:
+Decides two things, and nothing else:
 
-- classify the PR shape
-- score candidate files for deep review
-- select applicable review axes
+- how much attention every changed file gets: `deep` (the deep review reads it with the
+  file open in the worktree), `glance` (the triage sees its diff) or `skip` (named on
+  screen, not reviewed)
+- when each review axis applies
 
 Supported fields:
 
 - `version`: Required format version. Current value: `1`.
-- `change_patterns`: Optional. Map of pattern groups such as `central_behavior`, `entrypoint`, or `repeated_callsite` to glob lists.
-- `file_roles`: Optional. Ordered map from functional role name to glob lists. First match wins.
-- `candidate_scoring`: Optional. List of rules with:
-  - `name`: Required rule identifier.
-  - `patterns`: Required glob list.
-  - `score_delta`: Required integer score adjustment.
-  - `reason`: Required explanation attached to the candidate.
-- `candidate_exclusions`: Optional thresholds with:
-  - `low_signal_test_max_changes`: Optional integer.
-  - `low_signal_config_max_changes`: Optional integer.
-- `review_axes`: Optional map keyed by checklist category ID with:
-  - `always_include`: Optional boolean.
-  - `patterns`: Optional glob list.
-- `attention`: Optional map from file role name to how much attention that role is worth:
-  - `deep`: the model opens the file and reads around the change.
-  - `glance`: the model sees only the diff, packed with other files and cheap.
-  - `skip`: not reviewed, and said so on screen.
-  - Keys are the role names `file_roles` defines, plus `docs_or_generated`, `tests` and
-    `config_or_contracts` (derived from the file itself) and `other` for a file no role
-    claims. A role you do not mention falls back to `glance`, never to `skip`.
+- `file_roles`: Optional. Map from functional role name to glob lists. A path matching
+  several roles gets the role asking for the **most** attention; list order only breaks a
+  tie.
+- `attention`: Optional map from file role name to its tier (`deep`, `glance`, `skip`).
+  Keys are the role names `file_roles` defines, plus `docs_or_generated` and `tests`
+  (detected from the file itself), `config_or_contracts` and `other` for a file no role
+  claims. A role you do not mention keeps Titan's tier; a role Titan does not know either
+  falls back to `glance`, never to `skip`. Titan's defaults: business logic, integrations,
+  orchestration and UI are `deep`; config, tests and `other` are `glance`; docs and
+  generated output are `skip`.
 - `always_deep`: Optional glob list. These files get a full read whatever their role says
   and however little changed. It outranks every other rule, including the automatic skips
-  for lockfiles and rename-only changes.
+  for deleted files, lockfiles and rename-only changes.
+- `review_axes`: Optional map keyed by checklist category ID, saying WHEN an axis applies:
+  - `always_include`: Optional boolean.
+  - `patterns`: Optional glob list, matched against the `deep` files.
+  - An axis with neither applies to every review.
+- `context_docs`: Optional list of project documents (paths or globs) the deep review
+  consults before judging the code. Only paths that exist are offered.
+- `max_context_docs`: Optional integer ceiling on how many are offered (default 8).
 
 Note a glob is matched case-insensitively, and a leading `**/` also matches at the
 repository root, so `**/core/**` matches both `core/x.py` and `src/core/x.py`.
@@ -832,29 +830,20 @@ Example:
 ```yaml
 version: 1
 
-change_patterns:
-  central_behavior:
-    - "src/**/services/**"
-    - "src/**/domain/**"
-  repeated_callsite:
-    - "src/**/screens/**"
-
 file_roles:
   business_logic:
     - "src/**/services/**"
+    - "**/*ViewModel.kt"
   entrypoints_or_ui:
     - "src/**/screens/**"
 
-candidate_scoring:
-  - name: security_sensitive
-    patterns:
-      - "**/auth/**"
-    score_delta: 5
-    reason: "security or access-sensitive area"
+attention:
+  entrypoints_or_ui: deep
+  tests: glance
 
-candidate_exclusions:
-  low_signal_test_max_changes: 15
-  low_signal_config_max_changes: 8
+always_deep:
+  - "**/core/security/**"
+  - "**/*payment*"
 
 review_axes:
   functional_correctness:
@@ -863,23 +852,21 @@ review_axes:
     patterns:
       - "**/auth/**"
 
-attention:
-  business_logic: deep
-  integration_or_adapter: deep
-  entrypoints_or_ui: glance
-  tests: glance
-  docs_or_generated: skip
-
-always_deep:
-  - "**/core/security/**"
-  - "**/*payment*"
+context_docs:
+  - "docs/architecture.md"
 ```
+
+Keys from earlier versions (`change_patterns`, `candidate_scoring`,
+`candidate_exclusions`, `findings_verification_enabled`, `findings_synthesis_enabled`,
+`findings_batch_concurrency`) no longer do anything. A profile that still has them loads
+normally and reports them as ignored.
 
 ### Review checklist
 
 File: `.titan/review/checklist.yaml`
 
-Controls which checklist categories are offered to the AI planner and findings prompts.
+Says what each review axis IS: the name and description the deep review is asked about.
+When an axis applies lives in the profile's `review_axes`.
 
 Supported fields:
 
@@ -888,7 +875,9 @@ Supported fields:
   - `id`: Required checklist category ID. Must be one of the built-in category IDs such as `functional_correctness`, `error_handling`, `security`, or `api_contract`.
   - `name`: Required display name.
   - `description`: Required prompt description.
-  - `relevant_file_patterns`: Optional glob list.
+
+An item that still carries `relevant_file_patterns` loads normally; the key is reported
+as ignored. Move those patterns to `review_axes` in `profile.yaml`.
 
 Example:
 
@@ -903,9 +892,6 @@ items:
   - id: security
     name: Security
     description: Missing auth checks, exposed secrets, or unsafe trust boundaries.
-    relevant_file_patterns:
-      - "**/auth/**"
-      - "**/permissions/**"
 ```
 
 ### Removing a built-in entry
@@ -918,8 +904,6 @@ In `profile.yaml` it maps a field to the names to drop:
 remove:
   file_roles:
     - tests
-  candidate_scoring:
-    - shared_helper
   review_axes:
     - code_style
 ```
@@ -943,9 +927,9 @@ fatal.
 - Invalid YAML or invalid category IDs: the workflow fails fast with a clear configuration error.
 - **Your file is merged onto Titan's defaults per named entry.** The unit of merge is the
   entry, never the pattern list:
-    - A key you define (`file_roles.tests`, `review_axes.security`, a
-      `candidate_scoring` rule with the same `name`, a checklist item with the same
-      `id`) **replaces Titan's entry for that key completely**. Your globs are not
+    - A key you define (`file_roles.tests`, `attention.tests`, `review_axes.security`,
+      a checklist item with the same `id`) **replaces Titan's entry for that key
+      completely**. Your globs are not
       appended to Titan's.
     - A key you do not mention **keeps Titan's value**.
     - To drop one of Titan's entries, name it under `remove:`.

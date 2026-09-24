@@ -1,8 +1,8 @@
 """Tests for merging a project's review configuration onto Titan's.
 
 The bug this replaced: a project `profile.yaml` was validated ON ITS OWN, and every
-field of `ReviewProfile` defaults to empty — so a file defining a single scoring rule
-left the review with no `file_roles`, no `change_patterns` and no `review_axes`. Every
+field of `ReviewProfile` defaults to empty — so a file defining a single rule left the
+review with no `file_roles` and no `review_axes`. Every
 file then classified as "other" and the axes fell back to two emergency values. A team
 tuning its review silently got a degraded one.
 
@@ -21,38 +21,28 @@ from titan_plugin_github.operations.review_config_merge_operations import (
 def _base() -> dict:
     return {
         "version": 1,
-        "change_patterns": {"central_behavior": ["**/core/**"], "entrypoint": ["**/main.py"]},
         "file_roles": {"tests": ["**/tests/**", "**/spec/**"], "business_logic": ["**/services/**"]},
-        "candidate_scoring": [
-            {"name": "domain_critical_path", "patterns": ["**/*service*"], "score_delta": 4, "reason": "a"},
-            {"name": "security_sensitive", "patterns": ["**/*auth*"], "score_delta": 5, "reason": "b"},
-        ],
-        "candidate_exclusions": {"low_signal_test_max_changes": 20, "low_signal_config_max_changes": 10},
+        "attention": {"business_logic": "deep", "tests": "glance"},
         "review_axes": {
             "functional_correctness": {"always_include": True, "patterns": []},
             "security": {"always_include": False, "patterns": ["**/*auth*"]},
         },
-        "findings_batch_concurrency": 2,
-        "findings_synthesis_enabled": False,
+        "max_context_docs": 8,
     }
 
 
 class TestTheBugThisFixes:
 
     def test_a_one_rule_project_file_no_longer_wipes_everything_else(self):
-        """The exact shape that broke it: a file that only adds a scoring rule."""
+        """The exact shape that broke it: a file that only tunes one axis."""
         merged, report = merge_review_profile_data(
-            _base(),
-            {"candidate_scoring": [{"name": "our_rule", "patterns": ["**/x/**"], "score_delta": 3, "reason": "c"}]},
+            _base(), {"review_axes": {"security": {"patterns": ["**/x/**"]}}}
         )
 
         assert merged["file_roles"] == _base()["file_roles"]
-        assert merged["change_patterns"] == _base()["change_patterns"]
-        assert merged["review_axes"] == _base()["review_axes"]
-        assert [r["name"] for r in merged["candidate_scoring"]] == [
-            "domain_critical_path", "security_sensitive", "our_rule",
-        ]
-        assert report.added == ["candidate_scoring.our_rule"]
+        assert merged["attention"] == _base()["attention"]
+        assert merged["review_axes"]["functional_correctness"] == _base()["review_axes"]["functional_correctness"]
+        assert report.replaced == ["review_axes.security"]
 
     def test_an_empty_project_file_changes_nothing(self):
         merged, report = merge_review_profile_data(_base(), {})
@@ -94,31 +84,29 @@ class TestPerKeyReplacement:
         assert merged["file_roles"]["generated"] == ["**/gen/**"]
         assert report.added == ["file_roles.generated"]
 
-    def test_a_named_rule_is_replaced_in_place_keeping_order(self):
-        merged, report = merge_review_profile_data(
-            _base(),
-            {"candidate_scoring": [{"name": "security_sensitive", "patterns": ["**/sec/**"], "score_delta": 9, "reason": "z"}]},
-        )
-
-        assert [r["name"] for r in merged["candidate_scoring"]] == [
-            "domain_critical_path", "security_sensitive",
-        ]
-        assert merged["candidate_scoring"][1]["score_delta"] == 9
-        assert report.replaced == ["candidate_scoring.security_sensitive"]
-
-    def test_a_nested_threshold_is_merged_per_key(self):
-        merged, _ = merge_review_profile_data(
-            _base(), {"candidate_exclusions": {"low_signal_test_max_changes": 5}}
-        )
-
-        assert merged["candidate_exclusions"]["low_signal_test_max_changes"] == 5
-        assert merged["candidate_exclusions"]["low_signal_config_max_changes"] == 10
-
     def test_a_scalar_is_replaced(self):
-        merged, report = merge_review_profile_data(_base(), {"findings_batch_concurrency": 4})
+        merged, report = merge_review_profile_data(_base(), {"max_context_docs": 4})
 
-        assert merged["findings_batch_concurrency"] == 4
-        assert "findings_batch_concurrency" in report.replaced
+        assert merged["max_context_docs"] == 4
+        assert "max_context_docs" in report.replaced
+
+    def test_one_role_s_attention_is_merged_without_losing_the_others(self):
+        """`attention` merges per role: sending UI to glance must not drop business
+        logic back to the fallback tier."""
+        merged, report = merge_review_profile_data(_base(), {"attention": {"tests": "skip"}})
+
+        assert merged["attention"] == {"business_logic": "deep", "tests": "skip"}
+        assert report.replaced == ["attention.tests"]
+
+    def test_a_key_removed_from_titan_is_reported_as_ignored(self):
+        """Project profiles written for the old pipeline still carry scoring keys; they
+        must load, and say those keys do nothing."""
+        merged, report = merge_review_profile_data(
+            _base(), {"candidate_scoring": [{"name": "x"}], "change_patterns": {}}
+        )
+
+        assert "candidate_scoring" not in merged
+        assert report.ignored_keys == ["candidate_scoring", "change_patterns"]
 
     def test_the_base_is_never_mutated(self):
         """Titan's defaults are process-wide; writing into them would leak one
@@ -136,14 +124,6 @@ class TestRemoval:
 
         assert "tests" not in merged["file_roles"]
         assert report.removed == ["file_roles.tests"]
-
-    def test_a_named_rule_can_be_removed(self):
-        merged, report = merge_review_profile_data(
-            _base(), {"remove": {"candidate_scoring": ["security_sensitive"]}}
-        )
-
-        assert [r["name"] for r in merged["candidate_scoring"]] == ["domain_critical_path"]
-        assert report.removed == ["candidate_scoring.security_sensitive"]
 
     def test_a_single_name_may_be_given_without_a_list(self):
         merged, _ = merge_review_profile_data(_base(), {"remove": {"file_roles": "tests"}})

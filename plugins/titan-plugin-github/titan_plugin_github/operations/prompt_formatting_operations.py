@@ -7,6 +7,7 @@ from ..models.review_models import CommentContextEntry
 
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_HTML_IMAGE_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _CHECKBOX_LINE_RE = re.compile(r"^\s*[-*]\s*\[[ xX]\]")
 _BARE_LINK_LINE_RE = re.compile(
     r"^\s*!?\[[^\]]*\]\(https?://\S+\)\s*$|^\s*https?://\S+\s*$"
@@ -26,6 +27,7 @@ def extract_pr_intent(description: str, max_chars: int = 800) -> str:
 
     text = _HTML_COMMENT_RE.sub("", description)
     text = _MD_IMAGE_RE.sub("", text)
+    text = _HTML_IMAGE_RE.sub("", text)
 
     kept: list[str] = []
     for raw_line in text.splitlines():
@@ -42,26 +44,32 @@ def extract_pr_intent(description: str, max_chars: int = 800) -> str:
     return result[:max_chars].rstrip()
 
 
-_MIN_INTENT_LINE_CHARS = 30
+PR_DESCRIPTION_MAX_CHARS = 4000
+"""How much of the author's description the review is handed, after the template is gone.
+
+Whole in practice: ragnarok PR #3720's 2,752-char description is ~2,300 once cleaned. It
+used to be ONE line -- the first long one, which in ragnarok's template is always the
+heading "PR's Trigger (Check the VALIDITY of these links)" -- so the author's own ask,
+"Verify that the deletions ... are properly covered by the new entries in
+analytics_mapping.json", never reached the model, and neither did it find the dropped
+events a free-form session found by reading the description. A one-call review pays for
+this text once; the cap only stops a description written as a novel.
+"""
 
 
-def extract_pr_intent_line(description: str, max_chars: int = 200) -> str:
-    """
-    Return a single-line PR intent for per-batch prompts (~50 tokens max).
+def review_pr_description(description: str) -> str:
+    """The author's description, stripped of template remnants, for the review prompts."""
+    return extract_pr_intent(description, max_chars=PR_DESCRIPTION_MAX_CHARS)
 
-    First substantive line of the trimmed description — short lines (section
-    headings like "PR's key points" survive the trim but carry no intent) are
-    skipped when a longer line follows. Hard-capped. Empty string when the
-    description has no reviewable prose.
-    """
-    intent = extract_pr_intent(description, max_chars=max_chars * 4)
-    if not intent:
+
+def pr_description_section(description: str) -> str:
+    """The description as its own prompt section, or "" when there is none."""
+    if not description:
         return ""
-    lines = intent.splitlines()
-    first_substantive = next(
-        (line for line in lines if len(line) >= _MIN_INTENT_LINE_CHARS), lines[0]
+    return (
+        "\n## What the author says this PR does (and what they ask reviewers to check)\n"
+        f"{description}\n"
     )
-    return first_substantive[:max_chars].rstrip()
 
 
 def comment_context_to_json(comments: list[CommentContextEntry]) -> str:

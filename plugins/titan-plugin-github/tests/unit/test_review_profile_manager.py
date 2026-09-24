@@ -19,21 +19,11 @@ def test_loads_project_profile_from_yaml(tmp_path: Path):
     (review_dir / "profile.yaml").write_text(
         """
 version: 1
-change_patterns:
-  central_behavior:
-    - "**/core/**"
 file_roles:
   tests:
     - "**/tests/**"
-candidate_scoring:
-  - name: security_sensitive
-    patterns:
-      - "**/auth/**"
-    score_delta: 5
-    reason: security or access-sensitive area
-candidate_exclusions:
-  low_signal_test_max_changes: 5
-  low_signal_config_max_changes: 3
+attention:
+  entrypoints_or_ui: glance
 review_axes:
   functional_correctness:
     always_include: true
@@ -46,22 +36,17 @@ review_axes:
 
     profile = ReviewProfileManager(project_root=tmp_path).get_effective_profile()
 
-    assert profile.candidate_exclusions.low_signal_test_max_changes == 5
+    assert profile.file_roles["tests"] == ["**/tests/**"]
     assert profile.review_axes["security"].patterns == ["**/auth/**"]
-
-    # The project's rule REPLACES Titan's rule of the same name in place, so the
-    # default order survives instead of the project's four-line file becoming the
-    # whole of the scoring policy.
-    by_name = {rule.name: rule for rule in profile.candidate_scoring}
-    assert by_name["security_sensitive"].patterns == ["**/auth/**"]
-    assert "domain_critical_path" in by_name
-    assert "shared_helper" in by_name
+    # One role's tier is replaced; every role the project did not mention keeps Titan's.
+    assert profile.attention["entrypoints_or_ui"] == "glance"
+    assert profile.attention["business_logic"] == DEFAULT_REVIEW_PROFILE.attention["business_logic"]
 
 
 def test_invalid_profile_yaml_raises_clear_error(tmp_path: Path):
     review_dir = tmp_path / ".titan" / "review"
     review_dir.mkdir(parents=True)
-    (review_dir / "profile.yaml").write_text("candidate_scoring: [", encoding="utf-8")
+    (review_dir / "profile.yaml").write_text("file_roles: [", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Invalid review profile YAML"):
         ReviewProfileManager(project_root=tmp_path).get_effective_profile()
@@ -73,12 +58,8 @@ def test_invalid_profile_config_raises_clear_error(tmp_path: Path):
     (review_dir / "profile.yaml").write_text(
         """
 version: 1
-candidate_scoring:
-  - name: broken
-    patterns:
-      - "**/auth/**"
-    score_delta: nope
-    reason: invalid
+attention:
+  business_logic: not_a_tier
 """.strip(),
         encoding="utf-8",
     )
@@ -96,26 +77,24 @@ def _write_profile(tmp_path: Path, body: str) -> None:
 def test_a_partial_project_profile_no_longer_wipes_the_defaults(tmp_path: Path):
     """The regression this merge exists for.
 
-    A project file that only adds a scoring rule used to leave the review with no
-    file_roles, no change_patterns and no review_axes — every file classified as
-    "other" and the axes down to two emergency values — because the file was validated
-    on its own and every field defaults to empty.
+    A project file that only tuned one thing used to leave the review with no
+    file_roles and no review_axes — every file classified as "other" and the axes down
+    to two emergency values — because the file was validated on its own and every field
+    defaults to empty.
     """
     _write_profile(tmp_path, """
-candidate_scoring:
-  - name: our_own_rule
+review_axes:
+  security:
     patterns:
       - "**/ours/**"
-    score_delta: 3
-    reason: ours
 """)
 
     profile = ReviewProfileManager(project_root=tmp_path).get_effective_profile()
 
     assert profile.file_roles == DEFAULT_REVIEW_PROFILE.file_roles
-    assert profile.change_patterns == DEFAULT_REVIEW_PROFILE.change_patterns
+    assert profile.attention == DEFAULT_REVIEW_PROFILE.attention
     assert profile.review_axes.keys() == DEFAULT_REVIEW_PROFILE.review_axes.keys()
-    assert "our_own_rule" in {rule.name for rule in profile.candidate_scoring}
+    assert profile.review_axes["security"].patterns == ["**/ours/**"]
 
 
 def test_resolve_reports_the_source_and_what_the_project_changed(tmp_path: Path):
@@ -126,8 +105,8 @@ file_roles:
   generated:
     - "**/gen/**"
 remove:
-  candidate_scoring:
-    - shared_helper
+  review_axes:
+    - documentation
 """)
 
     resolution = ReviewProfileManager(project_root=tmp_path).resolve()
@@ -135,8 +114,36 @@ remove:
     assert resolution.source == "project"
     assert resolution.report.replaced == ["file_roles.tests"]
     assert resolution.report.added == ["file_roles.generated"]
-    assert resolution.report.removed == ["candidate_scoring.shared_helper"]
-    assert "shared_helper" not in {r.name for r in resolution.profile.candidate_scoring}
+    assert resolution.report.removed == ["review_axes.documentation"]
+    assert "documentation" not in resolution.profile.review_axes
+
+
+def test_a_profile_written_for_the_old_pipeline_still_loads(tmp_path: Path):
+    """ragnarok's profile still carries the scoring keys this pipeline deleted. It must
+    load, and say those keys do nothing, rather than fail the review."""
+    _write_profile(tmp_path, """
+change_patterns:
+  central_behavior:
+    - "**/core/**"
+candidate_scoring:
+  - name: x
+    patterns: ["**/x/**"]
+    score_delta: 1
+    reason: x
+candidate_exclusions:
+  low_signal_test_max_changes: 5
+findings_synthesis_enabled: false
+""")
+
+    resolution = ReviewProfileManager(project_root=tmp_path).resolve()
+
+    assert resolution.report.ignored_keys == [
+        "candidate_exclusions",
+        "candidate_scoring",
+        "change_patterns",
+        "findings_synthesis_enabled",
+    ]
+    assert resolution.profile.file_roles == DEFAULT_REVIEW_PROFILE.file_roles
 
 
 def test_resolve_reports_default_source_when_no_project_file():

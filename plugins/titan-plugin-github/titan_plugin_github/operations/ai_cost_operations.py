@@ -34,6 +34,9 @@ class AICallRecord:
     model_reported: Optional[str] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
+    reasoning_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
     cost_usd: Optional[float] = None
     usage_source: Optional[str] = None

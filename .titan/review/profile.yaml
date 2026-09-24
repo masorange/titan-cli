@@ -1,34 +1,5 @@
 version: 1
 
-change_patterns:
-  central_behavior:
-    - "titan_cli/core/**"
-    - "titan_cli/engine/**"
-    - "titan_cli/ai/**"
-    - "plugins/*/*/operations/**"
-    - "plugins/*/*/clients/**"
-    - "plugins/*/*/managers/**"
-    - "plugins/*/*/models/validators.py"
-    - "titan_cli/engine/context.py"
-    - "titan_cli/engine/results.py"
-
-  entrypoint:
-    - "titan_cli/cli.py"
-    - "titan_cli/commands/**"
-    - "titan_cli/preview.py"
-    - "plugins/*/*/plugin.py"
-    - "plugins/*/*/steps/**"
-    - "plugins/*/*/workflows/*.yaml"
-    - "titan_cli/ui/tui/screens/workflow_execution.py"
-
-  repeated_callsite:
-    - "titan_cli/ui/components/**"
-    - "titan_cli/ui/views/**"
-    - "titan_cli/ui/tui/widgets/**"
-    - "plugins/*/*/widgets/**"
-    - "plugins/*/*/workflows/**"
-    - ".titan/workflows/**"
-
 file_roles:
   tests:
     - "tests/**"
@@ -78,100 +49,6 @@ file_roles:
     - "plugins/*/*/operations/**"
     - "plugins/*/*/managers/**"
     - "plugins/*/*/agents/**"
-
-candidate_scoring:
-  - name: wiring_and_contract_surface
-    patterns:
-      - "titan_cli/core/models.py"
-      - "titan_cli/core/plugins/models.py"
-      - "plugins/*/*/plugin.py"
-      - "plugins/*/*/protocols.py"
-      - "plugins/*/*/models/**"
-      - "plugins/*/*/workflows/**/*.yaml"
-      - "titan_cli/core/workflows/**/*.yaml"
-      - "**/*.yaml"
-      - "**/*.toml"
-    score_delta: 4
-    reason: "wiring, schema, or contract surface"
-
-  - name: workflow_runtime_surface
-    patterns:
-      - "titan_cli/core/workflows/**"
-      - "titan_cli/engine/**"
-      - "titan_cli/ui/tui/screens/workflow_execution.py"
-      - "plugins/*/*/steps/**"
-      - ".titan/steps/**"
-    score_delta: 4
-    reason: "workflow runtime or execution surface"
-
-  - name: external_integration_surface
-    patterns:
-      - "titan_cli/ai/providers/**"
-      - "titan_cli/ai/litellm_client.py"
-      - "titan_cli/external_cli/**"
-      - "plugins/*/*/clients/**"
-      - "plugins/*/*/clients/services/**"
-    score_delta: 5
-    reason: "external integration or provider boundary"
-
-  - name: semantic_mapping
-    patterns:
-      - "plugins/*/*/models/mappers/**"
-      - "**/*mapper*"
-      - "**/*serializer*"
-      - "**/*parser*"
-      - "**/*formatter*"
-      - "**/*normalizer*"
-      - "**/*validator*"
-      - "**/*messages.py"
-      - "**/*formatting.py"
-      - "**/*prompt*"
-    score_delta: 3
-    reason: "semantic mapping or normalization surface"
-
-  - name: stateful_logic_surface
-    patterns:
-      - "titan_cli/engine/context.py"
-      - "titan_cli/engine/results.py"
-      - "plugins/*/*/models/validators.py"
-      - "plugins/*/*/operations/**"
-      - "plugins/*/*/managers/**"
-      - "plugins/*/*/operations/thread_*"
-      - "plugins/*/*/operations/review_action_*"
-    score_delta: 5
-    reason: "stateful logic or validation surface"
-
-  - name: shared_component_surface
-    patterns:
-      - "titan_cli/ui/components/**"
-      - "titan_cli/ui/tui/widgets/**"
-      - "plugins/*/*/widgets/**"
-    score_delta: 4
-    reason: "shared component or widget-root surface"
-
-  - name: security_sensitive
-    patterns:
-      - "titan_cli/core/secrets.py"
-      - "titan_cli/ai/oauth_helper.py"
-      - "**/*secret*"
-      - "**/*token*"
-      - "**/*auth*"
-      - "**/*credential*"
-      - "**/*keyring*"
-    score_delta: 5
-    reason: "security, auth, or credential-sensitive area"
-
-  - name: operational_documentation_surface
-    patterns:
-      - ".claude/**"
-      - ".titan/**"
-      - "AGENTS.md"
-    score_delta: 3
-    reason: "operational documentation or workflow guidance surface"
-
-candidate_exclusions:
-  low_signal_test_max_changes: 25
-  low_signal_config_max_changes: 12
 
 review_axes:
   functional_correctness:
@@ -253,6 +130,12 @@ review_axes:
       - "titan_cli/ai/**"
       - "plugins/*/*/clients/**"
 
+  test_coverage:
+    patterns:
+      - "tests/**"
+      - "plugins/*/tests/**"
+      - "**/*test*"
+
   documentation:
     patterns:
       - ".claude/**"
@@ -261,21 +144,3 @@ review_axes:
       - "docs/**"
       - "README.md"
       - "DEVELOPMENT.md"
-
-# Cross-file synthesis batch: one extra AI call per review that looks for contract
-# mismatches between the PR's own files. Turned OFF on 2026-09-22, and the reason is a
-# measurement rather than a preference.
-#
-# It was invented when every batch held ONE file, so nothing could see two files at once.
-# The deep tier is now a single session over all the deep files, which can. On run
-# 4fd7f345 (PR 251) the synthesis call cost $0.8478 of the review's $1.9694 -- 43% -- and
-# sent a 101,025-char prompt, LARGER than the review's own 77,740, at effort=medium while
-# the review ran at high.
-#
-# Its two findings there (mismatched credential labels, a duplicated redaction policy)
-# were exactly what a session holding all seven files was in a position to find. It did
-# not report them, so its question now lives in the deep prompt's instructions, asked
-# explicitly whenever the batch holds more than one file. Turn this back on if the next
-# run shows the deep session still misses what the separate call caught -- that would say
-# something real about how many questions one call can carry.
-findings_synthesis_enabled: false

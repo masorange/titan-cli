@@ -102,9 +102,7 @@ class ReviewProfileManager:
             "review_profile_resolved",
             source=source,
             path=str(path) if path else None,
-            change_patterns=sorted(profile.change_patterns.keys()),
             file_roles=sorted(profile.file_roles.keys()),
-            candidate_scoring_rules=[rule.name for rule in profile.candidate_scoring],
             review_axes=sorted(str(axis) for axis in profile.review_axes.keys()),
             **report.as_log_fields(),
         )

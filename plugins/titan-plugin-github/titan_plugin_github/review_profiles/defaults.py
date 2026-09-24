@@ -1,48 +1,11 @@
 """Default review profile definitions for GitHub code review."""
 
 from ..models.review_enums import AttentionTier, ChecklistCategory
-from ..models.review_profile_models import (
-    CandidateExclusions,
-    CandidateScoringRule,
-    ReviewAxisRule,
-    ReviewProfile,
-)
+from ..models.review_profile_models import ReviewAxisRule, ReviewProfile
 
 
 DEFAULT_REVIEW_PROFILE = ReviewProfile(
     version=1,
-    change_patterns={
-        "central_behavior": [
-            "**/core/**",
-            "**/services/**",
-            "**/domain/**",
-            "**/operations/**",
-            "**/usecases/**",
-            "**/utils/**",
-            "**/middleware/**",
-            "**/configuration/**",
-        ],
-        "entrypoint": [
-            "**/main.py",
-            "**/main.ts",
-            "**/main.js",
-            "**/*mainactivity*",
-            "**/*cli.py",
-            "**/routes/**",
-            "**/controllers/**",
-            "**/router*",
-            "**/listener*",
-            "**/dispatcher*",
-        ],
-        "repeated_callsite": [
-            "**/components/**",
-            "**/views/**",
-            "**/screens/**",
-            "**/dialogs/**",
-            "**/*screen*",
-            "**/*view*",
-        ],
-    },
     file_roles={
         # Anchored on directories and separators, never on a bare "test" substring:
         # path_matches_any lowercases both sides, so "**/*test*" also claims latest.py,
@@ -140,18 +103,24 @@ DEFAULT_REVIEW_PROFILE = ReviewProfile(
             "**/*model*",
         ],
     },
-    # Attention per role. Three roles get a full read because that is where a defect
+    # Attention per role. Four roles get a full read because that is where a defect
     # can hide behind code the diff does not show: behaviour, the adapters that talk to
-    # the outside, and the orchestration that decides what runs. The rest are covered by
-    # the cheap tier - seen, not opened - and only generated output and docs are skipped
-    # outright. Nothing here is a guess about importance: it is a guess about whether
-    # the DIFF ALONE is enough to judge the change, which is the question the tiers ask.
+    # the outside, the orchestration that decides what runs, and the UI. The rest are
+    # covered by the triage - seen, not opened - and only generated output and docs are
+    # skipped outright. Nothing here is a guess about importance: it is a guess about
+    # whether the DIFF ALONE is enough to judge the change, which is the question the
+    # tiers ask.
+    #
+    # UI is deep because in the frameworks Titan meets (Compose, SwiftUI, React) a screen
+    # or view model holds state and effects, and the diff alone cannot show what they
+    # interact with. On ragnarok PR #3692 the UI tier held LoginViewModel, LoginScreen
+    # and PasskeyInfoViewModel -- the post-login flow -- in glance, triaged from diffs.
     attention={
         "business_logic": AttentionTier.DEEP,
         "integration_or_adapter": AttentionTier.DEEP,
         "workflow_orchestration": AttentionTier.DEEP,
+        "entrypoints_or_ui": AttentionTier.DEEP,
         "config_or_contracts": AttentionTier.GLANCE,
-        "entrypoints_or_ui": AttentionTier.GLANCE,
         "tests": AttentionTier.GLANCE,
         "other": AttentionTier.GLANCE,
         "docs_or_generated": AttentionTier.SKIP,
@@ -176,72 +145,6 @@ DEFAULT_REVIEW_PROFILE = ReviewProfile(
         "AGENTS.md",
         "CONTRIBUTING.md",
     ],
-    candidate_scoring=[
-        CandidateScoringRule(
-            name="domain_critical_path",
-            patterns=[
-                "**/*controller*",
-                "**/*service*",
-                "**/*store*",
-                "**/*client*",
-                "**/*handler*",
-                "**/*validator*",
-                "**/*middleware*",
-                "**/*repository*",
-                "**/*viewmodel*",
-                "**/*presenter*",
-                "**/*coordinator*",
-                "**/*manager*",
-                "**/*api*",
-                "**/*router*",
-                "**/*mapper*",
-                "**/*serializer*",
-                "**/*formatter*",
-                "**/*adapter*",
-                "**/*converter*",
-                "**/*event*",
-                "**/*classification*",
-                "**/*normalizer*",
-                "**/*parser*",
-                "**/*model*",
-            ],
-            score_delta=4,
-            reason="domain-critical path",
-        ),
-        CandidateScoringRule(
-            name="semantic_mapping",
-            patterns=[
-                "**/*mapper*",
-                "**/*serializer*",
-                "**/*formatter*",
-                "**/*adapter*",
-                "**/*converter*",
-                "**/*event*",
-                "**/*classification*",
-                "**/*normalizer*",
-                "**/*parser*",
-                "**/*model*",
-            ],
-            score_delta=3,
-            reason="semantic mapping surface",
-        ),
-        CandidateScoringRule(
-            name="security_sensitive",
-            patterns=["**/*auth*", "**/*permission*", "**/*security*", "**/*payment*", "**/*billing*"],
-            score_delta=5,
-            reason="security or access-sensitive area",
-        ),
-        CandidateScoringRule(
-            name="shared_helper",
-            patterns=["**/*util*", "**/*interceptor*", "**/*configuration*", "**/*intent*"],
-            score_delta=5,
-            reason="shared helper or policy surface",
-        ),
-    ],
-    candidate_exclusions=CandidateExclusions(
-        low_signal_test_max_changes=20,
-        low_signal_config_max_changes=10,
-    ),
     review_axes={
         ChecklistCategory.FUNCTIONAL_CORRECTNESS: ReviewAxisRule(always_include=True),
         ChecklistCategory.ERROR_HANDLING: ReviewAxisRule(always_include=True),
@@ -301,7 +204,7 @@ DEFAULT_REVIEW_PROFILE = ReviewProfile(
         ChecklistCategory.PERFORMANCE: ReviewAxisRule(always_include=True),
         ChecklistCategory.DOCUMENTATION: ReviewAxisRule(always_include=True),
         ChecklistCategory.API_CONTRACT: ReviewAxisRule(
-            patterns=["**/*api*", "**/*schema*", "**/*model*", "**/*contract*"]
+            patterns=["**/*api*", "**/*schema*", "**/*model*", "**/*contract*", "**/*.yaml", "**/*.json"]
         ),
         ChecklistCategory.DATA_VALIDATION: ReviewAxisRule(
             patterns=["**/*validator*", "**/*request*", "**/*form*", "**/*serializer*"]

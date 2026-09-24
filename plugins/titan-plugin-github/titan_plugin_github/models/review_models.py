@@ -14,13 +14,9 @@ from .review_enums import (
     AttentionTier,
     ChecklistCategory,
     CommentContextKind,
-    ContextRequestType,
-    ExclusionReason,
     FileChangeStatus,
     FileReadMode,
-    FileReviewPriority,
     FindingSeverity,
-    PRSizeClass,
     ReviewActionSource,
     ReviewActionType,
 
@@ -77,7 +73,6 @@ class ReviewChecklistItem(BaseModel):
     id: ChecklistCategory = Field(..., description="Unique checklist category ID")
     name: str = Field(..., description="Display name")
     description: str = Field(..., description="What this checklist item covers")
-    relevant_file_patterns: list[str] = Field(default_factory=list)
 
 class ExistingCommentIndexEntry(BaseModel):
     """Compact dedupe-oriented view of an existing PR comment."""
@@ -89,6 +84,7 @@ class ExistingCommentIndexEntry(BaseModel):
     line: Optional[int] = Field(default=None, description="Target line")
     category: Optional[str] = Field(default=None, description="Inferred category")
     title: str = Field(..., description="Short comment title/body preview")
+    body: str = Field(default="", description="The comment's text, capped; what dedupe compares against")
     author: str = Field(..., description="Comment author login")
     has_author_reply: bool = False
     last_reply_author: Optional[str] = None
@@ -125,65 +121,18 @@ class CommentContextEntry(BaseModel):
     reply_count: int = 0
     is_adjudicated: bool = False
 
-class ContextRequest(BaseModel):
-    """Request for additional supporting context beyond the diff."""
-
-    type: ContextRequestType
-    for_path: str
-    reason: str = ""
-
 class FileReviewPlan(BaseModel):
     """Focused plan for one file selected for deeper review."""
 
     path: str
-    priority: FileReviewPriority
     read_mode: FileReadMode
     reasons: list[str] = Field(default_factory=list)
 
-class ExcludedFileEntry(BaseModel):
-    """File excluded or trimmed from review focus."""
-
-    path: str
-    reason: ExclusionReason
-    detail: str = ""
-
 class ReviewPlan(BaseModel):
-    """Structured output from planning: what to review, not every changed file."""
+    """What the deep session reads, and which review axes it is asked about."""
 
     focus_files: list[FileReviewPlan] = Field(default_factory=list)
     review_axes: list[ChecklistCategory] = Field(default_factory=list)
-    extra_context_requests: list[ContextRequest] = Field(default_factory=list)
-    excluded_files: list[ExcludedFileEntry] = Field(default_factory=list)
-
-class PRClassification(BaseModel):
-    """Deterministic classification of PR size and composition."""
-
-    size_class: PRSizeClass
-    files_changed: int
-    total_lines_changed: int
-    doc_files: int = 0
-    test_files: int = 0
-    config_files: int = 0
-    generated_files: int = 0
-    comment_threads: int = 0
-    comment_entries: int = 0
-    high_signal_files: int = 0
-    repeated_callsite_files: int = 0
-    role_count: int = 0
-    roles: list[str] = Field(default_factory=list)
-    complexity_score: int = 0
-    active_review: bool = False
-    is_repetitive_migration: bool = False
-    rationale: str = ""
-
-class ScoredReviewCandidate(BaseModel):
-    """File candidate ranked before AI planning."""
-
-    path: str
-    score: int
-    priority: FileReviewPriority
-    suggested_read_mode: FileReadMode
-    reasons: list[str] = Field(default_factory=list)
 
 class ReviewBudget(BaseModel):
     """What one review is allowed to spend.
@@ -202,10 +151,8 @@ class ReviewBudget(BaseModel):
     unit.
     """
 
-    deep_files_per_session: int
     deep_max_prompt_chars: int
-    scan_max_prompt_chars: int
-    scan_max_files_per_batch: int
+    triage_max_prompt_chars: int
     max_comment_entries: int
 
     # How long one deep call may run, derived rather than flat. A deep read is an
@@ -318,6 +265,9 @@ class FileContextEntry(BaseModel):
     review_hint: str = ""
     changed_hunk_headers: list[str] = Field(default_factory=list)
     approximate_chars: int = 0
+    # `hunks` holds only the REMOVED lines of each hunk: the full diff did not fit, and
+    # removed code is the one part the session cannot recover from the working tree.
+    removals_only: bool = False
 
 class FocusContextBatch(BaseModel):
     """Single bounded batch of review context for one findings prompt."""
@@ -335,9 +285,9 @@ class FocusContextBatch(BaseModel):
     # overflow slices too -- a slice still needs to know the whole it belongs to, and the
     # cost is a few dozen characters per file however large the PR is.
     change_shape: list[str] = Field(default_factory=list)
-    # What the skim (call 1) flagged for this session to settle: {path, note, suspicion}.
+    # What the triage (call 1) flagged for this session to settle: {path, note, suspicion}.
     # Working material, not findings -- the session opens the file and confirms or drops.
-    scan_suspicions: list[dict] = Field(default_factory=list)
+    triage_suspicions: list[dict] = Field(default_factory=list)
     # Paths of project documents the session should read before judging the code --
     # paths only, never content, so a whole architecture document costs one line.
     context_docs: list[str] = Field(default_factory=list)
@@ -368,12 +318,8 @@ __all__ = [
     "ExistingCommentIndexEntry",
     "CommentThreadSummary",
     "CommentContextEntry",
-    "ContextRequest",
     "FileReviewPlan",
-    "ExcludedFileEntry",
     "ReviewPlan",
-    "PRClassification",
-    "ScoredReviewCandidate",
     "ReviewBudget",
     "Finding",
     "ThreadDecision",

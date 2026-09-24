@@ -197,11 +197,15 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
             return None
         return CliUsage(cost_usd=cost, model_reported=model_reported, source=source)
 
+    # Thinking is billed as output and counted inside output_tokens; broken out here
+    # because it is the part of the output that never reaches the parsed answer.
+    details = usage.get("output_tokens_details")
     return CliUsage(
         input_tokens=_as_int(usage.get("input_tokens")),
         output_tokens=_as_int(usage.get("output_tokens")),
         cache_read_tokens=_as_int(usage.get("cache_read_input_tokens")),
         cache_write_tokens=_as_int(usage.get("cache_creation_input_tokens")),
+        reasoning_tokens=_as_int(details.get("thinking_tokens")) if isinstance(details, dict) else None,
         cost_usd=cost,
         model_reported=model_reported,
         source=source,

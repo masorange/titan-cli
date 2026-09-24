@@ -2,18 +2,12 @@
 
 from fnmatch import fnmatch
 
-from ..models.review_enums import ChecklistCategory
-from ..models.review_models import ReviewChecklistItem, ScoredReviewCandidate
-from ..models.review_profile_models import CandidateScoringRule, ReviewProfile
+from ..models.review_enums import AttentionTier, ChecklistCategory
+from ..models.review_models import ReviewChecklistItem
+from ..models.review_profile_models import ReviewProfile
 
 
-def match_change_patterns(path: str, review_profile: ReviewProfile) -> list[str]:
-    """Return all matching change pattern names for a path."""
-    matches: list[str] = []
-    for name, patterns in review_profile.change_patterns.items():
-        if path_matches_any(path, patterns):
-            matches.append(name)
-    return matches
+_TIER_DEPTH = {AttentionTier.SKIP: 0, AttentionTier.GLANCE: 1, AttentionTier.DEEP: 2}
 
 
 def classify_file_role(
@@ -25,36 +19,44 @@ def classify_file_role(
     is_generated: bool = False,
     is_config: bool = False,
 ) -> str:
-    """Classify a file into a functional role using manifest flags first."""
+    """Classify a file into the functional role that decides its attention tier.
+
+    Docs, generated output and tests are facts the manifest detected about the file,
+    so they decide outright. Everything else is a pattern match, and a path can match
+    several roles: then **the role asking for the most attention wins**, and list order
+    only breaks a tie. First-match used to decide, and on ragnarok `*ViewModel.kt` sat
+    under `entrypoints_or_ui` ahead of `business_logic`, so the post-login flow was
+    triaged from its diff. A project that lists a path under a deep role has said it
+    wants it read; the order it happened to write its roles in must not undo that.
+
+    `is_config` is a guess from the file name, not a fact, so it only nominates
+    `config_or_contracts` as one more candidate.
+    """
     if is_docs or is_generated:
         return "docs_or_generated"
     if is_test:
         return "tests"
-    if is_config:
-        return "config_or_contracts"
 
-    for role, patterns in review_profile.file_roles.items():
-        if path_matches_any(path, patterns):
-            return role
-    return "other"
-
-
-def matching_scoring_rules(path: str, review_profile: ReviewProfile) -> list[CandidateScoringRule]:
-    """Return all configured scoring rules that match a path."""
-    return [rule for rule in review_profile.candidate_scoring if path_matches_any(path, rule.patterns)]
-
-
-def is_reviewable_documentation(path: str, review_profile: ReviewProfile) -> bool:
-    """Return True when a documentation-like path should still be reviewed."""
-    documentation_rule = review_profile.review_axes.get(ChecklistCategory.DOCUMENTATION)
-    if not documentation_rule:
-        return False
-    return path_matches_any(path, documentation_rule.patterns)
+    candidates = [
+        role
+        for role, patterns in review_profile.file_roles.items()
+        if path_matches_any(path, patterns)
+    ]
+    if is_config and "config_or_contracts" not in candidates:
+        candidates.append("config_or_contracts")
+    if not candidates:
+        return "other"
+    # max() keeps the first of equal depth, so list order is the tie-break. A role the
+    # attention map does not name counts as glance, which is what it would get.
+    return max(
+        candidates,
+        key=lambda role: _TIER_DEPTH[review_profile.attention.get(role, AttentionTier.GLANCE)],
+    )
 
 
 def select_review_axes(
     checklist: list[ReviewChecklistItem],
-    focus_candidates: list[ScoredReviewCandidate],
+    focus_paths: list[str],
     review_profile: ReviewProfile,
 ) -> list[ChecklistCategory]:
     """Select applicable review axes from checklist and profile configuration.
@@ -71,7 +73,7 @@ def select_review_axes(
             ChecklistCategory.ERROR_HANDLING,
         ]
 
-    candidate_paths = [candidate.path for candidate in focus_candidates]
+    candidate_paths = list(focus_paths)
     selected: list[ChecklistCategory] = []
 
     for item in checklist:
@@ -80,9 +82,10 @@ def select_review_axes(
             selected.append(item.id)
             continue
 
-        patterns = list(item.relevant_file_patterns)
-        if axis_rule:
-            patterns.extend(axis_rule.patterns)
+        # WHEN an axis applies lives in the profile only; the checklist says what the
+        # axis IS. It used to be both, unioned, so one question had two answers in two
+        # files and editing one of them did not change the result.
+        patterns = list(axis_rule.patterns) if axis_rule else []
 
         if not patterns:
             # No restriction anywhere means the axis applies. The checklist is where a

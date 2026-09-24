@@ -13,7 +13,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Logic bugs, incorrect behavior, edge cases not handled, "
             "off-by-one errors, wrong conditions."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.ERROR_HANDLING,
@@ -22,7 +21,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Missing try/except, unhandled exceptions, swallowed errors, "
             "no fallback on failure, error propagation issues."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.SEMANTIC_CORRECTNESS,
@@ -31,7 +29,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Changes that preserve execution but alter the meaning, classification, "
             "labeling, or interpretation of data, events, or outputs."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.STATE_CONSISTENCY,
@@ -40,7 +37,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Changes that report success, failure, completion, or state inconsistently "
             "with what actually happened."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.TEST_COVERAGE,
@@ -49,7 +45,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Missing tests for new or changed logic, no regression tests, "
             "tests that don't actually exercise the code path."
         ),
-        relevant_file_patterns=["*test*", "*spec*"],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.SECURITY,
@@ -58,7 +53,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "SQL injection, XSS, SSRF, hardcoded secrets, unsafe deserialization, "
             "missing auth checks, exposed sensitive data."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.PERFORMANCE,
@@ -67,7 +61,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "N+1 queries, missing indexes, unbounded loops, large in-memory operations, "
             "missing caching for expensive calls."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.API_CONTRACT,
@@ -76,7 +69,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Breaking changes to public interfaces, missing backwards compatibility, "
             "changed serialization format, removed fields."
         ),
-        relevant_file_patterns=["*.yaml", "*.json", "schema*", "models*", "api*"],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.DATA_VALIDATION,
@@ -85,7 +77,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Missing input validation, trusting external data, no bounds checking, "
             "type coercion issues, null/None not handled."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.CONCURRENCY,
@@ -94,7 +85,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Race conditions, missing locks, shared mutable state, "
             "thread-unsafe operations, async/await misuse."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.CODE_STYLE,
@@ -103,7 +93,6 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Overly complex logic with no explanation, magic numbers/strings, "
             "deep nesting, functions doing too many things."
         ),
-        relevant_file_patterns=[],
     ),
     ReviewChecklistItem(
         id=ChecklistCategory.DOCUMENTATION,
@@ -112,6 +101,5 @@ DEFAULT_REVIEW_CHECKLIST: list[ReviewChecklistItem] = [
             "Missing docstrings for public APIs, confusing variable names, "
             "no comments on non-obvious logic."
         ),
-        relevant_file_patterns=[],
     ),
 ]

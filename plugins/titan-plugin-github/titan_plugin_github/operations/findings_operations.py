@@ -8,19 +8,15 @@ from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 
 from ..models.review_models import Finding, FocusContextBatch, ReviewChecklistItem
 from .ai_response_parsing_operations import extract_json_payload
-from .prompt_formatting_operations import comment_context_to_json, extract_pr_intent_line
+from .prompt_formatting_operations import (
+    comment_context_to_json,
+    pr_description_section,
+    review_pr_description,
+)
 
 
-def build_findings_prompt_parts(
-    batch: FocusContextBatch, *, instructions_override: str | None = None
-) -> dict[str, str]:
-    """Build prompt parts separately so callers can log size breakdowns.
-
-    `instructions_override` replaces the default instructions block while keeping the
-    rest of the prompt skeleton (PR context, existing comments, axes, code, schema)
-    identical — used by the cross-file synthesis batch, whose review target is
-    different from a normal per-file batch.
-    """
+def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
+    """Build prompt parts separately so callers can log size breakdowns."""
     checklist_json = _checklist_to_json(batch.checklist_applicable)
     comments_json = comment_context_to_json(batch.comment_context)
     files_text = _files_context_to_text(batch.files_context)
@@ -43,16 +39,18 @@ def build_findings_prompt_parts(
         else ""
     )
 
-    # The questions the first pass raised are a SECOND task list, kept visibly apart from
-    # the files under review. Merged into this call rather than asked in a separate one
-    # (D-014): a question like "no test covers the magic-link path" is answered far better
-    # by whoever just read the magic-link code than by a call that holds only the path.
+    # The questions the triage raised are a SECOND task list, and they come LAST, in the
+    # prompt and in the instructions. Merged into this call rather than asked in a separate
+    # one (D-014): a question like "no test covers the magic-link path" is answered far
+    # better by whoever just read the magic-link code. Asked first, they set the agenda:
+    # across three runs of PR 3692, 5-6 of 8 findings were confirmed triage questions while
+    # the serious defects in the deep files came and went.
     settle_instructions = (
-        """- Settle each question under "Flagged by the first pass": open that file in the working tree and decide. Confirming costs more than dismissing — report a finding only when you can point at the code that makes the claim true, and put that code in `evidence`
+        """- LAST, once the files under "Code to Review" are reviewed and not before: settle each question under "Questions from the triage", using what that review taught you. Open the flagged file in the working tree and decide. Confirming costs more than dismissing — report a finding only when you can point at the code that makes the claim true, and put that code in `evidence`
 - "This is fine" is a complete and expected answer: put it in `dismissed` with one sentence on what you checked. A question you cannot check goes there too, with that as the reason
-- Do not review the rest of a flagged file. You were asked about one thing, and that file is not part of this review otherwise
+- Do not go looking for more in a flagged file: you were asked about one thing. But a defect you SEE while settling it is a finding like any other — report it, never set it aside because it is outside the question
 """
-        if batch.scan_suspicions
+        if batch.triage_suspicions
         else ""
     )
 
@@ -65,24 +63,25 @@ def build_findings_prompt_parts(
         else ""
     )
 
-    instructions = instructions_override or f"""{settle_instructions}{context_docs_instruction}{cross_file_instructions}- Before asserting what happens in a configuration, flavor, environment or call site that is NOT in this diff, open it in the working tree and check. If you cannot check it, say what you verified and what you assumed
+    instructions = f"""{context_docs_instruction}{cross_file_instructions}- Before asserting what happens in a configuration, flavor, environment or call site that is NOT in this diff, open it in the working tree and check. If you cannot check it, say what you verified and what you assumed
 - Before reporting that something is MISSING, unused, untested, unhandled or not overridden anywhere, SEARCH the working tree for it first — Grep and Glob are available to you and are recursive — and put what the search returned in `evidence`. An absence claimed without a search is a guess, and absences are where the serious defects hide: a function with no callers, a code path with no test, a value no flavor overrides
 - Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
 - Also report changes that preserve execution but alter the observable meaning of data, events, labels, classifications, or results
 - Also report changes that degrade fidelity of recorded, serialized, converted, or displayed data even if the code still runs
 - Also report changes that remove an important previous guarantee such as success/failure signaling, fallback behavior, or state consistency
 - Do not repeat issues already covered by Existing Comments
-- Do not report deleted lines as findings
+- A deleted line is not a finding by itself, but what its removal BREAKS is: behaviour that disappears with no replacement, a caller or event left without its handler, a guarantee the old code gave. Before claiming it, SEARCH for the replacement and put what the search returned in `evidence`. Anchor such a finding on a remaining line near the removal, or use a null `snippet`
 - Do not speculate beyond the shown code
 - Do not claim that a function, overload, or parameter does not exist unless the relevant declaration is clearly visible in the provided context
 - Prefer describing an observable behavior risk over making an unverified compilation claim
 - Do not report code style preferences, refactor suggestions, architecture preferences, or naming opinions without observable impact
 - Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
-- If there are no findings, return []"""
+- If there are no findings, return []
+{settle_instructions}"""
 
     shape_text = _change_shape_to_text(batch)
     context_docs_text = _context_docs_to_text(batch)
-    suspicions_text = _scan_suspicions_to_text(batch)
+    suspicions_text = _triage_suspicions_to_text(batch)
     # A batch that carries the whole change's shape is THE review, not a slice of one, and
     # it is told so: the framing decides whether the model reports what it can see in the
     # files it was handed or judges the change as a whole against what the PR claims.
@@ -102,7 +101,7 @@ def build_findings_prompt_parts(
 
 ## PR Context
 {pr_context}
-{context_docs_text}{shape_text}{suspicions_text}
+{context_docs_text}{shape_text}
 ## Existing Comments (do not duplicate these)
 {comments_json}
 
@@ -111,7 +110,7 @@ def build_findings_prompt_parts(
 
 ## Code to Review
 {files_text}{related_text}
-
+{suspicions_text}
 ## Instructions
 {instructions}
 
@@ -123,7 +122,7 @@ Respond ONLY with a valid JSON array matching this schema. Do not include any pr
         "pr_context": pr_context,
         "change_shape": shape_text,
         "context_docs": context_docs_text,
-        "scan_suspicions": suspicions_text,
+        "triage_suspicions": suspicions_text,
         "comments": comments_json,
         "review_axes": checklist_json,
         "files_context": files_text,
@@ -134,19 +133,20 @@ Respond ONLY with a valid JSON array matching this schema. Do not include any pr
     }
 
 
-def _scan_suspicions_to_text(batch: FocusContextBatch) -> str:
-    """What the skim flagged, and what this session is asked to do about it."""
-    if not batch.scan_suspicions:
+def _triage_suspicions_to_text(batch: FocusContextBatch) -> str:
+    """What the triage flagged, and what this session is asked to do about it."""
+    if not batch.triage_suspicions:
         return ""
     lines = "\n".join(
-        f"- {item.get('path')}: {item.get('suspicion')}" for item in batch.scan_suspicions
+        f"- {item.get('path')}: {item.get('suspicion')}" for item in batch.triage_suspicions
     )
     return (
-        "\n## Flagged by the first pass (a SECOND task: settle these, do not review these files)\n"
+        "\n## Questions from the triage (a SECOND task, for AFTER the review above)\n"
         "A cheap pass over the rest of the PR saw only these files' diffs and raised these "
-        "questions. Each names a file that is NOT part of the review above. Open it, decide, "
-        "and either report a finding with the code that proves it or dismiss it saying what "
-        "you checked. A question you cannot settle is not a finding.\n"
+        "questions. Each names a file that is NOT part of the review above. Review the code "
+        "above first; then, with what it taught you, open each file, decide, and either "
+        "report a finding with the code that proves it or dismiss it saying what you "
+        "checked. A question you cannot settle is not a finding.\n"
         f"{lines}\n"
     )
 
@@ -183,15 +183,12 @@ def _pr_context_to_text(batch: FocusContextBatch) -> str:
     if not batch.pr_manifest:
         return f"Batch {batch.batch_id}"
     pr = batch.pr_manifest
-    # One-line intent only (cap 200 chars ≈ 50 tokens): this block repeats once per
-    # batch, so it must stay minimal (D-002 token mandate). The fuller trimmed
-    # description goes to the single-call plan phase instead.
-    intent = batch.pr_intent or extract_pr_intent_line(pr.description)
+    intent = batch.pr_intent or review_pr_description(pr.description)
     return (
         f"PR #{pr.number}: {_short_title(pr.title)}\n"
-        + (f"Intent: {intent}\n" if intent else "")
-        + f"{pr.base} -> {pr.head}\n"
-        f"Batch: {batch.batch_id}"
+        f"{pr.base} -> {pr.head}\n"
+        f"Batch: {batch.batch_id}\n"
+        + pr_description_section(intent)
     )
 
 
@@ -283,8 +280,6 @@ _DIFF_HUNK_MARKER = "# --- diff hunk ---"
 
 
 def _annotate_diff_hunk(hunk: str) -> str:
-    import re
-
     lines = hunk.splitlines()
     if not lines:
         return ""
@@ -324,7 +319,10 @@ def _annotate_diff_hunk(hunk: str) -> str:
         if line.startswith("---") or line.startswith("+++"):
             result.append(line)
         elif line.startswith("-"):
-            result.append(f"[DELETED - do not review] {line[1:]}")
+            # Removed code is what a migration or refactor can lose, so it is labelled,
+            # not hidden: "do not review" here made the session skip exactly the removal
+            # of two analytics reducers whose actions are still dispatched (PR #3720).
+            result.append(f"[DELETED] {line[1:]}")
         elif line.startswith("+"):
             result.append(f"{str(current_line).rjust(width)} [ADDED] {line[1:]}")
             current_line += 1
@@ -415,7 +413,7 @@ def findings_json_schema() -> dict[str, Any]:
             "dismissed": {
                 "type": "array",
                 "description": (
-                    "Questions from the first pass you checked and found unfounded, or "
+                    "Questions from the triage you checked and found unfounded, or "
                     "could not check. Empty when none were asked."
                 ),
                 "items": {
@@ -490,9 +488,9 @@ def batch_scope_paths(batch: FocusContextBatch) -> set[str]:
       The related CONTENT comes from an unlabelled sibling — `__init__.py`,
       `protocols.py`, a `base_*` file — whose own path is recorded nowhere, so a finding
       naming that sibling is the model inferring a path rather than reading one.
-    - the paths of the skim's suspicions. These files are NOT in `files_context` — the
+    - the paths of the triage's suspicions. These files are NOT in `files_context` — the
       session was asked to open them in the working tree and settle a question about
-      them — so without this the scope check drops every finding the skim's work leads
+      them — so without this the scope check drops every finding the triage's work leads
       to, and the whole first pass is thrown away. The entitlement is explicit and
       narrow: someone looked at that file's diff and asked about it by name.
     """
@@ -501,7 +499,7 @@ def batch_scope_paths(batch: FocusContextBatch) -> set[str]:
         _, _, for_path = key.partition(":")
         if for_path:
             paths.add(normalize_finding_path(for_path))
-    for item in batch.scan_suspicions:
+    for item in batch.triage_suspicions:
         suspicion_path = (item.get("path") or "").strip()
         if suspicion_path:
             paths.add(normalize_finding_path(suspicion_path))
@@ -609,155 +607,6 @@ def build_default_findings() -> list[Finding]:
     return []
 
 
-SYNTHESIS_BATCH_ID = "synthesis_1"
-
-FINDINGS_SYNTHESIS_EFFORT = "medium"
-"""The synthesis prompt is the largest findings prompt shape (every hunk of the PR at
-once); cap reasoning at medium like worktree_reference batches — big context, bounded
-reasoning."""
-
-SYNTHESIS_INSTRUCTIONS = """- This batch shows ALL changed hunks of this PR together. Look ONLY for cross-file inconsistencies introduced by this PR
-- Report contract mismatches: a signature, return shape, field, event, or error contract changed in one file while a caller/consumer in another file shown here still uses the old contract
-- Report missed call sites: a rename, parameter change, or behavior change applied in some of these files but not in others shown here
-- Report inconsistent naming or semantics for the same concept across the changed files
-- Do NOT report single-file issues of any kind — those were already reviewed in earlier batches
-- Do not repeat issues already covered by Existing Comments
-- Do not report deleted lines as findings
-- Do not speculate beyond the shown hunks; unchanged call sites outside this diff are out of scope
-- Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
-- If there are no cross-file inconsistencies, return []"""
-
-
-SYNTHESIS_HUNK_CONTEXT_LINES = 3
-"""Context lines kept around each change in synthesis hunks. The review diff is
-fetched with -U20; combining EVERY hunk of the PR at that width blew the synthesis
-prompt to 225k chars on a real 15-file PR (12.5x any budget) — the synthesis looks
-for cross-file contract mismatches, not line-level detail, so minimal context is
-the right trade."""
-
-_HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
-
-
-def trim_hunks_for_synthesis(
-    hunks: list[str], context_lines: int = SYNTHESIS_HUNK_CONTEXT_LINES
-) -> list[str]:
-    """Re-cut wide-context hunks down to `context_lines` around each change.
-
-    Widely separated changes inside one hunk become separate sub-hunks, each with a
-    RECALCULATED `@@` header — line numbering must stay exact because the prompt
-    annotator derives displayed line numbers from the header, and findings carry
-    those numbers back.
-    """
-    trimmed: list[str] = []
-    for hunk in hunks:
-        trimmed.extend(_retrim_hunk(hunk, context_lines))
-    return trimmed
-
-
-def _retrim_hunk(hunk: str, context_lines: int) -> list[str]:
-    lines = hunk.splitlines()
-    header_match = _HUNK_HEADER_RE.match(lines[0]) if lines else None
-    if not header_match:
-        return [hunk]
-
-    old_no = int(header_match.group(1))
-    new_no = int(header_match.group(3))
-    infos: list[tuple[str, int | None, int | None, bool]] = []
-    for line in lines[1:]:
-        if line.startswith("+"):
-            infos.append((line, None, new_no, True))
-            new_no += 1
-        elif line.startswith("-"):
-            infos.append((line, old_no, None, True))
-            old_no += 1
-        else:
-            infos.append((line, old_no, new_no, False))
-            old_no += 1
-            new_no += 1
-
-    changed_indices = [i for i, info in enumerate(infos) if info[3]]
-    if not changed_indices:
-        return [hunk]
-
-    clusters: list[tuple[int, int]] = []
-    start = end = changed_indices[0]
-    for index in changed_indices[1:]:
-        if index - end <= 2 * context_lines + 1:
-            end = index
-        else:
-            clusters.append((start, end))
-            start = end = index
-    clusters.append((start, end))
-
-    sub_hunks: list[str] = []
-    for cluster_start, cluster_end in clusters:
-        lo = max(0, cluster_start - context_lines)
-        hi = min(len(infos) - 1, cluster_end + context_lines)
-        segment = infos[lo : hi + 1]
-        old_lines = [info[1] for info in segment if info[1] is not None]
-        new_lines = [info[2] for info in segment if info[2] is not None]
-        header = (
-            f"@@ -{old_lines[0] if old_lines else 0},{len(old_lines)} "
-            f"+{new_lines[0] if new_lines else 0},{len(new_lines)} @@"
-        )
-        sub_hunks.append("\n".join([header] + [info[0] for info in segment]))
-    return sub_hunks
-
-
-def build_cross_file_synthesis_batch(
-    focus_paths: list[str],
-    diff: str,
-    pr_manifest,
-    diff_manager=None,
-    comment_context=None,
-) -> FocusContextBatch | None:
-    """Build the cross-file synthesis batch: every focus file's hunks together.
-
-    Per-file batches are structurally blind to interactions between the PR's own
-    changes; this batch re-combines all reviewed paths in hunks_only mode (no
-    expansion, no full files) so the model can look for cross-file inconsistencies.
-    ">1 focus file" means >1 distinct path — a single batch holding several files
-    qualifies. Paths without diff hunks (binary, rename-only) are skipped. Returns
-    None when fewer than 2 paths end up with hunks: a synthesis over one file is
-    meaningless. There is deliberately no file cap — the caller's budget check is
-    the cap (over budget -> skip, no split/degrade).
-
-    `checklist_applicable` stays empty: the synthesis instructions are the single
-    review axis, and this batch already re-sends every hunk. `comment_context` does
-    carry over — the synthesis instructions say not to repeat issues already covered
-    by existing comments, which needs those comments in the prompt.
-    """
-    from ..models.review_enums import FileReadMode
-    from ..models.review_models import FileContextEntry
-    from .context_resolution_operations import extract_hunks_only
-
-    files_context: dict[str, FileContextEntry] = {}
-    for path in focus_paths:
-        hunks = extract_hunks_only(diff, path, diff_manager=diff_manager)
-        if not hunks:
-            continue
-        # The review diff carries -U20 context; at synthesis scale (every hunk of
-        # the PR at once) that context is what blows the budget, not the changes.
-        hunks = trim_hunks_for_synthesis(hunks)
-        files_context[path] = FileContextEntry(
-            path=path,
-            read_mode=FileReadMode.HUNKS_ONLY,
-            hunks=hunks,
-            approximate_chars=sum(len(hunk) for hunk in hunks),
-        )
-
-    if len(files_context) < 2:
-        return None
-
-    return FocusContextBatch(
-        batch_id=SYNTHESIS_BATCH_ID,
-        files_context=files_context,
-        checklist_applicable=[],
-        comment_context=comment_context or [],
-        pr_manifest=pr_manifest,
-    )
-
-
 TIMEOUT_FALLBACK_BATCH_SUFFIX = "_retry"
 
 
@@ -803,83 +652,6 @@ def build_timeout_fallback_batch(
         related_files=batch.related_files,
         pr_manifest=batch.pr_manifest,
     )
-
-
-def dedupe_synthesis_findings(
-    synthesis_raw: list,
-    existing_raw: list,
-    *,
-    line_window: int = 5,
-    title_similarity_threshold: float = 0.75,
-    same_category_similarity_threshold: float = 0.5,
-) -> list:
-    """Drop synthesis findings that duplicate a per-file batch finding.
-
-    Works on raw (pre-normalization) dicts because it runs inside the findings step,
-    before Finding models exist. A synthesis finding is a duplicate when an existing
-    raw finding has the same path AND a line within the window (both-None counts as
-    close, one-None does not) AND the titles match: exactly, or above
-    `title_similarity_threshold`, or above the lower
-    `same_category_similarity_threshold` when both findings share a category.
-
-    Sharing a category is a hint, never proof on its own: cross-file findings land on
-    the call site, so they routinely sit within the window of a per-file finding in
-    the same category while describing a completely different defect — exactly what
-    the synthesis pass exists to surface. `validators.is_duplicate` does treat
-    same-category as decisive, but it compares against an ALREADY PUBLISHED comment
-    (and only an unresolved one); between two fresh findings of the same run that
-    would silently drop real cross-file findings. That validator can't be reused here
-    anyway: it takes a Finding plus an existing-comment index entry, and its
-    resolved/adjudicated branches are meaningless between two fresh findings.
-
-    Non-dict items in either list are tolerated: raw AI output is untrusted.
-    """
-    from difflib import SequenceMatcher
-
-    def _is_duplicate_pair(candidate: dict, item: dict) -> bool:
-        if candidate.get("path") != item.get("path"):
-            return False
-        line_a, line_b = candidate.get("line"), item.get("line")
-        title_a = str(candidate.get("title", "")).lower()
-        title_b = str(item.get("title", "")).lower()
-        if line_a is None and line_b is None:
-            # With no line information at all, proximity says nothing — only an
-            # exact title repeat is safe to drop; similarity alone could kill a
-            # genuinely distinct cross-file finding.
-            return title_a == title_b
-        if line_a is None or line_b is None:
-            return False
-        try:
-            lines_close = abs(int(line_a) - int(line_b)) <= line_window
-        except (TypeError, ValueError):
-            return False
-        if not lines_close:
-            return False
-        if title_a == title_b:
-            return True
-        similarity = SequenceMatcher(None, title_a, title_b).ratio()
-        category_a = str(candidate.get("category", "")).lower()
-        category_b = str(item.get("category", "")).lower()
-        if category_a and category_a == category_b:
-            # Same defect class at the same spot: accept a looser wording match (a
-            # restatement in different words), but still require the titles to be
-            # talking about the same thing.
-            return similarity > same_category_similarity_threshold
-        return similarity > title_similarity_threshold
-
-    existing = [item for item in existing_raw if isinstance(item, dict)]
-    unique: list = []
-    for candidate in synthesis_raw:
-        if not isinstance(candidate, dict):
-            # Garbage items would be dropped by normalize anyway, but keeping them
-            # here would inflate the "unique findings" count shown/logged.
-            continue
-        # Compare against the per-file findings AND the synthesis items already
-        # accepted — the synthesis list can repeat itself too.
-        if any(_is_duplicate_pair(candidate, item) for item in existing + unique):
-            continue
-        unique.append(candidate)
-    return unique
 
 
 def summarize_findings_prompt_parts(parts: dict[str, str]) -> dict[str, Any]:

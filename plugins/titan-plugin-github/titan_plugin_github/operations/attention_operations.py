@@ -13,7 +13,7 @@ only the surrounding file reveals; a test's fifty new lines usually cannot.
 
 from dataclasses import dataclass, field
 
-from ..models.review_enums import AttentionTier
+from ..models.review_enums import AttentionTier, FileChangeStatus
 from ..models.review_models import ChangedFileEntry
 from ..models.review_profile_models import ReviewProfile
 from .review_profile_operations import classify_file_role, path_matches_any
@@ -74,6 +74,8 @@ def resolve_file_attention(
     1. **`always_deep`** — an explicit instruction from the project, and it outranks
        everything including the skips below. A hatch that gets second-guessed is not a
        hatch.
+    0. **Deleted files** — `glance`, before everything else: nothing to open, but their
+       diff is what the PR removes, which the triage must see.
     2. **Lockfiles and rename-only changes** — `skip`. Neither can carry a reviewable
        defect: one is machine-resolved dependency arithmetic, the other moves a file
        without changing what it does.
@@ -95,6 +97,16 @@ def resolve_file_attention(
             is_config=changed.is_config,
         )
 
+        if changed.status == FileChangeStatus.DELETED:
+            # To the triage, never to the deep session and never skipped. There is no
+            # file left to open, but the diff says exactly what disappears, and "was this
+            # migrated, or is it simply gone?" is the question a migration PR turns on.
+            # Skipping them was measured on ragnarok PR #3720: the triage stopped seeing
+            # the deleted event classes and asked 2-3 questions instead of 13-16 -- the
+            # ones that found edit-user-details tracking removed outright.
+            entries.append(FileAttention(changed.path, AttentionTier.GLANCE, role, "deleted"))
+            continue
+
         if review_profile.always_deep and path_matches_any(
             changed.path, review_profile.always_deep
         ):
@@ -102,6 +114,7 @@ def resolve_file_attention(
                 FileAttention(changed.path, AttentionTier.DEEP, role, "always_deep")
             )
             continue
+
 
         if changed.is_lockfile:
             entries.append(FileAttention(changed.path, AttentionTier.SKIP, role, "lockfile"))

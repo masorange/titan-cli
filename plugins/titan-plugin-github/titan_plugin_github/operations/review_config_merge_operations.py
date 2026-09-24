@@ -2,8 +2,8 @@
 
 Before this existed, a project's `profile.yaml` **replaced** Titan's profile outright:
 the manager validated the YAML on its own and every field defaults to empty, so a file
-that defined a single scoring rule silently left the review with no `file_roles`, no
-`change_patterns` and no `review_axes` — every file classified as "other" and the axes
+that defined a single rule silently left the review with no `file_roles` and no
+`review_axes` — every file classified as "other" and the axes
 falling back to their two emergency values. A team tuning its review got a degraded one
 and nothing said so.
 
@@ -25,13 +25,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Fields merged key-by-key. Each holds a mapping whose values are owned whole.
-_KEYED_MAPPING_FIELDS = ("change_patterns", "file_roles", "review_axes")
-
-# Fields that are a list of entries with a stable `name`, merged by that name.
-_NAMED_LIST_FIELDS = ("candidate_scoring",)
-
-# Nested objects merged key-by-key, so an unmentioned threshold keeps Titan's value.
-_NESTED_OBJECT_FIELDS = ("candidate_exclusions",)
+# `attention` is one of them: a project that sends one role to deep must not lose the
+# tier of every role it did not mention.
+_KEYED_MAPPING_FIELDS = ("file_roles", "attention", "review_axes")
 
 # The block that names what to drop from Titan's defaults. Not a profile field.
 REMOVE_KEY = "remove"
@@ -108,21 +104,6 @@ def merge_review_profile_data(
                 merged.setdefault(field_name, {})[key] = entry
             continue
 
-        if field_name in _NAMED_LIST_FIELDS and isinstance(value, list):
-            merged[field_name], field_replaced, field_added = _merge_named_list(
-                merged.get(field_name) or [], value, field_name
-            )
-            replaced.extend(field_replaced)
-            added.extend(field_added)
-            continue
-
-        if field_name in _NESTED_OBJECT_FIELDS and isinstance(value, dict):
-            for key, entry in value.items():
-                target = f"{field_name}.{key}"
-                (replaced if key in merged.get(field_name, {}) else added).append(target)
-                merged.setdefault(field_name, {})[key] = entry
-            continue
-
         # A scalar, or a shape that does not match the field's own: replace outright
         # and let validation reject it if it is wrong. Reporting it as replaced is
         # accurate either way.
@@ -138,38 +119,6 @@ def merge_review_profile_data(
         unknown_removals=sorted(set(unknown_removals)),
         ignored_keys=sorted(set(ignored_keys)),
     )
-
-
-def _merge_named_list(
-    base_entries: list, project_entries: list, field_name: str
-) -> tuple[list, list[str], list[str]]:
-    """Merge entries carrying a stable `name`: same name replaces, new name appends.
-
-    Order is base order with appends at the end, so a project that only tweaks one rule
-    does not reshuffle the rest — and scoring, which sums matching rules, is unaffected
-    by order anyway, but a stable list is far easier to read in a log.
-    """
-    merged = [dict(entry) for entry in base_entries if isinstance(entry, dict)]
-    index = {entry.get("name"): position for position, entry in enumerate(merged)}
-    replaced: list[str] = []
-    added: list[str] = []
-
-    for entry in project_entries:
-        if not isinstance(entry, dict):
-            # Malformed entry: keep it so validation reports it, rather than dropping
-            # it here and leaving the user with a file that "worked".
-            merged.append(entry)
-            continue
-        name = entry.get("name")
-        if name in index:
-            merged[index[name]] = entry
-            replaced.append(f"{field_name}.{name}")
-        else:
-            index[name] = len(merged)
-            merged.append(entry)
-            added.append(f"{field_name}.{name}")
-
-    return merged, replaced, added
 
 
 def _apply_removals(merged: dict, removals: Any) -> tuple[dict, list[str], list[str]]:
@@ -199,21 +148,9 @@ def _apply_removals(merged: dict, removals: Any) -> tuple[dict, list[str], list[
         # about the tool's own behaviour rather than about the user's config.
         for key in _unique(keys):
             target = f"{field_name}.{key}"
-            if field_name in _KEYED_MAPPING_FIELDS or field_name in _NESTED_OBJECT_FIELDS:
+            if field_name in _KEYED_MAPPING_FIELDS:
                 if isinstance(merged.get(field_name), dict) and key in merged[field_name]:
                     del merged[field_name][key]
-                    removed.append(target)
-                else:
-                    unknown.append(target)
-            elif field_name in _NAMED_LIST_FIELDS:
-                entries = merged.get(field_name) or []
-                kept = [
-                    entry
-                    for entry in entries
-                    if not (isinstance(entry, dict) and entry.get("name") == key)
-                ]
-                if len(kept) != len(entries):
-                    merged[field_name] = kept
                     removed.append(target)
                 else:
                     unknown.append(target)
@@ -235,14 +172,24 @@ def merge_review_checklist_items(
     """
     merged = [dict(item) for item in base_items]
     index = {item.get("id"): position for position, item in enumerate(merged)}
+    known_keys = {key for item in base_items for key in item} or {"id", "name", "description"}
     replaced: list[str] = []
     added: list[str] = []
+    ignored: list[str] = []
 
     for item in project_items or []:
         if not isinstance(item, dict):
             merged.append(item)
             continue
         item_id = item.get("id")
+        # A key the item model does not have would be dropped by validation in silence.
+        # The one that matters is `relevant_file_patterns`: WHEN an axis applies moved to
+        # the profile's `review_axes`, and a checklist still carrying patterns must say
+        # they no longer do anything instead of looking applied.
+        unknown_keys = sorted(key for key in item if key not in known_keys)
+        if unknown_keys:
+            ignored.extend(f"items.{item_id}.{key}" for key in unknown_keys)
+            item = {key: value for key, value in item.items() if key in known_keys}
         if item_id in index:
             merged[index[item_id]] = item
             replaced.append(str(item_id))
@@ -271,6 +218,7 @@ def merge_review_checklist_items(
         added=sorted(set(added)),
         removed=sorted(set(removed)),
         unknown_removals=sorted(set(unknown)),
+        ignored_keys=sorted(set(ignored)),
     )
 
 
