@@ -261,6 +261,14 @@ class GitClient:
         """Get commit SHA for any git ref."""
         return self.commit_service.get_commit_sha(ref)
 
+    def get_merge_base(self, ref_a: str, ref_b: str) -> ClientResult[str]:
+        """Get the best common ancestor of two refs."""
+        return self.commit_service.get_merge_base(ref_a, ref_b)
+
+    def get_file_at_ref(self, ref: str, path: str) -> ClientResult[Optional[str]]:
+        """Get a file's content at a ref; None when it does not exist there."""
+        return self.commit_service.get_file_at_ref(ref, path)
+
     def get_commits_vs_base(self) -> ClientResult[List[str]]:
         """Get commit messages from base branch to HEAD."""
         return self.commit_service.get_commits_vs_base()

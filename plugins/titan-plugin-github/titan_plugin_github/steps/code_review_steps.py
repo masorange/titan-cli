@@ -2011,6 +2011,35 @@ def _render_review_coverage(ctx: WorkflowContext, handed: set, ledger: list[dict
         ctx.textual.text(f"  {_display_file_label(path)}")
 
 
+def merge_focus_into_ledger(ledger: list[dict], focus: list[dict]) -> list[dict]:
+    """The ledger plus a line for every focus file it does not already mention."""
+    from ..operations.findings_operations import normalize_finding_path
+
+    mentioned = {normalize_finding_path(item["path"]) for item in ledger}
+    return ledger + [
+        {"path": item["path"], "note": f"Reviewed in depth: {item.get('why', '')}".strip()}
+        for item in focus
+        if normalize_finding_path(item["path"]) not in mentioned
+    ]
+
+
+def _render_old_code_rejected(ctx: WorkflowContext, rejected: list[dict]) -> None:
+    """Name every finding dropped because the base version does not bear out its claim."""
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    if not rejected:
+        return
+    ctx.textual.text(" ")
+    ctx.textual.warning_text(
+        f"Dropped {len(rejected)} finding(s) about removed behaviour the base version does not confirm:"
+    )
+    for item in rejected:
+        ctx.textual.text(
+            f"  {_display_file_label(str(item.get('path') or ''))}  "
+            f"{escape_markup(str(item.get('title') or ''))} [dim]— {escape_markup(item['reason'])}[/dim]"
+        )
+
+
 def _render_review_focus(ctx: WorkflowContext, focus: list[dict]) -> None:
     """Name the files the session chose to review in depth, and log why."""
     logger.info(
@@ -2165,6 +2194,82 @@ def _attach_content_provider(diff_manager, root: Optional[str]) -> None:
     diff_manager.attach_content_provider(lambda path: read_file_content(path, root))
 
 
+def _write_review_material(
+    ctx: WorkflowContext, worktree_path: str, manifest, diff_manager, comment_context: list
+) -> Optional[dict]:
+    """Write the review's material into the worktree; map each changed path to whether its
+    base version exists. None when it could not be written, and the review then carries the
+    diffs in the prompt as before.
+
+    The base is the merge base of the PR head and its base branch: the commit GitHub's diff
+    is computed against, so the base versions are exactly the "before" of that diff.
+    """
+    from pathlib import Path
+
+    from ..operations.review_material_operations import (
+        PR_FILE,
+        WHOLE_DIFF_FILE,
+        base_file_path,
+        diff_file_path,
+        render_file_diff,
+        render_pr_file,
+    )
+
+    pr = manifest.pr
+    if not ctx.git or not pr or diff_manager is None:
+        return None
+    head_ref = f"refs/titan/review/pr-{pr.number}"
+    base_ref = f"{head_ref}-base"
+    match ctx.git.fetch_refspec("origin", f"+refs/heads/{pr.base}:{base_ref}"):
+        case ClientError(error_message=err):
+            logger.warning("review_material_base_fetch_failed", base=pr.base, error=err)
+            return None
+        case _:
+            pass
+    match ctx.git.get_merge_base(head_ref, base_ref):
+        case ClientSuccess(data=merge_base):
+            pass
+        case ClientError(error_message=err):
+            logger.warning("review_material_merge_base_failed", error=err)
+            return None
+
+    root = Path(worktree_path)
+    has_base: dict[str, bool] = {}
+    whole_diff: list[str] = []
+    try:
+        for entry in manifest.files:
+            rendered = render_file_diff(entry.path, diff_manager.get_hunk_texts(entry.path))
+            whole_diff.append(rendered)
+            target = root / diff_file_path(entry.path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(rendered)
+            match ctx.git.get_file_at_ref(merge_base, entry.path):
+                case ClientSuccess(data=str() as content):
+                    base_target = root / base_file_path(entry.path)
+                    base_target.parent.mkdir(parents=True, exist_ok=True)
+                    base_target.write_text(content)
+                    has_base[entry.path] = True
+                case _:
+                    has_base[entry.path] = False
+        (root / WHOLE_DIFF_FILE).write_text("\n".join(whole_diff))
+        (root / PR_FILE).write_text(render_pr_file(pr, comment_context, merge_base))
+    except OSError as exc:
+        logger.warning("review_material_not_written", error=str(exc))
+        return None
+
+    logger.info(
+        "review_material_written",
+        files=len(has_base),
+        base_versions=sum(has_base.values()),
+        merge_base=merge_base,
+    )
+    ctx.textual.dim_text(
+        f"Review material in the worktree · {len(has_base)} diffs, "
+        f"{sum(has_base.values())} base versions"
+    )
+    return has_base
+
+
 def _resolve_file_read_access(ctx: WorkflowContext, worktree_path: Optional[str]):
     """
     Decide whether files on disk may be used as this PR's code.
@@ -2274,6 +2379,14 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
             "Full-file and expanded-hunk context are disabled to avoid mixing revisions."
         )
 
+    # The material goes to the worktree as files when there is one to write into; without
+    # it the review falls back to carrying the diffs in the prompt.
+    review_material = (
+        _write_review_material(ctx, worktree_path, manifest, diff_manager, comment_context)
+        if worktree_path and read_access.allowed
+        else None
+    )
+
     try:
         with ctx.textual.loading("Extracting code context…"):
             package = build_review_context_package(
@@ -2295,6 +2408,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
                 # core, because that is who can answer them best (D-014).
                 triage_suspicions=ctx.get("review_triage_suspicions", []),
                 triage_notes=ctx.get("review_triage_notes", []),
+                review_material=review_material,
             )
     except Exception as e:
         ctx.textual.error_text(f"Failed to resolve review context: {e}")
@@ -2393,13 +2507,55 @@ def _scoped_batch_outcome(
             kept=len(kept),
             rejected=rejected,
         )
+    old_code_rejected: list = []
+    if project_root and any(entry.on_disk for entry in batch.files_context.values()):
+        from ..operations.review_material_operations import check_old_code_claims
+
+        kept, old_code_rejected = check_old_code_claims(
+            kept, *_material_readers(project_root)
+        )
+        if old_code_rejected:
+            logger.warning(
+                "findings_old_code_not_confirmed",
+                batch_id=batch.batch_id,
+                dropped=len(old_code_rejected),
+                rejected=old_code_rejected,
+            )
     return {
         "status": "success",
         "raw": kept,
         "detail": "",
         "out_of_scope": len(rejected),
         "out_of_scope_findings": rejected,
+        "old_code_rejected": old_code_rejected,
     }
+
+
+def _material_readers(project_root: str):
+    """Readers for a changed file's base version and its new version in the worktree, and
+    the paths that have a base version."""
+    from pathlib import Path
+
+    from ..operations.review_material_operations import base_file_path
+
+    root = Path(project_root).resolve()
+
+    def _read(relative: str) -> Optional[str]:
+        target = (root / relative).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            return None
+        try:
+            return target.read_text()
+        except (OSError, UnicodeDecodeError):
+            return None
+
+    base_root = root / base_file_path("")
+    base_paths = (
+        [str(item.relative_to(base_root)) for item in base_root.rglob("*") if item.is_file()]
+        if base_root.is_dir()
+        else []
+    )
+    return (lambda path: _read(base_file_path(path))), (lambda path: _read(path)), base_paths
 
 
 def _repo_file_checker(project_root: Optional[str]):
@@ -2595,9 +2751,10 @@ def _execute_findings_batch(
 )
 def ai_review_triage(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Call 1 of the review: triage every file the deep session will not open.
+    Only runs without a worktree: triage every file the deep session will not open.
 
-    Diffs only, no repo access, on whatever model the user assigned to
+    With a worktree it is skipped, because the review material is written into it and the
+    deep session covers the glance files itself. Diffs only, no repo access, on whatever model the user assigned to
     `code_review_triage` -- a cheap one is the point. It **publishes nothing**: the notes
     and suspicions it returns are working material for `ai_review_findings`, which opens
     the file and confirms or drops each one.
@@ -2643,6 +2800,14 @@ def ai_review_triage(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.dim_text("Nothing to triage (no diff or no attention plan)")
         ctx.textual.end_step("success")
         return Success("Triage skipped", metadata={"review_triage_notes": [], "review_triage_suspicions": []})
+
+    # With a worktree the material goes into it as files, and the deep session's one-line
+    # pass covers the glance files from their diffs. The triage's questions were never
+    # confirmed (0 of 30 over three PRs) and cost 12-17% of the review.
+    if ctx.data.get("worktree_path") and ctx.get("worktree_created"):
+        ctx.textual.dim_text("Not needed: the deep session reviews every file from the worktree")
+        ctx.textual.end_step("success")
+        return Success("Triage not needed", metadata={"review_triage_notes": [], "review_triage_suspicions": []})
 
     # Everything the deep session will NOT open: the glance tier, plus any deep file that
     # fell outside the session budget. Deep files it IS opening are excluded because
@@ -2961,6 +3126,9 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     # The files the session chose to review in depth. A missed defect inside it is a depth
     # problem; outside it, the choice was wrong.
     focus: list[dict] = []
+    # Findings about a dropped behaviour whose quoted old code the base version does not bear
+    # out. Shown one by one: a reviewer must be able to see what was dropped and why.
+    old_code_rejected: list[dict] = []
     batch_queue = list(batches)
     ctx.textual.dim_text(f"Reviewing {len(batch_queue)} batch(es) with {cli_display}")
 
@@ -3133,6 +3301,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     reviewed_paths.update(
                         path for path, entry in resolved_batch.files_context.items() if not entry.flagged_only
                     )
+                    old_code_rejected.extend(resolved_outcome.get("old_code_rejected") or [])
                     findings_out_of_scope += resolved_outcome.get("out_of_scope", 0)
                     out_of_scope_findings.extend(resolved_outcome.get("out_of_scope_findings") or [])
                     aggregated_raw.extend(resolved_outcome["raw"])
@@ -3201,6 +3370,11 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         # start losing real findings.
         _render_out_of_scope_findings(ctx, out_of_scope_findings)
     ctx.data["findings_out_of_scope"] = findings_out_of_scope
+    # A focus file is opened in full by definition, so it is accounted for even when the
+    # session wrote its depth into findings and forgot the one-liner (run e164266c: all 12
+    # focus files read, none of them in `reviewed`). Its reason stands in as the note.
+    reviewed_ledger = merge_focus_into_ledger(reviewed_ledger, focus)
+    _render_old_code_rejected(ctx, old_code_rejected)
     _render_review_focus(ctx, focus)
     _render_review_coverage(ctx, reviewed_paths, reviewed_ledger)
     _render_settled_questions(ctx, batches, dismissed_questions, ctx.data["raw_findings"])

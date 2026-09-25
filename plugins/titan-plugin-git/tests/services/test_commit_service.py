@@ -321,3 +321,43 @@ class TestCommitServiceCountUnpushedCommits:
 
         assert isinstance(result, ClientSuccess)
         assert result.data == 0
+
+
+@pytest.mark.unit
+class TestCommitServiceRefReads:
+    """merge-base and reading a file at a ref, used to hand a reviewer the base version."""
+
+    def test_merge_base_returns_the_sha(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = "abc123"
+
+        result = service.get_merge_base("refs/titan/review/pr-1", "origin/main")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == "abc123"
+        mock_git_network.run_command.assert_called_once_with(
+            ["git", "merge-base", "refs/titan/review/pr-1", "origin/main"]
+        )
+
+    def test_merge_base_error(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("no merge base")
+
+        assert isinstance(service.get_merge_base("a", "b"), ClientError)
+
+    def test_file_at_ref_keeps_the_content_unstripped(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = ["", "line\n\n"]
+
+        result = service.get_file_at_ref("abc123", "src/a.py")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == "line\n\n"
+        assert mock_git_network.run_command.call_args_list[1].args[0] == ["git", "show", "abc123:src/a.py"]
+        assert mock_git_network.run_command.call_args_list[1].kwargs == {"strip_output": False}
+
+    def test_file_absent_at_ref_is_none_not_an_error(self, service, mock_git_network):
+        """A file the change adds has no base version: that is an answer, not a failure."""
+        mock_git_network.run_command.side_effect = GitCommandError("does not exist")
+
+        result = service.get_file_at_ref("abc123", "src/new.py")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data is None

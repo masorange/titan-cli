@@ -988,3 +988,47 @@ def test_the_deep_session_reads_related_files_together_and_its_checklist_has_tri
     shape = "\n".join(batch.change_shape)
     assert "conf.yml | role=config | YOU: triage question" in shape
     assert "strings.xml | role=static | triage: Only translations" in shape
+
+
+def test_with_the_material_on_disk_glance_files_join_the_session_and_nothing_is_inlined():
+    """No triage call: the session's one-line pass covers the glance files from their diff
+    files, so they are its tasks, marked YOU, and no entry carries a diff."""
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
+
+    paths = ["src/a.py", "tests/test_a.py", "conf.yml", "yarn.lock"]
+    diff = "".join(make_diff(path, "x" * 10) for path in paths)
+    plan = ReviewPlan(
+        focus_files=[FileReviewPlan(path="src/a.py", read_mode=FileReadMode.HUNKS_ONLY)],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    checklist = [
+        ReviewChecklistItem(id=ChecklistCategory.FUNCTIONAL_CORRECTNESS, name="F", description="d")
+    ]
+    attention_plan = AttentionPlan(
+        files=[
+            FileAttention("src/a.py", AttentionTier.DEEP, "business_logic", "role"),
+            FileAttention("tests/test_a.py", AttentionTier.GLANCE, "tests", "role"),
+            FileAttention("conf.yml", AttentionTier.GLANCE, "config", "role"),
+            FileAttention("yarn.lock", AttentionTier.SKIP, "config", "lockfile"),
+        ]
+    )
+    budget = ReviewBudget(
+        deep_max_prompt_chars=100_000, triage_max_prompt_chars=100_000, max_comment_entries=5,
+        deep_timeout_base_seconds=300, deep_timeout_per_file_seconds=120, deep_timeout_max_seconds=1500,
+    )
+
+    package = build_review_context_package(
+        plan, diff, make_manifest(paths), checklist, comment_context=[], budget=budget,
+        attention_plan=attention_plan,
+        review_material={"src/a.py": True, "tests/test_a.py": True, "conf.yml": False, "yarn.lock": True},
+    )
+
+    batch = package.batches[0]
+    assert list(batch.files_context) == ["src/a.py", "tests/test_a.py", "conf.yml"]
+    assert all(entry.on_disk and not entry.hunks for entry in batch.files_context.values())
+    assert "new file (no base version)" in batch.files_context["conf.yml"].review_hint
+    shape = "\n".join(batch.change_shape)
+    assert "conf.yml | role=config | YOU: review" in shape
+    assert "yarn.lock | role=config | skip" in shape
+    assert batch.triage_suspicions == []

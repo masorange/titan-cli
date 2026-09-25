@@ -272,6 +272,9 @@ class FileContextEntry(BaseModel):
     # Handed only so the session can settle the triage's question about it. That answer
     # is its account, so the coverage ledger does not ask for a second one.
     flagged_only: bool = False
+    # The file's diff and base version are files in the worktree's review folder, not in
+    # the prompt: `review_hint` says where.
+    on_disk: bool = False
 
 class FocusContextBatch(BaseModel):
     """Single bounded batch of review context for one findings prompt."""

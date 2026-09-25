@@ -2168,3 +2168,116 @@ def test_files_the_session_says_nothing_about_are_named():
     ctx.textual = _Recording()
     code_review_steps._render_review_coverage(ctx, {"a.py"}, [{"path": "a.py", "note": "ok"}])
     assert any("Every file accounted for" in line for line in ctx.textual.lines)
+
+
+def test_review_material_is_written_into_the_worktree(tmp_path):
+    """Diffs, base versions and pr.md land under .titan-review/; a file the PR adds has no
+    base version, and a failure to resolve the base falls back to the prompt (None)."""
+    from types import SimpleNamespace
+
+    from titan_cli.core.result import ClientError, ClientSuccess
+
+    from titan_plugin_github.managers.diff_context_manager import DiffContextManager
+    from titan_plugin_github.models.review_enums import FileChangeStatus
+    from titan_plugin_github.models.review_models import ChangeManifest, ChangedFileEntry, PullRequestManifest
+
+    diff = (
+        "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,1 +1,2 @@\n ctx\n+new\n"
+        "diff --git a/n.py b/n.py\n--- /dev/null\n+++ b/n.py\n@@ -0,0 +1,1 @@\n+added\n"
+    )
+    manifest = ChangeManifest(
+        pr=PullRequestManifest(number=9, title="T", base="main", head="f", author="a", description="D"),
+        files=[
+            ChangedFileEntry(path="a.py", status=FileChangeStatus.MODIFIED),
+            ChangedFileEntry(path="n.py", status=FileChangeStatus.ADDED),
+        ],
+        total_additions=2,
+        total_deletions=0,
+    )
+
+    class FakeGit:
+        def __init__(self, merge_base=ClientSuccess(data="mb123")):
+            self.merge_base = merge_base
+            self.fetched = []
+
+        def fetch_refspec(self, remote, refspec):
+            self.fetched.append((remote, refspec))
+            return ClientSuccess(data=None)
+
+        def get_merge_base(self, a, b):
+            return self.merge_base
+
+        def get_file_at_ref(self, ref, path):
+            return ClientSuccess(data="ctx\n" if path == "a.py" else None)
+
+    textual = SimpleNamespace(dim_text=lambda text: None)
+    ctx = SimpleNamespace(git=FakeGit(), textual=textual, data={})
+
+    result = code_review_steps._write_review_material(
+        ctx, str(tmp_path), manifest, DiffContextManager.from_diff(diff), []
+    )
+
+    assert result == {"a.py": True, "n.py": False}
+    assert ctx.git.fetched == [("origin", "+refs/heads/main:refs/titan/review/pr-9-base")]
+    assert (tmp_path / ".titan-review/base/a.py").read_text() == "ctx\n"
+    assert not (tmp_path / ".titan-review/base/n.py").exists()
+    assert "2 [ADDED] new" in (tmp_path / ".titan-review/diffs/a.py.diff").read_text()
+    assert "[ADDED] added" in (tmp_path / ".titan-review/pr.diff").read_text()
+    assert "mb123" in (tmp_path / ".titan-review/pr.md").read_text()
+
+    ctx_failing = SimpleNamespace(git=FakeGit(ClientError(error_message="no base")), textual=textual, data={})
+    assert code_review_steps._write_review_material(
+        ctx_failing, str(tmp_path), manifest, DiffContextManager.from_diff(diff), []
+    ) is None
+
+
+def test_the_triage_call_is_skipped_when_a_worktree_holds_the_material():
+    """With a worktree the deep session covers the glance files itself; the triage's
+    questions were never confirmed (0 of 30) and cost 12-17% of a review."""
+    from types import SimpleNamespace
+
+    from titan_cli.engine import Success
+
+    data = {"review_diff": "diff", "attention_plan": object(), "worktree_path": "/wt", "worktree_created": True}
+    lines = []
+    textual = SimpleNamespace(
+        begin_step=lambda name: None,
+        end_step=lambda status: None,
+        dim_text=lines.append,
+    )
+    ctx = SimpleNamespace(textual=textual, data=data, get=lambda key, default=None: data.get(key, default))
+
+    result = code_review_steps.ai_review_triage(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata == {"review_triage_notes": [], "review_triage_suspicions": []}
+    assert any("Not needed" in line for line in lines)
+
+
+def test_a_focus_file_counts_as_accounted_even_without_its_one_liner():
+    """Run e164266c read all 12 focus files in full and wrote none of them into
+    `reviewed`: bookkeeping, not coverage. The focus reason stands in as the note."""
+    ledger = [{"path": "a.py", "note": "fine"}]
+    focus = [{"path": "a.py", "why": "writes"}, {"path": "./b.py", "why": "auth"}]
+
+    merged = code_review_steps.merge_focus_into_ledger(ledger, focus)
+
+    assert merged == [
+        {"path": "a.py", "note": "fine"},
+        {"path": "./b.py", "note": "Reviewed in depth: auth"},
+    ]
+
+
+def test_material_readers_read_the_base_copy_and_the_worktree_file_and_stay_inside(tmp_path):
+    (tmp_path / ".titan-review/base").mkdir(parents=True)
+    (tmp_path / ".titan-review/base/a.py").write_text("old\n")
+    (tmp_path / "a.py").write_text("new\n")
+
+    read_base, read_head, base_paths = code_review_steps._material_readers(str(tmp_path))
+
+    assert base_paths == ["a.py"]
+
+    assert read_base("a.py") == "old\n"
+    assert read_head("a.py") == "new\n"
+    assert read_head("missing.py") is None
+    assert read_head("../outside.py") is None

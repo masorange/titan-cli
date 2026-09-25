@@ -237,6 +237,7 @@ def build_review_context_package(
     review_profile=None,
     triage_suspicions: Optional[list[dict]] = None,
     triage_notes: Optional[list[dict]] = None,
+    review_material: Optional[dict[str, bool]] = None,
 ) -> ReviewContextPackage:
     """
     Build the batched review context package for the AI prompt.
@@ -244,6 +245,10 @@ def build_review_context_package(
     When ``allow_file_reads`` is False, no file is read from ``cwd``: every file falls
     back to its diff hunks. Callers set this when the content on disk cannot be proven to
     be the PR's head revision — see ``resolve_file_read_access``.
+
+    ``review_material``, when given, maps every changed path to whether its base version was
+    written: the diffs and base versions are files in the worktree, so no diff goes into the
+    prompt, the glance files join the session's own tasks, and nothing is fitted to a budget.
 
     ``attention_plan``, when given, puts the shape of the WHOLE change on every batch —
     one content-free line per changed file with its role and tier. Without it a batch can
@@ -291,6 +296,18 @@ def build_review_context_package(
                 paths=sorted(excluded),
             )
 
+    # With the material on disk the glance files are no longer a separate, cheaper call's
+    # job: the session's one-line pass covers them from their diff files, at a sentence
+    # each, and it can open them when a question needs it.
+    glance_plans: list = []
+    if review_material is not None and attention_plan is not None:
+        known = {file_plan.path for file_plan in focus_files}
+        glance_plans = [
+            FileReviewPlan(path=path, read_mode=FileReadMode.WORKTREE_REFERENCE)
+            for path in attention_plan.paths_for(AttentionTier.GLANCE)
+            if path not in known
+        ]
+
     context_docs = resolve_context_docs(
         review_profile.context_docs if review_profile else [],
         cwd,
@@ -305,7 +322,9 @@ def build_review_context_package(
         # Marked from the files ACTUALLY read: a deep file the scorer never selected must
         # not be described to the model as reviewed. There is no "read by another pass"
         # label any more, because there is no other pass.
-        deep_read = {file_plan.path for file_plan in focus_files}
+        deep_read = {file_plan.path for file_plan in focus_files} | {
+            file_plan.path for file_plan in glance_plans
+        }
         change_shape = build_change_shape_lines(
             attention_plan,
             manifest.files,
@@ -352,6 +371,19 @@ def build_review_context_package(
     # copies its `snippet` from, which is what inline anchoring depends on (D-008). It
     # does not lose the review.
     suspicions = list(triage_suspicions or [])
+    if review_material is not None:
+        return _material_package(
+            focus_files + glance_plans,
+            review_material,
+            comment_context=comment_context,
+            checklist_applicable=checklist_applicable,
+            manifest=manifest,
+            change_shape=change_shape,
+            context_docs=context_docs,
+            pr_intent=pr_intent,
+            review_profile=review_profile,
+            budget=budget,
+        )
     inline_allowance = _inline_diff_allowance(content_budget, len(focus_files))
     files_context: dict[str, FileContextEntry] = {}
     prompt_chars = 0
@@ -495,6 +527,65 @@ def build_review_context_package(
         )
 
     return ReviewContextPackage(batches=batches)
+
+
+def _material_package(
+    file_plans: list,
+    review_material: dict[str, bool],
+    *,
+    comment_context,
+    checklist_applicable,
+    manifest: ChangeManifest,
+    change_shape: list[str],
+    context_docs: list[str],
+    pr_intent,
+    review_profile,
+    budget: ReviewBudget,
+) -> ReviewContextPackage:
+    """The one session over every reviewable file, its material referenced by path."""
+    from .attention_operations import order_by_relation
+    from .manifest_operations import is_test_file
+    from .review_material_operations import review_material_hint
+
+    paths = order_by_relation(
+        [file_plan.path for file_plan in file_plans], lambda path: is_test_file(path, review_profile)
+    )
+    files_context = {
+        path: FileContextEntry(
+            path=path,
+            read_mode=FileReadMode.WORKTREE_REFERENCE,
+            worktree_reference=True,
+            on_disk=True,
+            review_hint=review_material_hint(path, review_material.get(path, False)),
+        )
+        for path in paths
+    }
+    batch = FocusContextBatch(
+        batch_id=DEEP_BATCH_ID,
+        tier=AttentionTier.DEEP,
+        files_context=files_context,
+        comment_context=comment_context,
+        checklist_applicable=checklist_applicable,
+        related_files={},
+        pr_manifest=manifest.pr,
+        change_shape=change_shape,
+        context_docs=context_docs,
+        triage_suspicions=[],
+        pr_intent=pr_intent,
+        prompt_budget_target_chars=budget.deep_max_prompt_chars,
+    )
+    from .findings_operations import build_findings_prompt_parts
+
+    batch.approximate_chars = len(build_findings_prompt_parts(batch)["prompt"])
+    logger.info(
+        "deep_session_built",
+        files=len(files_context),
+        material_on_disk=True,
+        with_base_version=sum(1 for path in paths if review_material.get(path)),
+        prompt_actual_chars=batch.approximate_chars,
+        prompt_budget_target_chars=budget.deep_max_prompt_chars,
+    )
+    return ReviewContextPackage(batches=[batch])
 
 
 def _resolve_file_context(
@@ -828,6 +919,7 @@ def resolve_context_docs(
 
 # How a file reaches the deep session, in the order they are listed on screen.
 CONTEXT_GROUP_LABELS = {
+    "on_disk": "Diff and previous version as files in the worktree",
     "inline": "Diff in the prompt, file open in the worktree",
     "removals_only": "Only the removed lines (the rest did not fit)",
     "reference": "Named for a triage question, opened on demand",
@@ -845,7 +937,9 @@ def group_batch_files_by_delivery(batch: FocusContextBatch) -> dict[str, list[st
     """
     groups: dict[str, list[str]] = {key: [] for key in CONTEXT_GROUP_LABELS}
     for path, entry in batch.files_context.items():
-        if entry.removals_only:
+        if entry.on_disk:
+            groups["on_disk"].append(path)
+        elif entry.removals_only:
             groups["removals_only"].append(path)
         elif entry.hunks:
             groups["inline"].append(path)

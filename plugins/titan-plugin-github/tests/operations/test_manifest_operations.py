@@ -490,3 +490,36 @@ def test_a_nearby_comment_that_says_the_same_thing_is_a_duplicate():
     comment = _index_entry(body="The retry button here only hides the error, it should retry the checkout request.")
 
     assert is_duplicate(finding, comment) is True
+
+
+def test_a_comment_on_the_very_same_line_needs_less_overlap_to_be_the_same_finding():
+    """Ragnarok #3723 re-reported two findings already commented on the exact line they
+    anchor to (overlaps 0.29 and 0.39), because the comments' guessed category differed."""
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT, category="correctness", path="ui/UpgradeViewModel.kt",
+        line=187, title="Upgrade offers are sorted most expensive first, against the doc",
+        why="The business doc says offers are sorted by netAmount ascending; the code sorts descending.",
+        evidence="sortedByDescending { it.price.total.netAmount }", suggested_comment="c",
+    )
+    comment = _index_entry(
+        path="ui/UpgradeViewModel.kt", line=187, category="maintainability",
+        body="The business doc added in this PR and the previous implementation both sort offers "
+        "by price ascending, but this sorts descending and the test asserts it.",
+    )
+
+    assert is_duplicate(finding, comment) is True
+    # Five lines away the stricter rules still apply.
+    assert is_duplicate(finding, comment.model_copy(update={"line": 182})) is False
+
+
+def test_the_same_line_does_not_make_an_unrelated_comment_a_duplicate():
+    """The #3685 pair, moved onto the same line: nothing in common, still two findings."""
+    finding = Finding(
+        severity=FindingSeverity.IMPORTANT, category="error_handling", path="ui/DeviceDetailScreen.kt",
+        line=116, title='Checkout "Retry" button only dismisses the error, it never retries checkout',
+        why="onCheckoutErrorRetryClick only resets hasCheckoutError; the checkout request is not issued again.",
+        evidence="e", suggested_comment="c",
+    )
+    comment = _index_entry(body="Shouldn't this be handling the case when there's no `checkoutUrl`?")
+
+    assert is_duplicate(finding, comment) is False

@@ -35,7 +35,15 @@ steps:
     plugin: github
     step: build_review_plan
 
-  # Call 1 of two. Diffs only, no repo access, its own (cheap) model: a first pass over
+  # Before the triage: with a worktree the review material is written into it and the
+  # deep session covers the glance files itself, so the triage call is skipped.
+  - id: create_worktree
+    name: "Create PR Worktree"
+    plugin: github
+    step: create_worktree
+    on_error: continue
+
+  # Only without a worktree. Diffs only, no repo access, its own (cheap) model: a first pass over
   # every reviewable file the deep session will not open. It publishes nothing — what it
   # flags travels into the deep prompt for that session to settle. Best-effort: a failed
   # triage leaves those files where they already were, unlooked-at.
@@ -43,12 +51,6 @@ steps:
     name: "Triage"
     plugin: github
     step: ai_review_triage
-    on_error: continue
-
-  - id: create_worktree
-    name: "Create PR Worktree"
-    plugin: github
-    step: create_worktree
     on_error: continue
 
   - id: resolve_context

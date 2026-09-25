@@ -12,7 +12,7 @@ from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
-from ...exceptions import GitCommandError
+from ...exceptions import GitCommandError, GitError
 
 
 class CommitService:
@@ -165,6 +165,47 @@ class CommitService:
             )
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="COMMIT_ERROR")
+
+    @log_client_operation()
+    def get_merge_base(self, ref_a: str, ref_b: str) -> ClientResult[str]:
+        """
+        Get the best common ancestor of two refs.
+
+        Args:
+            ref_a: First git reference
+            ref_b: Second git reference
+
+        Returns:
+            ClientResult[str] with the full SHA of the merge base
+        """
+        try:
+            sha = self.git.run_command(["git", "merge-base", ref_a, ref_b])
+            return ClientSuccess(data=sha, message=f"Merge base: {sha[:7]}")
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="MERGE_BASE_ERROR")
+
+    @log_client_operation()
+    def get_file_at_ref(self, ref: str, path: str) -> ClientResult[Optional[str]]:
+        """
+        Get a file's content as it is at a ref, without checking anything out.
+
+        Args:
+            ref: Git reference (commit SHA, branch, tag)
+            path: Repository-relative file path
+
+        Returns:
+            ClientResult with the content, or None when the file does not exist at that
+            ref (a file the change adds). A file that is not text is an error.
+        """
+        try:
+            self.git.run_command(["git", "cat-file", "-e", f"{ref}:{path}"])
+        except GitCommandError:
+            return ClientSuccess(data=None, message=f"{path} does not exist at {ref}")
+        try:
+            content = self.git.run_command(["git", "show", f"{ref}:{path}"], strip_output=False)
+            return ClientSuccess(data=content, message=f"{path} at {ref}")
+        except (GitCommandError, GitError) as e:
+            return ClientError(error_message=str(e), error_code="FILE_AT_REF_ERROR")
 
     @log_client_operation()
     def get_commits_vs_base(self) -> ClientResult[List[str]]:

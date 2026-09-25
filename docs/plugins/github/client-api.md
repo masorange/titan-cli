@@ -777,7 +777,7 @@ The GitHub plugin ships with workflows that use these capabilities directly:
 
 - `create-pr-ai`: Creates a pull request after committing and pushing changes, with AI-generated PR content.
 - `create-issue-ai`: Creates a GitHub issue from an AI-suggested title and description.
-- `review-pr`: Reviews the whole PR in two AI calls: a cheap triage of every `glance` file from its diff, then one deep review session over the `deep` files.
+- `review-pr`: Reviews the whole PR in one deep review session in a worktree at the PR head. The diffs, the base version of every changed file, the PR description and the existing comments are written as files under `.titan-review/` in that worktree; the session covers every `deep` and `glance` file and reviews the risky ones in depth. Without a worktree it falls back to a cheap triage of the `glance` files plus a session with the `deep` diffs in the prompt.
 - `respond-pr-comments`: Helps review pending comments, reply to them, and request another review.
 
 These workflows can be used as-is or extended from `.titan/workflows/`.
@@ -794,7 +794,7 @@ File: `.titan/review/profile.yaml`
 Decides two things, and nothing else:
 
 - how much attention every changed file gets: `deep` (the deep review reads it with the
-  file open in the worktree), `glance` (the triage sees its diff) or `skip` (named on
+  file open in the worktree), `glance` (reviewed from its diff) or `skip` (named on
   screen, not reviewed)
 - when each review axis applies
 

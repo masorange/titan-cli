@@ -25,6 +25,7 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     schema = _finding_schema()
 
     has_shape = bool(batch.change_shape)
+    on_disk = any(entry.on_disk for entry in batch.files_context.values())
 
     # The task and the deliverable come FIRST. They used to be one line among ~20
     # instructions after 339k chars of diffs, and on #236 (run 7d61a0b9) the session
@@ -52,8 +53,13 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     # A PR exists to change behaviour, so a change is only a finding when nothing in the
     # PR announces it.
     steps: list[str] = [
-        'First go through every file under "Code to Review" from its diff, without opening '
-        "anything, and write its sentence in `reviewed`: what it changes, and whether "
+        'First go through every file under "Code to Review" from its diff'
+        + (
+            " (the whole diff is in `.titan-review/pr.diff`, each file's in the path under it)"
+            if on_disk
+            else ""
+        )
+        + ", without opening the source, and write its sentence in `reviewed`: what it changes, and whether "
         "anything in it needs a closer look. Every file gets its sentence; a file missing "
         "from `reviewed` reads as a file nobody looked at. Files flagged by the triage are "
         "the exception: settling their question is their account.",
@@ -65,9 +71,19 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
         "check its inputs (what can arrive null, empty or unexpected -- look at the type), "
         "its edge cases, what happens in production when it goes wrong, and who consumes its "
         "result (search the callers). Check also what it no longer does: for every behaviour "
-        "the diff removes or changes, look for the PR description, a project document or a "
+        "the diff removes or changes"
+        + (" (its base version shows how it worked before)" if on_disk else "")
+        + ", look for the PR description, a project document or a "
         "new test that announces it, and report it as an unannounced change when nothing "
-        "does. And check how the rest of the repository does the same thing: find one or two "
+        "does"
+        + (
+            "; such a finding puts in `old_code` the line of the base version that had the "
+            "behaviour, copied exactly -- it is checked against the base version and the new "
+            "file, and dropped if the line is not in the base or is still in the new file"
+            if on_disk
+            else ""
+        )
+        + ". And check how the rest of the repository does the same thing: find one or two "
         "files that do the same job and report where this one departs from them without a "
         "reason. Its `reviewed` sentence names the function and the case you checked.",
     ]
@@ -167,7 +183,11 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
         )
     instructions = "\n".join(f"- {rule}" for rule in rules) + "\n"
 
-    shape_text = _change_shape_to_text(batch)
+    material_text = _review_material_to_text() if on_disk else ""
+    if on_disk:
+        # The comments are in pr.md with the rest of the PR; the prompt only says so.
+        comments_json = "In `.titan-review/pr.md`."
+    shape_text = _change_shape_to_text(batch, on_disk=on_disk)
     context_docs_text = _context_docs_to_text(batch)
     suspicions_text = _triage_suspicions_to_text(batch)
     # A batch that carries the whole change's shape is THE review, not a slice of one, and
@@ -192,7 +212,7 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
 {instructions}
 ## PR Context
 {pr_context}
-{context_docs_text}{shape_text}
+{material_text}{context_docs_text}{shape_text}
 ## Existing Comments (do not duplicate these)
 {comments_json}
 
@@ -220,6 +240,22 @@ Respond ONLY with a valid JSON object of this shape. Do not include any prose be
         "schema": schema,
         "prompt": prompt,
     }
+
+
+def _review_material_to_text() -> str:
+    """Where the material is, when it is files in the worktree rather than the prompt."""
+    from .review_material_operations import BASE_DIR, DIFFS_DIR, PR_FILE, WHOLE_DIFF_FILE
+
+    return (
+        "\n## Review Material (files in the working tree, read them as you need them)\n"
+        f"- `{PR_FILE}`: the PR description and the review comments already posted\n"
+        f"- `{WHOLE_DIFF_FILE}`: the whole diff, every line numbered and labelled "
+        "[ADDED] / [CONTEXT] / [DELETED]\n"
+        f"- `{DIFFS_DIR}/<path>.diff`: the same, one file per changed file\n"
+        f"- `{BASE_DIR}/<path>`: each changed file as it was before this PR\n"
+        "The source under review is the working tree itself. The review folder is hidden, so "
+        "a search of the tree does not include it: search it by its path when you mean to.\n"
+    )
 
 
 def _triage_suspicions_to_text(batch: FocusContextBatch) -> str:
@@ -257,17 +293,23 @@ def _context_docs_to_text(batch: FocusContextBatch) -> str:
     )
 
 
-def _change_shape_to_text(batch: FocusContextBatch) -> str:
+def _change_shape_to_text(batch: FocusContextBatch, on_disk: bool = False) -> str:
     """The checklist: every changed file and who covers it — no content. Empty when absent."""
     if not batch.change_shape:
         return ""
     lines = "\n".join(batch.change_shape)
+    others = (
+        "Every other row was left out by rule (lockfiles, renames, deletions, static "
+        "resources); its diff is in the review folder if a question needs it."
+        if on_disk
+        else "Every other row was read by the triage from its diff alone, and its note is "
+        "context, not a verdict: any of those files is in the working tree if a question "
+        "needs it."
+    )
     return (
         "\n## Checklist (every changed file in this PR)\n"
         "Rows marked YOU are your tasks: the files under \"Code to Review\" and the triage "
-        "questions. Every other row was read by the triage from its diff alone, and its note "
-        "is context, not a verdict: any of those files is in the working tree if a question "
-        "needs it.\n"
+        f"questions. {others}\n"
         f"{lines}\n"
     )
 
@@ -316,6 +358,10 @@ def _files_context_to_text(files_context: dict) -> str:
     parts: list[str] = []
     for path, entry in files_context.items():
         parts.append(f"### {path}")
+        if entry.on_disk:
+            parts.append(entry.review_hint)
+            parts.append("")
+            continue
         if entry.worktree_reference:
             parts.append("Open this file in the working tree; the diff below is what changed.")
             if entry.review_hint:
@@ -447,6 +493,7 @@ def _finding_schema() -> str:
                 "why": "<why this is a problem>",
                 "evidence": "<exact supporting snippet>",
                 "snippet": "<short anchor snippet from the target line or null>",
+                "old_code": "<for a behaviour the PR drops: the base-version line that had it, else null>",
                 "suggested_comment": "<ready-to-post GitHub review comment>",
                 }
             ],
@@ -527,6 +574,7 @@ def findings_json_schema() -> dict[str, Any]:
                         "why": {"type": "string"},
                         "evidence": {"type": "string"},
                         "snippet": {"type": ["string", "null"]},
+                        "old_code": {"type": ["string", "null"]},
                         "suggested_comment": {"type": "string"},
                     },
                     "required": ["severity", "category", "path", "title", "why", "evidence", "suggested_comment"],

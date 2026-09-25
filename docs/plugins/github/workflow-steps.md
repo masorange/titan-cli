@@ -117,9 +117,9 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings
 - `build_review_checklist`: load the review axes the project offers (what each axis is)
 - `build_review_plan`: assign every changed file `deep`, `glance` or `skip` from the review profile, and decide what the deep review reads (no AI call)
-- `ai_review_triage`: triage every `glance` file from its diff in one call (cheap model, no repo access); publishes nothing, flags questions for the deep review
-- `resolve_review_context`: expand the exact contexts needed for targeted analysis
-- `ai_review_findings`: the deep review — one worktree session over the `deep` files, which settles the triage questions last
+- `ai_review_triage`: only without a worktree -- triage every `glance` file from its diff in one call (cheap model, no repo access); publishes nothing, flags questions for the deep review
+- `resolve_review_context`: write the review material into the worktree (`.titan-review/`: per-file diffs, base versions, `pr.md`, `pr.diff`) and build the session's file list
+- `ai_review_findings`: the deep review — one worktree session over every reviewable file, reading its material from `.titan-review/`
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
 - `dedupe_findings`: remove duplicate or overlapping findings before submission
 - `build_new_comment_actions`: translate findings into GitHub review actions
@@ -1282,7 +1282,8 @@ How to read these contracts:
 
 
 ??? info "`ai_review_triage`"
-    Call 1 of the review: triage every file the deep session will not open.
+    Only runs without a worktree: triage every file the deep session will not open. With a
+    worktree it is skipped, because the deep session covers the glance files itself.
 
     **Workflow usage**
 
