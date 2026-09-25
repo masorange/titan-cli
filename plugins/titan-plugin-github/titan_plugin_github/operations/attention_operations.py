@@ -12,6 +12,7 @@ only the surrounding file reveals; a test's fifty new lines usually cannot.
 """
 
 from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 from ..models.review_enums import AttentionTier, FileChangeStatus
 from ..models.review_models import ChangedFileEntry
@@ -173,29 +174,115 @@ def summarize_attention_plan(plan: AttentionPlan) -> dict:
 
 
 def build_change_shape_lines(
-    plan: AttentionPlan, files: list[ChangedFileEntry], reviewed_paths: set[str]
+    plan: AttentionPlan,
+    files: list[ChangedFileEntry],
+    reviewed_paths: set[str],
+    triage_notes: Optional[dict[str, str]] = None,
+    flagged_paths: Optional[set[str]] = None,
 ) -> list[str]:
-    """One line per changed file: path, role, tier, churn, and who is reading it.
+    """The review checklist: one line per changed file, with who covers it.
 
-    The whole-PR context the deep session needs to answer the questions a human asks
-    last — does the shape of this change match what the PR says it does, and what is
-    missing. A migration that touched 11 of 12 call sites, a new API with no tests and a
-    config nobody reads are all invisible to a reader that only sees the files it was
-    handed, which is what every batch saw until now. No file CONTENT is included, so this
-    stays a few dozen characters per file however large the PR is.
+    Every changed file, its role and churn, and whose task it is: `YOU: review` for a file
+    the deep session reads, `YOU: triage question` for one it only has to settle, and for
+    the rest what the triage said about it, or its tier when the triage did not see it. No
+    file CONTENT is included, so this stays a few dozen characters per file however large
+    the PR is.
+
+    The session's own rows come first. With every file in plan order, its tasks were
+    scattered through the whole PR's list, and covering them was one instruction among
+    many rather than a list it could see it had not finished.
     """
+    notes = triage_notes or {}
+    flagged = flagged_paths or set()
     churn = {entry.path: (entry.additions, entry.deletions) for entry in files}
-    lines: list[str] = []
+    own: list[str] = []
+    questions: list[str] = []
+    rest: list[str] = []
     for entry in plan.files:
         additions, deletions = churn.get(entry.path, (0, 0))
-        # Two labels, not three: there is no "another pass" any more. A deep tier that
-        # does not fit loses diff detail, not shared understanding (D-014), so every file
-        # is either read here or it is not read at all.
-        read_by = "reviewed here" if entry.path in reviewed_paths else entry.tier.value
-        lines.append(
-            f"{entry.path} | role={entry.role} | {read_by} | +{additions}/-{deletions}"
-        )
-    return lines
+        if entry.path in reviewed_paths:
+            bucket, covered_by = own, "YOU: review"
+        elif entry.path in flagged:
+            bucket, covered_by = questions, "YOU: triage question"
+        elif notes.get(entry.path):
+            # A pipe inside the note would read as a new column.
+            bucket, covered_by = rest, "triage: " + notes[entry.path].replace("|", "/").strip()
+        else:
+            bucket, covered_by = rest, entry.tier.value
+        bucket.append(f"{entry.path} | role={entry.role} | {covered_by} | +{additions}/-{deletions}")
+    return own + questions + rest
+
+
+_TEST_STEM_PREFIXES = ("test_", "tests_")
+_TEST_STEM_SUFFIXES = ("_tests", "_test", "_spec", "tests", "test", "spec")
+
+
+def _relation_stem(path: str, is_test: bool) -> str:
+    """The name a file shares with the files it belongs with: `foo` for `Foo.kt`,
+    `FooTest.kt`, `test_foo.py` and `foo.spec.ts` alike."""
+    stem = path.rsplit("/", 1)[-1].split(".", 1)[0].lower()
+    if is_test:
+        for prefix in _TEST_STEM_PREFIXES:
+            if stem.startswith(prefix) and len(stem) > len(prefix):
+                stem = stem[len(prefix):]
+                break
+        for suffix in _TEST_STEM_SUFFIXES:
+            if stem.endswith(suffix) and len(stem) > len(suffix):
+                stem = stem[: -len(suffix)].rstrip("_-")
+                break
+    return stem
+
+
+def _directory(path: str) -> str:
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
+def _shared_prefix_depth(left: str, right: str) -> int:
+    depth = 0
+    for a, b in zip(left.split("/"), right.split("/")):
+        if a != b:
+            break
+        depth += 1
+    return depth
+
+
+def order_by_relation(paths: list[str], is_test: Callable[[str], bool]) -> list[str]:
+    """Reorder ranked files so the ones that belong together are read together.
+
+    Files sharing a directory form a group, and a test joins the file it is named after
+    wherever it lives. Groups keep the ranking: a group sits where its highest-ranked file
+    sat, and inside it the files keep their order, each test right after its subject.
+    Nothing is added or dropped, so this only changes what the session reads next to what.
+
+    A session reads "Code to Review" in order, and ranked order puts a step, the operation
+    it calls and that operation's test wherever their scores land -- so the question that
+    spans them comes up, if at all, dozens of files apart.
+    """
+    tests = {path for path in paths if is_test(path)}
+    subjects_by_stem: dict[str, list[str]] = {}
+    for path in paths:
+        if path not in tests:
+            subjects_by_stem.setdefault(_relation_stem(path, False), []).append(path)
+
+    # Each test goes with the same-named subject nearest to it in the tree.
+    tests_of: dict[str, list[str]] = {}
+    for path in paths:
+        if path not in tests:
+            continue
+        candidates = subjects_by_stem.get(_relation_stem(path, True))
+        if candidates:
+            subject = max(candidates, key=lambda c: _shared_prefix_depth(c, path))
+            tests_of.setdefault(subject, []).append(path)
+    attached = {test for group in tests_of.values() for test in group}
+
+    groups: dict[str, list[str]] = {}
+    for path in paths:
+        if path in attached:
+            continue
+        group = groups.setdefault(_directory(path), [])
+        group.append(path)
+        group.extend(tests_of.get(path, []))
+    return [path for group in groups.values() for path in group]
 
 
 # Words a role name spells in lowercase that a reader expects in capitals.

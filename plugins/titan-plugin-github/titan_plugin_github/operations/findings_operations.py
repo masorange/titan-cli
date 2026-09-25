@@ -31,12 +31,45 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     # accounted for 32 of 58 deep files: it reviewed by hypothesis, opened what looked
     # suspicious and left the read-only steps, prompts and YAML unmentioned. Coverage is
     # the job, so it is stated as the job, before the material it applies to.
+    #
+    # And depth is AIMED, not spread. Covering every file made the session say something
+    # about each of 58 (runs a51b2734 / bfd570ac on #273) while opening only 14-15 of them:
+    # its effort is roughly fixed, and spread evenly it reads everything from the diff.
+    # Each important it missed needed one move -- an edge case, a consequence, a consumer --
+    # applied to the right file. So it first chooses where a defect would do harm, by
+    # criteria rather than by count (a count misses the dangerous files of a large PR and
+    # pads a small one), and spends its depth there.
+    #
+    # The cheap pass comes FIRST. With depth first, the one-line pass over the rest was
+    # what got cut when the session judged itself done (26 of 58 accounted on #273, run
+    # 88e6c190); from the diff it costs a sentence per file and no tool call, so nothing
+    # is saved by leaving it last.
+    #
+    # Two moves were added after a free-form review of ragnarok #3723 found 10 defects the
+    # session missed, all of one of two kinds: a behaviour the old code had that the new
+    # one silently drops, and a departure from how the rest of the repository does the
+    # same thing (a missing path prefix every sibling API has, in a file it had in focus).
+    # A PR exists to change behaviour, so a change is only a finding when nothing in the
+    # PR announces it.
     steps: list[str] = [
-        'Review every file under "Code to Review", in the order listed, and account for '
-        "each one in `reviewed`: one sentence on what you checked in it, or why you could "
-        "not judge it. A file with nothing wrong still gets its sentence; a file missing "
+        'First go through every file under "Code to Review" from its diff, without opening '
+        "anything, and write its sentence in `reviewed`: what it changes, and whether "
+        "anything in it needs a closer look. Every file gets its sentence; a file missing "
         "from `reviewed` reads as a file nobody looked at. Files flagged by the triage are "
-        "the exception: settling their question is their account."
+        "the exception: settling their question is their account.",
+        "Then choose your focus: every file where a defect would do real harm -- it writes "
+        "to an external system or to production, handles authentication or secrets, "
+        "transforms or converts data, or changes a contract other code relies on. As many "
+        "as the change has, no more. List them in `focus`, each with the reason.",
+        "Review each focus file in depth: open it in full and, for every changed function, "
+        "check its inputs (what can arrive null, empty or unexpected -- look at the type), "
+        "its edge cases, what happens in production when it goes wrong, and who consumes its "
+        "result (search the callers). Check also what it no longer does: for every behaviour "
+        "the diff removes or changes, look for the PR description, a project document or a "
+        "new test that announces it, and report it as an unannounced change when nothing "
+        "does. And check how the rest of the repository does the same thing: find one or two "
+        "files that do the same job and report where this one departs from them without a "
+        "reason. Its `reviewed` sentence names the function and the case you checked.",
     ]
     # The questions the triage raised are a SECOND task list, and they come after the
     # review: a question like "no test covers the magic-link path" is answered far
@@ -60,6 +93,16 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
         "short `snippet` copied from the exact added/context line the comment should anchor "
         "to (null only if no stable inline anchor exists). No findings is a valid answer: "
         "return an empty `findings` list."
+    )
+    # What a later reader of this review needs and would otherwise have to re-derive: the
+    # facts the session established while reading, and what it suspected but did not
+    # settle. Asked of every session so that anything picking up what it left unreviewed
+    # starts from them, and shown so the reviewer sees what was left open.
+    steps.append(
+        "Finally, write in `key_facts` what you established that someone continuing this "
+        "review would need (a contract that changed, who calls what, what a flag controls), "
+        "and in `open_suspicions` what you suspected but could not settle, naming the file. "
+        "One sentence each; both may be empty."
     )
     task = "\n".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
 
@@ -93,6 +136,14 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
         "gave. SEARCH for the replacement before claiming it, and anchor such a finding on a "
         "remaining line near the removal, or use a null `snippet`"
     )
+    # "By design" was how a session that SAW a production write skip its confirmation
+    # (create_key_step on #273, both runs) talked itself out of reporting it.
+    rules.append(
+        "Do not excuse a risky behaviour as intended because the code does it on purpose: a "
+        "write to production or to an external system that skips a confirmation, a "
+        "validation or a guard is a finding, unless a comment, a document or a test in the "
+        "repository states that it is intended"
+    )
     rules.append(
         "Report only what has an observable impact: correctness, error handling, security, "
         "validation, API contracts, concurrency, state consistency; a change in what data, "
@@ -101,15 +152,18 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
         "(success/failure signalling, a fallback); missing regression coverage where clearly "
         "required. Not style, naming, refactor or architecture preferences"
     )
+    # Bounded by cost, not by count: on #273 the 8 questions took about half of the
+    # session's exploration and none was confirmed, but in a PR with little deep code the
+    # questions are most of the coverage, so capping how many would lose exactly there.
     if batch.triage_suspicions:
         rules.append(
-            "Settling a triage question: open the flagged file and decide. Confirming costs "
-            "more than dismissing -- report a finding only when you can point at the code "
-            "that makes the claim true. \"This is fine\" is a complete and expected answer: "
-            "put it in `dismissed` with one sentence on what you checked; a question you "
-            "cannot check goes there too, with that as the reason. Do not go looking for more "
-            "in a flagged file, but a defect you SEE while settling it is a finding like any "
-            "other"
+            "Settling a triage question: open the flagged file and decide with one or two "
+            "lookups. Report a finding only when you can point at the code that makes the "
+            "claim true. \"This is fine\" is a complete and expected answer: put it in "
+            "`dismissed` with one sentence on what you checked. If one or two lookups do not "
+            "settle it, stop and put it in `open_suspicions` rather than searching on: the "
+            "focus files need that time. A defect you SEE in a flagged file, on the question "
+            "or not, is a finding like any other"
         )
     instructions = "\n".join(f"- {rule}" for rule in rules) + "\n"
 
@@ -204,12 +258,16 @@ def _context_docs_to_text(batch: FocusContextBatch) -> str:
 
 
 def _change_shape_to_text(batch: FocusContextBatch) -> str:
-    """The whole PR's file list, roles and tiers — no content. Empty string when absent."""
+    """The checklist: every changed file and who covers it — no content. Empty when absent."""
     if not batch.change_shape:
         return ""
     lines = "\n".join(batch.change_shape)
     return (
-        "\n## The Whole Change (every changed file; only the files below are open to you)\n"
+        "\n## Checklist (every changed file in this PR)\n"
+        "Rows marked YOU are your tasks: the files under \"Code to Review\" and the triage "
+        "questions. Every other row was read by the triage from its diff alone, and its note "
+        "is context, not a verdict: any of those files is in the working tree if a question "
+        "needs it.\n"
         f"{lines}\n"
     )
 
@@ -404,6 +462,14 @@ def _finding_schema() -> str:
                     "note": "<one sentence: what you checked, or why you could not judge it>",
                 }
             ],
+            "focus": [
+                {
+                    "path": "<a file under Code to Review where a defect would do real harm>",
+                    "why": "<one sentence: the harm>",
+                }
+            ],
+            "key_facts": ["<one sentence someone continuing this review would need>"],
+            "open_suspicions": ["<one sentence: what you suspected and could not settle, and where>"],
         },
         indent=2,
     )
@@ -496,6 +562,28 @@ def findings_json_schema() -> dict[str, Any]:
                     "required": ["path", "note"],
                 },
             },
+            "focus": {
+                "type": "array",
+                "description": "Files where a defect would do real harm, each with why.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "why": {"type": "string", "description": "One sentence."},
+                    },
+                    "required": ["path", "why"],
+                },
+            },
+            "key_facts": {
+                "type": "array",
+                "description": "What someone continuing this review would need. One sentence each.",
+                "items": {"type": "string"},
+            },
+            "open_suspicions": {
+                "type": "array",
+                "description": "What was suspected and not settled, naming the file. One sentence each.",
+                "items": {"type": "string"},
+            },
         },
         # `reviewed` is the coverage ledger: without it a session handed 58 files could
         # read a dozen and return, and nothing would say which ones it skipped (PR #236,
@@ -505,7 +593,7 @@ def findings_json_schema() -> dict[str, Any]:
         # indistinguishable from an ignored one -- which is how the verification pass this
         # replaces refuted 0 findings in four real runs while confirming a known false
         # positive twice.
-        "required": ["findings", "dismissed", "reviewed"],
+        "required": ["findings", "dismissed", "focus", "reviewed", "key_facts", "open_suspicions"],
     }
 
 
@@ -550,6 +638,56 @@ def parse_reviewed_files(stdout: str, allowed_paths: set[str]) -> list[dict]:
             return [{"path": path, "note": note} for path, note in kept.items()]
         case _:
             return []
+
+
+SESSION_NOTES_MAX_ITEMS = 20
+SESSION_NOTE_MAX_CHARS = 400
+
+
+def parse_focus(stdout: str, allowed_paths: set[str]) -> list[dict]:
+    """The files the session chose to review in depth, scoped to what it was handed.
+
+    Recorded so a missed defect can be placed: inside the focus it is a depth problem,
+    outside it the criteria chose wrong.
+    """
+    allowed = {normalize_finding_path(path): path for path in allowed_paths}
+    focus: list[dict] = []
+    match extract_json_payload(stdout, kind="object"):
+        case ClientSuccess(data=payload) if isinstance(payload, dict):
+            for item in payload.get("focus") or []:
+                if not isinstance(item, dict):
+                    continue
+                path = allowed.get(normalize_finding_path(str(item.get("path") or "")))
+                if path and all(entry["path"] != path for entry in focus):
+                    focus.append(
+                        {"path": path, "why": str(item.get("why") or "").strip()[:SESSION_NOTE_MAX_CHARS]}
+                    )
+        case _:
+            pass
+    return focus
+
+
+def parse_session_notes(stdout: str) -> dict[str, list[str]]:
+    """The `key_facts` and `open_suspicions` of a findings response, capped.
+
+    Capped on parse because a request to be brief is not a limit, and both lists are
+    rendered and carried forward.
+    """
+    notes: dict[str, list[str]] = {"key_facts": [], "open_suspicions": []}
+    match extract_json_payload(stdout, kind="object"):
+        case ClientSuccess(data=payload) if isinstance(payload, dict):
+            for key in notes:
+                items = payload.get(key)
+                if not isinstance(items, list):
+                    continue
+                notes[key] = [
+                    item.strip()[:SESSION_NOTE_MAX_CHARS]
+                    for item in items
+                    if isinstance(item, str) and item.strip()
+                ][:SESSION_NOTES_MAX_ITEMS]
+        case _:
+            pass
+    return notes
 
 
 def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[list]:

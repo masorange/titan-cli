@@ -921,7 +921,7 @@ def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
     assert ctx.data["raw_findings"] == [{"title": "Bug"}]
     assert ctx.data["ai_findings_failed"] is False
     assert fake_adapter.calls[0]["json_schema"] is not None
-    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings", "dismissed", "reviewed"]
+    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings", "dismissed", "focus", "reviewed", "key_facts", "open_suspicions"]
 
 
 def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeypatch):
@@ -1670,13 +1670,13 @@ def test_ai_review_findings_splits_an_oversized_timeout_fallback_instead_of_drop
             (0, '[{"title": "Second half", "path": "border.py"}]'),
         ]
     )
-    # Two ~1200-char hunks build a 5,893-char fallback prompt; each half builds 4,613. The
+    # Two ~1200-char hunks build a 7,435-char fallback prompt; each half builds 6,155. The
     # budget sits between them, so splitting is the only way through. These figures move
     # whenever the instruction block changes — if this fails after a prompt edit, re-measure
     # rather than widening the budget until it passes.
     ctx.data["review_diff"] = _multi_hunk_diff("border.py", hunks=2, hunk_chars=1200)
     ctx.data["review_budget"] = ctx.data["review_budget"].model_copy(
-        update={"deep_max_prompt_chars": 5200}
+        update={"deep_max_prompt_chars": 6800}
     )
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
@@ -1890,7 +1890,8 @@ def test_the_settle_rule_asks_for_defects_seen_while_settling():
         FocusContextBatch(batch_id="deep_1", triage_suspicions=[{"path": "a.kt", "suspicion": "q"}])
     )["prompt"]
     assert "Do not review the rest of a flagged file" not in prompt
-    assert "a defect you SEE while settling it is a finding like any other" in prompt
+    assert "A defect you SEE in a flagged file, on the question or not, is a finding like any other" in prompt
+    assert "go looking for more" not in prompt
 
 
 def test_a_call_record_keeps_the_cached_input_the_cli_reported():

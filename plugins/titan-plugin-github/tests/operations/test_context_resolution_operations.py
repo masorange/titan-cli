@@ -529,7 +529,7 @@ def test_only_deep_tier_files_reach_the_review_session():
     assert list(package.batches[0].files_context.keys()) == ["core.py"]
     # The others are still described to the model, by tier, as files it is NOT reading.
     shape = "\n".join(package.batches[0].change_shape)
-    assert "core.py | role=business_logic | reviewed here" in shape
+    assert "core.py | role=business_logic | YOU: review" in shape
     assert "ui.py | role=entrypoints_or_ui | glance" in shape
     assert "notes.md | role=docs_or_generated | skip" in shape
 
@@ -702,7 +702,7 @@ def test_the_least_important_file_gives_up_its_diff_first():
     )
     budget = ReviewBudget(
         # Room for roughly one file's diff plus the prompt skeleton.
-        deep_max_prompt_chars=9_500,
+        deep_max_prompt_chars=11_000,
         triage_max_prompt_chars=9_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
@@ -937,3 +937,54 @@ def test_removals_over_the_even_share_still_ride_when_the_session_has_room(tmp_p
     entry = package.batches[0].files_context["big.py"]
     assert entry.removals_only
     assert any("-def removed_0(): pass" in hunk for hunk in entry.hunks)
+
+
+def test_the_deep_session_reads_related_files_together_and_its_checklist_has_triage_notes():
+    """Code to Review follows relation, not score: a test sits after its subject. The
+    checklist rows the triage saw carry its note, and a flagged file is the session's."""
+    from titan_plugin_github.models.review_enums import AttentionTier
+    from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
+
+    deep = ["src/a.py", "src/other/b.py", "tests/test_a.py"]
+    paths = deep + ["conf.yml", "strings.xml"]
+    diff = "".join(make_diff(path, "x" * 10) for path in paths)
+    plan = ReviewPlan(
+        focus_files=[FileReviewPlan(path=path, read_mode=FileReadMode.HUNKS_ONLY) for path in deep],
+        review_axes=[ChecklistCategory.FUNCTIONAL_CORRECTNESS],
+    )
+    checklist = [
+        ReviewChecklistItem(
+            id=ChecklistCategory.FUNCTIONAL_CORRECTNESS, name="Functional", description="d"
+        )
+    ]
+    attention_plan = AttentionPlan(
+        files=[FileAttention(path, AttentionTier.DEEP, "business_logic", "role") for path in deep]
+        + [
+            FileAttention("conf.yml", AttentionTier.GLANCE, "config", "role"),
+            FileAttention("strings.xml", AttentionTier.GLANCE, "static", "role"),
+        ]
+    )
+    budget = ReviewBudget(
+        deep_max_prompt_chars=100_000,
+        triage_max_prompt_chars=100_000,
+        max_comment_entries=5,
+        deep_timeout_base_seconds=300,
+        deep_timeout_per_file_seconds=120,
+        deep_timeout_max_seconds=1500,
+    )
+
+    package = build_review_context_package(
+        plan, diff, make_manifest(paths), checklist, comment_context=[], budget=budget,
+        attention_plan=attention_plan,
+        triage_suspicions=[{"path": "conf.yml", "note": "Renames a key", "suspicion": "Still read?"}],
+        triage_notes=[
+            {"path": "conf.yml", "note": "Renames a key"},
+            {"path": "strings.xml", "note": "Only translations"},
+        ],
+    )
+
+    batch = package.batches[0]
+    assert list(batch.files_context) == ["src/a.py", "tests/test_a.py", "src/other/b.py", "conf.yml"]
+    shape = "\n".join(batch.change_shape)
+    assert "conf.yml | role=config | YOU: triage question" in shape
+    assert "strings.xml | role=static | triage: Only translations" in shape

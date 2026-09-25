@@ -220,7 +220,7 @@ def test_findings_json_schema_wraps_array_in_object_with_findings_key():
     assert schema["type"] == "object"
     # Both sides required: a findings-only schema teaches the model that "this is fine"
     # is not an answer, and then a dismissed question looks exactly like an ignored one.
-    assert schema["required"] == ["findings", "dismissed", "reviewed"]
+    assert schema["required"] == ["findings", "dismissed", "focus", "reviewed", "key_facts", "open_suspicions"]
     assert schema["properties"]["findings"]["type"] == "array"
 
 
@@ -542,7 +542,7 @@ def test_prompt_reviews_the_pr_when_it_carries_the_change_shape():
     batch = FocusContextBatch(
         batch_id="batch_1",
         change_shape=[
-            "core.py | role=business_logic | reviewed here | +40/-3",
+            "core.py | role=business_logic | YOU: review | +40/-3",
             "ui.py | role=entrypoints_or_ui | glance | +5/-1",
         ],
         pr_intent="Adds an OAuth manager so plugins stop each refreshing their own token.",
@@ -560,12 +560,12 @@ def test_prompt_reviews_the_pr_when_it_carries_the_change_shape():
 
     assert "Review this pull request." in parts["prompt"]
     assert "one bounded review batch" not in parts["prompt"]
-    assert "## The Whole Change" in parts["prompt"]
+    assert "## Checklist (every changed file in this PR)" in parts["prompt"]
     assert "ui.py | role=entrypoints_or_ui | glance | +5/-1" in parts["prompt"]
     # The intent carried on the batch wins over the 200-char line pulled from the body.
     assert "stop each refreshing their own token" in parts["prompt"]
-    # A file listed in the shape is not thereby open to the model.
-    assert "only the files below are open to you" in parts["prompt"]
+    # The session's own rows are named as its tasks; the rest are context.
+    assert "Rows marked YOU are your tasks" in parts["prompt"]
 
 
 def test_prompt_keeps_a_narrow_framing_without_a_change_shape():
@@ -578,7 +578,7 @@ def test_prompt_keeps_a_narrow_framing_without_a_change_shape():
 
     assert "They are part of a larger pull request" in parts["prompt"]
     assert "step back and judge the change" not in parts["task"]
-    assert "## The Whole Change" not in parts["prompt"]
+    assert "## Checklist" not in parts["prompt"]
     assert parts["change_shape"] == ""
 
 
@@ -668,13 +668,14 @@ def test_the_deep_prompt_hands_the_triage_suspicions_over_as_questions_not_findi
     assert "ui/Login.kt: The guard may invert the check" in parts["prompt"]
     assert "A question you cannot settle is not a finding" in parts["prompt"]
     # The settle rules travel with the questions, in the same call (D-014).
-    assert "Confirming costs more than dismissing" in parts["instructions"]
+    assert "with one or two lookups" in parts["instructions"]
+    assert "put it in `open_suspicions` rather than searching on" in parts["instructions"]
     # After the review, in the task and in the prompt: asked first, the questions set the
     # agenda (5-6 of 8 findings per run on PR 3692 were confirmed triage questions).
     prompt = parts["prompt"]
     assert prompt.index("## Code to Review") < prompt.index("## Questions from the triage")
     task = parts["task"]
-    assert task.index("Review every file") < task.index("settle each question")
+    assert task.index("Review each focus file") < task.index("settle each question")
     # Nothing at all when the triage found nothing worth opening.
     assert build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))["triage_suspicions"] == ""
 
@@ -755,7 +756,7 @@ def test_the_task_and_its_coverage_come_before_the_material():
     parts = build_findings_prompt_parts(
         FocusContextBatch(
             batch_id="deep_1",
-            change_shape=["a.py | role=business_logic | reviewed here | +1/-0"],
+            change_shape=["a.py | role=business_logic | YOU: review | +1/-0"],
             files_context={
                 "a.py": FileContextEntry(path="a.py", read_mode=FileReadMode.HUNKS_ONLY, hunks=["x"])
             },
@@ -763,8 +764,8 @@ def test_the_task_and_its_coverage_come_before_the_material():
     )
     prompt = parts["prompt"]
 
-    assert parts["task"].startswith("1. Review every file")
-    assert "account for each one in `reviewed`" in parts["task"]
+    assert parts["task"].startswith("1. First go through every file")
+    assert "Every file gets its sentence" in parts["task"]
     assert "step back and judge the change" in parts["task"]
     assert prompt.index("## Your Task") < prompt.index("## How to Review") < prompt.index("## PR Context")
     assert prompt.index("## How to Review") < prompt.index("## Code to Review")
@@ -773,3 +774,88 @@ def test_the_task_and_its_coverage_come_before_the_material():
     assert "one bounded review batch" not in prompt
     # The anchor instruction survives the cut: inline comments attach to the snippet.
     assert "copied from the exact added/context line" in parts["task"]
+
+
+def test_session_notes_are_asked_for_and_parsed_with_caps():
+    """`key_facts` and `open_suspicions` are what a continuation would start from and what
+    the reviewer sees left open; a request to be brief is not a limit, so they are capped."""
+    import json
+
+    from titan_plugin_github.models.review_models import FocusContextBatch
+    from titan_plugin_github.operations.findings_operations import (
+        SESSION_NOTE_MAX_CHARS,
+        SESSION_NOTES_MAX_ITEMS,
+        build_findings_prompt_parts,
+        findings_json_schema,
+        parse_session_notes,
+    )
+
+    parts = build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))
+    assert "`key_facts`" in parts["task"] and "`open_suspicions`" in parts["task"]
+    assert '"key_facts"' in parts["schema"]
+    assert "open_suspicions" in findings_json_schema()["properties"]
+
+    stdout = json.dumps(
+        {
+            "findings": [],
+            "key_facts": ["  fanout_plan now takes condition  ", "", 3, "x" * 1000],
+            "open_suspicions": [f"s{i}" for i in range(SESSION_NOTES_MAX_ITEMS + 5)],
+        }
+    )
+    notes = parse_session_notes(stdout)
+
+    assert notes["key_facts"][0] == "fanout_plan now takes condition"
+    assert len(notes["key_facts"]) == 2
+    assert len(notes["key_facts"][1]) == SESSION_NOTE_MAX_CHARS
+    assert len(notes["open_suspicions"]) == SESSION_NOTES_MAX_ITEMS
+    assert parse_session_notes("not json") == {"key_facts": [], "open_suspicions": []}
+
+
+def test_depth_is_aimed_at_a_focus_chosen_by_criteria_not_by_count():
+    """On #273 the session covered 58 files and opened 14-15: depth spread evenly is read
+    from the diff. It now picks where a defect does harm, by criteria and with no number,
+    goes deep there with named moves, and may not excuse a risky write as "by design"."""
+    from titan_plugin_github.models.review_models import FocusContextBatch
+    from titan_plugin_github.operations.findings_operations import (
+        build_findings_prompt_parts,
+        findings_json_schema,
+    )
+
+    parts = build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))
+    task = parts["task"]
+
+    assert "writes to an external system or to production" in task
+    assert "As many as the change has, no more" in task
+    assert "open it in full" in task and "who consumes its result" in task
+    assert "names the function and the case" in task
+    # The cheap pass first: left last, it was what the session cut (26/58 on #273).
+    assert task.index("from its diff, without opening") < task.index("choose your focus")
+    assert task.index("choose your focus") < task.index("Review each focus file")
+    # The two moves a free-form review showed missing on ragnarok #3723.
+    assert "report it as an unannounced change when nothing does" in task
+    assert "how the rest of the repository does the same thing" in task
+    assert "skips a confirmation, a validation or a guard is a finding" in parts["instructions"]
+    assert "focus" in findings_json_schema()["required"]
+    assert '"focus"' in parts["schema"]
+
+
+def test_parse_focus_keeps_only_files_the_session_was_handed():
+    import json
+
+    from titan_plugin_github.operations.findings_operations import parse_focus
+
+    stdout = json.dumps(
+        {
+            "focus": [
+                {"path": "./src/a.py", "why": "writes to production"},
+                {"path": "src/a.py", "why": "duplicate"},
+                {"path": "elsewhere.py", "why": "not handed"},
+                "not an object",
+            ]
+        }
+    )
+
+    assert parse_focus(stdout, {"src/a.py", "src/b.py"}) == [
+        {"path": "src/a.py", "why": "writes to production"}
+    ]
+    assert parse_focus("nope", {"src/a.py"}) == []

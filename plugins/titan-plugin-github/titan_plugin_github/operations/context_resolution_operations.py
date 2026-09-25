@@ -163,7 +163,7 @@ def _flagged_file_entries(suspicions: list[dict], already_present: set[str], man
             read_mode=FileReadMode.WORKTREE_REFERENCE,
             worktree_reference=True,
             changed_hunk_headers=[hunk.header for hunk in manager.get_hunks(path)[:30]],
-            review_hint="Flagged by the triage — settle its question after the review; do not go looking for more.",
+            review_hint="Flagged by the triage — settle its question after the review, with one or two lookups.",
             approximate_chars=get_prompt_budget_manager().WORKTREE_REFERENCE_PROMPT_CHARS,
             flagged_only=True,
         )
@@ -236,6 +236,7 @@ def build_review_context_package(
     attention_plan=None,
     review_profile=None,
     triage_suspicions: Optional[list[dict]] = None,
+    triage_notes: Optional[list[dict]] = None,
 ) -> ReviewContextPackage:
     """
     Build the batched review context package for the AI prompt.
@@ -304,8 +305,20 @@ def build_review_context_package(
         # Marked from the files ACTUALLY read: a deep file the scorer never selected must
         # not be described to the model as reviewed. There is no "read by another pass"
         # label any more, because there is no other pass.
+        deep_read = {file_plan.path for file_plan in focus_files}
         change_shape = build_change_shape_lines(
-            attention_plan, manifest.files, {file_plan.path for file_plan in focus_files}
+            attention_plan,
+            manifest.files,
+            deep_read,
+            # What the triage said about each file it saw, so the checklist's other rows
+            # carry that file's state rather than only its tier.
+            triage_notes={
+                (note.get("path") or "").strip(): note.get("note") or ""
+                for note in (triage_notes or [])
+            },
+            flagged_paths={
+                (item.get("path") or "").strip() for item in (triage_suspicions or [])
+            } - deep_read,
         )
 
     # ONE session over every deep file. Not a batch of them -- the session is the unit of
@@ -427,6 +440,18 @@ def build_review_context_package(
                 prompt_budget_target_chars=budget.deep_max_prompt_chars,
                 still_over_budget=prompt_chars > budget.deep_max_prompt_chars,
             )
+
+    # Read in groups, not in score order: a file next to the ones it belongs with. The
+    # ranking above still decides which diffs travel inline; this only decides what the
+    # session reads next to what.
+    if len(files_context) > 1:
+        from .attention_operations import order_by_relation
+        from .manifest_operations import is_test_file
+
+        ordered = order_by_relation(
+            list(files_context), lambda path: is_test_file(path, review_profile)
+        )
+        files_context = {path: files_context[path] for path in ordered}
 
     batches: list[FocusContextBatch] = []
     if files_context or suspicions:

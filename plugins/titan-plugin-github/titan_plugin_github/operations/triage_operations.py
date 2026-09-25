@@ -200,6 +200,7 @@ TRIAGE_SUSPICION_MAX_CHARS = 300
 
 TRIAGE_INSTRUCTIONS = """- You are TRIAGING, not reviewing. One short note per file, and a suspicion only where the diff itself gives you a reason
 - A suspicion is a question worth someone opening the file for, not a verdict: something else will open it and confirm or drop it
+- Ask only when the diff shows a CONCRETE risk, and name it: what can break, where, and what you would check ("`load()` now returns None when the file is missing; its callers in this diff do not check for it"). A general doubt ("make sure this is tested", "check this is used correctly") is not a question: it costs the reviewer a search and settles nothing
 - BREVITY IS THE POINT: one sentence of at most 25 words per note, and one sentence per suspicion. No code blocks, no quoting the diff back, no lists, no analysis
 - You cannot read the repository here. Never claim what code outside these hunks does
 - Judge EACH file on its own, as if it were the only one in the list. There is no quota: flagging one file never costs another its question, and a long list is not a reason to flag fewer

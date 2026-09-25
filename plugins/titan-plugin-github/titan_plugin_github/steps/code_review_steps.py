@@ -2011,6 +2011,95 @@ def _render_review_coverage(ctx: WorkflowContext, handed: set, ledger: list[dict
         ctx.textual.text(f"  {_display_file_label(path)}")
 
 
+def _render_review_focus(ctx: WorkflowContext, focus: list[dict]) -> None:
+    """Name the files the session chose to review in depth, and log why."""
+    logger.info(
+        "deep_review_focus",
+        files=len(focus),
+        paths=[item["path"] for item in focus],
+        focus=focus,
+    )
+    if not focus:
+        return
+    ctx.textual.text(" ")
+    ctx.textual.dim_text(f"Reviewed in depth · {len(focus)}")
+    for item in focus:
+        ctx.textual.text(f"  {_display_file_label(item['path'])}")
+
+
+def _render_open_suspicions(ctx: WorkflowContext, session_notes: dict[str, list[str]]) -> None:
+    """Log what the session established, and show what it suspected and did not settle.
+
+    Open suspicions are shown because they are the review's loose ends: not findings, but
+    exactly where a reviewer would look next. The key facts only go to the log; they are
+    working material for whoever continues the review.
+    """
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    logger.info(
+        "deep_review_session_notes",
+        key_facts=len(session_notes.get("key_facts", [])),
+        open_suspicions=len(session_notes.get("open_suspicions", [])),
+        notes=session_notes,
+    )
+    suspicions = session_notes.get("open_suspicions") or []
+    if not suspicions:
+        return
+    ctx.textual.text(" ")
+    ctx.textual.dim_text(f"Left open by the session · {len(suspicions)}")
+    for item in suspicions:
+        ctx.textual.dim_text(f"  ↳ {escape_markup(item)}")
+
+
+def _save_coverage_record(
+    ctx: WorkflowContext,
+    batches,
+    reviewed: list[dict],
+    dismissed: list[dict],
+    findings: list,
+    session_notes: dict[str, list[str]],
+    focus: Optional[list[dict]] = None,
+) -> None:
+    """Write the filled checklist to a temporary file and prune the old ones.
+
+    Best effort: the review is already done, and a disk that refuses a few KB must not
+    fail it. Pruned on every write -- older than a week, or beyond the newest 20 per
+    project -- so the records never pile up.
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+
+    from ..operations.coverage_record_operations import (
+        build_coverage_record,
+        coverage_record_path,
+        select_stale_records,
+    )
+
+    batch = next((item for item in batches if item.change_shape), None)
+    if batch is None:
+        return
+    now = datetime.now()
+    project_name = Path(ctx.data.get("project_root") or ".").resolve().name
+    path = coverage_record_path(
+        project_name, batch.pr_manifest.number if batch.pr_manifest else None, now
+    )
+    try:
+        record = build_coverage_record(
+            batch, reviewed, dismissed, findings, session_notes, now, focus=focus or []
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+        existing = [(str(item), item.stat().st_mtime) for item in path.parent.glob("*.json")]
+        for stale in select_stale_records(existing, now):
+            Path(stale).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("coverage_record_not_saved", path=str(path), error=str(exc))
+        return
+    logger.info("coverage_record_saved", path=str(path))
+    ctx.textual.dim_text(f"Checklist saved · {path}")
+
+
 def _display_file_label(path: str) -> str:
     """`Name.kt  app/…/dir` as markup: the name bold, where it lives dimmed."""
     from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
@@ -2205,6 +2294,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
                 # The first pass's questions ride in the SAME session that reviews the
                 # core, because that is who can answer them best (D-014).
                 triage_suspicions=ctx.get("review_triage_suspicions", []),
+                triage_notes=ctx.get("review_triage_notes", []),
             )
     except Exception as e:
         ctx.textual.error_text(f"Failed to resolve review context: {e}")
@@ -2456,7 +2546,11 @@ def _execute_findings_batch(
 
     match parse_findings_response(response.stdout, structured=use_structured_output):
         case ClientSuccess(data=raw) if isinstance(raw, list):
-            from ..operations.findings_operations import parse_reviewed_files
+            from ..operations.findings_operations import (
+                parse_focus,
+                parse_reviewed_files,
+                parse_session_notes,
+            )
 
             dismissed = _settled_questions(response.stdout, batch)
             _log_parsed_findings(batch.batch_id, raw, dismissed)
@@ -2464,6 +2558,11 @@ def _execute_findings_batch(
                 **_scoped_batch_outcome(batch, raw, manifest_paths, project_root),
                 "dismissed": dismissed,
                 "reviewed": parse_reviewed_files(response.stdout, set(batch.files_context)),
+                **parse_session_notes(response.stdout),
+                "focus": parse_focus(
+                    response.stdout,
+                    {path for path, entry in batch.files_context.items() if not entry.flagged_only},
+                ),
             }
         case ClientSuccess(data=raw):
             # A structured success whose payload isn't a findings list (e.g. a dict)
@@ -2762,6 +2861,8 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     Outputs (saved to ctx.data):
         raw_findings (list | str): Raw AI output before normalization
+        review_session_notes (dict): `key_facts` and `open_suspicions` the session left
+        review_focus (list[dict]): the files it chose to review in depth, with why
 
     Returns:
         Success or Error
@@ -2854,6 +2955,12 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     # "checked, it is fine" is an answer, and without it a deliberate dismissal is
     # indistinguishable from a question nobody looked at.
     dismissed_questions: list[dict] = []
+    # What the session established and what it left open, for whoever continues the
+    # review and for the reviewer reading this one.
+    session_notes: dict[str, list[str]] = {"key_facts": [], "open_suspicions": []}
+    # The files the session chose to review in depth. A missed defect inside it is a depth
+    # problem; outside it, the choice was wrong.
+    focus: list[dict] = []
     batch_queue = list(batches)
     ctx.textual.dim_text(f"Reviewing {len(batch_queue)} batch(es) with {cli_display}")
 
@@ -3019,6 +3126,9 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                     batches_succeeded += 1
                     dismissed_questions.extend(resolved_outcome.get("dismissed") or [])
                     reviewed_ledger.extend(resolved_outcome.get("reviewed") or [])
+                    for key, items in session_notes.items():
+                        items.extend(resolved_outcome.get(key) or [])
+                    focus.extend(resolved_outcome.get("focus") or [])
                     # Flagged files are accounted for by their settled question.
                     reviewed_paths.update(
                         path for path, entry in resolved_batch.files_context.items() if not entry.flagged_only
@@ -3091,13 +3201,20 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         # start losing real findings.
         _render_out_of_scope_findings(ctx, out_of_scope_findings)
     ctx.data["findings_out_of_scope"] = findings_out_of_scope
+    _render_review_focus(ctx, focus)
     _render_review_coverage(ctx, reviewed_paths, reviewed_ledger)
     _render_settled_questions(ctx, batches, dismissed_questions, ctx.data["raw_findings"])
+    _render_open_suspicions(ctx, session_notes)
+    _save_coverage_record(
+        ctx, batches, reviewed_ledger, dismissed_questions, ctx.data["raw_findings"], session_notes, focus
+    )
     ctx.textual.end_step("success")
     return Success(
         "AI findings retrieved",
         metadata={
             "ai_findings_failed": findings_failed,
+            "review_session_notes": session_notes,
+            "review_focus": focus,
         },
     )
 

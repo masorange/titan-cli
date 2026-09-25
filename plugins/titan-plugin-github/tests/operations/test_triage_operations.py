@@ -256,3 +256,13 @@ def test_a_multiline_note_is_collapsed_to_one_line():
     )
 
     assert notes[0]["note"] == "First line. Second line."
+
+
+def test_triage_questions_must_name_a_concrete_risk():
+    """0 of 16 triage questions were confirmed on #273, and settling them took about half
+    of the deep session's exploration. A question now has to name what can break and
+    where; a general doubt is not one."""
+    from titan_plugin_github.operations.triage_operations import TRIAGE_INSTRUCTIONS
+
+    assert "CONCRETE risk, and name it" in TRIAGE_INSTRUCTIONS
+    assert "A general doubt" in TRIAGE_INSTRUCTIONS

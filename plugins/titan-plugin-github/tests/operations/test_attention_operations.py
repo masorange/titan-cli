@@ -325,7 +325,7 @@ def test_change_shape_lines_cover_every_file_and_mark_who_reads_it():
     lines = build_change_shape_lines(plan, files, {"core.py"})
 
     assert len(lines) == 3
-    assert lines[0] == "core.py | role=business_logic | reviewed here | +40/-3"
+    assert lines[0] == "core.py | role=business_logic | YOU: review | +40/-3"
     assert lines[1] == "ui.py | role=entrypoints_or_ui | glance | +5/-1"
     assert lines[2] == "out.lock | role=config_or_contracts | skip | +900/-900"
 
@@ -448,3 +448,83 @@ class TestStaticResources:
         )
 
         assert plan.files[0].tier == AttentionTier.DEEP
+
+
+def test_the_checklist_puts_the_sessions_tasks_first_and_carries_the_triage_notes():
+    """The session's own rows lead, then the questions it must settle, then the rest with
+    what the triage said about each -- so every row carries a state, not only a tier."""
+    from titan_plugin_github.operations.attention_operations import (
+        AttentionPlan,
+        FileAttention,
+        build_change_shape_lines,
+    )
+
+    plan = AttentionPlan(
+        files=[
+            FileAttention("res/strings.xml", AttentionTier.GLANCE, "static", "static_resource"),
+            FileAttention("deploy.yml", AttentionTier.GLANCE, "config", "role:config"),
+            FileAttention("core.py", AttentionTier.DEEP, "business_logic", "role:business_logic"),
+            FileAttention("out.lock", AttentionTier.SKIP, "config", "lockfile"),
+        ]
+    )
+
+    lines = build_change_shape_lines(
+        plan,
+        [],
+        {"core.py"},
+        triage_notes={"res/strings.xml": "Only translations | nothing else", "deploy.yml": "Renames a key"},
+        flagged_paths={"deploy.yml"},
+    )
+
+    assert lines == [
+        "core.py | role=business_logic | YOU: review | +0/-0",
+        "deploy.yml | role=config | YOU: triage question | +0/-0",
+        "res/strings.xml | role=static | triage: Only translations / nothing else | +0/-0",
+        "out.lock | role=config | skip | +0/-0",
+    ]
+
+
+def test_order_by_relation_reads_a_file_next_to_its_directory_and_its_test():
+    """Groups keep the ranking; a test follows its subject wherever the test lives, and
+    goes to the same-named subject nearest to it when two share a name."""
+    from titan_plugin_github.operations.attention_operations import order_by_relation
+
+    def is_test(path: str) -> bool:
+        return path.startswith("tests/") or "Test." in path
+
+    ranked = [
+        "plugin/steps/create_key_step.py",
+        "plugin/ops/fanout.py",
+        "plugin/steps/sync_step.py",
+        "tests/ops/test_fanout.py",
+        "app/src/Login.kt",
+        "tests/steps/test_create_key_step.py",
+        "app/test/LoginTest.kt",
+        "tests/test_orphan.py",
+        "README.md",
+    ]
+
+    ordered = order_by_relation(ranked, is_test)
+
+    assert ordered == [
+        "plugin/steps/create_key_step.py",
+        "tests/steps/test_create_key_step.py",
+        "plugin/steps/sync_step.py",
+        "plugin/ops/fanout.py",
+        "tests/ops/test_fanout.py",
+        "app/src/Login.kt",
+        "app/test/LoginTest.kt",
+        "tests/test_orphan.py",
+        "README.md",
+    ]
+    assert sorted(ordered) == sorted(ranked)
+
+
+def test_order_by_relation_pairs_a_test_with_the_nearest_same_named_subject():
+    from titan_plugin_github.operations.attention_operations import order_by_relation
+
+    ordered = order_by_relation(
+        ["a/index.ts", "b/index.ts", "b/index.test.ts"], lambda path: ".test." in path
+    )
+
+    assert ordered == ["a/index.ts", "b/index.ts", "b/index.test.ts"]
