@@ -24,60 +24,94 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     pr_context = _pr_context_to_text(batch)
     schema = _finding_schema()
 
-    # Asked explicitly, and only when the batch holds more than one file, because a
-    # session that CAN see several files together does not necessarily go looking. The
-    # separate synthesis call was invented when no batch ever held two files; its whole
-    # question is these three lines, and its two findings on run 4fd7f345 (mismatched
-    # credential labels, a duplicated redaction policy) were exactly what a session
-    # holding all seven files was in a position to find and did not report.
-    cross_file_instructions = (
-        """- Report contract mismatches ACROSS the files below: a signature, return shape, field, event or error contract changed in one of them while a caller or consumer in another still uses the old one
-- Report a change applied in some of these files but missed in others: a rename, a parameter, a guard, a behaviour
-- Report the same concept named or treated inconsistently between these files
-"""
-        if len(batch.files_context) > 1
-        else ""
-    )
+    has_shape = bool(batch.change_shape)
 
-    # The questions the triage raised are a SECOND task list, and they come LAST, in the
-    # prompt and in the instructions. Merged into this call rather than asked in a separate
-    # one (D-014): a question like "no test covers the magic-link path" is answered far
+    # The task and the deliverable come FIRST. They used to be one line among ~20
+    # instructions after 339k chars of diffs, and on #236 (run 7d61a0b9) the session
+    # accounted for 32 of 58 deep files: it reviewed by hypothesis, opened what looked
+    # suspicious and left the read-only steps, prompts and YAML unmentioned. Coverage is
+    # the job, so it is stated as the job, before the material it applies to.
+    steps: list[str] = [
+        'Review every file under "Code to Review", in the order listed, and account for '
+        "each one in `reviewed`: one sentence on what you checked in it, or why you could "
+        "not judge it. A file with nothing wrong still gets its sentence; a file missing "
+        "from `reviewed` reads as a file nobody looked at. Files flagged by the triage are "
+        "the exception: settling their question is their account."
+    ]
+    # The questions the triage raised are a SECOND task list, and they come after the
+    # review: a question like "no test covers the magic-link path" is answered far
     # better by whoever just read the magic-link code. Asked first, they set the agenda:
     # across three runs of PR 3692, 5-6 of 8 findings were confirmed triage questions while
     # the serious defects in the deep files came and went.
-    settle_instructions = (
-        """- LAST, once the files under "Code to Review" are reviewed and not before: settle each question under "Questions from the triage", using what that review taught you. Open the flagged file in the working tree and decide. Confirming costs more than dismissing — report a finding only when you can point at the code that makes the claim true, and put that code in `evidence`
-- "This is fine" is a complete and expected answer: put it in `dismissed` with one sentence on what you checked. A question you cannot check goes there too, with that as the reason
-- Do not go looking for more in a flagged file: you were asked about one thing. But a defect you SEE while settling it is a finding like any other — report it, never set it aside because it is outside the question
-"""
-        if batch.triage_suspicions
-        else ""
+    if batch.triage_suspicions:
+        steps.append(
+            'Then settle each question under "Questions from the triage", using what that '
+            "review taught you."
+        )
+    # Only a batch that carries the whole change's shape can judge the change as a whole;
+    # a timeout retry holds a few files and nothing else.
+    if has_shape:
+        steps.append(
+            "Last, step back and judge the change, not just the lines: does it do what the "
+            "PR says, does it break something that worked, is anything it needed missing?"
+        )
+    steps.append(
+        "Report each problem as a finding, with the code that proves it in `evidence` and a "
+        "short `snippet` copied from the exact added/context line the comment should anchor "
+        "to (null only if no stable inline anchor exists). No findings is a valid answer: "
+        "return an empty `findings` list."
     )
+    task = "\n".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
 
-    # Only stated when documents were actually resolved: an instruction to read a list
-    # that is not there invites the model to go looking for one.
-    context_docs_instruction = (
-        """- Consult the Project Context documents for what bears on the files under review, and hold the change to what they say: a convention this project chose deliberately is not a finding, and a violation of one IS. Do not read them end to end
-"""
-        if batch.context_docs
-        else ""
+    rules: list[str] = []
+    # Asked explicitly, and only when the batch holds more than one file, because a
+    # session that CAN see several files together does not necessarily go looking: the
+    # separate synthesis call on run 4fd7f345 found mismatched credential labels and a
+    # duplicated redaction policy that a session holding all seven files had not reported.
+    if len(batch.files_context) > 1:
+        rules.append(
+            "These files are one change. Look for contract mismatches ACROSS them (a "
+            "signature, return shape, field, event or error contract changed in one while "
+            "a caller or consumer in another still uses the old one), a change applied in "
+            "some and missed in others, and the same concept named or treated differently"
+        )
+    rules.append(
+        "Before asserting what happens in a configuration, flavor, environment or call site "
+        "that is NOT in the diff, open it in the working tree and check. If you cannot check "
+        "it, say what you verified and what you assumed"
     )
-
-    instructions = f"""{context_docs_instruction}{cross_file_instructions}- Before asserting what happens in a configuration, flavor, environment or call site that is NOT in this diff, open it in the working tree and check. If you cannot check it, say what you verified and what you assumed
-- Before reporting that something is MISSING, unused, untested, unhandled or not overridden anywhere, SEARCH the working tree for it first — Grep and Glob are available to you and are recursive — and put what the search returned in `evidence`. An absence claimed without a search is a guess, and absences are where the serious defects hide: a function with no callers, a code path with no test, a value no flavor overrides
-- Only report actionable issues: correctness, error handling, security, validation, API, concurrency, meaningful semantic correctness, state consistency, or missing regression coverage when clearly required
-- Also report changes that preserve execution but alter the observable meaning of data, events, labels, classifications, or results
-- Also report changes that degrade fidelity of recorded, serialized, converted, or displayed data even if the code still runs
-- Also report changes that remove an important previous guarantee such as success/failure signaling, fallback behavior, or state consistency
-- Do not repeat issues already covered by Existing Comments
-- A deleted line is not a finding by itself, but what its removal BREAKS is: behaviour that disappears with no replacement, a caller or event left without its handler, a guarantee the old code gave. Before claiming it, SEARCH for the replacement and put what the search returned in `evidence`. Anchor such a finding on a remaining line near the removal, or use a null `snippet`
-- Do not speculate beyond the shown code
-- Do not claim that a function, overload, or parameter does not exist unless the relevant declaration is clearly visible in the provided context
-- Prefer describing an observable behavior risk over making an unverified compilation claim
-- Do not report code style preferences, refactor suggestions, architecture preferences, or naming opinions without observable impact
-- Include a short `snippet` copied from the exact added/context line that should anchor the comment; use null only if no stable inline anchor exists
-- If there are no findings, return []
-{settle_instructions}"""
+    # Absences are where the serious defects hide: all three blocking items a
+    # free-form session found on ragnarok #3692 were absences, and the session had the
+    # tools to check them -- nothing told it to look.
+    rules.append(
+        "Before reporting that something is MISSING, unused, untested, unhandled or not "
+        "overridden anywhere, SEARCH the working tree for it first (Grep and Glob are "
+        "available and recursive) and put what the search returned in `evidence`. An "
+        "absence claimed without a search is a guess. The same goes for a removal: a deleted "
+        "line is not a finding by itself, but what its removal BREAKS is -- behaviour with no "
+        "replacement, a caller or event left without its handler, a guarantee the old code "
+        "gave. SEARCH for the replacement before claiming it, and anchor such a finding on a "
+        "remaining line near the removal, or use a null `snippet`"
+    )
+    rules.append(
+        "Report only what has an observable impact: correctness, error handling, security, "
+        "validation, API contracts, concurrency, state consistency; a change in what data, "
+        "events, labels or results MEAN, or in how faithfully they are recorded, converted "
+        "or shown, even if the code still runs; a guarantee the old code gave that is gone "
+        "(success/failure signalling, a fallback); missing regression coverage where clearly "
+        "required. Not style, naming, refactor or architecture preferences"
+    )
+    if batch.triage_suspicions:
+        rules.append(
+            "Settling a triage question: open the flagged file and decide. Confirming costs "
+            "more than dismissing -- report a finding only when you can point at the code "
+            "that makes the claim true. \"This is fine\" is a complete and expected answer: "
+            "put it in `dismissed` with one sentence on what you checked; a question you "
+            "cannot check goes there too, with that as the reason. Do not go looking for more "
+            "in a flagged file, but a defect you SEE while settling it is a finding like any "
+            "other"
+        )
+    instructions = "\n".join(f"- {rule}" for rule in rules) + "\n"
 
     shape_text = _change_shape_to_text(batch)
     context_docs_text = _context_docs_to_text(batch)
@@ -86,19 +120,22 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     # it is told so: the framing decides whether the model reports what it can see in the
     # files it was handed or judges the change as a whole against what the PR claims.
     opening = (
-        "Review this pull request.\n\nYou have the files that matter open to you and the "
-        "shape of the whole change. Judge the change, not just the lines: whether it does "
-        "what the PR says, whether it breaks something that worked, and whether anything "
-        "it needed is missing."
-        if shape_text
-        else "This is one bounded review batch. Review only the provided code and report "
-        "actionable problems that are actually present."
+        "Review this pull request. The files that matter are open to you in the working "
+        "tree, and you have the shape of the whole change."
+        if has_shape
+        else "Review the files below. They are part of a larger pull request; report the "
+        "problems actually present in them."
     )
 
-    prompt = f"""You are performing a focused pull request code review.
+    prompt = f"""You are performing a pull request code review.
 
 {opening}
 
+## Your Task
+{task}
+
+## How to Review
+{instructions}
 ## PR Context
 {pr_context}
 {context_docs_text}{shape_text}
@@ -111,9 +148,6 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
 ## Code to Review
 {files_text}{related_text}
 {suspicions_text}
-## Instructions
-{instructions}
-
 Respond ONLY with a valid JSON object of this shape. Do not include any prose before or after the JSON.
 {schema}
 """
@@ -127,6 +161,7 @@ Respond ONLY with a valid JSON object of this shape. Do not include any prose be
         "review_axes": checklist_json,
         "files_context": files_text,
         "related_context": related_text,
+        "task": task,
         "instructions": instructions,
         "schema": schema,
         "prompt": prompt,
@@ -363,6 +398,12 @@ def _finding_schema() -> str:
                     "reason": "<one sentence: what you checked, or why you could not>",
                 }
             ],
+            "reviewed": [
+                {
+                    "path": "<every file under Code to Review>",
+                    "note": "<one sentence: what you checked, or why you could not judge it>",
+                }
+            ],
         },
         indent=2,
     )
@@ -440,13 +481,31 @@ def findings_json_schema() -> dict[str, Any]:
                     "required": ["path", "reason"],
                 },
             },
+            "reviewed": {
+                "type": "array",
+                "description": (
+                    "Every file under Code to Review except the ones the triage flagged, each "
+                    "with one sentence on what was checked or why it could not be judged."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "note": {"type": "string", "description": "One sentence."},
+                    },
+                    "required": ["path", "note"],
+                },
+            },
         },
+        # `reviewed` is the coverage ledger: without it a session handed 58 files could
+        # read a dozen and return, and nothing would say which ones it skipped (PR #236,
+        # run 3c8aadad: four important defects in files that entered the prompt unread).
         # Both sides required, deliberately. A findings-only schema teaches the model that
         # "this is fine" is not an answer, and then a dismissed question is
         # indistinguishable from an ignored one -- which is how the verification pass this
         # replaces refuted 0 findings in four real runs while confirming a known false
         # positive twice.
-        "required": ["findings", "dismissed"],
+        "required": ["findings", "dismissed", "reviewed"],
     }
 
 
@@ -467,6 +526,28 @@ def parse_dismissals(stdout: str, allowed_paths: set[str]) -> list[dict]:
                 if path and path in allowed:
                     kept.append({"path": path, "reason": (item.get("reason") or "").strip()})
             return kept
+        case _:
+            return []
+
+
+def parse_reviewed_files(stdout: str, allowed_paths: set[str]) -> list[dict]:
+    """The `reviewed` ledger of a findings response, scoped to the files that were handed.
+
+    An entry for a file the session was not given is dropped for the same reason a
+    dismissal of an unflagged file is: it would count coverage that did not happen.
+    Repeated paths keep their first note.
+    """
+    match extract_json_payload(stdout, kind="object"):
+        case ClientSuccess(data=payload) if isinstance(payload, dict):
+            allowed = {normalize_finding_path(path) for path in allowed_paths}
+            kept: dict[str, str] = {}
+            for item in payload.get("reviewed") or []:
+                if not isinstance(item, dict):
+                    continue
+                path = normalize_finding_path((item.get("path") or "").strip())
+                if path and path in allowed and path not in kept:
+                    kept[path] = (item.get("note") or "").strip()
+            return [{"path": path, "note": note} for path, note in kept.items()]
         case _:
             return []
 

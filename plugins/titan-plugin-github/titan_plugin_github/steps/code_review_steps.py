@@ -1979,6 +1979,38 @@ def _render_settled_questions(ctx: WorkflowContext, batches, dismissed: list, fi
         ctx.textual.warning_text("  ↳ unanswered — the session did not settle this one")
 
 
+def _render_review_coverage(ctx: WorkflowContext, handed: set, ledger: list[dict]) -> None:
+    """Say how many of the files the session was handed it accounts for, and name the rest.
+
+    Silence about a file used to look exactly like a clean review of it. On PR #236 (run
+    3c8aadad) a session handed 58 files returned findings on 5, and the four important
+    defects a free-form review found sat in files nothing says were opened.
+    """
+    from ..operations.findings_operations import normalize_finding_path
+
+    if not handed:
+        return
+    accounted = {normalize_finding_path(item["path"]) for item in ledger}
+    missing = sorted(path for path in handed if normalize_finding_path(path) not in accounted)
+    logger.info(
+        "deep_review_coverage",
+        handed=len(handed),
+        accounted=len(handed) - len(missing),
+        missing=len(missing),
+        missing_paths=missing,
+    )
+    ctx.textual.text(" ")
+    if not missing:
+        ctx.textual.success_text(f"✓ Every file accounted for · {len(handed)} of {len(handed)}")
+        return
+    ctx.textual.warning_text(
+        f"Files accounted for · {len(handed) - len(missing)} of {len(handed)} — "
+        f"the session says nothing about {len(missing)}:"
+    )
+    for path in missing:
+        ctx.textual.text(f"  {_display_file_label(path)}")
+
+
 def _display_file_label(path: str) -> str:
     """`Name.kt  app/…/dir` as markup: the name bold, where it lives dimmed."""
     from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
@@ -2424,11 +2456,14 @@ def _execute_findings_batch(
 
     match parse_findings_response(response.stdout, structured=use_structured_output):
         case ClientSuccess(data=raw) if isinstance(raw, list):
+            from ..operations.findings_operations import parse_reviewed_files
+
             dismissed = _settled_questions(response.stdout, batch)
             _log_parsed_findings(batch.batch_id, raw, dismissed)
             return {
                 **_scoped_batch_outcome(batch, raw, manifest_paths, project_root),
                 "dismissed": dismissed,
+                "reviewed": parse_reviewed_files(response.stdout, set(batch.files_context)),
             }
         case ClientSuccess(data=raw):
             # A structured success whose payload isn't a findings list (e.g. a dict)
@@ -2812,6 +2847,9 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     manifest_paths = {f.path for f in change_manifest.files} if change_manifest else set()
     findings_out_of_scope = 0
     out_of_scope_findings: list[dict] = []
+    # What the session says it checked, file by file. Compared against what it was handed
+    # so a file it never mentions is named on screen instead of passing as reviewed.
+    reviewed_ledger: list[dict] = []
     # Questions the session opened and found unfounded. Kept apart from findings because
     # "checked, it is fine" is an answer, and without it a deliberate dismissal is
     # indistinguishable from a question nobody looked at.
@@ -2980,7 +3018,11 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 if resolved_outcome["status"] == "success":
                     batches_succeeded += 1
                     dismissed_questions.extend(resolved_outcome.get("dismissed") or [])
-                    reviewed_paths.update(resolved_batch.files_context)
+                    reviewed_ledger.extend(resolved_outcome.get("reviewed") or [])
+                    # Flagged files are accounted for by their settled question.
+                    reviewed_paths.update(
+                        path for path, entry in resolved_batch.files_context.items() if not entry.flagged_only
+                    )
                     findings_out_of_scope += resolved_outcome.get("out_of_scope", 0)
                     out_of_scope_findings.extend(resolved_outcome.get("out_of_scope_findings") or [])
                     aggregated_raw.extend(resolved_outcome["raw"])
@@ -3049,6 +3091,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         # start losing real findings.
         _render_out_of_scope_findings(ctx, out_of_scope_findings)
     ctx.data["findings_out_of_scope"] = findings_out_of_scope
+    _render_review_coverage(ctx, reviewed_paths, reviewed_ledger)
     _render_settled_questions(ctx, batches, dismissed_questions, ctx.data["raw_findings"])
     ctx.textual.end_step("success")
     return Success(
@@ -3793,7 +3836,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             logger.info(
                 "review_published",
                 pr_number=pr_number,
-                event=event,
+                review_event=event,
                 inline_comments=len(payload.get("comments") or []),
                 has_body=bool(payload.get("body")),
                 actions_offered=len(comment_actions),

@@ -165,6 +165,7 @@ def _flagged_file_entries(suspicions: list[dict], already_present: set[str], man
             changed_hunk_headers=[hunk.header for hunk in manager.get_hunks(path)[:30]],
             review_hint="Flagged by the triage — settle its question after the review; do not go looking for more.",
             approximate_chars=get_prompt_budget_manager().WORKTREE_REFERENCE_PROMPT_CHARS,
+            flagged_only=True,
         )
     return entries
 
@@ -445,7 +446,9 @@ def build_review_context_package(
             inline_diff_files=sum(1 for entry in files_context.values() if entry.hunks and not entry.removals_only),
             removals_only_files=sum(1 for entry in files_context.values() if entry.removals_only),
             reference_only_files=sum(
-                1 for entry in files_context.values() if entry.worktree_reference and not entry.hunks
+                1
+                for entry in files_context.values()
+                if entry.worktree_reference and not entry.hunks and not entry.flagged_only
             ),
         )
         batches.append(

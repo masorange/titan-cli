@@ -921,7 +921,7 @@ def test_ai_review_findings_uses_structured_output_when_supported(monkeypatch):
     assert ctx.data["raw_findings"] == [{"title": "Bug"}]
     assert ctx.data["ai_findings_failed"] is False
     assert fake_adapter.calls[0]["json_schema"] is not None
-    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings", "dismissed"]
+    assert fake_adapter.calls[0]["json_schema"]["required"] == ["findings", "dismissed", "reviewed"]
 
 
 def test_ai_review_findings_structured_output_retry_also_requests_schema(monkeypatch):
@@ -1883,13 +1883,14 @@ def test_the_settle_rule_asks_for_defects_seen_while_settling():
     """The old rule, "do not review the rest of a flagged file", made a session discard
     a real defect it had already found (run 0b420ac0: "I didn't review this further
     because it's outside the question")."""
-    import inspect
+    from titan_plugin_github.models.review_models import FocusContextBatch
+    from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
 
-    from titan_plugin_github.operations import findings_operations
-
-    source = inspect.getsource(findings_operations)
-    assert "Do not review the rest of a flagged file" not in source
-    assert "a defect you SEE while settling it is a finding like any other" in source
+    prompt = build_findings_prompt_parts(
+        FocusContextBatch(batch_id="deep_1", triage_suspicions=[{"path": "a.kt", "suspicion": "q"}])
+    )["prompt"]
+    assert "Do not review the rest of a flagged file" not in prompt
+    assert "a defect you SEE while settling it is a finding like any other" in prompt
 
 
 def test_a_call_record_keeps_the_cached_input_the_cli_reported():
@@ -2121,3 +2122,48 @@ def test_a_cli_without_a_schema_flag_can_still_dismiss_a_triage_question():
             assert findings == [{"title": "Bug", "path": "a.kt"}]
         case other:
             raise AssertionError(other)
+
+
+def test_the_reviewed_ledger_keeps_only_handed_files_once():
+    from titan_plugin_github.operations.findings_operations import parse_reviewed_files
+
+    stdout = (
+        '{"findings": [], "dismissed": [], "reviewed": ['
+        '{"path": "./a.py", "note": "checked the retry"},'
+        '{"path": "a.py", "note": "duplicate"},'
+        '{"path": "not_handed.py", "note": "x"}]}'
+    )
+
+    assert parse_reviewed_files(stdout, {"a.py", "b.py"}) == [
+        {"path": "a.py", "note": "checked the retry"}
+    ]
+    assert parse_reviewed_files("[]", {"a.py"}) == []
+
+
+def test_files_the_session_says_nothing_about_are_named():
+    """PR #236: 58 files handed, findings on 5, and nothing said which were opened."""
+
+    class _Recording(_FakeTextual):
+        def __init__(self):
+            super().__init__()
+            self.lines: list[str] = []
+
+        def text(self, text):
+            self.lines.append(text)
+
+        def success_text(self, text):
+            self.lines.append(text)
+
+    ctx = Mock()
+    ctx.textual = _Recording()
+    code_review_steps._render_review_coverage(
+        ctx, {"a.py", "b.py", "c.py"}, [{"path": "a.py", "note": "ok"}]
+    )
+
+    assert any("2 of 3" not in w and "1 of 3" in w for w in ctx.textual.warnings)
+    assert any("b.py" in line for line in ctx.textual.lines)
+    assert any("c.py" in line for line in ctx.textual.lines)
+
+    ctx.textual = _Recording()
+    code_review_steps._render_review_coverage(ctx, {"a.py"}, [{"path": "a.py", "note": "ok"}])
+    assert any("Every file accounted for" in line for line in ctx.textual.lines)

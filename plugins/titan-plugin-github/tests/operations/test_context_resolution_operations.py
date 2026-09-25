@@ -702,7 +702,7 @@ def test_the_least_important_file_gives_up_its_diff_first():
     )
     budget = ReviewBudget(
         # Room for roughly one file's diff plus the prompt skeleton.
-        deep_max_prompt_chars=9_000,
+        deep_max_prompt_chars=9_500,
         triage_max_prompt_chars=9_000,
         max_comment_entries=5,
         deep_timeout_base_seconds=300,
@@ -812,6 +812,9 @@ def test_flagged_files_join_the_same_session_as_a_second_task():
     assert flagged.worktree_reference is True
     assert flagged.hunks == []
     assert flagged.changed_hunk_headers
+    # Its settled question is its account, so the coverage ledger leaves it out.
+    assert flagged.flagged_only is True
+    assert batch.files_context["core.py"].flagged_only is False
     assert batch.triage_suspicions[0]["suspicion"] == "is the path tested?"
 
 

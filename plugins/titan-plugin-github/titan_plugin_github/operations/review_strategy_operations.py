@@ -28,13 +28,20 @@ logger = get_logger(__name__)
 # and with it the snippet an inline comment anchors to (24 of 29 anchors in run 6c438999
 # resolved via a unique snippet).
 #
+# 120,000 was then outgrown by the first large PR: on #236 (run 3c8aadad) 58 deep files
+# carrying 339,258 chars of diff got ~4,000 chars each, 46 of them entered the prompt
+# NAMED ONLY, and the four important defects a free-form review found (and Titan did
+# not) were all in files of that kind. 400,000 chars is ~100k tokens: every diff of that
+# PR inline, and inside the context window of every model this review has been run on
+# (the smallest measured, deepseek-v3.2, takes 164k tokens).
+#
 # Raising it is cheap in the unit that actually pays. The findings calls in run 6c438999
 # reported ~3,300 INPUT tokens each against 100,365 output tokens for $7.4581 -- ~95% of
 # the bill is output. 120,000 chars is ~30,000 input tokens, about $0.45 once at opus
 # rates, and input is the half that caches. Characters were never the deep tier's cost
 # unit (D-002); this ceiling exists so a pathological PR cannot build a megabyte prompt,
 # and `fit_batch_to_budget` still enforces it against the real string.
-DEEP_MAX_PROMPT_CHARS = 120000
+DEEP_MAX_PROMPT_CHARS = 400000
 
 # The triage cannot read the repo, so here the prompt IS the spend and characters are
 # the honest unit. Sized so an ordinary PR is ONE call: at 18,000 chars ragnarok PR 3692's

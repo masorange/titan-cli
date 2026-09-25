@@ -269,6 +269,9 @@ class FileContextEntry(BaseModel):
     # `hunks` holds only the REMOVED lines of each hunk: the full diff did not fit, and
     # removed code is the one part the session cannot recover from the working tree.
     removals_only: bool = False
+    # Handed only so the session can settle the triage's question about it. That answer
+    # is its account, so the coverage ledger does not ask for a second one.
+    flagged_only: bool = False
 
 class FocusContextBatch(BaseModel):
     """Single bounded batch of review context for one findings prompt."""

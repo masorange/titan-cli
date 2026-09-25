@@ -62,8 +62,8 @@ def test_build_findings_prompt_parts_compacts_axes_and_pr_context():
     assert '"name": "Functional"' in parts["review_axes"]
     assert "Base" not in parts["pr_context"]
     assert "Batch: batch_1" in parts["pr_context"]
-    assert "observable meaning of data, events, labels, classifications, or results" in parts["instructions"]
-    assert "Do not report code style preferences" in parts["instructions"]
+    assert "what data, events, labels or results MEAN" in parts["instructions"]
+    assert "Not style, naming, refactor or architecture preferences" in parts["instructions"]
 
 
 def test_summarize_findings_prompt_parts_returns_char_breakdown():
@@ -220,7 +220,7 @@ def test_findings_json_schema_wraps_array_in_object_with_findings_key():
     assert schema["type"] == "object"
     # Both sides required: a findings-only schema teaches the model that "this is fine"
     # is not an answer, and then a dismissed question looks exactly like an ignored one.
-    assert schema["required"] == ["findings", "dismissed"]
+    assert schema["required"] == ["findings", "dismissed", "reviewed"]
     assert schema["properties"]["findings"]["type"] == "array"
 
 
@@ -568,15 +568,16 @@ def test_prompt_reviews_the_pr_when_it_carries_the_change_shape():
     assert "only the files below are open to you" in parts["prompt"]
 
 
-def test_prompt_keeps_the_bounded_batch_framing_without_a_change_shape():
-    """Overflow slices and the synthesis batch carry no shape, and must not claim to be
-    reviewing the whole PR."""
+def test_prompt_keeps_a_narrow_framing_without_a_change_shape():
+    """A timeout retry carries no shape, and must not claim to be reviewing the whole PR
+    nor be asked to judge the change as a whole."""
     from titan_plugin_github.models.review_models import FocusContextBatch
     from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
 
     parts = build_findings_prompt_parts(FocusContextBatch(batch_id="batch_2"))
 
-    assert "one bounded review batch" in parts["prompt"]
+    assert "They are part of a larger pull request" in parts["prompt"]
+    assert "step back and judge the change" not in parts["task"]
     assert "## The Whole Change" not in parts["prompt"]
     assert parts["change_shape"] == ""
 
@@ -609,12 +610,12 @@ def test_cross_file_instructions_appear_only_when_the_batch_holds_several_files(
         )
     )
 
-    assert "ACROSS the files below" not in one_file["instructions"]
-    assert "ACROSS the files below" in several["instructions"]
-    # The rest of the instruction block is untouched in both.
+    assert "mismatches ACROSS them" not in one_file["instructions"]
+    assert "mismatches ACROSS them" in several["instructions"]
+    # The rest of the prompt is untouched in both.
     for parts in (one_file, several):
-        assert "Only report actionable issues" in parts["instructions"]
-        assert "If there are no findings, return []" in parts["instructions"]
+        assert "Report only what has an observable impact" in parts["instructions"]
+        assert "return an empty `findings` list" in parts["task"]
 
 
 def test_project_context_section_asks_for_lookup_not_for_reading_everything():
@@ -668,12 +669,12 @@ def test_the_deep_prompt_hands_the_triage_suspicions_over_as_questions_not_findi
     assert "A question you cannot settle is not a finding" in parts["prompt"]
     # The settle rules travel with the questions, in the same call (D-014).
     assert "Confirming costs more than dismissing" in parts["instructions"]
-    # LAST, in the prompt and in the instructions: asked first, the questions set the
+    # After the review, in the task and in the prompt: asked first, the questions set the
     # agenda (5-6 of 8 findings per run on PR 3692 were confirmed triage questions).
     prompt = parts["prompt"]
     assert prompt.index("## Code to Review") < prompt.index("## Questions from the triage")
-    assert prompt.index("## Questions from the triage") < prompt.index("## Instructions")
-    assert parts["instructions"].rstrip().splitlines()[-3].startswith("- LAST, once the files")
+    task = parts["task"]
+    assert task.index("Review every file") < task.index("settle each question")
     # Nothing at all when the triage found nothing worth opening.
     assert build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))["triage_suspicions"] == ""
 
@@ -740,3 +741,35 @@ def test_the_deep_review_is_asked_what_a_removal_breaks():
     assert "Do not report deleted lines" not in parts["instructions"]
     assert "what its removal BREAKS" in parts["instructions"]
     assert "SEARCH for the replacement" in parts["instructions"]
+
+
+def test_the_task_and_its_coverage_come_before_the_material():
+    """On #236 (run 7d61a0b9) the session accounted for 32 of 58 deep files: covering
+    every file was one instruction among ~20, after 339k chars of diffs. It is now the
+    first task, stated before any material, and the two rules written for a session with
+    no working tree -- which contradicted "open it and check" -- are gone."""
+    from titan_plugin_github.models.review_enums import FileReadMode
+    from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
+    from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
+
+    parts = build_findings_prompt_parts(
+        FocusContextBatch(
+            batch_id="deep_1",
+            change_shape=["a.py | role=business_logic | reviewed here | +1/-0"],
+            files_context={
+                "a.py": FileContextEntry(path="a.py", read_mode=FileReadMode.HUNKS_ONLY, hunks=["x"])
+            },
+        )
+    )
+    prompt = parts["prompt"]
+
+    assert parts["task"].startswith("1. Review every file")
+    assert "account for each one in `reviewed`" in parts["task"]
+    assert "step back and judge the change" in parts["task"]
+    assert prompt.index("## Your Task") < prompt.index("## How to Review") < prompt.index("## PR Context")
+    assert prompt.index("## How to Review") < prompt.index("## Code to Review")
+    assert "Do not speculate beyond the shown code" not in prompt
+    assert "clearly visible in the provided context" not in prompt
+    assert "one bounded review batch" not in prompt
+    # The anchor instruction survives the cut: inline comments attach to the snippet.
+    assert "copied from the exact added/context line" in parts["task"]
