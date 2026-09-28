@@ -26,7 +26,7 @@ def classify_file_role(
     several roles: then **the role asking for the most attention wins**, and list order
     only breaks a tie. First-match used to decide, and on ragnarok `*ViewModel.kt` sat
     under `entrypoints_or_ui` ahead of `business_logic`, so the post-login flow was
-    triaged from its diff. A project that lists a path under a deep role has said it
+    only glanced at from its diff. A project that lists a path under a deep role has said it
     wants it read; the order it happened to write its roles in must not undo that.
 
     `is_config` is a guess from the file name, not a fact, so it only nominates

@@ -106,15 +106,15 @@ DEFAULT_REVIEW_PROFILE = ReviewProfile(
     # Attention per role. Four roles get a full read because that is where a defect
     # can hide behind code the diff does not show: behaviour, the adapters that talk to
     # the outside, the orchestration that decides what runs, and the UI. The rest are
-    # covered by the triage - seen, not opened - and only generated output and docs are
-    # skipped outright. Nothing here is a guess about importance: it is a guess about
+    # glanced at from their diff in the same session, and only generated output and docs
+    # are skipped outright. Nothing here is a guess about importance: it is a guess about
     # whether the DIFF ALONE is enough to judge the change, which is the question the
     # tiers ask.
     #
     # UI is deep because in the frameworks Titan meets (Compose, SwiftUI, React) a screen
     # or view model holds state and effects, and the diff alone cannot show what they
     # interact with. On ragnarok PR #3692 the UI tier held LoginViewModel, LoginScreen
-    # and PasskeyInfoViewModel -- the post-login flow -- in glance, triaged from diffs.
+    # and PasskeyInfoViewModel -- the post-login flow -- in glance, judged from diffs.
     attention={
         "business_logic": AttentionTier.DEEP,
         "integration_or_adapter": AttentionTier.DEEP,

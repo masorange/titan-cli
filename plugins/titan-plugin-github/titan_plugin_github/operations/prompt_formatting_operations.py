@@ -1,9 +1,7 @@
 """Shared formatting helpers for AI review prompts."""
 
-import json
 import re
 
-from ..models.review_models import CommentContextEntry
 
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
@@ -69,23 +67,4 @@ def pr_description_section(description: str) -> str:
     return (
         "\n## What the author says this PR does (and what they ask reviewers to check)\n"
         f"{description}\n"
-    )
-
-
-def comment_context_to_json(comments: list[CommentContextEntry]) -> str:
-    """Serialize compact comment context entries for prompt embedding."""
-    return json.dumps(
-        [
-            {
-                "kind": entry.kind,
-                "path": entry.path,
-                "line": entry.line,
-                "category": entry.category,
-                "title": entry.title,
-                "summary": entry.summary,
-                "is_resolved": entry.is_resolved,
-            }
-            for entry in comments
-        ],
-        indent=2,
     )

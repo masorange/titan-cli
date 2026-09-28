@@ -21,7 +21,6 @@ COVERAGE_RECORDS_KEPT = 20
 def build_coverage_record(
     batch,
     reviewed: list[dict],
-    dismissed: list[dict],
     findings: list,
     session_notes: dict[str, list[str]],
     created_at: datetime,
@@ -30,7 +29,6 @@ def build_coverage_record(
     """Every checklist row with its outcome: what the session said, or that it said nothing."""
     focus_why = {normalize_finding_path(item["path"]): item.get("why", "") for item in focus or []}
     notes = {normalize_finding_path(item["path"]): item.get("note", "") for item in reviewed}
-    reasons = {normalize_finding_path(item["path"]): item.get("reason", "") for item in dismissed}
     titles: dict[str, list[str]] = {}
     for finding in findings or []:
         if isinstance(finding, dict):
@@ -47,16 +45,12 @@ def build_coverage_record(
         if covered_by.startswith("YOU"):
             if key in titles:
                 row["state"] = "findings"
-            elif key in reasons:
-                row["state"] = "dismissed"
             elif key in notes:
                 row["state"] = "reviewed"
             else:
                 row["state"] = "not accounted for"
             if key in notes:
                 row["note"] = notes[key]
-            if key in reasons:
-                row["dismissed"] = reasons[key]
             if key in titles:
                 row["findings"] = titles[key]
             if key in focus_why:

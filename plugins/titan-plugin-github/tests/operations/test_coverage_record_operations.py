@@ -23,8 +23,7 @@ def _batch() -> FocusContextBatch:
             "core.py | role=business_logic | YOU: review | +4/-1",
             "steps.py | role=business_logic | YOU: review | +2/-0",
             "quiet.py | role=business_logic | YOU: review | +1/-0",
-            "deploy.yml | role=config | YOU: triage question | +1/-1",
-            "strings.xml | role=static | triage: Only translations | +9/-0",
+            "yarn.lock | role=config | skip | +90/-80",
         ],
         pr_manifest=PullRequestManifest(
             number=236, title="Firebase plugin", description="", base="main", head="f", author="a"
@@ -36,7 +35,6 @@ def test_every_row_says_what_happened_to_its_file():
     record = build_coverage_record(
         _batch(),
         reviewed=[{"path": "core.py", "note": "checked the guard"}, {"path": "steps.py", "note": "fine"}],
-        dismissed=[{"path": "deploy.yml", "reason": "the key is still read"}],
         findings=[{"path": "core.py", "title": "Guard inverted"}],
         session_notes={"key_facts": ["fanout takes condition"], "open_suspicions": ["sync may race"]},
         created_at=NOW,
@@ -48,9 +46,8 @@ def test_every_row_says_what_happened_to_its_file():
     assert rows["core.py"]["note"] == "checked the guard"
     assert rows["steps.py"]["state"] == "reviewed"
     assert rows["quiet.py"]["state"] == "not accounted for"
-    assert rows["deploy.yml"]["state"] == "dismissed"
-    # Rows that were not the session's task keep what the triage said, and no state.
-    assert rows["strings.xml"] == {"path": "strings.xml", "covered_by": "triage: Only translations"}
+    # Rows that were not the session's task keep their tier, and no state.
+    assert rows["yarn.lock"] == {"path": "yarn.lock", "covered_by": "skip"}
     assert record["pr"] == 236
     assert record["key_facts"] == ["fanout takes condition"]
     assert record["open_suspicions"] == ["sync may race"]
@@ -89,7 +86,7 @@ def test_the_review_step_saves_the_record_and_prunes(tmp_path, monkeypatch):
     )
 
     code_review_steps._save_coverage_record(
-        ctx, [_batch()], [{"path": "core.py", "note": "ok"}], [], [], {"key_facts": [], "open_suspicions": []}
+        ctx, [_batch()], [{"path": "core.py", "note": "ok"}], [], {"key_facts": [], "open_suspicions": []}
     )
 
     saved = list(project.glob("pr-236-*.json"))
@@ -104,7 +101,6 @@ def test_the_record_marks_the_files_reviewed_in_depth():
     record = build_coverage_record(
         _batch(),
         reviewed=[{"path": "core.py", "note": "checked load() with a missing file"}],
-        dismissed=[],
         findings=[],
         session_notes={},
         created_at=NOW,

@@ -41,7 +41,7 @@ class TestOverlappingRoles:
 
     def test_the_deeper_role_wins_whatever_order_the_roles_are_listed_in(self):
         """ragnarok listed `**/ui/**` (glance) before `**/*ViewModel.kt` (business,
-        deep); first-match sent LoginViewModel to the triage."""
+        deep); first-match left LoginViewModel at a glance."""
         profile = _profile(
             file_roles={
                 "entrypoints_or_ui": ["**/ui/**"],
@@ -81,7 +81,7 @@ class TestOverlappingRoles:
 
 class TestDeletedFiles:
 
-    def test_a_deleted_file_goes_to_the_triage_whatever_its_role(self):
+    def test_a_deleted_file_is_glanced_at_whatever_its_role(self):
         """Not deep (nothing to open) and not skipped: its diff is what the PR removes.
         Skipping them cost ragnarok PR #3720 the questions that found removed tracking."""
         deleted = ChangedFileEntry(path="app/services/pay.py", status=FileChangeStatus.DELETED)
@@ -273,7 +273,7 @@ class TestShippedDefaults:
         }
 
         # UI is deep on purpose: a screen or view model holds state and effects the diff
-        # alone cannot show (ragnarok PR #3692 triaged its post-login flow from diffs).
+        # alone cannot show (ragnarok PR #3692 judged its post-login flow from diffs).
         assert deep_roles == {
             "business_logic",
             "integration_or_adapter",
@@ -450,9 +450,8 @@ class TestStaticResources:
         assert plan.files[0].tier == AttentionTier.DEEP
 
 
-def test_the_checklist_puts_the_sessions_tasks_first_and_carries_the_triage_notes():
-    """The session's own rows lead, then the questions it must settle, then the rest with
-    what the triage said about each -- so every row carries a state, not only a tier."""
+def test_the_checklist_puts_the_sessions_tasks_first():
+    """The session's own rows lead, then the rest with their tier."""
     from titan_plugin_github.operations.attention_operations import (
         AttentionPlan,
         FileAttention,
@@ -471,15 +470,13 @@ def test_the_checklist_puts_the_sessions_tasks_first_and_carries_the_triage_note
     lines = build_change_shape_lines(
         plan,
         [],
-        {"core.py"},
-        triage_notes={"res/strings.xml": "Only translations | nothing else", "deploy.yml": "Renames a key"},
-        flagged_paths={"deploy.yml"},
+        {"core.py", "deploy.yml"},
     )
 
     assert lines == [
+        "deploy.yml | role=config | YOU: review | +0/-0",
         "core.py | role=business_logic | YOU: review | +0/-0",
-        "deploy.yml | role=config | YOU: triage question | +0/-0",
-        "res/strings.xml | role=static | triage: Only translations / nothing else | +0/-0",
+        "res/strings.xml | role=static | glance | +0/-0",
         "out.lock | role=config | skip | +0/-0",
     ]
 

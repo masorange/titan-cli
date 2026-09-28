@@ -124,49 +124,6 @@ class DiffContextManager:
         """Return raw hunk text blocks for ``path``."""
         return [hunk.content for hunk in self.get_hunks(path)]
 
-    def build_expanded_hunks(
-        self,
-        path: str,
-        file_content: str,
-        extra_lines: int = 10,
-    ) -> list[str]:
-        """
-        Return diff hunks enriched with surrounding file context.
-
-        Uses already-parsed hunk coordinates instead of reparsing @@ headers.
-
-        The "# --- diff hunk ---" marker below is parsed by
-        `findings_operations._annotate_diff_hunk`, which only applies diff-style line
-        annotation after it (the surrounding-context block above it is raw file content,
-        not diff-prefixed). Keep both in sync if this format changes.
-        """
-        hunks = self.get_hunks(path)
-        if not hunks:
-            return []
-
-        file_lines = file_content.split("\n")
-        expanded: list[str] = []
-
-        for hunk in hunks:
-            expand_start = max(0, hunk.new_line_start - extra_lines - 1)
-            expand_end = min(len(file_lines), hunk.new_line_end + extra_lines)
-            surrounding = "\n".join(file_lines[expand_start:expand_end])
-            expanded.append(
-                f"{hunk.header}\n"
-                f"# --- surrounding context (lines {expand_start + 1}-{expand_end}) ---\n"
-                f"{surrounding}\n"
-                f"# --- diff hunk ---\n"
-                + "\n".join(hunk.content.split("\n")[1:])
-            )
-
-        logger.debug(
-            "expanded_hunks_built",
-            path=path,
-            count=len(expanded),
-            extra_lines=extra_lines,
-        )
-        return expanded
-
     def get_hunk_for_line(self, path: str, line: int, allow_fallback: bool = True) -> Optional[ParsedHunk]:
         """
         Return the hunk containing new-file ``line`` for ``path``.
@@ -1076,8 +1033,9 @@ _SNIPPET_ANNOTATION_RE = re.compile(
     r"^\s*(?:\d+\s*)?(?:\|\s?|\[(?:ADDED|CONTEXT)\]\s?)"
 )
 """Prompt-annotation prefixes models copy into `snippet`: the findings prompt renders
-code as ``NN | code`` (full_content) or ``NN [ADDED] code`` / ``NN [CONTEXT] code``
-(annotated hunks) — see findings_operations._add_line_numbers/_annotate_diff_hunk."""
+code as ``NN [ADDED] code`` / ``NN [CONTEXT] code`` (annotated hunks, see
+review_material_operations.annotate_diff_hunk); ``NN | code`` is an older numbered-file
+shape a model may still produce."""
 
 
 def _sanitize_snippet(snippet: Optional[str]) -> str:

@@ -11,11 +11,9 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from .review_enums import (
-    AttentionTier,
     ChecklistCategory,
     CommentContextKind,
     FileChangeStatus,
-    FileReadMode,
     FindingSeverity,
     ReviewActionSource,
     ReviewActionType,
@@ -126,7 +124,6 @@ class FileReviewPlan(BaseModel):
     """Focused plan for one file selected for deeper review."""
 
     path: str
-    read_mode: FileReadMode
     reasons: list[str] = Field(default_factory=list)
 
 class ReviewPlan(BaseModel):
@@ -136,25 +133,13 @@ class ReviewPlan(BaseModel):
     review_axes: list[ChecklistCategory] = Field(default_factory=list)
 
 class ReviewBudget(BaseModel):
-    """What one review is allowed to spend.
+    """What one review is allowed to spend: how long the deep session may run.
 
     Replaces the per-size-class strategy table, which set five different budgets from a
     size label and, because `HUGE` was its last rung, gave a 108-file PR and a 500-file
     PR the same 12 reviewed files. Size still describes a PR; it no longer decides what
     gets looked at.
-
-    The two limits are measured in different units on purpose, because the tiers spend
-    differently. A deep read costs an agentic session: the model opens the file and
-    explores, so the prompt it was handed is irrelevant next to what it reads — measured
-    2026-09-21, the call with the run's LONGEST prompt and no repo access was also its
-    cheapest (13,955 chars, 30 s), while 4,312-char calls that read the worktree cost
-    130-200 s. A glance costs only what it is handed, so there characters are the honest
-    unit.
     """
-
-    deep_max_prompt_chars: int
-    triage_max_prompt_chars: int
-    max_comment_entries: int
 
     # How long one deep call may run, derived rather than flat. A deep read is an
     # agentic session whose duration tracks the number of files it was handed, so a
@@ -251,66 +236,32 @@ class ReviewActionProposal(BaseModel):
     is_inline_safe_for_github: bool = False
     file_status: Optional[str] = None
     is_test_file: bool = False
-    read_mode: Optional[str] = None
     related_existing_comment_ids: list[int] = Field(default_factory=list)
 
 class FileContextEntry(BaseModel):
-    """Extracted context for one focused file."""
+    """One file the deep session is handed: its diff and base version are files in the
+    review worktree, and `review_hint` says where."""
 
     path: str
-    read_mode: Optional[FileReadMode] = None
-    full_content: Optional[str] = None
-    hunks: list[str] = Field(default_factory=list)
-    expanded_hunks: list[str] = Field(default_factory=list)
-    worktree_reference: bool = False
     review_hint: str = ""
-    changed_hunk_headers: list[str] = Field(default_factory=list)
-    approximate_chars: int = 0
-    # `hunks` holds only the REMOVED lines of each hunk: the full diff did not fit, and
-    # removed code is the one part the session cannot recover from the working tree.
-    removals_only: bool = False
-    # Handed only so the session can settle the triage's question about it. That answer
-    # is its account, so the coverage ledger does not ask for a second one.
-    flagged_only: bool = False
-    # The file's diff and base version are files in the worktree's review folder, not in
-    # the prompt: `review_hint` says where.
-    on_disk: bool = False
 
 class FocusContextBatch(BaseModel):
-    """Single bounded batch of review context for one findings prompt."""
+    """The deep session's material: every file it reviews and the whole change around it."""
 
     batch_id: str
-    # Which tier this batch IS. The batch set is derived from the attention plan -- one
-    # deep batch over the files that matter, glance batches over the rest -- rather than
-    # emerging from a character budget, which is what made the tiers decoration and the
-    # call count an accident.
-    tier: AttentionTier = AttentionTier.DEEP
     files_context: dict[str, FileContextEntry] = Field(default_factory=dict)
     # One line per changed file in the PR — path, role, tier, churn — with no content.
     # The whole-change context that lets the reviewing session answer what a human asks
-    # last: does this match what the PR says it does, and what is missing. Carried by
-    # overflow slices too -- a slice still needs to know the whole it belongs to, and the
-    # cost is a few dozen characters per file however large the PR is.
+    # last: does this match what the PR says it does, and what is missing.
     change_shape: list[str] = Field(default_factory=list)
-    # What the triage (call 1) flagged for this session to settle: {path, note, suspicion}.
-    # Working material, not findings -- the session opens the file and confirms or drops.
-    triage_suspicions: list[dict] = Field(default_factory=list)
     # Paths of project documents the session should read before judging the code --
     # paths only, never content, so a whole architecture document costs one line.
     context_docs: list[str] = Field(default_factory=list)
-    # The PR's stated intent, at more than the one-line cap a per-file batch got. A batch
-    # that is the review (rather than one file of it) has to know what it is checking
-    # against, and the deep tier's cost is the session, not the prompt (D-002).
+    # The PR's stated intent, in full rather than one line: the session judges the change
+    # against what the PR says it does.
     pr_intent: Optional[str] = None
-    comment_context: list[CommentContextEntry] = Field(default_factory=list)
     checklist_applicable: list[ReviewChecklistItem] = Field(default_factory=list)
-    related_files: dict[str, str] = Field(default_factory=dict)
     pr_manifest: Optional[PullRequestManifest] = None
-    approximate_chars: int = 0
-    prompt_budget_target_chars: int = 0
-    prompt_actual_chars: int = 0
-    prompt_still_too_large: bool = False
-    degraded_context: bool = False
 
 class ReviewContextPackage(BaseModel):
     """Collection of one or more bounded context batches for findings analysis."""

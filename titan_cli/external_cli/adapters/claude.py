@@ -4,6 +4,7 @@ Headless adapter for Claude CLI (claude).
 Uses `claude --print` with the prompt on stdin for non-interactive execution.
 """
 
+import dataclasses
 import json
 import re
 import shutil
@@ -11,6 +12,10 @@ import subprocess
 from typing import Any, Optional
 
 from .base import CliModel, HeadlessResponse, SupportedCLI, usage_from_result_envelope
+
+# The last cumulative cost claude reported for each session this process ran: on a resumed
+# call `total_cost_usd` is the whole session's so far, so a turn's own cost is the difference.
+_SESSION_COST_USD: dict[str, float] = {}
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -61,6 +66,10 @@ class ClaudeHeadlessAdapter:
             CliModel("fable", "Fable"),
         ]
 
+    @property
+    def supports_resume(self) -> bool:
+        return True
+
     def execute(
         self,
         prompt: str,
@@ -71,12 +80,57 @@ class ClaudeHeadlessAdapter:
         effort: Optional[str] = None,
         model: Optional[str] = None,
     ) -> HeadlessResponse:
+        response = self._run([], prompt, cwd, timeout, json_schema, disallowed_tools, effort, model)
+        if response.session_id and response.usage is not None and response.usage.cost_usd is not None:
+            _SESSION_COST_USD[response.session_id] = response.usage.cost_usd
+        return response
+
+    def resume(
+        self,
+        session_id: str,
+        prompt: str,
+        cwd: Optional[str] = None,
+        timeout: int = 60,
+        json_schema: Optional[dict[str, Any]] = None,
+        disallowed_tools: Optional[list[str]] = None,
+        effort: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> HeadlessResponse:
+        """One more turn of a session this process started, via `claude --resume <id>`.
+
+        Checked headless 2026-09-28: same session id, earlier turns in context. The
+        envelope's `total_cost_usd` and `modelUsage` are cumulative for the session while
+        `usage` is this turn's, so the turn's cost is the difference from the session's last
+        total -- unknown (None) when this process did not see that total.
+        """
+        response = self._run(
+            ["--resume", session_id], prompt, cwd, timeout, json_schema, disallowed_tools, effort, model
+        )
+        usage = response.usage
+        if usage is not None and usage.cost_usd is not None:
+            previous = _SESSION_COST_USD.get(session_id)
+            _SESSION_COST_USD[session_id] = usage.cost_usd
+            turn_cost = round(usage.cost_usd - previous, 6) if previous is not None else None
+            response = dataclasses.replace(response, usage=dataclasses.replace(usage, cost_usd=turn_cost))
+        return response
+
+    def _run(
+        self,
+        extra_args: list[str],
+        prompt: str,
+        cwd: Optional[str],
+        timeout: int,
+        json_schema: Optional[dict[str, Any]],
+        disallowed_tools: Optional[list[str]],
+        effort: Optional[str],
+        model: Optional[str],
+    ) -> HeadlessResponse:
         # --output-format json on EVERY call, not just the structured ones. The envelope
         # is the only place claude reports `usage` and `total_cost_usd`, and it also names
         # the model that actually ran (`modelUsage`) — so asking for it only when a schema
         # is passed left every plain-text call with no cost figure at all. Verified
         # 2026-09-22 that the envelope is emitted without `--json-schema`.
-        cmd = ["claude", "--print", "--output-format", "json"]
+        cmd = ["claude", "--print", "--output-format", "json", *extra_args]
         if json_schema is not None:
             cmd += ["--json-schema", json.dumps(json_schema)]
         if disallowed_tools:
@@ -149,6 +203,7 @@ class ClaudeHeadlessAdapter:
             )
 
         usage = usage_from_result_envelope(envelope, source="claude_result_envelope")
+        session_id = envelope.get("session_id") if isinstance(envelope.get("session_id"), str) else None
 
         if envelope.get("is_error"):
             return HeadlessResponse(
@@ -156,6 +211,7 @@ class ClaudeHeadlessAdapter:
                 stderr=str(envelope.get("result") or stderr or "Claude CLI reported an error"),
                 exit_code=result.returncode or 1,
                 usage=usage,
+                session_id=session_id,
             )
 
         if expect_structured:
@@ -166,6 +222,7 @@ class ClaudeHeadlessAdapter:
                     stderr=stderr,
                     exit_code=result.returncode,
                     usage=usage,
+                    session_id=session_id,
                 )
 
         return HeadlessResponse(
@@ -173,6 +230,7 @@ class ClaudeHeadlessAdapter:
             stderr=stderr,
             exit_code=result.returncode,
             usage=usage,
+            session_id=session_id,
         )
 
     def _sanitize(self, text: str) -> str:

@@ -1,7 +1,6 @@
 """Operations for building AI prompts for focused findings review."""
 
 import json
-import re
 from typing import Any, Callable, Optional
 
 from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
@@ -9,7 +8,6 @@ from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 from ..models.review_models import Finding, FocusContextBatch, ReviewChecklistItem
 from .ai_response_parsing_operations import extract_json_payload
 from .prompt_formatting_operations import (
-    comment_context_to_json,
     pr_description_section,
     review_pr_description,
 )
@@ -17,15 +15,14 @@ from .prompt_formatting_operations import (
 
 def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     """Build prompt parts separately so callers can log size breakdowns."""
+    from .review_material_operations import PR_FILE
+
     checklist_json = _checklist_to_json(batch.checklist_applicable)
-    comments_json = comment_context_to_json(batch.comment_context)
     files_text = _files_context_to_text(batch.files_context)
-    related_text = _related_files_to_text(batch.related_files)
     pr_context = _pr_context_to_text(batch)
     schema = _finding_schema()
 
     has_shape = bool(batch.change_shape)
-    on_disk = any(entry.on_disk for entry in batch.files_context.values())
 
     # The task and the deliverable come FIRST. They used to be one line among ~20
     # instructions after 339k chars of diffs, and on #236 (run 7d61a0b9) the session
@@ -53,16 +50,11 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
     # A PR exists to change behaviour, so a change is only a finding when nothing in the
     # PR announces it.
     steps: list[str] = [
-        'First go through every file under "Code to Review" from its diff'
-        + (
-            " (the whole diff is in `.titan-review/pr.diff`, each file's in the path under it)"
-            if on_disk
-            else ""
-        )
-        + ", without opening the source, and write its sentence in `reviewed`: what it changes, and whether "
+        'First go through every file under "Code to Review" from its diff (the whole diff '
+        "is in `.titan-review/pr.diff`, each file's in the path under it), without opening "
+        "the source, and write its sentence in `reviewed`: what it changes, and whether "
         "anything in it needs a closer look. Every file gets its sentence; a file missing "
-        "from `reviewed` reads as a file nobody looked at. Files flagged by the triage are "
-        "the exception: settling their question is their account.",
+        "from `reviewed` reads as a file nobody looked at.",
         "Then choose your focus: every file where a defect would do real harm -- it writes "
         "to an external system or to production, handles authentication or secrets, "
         "transforms or converts data, or changes a contract other code relies on. As many "
@@ -71,34 +63,17 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
         "check its inputs (what can arrive null, empty or unexpected -- look at the type), "
         "its edge cases, what happens in production when it goes wrong, and who consumes its "
         "result (search the callers). Check also what it no longer does: for every behaviour "
-        "the diff removes or changes"
-        + (" (its base version shows how it worked before)" if on_disk else "")
-        + ", look for the PR description, a project document or a "
-        "new test that announces it, and report it as an unannounced change when nothing "
-        "does"
-        + (
-            "; such a finding puts in `old_code` the line of the base version that had the "
-            "behaviour, copied exactly -- it is checked against the base version and the new "
-            "file, and dropped if the line is not in the base or is still in the new file"
-            if on_disk
-            else ""
-        )
-        + ". And check how the rest of the repository does the same thing: find one or two "
-        "files that do the same job and report where this one departs from them without a "
-        "reason. Its `reviewed` sentence names the function and the case you checked.",
+        "the diff removes or changes (its base version shows how it worked before), look for "
+        "the PR description, a project document or a new test that announces it, and report "
+        "it as an unannounced change when nothing does; such a finding puts in `old_code` the "
+        "line of the base version that had the behaviour, copied exactly -- it is checked "
+        "against the base version and the new file, and dropped if the line is not in the "
+        "base or is still in the new file. And check how the rest of the repository does the "
+        "same thing: find one or two files that do the same job and report where this one "
+        "departs from them without a reason. Its `reviewed` sentence names the function and "
+        "the case you checked.",
     ]
-    # The questions the triage raised are a SECOND task list, and they come after the
-    # review: a question like "no test covers the magic-link path" is answered far
-    # better by whoever just read the magic-link code. Asked first, they set the agenda:
-    # across three runs of PR 3692, 5-6 of 8 findings were confirmed triage questions while
-    # the serious defects in the deep files came and went.
-    if batch.triage_suspicions:
-        steps.append(
-            'Then settle each question under "Questions from the triage", using what that '
-            "review taught you."
-        )
-    # Only a batch that carries the whole change's shape can judge the change as a whole;
-    # a timeout retry holds a few files and nothing else.
+    # Only a batch that carries the whole change's shape can judge the change as a whole.
     if has_shape:
         steps.append(
             "Last, step back and judge the change, not just the lines: does it do what the "
@@ -168,28 +143,11 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
         "(success/failure signalling, a fallback); missing regression coverage where clearly "
         "required. Not style, naming, refactor or architecture preferences"
     )
-    # Bounded by cost, not by count: on #273 the 8 questions took about half of the
-    # session's exploration and none was confirmed, but in a PR with little deep code the
-    # questions are most of the coverage, so capping how many would lose exactly there.
-    if batch.triage_suspicions:
-        rules.append(
-            "Settling a triage question: open the flagged file and decide with one or two "
-            "lookups. Report a finding only when you can point at the code that makes the "
-            "claim true. \"This is fine\" is a complete and expected answer: put it in "
-            "`dismissed` with one sentence on what you checked. If one or two lookups do not "
-            "settle it, stop and put it in `open_suspicions` rather than searching on: the "
-            "focus files need that time. A defect you SEE in a flagged file, on the question "
-            "or not, is a finding like any other"
-        )
     instructions = "\n".join(f"- {rule}" for rule in rules) + "\n"
 
-    material_text = _review_material_to_text() if on_disk else ""
-    if on_disk:
-        # The comments are in pr.md with the rest of the PR; the prompt only says so.
-        comments_json = "In `.titan-review/pr.md`."
-    shape_text = _change_shape_to_text(batch, on_disk=on_disk)
+    material_text = _review_material_to_text()
+    shape_text = _change_shape_to_text(batch)
     context_docs_text = _context_docs_to_text(batch)
-    suspicions_text = _triage_suspicions_to_text(batch)
     # A batch that carries the whole change's shape is THE review, not a slice of one, and
     # it is told so: the framing decides whether the model reports what it can see in the
     # files it was handed or judges the change as a whole against what the PR claims.
@@ -214,14 +172,13 @@ def build_findings_prompt_parts(batch: FocusContextBatch) -> dict[str, str]:
 {pr_context}
 {material_text}{context_docs_text}{shape_text}
 ## Existing Comments (do not duplicate these)
-{comments_json}
+In `{PR_FILE}`.
 
 ## Review Axes
 {checklist_json}
 
 ## Code to Review
-{files_text}{related_text}
-{suspicions_text}
+{files_text}
 Respond ONLY with a valid JSON object of this shape. Do not include any prose before or after the JSON.
 {schema}
 """
@@ -230,11 +187,8 @@ Respond ONLY with a valid JSON object of this shape. Do not include any prose be
         "pr_context": pr_context,
         "change_shape": shape_text,
         "context_docs": context_docs_text,
-        "triage_suspicions": suspicions_text,
-        "comments": comments_json,
         "review_axes": checklist_json,
         "files_context": files_text,
-        "related_context": related_text,
         "task": task,
         "instructions": instructions,
         "schema": schema,
@@ -258,24 +212,6 @@ def _review_material_to_text() -> str:
     )
 
 
-def _triage_suspicions_to_text(batch: FocusContextBatch) -> str:
-    """What the triage flagged, and what this session is asked to do about it."""
-    if not batch.triage_suspicions:
-        return ""
-    lines = "\n".join(
-        f"- {item.get('path')}: {item.get('suspicion')}" for item in batch.triage_suspicions
-    )
-    return (
-        "\n## Questions from the triage (a SECOND task, for AFTER the review above)\n"
-        "A cheap pass over the rest of the PR saw only these files' diffs and raised these "
-        "questions. Each names a file that is NOT part of the review above. Review the code "
-        "above first; then, with what it taught you, open each file, decide, and either "
-        "report a finding with the code that proves it or dismiss it saying what you "
-        "checked. A question you cannot settle is not a finding.\n"
-        f"{lines}\n"
-    )
-
-
 def _context_docs_to_text(batch: FocusContextBatch) -> str:
     """The project's own rules, by path. Empty string when none were resolved."""
     if not batch.context_docs:
@@ -293,23 +229,16 @@ def _context_docs_to_text(batch: FocusContextBatch) -> str:
     )
 
 
-def _change_shape_to_text(batch: FocusContextBatch, on_disk: bool = False) -> str:
+def _change_shape_to_text(batch: FocusContextBatch) -> str:
     """The checklist: every changed file and who covers it — no content. Empty when absent."""
     if not batch.change_shape:
         return ""
     lines = "\n".join(batch.change_shape)
-    others = (
-        "Every other row was left out by rule (lockfiles, renames, deletions, static "
-        "resources); its diff is in the review folder if a question needs it."
-        if on_disk
-        else "Every other row was read by the triage from its diff alone, and its note is "
-        "context, not a verdict: any of those files is in the working tree if a question "
-        "needs it."
-    )
     return (
         "\n## Checklist (every changed file in this PR)\n"
-        "Rows marked YOU are your tasks: the files under \"Code to Review\" and the triage "
-        f"questions. {others}\n"
+        "Rows marked YOU are your tasks: the files under \"Code to Review\". Every other "
+        "row was left out by rule (lockfiles, renames, generated files and documentation); "
+        "its diff is in the review folder if a question needs it.\n"
         f"{lines}\n"
     )
 
@@ -351,135 +280,19 @@ def _checklist_to_json(checklist: list[ReviewChecklistItem]) -> str:
         ],
         indent=2,
     )
+
+
 def _files_context_to_text(files_context: dict) -> str:
     if not files_context:
         return "(no files to review)\n"
-
-    parts: list[str] = []
-    for path, entry in files_context.items():
-        parts.append(f"### {path}")
-        if entry.on_disk:
-            parts.append(entry.review_hint)
-            parts.append("")
-            continue
-        if entry.worktree_reference:
-            parts.append("Open this file in the working tree; the diff below is what changed.")
-            if entry.review_hint:
-                parts.append(entry.review_hint)
-            if entry.changed_hunk_headers and not entry.hunks:
-                parts.append("Changed regions to inspect first:")
-                parts.extend(f"- {header}" for header in entry.changed_hunk_headers)
-            # The diff stays inline even though the file is on disk: the working tree holds
-            # the post-change file, so "what changed" is not recoverable from it, and the
-            # added lines are what an inline comment anchors to.
-            for hunk in entry.hunks:
-                parts.append("```")
-                parts.append(_annotate_diff_hunk(hunk))
-                parts.append("```")
-        elif entry.full_content:
-            parts.append("```")
-            parts.append(_add_line_numbers(entry.full_content))
-            parts.append("```")
-        elif entry.expanded_hunks:
-            for hunk in entry.expanded_hunks:
-                parts.append("```")
-                parts.append(_annotate_diff_hunk(hunk))
-                parts.append("```")
-        else:
-            for hunk in entry.hunks:
-                parts.append("```")
-                parts.append(_annotate_diff_hunk(hunk))
-                parts.append("```")
-        parts.append("")
-    return "\n".join(parts)
-
-
-def _related_files_to_text(related_files: dict[str, str]) -> str:
-    if not related_files:
-        return ""
-    parts = ["\n## Related Context"]
-    for label, content in related_files.items():
-        parts.append(f"\n### {label}")
-        # A one-line pointer is not code; fencing it just adds noise. Whole-file content
-        # (only sent when the working tree cannot be trusted) still gets a fence.
-        if "\n" in content:
-            parts.extend(["```", content[:2000], "```"])
-        else:
-            parts.append(content)
-    return "\n".join(parts) + "\n"
-
-
-def _add_line_numbers(content: str) -> str:
-    lines = content.splitlines()
-    width = len(str(len(lines)))
-    return "\n".join(f"{str(i + 1).rjust(width)} | {line}" for i, line in enumerate(lines))
-
-
-_DIFF_HUNK_MARKER = "# --- diff hunk ---"
-
-
-def _annotate_diff_hunk(hunk: str) -> str:
-    lines = hunk.splitlines()
-    if not lines:
-        return ""
-
-    new_line_start = None
-    header_line = None
-    for line in lines:
-        if line.startswith("@@"):
-            header_line = line
-            match = re.search(r"\+(\d+)", line)
-            if match:
-                new_line_start = int(match.group(1))
-            break
-
-    if new_line_start is None:
-        return "\n".join(lines)
-
-    # `expanded_hunks` entries (DiffContextManager.build_expanded_hunks) prepend a
-    # "surrounding context" block of raw file lines (no diff +/-/space prefixes) before the
-    # real diff hunk. Only the portion after the marker is actual diff content — annotating
-    # the preamble too would misread indented raw code lines as numbered [CONTEXT] diff lines
-    # and corrupt the line counter for everything that follows.
-    preamble: list[str] = []
-    diff_lines = lines
-    if _DIFF_HUNK_MARKER in lines:
-        marker_idx = lines.index(_DIFF_HUNK_MARKER)
-        preamble = lines[: marker_idx + 1]
-        diff_lines = lines[marker_idx + 1 :]
-
-    result = list(preamble) if preamble else ([header_line] if header_line else [])
-    current_line = new_line_start
-    width = len(str(current_line + 100))
-
-    for line in diff_lines:
-        if line.startswith("@@"):
-            continue
-        if line.startswith("---") or line.startswith("+++"):
-            result.append(line)
-        elif line.startswith("-"):
-            # Removed code is what a migration or refactor can lose, so it is labelled,
-            # not hidden: "do not review" here made the session skip exactly the removal
-            # of two analytics reducers whose actions are still dispatched (PR #3720).
-            result.append(f"[DELETED] {line[1:]}")
-        elif line.startswith("+"):
-            result.append(f"{str(current_line).rjust(width)} [ADDED] {line[1:]}")
-            current_line += 1
-        elif line.startswith(" "):
-            result.append(f"{str(current_line).rjust(width)} [CONTEXT] {line[1:]}")
-            current_line += 1
-        else:
-            result.append(line)
-    return "\n".join(result)
+    return "".join(f"### {path}\n{entry.review_hint}\n\n" for path, entry in files_context.items())
 
 
 def _finding_schema() -> str:
     """The response shape the prompt asks for, as text, for CLIs without a schema flag.
 
-    The same `{findings, dismissed}` object `findings_json_schema()` enforces where the
-    CLI can. It used to be a bare findings array, which left a model with nowhere to
-    write "checked, it is fine": on run bcee6ab3 codex answered all 9 triage questions
-    implicitly and every one showed as UNANSWERED.
+    The same object `findings_json_schema()` enforces where the CLI can. It used to be a
+    bare findings array, which left a model with nowhere to say what it checked.
     """
     return json.dumps(
         {
@@ -495,12 +308,6 @@ def _finding_schema() -> str:
                 "snippet": "<short anchor snippet from the target line or null>",
                 "old_code": "<for a behaviour the PR drops: the base-version line that had it, else null>",
                 "suggested_comment": "<ready-to-post GitHub review comment>",
-                }
-            ],
-            "dismissed": [
-                {
-                    "path": "<file a triage question named>",
-                    "reason": "<one sentence: what you checked, or why you could not>",
                 }
             ],
             "reviewed": [
@@ -533,8 +340,8 @@ cross-file lookups (an imported type, a caller, a test) through Claude Code's ow
 tools instead of arbitrary shell recursion.
 """
 
-FINDINGS_WORKTREE_REFERENCE_EFFORT = "high"
-"""Reasoning-effort tier for findings batches that read files from the worktree.
+FINDINGS_EFFORT = "high"
+"""Reasoning-effort tier for the deep review session.
 
 It was "medium", and that was the right answer to a different question. Capping effort was
 a per-file cost mitigation: with one session per deep file, a real replay showed medium cut
@@ -580,26 +387,11 @@ def findings_json_schema() -> dict[str, Any]:
                     "required": ["severity", "category", "path", "title", "why", "evidence", "suggested_comment"],
                 },
             },
-            "dismissed": {
-                "type": "array",
-                "description": (
-                    "Questions from the triage you checked and found unfounded, or "
-                    "could not check. Empty when none were asked."
-                ),
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string"},
-                        "reason": {"type": "string", "description": "One sentence."},
-                    },
-                    "required": ["path", "reason"],
-                },
-            },
             "reviewed": {
                 "type": "array",
                 "description": (
-                    "Every file under Code to Review except the ones the triage flagged, each "
-                    "with one sentence on what was checked or why it could not be judged."
+                    "Every file under Code to Review, each with one sentence on what was "
+                    "checked or why it could not be judged."
                 ),
                 "items": {
                     "type": "object",
@@ -636,41 +428,18 @@ def findings_json_schema() -> dict[str, Any]:
         # `reviewed` is the coverage ledger: without it a session handed 58 files could
         # read a dozen and return, and nothing would say which ones it skipped (PR #236,
         # run 3c8aadad: four important defects in files that entered the prompt unread).
-        # Both sides required, deliberately. A findings-only schema teaches the model that
-        # "this is fine" is not an answer, and then a dismissed question is
-        # indistinguishable from an ignored one -- which is how the verification pass this
-        # replaces refuted 0 findings in four real runs while confirming a known false
-        # positive twice.
-        "required": ["findings", "dismissed", "focus", "reviewed", "key_facts", "open_suspicions"],
+        # Both sides required, deliberately: a findings-only schema teaches the model that
+        # "this is fine" is not an answer, and then a file checked and found clean is
+        # indistinguishable from one ignored.
+        "required": ["findings", "focus", "reviewed", "key_facts", "open_suspicions"],
     }
-
-
-def parse_dismissals(stdout: str, allowed_paths: set[str]) -> list[dict]:
-    """The `dismissed` side of a findings response, scoped to what was actually asked.
-
-    A dismissal of a file nobody flagged is as unfounded as a finding about one (cov-002),
-    and it would corrupt the accounting that tells a deliberate dismissal from silence.
-    """
-    match extract_json_payload(stdout, kind="object"):
-        case ClientSuccess(data=payload) if isinstance(payload, dict):
-            allowed = {normalize_finding_path(path) for path in allowed_paths}
-            kept = []
-            for item in payload.get("dismissed") or []:
-                if not isinstance(item, dict):
-                    continue
-                path = normalize_finding_path((item.get("path") or "").strip())
-                if path and path in allowed:
-                    kept.append({"path": path, "reason": (item.get("reason") or "").strip()})
-            return kept
-        case _:
-            return []
 
 
 def parse_reviewed_files(stdout: str, allowed_paths: set[str]) -> list[dict]:
     """The `reviewed` ledger of a findings response, scoped to the files that were handed.
 
-    An entry for a file the session was not given is dropped for the same reason a
-    dismissal of an unflagged file is: it would count coverage that did not happen.
+    An entry for a file the session was not given is dropped: it would count coverage
+    that did not happen.
     Repeated paths keep their first note.
     """
     match extract_json_payload(stdout, kind="object"):
@@ -768,31 +537,8 @@ def parse_findings_response(stdout: str, *, structured: bool) -> ClientResult[li
 
 
 def batch_scope_paths(batch: FocusContextBatch) -> set[str]:
-    """Every path this batch was entitled to make a finding about.
-
-    Three sources, and they are not the same thing:
-
-    - `files_context`: what was put in front of the model.
-    - the `for_path` half of each related-context key (stored as "<request type>:<path>").
-      The related CONTENT comes from an unlabelled sibling — `__init__.py`,
-      `protocols.py`, a `base_*` file — whose own path is recorded nowhere, so a finding
-      naming that sibling is the model inferring a path rather than reading one.
-    - the paths of the triage's suspicions. These files are NOT in `files_context` — the
-      session was asked to open them in the working tree and settle a question about
-      them — so without this the scope check drops every finding the triage's work leads
-      to, and the whole first pass is thrown away. The entitlement is explicit and
-      narrow: someone looked at that file's diff and asked about it by name.
-    """
-    paths = set(batch.files_context)
-    for key in batch.related_files:
-        _, _, for_path = key.partition(":")
-        if for_path:
-            paths.add(normalize_finding_path(for_path))
-    for item in batch.triage_suspicions:
-        suspicion_path = (item.get("path") or "").strip()
-        if suspicion_path:
-            paths.add(normalize_finding_path(suspicion_path))
-    return {normalize_finding_path(path) for path in paths}
+    """Every path this batch was entitled to make a finding about: the files it was handed."""
+    return {normalize_finding_path(path) for path in batch.files_context}
 
 
 def normalize_finding_path(path: str) -> str:
@@ -909,61 +655,12 @@ def build_default_findings() -> list[Finding]:
     return []
 
 
-TIMEOUT_FALLBACK_BATCH_SUFFIX = "_retry"
-
-
-def build_timeout_fallback_batch(
-    batch,
-    diff: str,
-    diff_manager=None,
-):
-    """Rebuild a timed-out worktree_reference batch in bounded hunks_only mode.
-
-    A worktree_reference batch sends a small prompt and lets the CLI explore the
-    file in the worktree — on very large files that exploration can eat the whole
-    timeout and the file ends up with ZERO review. The fallback trades depth for a
-    guaranteed bounded review: same files, inline diff hunks only, no exploration.
-    Checklist, comment context, PR manifest and related files carry over from the
-    original batch. Returns None when no path has diff hunks (nothing bounded to
-    retry with).
-    """
-    from ..models.review_enums import FileReadMode
-    from ..models.review_models import FileContextEntry, FocusContextBatch
-    from .context_resolution_operations import extract_hunks_only
-
-    files_context: dict[str, FileContextEntry] = {}
-    for path in batch.files_context:
-        hunks = extract_hunks_only(diff, path, diff_manager=diff_manager)
-        if not hunks:
-            continue
-        files_context[path] = FileContextEntry(
-            path=path,
-            read_mode=FileReadMode.HUNKS_ONLY,
-            hunks=hunks,
-            approximate_chars=sum(len(hunk) for hunk in hunks),
-        )
-
-    if not files_context:
-        return None
-
-    return FocusContextBatch(
-        batch_id=f"{batch.batch_id}{TIMEOUT_FALLBACK_BATCH_SUFFIX}",
-        files_context=files_context,
-        checklist_applicable=batch.checklist_applicable,
-        comment_context=batch.comment_context,
-        related_files=batch.related_files,
-        pr_manifest=batch.pr_manifest,
-    )
-
-
 def summarize_findings_prompt_parts(parts: dict[str, str]) -> dict[str, Any]:
     """Return character counts for each prompt block."""
     return {
         "pr_context_chars": len(parts["pr_context"]),
-        "comment_context_chars": len(parts["comments"]),
         "review_axes_chars": len(parts["review_axes"]),
         "files_context_chars": len(parts["files_context"]),
-        "related_context_chars": len(parts["related_context"]),
         "instructions_chars": len(parts["instructions"]),
         "schema_chars": len(parts["schema"]),
     }
@@ -971,3 +668,52 @@ def summarize_findings_prompt_parts(parts: dict[str, str]) -> dict[str, Any]:
 
 def _short_title(title: str, limit: int = 90) -> str:
     return title if len(title) <= limit else title[: limit - 3] + "..."
+
+
+# How much diff one coverage turn carries: ~15k tokens, a group a reviewer can hold in
+# view at once. A single diff past it is a group of its own, never cut.
+COVERAGE_TURN_MAX_CHARS = 60_000
+
+
+def build_coverage_groups(
+    paths: list[str], read_diff: Callable[[str], Optional[str]], max_chars: int = COVERAGE_TURN_MAX_CHARS
+) -> list[list[tuple[str, str]]]:
+    """Consecutive files, in reading order, packed into turns of at most `max_chars` of diff.
+
+    Reading order already keeps a test next to the code it tests, so a group holds files
+    that belong together.
+    """
+    groups: list[list[tuple[str, str]]] = []
+    size = 0
+    for path in paths:
+        diff = (read_diff(path) or "").strip()
+        if groups and size + len(diff) <= max_chars:
+            groups[-1].append((path, diff))
+            size += len(diff)
+        else:
+            groups.append([(path, diff)])
+            size = len(diff)
+    return groups
+
+
+def build_coverage_turn_prompt(group: list[tuple[str, str]], index: int, total: int) -> str:
+    """One turn of the file-by-file review: this group's diffs, and what to answer for each.
+
+    The diffs travel in the message, so they are read by construction: a file counts as
+    reviewed because Titan handed it over in this turn and the answer covers it, not because
+    a note says so.
+    """
+    files = "\n".join(f"### {path}\n```\n{diff}\n```\n" for path, diff in group)
+    return (
+        f"## Code review, group {index} of {total}: {len(group)} file(s)\n"
+        "Review each file below as code review, from its diff and what you already know of "
+        "this change: a test against the code it tests, a config or contract against who "
+        "reads it. Open the file in the working tree only when the diff leaves a concrete "
+        "question. For EVERY file below give its `reviewed` entry -- what it does and what "
+        "you checked -- and report each problem as a finding. Answer with the same JSON "
+        "object: `findings` only for problems not already reported, `focus` empty, "
+        "`key_facts` / `open_suspicions` only what is new.\n\n"
+        f"{files}\n"
+        "Respond ONLY with a valid JSON object of this shape. Do not include any prose before "
+        f"or after the JSON.\n{_finding_schema()}\n"
+    )

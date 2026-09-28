@@ -2,7 +2,7 @@
 
 from titan_cli.core.logging import get_logger
 
-from ..models.review_enums import AttentionTier, FileReadMode
+from ..models.review_enums import AttentionTier
 from ..models.review_models import (
     FileReviewPlan,
     ReviewBudget,
@@ -15,44 +15,6 @@ from .review_profile_operations import select_review_axes
 logger = get_logger(__name__)
 
 
-# One budget for every review, in Titan, generic. Not derived from a size label: the
-# five-tier table it replaces gave a 108-file PR and a 500-file PR the same 12 files
-# because HUGE was its last rung.
-#
-# What the deep batch may be HANDED. It does not bound what the model then reads from the
-# worktree, which is the real cost - it only stops one prompt from being absurd.
-#
-# It was 18,000, a figure sized when a batch held ONE file. The deep batch now holds every
-# deep file, and at 18,000 the budget went back to deciding the work: each file's share of
-# it came to ~1,600 chars on PR 251, under which almost every file loses its inline diff
-# and with it the snippet an inline comment anchors to (24 of 29 anchors in run 6c438999
-# resolved via a unique snippet).
-#
-# 120,000 was then outgrown by the first large PR: on #236 (run 3c8aadad) 58 deep files
-# carrying 339,258 chars of diff got ~4,000 chars each, 46 of them entered the prompt
-# NAMED ONLY, and the four important defects a free-form review found (and Titan did
-# not) were all in files of that kind. 400,000 chars is ~100k tokens: every diff of that
-# PR inline, and inside the context window of every model this review has been run on
-# (the smallest measured, deepseek-v3.2, takes 164k tokens).
-#
-# Raising it is cheap in the unit that actually pays. The findings calls in run 6c438999
-# reported ~3,300 INPUT tokens each against 100,365 output tokens for $7.4581 -- ~95% of
-# the bill is output. 120,000 chars is ~30,000 input tokens, about $0.45 once at opus
-# rates, and input is the half that caches. Characters were never the deep tier's cost
-# unit (D-002); this ceiling exists so a pathological PR cannot build a megabyte prompt,
-# and `fit_batch_to_budget` still enforces it against the real string.
-DEEP_MAX_PROMPT_CHARS = 400000
-
-# The triage cannot read the repo, so here the prompt IS the spend and characters are
-# the honest unit. Sized so an ordinary PR is ONE call: at 18,000 chars ragnarok PR 3692's
-# 24 glance files (144,805 chars of diff) took 12 calls, each paying the CLI's own fixed
-# context (~$0.08 on claude) -- $1.18 for the triage against $0.66 for the deep review --
-# and no call could rank its questions against the other eleven's. 200,000 chars is ~50k
-# tokens, inside every supported CLI's context window.
-TRIAGE_MAX_PROMPT_CHARS = 200000
-
-MAX_COMMENT_ENTRIES = 10
-
 # How long one deep call may run. Derived from the files it was handed rather than flat,
 # because the duration of an agentic session tracks how much code it has to open: ten
 # files in one session measured 251 s at medium effort and 363 s at high, while the flat
@@ -62,9 +24,8 @@ MAX_COMMENT_ENTRIES = 10
 #
 # The margin over the measurement is intentional. A timeout does not bound the bill --
 # effort and model choice do -- so the only thing a tight deadline buys is a review that
-# dies at 99% and, before the split path below existed, died silently. The cap exists so
-# a genuinely hung CLI cannot hold a review open indefinitely, and Ctrl+C reaches the
-# call before then.
+# dies at 99%. The cap exists so a genuinely hung CLI cannot hold a review open
+# indefinitely, and Ctrl+C reaches the call before then.
 DEEP_TIMEOUT_BASE_SECONDS = 300
 DEEP_TIMEOUT_PER_FILE_SECONDS = 120
 DEEP_TIMEOUT_MAX_SECONDS = 1500
@@ -77,9 +38,6 @@ def review_budget() -> ReviewBudget:
     and so a future per-project override has one place to land.
     """
     return ReviewBudget(
-        deep_max_prompt_chars=DEEP_MAX_PROMPT_CHARS,
-        triage_max_prompt_chars=TRIAGE_MAX_PROMPT_CHARS,
-        max_comment_entries=MAX_COMMENT_ENTRIES,
         deep_timeout_base_seconds=DEEP_TIMEOUT_BASE_SECONDS,
         deep_timeout_per_file_seconds=DEEP_TIMEOUT_PER_FILE_SECONDS,
         deep_timeout_max_seconds=DEEP_TIMEOUT_MAX_SECONDS,
@@ -106,10 +64,9 @@ def build_deterministic_review_plan(
 ) -> ReviewPlan:
     """Decide what the deep session reads, without asking a model or scoring anything.
 
-    The deep tier IS the selection: every deep file is read, in manifest order, with its
-    diff inline and the file open in the worktree. Everything else that is not skipped
-    goes to the triage, so nothing reviewable is left out and there is no exclusion list
-    to keep.
+    The deep tier IS the selection: every deep file is reviewed in depth, in manifest
+    order. The glance files join the same session (see `build_review_context_package`),
+    so nothing reviewable is left out and there is no exclusion list to keep.
 
     Two layers that sat in front of this are gone. An AI planning call (run 4fd7f345: 92,463
     input tokens to choose 7 of the 9 files the tiers had already marked deep), and a
@@ -121,7 +78,6 @@ def build_deterministic_review_plan(
     focus_files = [
         FileReviewPlan(
             path=entry.path,
-            read_mode=FileReadMode.EXPANDED_HUNKS,
             reasons=[entry.reason],
         )
         for entry in deep_entries

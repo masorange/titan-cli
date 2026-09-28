@@ -12,7 +12,7 @@ only the surrounding file reveals; a test's fifty new lines usually cannot.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable
 
 from ..models.review_enums import AttentionTier, FileChangeStatus
 from ..models.review_models import ChangedFileEntry
@@ -76,7 +76,7 @@ def resolve_file_attention(
        everything including the skips below. A hatch that gets second-guessed is not a
        hatch.
     0. **Deleted files** — `glance`, before everything else: nothing to open, but their
-       diff is what the PR removes, which the triage must see.
+       diff is what the PR removes, which the review must see.
     2. **Lockfiles and rename-only changes** — `skip`. Neither can carry a reviewable
        defect: one is machine-resolved dependency arithmetic, the other moves a file
        without changing what it does.
@@ -101,12 +101,11 @@ def resolve_file_attention(
         )
 
         if changed.status == FileChangeStatus.DELETED:
-            # To the triage, never to the deep session and never skipped. There is no
-            # file left to open, but the diff says exactly what disappears, and "was this
-            # migrated, or is it simply gone?" is the question a migration PR turns on.
-            # Skipping them was measured on ragnarok PR #3720: the triage stopped seeing
-            # the deleted event classes and asked 2-3 questions instead of 13-16 -- the
-            # ones that found edit-user-details tracking removed outright.
+            # Glance, never skipped. There is no file left to open, but the diff says
+            # exactly what disappears, and "was this migrated, or is it simply gone?" is
+            # the question a migration PR turns on. Skipping them was measured on ragnarok
+            # PR #3720: the review stopped seeing the deleted event classes and missed the
+            # edit-user-details tracking removed outright.
             entries.append(FileAttention(changed.path, AttentionTier.GLANCE, role, "deleted"))
             continue
 
@@ -177,40 +176,28 @@ def build_change_shape_lines(
     plan: AttentionPlan,
     files: list[ChangedFileEntry],
     reviewed_paths: set[str],
-    triage_notes: Optional[dict[str, str]] = None,
-    flagged_paths: Optional[set[str]] = None,
 ) -> list[str]:
     """The review checklist: one line per changed file, with who covers it.
 
     Every changed file, its role and churn, and whose task it is: `YOU: review` for a file
-    the deep session reads, `YOU: triage question` for one it only has to settle, and for
-    the rest what the triage said about it, or its tier when the triage did not see it. No
-    file CONTENT is included, so this stays a few dozen characters per file however large
-    the PR is.
+    the deep session reviews, and its tier for the rest. No file CONTENT is included, so
+    this stays a few dozen characters per file however large the PR is.
 
     The session's own rows come first. With every file in plan order, its tasks were
     scattered through the whole PR's list, and covering them was one instruction among
     many rather than a list it could see it had not finished.
     """
-    notes = triage_notes or {}
-    flagged = flagged_paths or set()
     churn = {entry.path: (entry.additions, entry.deletions) for entry in files}
     own: list[str] = []
-    questions: list[str] = []
     rest: list[str] = []
     for entry in plan.files:
         additions, deletions = churn.get(entry.path, (0, 0))
         if entry.path in reviewed_paths:
             bucket, covered_by = own, "YOU: review"
-        elif entry.path in flagged:
-            bucket, covered_by = questions, "YOU: triage question"
-        elif notes.get(entry.path):
-            # A pipe inside the note would read as a new column.
-            bucket, covered_by = rest, "triage: " + notes[entry.path].replace("|", "/").strip()
         else:
             bucket, covered_by = rest, entry.tier.value
         bucket.append(f"{entry.path} | role={entry.role} | {covered_by} | +{additions}/-{deletions}")
-    return own + questions + rest
+    return own + rest
 
 
 _TEST_STEM_PREFIXES = ("test_", "tests_")

@@ -149,16 +149,12 @@
           "summary": "Assign every changed file deep, glance or skip, and decide what the deep review reads."
         },
         {
-          "name": "ai_review_triage",
-          "summary": "Triage every glance file from its diff in one call; publishes nothing, flags questions for the deep review."
-        },
-        {
           "name": "resolve_review_context",
           "summary": "Expand the precise review contexts needed for targeted analysis."
         },
         {
           "name": "ai_review_findings",
-          "summary": "Deep review: one session over the deep files, then settle the triage questions."
+          "summary": "Deep review: one session over every deep and glance file, with the material as files in the worktree."
         },
         {
           "name": "normalize_findings",
@@ -239,27 +235,6 @@
         "Returns": [
           "    Whatever the deep review returns: Success with raw findings, Skip when AI is",
           "    off for the task, or Error when every batch failed."
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
-      "name": "ai_review_triage",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "ai_review_triage",
-      "summary": "Call 1 of the review: triage every file the deep session will not open.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    review_triage_notes (list[dict]): one note per triaged file",
-          "    review_triage_suspicions (list[dict]): the subset worth opening"
-        ],
-        "Returns": [
-          "    Success (always, when it can run at all)"
         ]
       },
       "used_by_workflows": [
@@ -1073,7 +1048,7 @@
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
       "function": "resolve_review_context",
-      "summary": "Fetch the exact code context according to the validated review plan.",
+      "summary": "Write the review material into the worktree and build the deep session over it.",
       "docstring_sections": {
         "Requires": [],
         "Inputs (from ctx.data)": [],

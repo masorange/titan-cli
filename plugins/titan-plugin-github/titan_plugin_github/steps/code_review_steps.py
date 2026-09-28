@@ -23,7 +23,6 @@ from titan_cli.external_cli.adapters import get_headless_adapter, list_available
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
-from ..managers.prompt_budget_manager import get_prompt_budget_manager
 from ..models.review_enums import ReviewActionType, ThreadDecisionType
 from ..models.review_models import (
     ReferencedCommitContext,
@@ -182,12 +181,6 @@ def _cli_failure_reason(response, cli_name: str) -> str:
 
 
 _CLI_MESSAGE_MAX_CHARS = 200
-
-# How many findings batches run against the CLI at once. The review is ONE session, so
-# this only matters when a timed-out session is split and its halves re-run. Zero token
-# cost, only wall time; kept low because each worker is a full CLI session and provider
-# rate limits apply.
-FINDINGS_BATCH_CONCURRENCY = 2
 
 
 def _cli_own_words(response) -> str:
@@ -1012,6 +1005,15 @@ class _PinnedModelCli:
         self._record(prompt, kwargs, response, time.monotonic() - started_at)
         return response
 
+    def resume(self, session_id, prompt, **kwargs):
+        """`execute`'s rules for one more turn of an existing session."""
+        if kwargs.get("model") is None:
+            kwargs["model"] = self._model
+        started_at = time.monotonic()
+        response = self._adapter.resume(session_id, prompt, **kwargs)
+        self._record(prompt, kwargs, response, time.monotonic() - started_at)
+        return response
+
     def _record(self, prompt, kwargs, response, duration_seconds: float) -> None:
         """Append one call record and log it. Never allowed to break the review."""
         try:
@@ -1467,8 +1469,8 @@ def build_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     Decide how much attention every changed file gets, and what the deep session reads.
     No AI call.
 
-    One rule per file (`resolve_file_attention`): deep files are read by the deep
-    session, glance files go to the triage, skipped files are named on screen. The deep
+    One rule per file (`resolve_file_attention`): deep and glance files are reviewed by
+    the deep session, skipped files are named on screen. The deep
     tier IS the selection -- there is no scorer ranking files for a cut and no model
     choosing again.
 
@@ -1515,8 +1517,6 @@ def build_review_plan(ctx: WorkflowContext) -> WorkflowResult:
     budget = review_budget()
     logger.debug(
         "review_budget_resolved",
-        deep_max_prompt_chars=budget.deep_max_prompt_chars,
-        triage_max_prompt_chars=budget.triage_max_prompt_chars,
         deep_timeout_base_seconds=budget.deep_timeout_base_seconds,
         deep_timeout_per_file_seconds=budget.deep_timeout_per_file_seconds,
         deep_timeout_max_seconds=budget.deep_timeout_max_seconds,
@@ -1687,38 +1687,18 @@ def _render_review_checklist(ctx: WorkflowContext, checklist: list, selected: se
 
 
 def _show_review_context_batches(ctx: WorkflowContext, batches: list) -> None:
-    """Show what each deep session receives, grouped by HOW it receives each file.
-
-    A flat list of every path repeated what Review Plan had just shown and hid the only
-    thing this step adds: which files arrive with their diff, which lost their added
-    lines to the prompt budget, and which are only named for a triage question.
-    """
+    """Show what the deep session receives: every file, its diff and previous version as
+    files in the worktree, behind a fold."""
     from titan_cli.ui.tui.widgets import CollapsibleEntry
     from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
 
     from ..operations.attention_operations import split_display_path
-    from ..operations.context_resolution_operations import (
-        CONTEXT_GROUP_LABELS,
-        group_batch_files_by_delivery,
-    )
 
     for batch in batches:
-        groups = group_batch_files_by_delivery(batch)
-        children = []
-        for key, paths in groups.items():
-            body = []
-            for path in paths:
-                name, directory = split_display_path(path)
-                body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
-            children.append(
-                CollapsibleEntry(title=CONTEXT_GROUP_LABELS[key], right=str(len(paths)), body=body)
-            )
-        related_count = len(getattr(batch, "related_files", {}) or {})
-        if related_count:
-            # Named, not included: the session opens them in the worktree if it needs them.
-            children.append(
-                CollapsibleEntry(title="Related files pointed out", right=str(related_count))
-            )
+        body = []
+        for path in batch.files_context:
+            name, directory = split_display_path(path)
+            body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
         ctx.textual.text(" ")
         ctx.textual.collapsible_list([
             CollapsibleEntry(
@@ -1726,12 +1706,16 @@ def _show_review_context_batches(ctx: WorkflowContext, batches: list) -> None:
                 # Kept: the findings step names the same id, so the two can be matched.
                 right=batch.batch_id,
                 style="bold",
-                children=children,
+                children=[
+                    CollapsibleEntry(
+                        title="Diff and previous version as files in the worktree",
+                        right=str(len(body)),
+                        body=body,
+                    )
+                ],
                 expanded=True,
             )
         ])
-        if getattr(batch, "degraded_context", False):
-            ctx.textual.dim_text("  context reduced to fit the AI prompt size limit")
 
 
 def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
@@ -1799,184 +1783,114 @@ def _retry_findings_batch_reformat(
     return parse_findings_response(response.stdout, structured=structured)
 
 
-def _render_findings_batch_split(ctx: WorkflowContext, batch_id: str, produced_batches: list[str]) -> None:
-    """Render a batch split caused by prompt budget constraints."""
-    ctx.textual.dim_text(
-        f"{batch_id} was too large for one AI call — split into {', '.join(produced_batches)}"
-    )
+def _run_coverage_turns(
+    ctx: WorkflowContext, batch, session_id: str, focus: list[dict], run, effort: Optional[str]
+) -> dict:
+    """Review every non-focus file, group by group, in more turns of the same session.
 
-
-def _render_findings_batch_degraded(ctx: WorkflowContext, batch_id: str) -> None:
-    """Render an in-place context reduction (no new batches) caused by prompt budget constraints."""
-    ctx.textual.dim_text(f"{batch_id} was too large — file context reduced to fit the AI call")
-
-
-def _retry_timed_out_worktree_batch(ctx: WorkflowContext, batch, run, budget) -> list[tuple]:
-    """Retry a timed-out worktree_reference batch in bounded hunks_only mode.
-
-    Runs on the step thread (UI access is fine). Returns the (batch, outcome) pairs the
-    retry produced -- more than one when the fallback had to be split -- or an empty list
-    when no bounded fallback was possible at all, in which case the caller keeps the
-    original failed outcome.
-
-    A fallback that does not fit the budget is SPLIT through the same
-    `fit_batch_to_budget` machinery phase 1 uses, not abandoned. It used to return early
-    and keep the timeout silently, with no UI line and no log event: measured on PR #254,
-    one file's fallback prompt came to 149,353 chars against an 18,000 budget and that
-    file went unreviewed in three consecutive runs without saying so. Every outcome here
-    is logged, including the one where nothing can be retried.
-
-    File reads are forbidden in the fallback (`allow_file_reads=False`): degrading back
-    to a worktree_reference is exactly the mode that just timed out.
+    Titan keeps the list: each turn hands over one group's diffs inside the message and
+    records the files the answer covers. A file handed over and left unanswered is handed
+    over once more at the end. What comes back unanswered twice stays unreviewed, on screen.
     """
     from ..operations.findings_operations import (
-        build_findings_prompt_parts,
-        build_timeout_fallback_batch,
+        build_coverage_groups,
+        build_coverage_turn_prompt,
+        normalize_finding_path,
     )
 
-    budget = budget or review_budget()
-    budget_chars = budget.deep_max_prompt_chars
+    read_diff, _ = _coverage_readers(ctx.data.get("worktree_path"))
+    focus_paths = {normalize_finding_path(item["path"]) for item in focus}
+    ledger = [
+        {"path": item["path"], "note": f"Reviewed in depth: {item.get('why', '')}".strip()} for item in focus
+    ]
+    pending = [path for path in batch.files_context if normalize_finding_path(path) not in focus_paths]
+    result = {"raw": [], "old_code_rejected": [], "out_of_scope_findings": [], "notes": {"key_facts": [], "open_suspicions": []}, "ledger": ledger}
+    if not pending:
+        return result
 
-    fallback = build_timeout_fallback_batch(
-        batch, ctx.get("review_diff", ""), diff_manager=ctx.get("review_diff_manager")
+    groups = build_coverage_groups(pending, read_diff)
+    ctx.textual.dim_text(
+        f"Reviewing the other {len(pending)} file(s) in {len(groups)} more turn(s) of the same session"
     )
-    if not fallback:
-        logger.warning(
-            "findings_batch_timeout_fallback_unavailable",
-            batch_id=batch.batch_id,
-            reason="no_diff_hunks",
-            paths=sorted(batch.files_context),
-        )
-        ctx.textual.warning_text(
-            f"⚠ {batch.batch_id} timed out and has no diff hunks to retry with. "
-            f"NOT reviewed: {', '.join(sorted(batch.files_context)) or 'unknown files'}"
-        )
-        return []
+    answered: set[str] = set()
+    retry: list[str] = []
+    turn = 0
 
-    manager = get_prompt_budget_manager()
-    queue = [fallback]
-    ready: list[tuple] = []
-    oversized: list = []
-    while queue:
-        candidate = queue.pop(0)
-        prompt_parts = build_findings_prompt_parts(candidate)
-        fitted_batches, changed = manager.fit_batch_to_budget(
-            candidate, prompt_parts, budget_chars, allow_file_reads=False
+    def run_group(group: list[tuple[str, str]], index: int, total: int) -> None:
+        nonlocal turn
+        turn += 1
+        prompt = build_coverage_turn_prompt(group, index, total)
+        with ctx.textual.loading(f"Reviewing group {index}/{total} ({len(group)} file(s))…"):
+            outcome = run((batch, prompt, effort, session_id, len(group)))
+        paths = [path for path, _ in group]
+        covered = []
+        if outcome["status"] == "success":
+            by_path = {normalize_finding_path(item["path"]): item for item in outcome.get("reviewed") or []}
+            for path in paths:
+                item = by_path.get(normalize_finding_path(path))
+                if item is not None:
+                    covered.append(path)
+                    answered.add(path)
+                    ledger.append(item)
+            result["raw"].extend(outcome.get("raw") or [])
+            result["old_code_rejected"].extend(outcome.get("old_code_rejected") or [])
+            result["out_of_scope_findings"].extend(outcome.get("out_of_scope_findings") or [])
+            for key in result["notes"]:
+                result["notes"][key].extend(outcome.get(key) or [])
+        logger.info(
+            "coverage_turn",
+            turn=turn,
+            group=index,
+            groups=total,
+            files=len(paths),
+            answered=len(covered),
+            unanswered=[path for path in paths if path not in covered],
+            findings=len(outcome.get("raw") or []) if outcome["status"] == "success" else 0,
+            status=outcome["status"],
+            detail=outcome.get("detail") or None,
+            prompt_chars=len(prompt),
         )
-        if changed:
-            queue = fitted_batches + queue
-            continue
-        fitted = fitted_batches[0]
-        prompt = build_findings_prompt_parts(fitted)["prompt"]
-        if len(prompt) > budget_chars:
-            oversized.append(fitted)
-            continue
-        ready.append((fitted, prompt))
-
-    if oversized:
-        # Reached only when a single hunk on its own exceeds the budget, so there is
-        # nothing left to divide. Said out loud rather than dropped.
-        logger.warning(
-            "findings_batch_timeout_fallback_oversized",
-            batch_id=batch.batch_id,
-            oversized_batches=[candidate.batch_id for candidate in oversized],
-            prompt_budget_target_chars=budget_chars,
-        )
-        skipped = sorted({path for candidate in oversized for path in candidate.files_context})
-        ctx.textual.warning_text(
-            f"⚠ {batch.batch_id} timed out and part of its fallback is too large to send. "
-            f"NOT reviewed: {', '.join(skipped) or 'unknown files'}"
-        )
-
-    if not ready:
-        return []
-
-    if len(ready) == 1:
         ctx.textual.dim_text(
-            f"{batch.batch_id} timed out exploring the worktree — retrying with inline diff hunks only"
+            f"  group {index}/{total}: {len(covered)} of {len(paths)} file(s) reviewed"
+            + (f", {len(outcome.get('raw') or [])} finding(s)" if outcome["status"] == "success" else f" — {outcome.get('detail')}")
         )
-    else:
-        ctx.textual.dim_text(
-            f"{batch.batch_id} timed out exploring the worktree — retrying with inline diff "
-            f"hunks only, split into {len(ready)} call(s)"
-        )
+
+    for index, group in enumerate(groups, start=1):
+        run_group(group, index, len(groups))
+    retry = [path for path in pending if path not in answered]
+    if retry:
+        again = build_coverage_groups(retry, read_diff)
+        for index, group in enumerate(again, start=1):
+            run_group(group, index, len(again))
     logger.info(
-        "findings_batch_timeout_fallback",
-        batch_id=batch.batch_id,
-        fallback_batch_ids=[fallback_batch.batch_id for fallback_batch, _ in ready],
-        prompt_actual_chars=[len(prompt) for _, prompt in ready],
-        prompt_budget_target_chars=budget_chars,
-        oversized=len(oversized),
+        "coverage_turns_done",
+        files=len(pending),
+        turns=turn,
+        reviewed=len(answered),
+        unreviewed=[path for path in pending if path not in answered],
+        findings=len(result["raw"]),
     )
-
-    results: list[tuple] = []
-    for index, (fallback_batch, prompt) in enumerate(ready, start=1):
-        label = fallback_batch.batch_id
-        if len(ready) > 1:
-            label += f" ({index}/{len(ready)})"
-        with ctx.textual.loading(f"Retrying {label} with inline hunks…"):
-            results.append((fallback_batch, run((fallback_batch, prompt, None))))
-    return results
+    return result
 
 
-def _render_settled_questions(ctx: WorkflowContext, batches, dismissed: list, findings: list) -> None:
-    """Say what became of every question the first pass raised.
+def _coverage_readers(project_root: Optional[str]):
+    """Readers for a changed file's rendered diff and its new version in the worktree."""
+    from ..operations.review_material_operations import diff_file_path
 
-    Three outcomes, and the third is the one worth showing: confirmed (a finding names
-    that file), dismissed (the session says what it checked), or UNANSWERED — which used
-    to look exactly like a dismissal, because both produce nothing.
-    """
-    asked = {
-        (item.get("path") or "").strip()
-        for batch in batches
-        for item in (batch.triage_suspicions or [])
-    }
-    asked.discard("")
-    if not asked:
-        return
+    if not project_root:
+        return (lambda path: None), (lambda path: None)
+    root = Path(project_root).resolve()
 
-    from ..operations.findings_operations import normalize_finding_path
+    def _read(relative: str) -> Optional[str]:
+        target = (root / relative).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            return None
+        try:
+            return target.read_text()
+        except (OSError, UnicodeDecodeError):
+            return None
 
-    finding_paths = {
-        normalize_finding_path(finding.get("path") or "")
-        for finding in findings or []
-        if isinstance(finding, dict)
-    }
-    confirmed = {path for path in asked if normalize_finding_path(path) in finding_paths}
-    # One outcome per question. A session can report a finding on a file AND dismiss its
-    # question in the same answer; the finding is what reaches the PR, so it wins.
-    dismissed = [item for item in dismissed if item["path"] not in confirmed]
-    dismissed_paths = {item["path"] for item in dismissed}
-    unanswered = sorted(asked - confirmed - dismissed_paths)
-
-    logger.info(
-        "triage_suspicion_outcomes",
-        asked=len(asked),
-        confirmed=len(confirmed),
-        dismissed=len(dismissed_paths),
-        unanswered=len(unanswered),
-        unanswered_paths=unanswered,
-    )
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    ctx.textual.text(" ")
-    ctx.textual.bold_text(
-        f"Triage questions · {len(confirmed)} confirmed · {len(dismissed_paths)} dismissed"
-        + (f" · {len(unanswered)} unanswered" if unanswered else "")
-    )
-    for path in sorted(confirmed):
-        ctx.textual.text(" ")
-        ctx.textual.text(_display_file_label(path))
-        ctx.textual.success_text("  ↳ confirmed — reported as a finding")
-    for item in dismissed:
-        ctx.textual.text(" ")
-        ctx.textual.text(_display_file_label(item["path"]))
-        reason = _highlight_inline_code(escape_markup(item.get("reason", "") or "no reason given"))
-        ctx.textual.text(f"  ↳ [dim]dismissed:[/dim] {reason}")
-    for path in unanswered:
-        ctx.textual.text(" ")
-        ctx.textual.text(_display_file_label(path))
-        ctx.textual.warning_text("  ↳ unanswered — the session did not settle this one")
+    return (lambda path: _read(diff_file_path(path))), _read
 
 
 def _render_review_coverage(ctx: WorkflowContext, handed: set, ledger: list[dict]) -> None:
@@ -2084,7 +1998,6 @@ def _save_coverage_record(
     ctx: WorkflowContext,
     batches,
     reviewed: list[dict],
-    dismissed: list[dict],
     findings: list,
     session_notes: dict[str, list[str]],
     focus: Optional[list[dict]] = None,
@@ -2115,7 +2028,7 @@ def _save_coverage_record(
     )
     try:
         record = build_coverage_record(
-            batch, reviewed, dismissed, findings, session_notes, now, focus=focus or []
+            batch, reviewed, findings, session_notes, now, focus=focus or []
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
@@ -2270,68 +2183,24 @@ def _write_review_material(
     return has_base
 
 
-def _resolve_file_read_access(ctx: WorkflowContext, worktree_path: Optional[str]):
-    """
-    Decide whether files on disk may be used as this PR's code.
-
-    Worktree creation is allowed to fail in the workflow, and the fallback root is the
-    user's own checkout — which is usually on a different branch. Query its HEAD and
-    dirty state so the decision is made on facts rather than assumed.
-    """
-    from ..operations.context_resolution_operations import resolve_file_read_access
-
-    if worktree_path:
-        return resolve_file_read_access(worktree_path)
-
-    head_sha = ctx.data.get("review_commit_sha")
-    checkout_sha = None
-    checkout_dirty = None
-
-    if ctx.git:
-        match ctx.git.get_current_commit():
-            case ClientSuccess(data=sha):
-                checkout_sha = (sha or "").strip()
-            case ClientError(error_message=err):
-                logger.debug("checkout_sha_unavailable", error=err)
-
-        match ctx.git.has_uncommitted_changes():
-            case ClientSuccess(data=dirty):
-                checkout_dirty = dirty
-            case ClientError(error_message=err):
-                logger.debug("checkout_dirty_state_unavailable", error=err)
-
-    access = resolve_file_read_access(
-        worktree_path=None,
-        head_sha=head_sha,
-        checkout_sha=checkout_sha,
-        checkout_dirty=checkout_dirty,
-    )
-    logger.debug(
-        "file_read_access_resolved",
-        allowed=access.allowed,
-        source=access.source,
-        reason=access.reason,
-    )
-    return access
-
-
 def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Fetch the exact code context according to the validated review plan.
+    Write the review material into the worktree and build the deep session over it.
 
-    For each file in the plan, extracts code using the chosen read_mode:
-    - hunks_only: diff hunks as-is (already has 20 lines of context)
-    - expanded_hunks: hunks + extra surrounding lines from the actual file
-    - full_file: reads the complete file from disk
+    The material is the diff of every changed file, its base version and the PR with its
+    comments, all as files in the review worktree (`.titan-review/`). The session opens them
+    as it needs them, so the prompt carries a pointer per file and no diff.
 
-    Also resolves any extra context requests (related_tests, related_context).
+    A worktree is required. The review used to fall back to pasting diffs into the prompt
+    without one, and that path reviewed less for more: a 400k-char prompt re-read on every
+    turn, auto-compacted to a summary after the first call.
 
     Requires (from ctx.data):
         validated_review_plan (ReviewPlan)
         change_manifest (ChangeManifest)
         review_diff (str)
-        existing_comments_index (List[ExistingCommentIndexEntry])
         review_checklist (List[ReviewChecklistItem])
+        worktree_path (str)
 
     Outputs (saved to ctx.data):
         review_context_package (ReviewContextPackage)
@@ -2349,10 +2218,8 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     diff = ctx.get("review_diff", "")
     comment_context = ctx.get("comment_review_context", [])
     checklist = ctx.get("review_checklist", [])
-    budget = _get_review_budget(ctx)
     review_profile = _get_review_profile(ctx)
     worktree_path = ctx.data.get("worktree_path")
-    project_root = worktree_path or ctx.data.get("project_root")
 
     if not plan or not manifest:
         ctx.textual.error_text("Missing validated_review_plan or change_manifest in context")
@@ -2364,52 +2231,40 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error("No diff in context (run fetch_pr_review_bundle first)")
 
+    if not worktree_path:
+        message = (
+            "No review worktree: the review needs the PR checked out in one to hand the "
+            "session its material. Check the Create Worktree step above."
+        )
+        ctx.textual.error_text(message)
+        ctx.textual.end_step("error")
+        return Error(message)
+
     from ..operations.context_resolution_operations import build_review_context_package
     diff_manager = ctx.get("review_diff_manager")
+    # The same root powers the comment-rendering path, so a finding about pre-existing
+    # code can show that code instead of nothing.
+    _attach_content_provider(diff_manager, worktree_path)
 
-    read_access = _resolve_file_read_access(ctx, worktree_path)
-    if read_access.allowed:
-        ctx.textual.dim_text(f"Reading files from {read_access.source} ({read_access.reason})")
-        # Same verified root powers the comment-rendering path, so a finding about
-        # pre-existing code can show that code instead of nothing.
-        _attach_content_provider(diff_manager, project_root)
-    else:
-        ctx.textual.warning_text(
-            f"Reviewing from the diff only — {read_access.reason}. "
-            "Full-file and expanded-hunk context are disabled to avoid mixing revisions."
-        )
-
-    # The material goes to the worktree as files when there is one to write into; without
-    # it the review falls back to carrying the diffs in the prompt.
-    review_material = (
-        _write_review_material(ctx, worktree_path, manifest, diff_manager, comment_context)
-        if worktree_path and read_access.allowed
-        else None
-    )
+    review_material = _write_review_material(ctx, worktree_path, manifest, diff_manager, comment_context)
+    if review_material is None:
+        message = "The review material could not be written into the worktree (see the log)."
+        ctx.textual.error_text(message)
+        ctx.textual.end_step("error")
+        return Error(message)
 
     try:
-        with ctx.textual.loading("Extracting code context…"):
-            package = build_review_context_package(
-                plan=plan,
-                diff=diff,
-                manifest=manifest,
-                checklist=checklist,
-                comment_context=comment_context,
-                budget=budget,
-                cwd=project_root,
-                diff_manager=diff_manager,
-                allow_file_reads=read_access.allowed,
-                # The whole change's shape, so the session judges the PR rather than the
-                # files it happens to have been handed. Absent only if build_review_plan did
-                # not run, in which case the batches simply carry no shape section.
-                attention_plan=ctx.get("attention_plan"),
-                review_profile=review_profile,
-                # The first pass's questions ride in the SAME session that reviews the
-                # core, because that is who can answer them best (D-014).
-                triage_suspicions=ctx.get("review_triage_suspicions", []),
-                triage_notes=ctx.get("review_triage_notes", []),
-                review_material=review_material,
-            )
+        package = build_review_context_package(
+            plan=plan,
+            manifest=manifest,
+            checklist=checklist,
+            review_material=review_material,
+            cwd=worktree_path,
+            # The whole change's shape, so the session judges the PR rather than the
+            # files it happens to have been handed.
+            attention_plan=ctx.get("attention_plan"),
+            review_profile=review_profile,
+        )
     except Exception as e:
         ctx.textual.error_text(f"Failed to resolve review context: {e}")
         ctx.textual.end_step("error")
@@ -2417,15 +2272,9 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.data["review_context_package"] = package
     ctx.data["review_context_batches"] = package.batches
-    ctx.data["review_file_reads_allowed"] = read_access.allowed
 
-    batch_count = len(package.batches)
     files_count = sum(len(batch.files_context) for batch in package.batches)
-
-    ctx.textual.success_text(
-        f"✓ Context ready · {files_count} file(s)"
-        + (f" in {batch_count} sessions" if batch_count > 1 else "")
-    )
+    ctx.textual.success_text(f"✓ Context ready · {files_count} file(s)")
     # Shown, because a review's judgement depends on which project rules it was told to
     # read, and "no project context" is the thing worth noticing when a finding argues
     # against a convention this repo chose on purpose.
@@ -2437,11 +2286,7 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
             "no project context documents found — the review judges the diff against "
             "general practice only (set context_docs in .titan/review/profile.yaml)"
         )
-    logger.info(
-        "review_context_summary",
-        comments_in_context=sum(len(batch.comment_context) for batch in package.batches),
-        context_docs=len(context_docs),
-    )
+    logger.info("review_context_summary", context_docs=len(context_docs))
     _show_review_context_batches(ctx, package.batches)
     ctx.textual.end_step("success")
     return Success(
@@ -2449,7 +2294,6 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
         metadata={
             "review_context_package": package,
             "review_context_batches": package.batches,
-            "review_file_reads_allowed": read_access.allowed,
         },
     )
 
@@ -2508,7 +2352,7 @@ def _scoped_batch_outcome(
             rejected=rejected,
         )
     old_code_rejected: list = []
-    if project_root and any(entry.on_disk for entry in batch.files_context.values()):
+    if project_root:
         from ..operations.review_material_operations import check_old_code_claims
 
         kept, old_code_rejected = check_old_code_claims(
@@ -2577,7 +2421,7 @@ def _repo_file_checker(project_root: Optional[str]):
     return _is_repo_file
 
 
-def _log_parsed_findings(batch_id: str, raw: list, dismissed: list[dict]) -> None:
+def _log_parsed_findings(batch_id: str, raw: list) -> None:
     """Record what the session answered, whole, before anything filters it.
 
     The response log keeps only the edges of stdout, and the finding that decides a
@@ -2590,22 +2434,7 @@ def _log_parsed_findings(batch_id: str, raw: list, dismissed: list[dict]) -> Non
         batch_id=batch_id,
         findings_count=len(raw),
         findings=raw,
-        dismissed=dismissed,
     )
-
-
-def _settled_questions(stdout: str, batch) -> list[dict]:
-    """The questions this batch dismissed, scoped to the ones it was actually asked.
-
-    Recorded because a question opened and dismissed on purpose is otherwise
-    indistinguishable from one ignored: both produce no finding.
-    """
-    from ..operations.findings_operations import parse_dismissals
-
-    if not batch.triage_suspicions:
-        return []
-    asked = {(item.get("path") or "").strip() for item in batch.triage_suspicions}
-    return parse_dismissals(stdout, {path for path in asked if path})
 
 
 def _execute_findings_batch(
@@ -2618,9 +2447,9 @@ def _execute_findings_batch(
     disallowed_tools: Optional[list],
     effort: Optional[str],
     use_structured_output: bool,
-    strategy_name: Optional[str],
     timeout_seconds: int,
     manifest_paths: Optional[set] = None,
+    session_id: Optional[str] = None,
 ) -> dict:
     """Run one findings batch end-to-end: CLI call, parse, reformat retry, scope check.
 
@@ -2641,26 +2470,26 @@ def _execute_findings_batch(
     # run_interruptible here also covers the pooled path: on app exit each worker
     # raises WorkflowAborted, its future completes, and the step thread's
     # future.result() re-raises it instead of blocking on a live CLI call.
+    call_options = dict(
+        cwd=project_root,
+        timeout=timeout_seconds,
+        json_schema=findings_schema,
+        disallowed_tools=disallowed_tools,
+        effort=effort,
+    )
+    # With `session_id` the prompt is one more turn of that session rather than a new one.
     response = run_interruptible(
-        lambda: adapter.execute(
-            prompt,
-            cwd=project_root,
-            timeout=timeout_seconds,
-            json_schema=findings_schema,
-            disallowed_tools=disallowed_tools,
-            effort=effort,
-        )
+        lambda: adapter.resume(session_id, prompt, **call_options)
+        if session_id
+        else adapter.execute(prompt, **call_options)
     )
     adapter_duration_seconds = time.monotonic() - adapter_started_at
-    worktree_reference_count = sum(
-        1 for entry in batch.files_context.values() if entry.worktree_reference
-    )
     logger.info(
         "findings_batch_adapter_call",
         batch_id=batch.batch_id,
         cli=adapter.cli_name.value,
         files_context=len(batch.files_context),
-        worktree_reference_count=worktree_reference_count,
+        resumed_session=session_id,
         prompt_actual_chars=len(prompt),
         duration_seconds=round(adapter_duration_seconds, 3),
         timeout_seconds=timeout_seconds,
@@ -2678,10 +2507,7 @@ def _execute_findings_batch(
         exit_code=response.exit_code,
         batch_id=batch.batch_id,
         files_context=len(batch.files_context),
-        related_files=len(batch.related_files),
         checklist_items=len(batch.checklist_applicable),
-        comment_entries=len(batch.comment_context),
-        strategy=strategy_name,
     )
 
     if not response.succeeded:
@@ -2708,17 +2534,13 @@ def _execute_findings_batch(
                 parse_session_notes,
             )
 
-            dismissed = _settled_questions(response.stdout, batch)
-            _log_parsed_findings(batch.batch_id, raw, dismissed)
+            _log_parsed_findings(batch.batch_id, raw)
             return {
                 **_scoped_batch_outcome(batch, raw, manifest_paths, project_root),
-                "dismissed": dismissed,
+                "session_id": getattr(response, "session_id", None),
                 "reviewed": parse_reviewed_files(response.stdout, set(batch.files_context)),
                 **parse_session_notes(response.stdout),
-                "focus": parse_focus(
-                    response.stdout,
-                    {path for path, entry in batch.files_context.items() if not entry.flagged_only},
-                ),
+                "focus": parse_focus(response.stdout, set(batch.files_context)),
             }
         case ClientSuccess(data=raw):
             # A structured success whose payload isn't a findings list (e.g. a dict)
@@ -2737,241 +2559,11 @@ def _execute_findings_batch(
                 batch_id=batch.batch_id,
                 findings_count=len(raw),
             )
-            _log_parsed_findings(batch.batch_id, raw, [])
+            _log_parsed_findings(batch.batch_id, raw)
             return _scoped_batch_outcome(batch, raw, manifest_paths, project_root)
         case _:
             logger.debug("findings_batch_reformat_failed", batch_id=batch.batch_id)
             return {"status": "failed", "raw": None, "detail": "parse error"}
-
-
-@declare_ai_usage(
-    task=AITask.CODE_REVIEW_TRIAGE,
-    executes=[AIProviderType.CLI_HEADLESS],
-    enforces=True,
-)
-def ai_review_triage(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Only runs without a worktree: triage every file the deep session will not open.
-
-    With a worktree it is skipped, because the review material is written into it and the
-    deep session covers the glance files itself. Diffs only, no repo access, on whatever model the user assigned to
-    `code_review_triage` -- a cheap one is the point. It **publishes nothing**: the notes
-    and suspicions it returns are working material for `ai_review_findings`, which opens
-    the file and confirms or drops each one.
-
-    Best-effort by construction. A triage that fails leaves those files exactly where they
-    were before this step existed -- unlooked-at -- so it never fails the review.
-
-    Requires (from ctx.data):
-        review_diff (str)
-        attention_plan (AttentionPlan)
-        validated_review_plan (ReviewPlan)
-
-    Outputs (saved to ctx.data):
-        review_triage_notes (list[dict]): one note per triaged file
-        review_triage_suspicions (list[dict]): the subset worth opening
-
-    Returns:
-        Success (always, when it can run at all)
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Triage")
-
-    from ..models.review_enums import AttentionTier
-    from ..operations.findings_operations import FINDINGS_DISALLOWED_TOOLS
-    from ..operations.triage_operations import (
-        build_triage_batches,
-        build_triage_prompt_parts,
-        parse_triage_notes,
-        triage_json_schema,
-        suspicions_from_notes,
-    )
-
-    diff = ctx.get("review_diff", "")
-    attention_plan = ctx.get("attention_plan")
-    plan = ctx.get("validated_review_plan") or ctx.get("review_plan")
-    budget = _get_review_budget(ctx)
-    manifest = ctx.get("change_manifest")
-    project_root = ctx.data.get("project_root")
-
-    if not diff or not attention_plan:
-        ctx.textual.dim_text("Nothing to triage (no diff or no attention plan)")
-        ctx.textual.end_step("success")
-        return Success("Triage skipped", metadata={"review_triage_notes": [], "review_triage_suspicions": []})
-
-    # With a worktree the material goes into it as files, and the deep session's one-line
-    # pass covers the glance files from their diffs. The triage's questions were never
-    # confirmed (0 of 30 over three PRs) and cost 12-17% of the review.
-    if ctx.data.get("worktree_path") and ctx.get("worktree_created"):
-        ctx.textual.dim_text("Not needed: the deep session reviews every file from the worktree")
-        ctx.textual.end_step("success")
-        return Success("Triage not needed", metadata={"review_triage_notes": [], "review_triage_suspicions": []})
-
-    # Everything the deep session will NOT open: the glance tier, plus any deep file that
-    # fell outside the session budget. Deep files it IS opening are excluded because
-    # their diffs travel in the deep prompt already -- triaging them would pay twice for
-    # the same orientation.
-    deep_read = {file_plan.path for file_plan in (plan.focus_files if plan else [])}
-    to_triage = [
-        entry.path
-        for entry in attention_plan.files
-        if entry.tier != AttentionTier.SKIP and entry.path not in deep_read
-    ]
-
-    if not to_triage:
-        ctx.textual.dim_text("Every reviewable file is in the deep session — nothing left to triage")
-        ctx.textual.end_step("success")
-        return Success("Triage not needed", metadata={"review_triage_notes": [], "review_triage_suspicions": []})
-
-    batches = build_triage_batches(
-        to_triage,
-        diff,
-        budget.triage_max_prompt_chars,
-        diff_manager=ctx.get("review_diff_manager"),
-        pr_manifest=manifest.pr if manifest else None,
-    )
-    if not batches:
-        ctx.textual.dim_text(f"{len(to_triage)} file(s) have no diff hunks to triage")
-        ctx.textual.end_step("success")
-        return Success("Nothing triageable", metadata={"review_triage_notes": [], "review_triage_suspicions": []})
-
-    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_triage)
-    if not adapter:
-        # The files stay unlooked-at, which is where they were. Said out loud rather than
-        # counted as covered.
-        ctx.textual.warning_text(
-            f"AI unavailable{f' ({route_note})' if route_note else ''} — "
-            f"{len(to_triage)} file(s) NOT triaged"
-        )
-        ctx.textual.end_step("success")
-        return Success("Triage unavailable", metadata={"review_triage_notes": [], "review_triage_suspicions": []})
-    if route_note:
-        ctx.textual.dim_text(route_note)
-    _announce_review_adapter(ctx, adapter)
-
-    use_structured_output = adapter.supports_structured_output
-    schema = triage_json_schema() if use_structured_output else None
-    disallowed = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
-
-    # From the manifest, not from the deep batches: the triage runs BEFORE the deep
-    # context exists, so reading it from there handed the triage no intent at all.
-    from ..operations.prompt_formatting_operations import review_pr_description
-
-    pr_intent = review_pr_description(manifest.pr.description) if manifest and manifest.pr else None
-
-    notes: list[dict] = []
-    ctx.textual.dim_text(
-        f"Triaging {sum(len(b.files_context) for b in batches)} file(s) "
-        f"in {len(batches)} call(s) with {adapter.cli_name.value.capitalize()}"
-    )
-    for batch in batches:
-        parts = build_triage_prompt_parts(batch, pr_intent=pr_intent)
-        prompt = parts["prompt"]
-        _log_ai_prompt(
-            step_name="ai_review_triage",
-            cli_name=adapter.cli_name.value,
-            prompt=prompt,
-            batch_id=batch.batch_id,
-            files_context=len(batch.files_context),
-            prompt_budget_target_chars=budget.triage_max_prompt_chars,
-            prompt_actual_chars=len(prompt),
-        )
-        started_at = time.monotonic()
-        with ctx.textual.loading(f"Triaging {batch.batch_id} ({len(batch.files_context)} file(s))…"):
-            response = run_interruptible(
-                lambda: adapter.execute(
-                    prompt,
-                    cwd=project_root,
-                    # Scaled by the files it notes: one call now carries the whole
-                    # PR's glance tier, and its output grows with every file.
-                    timeout=deep_call_timeout_seconds(budget, len(batch.files_context)),
-                    json_schema=schema,
-                    disallowed_tools=disallowed,
-                )
-            )
-        duration = time.monotonic() - started_at
-        logger.info(
-            "triage_batch_adapter_call",
-            batch_id=batch.batch_id,
-            cli=adapter.cli_name.value,
-            files_context=len(batch.files_context),
-            prompt_actual_chars=len(prompt),
-            duration_seconds=round(duration, 3),
-            exit_code=response.exit_code,
-            timed_out=response.exit_code == 124,
-            structured_output=use_structured_output,
-        )
-        _log_ai_response(
-            step_name="ai_review_triage",
-            cli_name=adapter.cli_name.value,
-            stdout=response.stdout,
-            stderr=response.stderr,
-            exit_code=response.exit_code,
-            batch_id=batch.batch_id,
-            files_context=len(batch.files_context),
-        )
-        if not response.succeeded:
-            reason = _cli_failure_reason(response, adapter.cli_name.value)
-            ctx.textual.warning_text(
-                f"{batch.batch_id} not triaged · {reason} — "
-                f"NOT looked at: {', '.join(sorted(batch.files_context))}"
-            )
-            continue
-        batch_notes = parse_triage_notes(response.stdout, set(batch.files_context))
-        notes.extend(batch_notes)
-        flagged = len(suspicions_from_notes(batch_notes))
-        ctx.textual.success_text(
-            f"✓ {batch.batch_id} · {len(batch_notes)} note(s), {flagged} worth opening"
-        )
-
-    suspicions = suspicions_from_notes(notes)
-    _render_triage_notes(ctx, notes, suspicions)
-    logger.info(
-        "triage_completed",
-        triaged=len(to_triage),
-        notes=len(notes),
-        suspicions=len(suspicions),
-        suspicion_paths=sorted({item["path"] for item in suspicions}),
-    )
-    # Whole, for the same reason as `findings_batch_parsed`: the questions the deep
-    # session is handed are half of what explains its answer.
-    logger.debug("triage_notes_parsed", notes=notes)
-    ctx.textual.end_step("success")
-    return Success(
-        f"Triaged {len(notes)} file(s), {len(suspicions)} worth opening",
-        metadata={"review_triage_notes": notes, "review_triage_suspicions": suspicions},
-    )
-
-
-def _render_triage_notes(ctx: WorkflowContext, notes: list[dict], suspicions: list[dict]) -> None:
-    """Show what the triage flagged and WHY, one block per file, the quiet files named.
-
-    The reason is the part a reviewer reads, so it gets a line of its own under the file
-    name instead of trailing a full path on the same wrapped line; the path is shortened
-    the way Review Plan shortens it, and inline `code` in the question is highlighted.
-    """
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    from ..operations.attention_operations import split_display_path
-
-    if not notes:
-        return
-
-    if suspicions:
-        ctx.textual.text(" ")
-        ctx.textual.bold_text(f"Worth opening · {len(suspicions)} of {len(notes)} file(s)")
-        for item in suspicions:
-            ctx.textual.text(" ")
-            ctx.textual.text(_display_file_label(item["path"]))
-            ctx.textual.text(f"  ↳ {_highlight_inline_code(escape_markup(item['suspicion']))}")
-
-    quiet = [item for item in notes if not item.get("suspicion")]
-    if quiet:
-        ctx.textual.text(" ")
-        names = ", ".join(escape_markup(split_display_path(item["path"])[0]) for item in quiet)
-        ctx.textual.dim_text(f"Nothing stood out · {names}")
 
 
 def _highlight_inline_code(text: str) -> str:
@@ -3009,14 +2601,11 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     """
     Second AI call: find actionable problems in the exact code context.
 
-    Sends the ReviewContextPackage (exact file content + applicable checklist +
-    existing comments) to the selected headless CLI. The AI reviews only the
-    code it was specifically directed to read in the planning phase.
-
-    On parse failure or CLI error a batch is retried (reformat) and then marked
-    failed. If every batch fails, the step returns Error — an empty result caused
-    by total AI failure must not look like a clean review — while still publishing
-    empty raw_findings so downstream steps run via the workflow's on_error: continue.
+    Runs the one deep session over the review material in the worktree. On a parse
+    failure the answer is reformatted once; if the session still produced nothing, the
+    step returns Error -- an empty result caused by a failed AI call must not look like
+    a clean review -- while still publishing empty raw_findings so downstream steps run
+    via the workflow's on_error: continue.
 
     Which CLI runs it comes from the `code_review_findings` task preference
     (AI Configuration screen), not from the workflow.
@@ -3039,7 +2628,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     batches = ctx.get("review_context_batches")
     budget = _get_review_budget(ctx)
-    project_root = ctx.data.get("worktree_path") or ctx.data.get("project_root")
+    project_root = ctx.data.get("worktree_path")
 
     if not batches:
         ctx.textual.error_text("No review_context_batches in context (run resolve_review_context first)")
@@ -3048,7 +2637,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
 
     from ..operations.findings_operations import (
         FINDINGS_DISALLOWED_TOOLS,
-        FINDINGS_WORKTREE_REFERENCE_EFFORT,
+        FINDINGS_EFFORT,
         build_default_findings,
         build_findings_prompt_parts,
         findings_json_schema,
@@ -3073,7 +2662,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             )
         # Routing failure (no CLI configured, not installed, wrong provider): the AI
         # never ran, so an empty result must not look like a clean review — same
-        # contract as the all-batches-failed exit below. Empty findings are still
+        # contract as the failed-session exit below. Empty findings are still
         # published so downstream steps run via on_error: continue.
         ctx.data["ai_findings_failed"] = True
         ctx.textual.error_text(
@@ -3089,138 +2678,23 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     # instruction, which models frequently ignore in favor of a prose summary.
     use_structured_output = adapter.supports_structured_output
     findings_schema = findings_json_schema() if use_structured_output else None
-    # Removes Bash (and other unneeded tools) from the CLI's own session so it can't explore
-    # far beyond the batch's worktree_reference files (D-011/O-003) — Read/Grep/Glob stay
-    # available for the legitimate cross-file lookups the worktree_reference hint permits.
+    # Removes Bash (and other unneeded tools) from the CLI's own session: recursive shell
+    # greps across whole trees were measured as the source of unbounded, mostly unproductive
+    # exploration. Read/Grep/Glob stay available for the cross-file lookups the review needs.
     disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
     cli_display = adapter.cli_name.value.capitalize()
-    aggregated_raw = []
-    findings_failed = False
-    batches_attempted = 0
-    batches_succeeded = 0
-    # Distinct reasons the batches gave, in first-seen order. Without these the
-    # step reports "0/N batches produced output" and the actual cause — a spent
-    # quota, a timeout, a missing binary — is only recoverable by correlating
-    # debug lines from the same second.
-    batch_failure_reasons: list[str] = []
-    # Paths whose batch actually produced output — a failed/skipped batch's files were
-    # NOT reviewed, and nothing downstream may claim they were.
-    reviewed_paths: set[str] = set()
-    # Every path in the PR, so a batch can tell a hallucinated path apart from a real
-    # file it simply was not shown. An empty set (no manifest) makes every unknown path
-    # read as hallucinated, which is the safe direction: both outcomes drop the finding.
+    effort = FINDINGS_EFFORT if adapter.supports_effort_control else None
+    # Every path in the PR, so the session's answer can tell a hallucinated path apart from
+    # a real file it simply was not handed. An empty set (no manifest) makes every unknown
+    # path read as hallucinated, which is the safe direction: both outcomes drop the finding.
     change_manifest = ctx.get("change_manifest")
     manifest_paths = {f.path for f in change_manifest.files} if change_manifest else set()
-    findings_out_of_scope = 0
-    out_of_scope_findings: list[dict] = []
-    # What the session says it checked, file by file. Compared against what it was handed
-    # so a file it never mentions is named on screen instead of passing as reviewed.
-    reviewed_ledger: list[dict] = []
-    # Questions the session opened and found unfounded. Kept apart from findings because
-    # "checked, it is fine" is an answer, and without it a deliberate dismissal is
-    # indistinguishable from a question nobody looked at.
-    dismissed_questions: list[dict] = []
-    # What the session established and what it left open, for whoever continues the
-    # review and for the reviewer reading this one.
-    session_notes: dict[str, list[str]] = {"key_facts": [], "open_suspicions": []}
-    # The files the session chose to review in depth. A missed defect inside it is a depth
-    # problem; outside it, the choice was wrong.
-    focus: list[dict] = []
-    # Findings about a dropped behaviour whose quoted old code the base version does not bear
-    # out. Shown one by one: a reviewer must be able to see what was dropped and why.
-    old_code_rejected: list[dict] = []
-    batch_queue = list(batches)
-    ctx.textual.dim_text(f"Reviewing {len(batch_queue)} batch(es) with {cli_display}")
 
-    # Phase 1 — budget fitting stays sequential and deterministic: splits/degradations
-    # requeue, so the set of ready-to-execute batches isn't known until this loop
-    # reaches a fixpoint. No AI calls happen here.
-    ready: list[tuple] = []  # (batch, prompt, effort)
-    while batch_queue:
-        batch = batch_queue.pop(0)
-        prompt_parts = build_findings_prompt_parts(batch)
-        prompt = prompt_parts["prompt"]
-        fitted_batches, changed = get_prompt_budget_manager().fit_batch_to_budget(
-            batch,
-            prompt_parts,
-            budget.deep_max_prompt_chars,
-            allow_file_reads=ctx.data.get("review_file_reads_allowed", True),
-        )
-        if changed:
-            logger.debug(
-                "findings_batch_rebalanced",
-                original_batch_id=batch.batch_id,
-                produced_batches=[candidate.batch_id for candidate in fitted_batches],
-                prompt_actual_chars=len(prompt),
-                prompt_budget_target_chars=budget.deep_max_prompt_chars,
-            )
-            is_actual_split = len(fitted_batches) > 1 or fitted_batches[0].batch_id != batch.batch_id
-            if is_actual_split:
-                _render_findings_batch_split(
-                    ctx,
-                    batch.batch_id,
-                    [candidate.batch_id for candidate in fitted_batches],
-                )
-            else:
-                _render_findings_batch_degraded(ctx, batch.batch_id)
-            batch_queue = fitted_batches + batch_queue
-            continue
-
-        batch = fitted_batches[0]
-        batches_attempted += 1
-        prompt_parts = build_findings_prompt_parts(batch)
-        prompt = prompt_parts["prompt"]
-        prompt_breakdown = summarize_findings_prompt_parts(prompt_parts)
-        _log_ai_prompt(
-            step_name="ai_review_findings",
-            cli_name=adapter.cli_name.value,
-            prompt=prompt,
-            batch_id=batch.batch_id,
-            files_context=len(batch.files_context),
-            related_files=len(batch.related_files),
-            checklist_items=len(batch.checklist_applicable),
-            comment_entries=len(batch.comment_context),
-            strategy=None,
-            prompt_budget_target_chars=budget.deep_max_prompt_chars,
-            prompt_actual_chars=len(prompt),
-            prompt_still_too_large=batch.prompt_still_too_large,
-            degraded_context=batch.degraded_context,
-            **prompt_breakdown,
-        )
-        if len(prompt) > budget.deep_max_prompt_chars:
-            findings_failed = True
-            logger.error(
-                "findings_batch_over_budget",
-                batch_id=batch.batch_id,
-                prompt_budget_target_chars=budget.deep_max_prompt_chars,
-                prompt_actual_chars=len(prompt),
-            )
-            skipped_paths = ", ".join(sorted(batch.files_context)) or "unknown files"
-            ctx.textual.warning_text(
-                f"⚠ {batch.batch_id} skipped — too large even after reduction. "
-                f"NOT reviewed: {skipped_paths}"
-            )
-            continue
-        worktree_reference_count = sum(
-            1 for entry in batch.files_context.values() if entry.worktree_reference
-        )
-        # A worktree_reference batch is the one shape shown to reliably drive O-003's
-        # duration/timeout problem (D-011) — capping effort only here, not on every batch,
-        # leaves batches that already complete quickly untouched.
-        effort = (
-            FINDINGS_WORKTREE_REFERENCE_EFFORT
-            if worktree_reference_count and adapter.supports_effort_control
-            else None
-        )
-        _render_findings_batch_started(ctx, batch)
-        ready.append((batch, prompt, effort))
-
-    # Phase 2 — execute ready batches through a small worker pool. Adapter calls are
-    # independent subprocesses, so the only sequential cost was the loop itself
-    # (real baseline: 307s wall for 6 batches, PR #3596). Workers never touch the UI;
-    # results render here, on the step thread, as each batch completes.
     def _run(entry: tuple) -> dict:
-        entry_batch, entry_prompt, entry_effort = entry
+        # (batch, prompt, effort), or with a session id and a file count for a turn that
+        # resumes the deep session over some of its files.
+        entry_batch, entry_prompt, entry_effort, *turn = entry
+        session_id, file_count = turn if turn else (None, len(entry_batch.files_context))
         try:
             return _execute_findings_batch(
                 adapter,
@@ -3231,162 +2705,98 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 disallowed_tools=disallowed_tools,
                 effort=entry_effort,
                 use_structured_output=use_structured_output,
-                strategy_name=None,
-                timeout_seconds=deep_call_timeout_seconds(
-                    budget, len(entry_batch.files_context)
-                ),
+                timeout_seconds=deep_call_timeout_seconds(budget, file_count),
                 manifest_paths=manifest_paths,
+                session_id=session_id,
             )
         except Exception as exc:
             logger.error("findings_batch_crashed", batch_id=entry_batch.batch_id, error=str(exc))
             return {"status": "failed", "raw": None, "detail": f"adapter error: {exc}"}
 
-    if ready:
-        pool_size = min(
-            FINDINGS_BATCH_CONCURRENCY, len(ready)
-        )
-        with ctx.textual.loading(
-            f"Asking {cli_display} to review {len(ready)} batch(es)"
-            + (f" ({pool_size} in parallel)…" if pool_size > 1 else "…")
-        ):
-            if pool_size == 1:
-                completed = ((entry[0], _run(entry)) for entry in ready)
-                outcomes = list(completed)
-            else:
-                import contextvars
-                from concurrent.futures import ThreadPoolExecutor, as_completed
+    batch = batches[0]
+    prompt_parts = build_findings_prompt_parts(batch)
+    prompt = prompt_parts["prompt"]
+    _log_ai_prompt(
+        step_name="ai_review_findings",
+        cli_name=adapter.cli_name.value,
+        prompt=prompt,
+        batch_id=batch.batch_id,
+        files_context=len(batch.files_context),
+        checklist_items=len(batch.checklist_applicable),
+        prompt_actual_chars=len(prompt),
+        **summarize_findings_prompt_parts(prompt_parts),
+    )
+    _render_findings_batch_started(ctx, batch)
+    with ctx.textual.loading(f"Asking {cli_display} to review…"):
+        outcome = _run((batch, prompt, effort))
 
-                # Each worker runs inside a copy of this thread's context, so the log's
-                # run id (and anything else bound around the workflow) survives into the
-                # pool. A pool worker otherwise starts with an empty context, which is
-                # what left thousands of batch events unattributable to their run.
-                def _run_in_context(entry, _ctx=None):
-                    return (_ctx or contextvars.copy_context()).run(_run, entry)
-
-                with ThreadPoolExecutor(max_workers=pool_size) as executor:
-                    future_to_batch = {
-                        executor.submit(_run_in_context, entry, contextvars.copy_context()): entry[0]
-                        for entry in ready
-                    }
-                    outcomes = [
-                        (future_to_batch[future], future.result())
-                        for future in as_completed(future_to_batch)
-                    ]
-
-        for batch, outcome in outcomes:
-            resolved = [(batch, outcome)]
-            if (
-                outcome["status"] == "failed"
-                and outcome.get("timed_out")
-                and any(entry.worktree_reference for entry in batch.files_context.values())
-            ):
-                # A timed-out worktree_reference batch means the CLI spent the whole
-                # budget exploring a (usually huge) file and reviewed NOTHING. One
-                # bounded retry with inline hunks trades depth for guaranteed
-                # coverage of the batch's files, split across calls when one does not
-                # fit; an empty list means nothing could be retried and the original
-                # timeout stands.
-                retried = _retry_timed_out_worktree_batch(ctx, batch, _run, budget)
-                if retried:
-                    resolved = retried
-            for resolved_batch, resolved_outcome in resolved:
-                if resolved_outcome["status"] == "success":
-                    batches_succeeded += 1
-                    dismissed_questions.extend(resolved_outcome.get("dismissed") or [])
-                    reviewed_ledger.extend(resolved_outcome.get("reviewed") or [])
-                    for key, items in session_notes.items():
-                        items.extend(resolved_outcome.get(key) or [])
-                    focus.extend(resolved_outcome.get("focus") or [])
-                    # Flagged files are accounted for by their settled question.
-                    reviewed_paths.update(
-                        path for path, entry in resolved_batch.files_context.items() if not entry.flagged_only
-                    )
-                    old_code_rejected.extend(resolved_outcome.get("old_code_rejected") or [])
-                    findings_out_of_scope += resolved_outcome.get("out_of_scope", 0)
-                    out_of_scope_findings.extend(resolved_outcome.get("out_of_scope_findings") or [])
-                    aggregated_raw.extend(resolved_outcome["raw"])
-                    _render_findings_batch_result(
-                        ctx,
-                        resolved_batch.batch_id,
-                        status="success",
-                        findings_count=len(resolved_outcome["raw"]),
-                    )
-                else:
-                    findings_failed = True
-                    reason = resolved_outcome.get("detail")
-                    if reason and reason not in batch_failure_reasons:
-                        batch_failure_reasons.append(reason)
-                    _render_findings_batch_result(
-                        ctx,
-                        resolved_batch.batch_id,
-                        status="failed",
-                        detail=resolved_outcome["detail"],
-                    )
-
-    if batches_attempted and not batches_succeeded:
-        # Every batch failed or was skipped: an "empty" review here means the AI never
-        # ran, not that the code is clean. Publish empty findings so downstream steps
-        # (and the worktree cleanup) still run via on_error: continue, but fail the step
-        # visibly instead of masquerading as a clean review.
+    if outcome["status"] != "success":
+        # The session produced nothing: an "empty" review here means the AI never ran,
+        # not that the code is clean. Publish empty findings so downstream steps (and the
+        # worktree cleanup) still run via on_error: continue, but fail the step visibly
+        # instead of masquerading as a clean review.
+        _render_findings_batch_result(ctx, batch.batch_id, status="failed", detail=outcome["detail"])
         ctx.data["raw_findings"] = build_default_findings()
         ctx.data["ai_findings_failed"] = True
-        why = "; ".join(batch_failure_reasons) if batch_failure_reasons else ""
-        logger.error(
-            "findings_all_batches_failed",
-            batches_attempted=batches_attempted,
-            reasons=batch_failure_reasons,
-            reason=why or None,
-        )
+        logger.error("findings_all_batches_failed", reason=outcome["detail"])
         ctx.textual.error_text(
-            f"AI findings failed: 0 of {batches_attempted} batch(es) produced output"
-            + (f" — {why}. " if why else ". ")
-            + "No code was reviewed — do not treat this as a clean review."
+            f"AI findings failed — {outcome['detail']}. "
+            "No code was reviewed — do not treat this as a clean review."
         )
         ctx.textual.end_step("error")
-        return Error(
-            f"AI findings failed: 0/{batches_attempted} batches produced output"
-            + (f" — {why}" if why else "")
-        )
+        return Error(f"AI findings failed — {outcome['detail']}")
 
-    # There used to be an empty-findings rescue here: when batches succeeded and returned
-    # nothing, it reviewed up to two "borderline" files on the theory that an empty result
-    # meant candidate selection had been too aggressive. Deleted deliberately. A review
-    # that has nothing to say has to be allowed to say nothing, and a step that reaches
-    # for more files when the answer is "no problems found" is pressure to produce a
-    # finding. The condition it was compensating for is gone anyway: it existed because
-    # only 12 files of any PR were ever looked at, so an empty result really could mean
-    # the wrong 12 were chosen.
+    _render_findings_batch_result(ctx, batch.batch_id, status="success", findings_count=len(outcome["raw"]))
+    raw = list(outcome["raw"] or [])
+    reviewed_ledger = list(outcome.get("reviewed") or [])
+    focus: list[dict] = list(outcome.get("focus") or [])
+    session_notes: dict[str, list[str]] = {
+        "key_facts": list(outcome.get("key_facts") or []),
+        "open_suspicions": list(outcome.get("open_suspicions") or []),
+    }
+    out_of_scope_findings = list(outcome.get("out_of_scope_findings") or [])
+    old_code_rejected = list(outcome.get("old_code_rejected") or [])
 
-    ctx.data["raw_findings"] = aggregated_raw or build_default_findings()
-    ctx.data["ai_findings_failed"] = findings_failed
-    if batches_attempted > 1:
-        # With one batch its own line already said this.
-        ctx.textual.success_text(f"✓ AI returned {len(ctx.data['raw_findings'])} raw finding(s)")
-    if findings_failed:
-        ctx.textual.warning_text("Some findings batches failed or were skipped due to budget limits.")
-    if findings_out_of_scope:
+    # Experiment (on by default while it is measured; TITAN_REVIEW_COVERAGE_TURNS=0 turns it off).
+    if os.environ.get("TITAN_REVIEW_COVERAGE_TURNS", "1") != "0" and outcome.get("session_id"):
+        if getattr(adapter, "supports_resume", False):
+            turns = _run_coverage_turns(ctx, batch, outcome["session_id"], focus, _run, effort)
+            raw.extend(turns["raw"])
+            old_code_rejected.extend(turns["old_code_rejected"])
+            out_of_scope_findings.extend(turns["out_of_scope_findings"])
+            for key, items in session_notes.items():
+                items.extend(turns["notes"].get(key) or [])
+            # Coverage is what Titan handed over and got an answer for, not what the first
+            # answer said: the notes it wrote for files it never opened are dropped.
+            reviewed_ledger = turns["ledger"]
+        else:
+            ctx.textual.warning_text(f"{cli_display} cannot resume a session: coverage turns skipped")
+
+    # There used to be an empty-findings rescue here that reviewed "borderline" files when
+    # the session returned nothing. Deleted deliberately: a review that has nothing to say
+    # has to be allowed to say nothing, and reaching for more files when the answer is "no
+    # problems found" is pressure to produce a finding.
+    ctx.data["raw_findings"] = raw or build_default_findings()
+    ctx.data["ai_findings_failed"] = False
+    if out_of_scope_findings:
         # Shown, not just logged: a model naming files it was never given is a signal
-        # about the prompt, and it is the first thing to look at if packed batches ever
-        # start losing real findings.
+        # about the prompt.
         _render_out_of_scope_findings(ctx, out_of_scope_findings)
-    ctx.data["findings_out_of_scope"] = findings_out_of_scope
+    ctx.data["findings_out_of_scope"] = len(out_of_scope_findings)
     # A focus file is opened in full by definition, so it is accounted for even when the
     # session wrote its depth into findings and forgot the one-liner (run e164266c: all 12
     # focus files read, none of them in `reviewed`). Its reason stands in as the note.
     reviewed_ledger = merge_focus_into_ledger(reviewed_ledger, focus)
     _render_old_code_rejected(ctx, old_code_rejected)
     _render_review_focus(ctx, focus)
-    _render_review_coverage(ctx, reviewed_paths, reviewed_ledger)
-    _render_settled_questions(ctx, batches, dismissed_questions, ctx.data["raw_findings"])
+    _render_review_coverage(ctx, set(batch.files_context), reviewed_ledger)
     _render_open_suspicions(ctx, session_notes)
-    _save_coverage_record(
-        ctx, batches, reviewed_ledger, dismissed_questions, ctx.data["raw_findings"], session_notes, focus
-    )
+    _save_coverage_record(ctx, batches, reviewed_ledger, ctx.data["raw_findings"], session_notes, focus)
     ctx.textual.end_step("success")
     return Success(
         "AI findings retrieved",
         metadata={
-            "ai_findings_failed": findings_failed,
+            "ai_findings_failed": False,
             "review_session_notes": session_notes,
             "review_focus": focus,
         },
@@ -3588,7 +2998,6 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     findings = ctx.get("deduped_findings", [])
     manifest = ctx.get("change_manifest")
-    batches = ctx.get("review_context_batches", [])
 
     if not findings:
         ctx.textual.dim_text("No findings to convert into actions.")
@@ -3597,11 +3006,6 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     actions = build_new_comment_actions_operation(findings)
     manifest_files = {file.path: file for file in getattr(manifest, "files", [])}
-    read_modes = {
-        path: entry.read_mode.value if entry.read_mode else None
-        for batch in batches or []
-        for path, entry in batch.files_context.items()
-    }
     enriched_actions = []
     for action in actions:
         file_entry = manifest_files.get(action.path)
@@ -3610,7 +3014,6 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
                 update={
                     "file_status": str(file_entry.status) if file_entry else None,
                     "is_test_file": bool(file_entry.is_test) if file_entry else False,
-                    "read_mode": read_modes.get(action.path),
                 }
             )
         )

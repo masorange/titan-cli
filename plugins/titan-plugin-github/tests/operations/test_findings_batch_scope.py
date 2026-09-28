@@ -20,11 +20,10 @@ from titan_plugin_github.operations.findings_operations import (
 )
 
 
-def _batch(paths: list[str], related: dict[str, str] | None = None) -> FocusContextBatch:
+def _batch(paths: list[str]) -> FocusContextBatch:
     return FocusContextBatch(
         batch_id="batch_1",
         files_context={path: FileContextEntry(path=path) for path in paths},
-        related_files=related or {},
     )
 
 
@@ -38,22 +37,6 @@ class TestScopePaths:
         batch = _batch(["a/one.py", "b/two.py"])
 
         assert batch_scope_paths(batch) == {"a/one.py", "b/two.py"}
-
-    def test_related_context_contributes_the_path_it_was_requested_for(self):
-        """Related keys are stored as "<request type>:<path>"; the path half is a real
-        file of the PR and the model saw it named in the prompt."""
-        batch = _batch(["a/one.py"], related={"related_context:a/one.py": "...",
-                                              "related_tests:b/two.py": "..."})
-
-        assert batch_scope_paths(batch) == {"a/one.py", "b/two.py"}
-
-    def test_the_unlabelled_sibling_behind_related_content_is_not_in_scope(self):
-        """The content comes from a sibling (__init__.py, protocols.py, base_*) whose
-        own path is recorded nowhere, so a finding naming it is the model inferring a
-        path rather than reading one."""
-        batch = _batch(["a/one.py"], related={"related_context:a/one.py": "..."})
-
-        assert "a/__init__.py" not in batch_scope_paths(batch)
 
 
 class TestNormalization:
@@ -177,27 +160,6 @@ class TestPartition:
         )
 
         assert set(rejected[0]) == {"path", "reason", "title"}
-
-
-def test_a_triage_suspicion_puts_its_file_in_scope():
-    """Without this the first pass is thrown away.
-
-    The triage's suspicions name files that are NOT in the deep batch's files_context — the
-    session is told to open them in the working tree and settle the question. The scope
-    check (cov-002) would otherwise drop every finding that work leads to, silently, as a
-    path the batch was never shown."""
-    from titan_plugin_github.models.review_models import FocusContextBatch
-    from titan_plugin_github.operations.findings_operations import batch_scope_paths
-
-    batch = FocusContextBatch(
-        batch_id="deep_1",
-        triage_suspicions=[
-            {"path": "tests/core/security/test_vault.py", "note": "n", "suspicion": "s"},
-            {"path": "", "note": "n", "suspicion": "s"},
-        ],
-    )
-
-    assert batch_scope_paths(batch) == {"tests/core/security/test_vault.py"}
 
 
 class TestRealFilesOutsideThePr:

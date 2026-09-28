@@ -171,7 +171,6 @@ class GitHubPlugin(TitanPlugin):
             build_existing_comments_index,
             build_review_checklist,
             build_review_plan,
-            ai_review_triage,
             resolve_review_context,
             ai_review_findings,
             normalize_findings,
@@ -225,7 +224,6 @@ class GitHubPlugin(TitanPlugin):
             "build_review_checklist": build_review_checklist,
             # Phase 3: directed AI analysis (first AI call)
             "build_review_plan": build_review_plan,
-            "ai_review_triage": ai_review_triage,
             "resolve_review_context": resolve_review_context,
             # Phase 4: targeted review (second AI call)
             "ai_review_findings": ai_review_findings,

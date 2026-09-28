@@ -1212,43 +1212,9 @@ Decide how much attention every changed file gets, and what the deep session rea
 |--------|-----------------------|-------------|
 | `Success, Exit when nothing is reviewable, or Error` | - | - |
 
-### `ai_review_triage`
-
-Call 1 of the review: triage every file the deep session will not open.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: ai_review_triage
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `review_triage_notes`, `review_triage_suspicions`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `review_triage_notes` | list[dict] | one note per triaged file |
-| `review_triage_suspicions` | list[dict] | the subset worth opening |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success (always, when it can run at all)` | - | - |
-
 ### `resolve_review_context`
 
-Fetch the exact code context according to the validated review plan.
+Write the review material into the worktree and build the deep session over it.
 
 **How to read this contract**
 

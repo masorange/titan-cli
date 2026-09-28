@@ -47,7 +47,6 @@ For full contract details for every public step, including documented inputs, ou
 | `build_existing_comments_index` | Code Review | - |
 | `build_review_checklist` | Code Review | - |
 | `build_review_plan` | Code Review | - |
-| `ai_review_triage` | Code Review | - |
 | `resolve_review_context` | Code Review | - |
 | `ai_review_findings` | Code Review | - |
 | `normalize_findings` | Code Review | - |
@@ -117,8 +116,7 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings
 - `build_review_checklist`: load the review axes the project offers (what each axis is)
 - `build_review_plan`: assign every changed file `deep`, `glance` or `skip` from the review profile, and decide what the deep review reads (no AI call)
-- `ai_review_triage`: only without a worktree -- triage every `glance` file from its diff in one call (cheap model, no repo access); publishes nothing, flags questions for the deep review
-- `resolve_review_context`: write the review material into the worktree (`.titan-review/`: per-file diffs, base versions, `pr.md`, `pr.diff`) and build the session's file list
+- `resolve_review_context`: write the review material into the worktree (`.titan-review/`: per-file diffs, base versions, `pr.md`, `pr.diff`) and build the session's file list; the review needs the worktree and stops with an error without one
 - `ai_review_findings`: the deep review — one worktree session over every reviewable file, reading its material from `.titan-review/`
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
 - `dedupe_findings`: remove duplicate or overlapping findings before submission
@@ -1281,41 +1279,8 @@ How to read these contracts:
     | `Success, Exit when nothing is reviewable, or Error` | - | - |
 
 
-??? info "`ai_review_triage`"
-    Only runs without a worktree: triage every file the deep session will not open. With a
-    worktree it is skipped, because the deep session covers the glance files itself.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: ai_review_triage
-    ```
-
-    **Used by built-in workflows:** `review-pr`
-
-    **Available to later steps:** `review_triage_notes`, `review_triage_suspicions`
-
-    **Inputs (from ctx.data)**
-
-    None documented.
-
-    **Outputs (saved to ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | `review_triage_notes` | list[dict] | one note per triaged file |
-    | `review_triage_suspicions` | list[dict] | the subset worth opening |
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success (always, when it can run at all)` | - | - |
-
-
 ??? info "`resolve_review_context`"
-    Fetch the exact code context according to the validated review plan.
+    Write the review material into the worktree and build the deep session over it.
 
     **Workflow usage**
 

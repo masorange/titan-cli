@@ -54,7 +54,6 @@ TASK_LABELS: Dict[str, str] = {
     "issue_generation": "Issue generation",
     "jira_analysis": "Jira issue analysis",
     "jira_issue_enhancement": "Jira issue descriptions",
-    "code_review_triage": "Code review triage",
     "code_review_findings": "Code review (deep review)",
     "thread_resolution": "Review thread resolution",
     "respond_pr_comment": "PR comment replies",

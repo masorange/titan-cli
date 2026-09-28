@@ -48,15 +48,6 @@ class FileChangeStatus(StrEnum):
     DELETED = "deleted"
 
 
-class FileReadMode(StrEnum):
-    """How much code to load for a file during targeted review."""
-
-    HUNKS_ONLY = "hunks_only"
-    EXPANDED_HUNKS = "expanded_hunks"
-    FULL_FILE = "full_file"
-    WORKTREE_REFERENCE = "worktree_reference"
-
-
 class AttentionTier(StrEnum):
     """How much attention a changed file is worth.
 

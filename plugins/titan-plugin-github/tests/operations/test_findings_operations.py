@@ -1,6 +1,5 @@
-from titan_plugin_github.models.review_enums import ChecklistCategory, CommentContextKind
+from titan_plugin_github.models.review_enums import ChecklistCategory
 from titan_plugin_github.models.review_models import (
-    CommentContextEntry,
     FileContextEntry,
     FocusContextBatch,
     PullRequestManifest,
@@ -8,7 +7,6 @@ from titan_plugin_github.models.review_models import (
 )
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.operations.findings_operations import (
-    _annotate_diff_hunk,
     build_findings_prompt_parts,
     findings_json_schema,
     parse_findings_response,
@@ -19,18 +17,7 @@ from titan_plugin_github.operations.findings_operations import (
 def test_build_findings_prompt_parts_compacts_axes_and_pr_context():
     batch = FocusContextBatch(
         batch_id="batch_1",
-        files_context={"src/foo.py": FileContextEntry(path="src/foo.py", hunks=["@@ -1 +1 @@\n+print('x')"])},
-        comment_context=[
-            CommentContextEntry(
-                kind=CommentContextKind.COMMENT,
-                thread_id="t1",
-                path="src/foo.py",
-                line=1,
-                title="Existing",
-                summary="Already mentioned",
-                is_resolved=False,
-            )
-        ],
+        files_context={"src/foo.py": FileContextEntry(path="src/foo.py", review_hint="diff: `x`")},
         checklist_applicable=[
             ReviewChecklistItem(
                 id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
@@ -69,10 +56,8 @@ def test_build_findings_prompt_parts_compacts_axes_and_pr_context():
 def test_summarize_findings_prompt_parts_returns_char_breakdown():
     parts = {
         "pr_context": "abc",
-        "comments": "de",
         "review_axes": "fghi",
         "files_context": "j",
-        "related_context": "",
         "instructions": "klmno",
         "schema": "pq",
         "prompt": "ignored",
@@ -82,131 +67,11 @@ def test_summarize_findings_prompt_parts_returns_char_breakdown():
 
     assert summary == {
         "pr_context_chars": 3,
-        "comment_context_chars": 2,
         "review_axes_chars": 4,
         "files_context_chars": 1,
-        "related_context_chars": 0,
         "instructions_chars": 5,
         "schema_chars": 2,
     }
-
-
-def test_build_findings_prompt_parts_renders_worktree_reference():
-    batch = FocusContextBatch(
-        batch_id="batch_2",
-        files_context={
-            "src/big.py": FileContextEntry(
-                path="src/big.py",
-                worktree_reference=True,
-                review_hint="Read this file from the worktree and inspect the changed regions first.",
-                changed_hunk_headers=["@@ -10,20 +10,30 @@", "@@ -80,5 +90,12 @@"],
-            )
-        },
-        checklist_applicable=[
-            ReviewChecklistItem(
-                id=ChecklistCategory.FUNCTIONAL_CORRECTNESS,
-                name="Functional",
-                description="desc",
-            )
-        ],
-    )
-
-    parts = build_findings_prompt_parts(batch)
-
-    assert "Open this file in the working tree" in parts["files_context"]
-    assert "Changed regions to inspect first:" in parts["files_context"]
-    assert "@@ -10,20 +10,30 @@" in parts["files_context"]
-
-
-def test_worktree_reference_entry_still_ships_its_diff_hunks():
-    """A file the session will open from disk keeps its DIFF in the prompt.
-
-    The working tree holds the post-change file, so "what changed here" is not
-    recoverable from it (Bash is disallowed), and the added lines are what an inline
-    comment anchors to — 24 of 29 anchors in run 6c438999 resolved via a unique snippet."""
-    batch = FocusContextBatch(
-        batch_id="batch_1",
-        files_context={
-            "src/big.py": FileContextEntry(
-                path="src/big.py",
-                worktree_reference=True,
-                hunks=["@@ -1,2 +1,3 @@\n context\n+added line\n context\n"],
-                review_hint="Central changed file.",
-                changed_hunk_headers=["@@ -1,2 +1,3 @@"],
-            )
-        },
-    )
-
-    files_text = build_findings_prompt_parts(batch)["files_context"]
-
-    assert "Open this file in the working tree" in files_text
-    assert "[ADDED] added line" in files_text
-    # The header list is redundant once the hunks themselves are there.
-    assert "Changed regions to inspect first:" not in files_text
-
-
-# ---------------------------------------------------------------------------
-# _annotate_diff_hunk()
-# ---------------------------------------------------------------------------
-
-
-def test_annotate_diff_hunk_numbers_added_and_context_lines():
-    hunk = "@@ -10,2 +10,3 @@\n def bar():\n+    return 1\n-    return 0"
-
-    result = _annotate_diff_hunk(hunk)
-
-    assert "10 [CONTEXT] def bar():" in result
-    assert "11 [ADDED]     return 1" in result
-    assert "[DELETED]     return 0" in result
-
-
-def test_annotate_diff_hunk_does_not_number_surrounding_context_lines():
-    """Regression test: `expanded_hunks` entries prepend a raw, non-diff-prefixed
-    surrounding-context block before the real diff hunk (DiffContextManager.build_expanded_hunks).
-    Indented raw lines in that block must not be mislabeled as numbered [CONTEXT] diff lines."""
-    hunk = (
-        "@@ -10,2 +10,3 @@\n"
-        "# --- surrounding context (lines 8-12) ---\n"
-        "    def foo():\n"
-        "        pass\n"
-        "def bar():\n"
-        "# --- diff hunk ---\n"
-        " def bar():\n"
-        "+    return 1\n"
-        "-    return 0"
-    )
-
-    result = _annotate_diff_hunk(hunk)
-
-    assert "    def foo():" in result
-    assert "[CONTEXT]    def foo():" not in result
-    assert "        pass" in result
-    assert "[CONTEXT]        pass" not in result
-
-
-def test_annotate_diff_hunk_real_hunk_numbering_unaffected_by_surrounding_context():
-    """The actual diff-hunk lines after the '# --- diff hunk ---' marker must get the same
-    line numbers they would get without the surrounding-context preamble at all — the raw
-    preamble lines must not advance the line counter."""
-    plain_hunk = "@@ -10,2 +10,3 @@\n def bar():\n+    return 1\n-    return 0"
-    expanded_hunk = (
-        "@@ -10,2 +10,3 @@\n"
-        "# --- surrounding context (lines 8-12) ---\n"
-        "    def foo():\n"
-        "        pass\n"
-        "def bar():\n"
-        "# --- diff hunk ---\n"
-        " def bar():\n"
-        "+    return 1\n"
-        "-    return 0"
-    )
-
-    plain_result = _annotate_diff_hunk(plain_hunk)
-    expanded_result = _annotate_diff_hunk(expanded_hunk)
-
-    plain_diff_lines = plain_result.splitlines()[1:]  # drop the @@ header
-    expanded_diff_lines = expanded_result.splitlines()[-len(plain_diff_lines):]
-    assert expanded_diff_lines == plain_diff_lines
 
 
 # ---------------------------------------------------------------------------
@@ -219,8 +84,8 @@ def test_findings_json_schema_wraps_array_in_object_with_findings_key():
 
     assert schema["type"] == "object"
     # Both sides required: a findings-only schema teaches the model that "this is fine"
-    # is not an answer, and then a dismissed question looks exactly like an ignored one.
-    assert schema["required"] == ["findings", "dismissed", "focus", "reviewed", "key_facts", "open_suspicions"]
+    # is not an answer, and then a file found clean looks exactly like one ignored.
+    assert schema["required"] == ["findings", "focus", "reviewed", "key_facts", "open_suspicions"]
     assert schema["properties"]["findings"]["type"] == "array"
 
 
@@ -275,7 +140,7 @@ def test_checklist_descriptions_are_hard_capped():
 def test_pr_context_carries_the_authors_description_as_its_own_section():
     batch = FocusContextBatch(
         batch_id="batch_1",
-        files_context={"src/foo.py": FileContextEntry(path="src/foo.py", hunks=["@@ -1 +1 @@\n+x"])},
+        files_context={"src/foo.py": FileContextEntry(path="src/foo.py")},
         checklist_applicable=[],
         pr_manifest=PullRequestManifest(
             number=3597,
@@ -305,7 +170,7 @@ def test_pr_context_carries_the_authors_description_as_its_own_section():
 def test_pr_context_omits_intent_when_description_is_only_noise():
     batch = FocusContextBatch(
         batch_id="batch_1",
-        files_context={"src/foo.py": FileContextEntry(path="src/foo.py", hunks=["@@ -1 +1 @@\n+x"])},
+        files_context={"src/foo.py": FileContextEntry(path="src/foo.py")},
         checklist_applicable=[],
         pr_manifest=PullRequestManifest(
             number=1,
@@ -389,142 +254,6 @@ def test_default_titan_checklist_renders_with_descriptions_too():
 
 
 # ============================================================================
-# build_cross_file_synthesis_batch + dedupe_synthesis_findings (review-quality-004)
-# ============================================================================
-
-
-def _one_hunk_diff() -> str:
-    return (
-        "diff --git a/border.py b/border.py\n"
-        "index 111..222 100644\n"
-        "--- a/border.py\n"
-        "+++ b/border.py\n"
-        "@@ -1,2 +1,3 @@\n"
-        " context\n"
-        "+added line\n"
-        " context\n"
-    )
-
-
-def _synthesis_diff() -> str:
-    return (
-        _one_hunk_diff()
-        + _one_hunk_diff().replace("border.py", "second.py")
-        + _one_hunk_diff().replace("border.py", "third.py")
-    )
-
-
-def _comment_context_entry():
-    from titan_plugin_github.models.review_enums import CommentContextKind
-    from titan_plugin_github.models.review_models import CommentContextEntry
-
-    return CommentContextEntry(
-        kind=CommentContextKind.COMMENT,
-        thread_id="t1",
-        path="border.py",
-        title="Existing comment",
-        summary="Already reported here",
-    )
-
-
-# ============================================================================
-# build_timeout_fallback_batch (worktree_reference timeout fallback)
-# ============================================================================
-
-
-def test_timeout_fallback_batch_builds_hunks_only_from_original():
-    from titan_plugin_github.models.review_enums import FileReadMode
-    from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
-    from titan_plugin_github.operations.findings_operations import build_timeout_fallback_batch
-
-    original = FocusContextBatch(
-        batch_id="batch_2",
-        files_context={
-            "border.py": FileContextEntry(
-                path="border.py",
-                read_mode=FileReadMode.WORKTREE_REFERENCE,
-                worktree_reference=True,
-                review_hint="huge file",
-            )
-        },
-    )
-
-    fallback = build_timeout_fallback_batch(original, _one_hunk_diff())
-
-    assert fallback is not None
-    assert fallback.batch_id == "batch_2_retry"
-    entry = fallback.files_context["border.py"]
-    assert entry.read_mode == FileReadMode.HUNKS_ONLY
-    assert entry.worktree_reference is False
-    assert any("added line" in hunk for hunk in entry.hunks)
-
-
-def test_timeout_fallback_batch_returns_none_without_hunks():
-    from titan_plugin_github.models.review_enums import FileReadMode
-    from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
-    from titan_plugin_github.operations.findings_operations import build_timeout_fallback_batch
-
-    original = FocusContextBatch(
-        batch_id="batch_9",
-        files_context={
-            "binary.bin": FileContextEntry(
-                path="binary.bin",
-                read_mode=FileReadMode.WORKTREE_REFERENCE,
-                worktree_reference=True,
-            )
-        },
-    )
-
-    assert build_timeout_fallback_batch(original, _one_hunk_diff()) is None
-
-
-# ============================================================================
-# trim_hunks_for_synthesis (synthesis budget fix)
-# ============================================================================
-
-
-def test_timeout_fallback_batch_propagates_batch_context():
-    """The bounded retry must not silently lose the original batch's guidance:
-    checklist, existing-comment context, related files and PR manifest carry over."""
-    from titan_plugin_github.models.review_enums import FileReadMode
-    from titan_plugin_github.models.review_models import (
-        FileContextEntry,
-        FocusContextBatch,
-        PullRequestManifest,
-        ReviewChecklistItem,
-    )
-    from titan_plugin_github.models.review_enums import ChecklistCategory
-    from titan_plugin_github.operations.findings_operations import build_timeout_fallback_batch
-
-    manifest = PullRequestManifest(
-        number=7, title="T", base="main", head="feat", author="a", description=""
-    )
-    checklist = [
-        ReviewChecklistItem(id=ChecklistCategory.ERROR_HANDLING, name="Errors", description="d")
-    ]
-    original = FocusContextBatch(
-        batch_id="batch_2",
-        files_context={
-            "border.py": FileContextEntry(
-                path="border.py",
-                read_mode=FileReadMode.WORKTREE_REFERENCE,
-                worktree_reference=True,
-            )
-        },
-        checklist_applicable=checklist,
-        related_files={"helper.py": "def helper(): ..."},
-        pr_manifest=manifest,
-    )
-
-    fallback = build_timeout_fallback_batch(original, _one_hunk_diff())
-
-    assert fallback is not None
-    assert fallback.checklist_applicable == checklist
-    assert fallback.related_files == {"helper.py": "def helper(): ..."}
-    assert fallback.pr_manifest is manifest
-
-
-# ============================================================================
 # The whole-change framing (cov-016)
 # ============================================================================
 
@@ -569,8 +298,8 @@ def test_prompt_reviews_the_pr_when_it_carries_the_change_shape():
 
 
 def test_prompt_keeps_a_narrow_framing_without_a_change_shape():
-    """A timeout retry carries no shape, and must not claim to be reviewing the whole PR
-    nor be asked to judge the change as a whole."""
+    """A batch without the change's shape must not claim to be reviewing the whole PR nor
+    be asked to judge the change as a whole."""
     from titan_plugin_github.models.review_models import FocusContextBatch
     from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
 
@@ -591,14 +320,11 @@ def test_cross_file_instructions_appear_only_when_the_batch_holds_several_files(
     That call cost $0.8478 of the review's $1.9694 to ask three questions; the questions
     now travel in the prompt. A single-file batch (an overflow slice) must not be asked,
     since it has nothing to compare."""
-    from titan_plugin_github.models.review_enums import FileReadMode
     from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
     from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
 
     def entry(path: str) -> FileContextEntry:
-        return FileContextEntry(
-            path=path, read_mode=FileReadMode.HUNKS_ONLY, hunks=["@@ -1 +1 @@\n+x\n"]
-        )
+        return FileContextEntry(path=path, review_hint="h")
 
     one_file = build_findings_prompt_parts(
         FocusContextBatch(batch_id="deep_1a", files_context={"a.py": entry("a.py")})
@@ -644,42 +370,6 @@ def test_project_context_section_asks_for_lookup_not_for_reading_everything():
     assert without["context_docs"] == ""
 
 
-def test_the_deep_prompt_hands_the_triage_suspicions_over_as_questions_not_findings():
-    """What the triage flagged travels into the deep call to be SETTLED.
-
-    The triage publishes nothing: it saw only diffs, so its output is a question for the
-    session that can open the file. That is what makes verification structural — the
-    confirm-or-refute pass it replaces refuted 0 findings in four real runs and confirmed
-    a known false positive twice."""
-    from titan_plugin_github.models.review_models import FocusContextBatch
-    from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
-
-    batch = FocusContextBatch(
-        batch_id="deep_1",
-        triage_suspicions=[
-            {"path": "ui/Login.kt", "note": "Adds a guard", "suspicion": "The guard may invert the check"}
-        ],
-    )
-
-    parts = build_findings_prompt_parts(batch)
-
-    assert "Questions from the triage" in parts["prompt"]
-    assert "for AFTER the review above" in parts["prompt"]
-    assert "ui/Login.kt: The guard may invert the check" in parts["prompt"]
-    assert "A question you cannot settle is not a finding" in parts["prompt"]
-    # The settle rules travel with the questions, in the same call (D-014).
-    assert "with one or two lookups" in parts["instructions"]
-    assert "put it in `open_suspicions` rather than searching on" in parts["instructions"]
-    # After the review, in the task and in the prompt: asked first, the questions set the
-    # agenda (5-6 of 8 findings per run on PR 3692 were confirmed triage questions).
-    prompt = parts["prompt"]
-    assert prompt.index("## Code to Review") < prompt.index("## Questions from the triage")
-    task = parts["task"]
-    assert task.index("Review each focus file") < task.index("settle each question")
-    # Nothing at all when the triage found nothing worth opening.
-    assert build_findings_prompt_parts(FocusContextBatch(batch_id="deep_1"))["triage_suspicions"] == ""
-
-
 def test_the_findings_prompt_renders_every_axis_the_plan_selected():
     """The renderer had the SAME `[:4]` as select_review_axes, applied a second time, so
     even a plan that selected 8 axes could only ever ask about 4. Two independent
@@ -712,25 +402,18 @@ def test_the_session_is_told_to_search_before_claiming_an_absence():
 
     Both rules also have to be unconditional: the verify-before-asserting rule used to
     hang off `context_docs`, so a repo with no CLAUDE.md never saw it."""
-    from titan_plugin_github.models.review_enums import FileReadMode
     from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
     from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
 
-    bare = FocusContextBatch(
-        batch_id="deep_1",
-        files_context={
-            "a.py": FileContextEntry(path="a.py", read_mode=FileReadMode.HUNKS_ONLY, hunks=["x"])
-        },
-    )
+    bare = FocusContextBatch(batch_id="deep_1", files_context={"a.py": FileContextEntry(path="a.py")})
 
     instructions = build_findings_prompt_parts(bare)["instructions"]
 
     assert "SEARCH the working tree" in instructions
     assert "An absence claimed without a search is a guess" in instructions
     assert "open it in the working tree and check" in instructions
-    # No project documents and no flagged questions on this batch, so neither rule may be
-    # gated behind those.
-    assert not bare.context_docs and not bare.triage_suspicions
+    # No project documents on this batch, so the rules may not be gated behind them.
+    assert not bare.context_docs
 
 
 def test_the_deep_review_is_asked_what_a_removal_breaks():
@@ -749,7 +432,6 @@ def test_the_task_and_its_coverage_come_before_the_material():
     every file was one instruction among ~20, after 339k chars of diffs. It is now the
     first task, stated before any material, and the two rules written for a session with
     no working tree -- which contradicted "open it and check" -- are gone."""
-    from titan_plugin_github.models.review_enums import FileReadMode
     from titan_plugin_github.models.review_models import FileContextEntry, FocusContextBatch
     from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
 
@@ -757,9 +439,7 @@ def test_the_task_and_its_coverage_come_before_the_material():
         FocusContextBatch(
             batch_id="deep_1",
             change_shape=["a.py | role=business_logic | YOU: review | +1/-0"],
-            files_context={
-                "a.py": FileContextEntry(path="a.py", read_mode=FileReadMode.HUNKS_ONLY, hunks=["x"])
-            },
+            files_context={"a.py": FileContextEntry(path="a.py")},
         )
     )
     prompt = parts["prompt"]
@@ -829,7 +509,7 @@ def test_depth_is_aimed_at_a_focus_chosen_by_criteria_not_by_count():
     assert "open it in full" in task and "who consumes its result" in task
     assert "names the function and the case" in task
     # The cheap pass first: left last, it was what the session cut (26/58 on #273).
-    assert task.index("from its diff, without opening") < task.index("choose your focus")
+    assert task.index("without opening") < task.index("choose your focus")
     assert task.index("choose your focus") < task.index("Review each focus file")
     # The two moves a free-form review showed missing on ragnarok #3723.
     assert "report it as an unannounced change when nothing does" in task
@@ -859,3 +539,24 @@ def test_parse_focus_keeps_only_files_the_session_was_handed():
         {"path": "src/a.py", "why": "writes to production"}
     ]
     assert parse_focus("nope", {"src/a.py"}) == []
+
+
+def test_coverage_groups_keep_reading_order_and_never_cut_a_diff():
+    from titan_plugin_github.operations.findings_operations import build_coverage_groups
+
+    diffs = {"a.py": "x" * 30, "test_a.py": "y" * 20, "b.py": "z" * 80, "c.py": "w" * 10}
+
+    groups = build_coverage_groups(list(diffs), diffs.get, max_chars=60)
+
+    assert [[path for path, _ in group] for group in groups] == [["a.py", "test_a.py"], ["b.py"], ["c.py"]]
+
+
+def test_a_coverage_turn_hands_over_every_diff_and_asks_for_every_file():
+    from titan_plugin_github.operations.findings_operations import build_coverage_turn_prompt
+
+    prompt = build_coverage_turn_prompt([("a.py", "1 [ADDED] x = 1"), ("b.py", "2 [ADDED] y")], 2, 5)
+
+    assert prompt.startswith("## Code review, group 2 of 5: 2 file(s)")
+    assert "### a.py" in prompt and "1 [ADDED] x = 1" in prompt and "### b.py" in prompt
+    assert "For EVERY file below give its `reviewed` entry" in prompt
+    assert '"reviewed"' in prompt

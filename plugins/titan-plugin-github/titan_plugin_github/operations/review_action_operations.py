@@ -211,7 +211,6 @@ def build_review_action_payload(
                 why_inline_allowed=action.why_inline_allowed,
                 file_status=action.file_status,
                 is_test_file=action.is_test_file,
-                read_mode=action.read_mode,
                 file_has_valid_lines=len(file_valid_lines),
                 is_valid=inline_safe)
             if inline_safe:
@@ -267,7 +266,6 @@ def build_review_action_payload(
                 "is_inline_safe_for_github": action.is_inline_safe_for_github,
                 "file_status": action.file_status,
                 "is_test_file": action.is_test_file,
-                "read_mode": action.read_mode,
             }
             for action in actions
             if action.action_type == ReviewActionType.NEW_COMMENT

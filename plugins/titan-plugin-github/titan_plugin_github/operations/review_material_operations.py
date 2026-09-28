@@ -12,10 +12,10 @@ The folder is hidden (`.titan-review/`): the CLIs' search tools skip hidden dire
 default, so a plain search of the tree does not mix the old code in with the new.
 """
 
+import re
 from typing import Callable, Iterable, Optional
 
 from ..models.review_models import CommentContextEntry, PullRequestManifest
-from .findings_operations import _annotate_diff_hunk
 
 MATERIAL_DIR = ".titan-review"
 DIFFS_DIR = f"{MATERIAL_DIR}/diffs"
@@ -34,13 +34,52 @@ def base_file_path(path: str) -> str:
     return f"{BASE_DIR}/{path}"
 
 
+def annotate_diff_hunk(hunk: str) -> str:
+    """One hunk with each line labelled, and numbered by the new file where it has a line.
+
+    `[ADDED]` and `[CONTEXT]` lines carry their line number in the new file, which is what
+    a finding's `line` and `snippet` are anchored to. `[DELETED]` lines have no number: they
+    are not in the new file. Removed code is labelled rather than hidden, because what a
+    migration or refactor loses is often the defect (PR #3720: two analytics reducers
+    removed while their actions are still dispatched).
+    """
+    lines = hunk.splitlines()
+    if not lines:
+        return ""
+
+    header_line = next((line for line in lines if line.startswith("@@")), None)
+    match = re.search(r"\+(\d+)", header_line) if header_line else None
+    if match is None:
+        return "\n".join(lines)
+
+    result = [header_line]
+    current_line = int(match.group(1))
+    width = len(str(current_line + 100))
+    for line in lines:
+        if line.startswith("@@"):
+            continue
+        if line.startswith("---") or line.startswith("+++"):
+            result.append(line)
+        elif line.startswith("-"):
+            result.append(f"[DELETED] {line[1:]}")
+        elif line.startswith("+"):
+            result.append(f"{str(current_line).rjust(width)} [ADDED] {line[1:]}")
+            current_line += 1
+        elif line.startswith(" "):
+            result.append(f"{str(current_line).rjust(width)} [CONTEXT] {line[1:]}")
+            current_line += 1
+        else:
+            result.append(line)
+    return "\n".join(result)
+
+
 def render_file_diff(path: str, hunks: Iterable[str]) -> str:
     """One file's diff with every line numbered and labelled, the same shape the prompt used.
 
     The numbers are the new file's lines, so a finding's `line` and `snippet` come straight
     from here, which is what inline anchoring depends on.
     """
-    blocks = [_annotate_diff_hunk(hunk) for hunk in hunks]
+    blocks = [annotate_diff_hunk(hunk) for hunk in hunks]
     body = "\n\n".join(block for block in blocks if block)
     return f"# {path}\n\n{body}\n" if body else f"# {path}\n\n(no textual diff)\n"
 

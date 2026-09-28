@@ -1,6 +1,6 @@
 """Tests for what one review reads and the budget it runs under."""
 
-from titan_plugin_github.models.review_enums import AttentionTier, ChecklistCategory, FileReadMode
+from titan_plugin_github.models.review_enums import AttentionTier, ChecklistCategory
 from titan_plugin_github.models.review_models import ReviewChecklistItem
 from titan_plugin_github.models.review_profile_models import ReviewAxisRule, ReviewProfile
 from titan_plugin_github.operations.attention_operations import AttentionPlan, FileAttention
@@ -64,7 +64,7 @@ def _item(category: ChecklistCategory) -> ReviewChecklistItem:
 
 def test_the_deep_tier_is_the_selection():
     """Every deep file is read, in manifest order, and nothing else is: glance goes to
-    the triage and skip is named on screen, so there is no exclusion list to keep."""
+    the same session and skip is named on screen, so there is no exclusion list to keep."""
     plan = build_deterministic_review_plan(
         _attention({"core.py": "deep", "test_core.py": "glance", "tiny.py": "deep", "README.md": "skip"}),
         [],
@@ -74,19 +74,16 @@ def test_the_deep_tier_is_the_selection():
     assert [f.path for f in plan.focus_files] == ["core.py", "tiny.py"]
 
 
-def test_every_deep_file_gets_the_same_read_mode():
-    """A scorer used to decide this: under 5 points a deep file went in as bare hunks,
-    without being marked as openable in the worktree."""
+def test_every_deep_file_carries_the_reason_it_is_deep():
     plan = build_deterministic_review_plan(
         _attention({"a.py": "deep", "b.py": "deep"}), [], ReviewProfile()
     )
 
-    assert {f.read_mode for f in plan.focus_files} == {FileReadMode.EXPANDED_HUNKS}
     assert plan.focus_files[0].reasons == ["role:deep"]
 
 
 def test_a_large_deep_tier_keeps_every_file():
-    """Once a 12-file ceiling sent 12 of 24 deep files to the triage (ragnarok run
+    """Once a 12-file ceiling sent 12 of 24 deep files out of the deep review (ragnarok run
     `70777691`). A deep tier is read whole, whatever its size."""
     plan = build_deterministic_review_plan(
         _attention({f"f{i}.py": "deep" for i in range(40)}), [], ReviewProfile()

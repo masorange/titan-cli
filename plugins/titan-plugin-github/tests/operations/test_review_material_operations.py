@@ -9,6 +9,7 @@ from titan_plugin_github.models.review_models import (
 )
 from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
 from titan_plugin_github.operations.review_material_operations import (
+    annotate_diff_hunk,
     base_file_path,
     diff_file_path,
     render_file_diff,
@@ -24,6 +25,18 @@ PR = PullRequestManifest(
 def test_paths_live_in_a_hidden_folder_so_a_plain_search_skips_them():
     assert diff_file_path("src/a.py") == ".titan-review/diffs/src/a.py.diff"
     assert base_file_path("src/a.py") == ".titan-review/base/src/a.py"
+
+
+def test_a_hunk_numbers_added_and_context_lines_by_the_new_file():
+    hunk = "@@ -10,2 +10,3 @@\n def bar():\n+    return 1\n-    return 0"
+
+    result = annotate_diff_hunk(hunk)
+
+    assert result.splitlines()[0] == "@@ -10,2 +10,3 @@"
+    assert "10 [CONTEXT] def bar():" in result
+    assert "11 [ADDED]     return 1" in result
+    assert "[DELETED]     return 0" in result
+    assert annotate_diff_hunk("") == ""
 
 
 def test_a_file_diff_is_numbered_like_the_prompt_was_so_anchors_still_work():
@@ -63,18 +76,7 @@ def test_with_the_material_on_disk_the_prompt_points_at_it_and_carries_no_diff()
     batch = FocusContextBatch(
         batch_id="deep_1",
         change_shape=["a.py | role=business_logic | YOU: review | +1/-0"],
-        comment_context=[
-            CommentContextEntry(
-                kind=CommentContextKind.COMMENT, thread_id="t", path="a.py", line=1,
-                title="Known", summary="already said", is_resolved=False,
-            )
-        ],
-        files_context={
-            "a.py": FileContextEntry(
-                path="a.py", worktree_reference=True, on_disk=True,
-                review_hint=review_material_hint("a.py", True), hunks=[],
-            )
-        },
+        files_context={"a.py": FileContextEntry(path="a.py", review_hint=review_material_hint("a.py", True))},
         pr_manifest=PR,
     )
 
@@ -84,8 +86,7 @@ def test_with_the_material_on_disk_the_prompt_points_at_it_and_carries_no_diff()
     assert "## Review Material" in prompt
     assert "`.titan-review/pr.diff`" in prompt
     assert "diff: `.titan-review/diffs/a.py.diff`" in prompt
-    assert "already said" not in prompt  # the comments are in pr.md
-    assert "In `.titan-review/pr.md`." in prompt
+    assert "In `.titan-review/pr.md`." in prompt  # the comments are there, not here
     assert "[ADDED]" not in parts["files_context"]
     assert "its base version shows how it worked before" in parts["task"]
     assert "left out by rule" in prompt
@@ -121,14 +122,12 @@ def test_a_removed_behaviour_is_kept_only_when_the_base_version_bears_it_out():
     }
 
 
-def test_the_session_is_told_to_quote_the_old_line_when_the_material_is_on_disk():
+def test_the_session_is_told_to_quote_the_old_line():
     from titan_plugin_github.operations.findings_operations import findings_json_schema
 
     batch = FocusContextBatch(
         batch_id="deep_1",
-        files_context={
-            "a.py": FileContextEntry(path="a.py", worktree_reference=True, on_disk=True, review_hint="h")
-        },
+        files_context={"a.py": FileContextEntry(path="a.py", review_hint="h")},
     )
 
     parts = build_findings_prompt_parts(batch)
