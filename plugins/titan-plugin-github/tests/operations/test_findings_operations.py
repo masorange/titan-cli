@@ -540,23 +540,3 @@ def test_parse_focus_keeps_only_files_the_session_was_handed():
     ]
     assert parse_focus("nope", {"src/a.py"}) == []
 
-
-def test_coverage_groups_keep_reading_order_and_never_cut_a_diff():
-    from titan_plugin_github.operations.findings_operations import build_coverage_groups
-
-    diffs = {"a.py": "x" * 30, "test_a.py": "y" * 20, "b.py": "z" * 80, "c.py": "w" * 10}
-
-    groups = build_coverage_groups(list(diffs), diffs.get, max_chars=60)
-
-    assert [[path for path, _ in group] for group in groups] == [["a.py", "test_a.py"], ["b.py"], ["c.py"]]
-
-
-def test_a_coverage_turn_hands_over_every_diff_and_asks_for_every_file():
-    from titan_plugin_github.operations.findings_operations import build_coverage_turn_prompt
-
-    prompt = build_coverage_turn_prompt([("a.py", "1 [ADDED] x = 1"), ("b.py", "2 [ADDED] y")], 2, 5)
-
-    assert prompt.startswith("## Code review, group 2 of 5: 2 file(s)")
-    assert "### a.py" in prompt and "1 [ADDED] x = 1" in prompt and "### b.py" in prompt
-    assert "For EVERY file below give its `reviewed` entry" in prompt
-    assert '"reviewed"' in prompt

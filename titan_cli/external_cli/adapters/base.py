@@ -219,8 +219,6 @@ class HeadlessResponse:
     stderr: str
     exit_code: int
     usage: Optional[CliUsage] = None
-    # The CLI's own id for the session, where it reports one: what a later turn resumes.
-    session_id: Optional[str] = None
 
     @property
     def succeeded(self) -> bool:

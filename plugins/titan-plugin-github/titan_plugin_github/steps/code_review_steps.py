@@ -1005,15 +1005,6 @@ class _PinnedModelCli:
         self._record(prompt, kwargs, response, time.monotonic() - started_at)
         return response
 
-    def resume(self, session_id, prompt, **kwargs):
-        """`execute`'s rules for one more turn of an existing session."""
-        if kwargs.get("model") is None:
-            kwargs["model"] = self._model
-        started_at = time.monotonic()
-        response = self._adapter.resume(session_id, prompt, **kwargs)
-        self._record(prompt, kwargs, response, time.monotonic() - started_at)
-        return response
-
     def _record(self, prompt, kwargs, response, duration_seconds: float) -> None:
         """Append one call record and log it. Never allowed to break the review."""
         try:
@@ -1783,116 +1774,6 @@ def _retry_findings_batch_reformat(
     return parse_findings_response(response.stdout, structured=structured)
 
 
-def _run_coverage_turns(
-    ctx: WorkflowContext, batch, session_id: str, focus: list[dict], run, effort: Optional[str]
-) -> dict:
-    """Review every non-focus file, group by group, in more turns of the same session.
-
-    Titan keeps the list: each turn hands over one group's diffs inside the message and
-    records the files the answer covers. A file handed over and left unanswered is handed
-    over once more at the end. What comes back unanswered twice stays unreviewed, on screen.
-    """
-    from ..operations.findings_operations import (
-        build_coverage_groups,
-        build_coverage_turn_prompt,
-        normalize_finding_path,
-    )
-
-    read_diff, _ = _coverage_readers(ctx.data.get("worktree_path"))
-    focus_paths = {normalize_finding_path(item["path"]) for item in focus}
-    ledger = [
-        {"path": item["path"], "note": f"Reviewed in depth: {item.get('why', '')}".strip()} for item in focus
-    ]
-    pending = [path for path in batch.files_context if normalize_finding_path(path) not in focus_paths]
-    result = {"raw": [], "old_code_rejected": [], "out_of_scope_findings": [], "notes": {"key_facts": [], "open_suspicions": []}, "ledger": ledger}
-    if not pending:
-        return result
-
-    groups = build_coverage_groups(pending, read_diff)
-    ctx.textual.dim_text(
-        f"Reviewing the other {len(pending)} file(s) in {len(groups)} more turn(s) of the same session"
-    )
-    answered: set[str] = set()
-    retry: list[str] = []
-    turn = 0
-
-    def run_group(group: list[tuple[str, str]], index: int, total: int) -> None:
-        nonlocal turn
-        turn += 1
-        prompt = build_coverage_turn_prompt(group, index, total)
-        with ctx.textual.loading(f"Reviewing group {index}/{total} ({len(group)} file(s))…"):
-            outcome = run((batch, prompt, effort, session_id, len(group)))
-        paths = [path for path, _ in group]
-        covered = []
-        if outcome["status"] == "success":
-            by_path = {normalize_finding_path(item["path"]): item for item in outcome.get("reviewed") or []}
-            for path in paths:
-                item = by_path.get(normalize_finding_path(path))
-                if item is not None:
-                    covered.append(path)
-                    answered.add(path)
-                    ledger.append(item)
-            result["raw"].extend(outcome.get("raw") or [])
-            result["old_code_rejected"].extend(outcome.get("old_code_rejected") or [])
-            result["out_of_scope_findings"].extend(outcome.get("out_of_scope_findings") or [])
-            for key in result["notes"]:
-                result["notes"][key].extend(outcome.get(key) or [])
-        logger.info(
-            "coverage_turn",
-            turn=turn,
-            group=index,
-            groups=total,
-            files=len(paths),
-            answered=len(covered),
-            unanswered=[path for path in paths if path not in covered],
-            findings=len(outcome.get("raw") or []) if outcome["status"] == "success" else 0,
-            status=outcome["status"],
-            detail=outcome.get("detail") or None,
-            prompt_chars=len(prompt),
-        )
-        ctx.textual.dim_text(
-            f"  group {index}/{total}: {len(covered)} of {len(paths)} file(s) reviewed"
-            + (f", {len(outcome.get('raw') or [])} finding(s)" if outcome["status"] == "success" else f" — {outcome.get('detail')}")
-        )
-
-    for index, group in enumerate(groups, start=1):
-        run_group(group, index, len(groups))
-    retry = [path for path in pending if path not in answered]
-    if retry:
-        again = build_coverage_groups(retry, read_diff)
-        for index, group in enumerate(again, start=1):
-            run_group(group, index, len(again))
-    logger.info(
-        "coverage_turns_done",
-        files=len(pending),
-        turns=turn,
-        reviewed=len(answered),
-        unreviewed=[path for path in pending if path not in answered],
-        findings=len(result["raw"]),
-    )
-    return result
-
-
-def _coverage_readers(project_root: Optional[str]):
-    """Readers for a changed file's rendered diff and its new version in the worktree."""
-    from ..operations.review_material_operations import diff_file_path
-
-    if not project_root:
-        return (lambda path: None), (lambda path: None)
-    root = Path(project_root).resolve()
-
-    def _read(relative: str) -> Optional[str]:
-        target = (root / relative).resolve()
-        if not target.is_relative_to(root) or not target.is_file():
-            return None
-        try:
-            return target.read_text()
-        except (OSError, UnicodeDecodeError):
-            return None
-
-    return (lambda path: _read(diff_file_path(path))), _read
-
-
 def _render_review_coverage(ctx: WorkflowContext, handed: set, ledger: list[dict]) -> None:
     """Say how many of the files the session was handed it accounts for, and name the rest.
 
@@ -2449,7 +2330,6 @@ def _execute_findings_batch(
     use_structured_output: bool,
     timeout_seconds: int,
     manifest_paths: Optional[set] = None,
-    session_id: Optional[str] = None,
 ) -> dict:
     """Run one findings batch end-to-end: CLI call, parse, reformat retry, scope check.
 
@@ -2470,18 +2350,15 @@ def _execute_findings_batch(
     # run_interruptible here also covers the pooled path: on app exit each worker
     # raises WorkflowAborted, its future completes, and the step thread's
     # future.result() re-raises it instead of blocking on a live CLI call.
-    call_options = dict(
-        cwd=project_root,
-        timeout=timeout_seconds,
-        json_schema=findings_schema,
-        disallowed_tools=disallowed_tools,
-        effort=effort,
-    )
-    # With `session_id` the prompt is one more turn of that session rather than a new one.
     response = run_interruptible(
-        lambda: adapter.resume(session_id, prompt, **call_options)
-        if session_id
-        else adapter.execute(prompt, **call_options)
+        lambda: adapter.execute(
+            prompt,
+            cwd=project_root,
+            timeout=timeout_seconds,
+            json_schema=findings_schema,
+            disallowed_tools=disallowed_tools,
+            effort=effort,
+        )
     )
     adapter_duration_seconds = time.monotonic() - adapter_started_at
     logger.info(
@@ -2489,7 +2366,6 @@ def _execute_findings_batch(
         batch_id=batch.batch_id,
         cli=adapter.cli_name.value,
         files_context=len(batch.files_context),
-        resumed_session=session_id,
         prompt_actual_chars=len(prompt),
         duration_seconds=round(adapter_duration_seconds, 3),
         timeout_seconds=timeout_seconds,
@@ -2537,7 +2413,6 @@ def _execute_findings_batch(
             _log_parsed_findings(batch.batch_id, raw)
             return {
                 **_scoped_batch_outcome(batch, raw, manifest_paths, project_root),
-                "session_id": getattr(response, "session_id", None),
                 "reviewed": parse_reviewed_files(response.stdout, set(batch.files_context)),
                 **parse_session_notes(response.stdout),
                 "focus": parse_focus(response.stdout, set(batch.files_context)),
@@ -2691,10 +2566,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     manifest_paths = {f.path for f in change_manifest.files} if change_manifest else set()
 
     def _run(entry: tuple) -> dict:
-        # (batch, prompt, effort), or with a session id and a file count for a turn that
-        # resumes the deep session over some of its files.
-        entry_batch, entry_prompt, entry_effort, *turn = entry
-        session_id, file_count = turn if turn else (None, len(entry_batch.files_context))
+        entry_batch, entry_prompt, entry_effort = entry
         try:
             return _execute_findings_batch(
                 adapter,
@@ -2705,9 +2577,8 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
                 disallowed_tools=disallowed_tools,
                 effort=entry_effort,
                 use_structured_output=use_structured_output,
-                timeout_seconds=deep_call_timeout_seconds(budget, file_count),
+                timeout_seconds=deep_call_timeout_seconds(budget, len(entry_batch.files_context)),
                 manifest_paths=manifest_paths,
-                session_id=session_id,
             )
         except Exception as exc:
             logger.error("findings_batch_crashed", batch_id=entry_batch.batch_id, error=str(exc))
@@ -2756,21 +2627,6 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     }
     out_of_scope_findings = list(outcome.get("out_of_scope_findings") or [])
     old_code_rejected = list(outcome.get("old_code_rejected") or [])
-
-    # Experiment (on by default while it is measured; TITAN_REVIEW_COVERAGE_TURNS=0 turns it off).
-    if os.environ.get("TITAN_REVIEW_COVERAGE_TURNS", "1") != "0" and outcome.get("session_id"):
-        if getattr(adapter, "supports_resume", False):
-            turns = _run_coverage_turns(ctx, batch, outcome["session_id"], focus, _run, effort)
-            raw.extend(turns["raw"])
-            old_code_rejected.extend(turns["old_code_rejected"])
-            out_of_scope_findings.extend(turns["out_of_scope_findings"])
-            for key, items in session_notes.items():
-                items.extend(turns["notes"].get(key) or [])
-            # Coverage is what Titan handed over and got an answer for, not what the first
-            # answer said: the notes it wrote for files it never opened are dropped.
-            reviewed_ledger = turns["ledger"]
-        else:
-            ctx.textual.warning_text(f"{cli_display} cannot resume a session: coverage turns skipped")
 
     # There used to be an empty-findings rescue here that reviewed "borderline" files when
     # the session returned nothing. Deleted deliberately: a review that has nothing to say
