@@ -166,3 +166,81 @@ def test_config_values_are_reread_even_when_the_registry_is_reused(config, confi
 
     assert config.config.ai.default_connection == "work"
     assert _rebuilds(config) == before
+
+
+class TestPluginSourceOverrides:
+    """
+    Switching a plugin between Stable and Develop must rebuild the registry.
+
+    The override decides WHICH COPY of the plugin's code is imported, and it is
+    written to the user's config under a per-project key - deliberately not to
+    the project file the team shares. The fingerprint was computed only over the
+    global-plus-project merge, which cannot see that table, so the registry was
+    reused, `prepare()` never re-applied the override, and the already imported
+    stable module kept serving until Titan was restarted. The screen read the
+    effective source and correctly showed "Develop" while the old code ran.
+    """
+
+    def test_switching_to_dev_local_rebuilds(self, config):
+        before = _rebuilds(config)
+
+        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.load()
+
+        assert _rebuilds(config) == before + 1
+
+    def test_switching_back_to_stable_rebuilds(self, config):
+        """The swap has to work in both directions, not just into Develop."""
+        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.load()
+        after_dev = _rebuilds(config)
+
+        config.set_global_plugin_source("git", "stable")
+        config.load()
+
+        assert _rebuilds(config) == after_dev + 1
+
+    def test_pointing_dev_local_at_a_different_checkout_rebuilds(self, config):
+        """Another path is another copy of the code, so it is another registry."""
+        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.load()
+        after_first = _rebuilds(config)
+
+        config.set_global_plugin_source("git", "dev_local", "/tmp/other-checkout")
+        config.load()
+
+        assert _rebuilds(config) == after_first + 1
+
+    def test_a_second_reload_after_a_source_change_does_not_rebuild_again(self, config):
+        """The fingerprint has to absorb the change, or every later load rebuilds."""
+        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.load()
+        after_change = _rebuilds(config)
+
+        config.load()
+
+        assert _rebuilds(config) == after_change
+
+    def test_recording_a_workflow_run_does_not_rebuild(self, config):
+        """
+        The guard on how narrowly the override block is read.
+
+        `workflows.last_used` and `workflows.favorites` live in the SAME
+        per-project table as the source overrides. Hashing the whole table would
+        rebuild the entire plugin registry every time a workflow ran, which is
+        the optimization this fingerprint exists to provide.
+        """
+        before = _rebuilds(config)
+
+        config.record_workflow_run("commit-ai")
+        config.load()
+
+        assert _rebuilds(config) == before
+
+    def test_starring_a_workflow_does_not_rebuild(self, config):
+        before = _rebuilds(config)
+
+        config.toggle_favorite_workflow("commit-ai")
+        config.load()
+
+        assert _rebuilds(config) == before

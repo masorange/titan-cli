@@ -1,5 +1,6 @@
 # core/config.py
 from copy import deepcopy
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -26,6 +27,7 @@ _INSTANCE_PIN_KEYS = ("cli", "connection")
 # other's model alone.
 _TRANSPORT_OF_PIN = {"cli": "cli", "connection": "remote"}
 
+_MAX_LAST_USED_ENTRIES = 20
 
 def _transport_of(provider: Optional[str]) -> str:
     """Which instance a provider kind is served by: a CLI, a connection, or nothing.
@@ -147,7 +149,10 @@ class TitanConfig:
         initialization failures, so a credential stored since the last attempt
         gets a fresh try.
         """
-        fingerprint = self._compute_plugin_fingerprint(merged)
+        fingerprint = self._compute_plugin_fingerprint(
+            merged,
+            self._get_project_source_scope_data().get("plugins", {}),
+        )
 
         if not force and fingerprint == self._plugin_fingerprint:
             logger.debug("plugin_registry_reused")
@@ -161,15 +166,36 @@ class TitanConfig:
         logger.debug("plugin_registry_rebuilt", forced=force)
 
     @staticmethod
-    def _compute_plugin_fingerprint(merged: dict) -> str:
+    def _compute_plugin_fingerprint(
+        merged: dict,
+        source_overrides: Optional[dict] = None,
+    ) -> str:
         """
         Everything the built registry depends on, as one comparable value.
 
-        Two inputs: the `[plugins.*]` configuration (which plugins are enabled
-        and how each is configured) and the set of installed entry points (so a
-        plugin installed or removed mid-session is noticed). Enumerating entry
-        points costs a few milliseconds against the second a rebuild costs, which
-        is what makes checking cheaper than assuming.
+        Three inputs: the `[plugins.*]` configuration (which plugins are enabled
+        and how each is configured), the set of installed entry points (so a
+        plugin installed or removed mid-session is noticed), and the per-project
+        plugin source overrides from the user's config. Enumerating entry points
+        costs a few milliseconds against the second a rebuild costs, which is
+        what makes checking cheaper than assuming.
+
+        The source overrides are here because they decide WHICH COPY of a
+        plugin's code gets imported, and they live somewhere `merged` cannot
+        see. Switching a plugin from `stable` to `dev_local` writes to
+        `[project_sources.<key>.plugins.<name>.source]` in the user's config,
+        deliberately not to the project file the team shares - and `merged` is
+        the global-plus-project merge, which does not include that table. So the
+        fingerprint could not tell the two channels apart, the registry was
+        reused, `prepare()` never re-applied the override, and the already
+        imported stable module kept serving until Titan was restarted. The screen
+        read the effective source and correctly said "Develop" while the old code
+        ran; neither half was lying, they read different places.
+
+        Only the `plugins` sub-block of that table is included, never the whole
+        thing: the same per-project table also holds `workflows.favorites` and
+        `workflows.last_used`, and hashing those would rebuild the entire plugin
+        registry every time a workflow ran.
 
         A credential a plugin reads while initializing is deliberately NOT here -
         secrets live outside the config files and hashing them to compare would
@@ -182,7 +208,11 @@ class TitanConfig:
         installed = sorted(ep.name for ep in entry_points(group="titan.plugins"))
 
         payload = json.dumps(
-            {"plugins": plugins_config, "installed": installed},
+            {
+                "plugins": plugins_config,
+                "installed": installed,
+                "source_overrides": source_overrides or {},
+            },
             sort_keys=True,
             default=str,
         )
@@ -1061,6 +1091,81 @@ class TitanConfig:
 
         self._write_global_config(config_data)
         return is_now_favorite
+
+    def get_workflow_last_used(self) -> dict:
+        """Return {workflow name: ISO-8601 UTC timestamp} of runs for the active project.
+
+        Nothing is cleaned on read. A name whose workflow is not currently discoverable
+        belongs to a plugin the user may re-enable, so the caller skips it rather than this
+        deleting a record that would become valid again.
+        """
+        workflows = self._get_project_workflows_table()
+        last_used = workflows.get("last_used")
+        if not isinstance(last_used, dict):
+            return {}
+        return {
+            name: value
+            for name, value in last_used.items()
+            if isinstance(name, str) and isinstance(value, str)
+        }
+
+    def record_workflow_run(self, name: str, *, now: Optional[datetime] = None) -> None:
+        """Record that a workflow has just been run, for the active project.
+
+        Scoped exactly like favorites: the same `workflows` table under the project's
+        `project_sources` key, which is a hash of the resolved project path. Two projects
+        holding a workflow of the same name therefore never see each other's runs.
+        """
+        timestamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.get("project_sources")
+        if not isinstance(project_sources, dict):
+            project_sources = {}
+            config_data["project_sources"] = project_sources
+
+        project_key = self._find_project_source_scope_key(project_sources) or self._get_project_source_scope_key()
+        project_table = project_sources.get(project_key)
+        if not isinstance(project_table, dict):
+            project_table = {}
+            project_sources[project_key] = project_table
+        project_table["project_path"] = str((self._project_root or Path.cwd()).resolve())
+
+        workflows = project_table.get("workflows")
+        if not isinstance(workflows, dict):
+            workflows = {}
+            project_table["workflows"] = workflows
+
+        stored = workflows.get("last_used")
+        last_used = {
+            existing: value
+            for existing, value in (stored.items() if isinstance(stored, dict) else ())
+            if isinstance(existing, str) and isinstance(value, str)
+        }
+        last_used[name] = timestamp
+
+        # Most recent first, then truncate. ISO-8601 UTC sorts lexicographically, so
+        # comparing the strings is a real chronological comparison.
+        workflows["last_used"] = dict(
+            sorted(last_used.items(), key=lambda item: item[1], reverse=True)[
+                :_MAX_LAST_USED_ENTRIES
+            ]
+        )
+
+        self._write_global_config(config_data)
+
+    def _get_project_workflows_table(self) -> dict:
+        """Return the active project's `workflows` table from the global config on disk."""
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.get("project_sources")
+        if not isinstance(project_sources, dict):
+            return {}
+        project_key = self._find_project_source_scope_key(project_sources)
+        project_table = project_sources.get(project_key) if project_key else None
+        if not isinstance(project_table, dict):
+            return {}
+        workflows = project_table.get("workflows")
+        return workflows if isinstance(workflows, dict) else {}
 
     def _get_project_source_scope_key(self) -> str:
         """Return the global-config key used to scope local plugin overrides per project."""

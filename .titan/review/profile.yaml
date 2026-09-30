@@ -1,3 +1,15 @@
+# Review profile for titan-cli.
+#
+# Merged onto Titan's default profile KEY BY KEY: a role, an attention tier or a review
+# axis defined here replaces Titan's entry for that key, and everything not named here
+# keeps Titan's default. Only fields that still decide something are listed:
+#   file_roles    -> which role a changed file plays (the role asking for the most
+#                    attention wins when several match)
+#   attention     -> deep / glance / skip per role (Titan's defaults are used here)
+#   always_deep   -> paths read in full on any change, whatever their role
+#   context_docs  -> project documents the review session consults before judging
+#   review_axes   -> when each checklist axis applies
+
 version: 1
 
 change_patterns:
@@ -38,15 +50,14 @@ file_roles:
 
   config_or_contracts:
     - ".titan/config.toml"
-    - ".titan/workflows/**"
-    - "**/*.yaml"
-    - "**/*.yml"
     - "**/*.toml"
     - "**/*.json"
-    - "titan_cli/core/models.py"
+    - "**/*.yaml"
+    - "**/*.yml"
     - "titan_cli/core/plugins/models.py"
     - "plugins/*/*/models/**"
 
+  # Workflow YAML is also config; this role asks for more attention, so it wins.
   workflow_orchestration:
     - "titan_cli/core/workflows/**"
     - "titan_cli/engine/**"
@@ -60,25 +71,28 @@ file_roles:
     - "titan_cli/ai/providers/**"
     - "titan_cli/ai/litellm_client.py"
     - "titan_cli/external_cli/**"
+    - "titan_cli/clients/**"
+    - "titan_cli/ports/**"
     - "plugins/*/*/clients/**"
-    - "plugins/*/*/clients/services/**"
     - "plugins/*/*/models/mappers/**"
     - "plugins/*/*/models/network/**"
 
   entrypoints_or_ui:
     - "titan_cli/ui/**"
     - "titan_cli/commands/**"
-    - "titan_cli/preview.py"
+    - "titan_cli/cli.py"
     - "plugins/*/*/widgets/**"
 
   business_logic:
     - "titan_cli/core/**"
-    - "titan_cli/engine/**"
     - "titan_cli/ai/**"
+    - "titan_cli/application/**"
     - "plugins/*/*/operations/**"
     - "plugins/*/*/managers/**"
     - "plugins/*/*/agents/**"
+    - "plugins/*/*/plugin.py"
 
+<<<<<<< Updated upstream
 candidate_scoring:
   - name: wiring_and_contract_surface
     patterns:
@@ -173,76 +187,132 @@ candidate_exclusions:
   low_signal_test_max_changes: 25
   low_signal_config_max_changes: 12
 
+=======
+# The secrets trust boundary and the import boundary that enforces it: a small change
+# here decides whether a credential can leak, so it is always read in full.
+always_deep:
+  - "titan_cli/core/security/**"
+  - "titan_cli/ai/oauth_helper.py"
+  - "titan_cli/core/interrupt.py"
+
+# Consulted, not read end to end: the rules steps, plugins and secrets handling are held to.
+context_docs:
+  - "CLAUDE.md"
+  - ".claude/docs/plugin-architecture.md"
+  - ".claude/docs/workflow-step-rules.md"
+  - ".claude/docs/operations.md"
+  - ".claude/docs/security.md"
+  - ".claude/docs/workflows.md"
+  - ".claude/docs/textual.md"
+
+# Only the axes whose trigger titan-cli extends; each list keeps Titan's default patterns
+# (a key defined here replaces Titan's) and adds this repository's paths. Every other axis
+# -- functional correctness, error handling, performance, documentation, test coverage --
+# keeps Titan's default.
+>>>>>>> Stashed changes
 review_axes:
-  functional_correctness:
-    always_include: true
-
-  error_handling:
-    always_include: true
-
   semantic_correctness:
     patterns:
-      - "plugins/*/*/models/mappers/**"
       - "**/*mapper*"
       - "**/*serializer*"
-      - "**/*parser*"
       - "**/*formatter*"
+      - "**/*adapter*"
+      - "**/*converter*"
+      - "**/*event*"
+      - "**/*classification*"
       - "**/*normalizer*"
+      - "**/*parser*"
+      - "**/*model*"
       - "**/*validator*"
-      - "**/*messages.py"
-      - "**/*formatting.py"
+      - "**/messages.py"
+      - "**/formatting.py"
       - "**/*prompt*"
 
   state_consistency:
     patterns:
+      - "**/*state*"
+      - "**/*result*"
+      - "**/*status*"
+      - "**/*callback*"
+      - "**/*listener*"
+      - "**/*event*"
+      - "**/*store*"
+      - "**/*context*"
       - "titan_cli/engine/**"
       - "titan_cli/core/workflows/**"
       - "titan_cli/ui/tui/screens/workflow_execution.py"
       - "plugins/*/*/steps/**"
-      - "plugins/*/*/operations/thread_*"
-      - "plugins/*/*/operations/review_action_*"
-      - "**/*state*"
-      - "**/*result*"
-      - "**/*context*"
-      - "**/*thread*"
 
   api_contract:
     patterns:
-      - "titan_cli/core/models.py"
-      - "titan_cli/core/plugins/models.py"
-      - "plugins/*/*/plugin.py"
-      - "plugins/*/*/protocols.py"
-      - "plugins/*/*/models/**"
-      - "plugins/*/*/clients/**"
-      - "plugins/*/*/clients/services/**"
-      - "plugins/*/*/workflows/**/*.yaml"
-      - "titan_cli/core/workflows/**/*.yaml"
-      - "**/*.yaml"
-      - "**/*.toml"
+      - "**/*api*"
       - "**/*schema*"
+      - "**/*model*"
+      - "**/*contract*"
+      - "**/*.yaml"
+      - "**/*.json"
+      - "**/*.toml"
+      - "plugins/*/*/plugin.py"
+      - "plugins/*/*/clients/**"
+      - "titan_cli/ports/**"
+      - "titan_cli/external_cli/adapters/**"
 
   data_validation:
     patterns:
-      - "titan_cli/core/config.py"
-      - "titan_cli/core/models.py"
-      - "titan_cli/core/plugins/models.py"
-      - "plugins/*/*/models/**"
       - "**/*validator*"
       - "**/*request*"
+      - "**/*form*"
+      - "**/*serializer*"
+      - "**/*config*"
+      - "titan_cli/core/plugins/models.py"
+      - "plugins/*/*/models/**"
 
   security:
     patterns:
-      - "titan_cli/core/secrets.py"
-      - "titan_cli/ai/oauth_helper.py"
-      - "**/*secret*"
-      - "**/*token*"
       - "**/*auth*"
       - "**/*credential*"
+      - "**/*token*"
+      - "**/*session*"
+      - "**/*login*"
+      - "**/*oauth*"
+      - "**/*passkey*"
+      - "**/*password*"
+      - "**/*secret*"
+      - "**/*crypt*"
+      - "**/*permission*"
+      - "**/*security*"
+      - "**/*payment*"
+      - "**/*billing*"
+      - "**/*redact*"
+      - "**/*vault*"
+      - "**/*broker*"
+      - "**/*sensitive*"
+      - "titan_cli/external_cli/**"
 
   concurrency:
     patterns:
+      - "**/*async*"
+      - "**/*await*"
+      - "**/*coroutine*"
+      - "**/*suspend*"
+      - "**/*thread*"
+      - "**/*concurrent*"
+      - "**/*lock*"
+      - "**/*mutex*"
+      - "**/*semaphore*"
+      - "**/*atomic*"
+      - "**/*queue*"
+      - "**/*worker*"
+      - "**/*executor*"
+      - "**/*scheduler*"
+      - "**/*channel*"
+      - "**/*flow*"
+      - "**/*observable*"
+      - "**/*stream*"
+      - "**/*interrupt*"
       - "titan_cli/ui/tui/**"
       - "titan_cli/engine/**"
+<<<<<<< Updated upstream
       - "**/*thread*"
       - "**/*async*"
 
@@ -266,3 +336,5 @@ review_axes:
 # looks for contract mismatches between the PR's own files. Enabled here to gather
 # real cost data — the built-in default is false.
 findings_synthesis_enabled: true
+=======
+>>>>>>> Stashed changes

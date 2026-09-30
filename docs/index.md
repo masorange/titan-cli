@@ -8,7 +8,7 @@
 
 Titan is a CLI tool that lets you define and run **workflows** — sequences of automated steps that combine Git operations, GitHub API calls, Jira queries, shell commands, and AI-generated content into a single, repeatable action.
 
-Instead of running five commands manually every time you open a PR, you run `titan` and pick a workflow from the menu.
+Instead of running five commands manually every time you open a PR, you run `titan` and press a number: the home screen is a grid of your most-used workflows on keys `1`-`9`.
 
 ---
 
