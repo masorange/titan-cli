@@ -112,6 +112,8 @@ class AntigravityHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         self._ensure_read_permissions()
         # stream-json on both sides, on EVERY call. Input: agy's text mode only takes the

@@ -1,20 +1,16 @@
-"""Operations for building cheap PR context and compact comments context."""
+"""Operations for building cheap PR context and the index of existing comments."""
 
 import re
 from pathlib import Path
 from typing import Optional
 
-from ..models.review_enums import CommentContextKind
 from ..models.review_models import (
     ChangeManifest,
     ChangedFileEntry,
-    CommentContextEntry,
     ExistingCommentIndexEntry,
     PullRequestManifest,
 )
-from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIFileChange, UIPullRequest
-from .review_profile_operations import path_matches_any
 
 
 _TEST_PATH_PATTERNS = [
@@ -83,18 +79,9 @@ _GENERATED_REGEXES = [re.compile(p) for p in _GENERATED_PATH_PATTERNS]
 _STATIC_RESOURCE_REGEXES = [re.compile(p) for p in _STATIC_RESOURCE_PATH_PATTERNS]
 
 
-def is_test_file(path: str, review_profile: Optional[ReviewProfile] = None) -> bool:
-    """Detect test files, preferring the project's own declared test globs.
-
-    Built-in patterns only cover a handful of language conventions, so a project that
-    declares ``file_roles.tests`` knows better than they do. The union is intentional:
-    the profile adds its conventions without having to restate the built-in ones.
-    """
-    if any(rx.search(path) for rx in _TEST_REGEXES):
-        return True
-    if review_profile is None:
-        return False
-    return path_matches_any(path, review_profile.file_roles.get("tests", []))
+def is_test_file(path: str) -> bool:
+    """Detect test files by the built-in conventions of the common languages."""
+    return any(rx.search(path) for rx in _TEST_REGEXES)
 
 
 def is_docs_file(path: str) -> bool:
@@ -134,7 +121,6 @@ def is_rename_only(file_change: UIFileChange) -> bool:
 def build_change_manifest(
     pr: UIPullRequest,
     files: list[UIFileChange],
-    review_profile: Optional[ReviewProfile] = None,
     churn_by_path: Optional[dict[str, tuple[int, int]]] = None,
 ) -> ChangeManifest:
     """Build the typed manifest of a PR's changed files.
@@ -159,7 +145,7 @@ def build_change_manifest(
                 status=f.status,
                 additions=additions,
                 deletions=deletions,
-                is_test=is_test_file(f.path, review_profile),
+                is_test=is_test_file(f.path),
                 size_lines=0,
                 is_docs=is_docs_file(f.path),
                 is_generated=is_generated_file(f.path),
@@ -239,6 +225,11 @@ def _looks_like_automated_comment(author_login: str, body: str) -> bool:
     return False
 
 
+def _plain_text(body: str) -> str:
+    """A comment's text without its HTML (scanner comments are mostly markup)."""
+    return " ".join(re.sub(r"<[^>]+>", " ", body or "").split())
+
+
 def _has_author_reply(thread: UICommentThread) -> bool:
     main_author = (thread.main_comment.author_login or "").lower()
     return any((reply.author_login or "").lower() != main_author for reply in thread.replies)
@@ -254,81 +245,6 @@ def _is_adjudicated_thread(thread: UICommentThread) -> bool:
     return thread.is_resolved and _has_author_reply(thread)
 
 
-def _looks_like_bug_or_risk_comment(body: str) -> bool:
-    lower = body.lower()
-    strong_positive_signals = (
-        "bug",
-        "break",
-        "breaks",
-        "incorrect",
-        "wrong",
-        "fail",
-        "fails",
-        "crash",
-        "risk",
-        "null",
-        "error",
-        "missing",
-        "drop",
-        "lose",
-        "block",
-        "regression",
-        "does not",
-        "won't",
-        "runtime",
-        "throws",
-        "throw",
-        "silently",
-        "mislabeled",
-        "null/missing",
-    )
-    negative_signals = (
-        "rename",
-        "naming",
-        "hardcoded string",
-        "nit",
-        "style",
-        "freyja",
-        "question here",
-        "up to discussion",
-        "do we need to indent",
-        "move this logic",
-        "should we use",
-        "one suggestion",
-        "may be able to",
-        "pain if we keep",
-        "painful if we keep",
-        "do we want to expose",
-        "specific to the analytics tracker",
-        "private fun",
-        "maintainability",
-        "cleaner",
-        "maybe always",
-        "maybe we should",
-    )
-    if any(token in lower for token in negative_signals):
-        return False
-    if any(token in lower for token in strong_positive_signals):
-        return True
-
-    category = _infer_category(body)
-    if category in {"functional_correctness", "error_handling", "data_validation", "security"}:
-        return any(
-            token in lower
-            for token in (
-                " if ",
-                " when ",
-                "value",
-                "mapped",
-                "recorded",
-                "serialize",
-                "convert",
-                "return",
-            )
-        )
-    return False
-
-
 def build_existing_comments_index(
     review_threads: list[UICommentThread],
     general_comments: list[UICommentThread],
@@ -338,6 +254,23 @@ def build_existing_comments_index(
     for thread in review_threads:
         mc = thread.main_comment
         if _looks_like_automated_comment(mc.author_login, mc.body):
+            # A scanner's comment on a line is indexed so a finding about the same line is
+            # not posted twice; its summary comments (general, replies) are not.
+            if mc.path and mc.line:
+                text = _plain_text(mc.body)
+                index.append(
+                    ExistingCommentIndexEntry(
+                        comment_id=mc.id,
+                        thread_id=thread.thread_id,
+                        is_resolved=thread.is_resolved,
+                        path=mc.path,
+                        line=mc.line,
+                        title=text[:80],
+                        body=text[:_INDEXED_BODY_CHARS],
+                        author=mc.author_login,
+                        is_bot=True,
+                    )
+                )
             continue
         index.append(
             ExistingCommentIndexEntry(
@@ -400,106 +333,3 @@ def build_existing_comments_index(
         )
 
     return index
-
-
-def build_comment_review_context(
-    review_threads: list[UICommentThread],
-    general_comments: list[UICommentThread],
-    max_entries: int = 12,
-    max_chars: int = 2400,
-    include_resolved: bool = False,
-    bug_risk_only: bool = True,
-) -> list[CommentContextEntry]:
-    """Build prompt-friendly comment context with thread summaries when needed."""
-
-    def make_thread_entry(thread: UICommentThread) -> CommentContextEntry:
-        main = thread.main_comment
-        if thread.replies:
-            latest = thread.replies[-1]
-            latest_state = latest.body.strip().replace("\n", " ")[:180]
-            summary = (
-                f"Initial: {main.body.strip().replace(chr(10), ' ')[:180]}. "
-                f"Latest reply by @{latest.author_login}: {latest_state}"
-            )
-            kind = CommentContextKind.THREAD_SUMMARY
-        else:
-            summary = main.body.strip().replace("\n", " ")[:220]
-            kind = CommentContextKind.COMMENT
-        return CommentContextEntry(
-            kind=kind,
-            thread_id=thread.thread_id,
-            path=main.path,
-            line=main.line,
-            category=_infer_category(main.body),
-            title=main.body[:80].strip(),
-            summary=summary,
-            is_resolved=thread.is_resolved,
-            has_author_reply=_has_author_reply(thread),
-            last_reply_author=_last_reply_author(thread),
-            reply_count=len(thread.replies),
-            is_adjudicated=_is_adjudicated_thread(thread),
-        )
-
-    def include_thread(thread: UICommentThread) -> bool:
-        main = thread.main_comment
-        if _looks_like_automated_comment(main.author_login, main.body):
-            return False
-        if not include_resolved and thread.is_resolved:
-            return False
-        if bug_risk_only and not _looks_like_bug_or_risk_comment(main.body):
-            return False
-        if _is_adjudicated_thread(thread):
-            return False
-        return True
-
-    prioritized_threads = sorted(
-        [thread for thread in review_threads if include_thread(thread)],
-        key=lambda t: (
-            t.is_resolved,
-            not _looks_like_bug_or_risk_comment(t.main_comment.body),
-            t.is_general_comment,
-            0 if t.main_comment.path else 1,
-            -len(t.replies),
-        ),
-    )
-    entries = [make_thread_entry(thread) for thread in prioritized_threads]
-
-    for general in general_comments:
-        main = general.main_comment
-        if _looks_like_automated_comment(main.author_login, main.body):
-            continue
-        if not include_resolved and general.is_resolved:
-            continue
-        if bug_risk_only and not _looks_like_bug_or_risk_comment(main.body):
-            continue
-        if _is_adjudicated_thread(general):
-            continue
-        entries.append(
-            CommentContextEntry(
-                kind=CommentContextKind.COMMENT,
-                thread_id=general.thread_id,
-                path=None,
-                line=None,
-                category=_infer_category(main.body),
-                title=main.body[:80].strip(),
-                summary=main.body.strip().replace("\n", " ")[:220],
-                is_resolved=general.is_resolved,
-                has_author_reply=_has_author_reply(general),
-                last_reply_author=_last_reply_author(general),
-                reply_count=len(general.replies),
-                is_adjudicated=_is_adjudicated_thread(general),
-            )
-        )
-
-    result: list[CommentContextEntry] = []
-    used_chars = 0
-    for entry in entries:
-        if len(result) >= max_entries:
-            break
-        entry_size = len(entry.title) + len(entry.summary)
-        if result and used_chars + entry_size > max_chars:
-            break
-        result.append(entry)
-        used_chars += entry_size
-
-    return result

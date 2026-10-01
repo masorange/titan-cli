@@ -44,7 +44,6 @@ class WorkflowContext:
     ai_router: Optional[Any] = None
     git: Optional[Any] = None
     github: Optional[Any] = None
-    github_managers: Optional[Any] = None
     jira: Optional[Any] = None
     slack: Optional[Any] = None
     docker: Optional[Any] = None

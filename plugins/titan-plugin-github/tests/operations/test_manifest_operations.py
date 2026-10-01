@@ -1,12 +1,11 @@
-from titan_plugin_github.models.review_enums import CommentContextKind, FileChangeStatus
-from titan_plugin_github.models.view import UIComment, UICommentThread, UIFileChange
+from titan_plugin_github.models.review_enums import FileChangeStatus
+from titan_plugin_github.models.view import UIFileChange
 from titan_plugin_github.models.review_models import ExistingCommentIndexEntry, Finding
 from titan_plugin_github.models.review_enums import FindingSeverity
 from titan_plugin_github.models.validators import is_duplicate
-from titan_plugin_github.models.review_profile_models import ReviewProfile
+from titan_plugin_github.models.view import UIComment, UICommentThread
 from titan_plugin_github.operations.manifest_operations import (
     build_change_manifest,
-    build_comment_review_context,
     build_existing_comments_index,
     is_test_file,
 )
@@ -72,42 +71,6 @@ def test_is_test_file_does_not_claim_production_lookalikes():
         assert not is_test_file(path), path
 
 
-def test_is_test_file_uses_profile_declared_globs():
-    profile = ReviewProfile(
-        version=1,
-        file_roles={"tests": ["**/*Fixtures.kt", "sharedTest/src/main/kotlin/**"]},
-        review_axes={},
-    )
-
-    assert is_test_file("app/src/test/kotlin/FooFixtures.kt", profile)
-    assert is_test_file("sharedTest/src/main/kotlin/com/foo/Helper.kt", profile)
-    # Without the profile, only built-in conventions apply.
-    assert not is_test_file("app/src/foo/FooFixtures.kt")
-
-
-def test_build_change_manifest_marks_tests_via_profile(sample_ui_pr):
-    profile = ReviewProfile(
-        version=1,
-        file_roles={"tests": ["**/*Fixtures.kt"]},
-        review_axes={},
-    )
-    files = [
-        UIFileChange(
-            path="app/src/foo/FooFixtures.kt",
-            additions=30,
-            deletions=0,
-            status=FileChangeStatus.ADDED,
-            status_icon="+",
-        ),
-    ]
-
-    without_profile = build_change_manifest(sample_ui_pr, files)
-    with_profile = build_change_manifest(sample_ui_pr, files, profile)
-
-    assert without_profile.files[0].is_test is False
-    assert with_profile.files[0].is_test is True
-
-
 def test_build_change_manifest_uses_local_churn_for_zeroed_counters(sample_ui_pr):
     """GitHub reports 0/0 for files whose diff it cannot render; the local numstat
     counters must take over exactly there — never on files with real API counters
@@ -148,170 +111,6 @@ def test_build_change_manifest_uses_local_churn_for_zeroed_counters(sample_ui_pr
     assert by_path["src/normal.py"].additions == 10  # API counters win when present
     assert by_path["src/renamed.py"].additions == 0  # pure rename untouched
     assert manifest.total_additions == 1500 + 10 + 0
-
-
-def test_build_comment_review_context_summarizes_long_threads():
-    main = UIComment(
-        id=1,
-        body="There is no validation when parsing the payload and this can crash on null input.",
-        author_login="reviewer",
-        author_name="Reviewer",
-        formatted_date="2026-01-01",
-        path="src/api.py",
-        line=10,
-    )
-    reply = UIComment(
-        id=2,
-        body="I added a guard for null payloads and a regression test in the latest commit.",
-        author_login="author",
-        author_name="Author",
-        formatted_date="2026-01-02",
-        path="src/api.py",
-        line=10,
-    )
-    thread = UICommentThread(
-        thread_id="t1",
-        main_comment=main,
-        replies=[reply],
-        is_resolved=False,
-        is_outdated=False,
-    )
-
-    context = build_comment_review_context([thread], [], max_entries=5, max_chars=1000)
-
-    assert len(context) == 1
-    assert context[0].kind == CommentContextKind.THREAD_SUMMARY
-    assert "Latest reply" in context[0].summary
-
-
-def test_build_comment_review_context_filters_bot_comments():
-    bot_comment = UIComment(
-        id=3,
-        body="Automated report.",
-        author_login="danger[bot]",
-        author_name="Danger",
-        formatted_date="2026-01-03",
-        path=None,
-        line=None,
-    )
-    thread = UICommentThread(
-        thread_id="general_3",
-        main_comment=bot_comment,
-        replies=[],
-        is_resolved=False,
-        is_outdated=False,
-    )
-
-    context = build_comment_review_context([], [thread], max_entries=5, max_chars=1000)
-
-    assert context == []
-
-
-def test_build_comment_review_context_filters_wiz_html_comments():
-    bot_like_comment = UIComment(
-        id=4,
-        body='<a><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.wiz.io/wiz-code/long_severity_tags/low_dark.svg"></picture></a>',
-        author_login="security-scanner",
-        author_name="Scanner",
-        formatted_date="2026-01-03",
-        path=None,
-        line=None,
-    )
-    thread = UICommentThread(
-        thread_id="general_4",
-        main_comment=bot_like_comment,
-        replies=[],
-        is_resolved=False,
-        is_outdated=False,
-    )
-
-    context = build_comment_review_context([], [thread], max_entries=5, max_chars=1000)
-
-    assert context == []
-
-
-def test_build_comment_review_context_skips_adjudicated_resolved_threads():
-    main = UIComment(
-        id=10,
-        body="This change may lose non-string analytics values.",
-        author_login="reviewer",
-        author_name="Reviewer",
-        formatted_date="2026-01-01",
-        path="src/api.py",
-        line=10,
-    )
-    reply = UIComment(
-        id=11,
-        body="Everything here is stringly typed by design.",
-        author_login="author",
-        author_name="Author",
-        formatted_date="2026-01-02",
-        path="src/api.py",
-        line=10,
-    )
-    thread = UICommentThread(
-        thread_id="t2",
-        main_comment=main,
-        replies=[reply],
-        is_resolved=True,
-        is_outdated=False,
-    )
-
-    context = build_comment_review_context([thread], [], max_entries=5, max_chars=1000)
-    index = build_existing_comments_index([thread], [])
-
-    assert context == []
-    assert index[0].is_adjudicated is True
-    assert index[0].has_author_reply is True
-
-
-def test_build_comment_review_context_filters_non_bug_like_review_comments():
-    design_comment = UIComment(
-        id=12,
-        body="One suggestion regarding this: this is going to be a bit of a pain if we keep adding events here.",
-        author_login="reviewer",
-        author_name="Reviewer",
-        formatted_date="2026-01-01",
-        path="src/api.py",
-        line=20,
-    )
-    thread = UICommentThread(
-        thread_id="t4",
-        main_comment=design_comment,
-        replies=[],
-        is_resolved=False,
-        is_outdated=False,
-    )
-
-    context = build_comment_review_context([thread], [], max_entries=5, max_chars=1000)
-    index = build_existing_comments_index([thread], [])
-
-    assert context == []
-    assert len(index) == 1
-
-
-def test_build_comment_review_context_keeps_bug_like_comments():
-    bug_comment = UIComment(
-        id=13,
-        body="This branch maps view_item to select_item, so the tracker UI will show the wrong event type.",
-        author_login="reviewer",
-        author_name="Reviewer",
-        formatted_date="2026-01-01",
-        path="src/api.py",
-        line=30,
-    )
-    thread = UICommentThread(
-        thread_id="t5",
-        main_comment=bug_comment,
-        replies=[],
-        is_resolved=False,
-        is_outdated=False,
-    )
-
-    context = build_comment_review_context([thread], [], max_entries=5, max_chars=1000)
-
-    assert len(context) == 1
-    assert context[0].path == "src/api.py"
 
 
 def test_is_duplicate_matches_adjudicated_resolved_thread_when_titles_are_similar():
@@ -523,3 +322,155 @@ def test_the_same_line_does_not_make_an_unrelated_comment_a_duplicate():
     comment = _index_entry(body="Shouldn't this be handling the case when there's no `checkoutUrl`?")
 
     assert is_duplicate(finding, comment) is False
+
+
+def _finding(path, line, title, why):
+    return Finding(
+        severity=FindingSeverity.IMPORTANT,
+        category="review",
+        path=path,
+        line=line,
+        title=title,
+        why=why,
+        evidence="",
+        suggested_comment=why,
+    )
+
+
+def _comment(path, line, body, *, bot=False):
+    return ExistingCommentIndexEntry(
+        comment_id=1,
+        thread_id="t",
+        is_resolved=False,
+        path=path,
+        line=line,
+        title=body[:80],
+        body=body,
+        author="scanner[bot]" if bot else "reviewer",
+        is_bot=bot,
+    )
+
+
+# The next four are the real comments and findings of ragnarok PR #3735, where the same
+# defects were posted twice because they sat a few lines apart or came from a scanner.
+
+
+def test_the_same_defect_reported_at_its_declaration_and_at_its_comparison_is_one_defect():
+    finding = _finding(
+        "fastlane/Fastfile",
+        124,
+        "Type mismatch in version comparison",
+        "previous_version_code (String) is compared with new_version_code (Integer), so it is always false.",
+    )
+    existing = _comment(
+        "fastlane/Fastfile",
+        132,
+        "`previous_version_code` comes from `sh(...).strip` (String) while `new_version_code` "
+        "is an Integer returned by the action, so `==` is always false.",
+    )
+
+    assert is_duplicate(finding, existing) is True
+
+
+def test_a_finding_naming_the_same_identifier_a_few_lines_off_in_the_same_file_is_a_duplicate():
+    finding = _finding(
+        "app/build.gradle.kts",
+        878,
+        "Resource leak from unclosed input stream",
+        "versionPropsFile.inputStream() is never closed; use .use{}.",
+    )
+    existing = _comment(
+        "app/build.gradle.kts",
+        873,
+        "`versionProps.load(versionPropsFile.inputStream())` never closes the stream; use "
+        "`.inputStream().use { versionProps.load(it) }`.",
+    )
+
+    assert is_duplicate(finding, existing) is True
+
+
+def test_sharing_an_identifier_is_not_enough_when_the_two_are_about_different_things():
+    finding = _finding(
+        "plugin/template_operations.py",
+        120,
+        "apply_change drops the condition of a copied value",
+        "The conditional branch is discarded when the key already exists.",
+    )
+    existing = _comment(
+        "plugin/template_operations.py",
+        110,
+        "Rename apply_change to something shorter, the current name hides what it does.",
+    )
+
+    assert is_duplicate(finding, existing) is False
+
+
+def test_a_finding_far_from_a_comment_stays_new_even_if_it_names_the_same_identifier():
+    finding = _finding("a.py", 400, "version_file leaks", "version_file is never closed after reading.")
+    existing = _comment("a.py", 20, "version_file is read without validation, version_file may escape.")
+
+    assert is_duplicate(finding, existing) is False
+
+
+def test_a_finding_on_the_very_line_a_scanner_flagged_is_the_scanners_finding():
+    finding = _finding(
+        "fastlane/actions/increment_version.rb",
+        23,
+        "Potential path traversal vulnerability",
+        "version_file comes from params and is read without validation, so a path traversal is possible.",
+    )
+    scanner = _comment(
+        "fastlane/actions/increment_version.rb",
+        23,
+        "SAST Finding Tainted File Access (CWE-22) This rule detects instances where user "
+        "input is used to access files, which can lead to path traversal vulnerabilities. "
+        "Path traversal vulnerabilities allow an attacker to access files outside the intended "
+        "directory. When user input is used to construct file paths without proper validation "
+        "and sanitization, an attacker can craft malicious input that traverses the file system.",
+        bot=True,
+    )
+
+    assert is_duplicate(finding, scanner) is True
+
+
+def test_a_scanner_comment_does_not_swallow_a_finding_on_another_line():
+    finding = _finding(
+        "app/build.gradle.kts",
+        90,
+        "Path traversal when reading the version file",
+        "The path of the version file is read without validation.",
+    )
+    scanner = _comment("app/build.gradle.kts", 78, "Tainted File Access path traversal", bot=True)
+
+    assert is_duplicate(finding, scanner) is False
+
+
+def test_the_index_keeps_a_scanners_inline_comment_without_its_markup_and_drops_its_summaries():
+    def comment(author, body, path=None, line=None):
+        return UIComment(
+            id=1, body=body, author_login=author, author_name=author,
+            formatted_date="01/10/2026 10:00:00", path=path, line=line,
+        )
+
+    inline_bot = UICommentThread(
+        thread_id="t1",
+        main_comment=comment(
+            "wiz[bot]",
+            '<a><picture><img alt="Medium"></picture></a> **Tainted File Access** (CWE-22)',
+            "a.rb",
+            23,
+        ),
+        replies=[], is_resolved=False, is_outdated=False,
+    )
+    summary_bot = UICommentThread(
+        thread_id="g1",
+        main_comment=comment("danger[bot]", "<table><tr><td>1 Warning</td></tr></table>"),
+        replies=[], is_resolved=False, is_outdated=False,
+    )
+
+    index = build_existing_comments_index([inline_bot], [summary_bot])
+
+    assert [(entry.path, entry.line, entry.is_bot) for entry in index] == [("a.rb", 23, True)]
+    assert "<" not in index[0].body
+    assert "Tainted File Access" in index[0].body
+

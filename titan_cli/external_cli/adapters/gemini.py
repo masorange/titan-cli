@@ -64,6 +64,8 @@ class GeminiHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         # An empty `--prompt` selects headless mode and the real prompt goes on stdin,
         # which gemini reads and prepends to it. On argv a single string over Linux's

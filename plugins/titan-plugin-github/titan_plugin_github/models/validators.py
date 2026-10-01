@@ -17,7 +17,26 @@ def is_duplicate(
     if new_finding.path != existing.path:
         return False
 
-    if not _lines_are_close(new_finding.line, existing.line, line_proximity_window):
+    finding_text = f"{new_finding.title} {new_finding.why}"
+    comment_text = existing.body or existing.title
+    overlap = _content_overlap(finding_text, comment_text)
+
+    if existing.is_bot:
+        # A bot comment is generic text pinned to a line: the same line is the only
+        # signal that a finding is about the same thing.
+        return (
+            new_finding.line is not None
+            and new_finding.line == existing.line
+            and overlap >= _SAME_LINE_OVERLAP
+        )
+
+    # Two texts that name the same code identifiers (`previous_version_code`,
+    # `versionPropsFile`) are about the same code even when one anchors a few lines from
+    # the other: the same defect reported at the declaration and at the comparison sat
+    # 8 lines apart, past the plain window, and was posted twice (#3735).
+    shared_identifiers = _identifiers(finding_text) & _identifiers(comment_text)
+    window = max(line_proximity_window, _IDENTIFIER_WINDOW) if shared_identifiers else line_proximity_window
+    if not _lines_are_close(new_finding.line, existing.line, window):
         return False
 
     similarity = SequenceMatcher(
@@ -32,11 +51,10 @@ def is_duplicate(
     # "handle", and on ragnarok PR #3685 it swallowed a different, real finding five lines
     # away ("the Retry button never retries"). On a heavily commented PR that rule removed
     # exactly the findings that were new.
-    overlap = _content_overlap(
-        f"{new_finding.title} {new_finding.why}", existing.body or existing.title
-    )
     same_category = new_finding.category.lower() == (existing.category or "").lower()
     if overlap >= _SAME_TOPIC_OVERLAP:
+        return True
+    if shared_identifiers and overlap >= _SHARED_IDENTIFIER_OVERLAP:
         return True
     # The exact same line is a stronger signal than the window: ragnarok #3723 re-reported
     # two findings already commented on the very line they anchor to, at overlaps of 0.29
@@ -69,6 +87,10 @@ def _lines_are_close(line_a: int | None, line_b: int | None, window: int) -> boo
 _SAME_TOPIC_OVERLAP = 0.5
 _SAME_CATEGORY_OVERLAP = 0.3
 _SAME_LINE_OVERLAP = 0.25
+_SHARED_IDENTIFIER_OVERLAP = 0.25
+# How far apart two comments may sit when they name the same code identifier.
+_IDENTIFIER_WINDOW = 15
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{5,}")
 _STOPWORDS = frozenset(
     "this that with from have been there their when what which would could should will "
     "into only also than then them they here case does done make made more most much "
@@ -87,3 +109,12 @@ def _content_overlap(a: str, b: str) -> float:
     if not words_a or not words_b:
         return 0.0
     return len(words_a & words_b) / min(len(words_a), len(words_b))
+
+
+def _identifiers(text: str) -> set[str]:
+    """Code identifiers in a text: snake_case or camelCase words, which prose does not use."""
+    return {
+        token.lower()
+        for token in _IDENTIFIER.findall(text or "")
+        if "_" in token or re.search(r"[a-z][A-Z]", token)
+    }

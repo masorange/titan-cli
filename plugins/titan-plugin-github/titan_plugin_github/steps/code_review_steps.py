@@ -27,11 +27,8 @@ from ..models.review_enums import ReviewActionType, ThreadDecisionType
 from ..models.review_models import (
     ReferencedCommitContext,
     ReviewActionProposal,
-    ReviewBudget,
 )
-from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
-from ..operations.review_strategy_operations import deep_call_timeout_seconds, review_budget
 from ..operations.ai_cost_operations import (
     AICallRecord,
     format_cost_summary,
@@ -71,7 +68,6 @@ from ..operations.manifest_operations import (
 )
 
 from ..operations.manifest_operations import (
-        build_comment_review_context,
         build_existing_comments_index as build_existing_comments_index_operation,
     )
 
@@ -1048,6 +1044,8 @@ class _PinnedModelCli:
                 # Absent rather than zero when the CLI reports no price: codex and agy
                 # never do, and gemini reports nothing at all.
                 cost_usd=record.cost_usd,
+                # Present only when the session used more than one model (subagents).
+                model_costs=getattr(usage, "model_costs", None),
                 usage_source=record.usage_source,
             )
             if self._ctx is not None:
@@ -1293,7 +1291,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         manifest = build_change_manifest_operation(
-            pr, files, _get_review_profile(ctx), churn_by_path=churn_by_path
+            pr, files, churn_by_path=churn_by_path
         )
     except Exception as e:
         ctx.textual.error_text(f"Failed to build change manifest: {e}")
@@ -1351,19 +1349,9 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
 
     threads = ctx.get("review_threads", [])
     general = ctx.get("review_general_comments", [])
-    changed_files = ctx.get("review_changed_files_with_stats", [])
 
     try:
         index = build_existing_comments_index_operation(threads, general)
-        is_smallish_pr = len(changed_files) <= 8
-        comment_context = build_comment_review_context(
-            threads,
-            general,
-            max_entries=4 if is_smallish_pr else 8,
-            max_chars=900 if is_smallish_pr else 1800,
-            include_resolved=False,
-            bug_risk_only=True,
-        )
     except Exception as e:
         ctx.textual.error_text(f"Failed to build comments index: {e}")
         ctx.textual.end_step("error")
@@ -1378,599 +1366,35 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     logger.info(
         "existing_comments_index_built",
         existing_comments_total=len(index),
-        comments_for_prompt_count=len(comment_context),
-        dedupe_comment_count=len(index),
         resolved_comments_count=resolved_count,
         unresolved_comments_count=len(index) - resolved_count,
         adjudicated_threads_count=adjudicated_count,
-        filtered_out_comment_entries=max(0, len(index) - len(comment_context)),
     )
     ctx.textual.end_step("success")
-    return Success(
-        "Comments index built",
-        metadata={
-            "existing_comments_index": index,
-            "comment_review_context": comment_context,
-        },
-    )
+    return Success("Comments index built", metadata={"existing_comments_index": index})
 
 
-def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
+def _split_display_path(path: str, keep_dirs: int = 2) -> tuple[str, str]:
+    """(file name, shortened directory) -- the name is what a reader scans for.
+
+    The directory keeps its first segment (the module: `app`, `network`) and its last
+    `keep_dirs`, which is where files differ; the shared middle (`src/main/kotlin/com/...`)
+    becomes `…`.
     """
-    Assemble the review checklist for this PR.
-
-    Delegates checklist resolution to ChecklistManager so project-specific
-    checklist loading can evolve without changing workflow orchestration.
-
-    Outputs (saved to ctx.data):
-        review_checklist (List[ReviewChecklistItem])
-
-    Returns:
-        Success
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Build Review Checklist")
-
-    if not ctx.github_managers:
-        ctx.textual.error_text("GitHub managers are not available in workflow context.")
-        ctx.textual.end_step("error")
-        return Error("GitHub managers are not available in workflow context.")
-
-    # resolve() rather than the plain getters: it reports the SOURCE and what the
-    # project's file changed, which is what makes a merged configuration inspectable
-    # instead of something the user has to trust.
-    checklist_resolution = ctx.github_managers.checklist.resolve()
-    profile_resolution = ctx.github_managers.review_profile.resolve()
-    checklist = checklist_resolution.checklist
-    review_profile = profile_resolution.profile
-    ctx.data["review_checklist"] = checklist
-    ctx.data["review_profile"] = review_profile
-
-    _render_review_config(ctx, profile_resolution, checklist_resolution)
-
-    manifest = ctx.get("change_manifest")
-    profile_path = profile_resolution.path
-    checklist_path = checklist_resolution.path
-    logger.info(
-        "review_config_applied_to_pr",
-        profile_source=profile_resolution.source,
-        checklist_source=checklist_resolution.source,
-        manifest_files=len(manifest.files) if manifest else 0,
-        offered_checklist_count=len(checklist),
-    )
-    logger.debug(
-        "review_config_applied_detail",
-        project_root=str(ctx.data.get("project_root")) if ctx.data.get("project_root") else None,
-        profile_path=str(profile_path) if profile_path else None,
-        checklist_path=str(checklist_path) if checklist_path else None,
-        offered_checklist_ids=[str(item.id) for item in checklist],
-    )
-
-    _render_review_checklist(ctx, checklist, _selected_review_axes(ctx, checklist, review_profile))
-    ctx.textual.end_step("success")
-    return Success("Review checklist built", metadata={"review_checklist": checklist})
-
-
-# No declare_ai_usage: this step makes no AI call, so it must not appear in the AI
-# Configuration screen as something a model can be assigned to.
-def build_review_plan(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Decide how much attention every changed file gets, and what the deep session reads.
-    No AI call.
-
-    One rule per file (`resolve_file_attention`): deep and glance files are reviewed by
-    the deep session, skipped files are named on screen. The deep
-    tier IS the selection -- there is no scorer ranking files for a cut and no model
-    choosing again.
-
-    This replaced three steps. An AI planning call (run `4fd7f345`: 92,463 input tokens to
-    choose 7 of the 9 files the tiers had already marked deep, leaving two unreviewed), a
-    scorer ranking files for a 12-file ceiling that no longer exists, and a PR size
-    classification nothing consumed.
-
-    Requires (from ctx.data):
-        change_manifest (ChangeManifest)
-        review_checklist (List[ReviewChecklistItem])
-
-    Outputs (saved to ctx.data):
-        attention_plan (AttentionPlan)
-        review_budget (ReviewBudget)
-        review_plan, validated_review_plan (ReviewPlan)
-
-    Returns:
-        Success, Exit when nothing is reviewable, or Error
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Review Plan")
-
-    manifest = ctx.get("change_manifest")
-    checklist = ctx.get("review_checklist", [])
-    review_profile = _get_review_profile(ctx)
-    if not manifest:
-        ctx.textual.error_text("No change manifest in context")
-        ctx.textual.end_step("error")
-        return Error("No change manifest in context")
-
-    from ..operations.attention_operations import (
-        resolve_file_attention,
-        summarize_attention_plan,
-    )
-    from ..operations.review_strategy_operations import build_deterministic_review_plan
-
-    attention_plan = resolve_file_attention(manifest.files, review_profile)
-    logger.debug("attention_plan_resolved", **summarize_attention_plan(attention_plan))
-    _render_attention_plan(ctx, attention_plan)
-
-    budget = review_budget()
-    logger.debug(
-        "review_budget_resolved",
-        deep_timeout_base_seconds=budget.deep_timeout_base_seconds,
-        deep_timeout_per_file_seconds=budget.deep_timeout_per_file_seconds,
-        deep_timeout_max_seconds=budget.deep_timeout_max_seconds,
-    )
-
-    metadata = {"attention_plan": attention_plan, "review_budget": budget}
-    if attention_plan.reviewable_count == 0:
-        ctx.textual.dim_text("Nothing reviewable in this PR.")
-        ctx.textual.end_step("skip")
-        return Exit("Nothing reviewable in this PR", metadata=metadata)
-
-    plan = build_deterministic_review_plan(attention_plan, checklist, review_profile)
-    logger.info(
-        "review_plan_built",
-        focus_files=len(plan.focus_files),
-        review_axes=len(plan.review_axes),
-        attention_counts=attention_plan.counts,
-    )
-    ctx.textual.end_step("success")
-    return Success(
-        "Review plan built",
-        metadata={**metadata, "review_plan": plan, "validated_review_plan": plan},
-    )
-
-
-def _get_review_budget(ctx: WorkflowContext) -> ReviewBudget:
-    """The budget for this review, or Titan's constants when the step runs standalone.
-
-    Falling back rather than failing: the budget carries no decision a user made, so a
-    step invoked outside the full workflow should run with the shipped numbers instead
-    of erroring on missing context.
-    """
-    return ctx.get("review_budget") or review_budget()
-
-
-def _get_review_profile(ctx: WorkflowContext) -> ReviewProfile:
-    """Resolve review profile from workflow managers with cached fallback."""
-    review_profile = ctx.get("review_profile")
-    if review_profile:
-        return review_profile
-    if ctx.github_managers:
-        return ctx.github_managers.review_profile.get_effective_profile()
-    from ..review_profiles import DEFAULT_REVIEW_PROFILE
-
-    return DEFAULT_REVIEW_PROFILE.model_copy(deep=True)
-
-
-def _render_attention_plan(ctx: WorkflowContext, plan) -> None:
-    """Show how the PR splits by attention, grouped by tier and by why.
-
-    The counts line comes first, and "not reviewed" is always on it: a review that
-    looked at 12 of 108 files used to print a green tick and nothing else. Files sit
-    behind one collapsed row per group, so the step reads as the shape of the PR
-    instead of a wall of paths; the tier rows are open so the groups show at once.
-    """
-    from titan_cli.ui.tui.widgets import CollapsibleEntry
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    from ..models.review_enums import AttentionTier
-    from ..operations.attention_operations import group_attention_for_display, split_display_path
-
-    counts = plan.counts
-    ctx.textual.dim_text(
-        f"{counts[AttentionTier.DEEP.value]} to read in full · "
-        f"{counts[AttentionTier.GLANCE.value]} at a glance · "
-        f"{counts[AttentionTier.SKIP.value]} not reviewed"
-    )
-
-    tier_titles = {
-        AttentionTier.DEEP: "Read in full",
-        AttentionTier.GLANCE: "At a glance",
-        AttentionTier.SKIP: "Not reviewed",
-    }
-    groups = group_attention_for_display(plan)
-    entries = []
-    for tier in AttentionTier:
-        children = []
-        for group in (g for g in groups if g.tier == tier):
-            body = []
-            for path in group.paths:
-                name, directory = split_display_path(path)
-                body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
-            children.append(
-                CollapsibleEntry(title=escape_markup(group.label), right=str(len(group.paths)), body=body)
-            )
-        if children:
-            entries.append(
-                CollapsibleEntry(
-                    title=tier_titles.get(tier, tier.value),
-                    right=str(counts[tier.value]),
-                    style="bold",
-                    children=children,
-                    expanded=True,
-                )
-            )
-    ctx.textual.text(" ")
-    ctx.textual.collapsible_list(entries)
-
-
-def _render_review_config(ctx: WorkflowContext, profile_resolution, checklist_resolution) -> None:
-    """Show where the review configuration came from, and what in it Titan ignored.
-
-    What the merge replaced key by key, and how many rules of each kind are in force,
-    go to the debug log rather than the screen: a reviewer cannot act on "replaced
-    file_roles.tests", and the list ran to a dozen lines on a project that overrides
-    everything. What stays visible is what signals a broken project file -- a `remove:`
-    target that matched nothing, and keys Titan does not read -- folded into one line per
-    file so a stale file does not bury the step.
-    """
-    from ..operations.review_config_merge_operations import summarize_ignored_keys
-
-    ctx.textual.dim_text(
-        f"Review config · profile: {profile_resolution.source} · "
-        f"checklist: {checklist_resolution.source}"
-    )
-    for label, resolution in (("profile", profile_resolution), ("checklist", checklist_resolution)):
-        report = resolution.report
-        for target in report.unknown_removals:
-            ctx.textual.warning_text(
-                f"  {label}: 'remove: {target}' matched nothing — check the spelling"
-            )
-        ignored = summarize_ignored_keys(getattr(report, "ignored_keys", []) or [])
-        if ignored:
-            # Unknown covers both a typo and a key Titan no longer reads (the scoring
-            # keys an older profile still carries), so the message names both.
-            ctx.textual.warning_text(
-                f"  {label}: ignored, not settings Titan reads (misspelled or removed): "
-                + "; ".join(ignored)
-            )
-
-
-def _selected_review_axes(ctx: WorkflowContext, checklist: list, review_profile: ReviewProfile) -> set | None:
-    """The axes the deep session will be asked about, or None without a manifest.
-
-    Resolved with the same two functions Review Plan uses, so what is bold here is what
-    that step sends. Computed here because this is where the categories are listed; the
-    list alone does not tell a reviewer which of them this PR triggers.
-    """
-    manifest = ctx.get("change_manifest")
-    if not manifest:
-        return None
-    from ..models.review_enums import AttentionTier
-    from ..operations.attention_operations import resolve_file_attention
-    from ..operations.review_profile_operations import select_review_axes
-
-    attention_plan = resolve_file_attention(manifest.files, review_profile)
-    deep_paths = attention_plan.paths_for(AttentionTier.DEEP)
-    return set(select_review_axes(checklist, deep_paths, review_profile))
-
-
-def _render_review_checklist(ctx: WorkflowContext, checklist: list, selected: set | None) -> None:
-    """Render the categories this project offers, the ones this PR applies in bold."""
-    if selected is None:
-        ctx.textual.success_text(f"✓ {len(checklist)} checklist categories offered")
-    else:
-        applied = sum(1 for item in checklist if item.id in selected)
-        ctx.textual.success_text(
-            f"✓ {len(checklist)} checklist categories offered · {applied} apply to this PR"
-        )
-    ctx.textual.text(" ")
-    for item in checklist:
-        # Show the human-readable name, not the snake_case category id.
-        name = item.name or str(item.id)
-        if selected is not None and item.id in selected:
-            ctx.textual.bold_text(name)
-        else:
-            ctx.textual.dim_text(name)
-
-
-def _show_review_context_batches(ctx: WorkflowContext, batches: list) -> None:
-    """Show what the deep session receives: every file, its diff and previous version as
-    files in the worktree, behind a fold."""
-    from titan_cli.ui.tui.widgets import CollapsibleEntry
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    from ..operations.attention_operations import split_display_path
-
-    for batch in batches:
-        body = []
-        for path in batch.files_context:
-            name, directory = split_display_path(path)
-            body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
-        ctx.textual.text(" ")
-        ctx.textual.collapsible_list([
-            CollapsibleEntry(
-                title=f"Deep session · {len(batch.files_context)} file(s)",
-                # Kept: the findings step names the same id, so the two can be matched.
-                right=batch.batch_id,
-                style="bold",
-                children=[
-                    CollapsibleEntry(
-                        title="Diff and previous version as files in the worktree",
-                        right=str(len(body)),
-                        body=body,
-                    )
-                ],
-                expanded=True,
-            )
-        ])
-
-
-def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
-    """Render the start of a findings batch review: a count, the files behind a fold.
-
-    Review Plan already listed every deep file, grouped; repeating 18 full paths here
-    pushed the part of this step that is new -- the result -- off the screen.
-    """
-    from titan_cli.ui.tui.widgets import CollapsibleEntry
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    from ..operations.attention_operations import split_display_path
-
-    file_paths = list(getattr(batch, "files_context", {}).keys())
-    body = []
-    for path in file_paths:
-        name, directory = split_display_path(path)
-        body.append(f"{escape_markup(name)}  [dim]{escape_markup(directory)}[/dim]")
-    ctx.textual.text(" ")
-    ctx.textual.collapsible_list([
-        CollapsibleEntry(
-            title=f"Reading {len(file_paths)} file(s) in full",
-            right=batch.batch_id,
-            style="bold",
-            body=body,
-        )
-    ])
-
-
-def _retry_findings_batch_reformat(
-    adapter, previous_stdout: str, cwd: Optional[str], batch_id: str, structured: bool, effort: Optional[str] = None
-):
-    """Ask the same CLI to reformat its own previous output as a JSON array, without
-    rerunning the full analysis, using a short timeout distinct from the main one."""
-    from ..operations.findings_operations import FINDINGS_DISALLOWED_TOOLS, findings_json_schema, parse_findings_response
-
-    reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
-    schema = findings_json_schema() if structured else None
-    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
-    _log_ai_prompt("ai_review_findings_reformat_retry", adapter.cli_name.value, reformat_prompt, batch_id=batch_id)
-    response = run_interruptible(
-        lambda: adapter.execute(
-            reformat_prompt,
-            cwd=cwd,
-            timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
-            json_schema=schema,
-            disallowed_tools=disallowed_tools,
-            effort=effort if adapter.supports_effort_control else None,
-        )
-    )
-    _log_ai_response(
-        step_name="ai_review_findings_reformat_retry",
-        cli_name=adapter.cli_name.value,
-        stdout=response.stdout,
-        stderr=response.stderr,
-        exit_code=response.exit_code,
-        batch_id=batch_id,
-    )
-    if not response.succeeded:
-        return ClientError(
-            error_message=f"Reformat retry CLI call failed: {_cli_failure_reason(response, adapter.cli_name.value)}",
-            error_code="REFORMAT_RETRY_FAILED",
-            log_level="warning",
-        )
-    return parse_findings_response(response.stdout, structured=structured)
-
-
-def _render_review_coverage(ctx: WorkflowContext, handed: set, ledger: list[dict]) -> None:
-    """Say how many of the files the session was handed it accounts for, and name the rest.
-
-    Silence about a file used to look exactly like a clean review of it. On PR #236 (run
-    3c8aadad) a session handed 58 files returned findings on 5, and the four important
-    defects a free-form review found sat in files nothing says were opened.
-    """
-    from ..operations.findings_operations import normalize_finding_path
-
-    if not handed:
-        return
-    accounted = {normalize_finding_path(item["path"]) for item in ledger}
-    missing = sorted(path for path in handed if normalize_finding_path(path) not in accounted)
-    logger.info(
-        "deep_review_coverage",
-        handed=len(handed),
-        accounted=len(handed) - len(missing),
-        missing=len(missing),
-        missing_paths=missing,
-    )
-    ctx.textual.text(" ")
-    if not missing:
-        ctx.textual.success_text(f"✓ Every file accounted for · {len(handed)} of {len(handed)}")
-        return
-    ctx.textual.warning_text(
-        f"Files accounted for · {len(handed) - len(missing)} of {len(handed)} — "
-        f"the session says nothing about {len(missing)}:"
-    )
-    for path in missing:
-        ctx.textual.text(f"  {_display_file_label(path)}")
-
-
-def merge_focus_into_ledger(ledger: list[dict], focus: list[dict]) -> list[dict]:
-    """The ledger plus a line for every focus file it does not already mention."""
-    from ..operations.findings_operations import normalize_finding_path
-
-    mentioned = {normalize_finding_path(item["path"]) for item in ledger}
-    return ledger + [
-        {"path": item["path"], "note": f"Reviewed in depth: {item.get('why', '')}".strip()}
-        for item in focus
-        if normalize_finding_path(item["path"]) not in mentioned
-    ]
-
-
-def _render_old_code_rejected(ctx: WorkflowContext, rejected: list[dict]) -> None:
-    """Name every finding dropped because the base version does not bear out its claim."""
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    if not rejected:
-        return
-    ctx.textual.text(" ")
-    ctx.textual.warning_text(
-        f"Dropped {len(rejected)} finding(s) about removed behaviour the base version does not confirm:"
-    )
-    for item in rejected:
-        ctx.textual.text(
-            f"  {_display_file_label(str(item.get('path') or ''))}  "
-            f"{escape_markup(str(item.get('title') or ''))} [dim]— {escape_markup(item['reason'])}[/dim]"
-        )
-
-
-def _render_review_focus(ctx: WorkflowContext, focus: list[dict]) -> None:
-    """Name the files the session chose to review in depth, and log why."""
-    logger.info(
-        "deep_review_focus",
-        files=len(focus),
-        paths=[item["path"] for item in focus],
-        focus=focus,
-    )
-    if not focus:
-        return
-    ctx.textual.text(" ")
-    ctx.textual.dim_text(f"Reviewed in depth · {len(focus)}")
-    for item in focus:
-        ctx.textual.text(f"  {_display_file_label(item['path'])}")
-
-
-def _render_open_suspicions(ctx: WorkflowContext, session_notes: dict[str, list[str]]) -> None:
-    """Log what the session established, and show what it suspected and did not settle.
-
-    Open suspicions are shown because they are the review's loose ends: not findings, but
-    exactly where a reviewer would look next. The key facts only go to the log; they are
-    working material for whoever continues the review.
-    """
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    logger.info(
-        "deep_review_session_notes",
-        key_facts=len(session_notes.get("key_facts", [])),
-        open_suspicions=len(session_notes.get("open_suspicions", [])),
-        notes=session_notes,
-    )
-    suspicions = session_notes.get("open_suspicions") or []
-    if not suspicions:
-        return
-    ctx.textual.text(" ")
-    ctx.textual.dim_text(f"Left open by the session · {len(suspicions)}")
-    for item in suspicions:
-        ctx.textual.dim_text(f"  ↳ {escape_markup(item)}")
-
-
-def _save_coverage_record(
-    ctx: WorkflowContext,
-    batches,
-    reviewed: list[dict],
-    findings: list,
-    session_notes: dict[str, list[str]],
-    focus: Optional[list[dict]] = None,
-) -> None:
-    """Write the filled checklist to a temporary file and prune the old ones.
-
-    Best effort: the review is already done, and a disk that refuses a few KB must not
-    fail it. Pruned on every write -- older than a week, or beyond the newest 20 per
-    project -- so the records never pile up.
-    """
-    import json
-    from datetime import datetime
-    from pathlib import Path
-
-    from ..operations.coverage_record_operations import (
-        build_coverage_record,
-        coverage_record_path,
-        select_stale_records,
-    )
-
-    batch = next((item for item in batches if item.change_shape), None)
-    if batch is None:
-        return
-    now = datetime.now()
-    project_name = Path(ctx.data.get("project_root") or ".").resolve().name
-    path = coverage_record_path(
-        project_name, batch.pr_manifest.number if batch.pr_manifest else None, now
-    )
-    try:
-        record = build_coverage_record(
-            batch, reviewed, findings, session_notes, now, focus=focus or []
-        )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
-        existing = [(str(item), item.stat().st_mtime) for item in path.parent.glob("*.json")]
-        for stale in select_stale_records(existing, now):
-            Path(stale).unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning("coverage_record_not_saved", path=str(path), error=str(exc))
-        return
-    logger.info("coverage_record_saved", path=str(path))
-    ctx.textual.dim_text(f"Checklist saved · {path}")
+    parts = path.split("/")
+    name, dirs = parts[-1], parts[:-1]
+    if len(dirs) > keep_dirs + 1:
+        dirs = [dirs[0], "…", *dirs[-keep_dirs:]]
+    return name, "/".join(dirs)
 
 
 def _display_file_label(path: str) -> str:
     """`Name.kt  app/…/dir` as markup: the name bold, where it lives dimmed."""
     from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
 
-    from ..operations.attention_operations import split_display_path
-
-    name, directory = split_display_path(path)
+    name, directory = _split_display_path(path)
     label = f"[bold]{escape_markup(name)}[/bold]"
     return f"{label}  [dim]{escape_markup(directory)}[/dim]" if directory else label
-
-
-def _render_out_of_scope_findings(ctx: WorkflowContext, rejected: list[dict]) -> None:
-    """Name every finding dropped for its path, not only how many.
-
-    Shown, not just logged: a model naming files it was never given is a signal about
-    the prompt -- and a finding about a real file outside the PR may be exactly the
-    regression the PR causes, so the reviewer has to be able to see it was dropped.
-    """
-    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
-
-    ctx.textual.text(" ")
-    ctx.textual.warning_text(f"Discarded {len(rejected)} finding(s) about files the review was not given:")
-    for item in rejected:
-        where = "not in this PR" if item.get("reason") == "unknown_path" else "not in this batch"
-        ctx.textual.text(
-            f"  {_display_file_label(item.get('path', ''))} [dim]· {where}[/dim]"
-        )
-        if item.get("title"):
-            ctx.textual.text(f"  ↳ {_highlight_inline_code(escape_markup(item['title']))}")
-
-
-def _render_findings_batch_result(
-    ctx: WorkflowContext,
-    batch_id: str,
-    *,
-    status: str,
-    findings_count: int = 0,
-    detail: str = "",
-) -> None:
-    """Render the outcome of a findings batch review."""
-    if status == "success":
-        ctx.textual.success_text(f"✓ {batch_id} complete · {findings_count} raw finding(s)")
-        return
-
-    message = f"{batch_id} {status}"
-    if detail:
-        message += f" · {detail}"
-    ctx.textual.warning_text(message)
 
 
 def _attach_content_provider(diff_manager, root: Optional[str]) -> None:
@@ -1983,23 +1407,25 @@ def _attach_content_provider(diff_manager, root: Optional[str]) -> None:
     if diff_manager is None or not root:
         return
 
-    from ..operations.context_resolution_operations import read_file_content
+    from ..operations.review_material_operations import read_file_content
 
     diff_manager.attach_content_provider(lambda path: read_file_content(path, root))
 
 
 def _write_review_material(
-    ctx: WorkflowContext, worktree_path: str, manifest, diff_manager, comment_context: list
+    ctx: WorkflowContext,
+    worktree_path: str,
+    manifest,
+    diff_manager,
+    threads: list,
+    general_comments: list,
 ) -> Optional[dict]:
     """Write the review's material into the worktree; map each changed path to whether its
-    base version exists. None when it could not be written, and the review then carries the
-    diffs in the prompt as before.
+    base version exists. None when it could not be written.
 
     The base is the merge base of the PR head and its base branch: the commit GitHub's diff
     is computed against, so the base versions are exactly the "before" of that diff.
     """
-    from pathlib import Path
-
     from ..operations.review_material_operations import (
         PR_FILE,
         WHOLE_DIFF_FILE,
@@ -2046,7 +1472,7 @@ def _write_review_material(
                 case _:
                     has_base[entry.path] = False
         (root / WHOLE_DIFF_FILE).write_text("\n".join(whole_diff))
-        (root / PR_FILE).write_text(render_pr_file(pr, comment_context, merge_base))
+        (root / PR_FILE).write_text(render_pr_file(pr, threads, general_comments, merge_base))
     except OSError as exc:
         logger.warning("review_material_not_written", error=str(exc))
         return None
@@ -2055,36 +1481,32 @@ def _write_review_material(
         "review_material_written",
         files=len(has_base),
         base_versions=sum(has_base.values()),
+        threads=len(threads),
+        general_comments=len(general_comments),
         merge_base=merge_base,
-    )
-    ctx.textual.dim_text(
-        f"Review material in the worktree · {len(has_base)} diffs, "
-        f"{sum(has_base.values())} base versions"
     )
     return has_base
 
 
-def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
+def write_review_material(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Write the review material into the worktree and build the deep session over it.
+    Put what the review would otherwise fetch into the PR worktree, as files.
 
-    The material is the diff of every changed file, its base version and the PR with its
-    comments, all as files in the review worktree (`.titan-review/`). The session opens them
-    as it needs them, so the prompt carries a pointer per file and no diff.
+    `.titan-review/pr.md` (description and every review comment), `pr.diff` (the whole
+    diff), `diffs/<path>.diff` (each file's, lines labelled and numbered) and
+    `base/<path>` (each changed file before the PR). The session opens them as it needs
+    them; none of it goes in the prompt, which is re-read on every turn.
 
-    A worktree is required. The review used to fall back to pasting diffs into the prompt
-    without one, and that path reviewed less for more: a 400k-char prompt re-read on every
-    turn, auto-compacted to a summary after the first call.
+    A worktree is required: the review reads the PR's code there.
 
     Requires (from ctx.data):
-        validated_review_plan (ReviewPlan)
         change_manifest (ChangeManifest)
-        review_diff (str)
-        review_checklist (List[ReviewChecklistItem])
+        review_diff_manager (DiffContextManager)
+        review_threads, review_general_comments (List[UICommentThread])
         worktree_path (str)
 
     Outputs (saved to ctx.data):
-        review_context_package (ReviewContextPackage)
+        review_material (dict[str, bool]): each changed path -> whether it has a base version
 
     Returns:
         Success or Error
@@ -2092,195 +1514,48 @@ def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Resolve Review Context")
+    ctx.textual.begin_step("Write Review Material")
 
-    plan = ctx.get("validated_review_plan")
     manifest = ctx.get("change_manifest")
-    diff = ctx.get("review_diff", "")
-    comment_context = ctx.get("comment_review_context", [])
-    checklist = ctx.get("review_checklist", [])
-    review_profile = _get_review_profile(ctx)
     worktree_path = ctx.data.get("worktree_path")
-
-    if not plan or not manifest:
-        ctx.textual.error_text("Missing validated_review_plan or change_manifest in context")
+    if not manifest:
+        ctx.textual.error_text("No change manifest in context")
         ctx.textual.end_step("error")
-        return Error("Missing validated_review_plan or change_manifest in context")
-
-    if not diff:
-        ctx.textual.error_text("No diff in context (run fetch_pr_review_bundle first)")
-        ctx.textual.end_step("error")
-        return Error("No diff in context (run fetch_pr_review_bundle first)")
-
+        return Error("No change manifest in context")
     if not worktree_path:
         message = (
-            "No review worktree: the review needs the PR checked out in one to hand the "
-            "session its material. Check the Create Worktree step above."
+            "No review worktree: the review reads the PR checked out in one. "
+            "Check the Create Worktree step above."
         )
         ctx.textual.error_text(message)
         ctx.textual.end_step("error")
         return Error(message)
 
-    from ..operations.context_resolution_operations import build_review_context_package
     diff_manager = ctx.get("review_diff_manager")
     # The same root powers the comment-rendering path, so a finding about pre-existing
     # code can show that code instead of nothing.
     _attach_content_provider(diff_manager, worktree_path)
 
-    review_material = _write_review_material(ctx, worktree_path, manifest, diff_manager, comment_context)
-    if review_material is None:
+    material = _write_review_material(
+        ctx,
+        worktree_path,
+        manifest,
+        diff_manager,
+        ctx.get("review_threads", []) or [],
+        ctx.get("review_general_comments", []) or [],
+    )
+    if material is None:
         message = "The review material could not be written into the worktree (see the log)."
         ctx.textual.error_text(message)
         ctx.textual.end_step("error")
         return Error(message)
 
-    try:
-        package = build_review_context_package(
-            plan=plan,
-            manifest=manifest,
-            checklist=checklist,
-            review_material=review_material,
-            cwd=worktree_path,
-            # The whole change's shape, so the session judges the PR rather than the
-            # files it happens to have been handed.
-            attention_plan=ctx.get("attention_plan"),
-            review_profile=review_profile,
-        )
-    except Exception as e:
-        ctx.textual.error_text(f"Failed to resolve review context: {e}")
-        ctx.textual.end_step("error")
-        return Error(f"Failed to resolve review context: {e}")
-
-    ctx.data["review_context_package"] = package
-    ctx.data["review_context_batches"] = package.batches
-
-    files_count = sum(len(batch.files_context) for batch in package.batches)
-    ctx.textual.success_text(f"✓ Context ready · {files_count} file(s)")
-    # Shown, because a review's judgement depends on which project rules it was told to
-    # read, and "no project context" is the thing worth noticing when a finding argues
-    # against a convention this repo chose on purpose.
-    context_docs = package.batches[0].context_docs if package.batches else []
-    if context_docs:
-        ctx.textual.dim_text(f"Project rules read first: {', '.join(context_docs)}")
-    else:
-        ctx.textual.dim_text(
-            "no project context documents found — the review judges the diff against "
-            "general practice only (set context_docs in .titan/review/profile.yaml)"
-        )
-    logger.info("review_context_summary", context_docs=len(context_docs))
-    _show_review_context_batches(ctx, package.batches)
+    ctx.textual.success_text(
+        f"✓ {len(material)} diffs, {sum(material.values())} base versions, "
+        f"the PR and its comments in .titan-review/"
+    )
     ctx.textual.end_step("success")
-    return Success(
-        "Review context resolved",
-        metadata={
-            "review_context_package": package,
-            "review_context_batches": package.batches,
-        },
-    )
-
-
-# ============================================================================
-# PHASE 4: TARGETED REVIEW (Second AI Call)
-# ============================================================================
-
-
-def _scoped_batch_outcome(
-    batch, raw: list, manifest_paths: Optional[set], project_root: Optional[str] = None
-) -> dict:
-    """Drop findings about files this batch never showed the model.
-
-    The anchoring layer can resolve a line in ANY file of the PR, so a finding whose
-    path the batch did not send still anchors and publishes — on a file the model never
-    read. With one or two files per batch a wrong path is unlikely; a packed batch of
-    ten or fifteen makes misattribution an ordinary mistake, which is why this runs
-    before the findings leave the worker.
-
-    Deliberately NOT a downgrade-and-keep: an unverifiable claim with its line stripped
-    still reads as a review finding, and the reviewer cannot tell it apart from one the
-    model actually looked at. Every drop is logged with its reason so the rate is
-    measurable, and if it ever turns out to cost real signal the log is the evidence.
-    """
-    from ..operations.findings_operations import (
-        batch_scope_paths,
-        partition_findings_by_batch_scope,
-    )
-
-    kept, rejected = partition_findings_by_batch_scope(
-        raw,
-        batch_scope_paths(batch),
-        manifest_paths or set(),
-        is_repo_file=_repo_file_checker(project_root),
-    )
-    outside_pr = sorted(
-        {
-            finding.get("path")
-            for finding in kept
-            if isinstance(finding, dict)
-            and finding.get("path")
-            and finding.get("path") not in (manifest_paths or set())
-            and finding.get("path") not in batch_scope_paths(batch)
-        }
-    )
-    if outside_pr:
-        logger.info("findings_outside_pr_kept", batch_id=batch.batch_id, paths=outside_pr)
-    if rejected:
-        logger.warning(
-            "findings_outside_batch_scope",
-            batch_id=batch.batch_id,
-            batch_paths=sorted(batch.files_context),
-            dropped=len(rejected),
-            kept=len(kept),
-            rejected=rejected,
-        )
-    old_code_rejected: list = []
-    if project_root:
-        from ..operations.review_material_operations import check_old_code_claims
-
-        kept, old_code_rejected = check_old_code_claims(
-            kept, *_material_readers(project_root)
-        )
-        if old_code_rejected:
-            logger.warning(
-                "findings_old_code_not_confirmed",
-                batch_id=batch.batch_id,
-                dropped=len(old_code_rejected),
-                rejected=old_code_rejected,
-            )
-    return {
-        "status": "success",
-        "raw": kept,
-        "detail": "",
-        "out_of_scope": len(rejected),
-        "out_of_scope_findings": rejected,
-        "old_code_rejected": old_code_rejected,
-    }
-
-
-def _material_readers(project_root: str):
-    """Readers for a changed file's base version and its new version in the worktree, and
-    the paths that have a base version."""
-    from pathlib import Path
-
-    from ..operations.review_material_operations import base_file_path
-
-    root = Path(project_root).resolve()
-
-    def _read(relative: str) -> Optional[str]:
-        target = (root / relative).resolve()
-        if not target.is_relative_to(root) or not target.is_file():
-            return None
-        try:
-            return target.read_text()
-        except (OSError, UnicodeDecodeError):
-            return None
-
-    base_root = root / base_file_path("")
-    base_paths = (
-        [str(item.relative_to(base_root)) for item in base_root.rglob("*") if item.is_file()]
-        if base_root.is_dir()
-        else []
-    )
-    return (lambda path: _read(base_file_path(path))), (lambda path: _read(path)), base_paths
+    return Success("Review material written", metadata={"review_material": material})
 
 
 def _repo_file_checker(project_root: Optional[str]):
@@ -2302,148 +1577,69 @@ def _repo_file_checker(project_root: Optional[str]):
     return _is_repo_file
 
 
-def _log_parsed_findings(batch_id: str, raw: list) -> None:
-    """Record what the session answered, whole, before anything filters it.
+def _highlight_inline_code(text: str) -> str:
+    """`code` spans from a model's prose -> bold, so identifiers stand out on screen."""
+    return re.sub(r"`([^`\n]+)`", r"[bold]\1[/bold]", text)
 
-    The response log keeps only the edges of stdout, and the finding that decides a
-    comparison between two runs is as likely to sit in the middle as anywhere. The
-    parsed answer is a fraction of the envelope, so it is kept in full: a run must be
-    auditable from its own log.
-    """
-    logger.debug(
-        "findings_batch_parsed",
-        batch_id=batch_id,
-        findings_count=len(raw),
-        findings=raw,
+
+def _review_tool_options(adapter) -> dict:
+    """The tool, effort and spending options this adapter can enforce on the session."""
+    from ..operations.findings_operations import (
+        REVIEW_ALLOWED_TOOLS,
+        REVIEW_DISALLOWED_TOOLS,
+        REVIEW_EFFORT,
+        REVIEW_MAX_BUDGET_USD,
     )
 
+    restrict = adapter.supports_tool_restriction
+    return {
+        "disallowed_tools": list(REVIEW_DISALLOWED_TOOLS) if restrict else None,
+        "allowed_tools": list(REVIEW_ALLOWED_TOOLS) if restrict else None,
+        "effort": REVIEW_EFFORT if adapter.supports_effort_control else None,
+        "max_budget_usd": REVIEW_MAX_BUDGET_USD,
+    }
 
-def _execute_findings_batch(
-    adapter,
-    batch,
-    prompt: str,
-    *,
-    project_root: Optional[str],
-    findings_schema: Optional[dict],
-    disallowed_tools: Optional[list],
-    effort: Optional[str],
-    use_structured_output: bool,
-    timeout_seconds: int,
-    manifest_paths: Optional[set] = None,
-) -> dict:
-    """Run one findings batch end-to-end: CLI call, parse, reformat retry, scope check.
 
-    Runs inside a worker thread when batches execute concurrently, so it must not
-    touch `ctx`/the UI — it returns an outcome dict the step thread renders:
-    {"status": "success" | "failed", "raw": list | None, "detail": str}, plus
-    "out_of_scope" for findings the batch was not entitled to make.
+def _retry_review_reformat(adapter, previous_stdout: str, cwd: Optional[str], structured: bool):
+    """Ask the same CLI to reformat its own previous answer, without reviewing again."""
+    from ..operations.findings_operations import free_review_json_schema, parse_findings_response
 
-    `manifest_paths` is every path in the PR, used only to tell a hallucinated path
-    apart from a real file this batch was simply not shown.
-
-    `timeout_seconds` is derived from the batch's file count by the caller and logged
-    with the call, so the constants behind it can be corrected from real runs.
-    """
-    from ..operations.findings_operations import parse_findings_response
-
-    adapter_started_at = time.monotonic()
-    # run_interruptible here also covers the pooled path: on app exit each worker
-    # raises WorkflowAborted, its future completes, and the step thread's
-    # future.result() re-raises it instead of blocking on a live CLI call.
+    reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
+    _log_ai_prompt("ai_review_findings_reformat_retry", adapter.cli_name.value, reformat_prompt)
     response = run_interruptible(
         lambda: adapter.execute(
-            prompt,
-            cwd=project_root,
-            timeout=timeout_seconds,
-            json_schema=findings_schema,
-            disallowed_tools=disallowed_tools,
-            effort=effort,
+            reformat_prompt,
+            cwd=cwd,
+            timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
+            json_schema=free_review_json_schema() if structured else None,
         )
     )
-    adapter_duration_seconds = time.monotonic() - adapter_started_at
-    logger.info(
-        "findings_batch_adapter_call",
-        batch_id=batch.batch_id,
-        cli=adapter.cli_name.value,
-        files_context=len(batch.files_context),
-        prompt_actual_chars=len(prompt),
-        duration_seconds=round(adapter_duration_seconds, 3),
-        timeout_seconds=timeout_seconds,
-        exit_code=response.exit_code,
-        timed_out=response.exit_code == 124,
-        quota_exhausted=response.quota_exhausted,
-        structured_output=use_structured_output,
-        effort=effort,
-    )
     _log_ai_response(
-        step_name="ai_review_findings",
+        step_name="ai_review_findings_reformat_retry",
         cli_name=adapter.cli_name.value,
         stdout=response.stdout,
         stderr=response.stderr,
         exit_code=response.exit_code,
-        batch_id=batch.batch_id,
-        files_context=len(batch.files_context),
-        checklist_items=len(batch.checklist_applicable),
     )
-
     if not response.succeeded:
-        reason = _cli_failure_reason(response, adapter.cli_name.value)
-        logger.debug(
-            "findings_batch_failed",
-            batch_id=batch.batch_id,
-            exit_code=response.exit_code,
-            quota_exhausted=response.quota_exhausted,
-            reason=reason,
+        return ClientError(
+            error_message=f"Reformat retry failed: {_cli_failure_reason(response, adapter.cli_name.value)}",
+            error_code="REFORMAT_RETRY_FAILED",
+            log_level="warning",
         )
-        return {
-            "status": "failed",
-            "raw": None,
-            "detail": reason,
-            "timed_out": response.exit_code == 124,
-        }
-
-    match parse_findings_response(response.stdout, structured=use_structured_output):
-        case ClientSuccess(data=raw) if isinstance(raw, list):
-            from ..operations.findings_operations import (
-                parse_focus,
-                parse_reviewed_files,
-                parse_session_notes,
-            )
-
-            _log_parsed_findings(batch.batch_id, raw)
-            return {
-                **_scoped_batch_outcome(batch, raw, manifest_paths, project_root),
-                "reviewed": parse_reviewed_files(response.stdout, set(batch.files_context)),
-                **parse_session_notes(response.stdout),
-                "focus": parse_focus(response.stdout, set(batch.files_context)),
-            }
-        case ClientSuccess(data=raw):
-            # A structured success whose payload isn't a findings list (e.g. a dict)
-            # must not vanish silently — treat it like any other parse failure.
-            parse_error = f"non-list findings payload ({type(raw).__name__})"
-        case ClientError(error_message=err):
-            parse_error = err
-
-    logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=parse_error)
-    match _retry_findings_batch_reformat(
-        adapter, response.stdout, project_root, batch.batch_id, use_structured_output, effort
-    ):
-        case ClientSuccess(data=raw) if isinstance(raw, list):
-            logger.debug(
-                "findings_batch_reformat_recovered",
-                batch_id=batch.batch_id,
-                findings_count=len(raw),
-            )
-            _log_parsed_findings(batch.batch_id, raw)
-            return _scoped_batch_outcome(batch, raw, manifest_paths, project_root)
-        case _:
-            logger.debug("findings_batch_reformat_failed", batch_id=batch.batch_id)
-            return {"status": "failed", "raw": None, "detail": "parse error"}
+    return parse_findings_response(response.stdout, structured=structured)
 
 
-def _highlight_inline_code(text: str) -> str:
-    """`code` spans from a model's prose -> bold, so identifiers stand out on screen."""
-    return re.sub(r"`([^`\n]+)`", r"[bold]\1[/bold]", text)
+def _render_rejected_paths(ctx: WorkflowContext, rejected: list[dict]) -> None:
+    """Name every finding dropped because its file does not exist in the reviewed tree."""
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    ctx.textual.text(" ")
+    ctx.textual.warning_text(f"Discarded {len(rejected)} finding(s) about files that do not exist:")
+    for item in rejected:
+        ctx.textual.text(f"  {_display_file_label(item.get('path', ''))}")
+        if item.get("title"):
+            ctx.textual.text(f"  ↳ {_highlight_inline_code(escape_markup(item['title']))}")
 
 
 @declare_ai_usage(
@@ -2452,19 +1648,23 @@ def _highlight_inline_code(text: str) -> str:
     enforces=True,
 )
 def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
-    """Run the findings phase, and report its cost even if it is abandoned.
+    """Run the review session, and report its cost even if it is abandoned.
 
-    The wrapper exists for the `finally`. This phase is where a review spends almost
-    everything, and it is also the one a user interrupts when it is taking too long —
-    which is precisely the moment they want to know what it cost. Emitting the summary
-    only on the success path meant an aborted run reported nothing at all.
+    The wrapper exists for the `finally`: the session is where a review spends almost
+    everything, and an interrupted run is exactly when the user wants to know what it
+    cost. `WorkflowAborted` is a `BaseException`, so `finally` still runs on it.
 
-    `WorkflowAborted` is a `BaseException`, so `finally` is the only construct that
-    still runs on an interrupt without catching it.
+    Requires (from ctx.data):
+        change_manifest (ChangeManifest)
+        worktree_path (str): with the material `write_review_material` left in it
+
+    Outputs (saved to ctx.data):
+        raw_findings (list): the session's findings, mapped onto `Finding`'s fields
+        ai_findings_failed (bool): True when no review happened
 
     Returns:
-        Whatever the deep review returns: Success with raw findings, Skip when AI is
-        off for the task, or Error when every batch failed.
+        Success with raw findings, Success with none when AI is off for the task, or
+        Error when the session could not run or produced nothing readable.
     """
     try:
         return _ai_review_findings(ctx)
@@ -2472,26 +1672,37 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         log_review_ai_cost(ctx, scope="findings_phase")
 
 
+def _fail_review(ctx: WorkflowContext, reason: str) -> WorkflowResult:
+    """No review happened: say so, and publish empty findings for the steps after."""
+    from ..operations.findings_operations import build_default_findings
+
+    ctx.data["raw_findings"] = build_default_findings()
+    ctx.data["ai_findings_failed"] = True
+    logger.error("review_session_failed", reason=reason)
+    ctx.textual.error_text(f"{reason} — no code was reviewed. Do not treat this as a clean review.")
+    ctx.textual.end_step("error")
+    return Error(f"Review failed: {reason}")
+
+
 def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Second AI call: find actionable problems in the exact code context.
+    The review: one free-form session of the configured CLI in the PR worktree.
 
-    Runs the one deep session over the review material in the worktree. On a parse
-    failure the answer is reformatted once; if the session still produced nothing, the
-    step returns Error -- an empty result caused by a failed AI call must not look like
-    a clean review -- while still publishing empty raw_findings so downstream steps run
-    via the workflow's on_error: continue.
+    The CLI reviews the PR as it would if a user asked it to -- its own tools, subagents
+    for a large PR, read-only git -- with the material `write_review_material` left in
+    the worktree. Titan prescribes no procedure; it asks only for the answer's shape, and
+    everything after (dedupe, anchoring, approval, publishing) is Titan's.
 
     Which CLI runs it comes from the `code_review_findings` task preference
     (AI Configuration screen), not from the workflow.
 
     Requires (from ctx.data):
-        review_context_package (ReviewContextPackage)
+        change_manifest (ChangeManifest)
+        worktree_path (str)
 
     Outputs (saved to ctx.data):
-        raw_findings (list | str): Raw AI output before normalization
-        review_session_notes (dict): `key_facts` and `open_suspicions` the session left
-        review_focus (list[dict]): the files it chose to review in depth, with why
+        raw_findings (list): the session's findings, mapped onto `Finding`'s fields
+        ai_findings_failed (bool)
 
     Returns:
         Success or Error
@@ -2499,164 +1710,109 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Deep Review")
-
-    batches = ctx.get("review_context_batches")
-    budget = _get_review_budget(ctx)
-    project_root = ctx.data.get("worktree_path")
-
-    if not batches:
-        ctx.textual.error_text("No review_context_batches in context (run resolve_review_context first)")
-        ctx.textual.end_step("error")
-        return Error("No review_context_batches in context (run resolve_review_context first)")
+    ctx.textual.begin_step("Review")
 
     from ..operations.findings_operations import (
-        FINDINGS_DISALLOWED_TOOLS,
-        FINDINGS_EFFORT,
+        REVIEW_TIMEOUT_SECONDS,
         build_default_findings,
-        build_findings_prompt_parts,
-        findings_json_schema,
-        summarize_findings_prompt_parts,
+        build_free_review_prompt,
+        free_review_json_schema,
+        parse_findings_response,
+        partition_findings_by_path,
+        to_finding_payload,
     )
 
-    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_findings)
+    manifest = ctx.get("change_manifest")
+    worktree_path = ctx.data.get("worktree_path")
+    if not manifest or not manifest.pr or not worktree_path:
+        ctx.textual.error_text("No change manifest or review worktree in context")
+        ctx.textual.end_step("error")
+        return Error("No change manifest or review worktree in context")
 
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_findings)
     if not adapter:
         reason = route_note or "No headless CLI available"
-        ctx.data["raw_findings"] = build_default_findings()
         if ai_off:
-            # The user turned AI off for this task: nothing failed — nothing was
-            # meant to run. Downstream reads ai_findings_failed, and it must be
-            # explicitly False here.
-            ctx.textual.warning_text(f"{reason} — skipping AI findings")
+            # The user turned AI off for this task: nothing failed, nothing was meant to run.
+            ctx.data["raw_findings"] = build_default_findings()
             ctx.data["ai_findings_failed"] = False
+            ctx.textual.warning_text(f"{reason} — skipping the review")
             ctx.textual.end_step("success")
             return Success(
                 "No findings (AI is off for this task)",
                 metadata={"raw_findings": [], "ai_findings_failed": False},
             )
-        # Routing failure (no CLI configured, not installed, wrong provider): the AI
-        # never ran, so an empty result must not look like a clean review — same
-        # contract as the failed-session exit below. Empty findings are still
-        # published so downstream steps run via on_error: continue.
-        ctx.data["ai_findings_failed"] = True
-        ctx.textual.error_text(
-            f"{reason} — AI findings could not run. No code was reviewed."
-        )
-        ctx.textual.end_step("error")
-        return Error(f"AI findings could not run: {reason}")
+        return _fail_review(ctx, f"{reason} — the review could not run")
 
     _announce_review_adapter(ctx, adapter)
 
-    # Structured output forces the CLI to return findings via a schema-validated tool
-    # call instead of relying on the model to follow a "respond only with JSON" prompt
-    # instruction, which models frequently ignore in favor of a prose summary.
-    use_structured_output = adapter.supports_structured_output
-    findings_schema = findings_json_schema() if use_structured_output else None
-    # Removes Bash (and other unneeded tools) from the CLI's own session: recursive shell
-    # greps across whole trees were measured as the source of unbounded, mostly unproductive
-    # exploration. Read/Grep/Glob stay available for the cross-file lookups the review needs.
-    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
-    cli_display = adapter.cli_name.value.capitalize()
-    effort = FINDINGS_EFFORT if adapter.supports_effort_control else None
-    # Every path in the PR, so the session's answer can tell a hallucinated path apart from
-    # a real file it simply was not handed. An empty set (no manifest) makes every unknown
-    # path read as hallucinated, which is the safe direction: both outcomes drop the finding.
-    change_manifest = ctx.get("change_manifest")
-    manifest_paths = {f.path for f in change_manifest.files} if change_manifest else set()
+    # A schema makes the CLI return its findings through a validated tool call instead of
+    # trusting a "respond only with JSON" instruction a model may ignore after a long session.
+    structured = adapter.supports_structured_output
+    options = _review_tool_options(adapter)
+    pr = manifest.pr
+    prompt = build_free_review_prompt(pr.number, pr.title, pr.head, pr.base, worktree_path)
+    cli = adapter.cli_name.value
+    _log_ai_prompt("ai_review_findings", cli, prompt, files=len(manifest.files))
 
-    def _run(entry: tuple) -> dict:
-        entry_batch, entry_prompt, entry_effort = entry
-        try:
-            return _execute_findings_batch(
-                adapter,
-                entry_batch,
-                entry_prompt,
-                project_root=project_root,
-                findings_schema=findings_schema,
-                disallowed_tools=disallowed_tools,
-                effort=entry_effort,
-                use_structured_output=use_structured_output,
-                timeout_seconds=deep_call_timeout_seconds(budget, len(entry_batch.files_context)),
-                manifest_paths=manifest_paths,
+    started_at = time.monotonic()
+    with ctx.textual.loading(f"{cli.capitalize()} is reviewing the PR…"):
+        response = run_interruptible(
+            lambda: adapter.execute(
+                prompt,
+                cwd=worktree_path,
+                timeout=REVIEW_TIMEOUT_SECONDS,
+                json_schema=free_review_json_schema() if structured else None,
+                **options,
             )
-        except Exception as exc:
-            logger.error("findings_batch_crashed", batch_id=entry_batch.batch_id, error=str(exc))
-            return {"status": "failed", "raw": None, "detail": f"adapter error: {exc}"}
-
-    batch = batches[0]
-    prompt_parts = build_findings_prompt_parts(batch)
-    prompt = prompt_parts["prompt"]
-    _log_ai_prompt(
-        step_name="ai_review_findings",
-        cli_name=adapter.cli_name.value,
-        prompt=prompt,
-        batch_id=batch.batch_id,
-        files_context=len(batch.files_context),
-        checklist_items=len(batch.checklist_applicable),
-        prompt_actual_chars=len(prompt),
-        **summarize_findings_prompt_parts(prompt_parts),
-    )
-    _render_findings_batch_started(ctx, batch)
-    with ctx.textual.loading(f"Asking {cli_display} to review…"):
-        outcome = _run((batch, prompt, effort))
-
-    if outcome["status"] != "success":
-        # The session produced nothing: an "empty" review here means the AI never ran,
-        # not that the code is clean. Publish empty findings so downstream steps (and the
-        # worktree cleanup) still run via on_error: continue, but fail the step visibly
-        # instead of masquerading as a clean review.
-        _render_findings_batch_result(ctx, batch.batch_id, status="failed", detail=outcome["detail"])
-        ctx.data["raw_findings"] = build_default_findings()
-        ctx.data["ai_findings_failed"] = True
-        logger.error("findings_all_batches_failed", reason=outcome["detail"])
-        ctx.textual.error_text(
-            f"AI findings failed — {outcome['detail']}. "
-            "No code was reviewed — do not treat this as a clean review."
         )
-        ctx.textual.end_step("error")
-        return Error(f"AI findings failed — {outcome['detail']}")
-
-    _render_findings_batch_result(ctx, batch.batch_id, status="success", findings_count=len(outcome["raw"]))
-    raw = list(outcome["raw"] or [])
-    reviewed_ledger = list(outcome.get("reviewed") or [])
-    focus: list[dict] = list(outcome.get("focus") or [])
-    session_notes: dict[str, list[str]] = {
-        "key_facts": list(outcome.get("key_facts") or []),
-        "open_suspicions": list(outcome.get("open_suspicions") or []),
-    }
-    out_of_scope_findings = list(outcome.get("out_of_scope_findings") or [])
-    old_code_rejected = list(outcome.get("old_code_rejected") or [])
-
-    # There used to be an empty-findings rescue here that reviewed "borderline" files when
-    # the session returned nothing. Deleted deliberately: a review that has nothing to say
-    # has to be allowed to say nothing, and reaching for more files when the answer is "no
-    # problems found" is pressure to produce a finding.
-    ctx.data["raw_findings"] = raw or build_default_findings()
-    ctx.data["ai_findings_failed"] = False
-    if out_of_scope_findings:
-        # Shown, not just logged: a model naming files it was never given is a signal
-        # about the prompt.
-        _render_out_of_scope_findings(ctx, out_of_scope_findings)
-    ctx.data["findings_out_of_scope"] = len(out_of_scope_findings)
-    # A focus file is opened in full by definition, so it is accounted for even when the
-    # session wrote its depth into findings and forgot the one-liner (run e164266c: all 12
-    # focus files read, none of them in `reviewed`). Its reason stands in as the note.
-    reviewed_ledger = merge_focus_into_ledger(reviewed_ledger, focus)
-    _render_old_code_rejected(ctx, old_code_rejected)
-    _render_review_focus(ctx, focus)
-    _render_review_coverage(ctx, set(batch.files_context), reviewed_ledger)
-    _render_open_suspicions(ctx, session_notes)
-    _save_coverage_record(ctx, batches, reviewed_ledger, ctx.data["raw_findings"], session_notes, focus)
-    ctx.textual.end_step("success")
-    return Success(
-        "AI findings retrieved",
-        metadata={
-            "ai_findings_failed": False,
-            "review_session_notes": session_notes,
-            "review_focus": focus,
-        },
+    logger.info(
+        "review_session",
+        cli=cli,
+        files=len(manifest.files),
+        duration_seconds=round(time.monotonic() - started_at, 3),
+        timeout_seconds=REVIEW_TIMEOUT_SECONDS,
+        exit_code=response.exit_code,
+        timed_out=response.exit_code == 124,
+        structured_output=structured,
+        **{key: value for key, value in options.items() if value is not None},
     )
+    _log_ai_response(
+        step_name="ai_review_findings",
+        cli_name=cli,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+    )
+    if not response.succeeded:
+        return _fail_review(ctx, _cli_failure_reason(response, cli))
+
+    match parse_findings_response(response.stdout, structured=structured):
+        case ClientSuccess(data=list() as raw):
+            pass
+        case _:
+            match _retry_review_reformat(adapter, response.stdout, worktree_path, structured):
+                case ClientSuccess(data=list() as raw):
+                    pass
+                case _:
+                    return _fail_review(ctx, "the review's answer could not be read")
+
+    # Kept whole in the debug log: the response log keeps only its edges, and a run has
+    # to be auditable from its own log.
+    logger.debug("review_findings_parsed", findings_count=len(raw), findings=raw)
+    kept, rejected = partition_findings_by_path(
+        raw, {entry.path for entry in manifest.files}, _repo_file_checker(worktree_path)
+    )
+    if rejected:
+        logger.warning("review_findings_unknown_path", dropped=len(rejected), rejected=rejected)
+
+    ctx.data["raw_findings"] = [to_finding_payload(item) for item in kept]
+    ctx.data["ai_findings_failed"] = False
+    ctx.textual.success_text(f"✓ Review complete · {len(kept)} finding(s)")
+    if rejected:
+        _render_rejected_paths(ctx, rejected)
+    ctx.textual.end_step("success")
+    return Success("AI findings retrieved", metadata={"ai_findings_failed": False})
 
 
 def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:

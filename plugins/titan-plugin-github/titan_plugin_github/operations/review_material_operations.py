@@ -13,15 +13,33 @@ default, so a plain search of the tree does not mix the old code in with the new
 """
 
 import re
-from typing import Callable, Iterable, Optional
+from pathlib import Path
+from typing import Iterable, Optional
 
-from ..models.review_models import CommentContextEntry, PullRequestManifest
+from titan_cli.core.logging import get_logger
+
+from ..models.review_models import PullRequestManifest
+from ..models.view import UIComment, UICommentThread
 
 MATERIAL_DIR = ".titan-review"
 DIFFS_DIR = f"{MATERIAL_DIR}/diffs"
 BASE_DIR = f"{MATERIAL_DIR}/base"
 PR_FILE = f"{MATERIAL_DIR}/pr.md"
 WHOLE_DIFF_FILE = f"{MATERIAL_DIR}/pr.diff"
+
+logger = get_logger(__name__)
+
+
+def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
+    """A file of the reviewed tree as text, or None when it cannot be read."""
+    try:
+        base = Path(cwd) if cwd else Path.cwd()
+        file_path = base / path
+        if file_path.exists() and file_path.is_file():
+            return file_path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError) as e:
+        logger.debug("file_read_failed", path=path, error=str(e))
+    return None
 
 
 def diff_file_path(path: str) -> str:
@@ -86,70 +104,40 @@ def render_file_diff(path: str, hunks: Iterable[str]) -> str:
 
 def render_pr_file(
     pr: Optional[PullRequestManifest],
-    comments: list[CommentContextEntry],
+    threads: list[UICommentThread],
+    general_comments: list[UICommentThread],
     base_sha: Optional[str],
 ) -> str:
-    """The PR as the session needs it: what it claims, and what reviewers already said."""
+    """The PR as `gh pr view --comments` would show it: what it claims, and every comment.
+
+    Every thread in full, replies included, open and resolved. This used to be a summary of
+    at most eight bug-like open threads cut to 220 chars, a limit set when the comments sat
+    in the prompt; as a file it costs nothing until opened, and a reviewer told not to
+    repeat what is already raised has to be able to see all of it.
+    """
     lines: list[str] = []
     if pr:
         lines += [f"# PR #{pr.number}: {pr.title}", "", f"{pr.base} <- {pr.head}"]
         if base_sha:
             lines.append(f"Base versions are taken at {base_sha}, the commit the diff is against.")
         lines += ["", "## Description", "", (pr.description or "(no description)").strip(), ""]
-    lines += ["## Existing review comments (do not repeat what they already say)", ""]
-    if not comments:
+    lines += ["## Review comments already made (do not repeat what they raise)", ""]
+    if not threads and not general_comments:
         lines.append("(none)")
-    for entry in comments:
-        where = f"{entry.path}:{entry.line}" if entry.path and entry.line else (entry.path or "PR")
-        state = "resolved" if entry.is_resolved else "open"
-        lines.append(f"- [{state}] {where} -- {entry.title}: {entry.summary}")
+    for thread in threads:
+        main = thread.main_comment
+        where = f"{main.path}:{main.line}" if main.path and main.line else (main.path or "PR")
+        state = "resolved" if thread.is_resolved else "open"
+        if thread.is_outdated:
+            state += ", outdated"
+        lines += [f"### [{state}] {where}", ""]
+        lines += [_comment_block(comment) for comment in [main, *thread.replies]]
+    if general_comments:
+        lines += ["## General comments", ""]
+        for thread in general_comments:
+            lines += [_comment_block(comment) for comment in [thread.main_comment, *thread.replies]]
     return "\n".join(lines) + "\n"
 
 
-def review_material_hint(path: str, has_base: bool) -> str:
-    """The line under a file in the prompt: where its diff and its old version are."""
-    base = f"base: `{base_file_path(path)}`" if has_base else "new file (no base version)"
-    return f"diff: `{diff_file_path(path)}` · {base}"
-
-
-def _collapse(text: str) -> str:
-    return " ".join((text or "").split())
-
-
-def check_old_code_claims(
-    findings: list,
-    read_base: Callable[[str], Optional[str]],
-    read_head: Callable[[str], Optional[str]],
-    base_paths: Iterable[str] = (),
-) -> tuple[list, list]:
-    """Keep a finding about what the old code did only if the old code says so.
-
-    A finding that claims a behaviour was removed quotes, in `old_code`, the base-version line
-    that had it. The claim stands only if some changed file had that line before and no
-    longer has it: the finding's own file first, then every other changed file, because the
-    old behaviour often lived elsewhere (on ragnarok #3723 the dropped `it.id != tariff.id`
-    was in two ViewModels, and the finding named the new file that replaced them). Twice a
-    session reported "the purchase analytics are now commented out" when they were commented
-    out before the PR too: the quoted line is in both versions, so the claim is dropped.
-
-    Compared with whitespace collapsed, so re-indentation does not count as a change.
-    Returns (kept, rejected); each rejected item carries a `reason`.
-    """
-    others = list(base_paths)
-    kept: list = []
-    rejected: list = []
-    for finding in findings:
-        old = finding.get("old_code") if isinstance(finding, dict) else None
-        if not isinstance(old, str) or not old.strip():
-            kept.append(finding)
-            continue
-        own = str(finding.get("path") or "")
-        quote = _collapse(old)
-        had_it = [path for path in [own, *[p for p in others if p != own]] if quote in _collapse(read_base(path) or "")]
-        if not had_it:
-            rejected.append({**finding, "reason": "the old code it quotes is not in any base version"})
-        elif all(quote in _collapse(read_head(path) or "") for path in had_it):
-            rejected.append({**finding, "reason": "the old code it quotes is still in the new version"})
-        else:
-            kept.append(finding)
-    return kept, rejected
+def _comment_block(comment: UIComment) -> str:
+    return f"@{comment.author_login}:\n{(comment.body or '').strip()}\n"

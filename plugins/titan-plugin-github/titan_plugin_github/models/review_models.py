@@ -1,9 +1,8 @@
 """
 Pydantic models for the code review system.
 
-The new-findings flow is intentionally split into two concerns:
-- cheap deterministic selection (manifest, scoring, comments context)
-- focused AI review over one or more bounded context batches
+The new-findings flow: a deterministic manifest and comments index around one free-form
+review session, whose findings are deduplicated, anchored and approved by the user.
 """
 
 from typing import Optional
@@ -11,13 +10,10 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from .review_enums import (
-    ChecklistCategory,
-    CommentContextKind,
     FileChangeStatus,
     FindingSeverity,
     ReviewActionSource,
     ReviewActionType,
-
     ThreadDecisionType,
     ThreadSeverity,
 )
@@ -66,13 +62,6 @@ class ChangeManifest(BaseModel):
             f"(+{self.total_additions}/-{self.total_deletions})"
         )
 
-class ReviewChecklistItem(BaseModel):
-    """Single review category offered to AI."""
-
-    id: ChecklistCategory = Field(..., description="Unique checklist category ID")
-    name: str = Field(..., description="Display name")
-    description: str = Field(..., description="What this checklist item covers")
-
 class ExistingCommentIndexEntry(BaseModel):
     """Compact dedupe-oriented view of an existing PR comment."""
 
@@ -85,6 +74,9 @@ class ExistingCommentIndexEntry(BaseModel):
     title: str = Field(..., description="Short comment title/body preview")
     body: str = Field(default="", description="The comment's text, capped; what dedupe compares against")
     author: str = Field(..., description="Comment author login")
+    # A scanner or linter (Wiz, Danger...) rather than a person. Its text is boilerplate
+    # about a line, so it is only matched on the very line it anchors to.
+    is_bot: bool = False
     has_author_reply: bool = False
     last_reply_author: Optional[str] = None
     reply_count: int = 0
@@ -103,54 +95,6 @@ class CommentThreadSummary(BaseModel):
     main_issue: str = Field(default="", description="Initial issue raised in the thread")
     latest_state: str = Field(default="", description="Latest visible response or status")
     reply_count: int = 0
-
-class CommentContextEntry(BaseModel):
-    """Prompt-ready comment context, either raw compact comment or summarized thread."""
-
-    kind: CommentContextKind = Field(..., description="Representation type")
-    thread_id: str
-    path: Optional[str] = None
-    line: Optional[int] = None
-    category: Optional[str] = None
-    title: str = Field(default="")
-    summary: str = Field(default="")
-    is_resolved: bool = False
-    has_author_reply: bool = False
-    last_reply_author: Optional[str] = None
-    reply_count: int = 0
-    is_adjudicated: bool = False
-
-class FileReviewPlan(BaseModel):
-    """Focused plan for one file selected for deeper review."""
-
-    path: str
-    reasons: list[str] = Field(default_factory=list)
-
-class ReviewPlan(BaseModel):
-    """What the deep session reads, and which review axes it is asked about."""
-
-    focus_files: list[FileReviewPlan] = Field(default_factory=list)
-    review_axes: list[ChecklistCategory] = Field(default_factory=list)
-
-class ReviewBudget(BaseModel):
-    """What one review is allowed to spend: how long the deep session may run.
-
-    Replaces the per-size-class strategy table, which set five different budgets from a
-    size label and, because `HUGE` was its last rung, gave a 108-file PR and a 500-file
-    PR the same 12 reviewed files. Size still describes a PR; it no longer decides what
-    gets looked at.
-    """
-
-    # How long one deep call may run, derived rather than flat. A deep read is an
-    # agentic session whose duration tracks the number of files it was handed, so a
-    # single number cannot serve both shapes: measured 2026-09-22 on PR 251, ten files
-    # in one session took 251 s at medium effort and 363 s at high, against a flat 300 s
-    # that was chosen when a batch held one file. Kept deliberately generous, because a
-    # timeout is a safety net and not a cost control -- the model's own effort setting
-    # bounds the spend, and a genuinely hung call is interruptible from the TUI.
-    deep_timeout_base_seconds: int
-    deep_timeout_per_file_seconds: int
-    deep_timeout_max_seconds: int
 
 class Finding(BaseModel):
     """Single problem found by AI in targeted code review."""
@@ -238,53 +182,15 @@ class ReviewActionProposal(BaseModel):
     is_test_file: bool = False
     related_existing_comment_ids: list[int] = Field(default_factory=list)
 
-class FileContextEntry(BaseModel):
-    """One file the deep session is handed: its diff and base version are files in the
-    review worktree, and `review_hint` says where."""
-
-    path: str
-    review_hint: str = ""
-
-class FocusContextBatch(BaseModel):
-    """The deep session's material: every file it reviews and the whole change around it."""
-
-    batch_id: str
-    files_context: dict[str, FileContextEntry] = Field(default_factory=dict)
-    # One line per changed file in the PR — path, role, tier, churn — with no content.
-    # The whole-change context that lets the reviewing session answer what a human asks
-    # last: does this match what the PR says it does, and what is missing.
-    change_shape: list[str] = Field(default_factory=list)
-    # Paths of project documents the session should read before judging the code --
-    # paths only, never content, so a whole architecture document costs one line.
-    context_docs: list[str] = Field(default_factory=list)
-    # The PR's stated intent, in full rather than one line: the session judges the change
-    # against what the PR says it does.
-    pr_intent: Optional[str] = None
-    checklist_applicable: list[ReviewChecklistItem] = Field(default_factory=list)
-    pr_manifest: Optional[PullRequestManifest] = None
-
-class ReviewContextPackage(BaseModel):
-    """Collection of one or more bounded context batches for findings analysis."""
-
-    batches: list[FocusContextBatch] = Field(default_factory=list)
-
 __all__ = [
     "ChangedFileEntry",
     "PullRequestManifest",
     "ChangeManifest",
-    "ReviewChecklistItem",
     "ExistingCommentIndexEntry",
     "CommentThreadSummary",
-    "CommentContextEntry",
-    "FileReviewPlan",
-    "ReviewPlan",
-    "ReviewBudget",
     "Finding",
     "ThreadDecision",
     "ThreadReviewCandidate",
     "ThreadReviewContext",
     "ReviewActionProposal",
-    "FileContextEntry",
-    "FocusContextBatch",
-    "ReviewContextPackage",
 ]

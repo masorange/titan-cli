@@ -45,9 +45,7 @@ For full contract details for every public step, including documented inputs, ou
 | `fetch_pr_review_bundle` | Code Review | - |
 | `build_change_manifest` | Code Review | - |
 | `build_existing_comments_index` | Code Review | - |
-| `build_review_checklist` | Code Review | - |
-| `build_review_plan` | Code Review | - |
-| `resolve_review_context` | Code Review | - |
+| `write_review_material` | Code Review | - |
 | `ai_review_findings` | Code Review | - |
 | `normalize_findings` | Code Review | - |
 | `dedupe_findings` | Code Review | - |
@@ -114,10 +112,8 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `fetch_pr_review_bundle`: collect PR, diff, file, and discussion context for review
 - `build_change_manifest`: build a structured manifest of changed files and targets
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings
-- `build_review_checklist`: load the review axes the project offers (what each axis is)
-- `build_review_plan`: assign every changed file `deep`, `glance` or `skip` from the review profile, and decide what the deep review reads (no AI call)
-- `resolve_review_context`: write the review material into the worktree (`.titan-review/`: per-file diffs, base versions, `pr.md`, `pr.diff`) and build the session's file list; the review needs the worktree and stops with an error without one
-- `ai_review_findings`: the deep review — one worktree session over every reviewable file, reading its material from `.titan-review/`
+- `write_review_material`: write the review material into the worktree (`.titan-review/`: `pr.md` with the description and every review comment, `pr.diff`, per-file diffs, base versions); the review needs the worktree and stops with an error without one
+- `ai_review_findings`: the review — one free-form session of the configured CLI in the worktree, prompted as a user would ask for a review. It may use subagents and read-only git (`log`, `show`, `diff`, `blame`, `grep`), does not run tests (CI does), and returns a plain list of findings that the later steps dedupe, anchor and put to you for approval. Ceilings: 30 minutes, and $6 where the CLI enforces a budget (Claude)
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
 - `dedupe_findings`: remove duplicate or overlapping findings before submission
 - `build_new_comment_actions`: translate findings into GitHub review actions
@@ -1215,19 +1211,19 @@ How to read these contracts:
     | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | - |
 
 
-??? info "`build_review_checklist`"
-    Assemble the review checklist for this PR.
+??? info "`write_review_material`"
+    Put what the review would otherwise fetch into the PR worktree, as files.
 
     **Workflow usage**
 
     ```yaml
     - plugin: github
-      step: build_review_checklist
+      step: write_review_material
     ```
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `review_checklist (List[ReviewChecklistItem])`
+    **Available to later steps:** `review_material`
 
     **Inputs (from ctx.data)**
 
@@ -1237,71 +1233,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | review_checklist (List[ReviewChecklistItem]) | - | - |
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success` | `review_checklist (List[ReviewChecklistItem])` | - |
-
-
-??? info "`build_review_plan`"
-    Decide how much attention every changed file gets, and what the deep session reads.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: build_review_plan
-    ```
-
-    **Used by built-in workflows:** `review-pr`
-
-    **Available to later steps:** `attention_plan (AttentionPlan)`, `review_budget (ReviewBudget)`, `review_plan, validated_review_plan (ReviewPlan)`
-
-    **Inputs (from ctx.data)**
-
-    None documented.
-
-    **Outputs (saved to ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | attention_plan (AttentionPlan) | - | - |
-    | review_budget (ReviewBudget) | - | - |
-    | review_plan, validated_review_plan (ReviewPlan) | - | - |
-
-    **Returns**
-
-    | Result | Saved for later steps | Description |
-    |--------|-----------------------|-------------|
-    | `Success, Exit when nothing is reviewable, or Error` | - | - |
-
-
-??? info "`resolve_review_context`"
-    Write the review material into the worktree and build the deep session over it.
-
-    **Workflow usage**
-
-    ```yaml
-    - plugin: github
-      step: resolve_review_context
-    ```
-
-    **Used by built-in workflows:** `review-pr`
-
-    **Available to later steps:** `review_context_package (ReviewContextPackage)`
-
-    **Inputs (from ctx.data)**
-
-    None documented.
-
-    **Outputs (saved to ctx.data)**
-
-    | Name | Type | Description |
-    |------|------|-------------|
-    | review_context_package (ReviewContextPackage) | - | - |
+    | `review_material` | dict[str, bool] | each changed path -> whether it has a base version |
 
     **Returns**
 
@@ -1311,7 +1243,7 @@ How to read these contracts:
 
 
 ??? info "`ai_review_findings`"
-    Run the findings phase, and report its cost even if it is abandoned.
+    Run the review session, and report its cost even if it is abandoned.
 
     **Workflow usage**
 
@@ -1322,20 +1254,25 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr`
 
+    **Available to later steps:** `raw_findings`, `ai_findings_failed`
+
     **Inputs (from ctx.data)**
 
     None documented.
 
     **Outputs (saved to ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `raw_findings` | list | the session's findings, mapped onto `Finding`'s fields |
+    | `ai_findings_failed` | bool | True when no review happened |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Whatever the deep review returns` | - | Success with raw findings, Skip when AI is |
-    | `off for the task, or Error when every batch failed.` | - | - |
+    | `Success with raw findings, Success with none when AI is off for the task, or` | - | - |
+    | `Error when the session could not run or produced nothing readable.` | - | - |
 
 
 ??? info "`normalize_findings`"

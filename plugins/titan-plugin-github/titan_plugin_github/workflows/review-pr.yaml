@@ -1,5 +1,5 @@
 name: "Review PR"
-description: "Focused AI review for new actionable findings with bounded prompt context"
+description: "Free-form AI review of the PR; Titan dedupes, anchors and lets you approve each comment"
 
 steps:
   - id: select_pr
@@ -22,34 +22,22 @@ steps:
     plugin: github
     step: build_existing_comments_index
 
-  - id: build_checklist
-    name: "Build Review Checklist"
-    plugin: github
-    step: build_review_checklist
-
-  # No AI call here. One rule per file decides deep / glance / skip, and the deep tier
-  # IS what the deep session reads. On run 4fd7f345 the model this replaced spent 92,463
-  # input tokens and 38.8s choosing 7 of those 9 files, leaving two unreviewed.
-  - id: build_plan
-    name: "Review Plan"
-    plugin: github
-    step: build_review_plan
-
-  # The review material is written into this worktree and the deep session reads it there.
-  # Without it the review cannot run, and resolve_context says so.
+  # The review reads the PR checked out here, with its material written alongside.
   - id: create_worktree
     name: "Create PR Worktree"
     plugin: github
     step: create_worktree
     on_error: continue
 
-  - id: resolve_context
-    name: "Resolve Review Context"
+  - id: write_material
+    name: "Write Review Material"
     plugin: github
-    step: resolve_review_context
+    step: write_review_material
 
+  # One free-form session of the configured CLI: it reviews the PR as it would if a user
+  # asked it to. Titan prescribes no procedure; everything after it is Titan's.
   - id: ai_findings
-    name: "Deep Review"
+    name: "Review"
     plugin: github
     step: ai_review_findings
     on_error: continue

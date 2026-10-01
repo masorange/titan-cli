@@ -8,7 +8,6 @@ from titan_cli.core.security import SecretBroker
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from .clients.github_client import GitHubClient
 from .exceptions import GitHubError
-from .managers import ChecklistManager, GitHubManagers, ReviewProfileManager
 
 
 class GitHubPlugin(TitanPlugin):
@@ -126,13 +125,6 @@ class GitHubPlugin(TitanPlugin):
             raise GitHubError("GitHubPlugin not initialized. GitHub client may not be available.")
         return self._client
 
-    def get_workflow_managers(self, project_root: Optional[Path] = None) -> GitHubManagers:
-        """Return workflow-local managers for the GitHub plugin."""
-        return GitHubManagers(
-            checklist=ChecklistManager(project_root=project_root),
-            review_profile=ReviewProfileManager(project_root=project_root),
-        )
-
     def get_steps(self) -> dict:
         """
         Returns a dictionary of available workflow steps.
@@ -169,9 +161,7 @@ class GitHubPlugin(TitanPlugin):
             fetch_pr_review_bundle,
             build_change_manifest,
             build_existing_comments_index,
-            build_review_checklist,
-            build_review_plan,
-            resolve_review_context,
+            write_review_material,
             ai_review_findings,
             normalize_findings,
             dedupe_findings,
@@ -221,11 +211,8 @@ class GitHubPlugin(TitanPlugin):
             # Phase 2: cheap context steps (pre-AI)
             "build_change_manifest": build_change_manifest,
             "build_existing_comments_index": build_existing_comments_index,
-            "build_review_checklist": build_review_checklist,
-            # Phase 3: directed AI analysis (first AI call)
-            "build_review_plan": build_review_plan,
-            "resolve_review_context": resolve_review_context,
-            # Phase 4: targeted review (second AI call)
+            # Phase 3: the review session over the material in the worktree
+            "write_review_material": write_review_material,
             "ai_review_findings": ai_review_findings,
             "normalize_findings": normalize_findings,
             "dedupe_findings": dedupe_findings,

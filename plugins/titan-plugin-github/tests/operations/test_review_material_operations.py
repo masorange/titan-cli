@@ -1,20 +1,14 @@
-"""The review material as files in the worktree: layout, content and the prompt that points at it."""
+"""The review material as files in the worktree: layout and content."""
 
-from titan_plugin_github.models.review_enums import CommentContextKind
-from titan_plugin_github.models.review_models import (
-    CommentContextEntry,
-    FileContextEntry,
-    FocusContextBatch,
-    PullRequestManifest,
-)
-from titan_plugin_github.operations.findings_operations import build_findings_prompt_parts
+from titan_plugin_github.models.review_models import PullRequestManifest
+from titan_plugin_github.models.view import UIComment, UICommentThread
 from titan_plugin_github.operations.review_material_operations import (
     annotate_diff_hunk,
     base_file_path,
     diff_file_path,
+    read_file_content,
     render_file_diff,
     render_pr_file,
-    review_material_hint,
 )
 
 PR = PullRequestManifest(
@@ -49,103 +43,59 @@ def test_a_file_diff_is_numbered_like_the_prompt_was_so_anchors_still_work():
     assert "(no textual diff)" in render_file_diff("img.png", [])
 
 
-def test_the_pr_file_carries_the_claim_and_what_reviewers_already_said():
-    comments = [
-        CommentContextEntry(
-            kind=CommentContextKind.COMMENT, thread_id="t", path="a.py", line=3,
-            title="Crash", summary="None dereferenced", is_resolved=False,
+def _comment(body: str, author: str = "rev", path=None, line=None) -> UIComment:
+    return UIComment(
+        id=1, body=body, author_login=author, author_name=author,
+        formatted_date="01/10/2026 10:00:00", path=path, line=line,
+    )
+
+
+def test_the_pr_file_carries_the_claim_and_every_comment_in_full():
+    long_body = "None dereferenced when the default is empty. " * 20
+    threads = [
+        UICommentThread(
+            thread_id="t1",
+            main_comment=_comment(long_body, path="a.py", line=3),
+            replies=[_comment("Fixed in abc.", author="author")],
+            is_resolved=True,
+            is_outdated=False,
+        ),
+        UICommentThread(
+            thread_id="t2",
+            main_comment=_comment("nit: rename this", path="b.py", line=9),
+            replies=[],
+            is_resolved=False,
+            is_outdated=True,
+        ),
+    ]
+    general = [
+        UICommentThread(
+            thread_id="g1", main_comment=_comment("Looks good overall"), replies=[],
+            is_resolved=False, is_outdated=False,
         )
     ]
 
-    text = render_pr_file(PR, comments, "abc123")
+    text = render_pr_file(PR, threads, general, "abc123")
 
     assert "# PR #7: Migrate API" in text
     assert "Moves X to Y." in text
     assert "abc123" in text
-    assert "- [open] a.py:3 -- Crash: None dereferenced" in text
-    assert "(none)" in render_pr_file(PR, [], None)
+    # Whole, resolved ones and nits included: the summary of eight cut at 220 chars is gone.
+    assert long_body.strip() in text
+    assert "### [resolved] a.py:3" in text
+    assert "@author:\nFixed in abc." in text
+    assert "### [open, outdated] b.py:9" in text
+    assert "nit: rename this" in text
+    assert "## General comments" in text
+    assert "Looks good overall" in text
 
 
-def test_the_hint_says_whether_there_is_a_previous_version():
-    assert "base: `.titan-review/base/a.py`" in review_material_hint("a.py", True)
-    assert "new file (no base version)" in review_material_hint("b.py", False)
+def test_a_pr_without_comments_says_so():
+    assert "(none)" in render_pr_file(PR, [], [], None)
 
 
-def test_with_the_material_on_disk_the_prompt_points_at_it_and_carries_no_diff():
-    """The prompt went from ~400k chars of pasted diffs to a pointer per file."""
-    batch = FocusContextBatch(
-        batch_id="deep_1",
-        change_shape=["a.py | role=business_logic | YOU: review | +1/-0"],
-        files_context={"a.py": FileContextEntry(path="a.py", review_hint=review_material_hint("a.py", True))},
-        pr_manifest=PR,
-    )
+def test_read_file_content_reads_a_file_and_returns_none_otherwise(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
 
-    parts = build_findings_prompt_parts(batch)
-    prompt = parts["prompt"]
-
-    assert "## Review Material" in prompt
-    assert "`.titan-review/pr.diff`" in prompt
-    assert "diff: `.titan-review/diffs/a.py.diff`" in prompt
-    assert "In `.titan-review/pr.md`." in prompt  # the comments are there, not here
-    assert "[ADDED]" not in parts["files_context"]
-    assert "its base version shows how it worked before" in parts["task"]
-    assert "left out by rule" in prompt
-    assert len(prompt) < 12_000
-
-
-def test_a_removed_behaviour_is_kept_only_when_the_base_version_bears_it_out():
-    """The #3723 false positive, twice: "purchase analytics are now commented out" when
-    they were commented out before the PR too. The quoted old line is in both versions."""
-    from titan_plugin_github.operations.review_material_operations import check_old_code_claims
-
-    base = {
-        "Screen.kt": "onSuccess = { /*viewModel.trackPurchaseEvent()*/ },\n",
-        "Vm.kt": "val id = subscription.externalId\n",
-    }
-    head = {
-        "Screen.kt": "onSuccess = { /*viewModel.trackPurchaseEvent()*/ },\n",
-        "Vm.kt": "val id = subscriptionId\n",
-    }
-    findings = [
-        {"path": "Screen.kt", "title": "analytics now commented out", "old_code": "viewModel.trackPurchaseEvent()"},
-        {"path": "Vm.kt", "title": "Disney ID changed", "old_code": "val id =   subscription.externalId"},
-        {"path": "Vm.kt", "title": "invented", "old_code": "showOttTransactional()"},
-        {"path": "Vm.kt", "title": "no claim about the old code", "old_code": None},
-    ]
-
-    kept, rejected = check_old_code_claims(findings, base.get, head.get)
-
-    assert [f["title"] for f in kept] == ["Disney ID changed", "no claim about the old code"]
-    assert {f["title"]: f["reason"] for f in rejected} == {
-        "analytics now commented out": "the old code it quotes is still in the new version",
-        "invented": "the old code it quotes is not in any base version",
-    }
-
-
-def test_the_session_is_told_to_quote_the_old_line():
-    from titan_plugin_github.operations.findings_operations import findings_json_schema
-
-    batch = FocusContextBatch(
-        batch_id="deep_1",
-        files_context={"a.py": FileContextEntry(path="a.py", review_hint="h")},
-    )
-
-    parts = build_findings_prompt_parts(batch)
-
-    assert "puts in `old_code` the line of the base version" in parts["task"]
-    assert "old_code" in findings_json_schema()["properties"]["findings"]["items"]["properties"]
-
-
-def test_the_old_code_may_have_lived_in_another_changed_file():
-    """#3723: `it.id != tariff.id` was dropped from two ViewModels, and the finding named the
-    NEW file that replaced them, which has no base version. Checking only the finding's own
-    file rejected a real defect."""
-    from titan_plugin_github.operations.review_material_operations import check_old_code_claims
-
-    base = {"ui/Vm.kt": "upgradeTariffs.filter { it.type == tariff.type && it.id != tariff.id }\n"}
-    head = {"ui/Vm.kt": "deals.filter { it.isAvailableChangeFor(product) }\n", "domain/Deals.kt": "fun x()\n"}
-    finding = {"path": "domain/Deals.kt", "title": "current plan no longer excluded", "old_code": "it.id != tariff.id"}
-
-    kept, rejected = check_old_code_claims([finding], base.get, head.get, base_paths=list(base))
-
-    assert kept == [finding] and rejected == []
+    assert read_file_content("a.py", str(tmp_path)) == "x = 1\n"
+    assert read_file_content("missing.py", str(tmp_path)) is None

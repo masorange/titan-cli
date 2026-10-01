@@ -144,6 +144,8 @@ class GrokHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         cmd = [
             "grok",

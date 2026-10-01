@@ -7,22 +7,6 @@ Shared vocabulary used by review_models.py and validators.py.
 from enum import StrEnum
 
 
-class ChecklistCategory(StrEnum):
-    """Review checklist categories offered to AI during review planning."""
-    FUNCTIONAL_CORRECTNESS = "functional_correctness"
-    ERROR_HANDLING = "error_handling"
-    SEMANTIC_CORRECTNESS = "semantic_correctness"
-    STATE_CONSISTENCY = "state_consistency"
-    TEST_COVERAGE = "test_coverage"
-    SECURITY = "security"
-    PERFORMANCE = "performance"
-    CODE_STYLE = "code_style"
-    DOCUMENTATION = "documentation"
-    API_CONTRACT = "api_contract"
-    CONCURRENCY = "concurrency"
-    DATA_VALIDATION = "data_validation"
-
-
 class FileTypeIndicator(StrEnum):
     """
     File path indicators that justify full_file read mode even on large files.
@@ -46,35 +30,6 @@ class FileChangeStatus(StrEnum):
     MODIFIED = "modified"
     RENAMED = "renamed"
     DELETED = "deleted"
-
-
-class AttentionTier(StrEnum):
-    """How much attention a changed file is worth.
-
-    The unit of cost differs per tier, which is the point of having them: GLANCE is
-    bounded by prompt characters (the model only sees the diff and cannot read the
-    repo, so the prompt IS the spend), while DEEP is bounded by the number of sessions
-    (the model opens the file itself and explores, so the prompt size is irrelevant
-    next to what it reads).
-
-    SKIP is declared, never silent: a file nobody looked at has to be visible as such,
-    or a review of 11% of a PR reads like a review of the PR.
-
-    There is deliberately no REPRESENTATIVE member yet. Reviewing one file of a
-    repeated group and comparing the rest belongs to the clustering work, and a
-    configurable tier that nothing acts on is worse than no tier at all.
-    """
-
-    DEEP = "deep"
-    GLANCE = "glance"
-    SKIP = "skip"
-
-
-class CommentContextKind(StrEnum):
-    """How existing comments are represented in review prompts."""
-
-    COMMENT = "comment"
-    THREAD_SUMMARY = "thread_summary"
 
 
 class FindingSeverity(StrEnum):

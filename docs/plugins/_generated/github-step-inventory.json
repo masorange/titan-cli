@@ -141,20 +141,12 @@
           "summary": "Index existing review comments to avoid duplicates."
         },
         {
-          "name": "build_review_checklist",
-          "summary": "Load the review axes this project offers."
-        },
-        {
-          "name": "build_review_plan",
-          "summary": "Assign every changed file deep, glance or skip, and decide what the deep review reads."
-        },
-        {
-          "name": "resolve_review_context",
-          "summary": "Expand the precise review contexts needed for targeted analysis."
+          "name": "write_review_material",
+          "summary": "Write the PR, its comments, its diffs and the base versions into the worktree under .titan-review/."
         },
         {
           "name": "ai_review_findings",
-          "summary": "Deep review: one session over every deep and glance file, with the material as files in the worktree."
+          "summary": "The review: one free-form session of the configured CLI in the PR worktree (subagents and read-only git allowed, no tests)."
         },
         {
           "name": "normalize_findings",
@@ -227,14 +219,17 @@
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
       "function": "ai_review_findings",
-      "summary": "Run the findings phase, and report its cost even if it is abandoned.",
+      "summary": "Run the review session, and report its cost even if it is abandoned.",
       "docstring_sections": {
         "Requires": [],
         "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [],
+        "Outputs (saved to ctx.data)": [
+          "    raw_findings (list): the session's findings, mapped onto `Finding`'s fields",
+          "    ai_findings_failed (bool): True when no review happened"
+        ],
         "Returns": [
-          "    Whatever the deep review returns: Success with raw findings, Skip when AI is",
-          "    off for the task, or Error when every batch failed."
+          "    Success with raw findings, Success with none when AI is off for the task, or",
+          "    Error when the session could not run or produced nothing readable."
         ]
       },
       "used_by_workflows": [
@@ -373,48 +368,6 @@
         ],
         "Returns": [
           "    Success or Skip (no findings)"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
-      "name": "build_review_checklist",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "build_review_checklist",
-      "summary": "Assemble the review checklist for this PR.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    review_checklist (List[ReviewChecklistItem])"
-        ],
-        "Returns": [
-          "    Success"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
-      "name": "build_review_plan",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "build_review_plan",
-      "summary": "Decide how much attention every changed file gets, and what the deep session reads.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    attention_plan (AttentionPlan)",
-          "    review_budget (ReviewBudget)",
-          "    review_plan, validated_review_plan (ReviewPlan)"
-        ],
-        "Returns": [
-          "    Success, Exit when nothing is reviewable, or Error"
         ]
       },
       "used_by_workflows": [
@@ -1044,26 +997,6 @@
       ]
     },
     {
-      "name": "resolve_review_context",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "resolve_review_context",
-      "summary": "Write the review material into the worktree and build the deep session over it.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    review_context_package (ReviewContextPackage)"
-        ],
-        "Returns": [
-          "    Success or Error"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
       "name": "review_comments",
       "group": "Pull Request Review",
       "module": "titan_plugin_github.steps.pr_review_steps",
@@ -1265,6 +1198,26 @@
         ]
       },
       "used_by_workflows": []
+    },
+    {
+      "name": "write_review_material",
+      "group": "Code Review",
+      "module": "titan_plugin_github.steps.code_review_steps",
+      "function": "write_review_material",
+      "summary": "Put what the review would otherwise fetch into the PR worktree, as files.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [],
+        "Outputs (saved to ctx.data)": [
+          "    review_material (dict[str, bool]): each changed path -> whether it has a base version"
+        ],
+        "Returns": [
+          "    Success or Error"
+        ]
+      },
+      "used_by_workflows": [
+        "review-pr"
+      ]
     }
   ]
 }

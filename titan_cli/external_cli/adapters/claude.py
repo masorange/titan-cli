@@ -70,6 +70,8 @@ class ClaudeHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         # --output-format json on EVERY call, not just the structured ones. The envelope
         # is the only place claude reports `usage` and `total_cost_usd`, and it also names
@@ -85,6 +87,11 @@ class ClaudeHeadlessAdapter:
             # swallowing the trailing prompt argument as if it were another tool name. A
             # single comma-joined token avoids that ambiguity.
             cmd += [f"--disallowedTools={','.join(disallowed_tools)}"]
+        if allowed_tools:
+            # Comma-joined into one token for the same reason as --disallowedTools.
+            cmd += [f"--allowedTools={','.join(allowed_tools)}"]
+        if max_budget_usd is not None:
+            cmd += ["--max-budget-usd", f"{max_budget_usd:g}"]
         if effort is not None:
             cmd += ["--effort", effort]
         if model is not None:
@@ -151,9 +158,12 @@ class ClaudeHeadlessAdapter:
         usage = usage_from_result_envelope(envelope, source="claude_result_envelope")
 
         if envelope.get("is_error"):
+            # A ceiling hit (`--max-budget-usd`) reports no `result`, only `errors`:
+            # ["Reached maximum budget ($6)"]. Without reading it the reason was lost.
+            errors = "; ".join(str(item) for item in envelope.get("errors") or [])
             return HeadlessResponse(
                 stdout="",
-                stderr=str(envelope.get("result") or stderr or "Claude CLI reported an error"),
+                stderr=str(envelope.get("result") or errors or stderr or "Claude CLI reported an error"),
                 exit_code=result.returncode or 1,
                 usage=usage,
             )

@@ -297,6 +297,74 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         called_cmd = mock_run.call_args.args[0]
         self.assertNotIn("--effort", called_cmd)
 
+    @patch("subprocess.run")
+    def test_execute_with_allowed_tools_and_budget_adds_flags(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        self.adapter.execute(
+            "review this",
+            allowed_tools=["Bash(git log:*)", "Bash(git show:*)"],
+            max_budget_usd=6.0,
+        )
+
+        called_cmd = mock_run.call_args.args[0]
+        # One token, like --disallowedTools, so the variadic flag cannot swallow others.
+        self.assertIn("--allowedTools=Bash(git log:*),Bash(git show:*)", called_cmd)
+        index = called_cmd.index("--max-budget-usd")
+        self.assertEqual(called_cmd[index + 1], "6")
+
+    @patch("subprocess.run")
+    def test_execute_without_allowed_tools_or_budget_omits_flags(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        self.adapter.execute("review this")
+
+        called_cmd = mock_run.call_args.args[0]
+        self.assertFalse(any(token.startswith("--allowedTools") for token in called_cmd))
+        self.assertNotIn("--max-budget-usd", called_cmd)
+
+    @patch("subprocess.run")
+    def test_a_session_with_subagents_reports_the_cost_of_each_model(self, mock_run):
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 3.0110,'
+            ' "usage": {"input_tokens": 12, "output_tokens": 5343},'
+            ' "modelUsage": {"claude-opus-5-5": {"costUSD": 1.2402},'
+            ' "claude-sonnet-5-5": {"costUSD": 1.7708}}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("review this").usage
+
+        self.assertEqual(usage.model_costs, {"claude-opus-5-5": 1.2402, "claude-sonnet-5-5": 1.7708})
+        # Two models answered, so no single one is "the" model that ran.
+        self.assertIsNone(usage.model_reported)
+        self.assertEqual(usage.as_log_fields()["model_costs"], usage.model_costs)
+
+    @patch("subprocess.run")
+    def test_a_single_model_session_has_its_cost_under_that_model(self, mock_run):
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 1.5,'
+            ' "usage": {"input_tokens": 1, "output_tokens": 2},'
+            ' "modelUsage": {"claude-opus-5-5": {"costUSD": 1.5}}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("review this").usage
+
+        self.assertEqual(usage.model_reported, "claude-opus-5-5")
+        self.assertEqual(usage.model_costs, {"claude-opus-5-5": 1.5})
+
+    @patch("subprocess.run")
+    def test_a_budget_ceiling_hit_reports_its_reason(self, mock_run):
+        envelope = (
+            '{"type": "result", "subtype": "error_max_budget_usd", "is_error": true, '
+            '"errors": ["Reached maximum budget ($6)"], "total_cost_usd": 6.01}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=1)
+
+        response = self.adapter.execute("review this", max_budget_usd=6.0)
+
+        self.assertFalse(response.succeeded)
+        self.assertIn("Reached maximum budget ($6)", response.stderr)
+
 
 # ── CodexHeadlessAdapter ──────────────────────────────────────────────────────
 

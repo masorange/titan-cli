@@ -120,6 +120,10 @@ class CliUsage:
     reported_total_tokens: Optional[int] = None
     cost_usd: Optional[float] = None
     model_reported: Optional[str] = None
+    # Price per model when the CLI breaks it down. A session that spawns subagents on a
+    # different model reports several, and `model_reported` then names none: without this
+    # the log cannot say that part of a bill was another model's.
+    model_costs: Optional[dict[str, float]] = None
     source: Optional[str] = None
 
     @property
@@ -153,6 +157,7 @@ class CliUsage:
             f"{prefix}total_tokens": self.total_tokens,
             f"{prefix}cost_usd": self.cost_usd,
             f"{prefix}model_reported": self.model_reported,
+            f"{prefix}model_costs": self.model_costs or None,
             f"{prefix}usage_source": self.source,
         }
         return {k: v for k, v in fields.items() if v is not None}
@@ -191,11 +196,12 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
         # picking one arbitrarily.
         model_reported = next(iter(model_usage))
     cost = _as_float(envelope.get("total_cost_usd"))
+    model_costs = _model_costs(model_usage)
 
     if not isinstance(usage, dict):
         if cost is None and model_reported is None:
             return None
-        return CliUsage(cost_usd=cost, model_reported=model_reported, source=source)
+        return CliUsage(cost_usd=cost, model_reported=model_reported, model_costs=model_costs, source=source)
 
     # Thinking is billed as output and counted inside output_tokens; broken out here
     # because it is the part of the output that never reaches the parsed answer.
@@ -208,8 +214,21 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
         reasoning_tokens=_as_int(details.get("thinking_tokens")) if isinstance(details, dict) else None,
         cost_usd=cost,
         model_reported=model_reported,
+        model_costs=model_costs,
         source=source,
     )
+
+
+def _model_costs(model_usage: Any) -> Optional[dict[str, float]]:
+    """The price each model of a session accounted for, from `modelUsage`'s `costUSD`."""
+    if not isinstance(model_usage, dict):
+        return None
+    costs = {
+        str(model): round(price, 6)
+        for model, entry in model_usage.items()
+        if isinstance(entry, dict) and (price := _as_float(entry.get("costUSD"))) is not None
+    }
+    return costs or None
 
 
 @dataclass
@@ -303,6 +322,8 @@ class HeadlessCliAdapter(Protocol):
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         """
         Run the CLI with the given prompt in headless mode.
@@ -320,6 +341,13 @@ class HeadlessCliAdapter(Protocol):
                 adapters where `supports_effort_control` is False.
             model: Optional model identifier to run the CLI with (e.g. "claude-opus-4-8").
                 Ignored by adapters where `supports_model_selection` is False.
+            allowed_tools: Optional list of tool permission rules to pre-approve for the
+                session (e.g. ["Bash(git log:*)"]), so a headless call can use a narrowed
+                tool it would otherwise be denied. Honored only by adapters with a
+                permission-rule flag (claude); ignored elsewhere.
+            max_budget_usd: Optional spending ceiling for the session, in dollars. Honored
+                only by CLIs that can enforce one (claude); ignored elsewhere, where the
+                timeout is the only ceiling.
 
         Returns:
             HeadlessResponse with stdout, stderr, and exit_code. When `json_schema` is

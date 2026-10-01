@@ -1144,42 +1144,9 @@ Build a compact index of existing PR comments for deduplication.
 |--------|-----------------------|-------------|
 | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | - |
 
-### `build_review_checklist`
+### `write_review_material`
 
-Assemble the review checklist for this PR.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: build_review_checklist
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `review_checklist (List[ReviewChecklistItem])`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| review_checklist (List[ReviewChecklistItem]) | - | - |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success` | `review_checklist (List[ReviewChecklistItem])` | - |
-
-### `build_review_plan`
-
-Decide how much attention every changed file gets, and what the deep session reads.
+Put what the review would otherwise fetch into the PR worktree, as files.
 
 **How to read this contract**
 
@@ -1191,53 +1158,18 @@ Decide how much attention every changed file gets, and what the deep session rea
 
 ```yaml
 - plugin: github
-  step: build_review_plan
+  step: write_review_material
 ```
 
 **Used by built-in workflows:** `review-pr`
 
-**Available to later steps:** `attention_plan (AttentionPlan)`, `review_budget (ReviewBudget)`, `review_plan, validated_review_plan (ReviewPlan)`
+**Available to later steps:** `review_material`
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| attention_plan (AttentionPlan) | - | - |
-| review_budget (ReviewBudget) | - | - |
-| review_plan, validated_review_plan (ReviewPlan) | - | - |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success, Exit when nothing is reviewable, or Error` | - | - |
-
-### `resolve_review_context`
-
-Write the review material into the worktree and build the deep session over it.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: resolve_review_context
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `review_context_package (ReviewContextPackage)`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| review_context_package (ReviewContextPackage) | - | - |
+| `review_material` | dict[str, bool] | each changed path -> whether it has a base version |
 
 **Returns**
 
@@ -1247,7 +1179,7 @@ Write the review material into the worktree and build the deep session over it.
 
 ### `ai_review_findings`
 
-Run the findings phase, and report its cost even if it is abandoned.
+Run the review session, and report its cost even if it is abandoned.
 
 **How to read this contract**
 
@@ -1264,12 +1196,21 @@ Run the findings phase, and report its cost even if it is abandoned.
 
 **Used by built-in workflows:** `review-pr`
 
+**Available to later steps:** `raw_findings`, `ai_findings_failed`
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `raw_findings` | list | the session's findings, mapped onto `Finding`'s fields |
+| `ai_findings_failed` | bool | True when no review happened |
+
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Whatever the deep review returns` | - | Success with raw findings, Skip when AI is |
-| `off for the task, or Error when every batch failed.` | - | - |
+| `Success with raw findings, Success with none when AI is off for the task, or` | - | - |
+| `Error when the session could not run or produced nothing readable.` | - | - |
 
 ### `normalize_findings`
 
