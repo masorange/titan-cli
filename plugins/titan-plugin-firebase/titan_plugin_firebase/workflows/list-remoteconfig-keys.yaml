@@ -1,0 +1,22 @@
+name: "List Firebase Remote Config Keys"
+description: "List the parameter keys in one Firebase project's Remote Config template"
+steps:
+  - id: firebase_auth_check
+    name: "Verify Google credentials"
+    plugin: firebase
+    step: firebase_auth_check
+
+  - id: firebase_select_target
+    name: "Select Firebase project"
+    plugin: firebase
+    step: firebase_select_target
+
+  - id: firebase_remoteconfig_get
+    name: "Read Remote Config"
+    plugin: firebase
+    step: firebase_remoteconfig_get
+
+  - id: firebase_remoteconfig_list_keys
+    name: "List keys"
+    plugin: firebase
+    step: firebase_remoteconfig_list_keys

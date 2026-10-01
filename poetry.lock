@@ -945,7 +945,7 @@ version = "2.47.0"
 description = "Google Authentication Library"
 optional = false
 python-versions = ">=3.8"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "google_auth-2.47.0-py3-none-any.whl", hash = "sha256:c516d68336bfde7cf0da26aab674a36fedcf04b37ac4edd59c597178760c3498"},
     {file = "google_auth-2.47.0.tar.gz", hash = "sha256:833229070a9dfee1a353ae9877dcd2dec069a8281a4e72e72f77d4a70ff945da"},
@@ -2169,7 +2169,7 @@ version = "0.6.2"
 description = "Pure-Python implementation of ASN.1 types and DER/BER/CER codecs (X.208)"
 optional = false
 python-versions = ">=3.8"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "pyasn1-0.6.2-py3-none-any.whl", hash = "sha256:1eb26d860996a18e9b6ed05e7aae0e9fc21619fcee6af91cca9bad4fbea224bf"},
     {file = "pyasn1-0.6.2.tar.gz", hash = "sha256:9b59a2b25ba7e4f8197db7686c09fb33e658b98339fadb826e9512629017833b"},
@@ -2181,7 +2181,7 @@ version = "0.4.2"
 description = "A collection of ASN.1-based protocols modules"
 optional = false
 python-versions = ">=3.8"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "pyasn1_modules-0.4.2-py3-none-any.whl", hash = "sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a"},
     {file = "pyasn1_modules-0.4.2.tar.gz", hash = "sha256:677091de870a80aae844b1ca6134f54652fa2c8c5a52aa396440ac3106e941e6"},
@@ -2674,7 +2674,7 @@ version = "4.9.1"
 description = "Pure-Python RSA implementation"
 optional = false
 python-versions = "<4,>=3.6"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "rsa-4.9.1-py3-none-any.whl", hash = "sha256:68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762"},
     {file = "rsa-4.9.1.tar.gz", hash = "sha256:e7bdbfdb5497da4c07dfd35530e1a902659db6ff241e39d9953cad06ebd0ae75"},
@@ -2884,6 +2884,26 @@ titan-cli = ">=0.8.0"
 [package.source]
 type = "directory"
 url = "plugins/titan-plugin-docker"
+
+[[package]]
+name = "titan-plugin-firebase"
+version = "0.1.0"
+description = "Titan CLI plugin for Firebase Remote Config (read and write)."
+optional = false
+python-versions = ">=3.11"
+groups = ["dev"]
+files = []
+develop = true
+
+[package.dependencies]
+google-auth = ">=2.43.0"
+pydantic = ">=2.0.0"
+requests = ">=2.31.0"
+titan-cli = ">=0.8.0"
+
+[package.source]
+type = "directory"
+url = "plugins/titan-plugin-firebase"
 
 [[package]]
 name = "titan-plugin-git"
@@ -3418,4 +3438,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0.0"
-content-hash = "f2dfc63d3ebd5a19f6af06be634cbf7c0f848fbb2e8d38d27698d7f9ca45cb28"
+content-hash = "f28f92e0fcde95c2f3f88416268f8e6039b10472c1c128195a34d479f3aa3846"

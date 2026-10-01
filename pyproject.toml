@@ -25,7 +25,8 @@ packages = [
     {include = "titan_plugin_github", from = "plugins/titan-plugin-github"},
     {include = "titan_plugin_jira", from = "plugins/titan-plugin-jira"},
     {include = "titan_plugin_slack", from = "plugins/titan-plugin-slack"},
-    {include = "titan_plugin_docker", from = "plugins/titan-plugin-docker"}
+    {include = "titan_plugin_docker", from = "plugins/titan-plugin-docker"},
+    {include = "titan_plugin_firebase", from = "plugins/titan-plugin-firebase"}
 ]
 
 [tool.poetry.dependencies]
@@ -69,6 +70,7 @@ titan-plugin-github = {path = "plugins/titan-plugin-github", develop = true}
 titan-plugin-jira = {path = "plugins/titan-plugin-jira", develop = true}
 titan-plugin-slack = {path = "plugins/titan-plugin-slack", develop = true}
 titan-plugin-docker = {path = "plugins/titan-plugin-docker", develop = true}
+titan-plugin-firebase = {path = "plugins/titan-plugin-firebase", develop = true}
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -83,6 +85,7 @@ github = "titan_plugin_github.plugin:GitHubPlugin"
 jira = "titan_plugin_jira.plugin:JiraPlugin"
 slack = "titan_plugin_slack.plugin:SlackPlugin"
 docker = "titan_plugin_docker.plugin:DockerPlugin"
+firebase = "titan_plugin_firebase.plugin:FirebasePlugin"
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -91,7 +94,8 @@ testpaths = [
     "plugins/titan-plugin-github/tests",
     "plugins/titan-plugin-jira/tests",
     "plugins/titan-plugin-slack/tests",
-    "plugins/titan-plugin-docker/tests"
+    "plugins/titan-plugin-docker/tests",
+    "plugins/titan-plugin-firebase/tests"
 ]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

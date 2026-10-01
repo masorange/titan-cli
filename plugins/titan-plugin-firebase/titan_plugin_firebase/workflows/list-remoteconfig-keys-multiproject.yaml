@@ -1,0 +1,24 @@
+name: "List Firebase Remote Config Keys (multi-project)"
+description: "List, compare, and type-check Remote Config parameter keys across several Firebase projects"
+params:
+  project_ids: ""
+  project_set: ""
+  project_groups: ""
+  environment: ""
+  project_filter: ""
+  condition_group: ""
+steps:
+  - id: firebase_auth_check
+    name: "Verify Google credentials"
+    plugin: firebase
+    step: firebase_auth_check
+
+  - id: firebase_select_targets
+    name: "Resolve target projects"
+    plugin: firebase
+    step: firebase_select_targets
+
+  - id: firebase_remoteconfig_fanout_list_keys
+    name: "Compare Remote Config keys"
+    plugin: firebase
+    step: firebase_remoteconfig_fanout_list_keys
