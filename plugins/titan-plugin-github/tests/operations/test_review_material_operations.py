@@ -33,6 +33,16 @@ def test_a_hunk_numbers_added_and_context_lines_by_the_new_file():
     assert annotate_diff_hunk("") == ""
 
 
+def test_added_and_deleted_lines_that_look_like_file_headers_keep_the_numbering():
+    hunk = "@@ -5,2 +5,3 @@\n+++x\n--- sql comment\n+after"
+
+    result = annotate_diff_hunk(hunk)
+
+    assert " 5 [ADDED] ++x" in result
+    assert "[DELETED] -- sql comment" in result
+    assert " 6 [ADDED] after" in result
+
+
 def test_a_file_diff_is_numbered_like_the_prompt_was_so_anchors_still_work():
     rendered = render_file_diff("a.py", ["@@ -1,2 +1,2 @@\n context\n-old\n+new\n"])
 

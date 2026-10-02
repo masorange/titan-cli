@@ -120,9 +120,7 @@ def annotate_diff_hunk(hunk: str) -> str:
     for line in lines:
         if line.startswith("@@"):
             continue
-        if line.startswith("---") or line.startswith("+++"):
-            result.append(line)
-        elif line.startswith("-"):
+        if line.startswith("-"):
             result.append(f"[DELETED] {line[1:]}")
         elif line.startswith("+"):
             result.append(f"{str(current_line).rjust(width)} [ADDED] {line[1:]}")
